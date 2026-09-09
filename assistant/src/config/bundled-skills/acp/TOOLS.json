@@ -91,7 +91,7 @@
     },
     {
       "name": "acp_set_model",
-      "description": "Switch a running ACP session onto a different model. The agent applies it from the next turn, so a prompt already in flight finishes on the model it started on. Use this when the user asks to change a session that is already going (\"switch this to opus\"); to change what future sessions start on, use `acp_set_default_model`. When the agent advertises no model selector, or refuses the value, the result says so: relay it in one sentence and carry on.",
+      "description": "Switch a running ACP session onto a different model. The agent applies it from the next turn, so a prompt already in flight finishes on the model it started on. Use this when the user asks to change a session that is already going (\"switch this to opus\"); to change what future sessions start on, use `acp_set_default_model`. When the agent advertises no model selector, or does not offer the value, the result says so: relay it in one sentence and carry on. A result saying the switch could not be completed leaves the session's state unknown; check it with `acp_status` before relying on it.",
       "category": "orchestration",
       "risk": "low",
       "input_schema": {

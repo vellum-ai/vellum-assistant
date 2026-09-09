@@ -33,7 +33,7 @@ Model names are the agent's own vocabulary, not Assistant model ids: an alias su
 
 A spawn with no `model` starts on `acp.agents.<id>.model`, then `acp.defaultModel`, then the agent's own default.
 
-When the agent refuses a model, or advertises no model selector at all, the tool result says so. Relay that in one sentence and carry on with the task on whatever model the session is running.
+When the agent advertises no model selector, or does not offer the model, the tool result says so: relay it in one sentence and carry on. A result saying the switch could not be completed leaves the session's state unknown, so check it with `acp_status` rather than assuming which model it is on.
 
 ## When the user names Claude Code or Codex
 

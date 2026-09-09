@@ -145,9 +145,12 @@ describe("executeAcpSetModel", () => {
     expect(result.isError).toBe(true);
     expect(result.content).toContain('does not offer model "gpt-5"');
     expect(result.content).toContain("Available: opus, sonnet");
+    // A typed rejection names the model, so it does not send the assistant
+    // off to re-check a session that is fine.
+    expect(result.content).not.toContain("acp_status");
   });
 
-  test("an adapter refusal is relayed verbatim", async () => {
+  test("an adapter rejection is relayed without claiming the session is healthy", async () => {
     setModelImpl = () =>
       Promise.reject(new Error("model is not available on this plan"));
 
@@ -157,8 +160,44 @@ describe("executeAcpSetModel", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("The agent refused the model switch");
+    expect(result.content).toContain(
+      'Could not switch the model on ACP session "acp-123"',
+    );
     expect(result.content).toContain("model is not available on this plan");
+    expect(result.content).toContain("acp_status");
+  });
+
+  test("a transport failure is not reported as a refusal", async () => {
+    // The adapter call failing is indistinguishable here from the adapter
+    // answering "no", so neither may claim the session is still usable.
+    setModelImpl = () =>
+      Promise.reject(new Error("agent process exited before responding"));
+
+    const result = await executeAcpSetModel(
+      { acp_session_id: "acp-dead", model: "opus" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Could not switch the model on ACP session "acp-dead"',
+    );
+    expect(result.content).toContain("agent process exited before responding");
+    expect(result.content).toContain("acp_status");
+    expect(result.content).not.toContain("refused");
+  });
+
+  test("a non-Error rejection still renders its text", async () => {
+    setModelImpl = () => Promise.reject("rpc timeout");
+
+    const result = await executeAcpSetModel(
+      { acp_session_id: "acp-123", model: "opus" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("rpc timeout");
+    expect(result.content).not.toContain("[object Object]");
   });
 
   test("missing acp_session_id returns isError", async () => {

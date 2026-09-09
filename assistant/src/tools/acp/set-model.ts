@@ -61,8 +61,16 @@ export async function executeAcpSetModel(
 }
 
 /**
- * One sentence the assistant can relay as-is. Every failure here is something
- * the user can act on, so none of them are dressed up as an internal error.
+ * One sentence the assistant can relay as-is.
+ *
+ * Only the typed rejections name the model as the problem, because only they
+ * are the manager answering. Anything else reaching this catch is the adapter
+ * call failing rather than answering (a dead subprocess, an RPC timeout, an
+ * auth refresh), and `setConfigOption` rejects with the raw transport error,
+ * so a genuine refusal is not distinguishable from one of those here. Calling
+ * that a refusal would tell the assistant the session is healthy and still
+ * running on its old model, which is exactly what is unknown, so the fallback
+ * stays neutral and points at the tool that can answer it.
  */
 function describeSetModelFailure(acpSessionId: string, err: unknown): string {
   if (err instanceof AcpSessionNotFoundError) {
@@ -75,5 +83,5 @@ function describeSetModelFailure(acpSessionId: string, err: unknown): string {
     return err.message;
   }
   const msg = err instanceof Error ? err.message : String(err);
-  return `The agent refused the model switch on ACP session "${acpSessionId}": ${msg}`;
+  return `Could not switch the model on ACP session "${acpSessionId}": ${msg}. Check the session with acp_status before relying on it.`;
 }
