@@ -19,7 +19,10 @@
  * re-render unavailable) is skipped so the platform keeps the last synced
  * copy. A removal nulls the notification field too, and falls back to nulling
  * the display avatar alone, so a platform that rejects the notification field
- * cannot block clearing the avatar.
+ * cannot block clearing the avatar. Its key carries the spec version as the
+ * non-empty key does, so an installation still holding the key of a removal
+ * that predates the notification field re-sends once instead of deduping
+ * against it and leaving a disc up that nothing else clears.
  * The same PATCH carries `notification_avatar_base64`, the disc render the
  * push pipeline shows as the sender. The dedup key carries the accent,
  * `NOTIFICATION_AVATAR_SPEC_VERSION` and whether a disc can be drawn at all,
@@ -31,7 +34,10 @@
  * codec for the source) from latching for the key's whole lifetime: the key
  * changes the moment the cause clears, so the disc goes up on the next sync.
  * When the render is unavailable the key is omitted rather than nulled, so
- * the platform keeps the copy it holds.
+ * the platform keeps the copy it holds. The state is read through the accent
+ * backfill, so a manifest written before accents were persisted has its
+ * accent derived and stored before the key is built and the disc is drawn,
+ * rather than shipping the neutral fallback until something else repairs it.
  * A render that fails inside the body, after the key promised a disc, hands
  * the queue the disc-less key instead, so the next sync tries again rather
  * than recording a disc that never went up. If the platform rejects the field
@@ -48,6 +54,7 @@ import { dirname, join } from "node:path";
 
 import { NOTIFICATION_AVATAR_SPEC_VERSION } from "@vellumai/avatar-manifest/notification-avatar";
 
+import { backfillAccent } from "../avatar/accent-backfill.js";
 import { readAvatarState } from "../avatar/avatar-manifest.js";
 import {
   ensureAvatarRasterPath,
@@ -82,6 +89,8 @@ const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
 const DOWNSCALE_PX = 128;
 const NONE_KEY = "none";
 const DISC_KEY = "disc";
+/** The removal payload's key, versioned with the disc spec it also clears. */
+const REMOVAL_KEY = `${NONE_KEY}:${NOTIFICATION_AVATAR_SPEC_VERSION}`;
 /** The PATCH field carrying the disc, and what a 400 rejecting it names. */
 const NOTIFICATION_FIELD = "notification_avatar_base64";
 /** Only bytes that sniff as a raster image are ever uploaded. */
@@ -151,12 +160,12 @@ function persistKey(synced: SyncedKey): void {
 }
 
 async function buildPayload(): Promise<PatchPayload | undefined> {
-  const state = readAvatarState();
+  const state = await backfillAccent(readAvatarState());
   if (state.kind === "none") {
     return {
-      key: NONE_KEY,
+      key: REMOVAL_KEY,
       // A removal that had to drop the notification field still records
-      // NONE_KEY, as the non-empty reduced send records its full body's key.
+      // REMOVAL_KEY, as the non-empty reduced send records its full body's key.
       body: async () => withNotificationFallback({ avatar_base64: null }, null),
     };
   }

@@ -22,6 +22,8 @@ import {
   test,
 } from "bun:test";
 
+import { NOTIFICATION_AVATAR_SPEC_VERSION } from "@vellumai/avatar-manifest/notification-avatar";
+
 import type { AvatarState } from "../avatar/avatar-manifest.js";
 import * as realAvatarManifest from "../avatar/avatar-manifest.js";
 import * as realEnsureRaster from "../avatar/ensure-raster.js";
@@ -48,6 +50,8 @@ let mockClient: {
   platformAssistantId: string;
   fetch: (path: string, init: RequestInit) => Promise<Response>;
 } | null;
+/** Manifest states the accent backfill persisted during a test. */
+let manifestWrites: AvatarState[] = [];
 let mockResvgAvailable = false;
 let mockRenderThrows = false;
 let mockRenderedPng = Buffer.from("small");
@@ -64,6 +68,9 @@ function installMocks(): void {
     computeImageMeta: (path: string) => {
       const stats = statSync(path);
       return { updatedAt: "", etag: `${stats.size}:${stats.mtimeMs}` };
+    },
+    writeManifest: (state: AvatarState) => {
+      manifestWrites.push(state);
     },
   }));
 
@@ -118,6 +125,19 @@ import {
 } from "./sync-avatar.js";
 
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/** The versioned key a removal records; the legacy one carried no version. */
+const REMOVAL_KEY = `none:${NOTIFICATION_AVATAR_SPEC_VERSION}`;
+/** That legacy key, scoped to the destination the default client names. */
+const LEGACY_REMOVAL_KEY = "https://platform.a|asst-1|none";
+
+/** A 4x4 PNG of one red (#c81e1e), so an accent can be read out of it. */
+const RED_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWM4ISf3HxkzkC4AAEG4IDHG8wOiAAAAAElFTkSuQmCC",
+  "base64",
+);
+/** The disc fill `#c81e1e` mixes into, so a neutral fallback cannot pass. */
+const RED_DISC_HEX = "#F7E0E0";
 
 /** Small PNG-signed raster whose tail makes the bytes distinguishable. */
 function png(label: string): Buffer {
@@ -225,6 +245,7 @@ describe("syncAvatarToPlatform", () => {
     mkdirSync(avatarDir, { recursive: true });
     _resetSyncAvatarStateForTests();
     patches = [];
+    manifestWrites = [];
     rasterCalls = 0;
     respond = () => new Response("{}", { status: 200 });
     mockClient = makeClient();
@@ -339,13 +360,40 @@ describe("syncAvatarToPlatform", () => {
     expect(patches[1].body).toEqual({ avatar_base64: null });
     // The removal key, so a later enqueue reads as already synced.
     expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toEndWith(
-      "|none",
+      `|${REMOVAL_KEY}`,
     );
 
     syncAvatarToPlatform();
     await settle();
 
     expect(patches).toHaveLength(2);
+  });
+
+  test("a removal key recorded before the notification field re-sends once", async () => {
+    mockState = NONE;
+    mockRasterPath = null;
+    mkdirSync(dirname(syncStatePath), { recursive: true });
+    writeFileSync(
+      syncStatePath,
+      JSON.stringify({ key: LEGACY_REMOVAL_KEY, syncedAt: Date.now() }),
+    );
+
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body).toEqual({
+      avatar_base64: null,
+      notification_avatar_base64: null,
+    });
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toEndWith(
+      `|${REMOVAL_KEY}`,
+    );
+
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
   });
 
   test("an image avatar with a missing PNG is skipped, not cleared", async () => {
@@ -533,6 +581,27 @@ describe("syncAvatarToPlatform", () => {
       Buffer.from("disc-green").toString("base64"),
     );
     expect(lastResvgSvg).toContain('fill="#E6F1E7"');
+  });
+
+  test("derives and persists an accent the manifest predates, then draws it", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-red");
+    mockState = imageState("etag-legacy");
+    mockRasterPath = writeRaster("avatar-image.png", RED_PNG);
+
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body.notification_avatar_base64).toBe(
+      Buffer.from("disc-red").toString("base64"),
+    );
+    expect(lastResvgSvg).toContain(`fill="${RED_DISC_HEX}"`);
+    expect(manifestWrites).toEqual([
+      expect.objectContaining({
+        accent: { hex: "#c81e1e", source: "derived" },
+      }),
+    ]);
   });
 
   test("a render that failed after the key promised a disc re-uploads next sync", async () => {
