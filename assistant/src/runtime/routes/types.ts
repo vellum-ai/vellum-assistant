@@ -102,11 +102,19 @@ export interface RouteHandlerArgs {
   body?: Record<string, unknown>;
   rawBody?: Uint8Array;
   /**
+   * The request URL exactly as received: percent-encoding intact in
+   * `pathname`, repeated keys intact in `search`. Set only by the HTTP
+   * adapter, so a handler that needs wire-exact input treats `undefined` as
+   * "not served over HTTP".
+   */
+  rawUrl?: URL;
+  /**
    * Caller identity headers, including `x-vellum-principal-type` (the verified
-   * principal type) and `x-vellum-actor-principal-id`. Both adapters derive
-   * these from a trusted source — HTTP from the verified `AuthContext`, IPC
-   * from `injectLocalActorHeader` — never from caller-supplied values, so
-   * handlers that elevate trust can gate on the header (e.g. `"local"`).
+   * principal type), `x-vellum-actor-principal-id`, and `x-vellum-subject`
+   * (the verified `AuthContext.subject`). Both adapters derive these from a
+   * trusted source (HTTP from the verified `AuthContext`, IPC from
+   * `injectLocalActorHeader`), never from caller-supplied values, so handlers
+   * that elevate trust can gate on the header (e.g. `"local"`).
    */
   headers?: Record<string, string>;
   /**
@@ -175,6 +183,12 @@ export interface RouteDefinition {
   pathParams?: RoutePathParam[];
   queryParams?: RouteQueryParam[];
   requestBody?: RouteRequestBody;
+  /**
+   * When true, the HTTP adapter skips JSON parsing for POST/PUT/PATCH/DELETE
+   * and delivers the request bytes untouched in `rawBody`, whatever the
+   * Content-Type. `body` stays undefined.
+   */
+  rawRequestBody?: boolean;
   responseBody?: RouteResponseBody;
   /**
    * HTTP status code for the success response. Defaults to "200".
