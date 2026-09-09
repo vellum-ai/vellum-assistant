@@ -463,12 +463,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* The layer the user draws on inside that frame, while a call is being shown
  * the surface and drawing is on. The only thing on either of the companion's
- * click-through windows that deliberately takes the mouse, so the cursor says
- * so: for as long as this is up, a press on the shared surface is a mark
- * rather than a click on the app underneath. */
+ * click-through windows that deliberately takes the mouse, and the pencil it
+ * hangs on the pointer says so: for as long as this is up, a press on the
+ * shared surface is a mark rather than a click on the app underneath. */
 .companion-share-annotation {
   pointer-events: auto;
-  cursor: crosshair;
   touch-action: none;
 }
 

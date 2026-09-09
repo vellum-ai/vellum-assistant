@@ -27,7 +27,7 @@
  * circle they have to clear up.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWindowBox } from "@/components/companion-window-box";
 import { annotateCompanionShare } from "@/runtime/companion-surface";
@@ -77,6 +77,33 @@ export function movedEnough(
   const dx = (next.x - last.x) * aspect;
   const dy = next.y - last.y;
   return dx * dx + dy * dy >= COMPANION_ANNOTATION_MIN_STEP ** 2;
+}
+
+/** Lucide's `pencil`, as path data: a cursor is an image, not an element. */
+const PENCIL_MARKS =
+  '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>' +
+  '<path d="m15 5 4 4"/>';
+
+/**
+ * The pointer while drawing is on: a pencil, in the ink the mark will be.
+ *
+ * This is how the user learns the mode took: the pill's control is behind
+ * them and the surface under the pointer is someone else's app, so the
+ * pointer is the only thing on screen that can say a press here is now a
+ * mark. Its colour is the mark's, for the same reason the frame's edge is.
+ *
+ * The ink is laid over a white halo so the pencil holds over a dark editor
+ * and a white page alike. The hotspot is the pencil's tip, so a mark starts
+ * where the pencil points. A crosshair stands behind it for a browser that
+ * refuses the image.
+ */
+export function pencilCursor(ink: string): string {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+    `<g stroke="#ffffff" stroke-width="4">${PENCIL_MARKS}</g>` +
+    `<g stroke="${ink}" stroke-width="2">${PENCIL_MARKS}</g>` +
+    "</svg>";
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 22, crosshair`;
 }
 
 export function CompanionShareAnnotation({ ink }: { ink: string }) {
@@ -239,12 +266,16 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   // so this line and the one drawn onto the captured frame carry the same
   // weight relative to the surface they are on.
   const width = COMPANION_ANNOTATION_STROKE * Math.min(box.width, box.height);
+  // Built once per colour rather than on every move: the layer re-renders as
+  // the hand travels, and the cursor does not change under it.
+  const cursor = useMemo(() => pencilCursor(ink), [ink]);
 
   return (
     <svg
       className="companion-share-annotation fixed inset-0 h-full w-full"
       data-testid="companion-share-annotation"
       role="presentation"
+      style={{ cursor }}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={handleUp}

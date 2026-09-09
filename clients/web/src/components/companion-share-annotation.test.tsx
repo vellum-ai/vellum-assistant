@@ -20,6 +20,7 @@ const {
   CompanionShareAnnotation,
   COMPANION_INK_FADE_MS,
   COMPANION_INK_HOLD_MS,
+  pencilCursor,
 } = await import("./companion-share-annotation");
 
 /**
@@ -276,5 +277,27 @@ describe("drawing on what the call is shown", () => {
       clientY: 500,
     });
     expect(sent.filter((one) => one.phase === "released")).toHaveLength(1);
+  });
+});
+
+/**
+ * The pointer is the one thing on screen that can say the mode took: the
+ * surface under it is someone else's app, and nothing on that app changes.
+ */
+describe("the pointer while drawing is on", () => {
+  test("is a pencil, drawn in the ink the mark will be", () => {
+    const cursor = pencilCursor(INK);
+    expect(cursor.startsWith('url("data:image/svg+xml,')).toBe(true);
+    expect(cursor).toContain(encodeURIComponent(`stroke="${INK}"`));
+  });
+
+  test("points from the pencil's tip and falls back to a crosshair", () => {
+    expect(pencilCursor(INK).endsWith(") 2 22, crosshair")).toBe(true);
+  });
+
+  test("hangs on the drawing layer", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    expect(layer.getAttribute("style")).toContain("data:image/svg+xml");
   });
 });
