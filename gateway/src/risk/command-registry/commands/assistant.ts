@@ -235,6 +235,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "oauth request",
   "oauth disconnect",
   "oauth token",
+  "oauth proxy-url",
   "platform",
   "platform connect",
   "platform status",
@@ -843,6 +844,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "oauth providers update", risk: "medium" },
   { path: "oauth providers delete", risk: "medium" },
   { path: "oauth apps delete", risk: "medium" },
+  {
+    path: "oauth proxy-url",
+    risk: "medium",
+    reason:
+      "Mints a scoped, expiring grant a third-party CLI presents to reach a provider API through the passthrough proxy",
+  },
   { path: "platform connect", risk: "low" },
   { path: "platform disconnect", risk: "medium" },
   { path: "platform callback-routes register", risk: "low" },
