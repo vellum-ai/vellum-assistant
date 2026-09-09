@@ -115,6 +115,9 @@ export function MetricCardContent({
       <div className="min-w-0">
         <Typography
           variant="title-small"
+          // Truncated values are unreadable without it, the way the design
+          // library's own Select titles its trigger.
+          title={value || undefined}
           className={cn(
             "block truncate text-[var(--content-default)]",
             valueClassName,

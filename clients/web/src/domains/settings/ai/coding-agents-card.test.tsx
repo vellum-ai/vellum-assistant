@@ -276,6 +276,40 @@ describe("CodingAgentsCard", () => {
     expect(screen.queryByPlaceholderText("claude-opus-4-1")).toBeNull();
   });
 
+  // Picking the row is not yet a value. Saving the empty field would clear a
+  // stored default the user only meant to replace.
+  test("keeps Save disabled on an empty custom row over a stored model", () => {
+    daemonConfigData = { acp: { defaultModel: "opus" } };
+    renderCard();
+
+    fireEvent.click(modelTrigger());
+    selectOption("Custom model");
+
+    expect(customInput().value).toBe("");
+    expect(saveButton().disabled).toBe(true);
+  });
+
+  // The empty draft is the one state the row cannot re-derive from its value,
+  // so a config refresh landing mid-edit must not decide the row again.
+  test("keeps an in-progress custom row when the stored model changes", async () => {
+    daemonConfigData = { acp: { defaultModel: "opus" } };
+    const { queryClient, rerenderCard } = renderCard();
+
+    fireEvent.click(modelTrigger());
+    selectOption("Custom model");
+
+    await act(async () => {
+      queryClient.setQueryData(["config-get-test", ASSISTANT_ID], {
+        acp: { defaultModel: "haiku" },
+      });
+    });
+    rerenderCard();
+
+    expect(customInput().value).toBe("");
+    expect(modelTrigger().textContent).toContain("Custom model");
+    expect(saveButton().disabled).toBe(true);
+  });
+
   test("scopes the capability gate to the card's assistant", () => {
     renderCard();
 

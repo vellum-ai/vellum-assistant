@@ -123,14 +123,13 @@ export function AcpRunChatView({
   const { t } = useTranslation("chat");
   const isRunning = isActiveAcpStatus(entry.status);
 
-  // The tile is a grid column of its own, so the column count and the tile
-  // read one predicate rather than each deciding for itself.
+  // The grid sizes itself from the tiles it renders, so the column count and
+  // the tile read one predicate rather than each deciding for itself.
   const showsModelCard = useShowsAcpModelCard(entry, assistantId);
   // A run reports its token counts from its first usage event, so a fresh run
   // has no usage to show yet and its tiles would read a made-up zero.
   const showsUsage =
     entry.inputTokens !== undefined || entry.outputTokens !== undefined;
-  const tileCount = (showsUsage ? 2 : 0) + (showsModelCard ? 1 : 0);
 
   const events = useAcpRunStore(
     (s) => s.byId[entry.acpSessionId]?.events ?? EMPTY_EVENTS,
@@ -277,16 +276,16 @@ export function AcpRunChatView({
             data-testid="acp-chat-conversation"
             className="flex h-full flex-col gap-4 overflow-y-auto px-5 py-5"
           >
-            {tileCount > 0 && (
+            {(showsUsage || showsModelCard) && (
               <div
                 className={cn(
                   "grid gap-3",
-                  // Three tiles are two columns until there is room for three,
-                  // since a model id in the third of three narrow columns has
-                  // nowhere to render.
-                  tileCount === 1 && "grid-cols-1",
-                  tileCount === 2 && "grid-cols-2",
-                  tileCount === 3 && "grid-cols-2 sm:grid-cols-3",
+                  // The token tiles are the only pair, so they alone ask for a
+                  // second column. No viewport breakpoint: the panel is a
+                  // 400px drawer at its default and minimum width, so `sm:`
+                  // would report the window rather than the space the tile
+                  // lives in.
+                  showsUsage ? "grid-cols-2" : "grid-cols-1",
                 )}
                 data-testid="acp-run-metrics"
               >
@@ -317,11 +316,9 @@ export function AcpRunChatView({
                   </>
                 )}
                 {showsModelCard && (
-                  <div
-                    className={
-                      tileCount === 3 ? "col-span-2 sm:col-span-1" : undefined
-                    }
-                  >
+                  // Beside the token tiles the model takes a row of its own: a
+                  // model id in half of a 400px panel has nowhere to render.
+                  <div className={showsUsage ? "col-span-2" : undefined}>
                     <AcpModelStatCard
                       entry={entry}
                       onSwitchModel={switchAcpRunModel}

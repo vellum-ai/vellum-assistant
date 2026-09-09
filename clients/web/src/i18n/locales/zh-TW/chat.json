@@ -41,6 +41,8 @@
     "modelSelectedAria": "已選取",
     "modelSwitchFailed": "無法切換模型。請再試一次。",
     "modelTriggerAria": "模型：{model}。變更模型",
+    "modelTriggerAriaUnset": "模型：代理預設。變更模型",
+    "modelUnset": "代理預設",
     "objective": "目標",
     "outputLabel": "輸出",
     "sendSteerAria": "傳送引導指令",

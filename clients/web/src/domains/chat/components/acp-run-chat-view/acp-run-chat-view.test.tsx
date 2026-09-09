@@ -437,9 +437,10 @@ describe("AcpRunChatView metrics grid", () => {
     useAssistantIdentityStore.setState({ version: null, assistantId: null });
   });
 
-  // Three tiles fold to two columns on a narrow panel, where the model tile
-  // takes the full row rather than a third of it.
-  test("gives the MODEL tile a column of its own", () => {
+  // The panel is a 400px drawer, so the model tile takes a row of its own
+  // beside the token tiles rather than a third column. No viewport breakpoint
+  // decides that: `sm:` would report the window, not the panel.
+  test("gives the MODEL tile a row of its own beside the token tiles", () => {
     setIdentity(MIN_VERSION);
     const e = entry({
       inputTokens: 1000,
@@ -459,10 +460,10 @@ describe("AcpRunChatView metrics grid", () => {
 
     const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-2");
-    expect(metrics.className).toContain("sm:grid-cols-3");
+    expect(metrics.className).not.toContain("sm:");
     expect(metrics.children).toHaveLength(3);
     expect(metrics.children[2]!.textContent).toContain("Opus");
-    expect(metrics.children[2]!.className).toContain("col-span-2");
+    expect(metrics.children[2]!.className).toBe("col-span-2");
   });
 
   test("keeps two columns for a run with no model", () => {
@@ -527,7 +528,13 @@ describe("AcpRunChatView metrics grid", () => {
 
     const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.children).toHaveLength(3);
-    expect(screen.getByRole("button", { name: /Change model/ })).toBeTruthy();
+    // The whole name: without its own copy an unnamed model announces
+    // "Model: . Change model" and leaves the value row empty.
+    expect(
+      screen.getByRole("button", {
+        name: "Model: agent default. Change model",
+      }).textContent,
+    ).toContain("Agent default");
   });
 
   test("omits the MODEL tile when a live adapter offers no models", () => {

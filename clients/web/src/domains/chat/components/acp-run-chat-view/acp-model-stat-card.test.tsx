@@ -79,6 +79,11 @@ function storedModel(acpSessionId = "acp-1"): string | undefined {
   return useAcpRunStore.getState().byId[acpSessionId]?.model;
 }
 
+/** What the named trigger tells the assistive layer about taking a choice. */
+function ariaDisabled(name: string): string | null {
+  return screen.getByRole("button", { name }).getAttribute("aria-disabled");
+}
+
 /** A switch whose answer the test hands back when it chooses to. */
 function deferredSwitch() {
   let settle!: (result: {
@@ -159,6 +164,20 @@ describe("AcpModelStatCard on a live run", () => {
     expect(screen.getByText("Applies from the next turn.")).toBeTruthy();
   });
 
+  // An adapter can offer a list and name no current value. The row says which
+  // model that leaves the run on rather than rendering empty.
+  test("names the agent's own default when the adapter reports no model", () => {
+    const e = entry({ model: undefined });
+    seed(e);
+
+    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
+
+    const trigger = screen.getByRole("button", {
+      name: "Model: agent default. Change model",
+    });
+    expect(trigger.textContent).toContain("Agent default");
+  });
+
   test("groups options under the names the adapter gave them", () => {
     const e = entry({
       availableModels: [
@@ -214,13 +233,12 @@ describe("AcpModelStatCard on a live run", () => {
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
 
+    expect(ariaDisabled(PENDING_TRIGGER_NAME)).toBe("true");
     expect(
-      (
-        screen.getByRole("button", {
-          name: PENDING_TRIGGER_NAME,
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+      screen
+        .getByRole("button", { name: PENDING_TRIGGER_NAME })
+        .getAttribute("data-pending"),
+    ).toBe("");
 
     await act(async () => {
       settle({ model: "sonnet", availableModels: OPTIONS });
@@ -228,14 +246,47 @@ describe("AcpModelStatCard on a live run", () => {
 
     // The answer landed, so the tile is live again. It reads the run it was
     // given, which the panel re-renders from the store.
-    expect(
-      (
-        screen.getByRole("button", {
-          name: TRIGGER_NAME,
-        }) as HTMLButtonElement
-      ).disabled,
-    ).toBe(false);
+    expect(ariaDisabled(TRIGGER_NAME)).toBeNull();
     expect(onSwitchModel).toHaveBeenCalledTimes(1);
+  });
+
+  // The menu closes in the same commit the switch starts. A trigger that went
+  // natively `disabled` there could not take Radix's focus return, so keyboard
+  // focus would sit on the body until the daemon answered.
+  test("keeps keyboard focus on the tile across a pending switch", async () => {
+    const e = entry();
+    seed(e);
+    const { onSwitchModel, settle } = deferredSwitch();
+
+    // Opened from the trigger rather than `defaultOpen`, since the focus the
+    // menu returns is the focus it was opened from.
+    render(<AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} />);
+    const trigger = screen.getByRole("button", { name: TRIGGER_NAME });
+    trigger.focus();
+    fireEvent.pointerDown(trigger, {
+      button: 0,
+      ctrlKey: false,
+      pointerType: "mouse",
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
+    // Radix hands focus back from a timeout after the surface unmounts.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const pending = screen.getByRole("button", {
+      name: PENDING_TRIGGER_NAME,
+    }) as HTMLButtonElement;
+    expect(pending.disabled).toBe(false);
+    expect(document.activeElement).toBe(pending);
+
+    await act(async () => {
+      settle({ model: "sonnet", availableModels: OPTIONS });
+    });
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: TRIGGER_NAME }),
+    );
   });
 
   test("ignores the answer to a switch the panel has already moved off", async () => {
@@ -261,10 +312,7 @@ describe("AcpModelStatCard on a live run", () => {
     // The tile belongs to another run now: it is neither waiting nor writing
     // the answer to a question that run never asked.
     expect(storedModel("acp-1")).toBe("opus");
-    expect(
-      (screen.getByRole("button", { name: TRIGGER_NAME }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    expect(ariaDisabled(TRIGGER_NAME)).toBeNull();
   });
 
   test("re-selecting the active model asks the daemon for nothing", () => {
@@ -301,10 +349,7 @@ describe("AcpModelStatCard on a live run", () => {
     expect(errorToast).toHaveBeenCalledWith(
       "Could not switch the model. Please try again.",
     );
-    expect(
-      (screen.getByRole("button", { name: TRIGGER_NAME }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false);
+    expect(ariaDisabled(TRIGGER_NAME)).toBeNull();
     errorToast.mockRestore();
   });
 
@@ -353,6 +398,9 @@ describe("AcpModelStatCard on a touch surface", () => {
     // The sheet row has room for the supporting line, and the command still
     // names the row on its own.
     expect(screen.getByText("Most capable")).toBeTruthy();
+    // The check lives in the anchored menu's trailing column, which the sheet
+    // has none of, so the selected state rides the row's name in both.
+    expect(screen.getByRole("button", { name: /Opus Selected/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sonnet" }));
 
     expect(onSwitchModel).toHaveBeenCalledWith("acp-1", "sonnet");

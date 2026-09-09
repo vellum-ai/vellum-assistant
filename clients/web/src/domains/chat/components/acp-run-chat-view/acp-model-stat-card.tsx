@@ -46,6 +46,7 @@ import {
 import type { SwitchAcpRunModelResponse } from "@/domains/chat/utils/acp-run-actions";
 import { useTranslation } from "@/i18n";
 import { useAssistantScopedSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
+import { captureError } from "@/lib/sentry/capture-error";
 import { isActiveAcpStatus } from "@/utils/acp-run-status";
 import { rejectionMessage } from "@/utils/api-errors";
 
@@ -171,9 +172,12 @@ export function AcpModelStatCard({
           setPendingValue(null);
           // A 400 is the adapter's verdict on the value and a 409 says it no
           // longer offers a choice at all. Both are written for the user.
-          toast.error(
-            rejectionMessage(err) ?? t("acpRunChatView.modelSwitchFailed"),
-          );
+          // Anything else is a bug on our side, so it reaches Sentry too.
+          const rejection = rejectionMessage(err);
+          if (rejection === undefined) {
+            captureError(err, { context: "AcpModelStatCard.switchModel" });
+          }
+          toast.error(rejection ?? t("acpRunChatView.modelSwitchFailed"));
         });
     },
     [acpSessionId, model, onSwitchModel, pendingValue, t],
@@ -181,7 +185,11 @@ export function AcpModelStatCard({
 
   const label = t("acpRunChatView.modelLabel");
   const shown = pendingValue ?? model;
-  const value = options.find((o) => o.value === shown)?.label ?? shown ?? "";
+  // An adapter can offer a list without naming a current value. The tile says
+  // which model that leaves the run on rather than rendering an empty row and
+  // announcing "Model: . Change model".
+  const named = options.find((o) => o.value === shown)?.label ?? shown;
+  const value = named || t("acpRunChatView.modelUnset");
   const icon = (
     <Sparkles
       className="h-4 w-4 shrink-0"
@@ -207,7 +215,11 @@ export function AcpModelStatCard({
           icon={icon}
           value={value}
           label={label}
-          ariaLabel={t("acpRunChatView.modelTriggerAria", { model: value })}
+          ariaLabel={
+            named
+              ? t("acpRunChatView.modelTriggerAria", { model: named })
+              : t("acpRunChatView.modelTriggerAriaUnset")
+          }
           pending={pendingValue !== null}
         />
       </ActionMenu.Trigger>
@@ -221,19 +233,28 @@ export function AcpModelStatCard({
             {items.map((option) => (
               <ActionMenu.Item
                 key={option.value}
-                label={option.label}
-                description={option.description}
-                trailing={
+                // The selected state rides the label, which both presentations
+                // render; `trailing` is the anchored menu's column alone, so a
+                // check placed only there leaves the sheet row unmarked.
+                label={
                   option.value === model ? (
                     <>
-                      <Check
-                        className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
-                        aria-hidden
-                      />
+                      {option.label}{" "}
                       <span className="sr-only">
                         {t("acpRunChatView.modelSelectedAria")}
                       </span>
                     </>
+                  ) : (
+                    option.label
+                  )
+                }
+                description={option.description}
+                trailing={
+                  option.value === model ? (
+                    <Check
+                      className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
+                      aria-hidden
+                    />
                   ) : null
                 }
                 onSelect={() => handleSelect(option.value)}
@@ -254,10 +275,11 @@ export function AcpModelStatCard({
  * The tile as a button, so Radix can hand it the trigger's ref and ARIA state.
  * `ref` is a plain prop, matching the design library's own controls.
  *
- * `pending` dims the value and takes the trigger out of play, so a second
- * choice cannot be made against a model the daemon has not confirmed yet. It
- * is applied after the menu's own props, which carry a `disabled` of their
- * own that is always `false`.
+ * `pending` dims the value and says the trigger is unavailable through
+ * `aria-disabled`, not the native attribute: the menu closes in the same
+ * commit the switch starts, and a trigger that goes `disabled` there cannot
+ * take Radix's focus return, so keyboard focus falls to the body for the whole
+ * round trip. `handleSelect` is what actually refuses a second choice.
  */
 function ModelTileTrigger({
   icon,
@@ -285,9 +307,11 @@ function ModelTileTrigger({
         "w-full cursor-pointer text-left transition-colors",
         "hover:bg-[var(--surface-hover)]",
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]",
+        "data-[pending]:cursor-default data-[pending]:hover:bg-[var(--surface-overlay)]",
       )}
       {...rest}
-      disabled={pending}
+      aria-disabled={pending || undefined}
+      data-pending={pending ? "" : undefined}
     >
       <MetricCardContent
         icon={icon}
