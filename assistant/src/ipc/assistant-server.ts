@@ -58,6 +58,7 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
+import { APPS_IPC_METHODS } from "./routes/apps-ipc-routes.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -213,6 +214,7 @@ export class AssistantIpcServer {
     // each map's route file in ipc/routes/ for its contract). No HTTP surface;
     // never in ROUTES.
     for (const methodMap of [
+      APPS_IPC_METHODS,
       INVITE_IPC_METHODS,
       CONTACTS_INFO_IPC_METHODS,
       CONTACTS_MIRROR_IPC_METHODS,

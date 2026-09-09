@@ -28,7 +28,6 @@ import {
   commitAllPendingWorkspaceChanges,
   stopWorkspaceHeartbeatService,
 } from "../workspace/heartbeat-service.js";
-import { stopAppSourceWatcher } from "./app-source-watcher.js";
 import { stopConfigWatcher } from "./config-watcher.js";
 import { stopConversationEvictor } from "./conversation-evictor.js";
 import { stopConversations } from "./conversation-store.js";
@@ -132,7 +131,6 @@ async function shutdown(): Promise<void> {
   disposeAcpSessionManager();
   stopConversationEvictor();
   stopConfigWatcher();
-  stopAppSourceWatcher();
   stopCliIpcServer();
   stopConversations();
   await stopCes();

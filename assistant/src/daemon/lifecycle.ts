@@ -73,7 +73,6 @@ import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
 import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
-import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
 import { writePid } from "./daemon-control.js";
@@ -716,10 +715,6 @@ export async function runDaemon(): Promise<void> {
   // to changes: evict conversations so the next turn rebuilds against the new
   // config, and broadcast the relevant resource-changed events to clients.
   startConfigWatcher();
-
-  // Watch app source directories so edits recompile + refresh surfaces across
-  // all conversations.
-  startAppSourceWatcher();
 
   // Start the CLI IPC server. Throws on EADDRINUSE to abort startup when another
   // daemon already holds the socket, so this process never runs background jobs
