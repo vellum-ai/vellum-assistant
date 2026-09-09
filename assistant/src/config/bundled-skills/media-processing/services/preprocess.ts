@@ -572,6 +572,7 @@ export async function preprocessForAsset(
           seg.startSeconds,
           seg.endSeconds - seg.startSeconds,
           transcriber,
+          signal,
         );
         if (transcript) {
           segment.transcript = transcript;
@@ -624,6 +625,12 @@ export async function preprocessForAsset(
     }
 
     // Step 6: Register keyframes in DB
+    //
+    // Last checkpoint before the run becomes durable. Everything past here
+    // replaces the asset's existing keyframes, rewrites the manifest and marks
+    // the stage complete, so a cancel landing later would leave the asset
+    // looking preprocessed by a run the model was told never finished.
+    signal?.throwIfAborted();
     onProgress?.("Registering keyframes in database...\n");
     deleteKeyframesForAsset(assetId);
 

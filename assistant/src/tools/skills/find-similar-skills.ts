@@ -109,6 +109,9 @@ export async function executeFindSimilarSkills(
   const hits = await findNearest(goal, {
     limit,
     loadCatalog: () => scopedCatalog,
+    // The shortlist is a paid embedding round-trip with its own retries, so a
+    // stopped turn stops paying rather than finishing a search nobody reads.
+    ...(context.signal ? { signal: context.signal } : {}),
   });
 
   const enriched: EnrichedHit[] = [];

@@ -34,7 +34,10 @@ import {
 /**
  * Get the duration of a media file in seconds via ffprobe.
  */
-async function getMediaDuration(filePath: string): Promise<number> {
+async function getMediaDuration(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<number> {
   const result = await spawnWithTimeout(
     [
       "ffprobe",
@@ -47,6 +50,7 @@ async function getMediaDuration(filePath: string): Promise<number> {
       filePath,
     ],
     FFPROBE_TIMEOUT_MS,
+    signal,
   );
   if (result.exitCode !== 0) {
     return 0;
@@ -141,7 +145,8 @@ export async function run(
 
   // Get the file duration so we can clamp pre/post-roll to file boundaries
   const fileDuration =
-    asset.durationSeconds ?? (await getMediaDuration(asset.filePath));
+    asset.durationSeconds ??
+    (await getMediaDuration(asset.filePath, context.signal));
 
   // Calculate actual clip boundaries with pre/post-roll, clamped to file
   const clipStart = Math.max(0, startTime - preRoll);
@@ -206,7 +211,11 @@ export async function run(
       clipPath,
     ];
 
-    const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_CLIP_TIMEOUT_MS);
+    const result = await spawnWithTimeout(
+      ffmpegArgs,
+      FFMPEG_CLIP_TIMEOUT_MS,
+      context.signal,
+    );
 
     if (result.exitCode !== 0) {
       // Stream copy failed - fall back to re-encoding (handles high-bitrate
@@ -255,6 +264,7 @@ export async function run(
       const reencodeResult = await spawnWithTimeout(
         reencodeArgs,
         FFMPEG_CLIP_TIMEOUT_MS,
+        context.signal,
       );
       if (reencodeResult.exitCode !== 0) {
         return {
@@ -278,6 +288,10 @@ export async function run(
         1,
       )} MB). Registering as attachment...\n`,
     );
+
+    // Recheck: the transcode and the stat above are awaits, and registering
+    // hands the conversation an attachment the model was told never appeared.
+    throwIfCancelled(context);
 
     // Register as file-backed attachment (no size limit, no base64 in-memory copy)
     const mimeType = MIME_BY_FORMAT[outputFormat] ?? "video/mp4";
