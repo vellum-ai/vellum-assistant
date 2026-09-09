@@ -89,3 +89,46 @@ describe("send_user_message tool availability", () => {
     }
   });
 });
+
+describe("send_user_message under disk-pressure cleanup", () => {
+  test("stays available on a gated cleanup turn", () => {
+    // Cleanup mode narrows the surface to tools that free space, but this one
+    // consumes nothing and is the only channel a gated turn can reach the user
+    // through. Withholding it would leave the model under a prompt naming a
+    // tool it does not have, spend the empty-response nudge asking for it, and
+    // fall through to raw text.
+    setFlag(true);
+    expect(
+      isToolActiveForContext(
+        SEND_USER_MESSAGE_TOOL_NAME,
+        ctx({
+          currentCallSite: "mainAgent",
+          diskPressureCleanupModeActive: true,
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  test("stays off a cleanup turn that was never gated", () => {
+    setFlag(false);
+    expect(
+      isToolActiveForContext(
+        SEND_USER_MESSAGE_TOOL_NAME,
+        ctx({
+          currentCallSite: "mainAgent",
+          diskPressureCleanupModeActive: true,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("does not widen cleanup mode for anything else", () => {
+    setFlag(true);
+    const cleanupCtx = ctx({
+      currentCallSite: "mainAgent",
+      diskPressureCleanupModeActive: true,
+    });
+    expect(isToolActiveForContext("web_search", cleanupCtx)).toBe(false);
+    expect(isToolActiveForContext("file_read", cleanupCtx)).toBe(true);
+  });
+});

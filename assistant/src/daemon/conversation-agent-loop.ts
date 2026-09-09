@@ -1687,6 +1687,13 @@ export async function runAgentLoopImpl(
           );
         }
       }
+      // The row this turn ends on is no longer the one the last successful
+      // call wrote: it is either nothing, or the synthetic error row built
+      // below, and neither carries an assistant-text visibility marker. Drop
+      // the marker along with the id, so the terminal event cannot label a
+      // visible provider error as private working notes and leave clients
+      // rendering it as activity that never produced a reply.
+      state.lastAssistantTextVisibility = undefined;
       if (!state.persistProviderErrorAsAssistantMessage) {
         state.assistantRowAwaitingFinalization = false;
         state.lastAssistantMessageId = undefined;

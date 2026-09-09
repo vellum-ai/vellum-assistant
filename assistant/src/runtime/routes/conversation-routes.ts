@@ -840,6 +840,40 @@ function buildQueuedMessagePayloads(
     });
 }
 
+/**
+ * The visibility filter the transcript renders through: user and assistant
+ * rows only, and only unhidden ones outside a memory-retrospective fork
+ * (whose hidden instruction row is part of what makes the run readable).
+ */
+function displayRowFilter(conversationId: string): (m: MessageRow) => boolean {
+  const isRetrospectiveFork =
+    getConversation(conversationId)?.source ===
+    MEMORY_RETROSPECTIVE_FORK_SOURCE;
+  return (m: MessageRow) =>
+    (isRetrospectiveFork || !isHiddenMessage(m.metadata)) &&
+    (m.role === "user" || m.role === "assistant");
+}
+
+/**
+ * Fold raw rows into the display turns a client holds: tool results merged
+ * into the assistant row that called them, then consecutive assistant rows
+ * merged into one turn.
+ *
+ * A merged run takes the FIRST row's id, so any route that compares an id a
+ * client received against stored rows has to compare against these, not
+ * against the raw tail. A gated `send_user_message` turn is always at least
+ * two rows (the call, then the post-tool wrap-up), so on that path the raw
+ * tail is never the id the client holds.
+ */
+function consolidateDisplayTurns(rows: MessageRow[]): {
+  messages: MessageRow[];
+  mergedIdMap: Map<string, string[]>;
+} {
+  return mergeConsecutiveAssistantMessages(
+    mergeToolResultsIntoAssistantMessages(rows),
+  );
+}
+
 export async function handleListMessages({
   queryParams,
 }: RouteHandlerArgs): Promise<Record<string, unknown>> {
@@ -949,12 +983,7 @@ export async function handleListMessages({
   // permitted `MessageRole`, e.g. skill-authored context) are agent-context
   // scaffolding, never a displayed turn, so they are dropped here at the
   // source rather than narrowed away per-client.
-  const isRetrospectiveFork =
-    getConversation(resolvedConversationId)?.source ===
-    MEMORY_RETROSPECTIVE_FORK_SOURCE;
-  const visibleFilter = (m: MessageRow) =>
-    (isRetrospectiveFork || !isHiddenMessage(m.metadata)) &&
-    (m.role === "user" || m.role === "assistant");
+  const visibleFilter = displayRowFilter(resolvedConversationId);
 
   if (isPaginated) {
     const result = getMessagesPaginated(
@@ -975,17 +1004,14 @@ export async function handleListMessages({
   // are separate DB rows. Merge tool_result blocks from user messages into the
   // preceding assistant message so renderHistoryContent can pair them via its
   // pendingToolUses map — otherwise they render as "Unknown" tool calls.
-  const mergedMessages = mergeToolResultsIntoAssistantMessages(rawMessages);
-
   // During streaming, all assistant turns within one agent loop accumulate
   // on a single client-side ChatMessage (via currentAssistantMessageId).
   // In the DB, each API turn is a separate assistant row because
   // consolidation is deferred to compaction for prefix-cache stability.
-  // Merge consecutive assistant messages here at query time so
-  // renderHistoryContent produces the same contentOrder shape as streaming
-  // (consecutive tool refs grouped together).
+  // Merge here at query time so renderHistoryContent produces the same
+  // contentOrder shape as streaming (consecutive tool refs grouped together).
   const { messages: consolidatedMessages, mergedIdMap } =
-    mergeConsecutiveAssistantMessages(mergedMessages);
+    consolidateDisplayTurns(rawMessages);
   const assistantSlackDisplayName = getAssistantName()?.trim() || undefined;
 
   // Parse each row's stored content and per-message metadata. Rendering is
@@ -2985,13 +3011,22 @@ export async function handleGetSuggestion(
     return noSuggestion;
   }
 
-  const rawMessages = getMessages(resolvedConversationId);
+  // Consolidated the way `/messages` consolidates, because the `messageId` a
+  // client asks about came from there. A merged run of assistant rows takes
+  // the first row's id, so comparing against raw rows would call every
+  // multi-row turn stale: on a gated `send_user_message` turn, which is always
+  // at least the call row plus the post-tool wrap-up, that is every reply.
+  const rawMessages = consolidateDisplayTurns(
+    getMessages(resolvedConversationId).filter(
+      displayRowFilter(resolvedConversationId),
+    ),
+  ).messages;
   if (rawMessages.length === 0) {
     return noSuggestion;
   }
 
   // Staleness check: compare requested messageId against the latest
-  // assistant message BEFORE filtering by text content.  This ensures
+  // assistant turn BEFORE filtering by text content.  This ensures
   // that a newer tool-only assistant turn (empty text) still causes
   // older messageId requests to be correctly marked as stale.
   const requestedMessageId = queryParams?.messageId;

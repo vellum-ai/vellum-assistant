@@ -11,7 +11,9 @@ import {
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import { isReactionMessageMetadata } from "../persistence/conversation-types.js";
+import { isPrivateAssistantText } from "../persistence/user-facing-content.js";
 import { getLogger } from "../util/logger.js";
+import { joinWithSpacing } from "../util/text-spacing.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
@@ -449,7 +451,57 @@ export function findAssistantReplyMessageIdForTurn(
   return sentinelRowId;
 }
 
+/**
+ * The messages a gated turn already spoke before the row being delivered, in
+ * the order it spoke them.
+ *
+ * A `send_user_message` turn can address the user more than once: a progress
+ * message before the tool work, the result after. Each lands on its own row
+ * marked `"private"`, and the durable scan resolves only one of them, so a
+ * transport with no live stream, or one whose stream evaporates rather than
+ * persisting (a Telegram draft), would deliver the last message and silently
+ * drop everything the tool already reported as `Delivered.`
+ *
+ * Bounded to the turn `userMessageId` opened, and gated on the rows' own
+ * visibility marker: an ordinary turn has no private rows, so this is empty
+ * and its delivery is unchanged.
+ */
+function earlierGatedSegmentsForTurn(
+  conversationId: string,
+  userMessageId: string,
+  replyMessageId: string,
+): string[] {
+  let msgs: PersistedMessage[];
+  try {
+    msgs = getMessages(conversationId);
+  } catch {
+    // Combining is a refinement, never a reason to lose the reply.
+    return [];
+  }
+  const userIndex = msgs.findIndex((msg) => msg.id === userMessageId);
+  if (userIndex === -1) {
+    return [];
+  }
+  const segments: string[] = [];
+  for (let i = userIndex + 1; i < msgs.length; i++) {
+    const msg = msgs[i];
+    if (msg.role === "user" && !isToolResultUserMessage(msg)) {
+      break;
+    }
+    if (msg.id === replyMessageId) {
+      break;
+    }
+    if (msg.role !== "assistant" || !isPrivateAssistantText(msg.metadata)) {
+      continue;
+    }
+    const { rendered } = readPersistedAssistantReply(msg);
+    segments.push(...rendered.textSegments);
+  }
+  return segments;
+}
+
 async function deliverPersistedAssistantMessageViaCallback(
+  conversationId: string,
   msg: PersistedMessage,
   externalChatId: string,
   callbackUrl: string,
@@ -462,6 +514,23 @@ async function deliverPersistedAssistantMessageViaCallback(
   if (!hasDeliverableReply(rendered, replyAttachments)) {
     return false;
   }
+
+  // Everything the turn said before this row, so a channel with no surviving
+  // live stream receives every message the model sent rather than only the
+  // last one. Empty on every non-gated turn.
+  const earlier = options?.sinceMessageId
+    ? earlierGatedSegmentsForTurn(
+        conversationId,
+        options.sinceMessageId,
+        msg.id,
+      )
+    : [];
+  const textSegments =
+    earlier.length > 0
+      ? [...earlier, ...rendered.textSegments]
+      : rendered.textSegments;
+  const fallbackText =
+    earlier.length > 0 ? joinWithSpacing(textSegments) : rendered.text;
 
   // Compose an `onMessageTs` that reconciles the persisted assistant row's
   // provider message ids as the transport reports the authoritative ones.
@@ -480,8 +549,8 @@ async function deliverPersistedAssistantMessageViaCallback(
   await deliverRenderedReplyViaCallback({
     callbackUrl,
     chatId: externalChatId,
-    textSegments: rendered.textSegments,
-    fallbackText: rendered.text,
+    textSegments,
+    fallbackText,
     attachments: replyAttachments,
     assistantId,
     startFromSegment: options?.startFromSegment,
@@ -519,6 +588,7 @@ export async function deliverReplyViaCallback(
       !options.sinceMessageId
     ) {
       await deliverPersistedAssistantMessageViaCallback(
+        conversationId,
         msg,
         externalChatId,
         callbackUrl,
@@ -539,6 +609,7 @@ export async function deliverReplyViaCallback(
       const msg = getMessageById(replyMessageId, conversationId);
       if (msg && msg.role === "assistant") {
         await deliverPersistedAssistantMessageViaCallback(
+          conversationId,
           msg,
           externalChatId,
           callbackUrl,
@@ -556,6 +627,7 @@ export async function deliverReplyViaCallback(
       continue;
     }
     const delivered = await deliverPersistedAssistantMessageViaCallback(
+      conversationId,
       msgs[i],
       externalChatId,
       callbackUrl,
