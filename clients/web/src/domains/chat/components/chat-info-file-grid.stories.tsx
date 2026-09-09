@@ -12,12 +12,11 @@ import { fn } from "storybook/test";
 
 import {
   CHAT_INFO_ASSISTANT_ID,
-  withChatInfoStoryClient,
-} from "@/domains/chat/components/chat-info-story-fixtures";
-import {
+  CHAT_INFO_STORY_CLIENT,
   CHAT_INFO_STORY_FILES,
   chatInfoStoryFrames,
-} from "@/domains/chat/components/chat-info.test-helper";
+  withChatInfoStoryClient,
+} from "@/domains/chat/components/chat-info-story-fixtures";
 
 import { ChatInfoFileGrid } from "./chat-info-file-grid";
 
@@ -31,7 +30,7 @@ const meta: Meta<typeof ChatInfoFileGrid> = {
   title: "Chat/ChatInfoFileGrid",
   component: ChatInfoFileGrid,
   parameters: { layout: "fullscreen" },
-  decorators: [inPanelBody, withChatInfoStoryClient],
+  decorators: [inPanelBody, withChatInfoStoryClient(CHAT_INFO_STORY_CLIENT)],
   args: {
     items: chatInfoStoryFrames(6),
     assistantId: CHAT_INFO_ASSISTANT_ID,

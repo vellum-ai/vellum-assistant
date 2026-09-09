@@ -17,10 +17,11 @@
  * on ids of this file's own so a panel opened here can only be this header's.
  *
  * The states covered are the composition's, not a per-component matrix: the
- * desktop and mobile baselines, a channel-bound header, and the desktop header
- * with the Chat Info panel open, where the Assets trigger reads as selected.
- * The mobile trigger carries the same `active` fill open or closed, so there is
- * no second open state to show.
+ * desktop and mobile baselines, a channel-bound header, the desktop header
+ * with the Chat Info panel open, where the Assets trigger reads as selected,
+ * and the header of a chat whose assets could not be loaded. The mobile
+ * trigger carries the same `active` fill open or closed, so there is no second
+ * open state to show.
  */
 
 import { useEffect, useState } from "react";
@@ -32,7 +33,10 @@ import { Button } from "@vellumai/design-library";
 import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
 import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
-import { inChatInfoConversation } from "@/domains/chat/components/chat-info-story-fixtures";
+import {
+  failChatInfoDocuments,
+  inChatInfoConversation,
+} from "@/domains/chat/components/chat-info-story-fixtures";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -227,4 +231,21 @@ export const AssetsPanelOpen: Story = {
   args: { isMobile: false },
   parameters: { chatInfo: { attachments: makePreviewableImages(2) } },
   decorators: [withChatInfoOpen],
+};
+
+/**
+ * A chat whose documents source is down with nothing cached. The trigger stays
+ * in the cluster with nothing counted, since the panel is where the user finds
+ * out why.
+ */
+export const TriggerUnavailable: Story = {
+  args: { isMobile: false },
+  parameters: {
+    chatInfo: {
+      appCount: 0,
+      documentCount: 0,
+      attachments: [],
+      afterSeed: failChatInfoDocuments,
+    },
+  },
 };

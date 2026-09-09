@@ -6,6 +6,7 @@
  */
 
 import { Loader2 } from "lucide-react";
+import type { CSSProperties } from "react";
 import { useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
@@ -22,10 +23,12 @@ import { useInView } from "@/hooks/use-in-view";
 import { useTranslation } from "@/i18n";
 import { formatCaptureTime } from "@/utils/format-date";
 
-/** Fixed tile width, and what the section fits a row of them to. Kept in step with `w-[135px]` below. */
+/** Fixed tile width, and what the section fits a row of them to. */
 export const CHAT_INFO_FILE_TILE_WIDTH_PX = 135;
 
-export interface ChatInfoFileTileProps {
+const TILE_STYLE: CSSProperties = { width: CHAT_INFO_FILE_TILE_WIDTH_PX };
+
+interface ChatInfoFileTileProps {
   file: ConversationFileAsset;
   assistantId: string;
   onOpen: (file: ConversationFileAsset) => void;
@@ -85,7 +88,8 @@ export function ChatInfoFileTile({
     <div
       data-slot="chat-info-file-tile"
       data-reveal-row=""
-      className="relative flex w-[135px] shrink-0 flex-col gap-1"
+      className="relative flex shrink-0 flex-col gap-1"
+      style={TILE_STYLE}
     >
       <button
         ref={boxRef}

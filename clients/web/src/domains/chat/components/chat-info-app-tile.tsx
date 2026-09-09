@@ -3,6 +3,7 @@
  * options menu revealed over it, and the app's name underneath.
  */
 
+import type { CSSProperties } from "react";
 import { useCallback } from "react";
 
 import { cn, Typography } from "@vellumai/design-library";
@@ -16,10 +17,12 @@ import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 
-/** Fixed tile width, and the minimum the section fits a row of them to. Kept in step with `w-[184px]` below. */
+/** Fixed tile width, and the minimum the section fits a row of them to. */
 export const CHAT_INFO_APP_TILE_WIDTH_PX = 184;
 
-export interface ChatInfoAppTileProps {
+const FIXED_WIDTH_STYLE: CSSProperties = { width: CHAT_INFO_APP_TILE_WIDTH_PX };
+
+interface ChatInfoAppTileProps {
   app: AppSummary;
   assistantId: string;
   onOpen: (appId: string) => void;
@@ -49,8 +52,9 @@ export function ChatInfoAppTile({
       data-reveal-row=""
       className={cn(
         "relative flex flex-col gap-1",
-        stretch ? "min-w-0 flex-1" : "w-[184px] shrink-0",
+        stretch ? "min-w-0 flex-1" : "shrink-0",
       )}
+      style={stretch ? undefined : FIXED_WIDTH_STYLE}
     >
       {/* The preview iframe is `pointer-events: none`, so this button takes the click. */}
       <button

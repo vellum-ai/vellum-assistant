@@ -21,7 +21,7 @@ import {
 } from "@/domains/chat/components/chat-attachments/utils";
 import { cn } from "@/utils/misc";
 
-export interface AttachmentPreviewBoxProps {
+interface AttachmentPreviewBoxProps {
   /** Geometry, surface, and border classes for the box. */
   className?: string;
   /** Picks the fallback glyph. */

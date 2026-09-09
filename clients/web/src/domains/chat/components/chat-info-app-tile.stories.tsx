@@ -7,8 +7,7 @@
  * tile to see the options menu appear; on a touch device it is always visible.
  */
 
-import { QueryClientProvider } from "@tanstack/react-query";
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
 import {
@@ -16,6 +15,7 @@ import {
   CHAT_INFO_CONVERSATION_ID,
   chatInfoApps,
   primeChatInfoAppPreviews,
+  withChatInfoStoryClient,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import {
   CHAT_INFO_DRAWER_WIDTH_PX,
@@ -54,17 +54,11 @@ seedChatInfoConversation(storyClient, {
   apps: [...PRIMED, NO_PREVIEW],
 });
 
-const withPrimedPreviews: Decorator = (Story) => (
-  <QueryClientProvider client={storyClient}>
-    <Story />
-  </QueryClientProvider>
-);
-
 const meta: Meta<typeof ChatInfoAppTile> = {
   title: "Chat/ChatInfoAppTile",
   component: ChatInfoAppTile,
   parameters: { layout: "centered" },
-  decorators: [withPrimedPreviews],
+  decorators: [withChatInfoStoryClient(storyClient)],
   args: {
     app: TRIP_PLANNER,
     assistantId: CHAT_INFO_ASSISTANT_ID,
