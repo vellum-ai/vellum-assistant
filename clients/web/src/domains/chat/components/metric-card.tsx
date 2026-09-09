@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useReducedMotion } from "motion/react";
 
-import { Typography } from "@vellumai/design-library";
+import { cn, Typography } from "@vellumai/design-library";
 
 /** Format a number compactly (e.g. 257400 -> "257.4K"). */
 export function formatNumber(n: number): string {
@@ -77,24 +77,42 @@ export function useAnimatedNumber(target: number): number {
   return displayed;
 }
 
-export function MetricCard({
-  icon,
-  value,
-  label,
-}: {
+/**
+ * Card chrome for a metric tile. Exported because {@link MetricCard} is a div
+ * with no ref, so a tile that has to be an interactive element wears the same
+ * box on its own button rather than a copy of these classes.
+ */
+export const METRIC_CARD_CLASS =
+  "flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3";
+
+interface MetricCardContentProps {
   icon: ReactNode;
   value: string;
   label: string;
-}) {
+  /** Extra classes on the value row, e.g. `font-mono` for a model name. */
+  valueClassName?: string;
+}
+
+/**
+ * The icon well and value/label stack inside {@link METRIC_CARD_CLASS}. A
+ * fragment so the parent's flex row owns the children directly and a caller
+ * can add its own trailing affordance beside them.
+ */
+export function MetricCardContent({
+  icon,
+  value,
+  label,
+  valueClassName,
+}: MetricCardContentProps) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3">
+    <>
       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-base)]">
         {icon}
       </div>
       <div className="min-w-0">
         <Typography
           variant="title-small"
-          className="block text-[var(--content-default)]"
+          className={cn("block text-[var(--content-default)]", valueClassName)}
         >
           {value}
         </Typography>
@@ -105,6 +123,14 @@ export function MetricCard({
           {label}
         </Typography>
       </div>
+    </>
+  );
+}
+
+export function MetricCard(props: MetricCardContentProps) {
+  return (
+    <div className={METRIC_CARD_CLASS}>
+      <MetricCardContent {...props} />
     </div>
   );
 }
