@@ -793,6 +793,42 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The helper has stopped answering, so the cadence stops asking. A mark
+   * is the one frame the user asked for by hand, and it is not dropped with
+   * the occasion: it is taken the moment the helper answers again.
+   */
+  test("a mark made while the helper is stalled is taken when it answers again", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+    const ordinary = answerFrame;
+    answerFrame = () => {
+      answerFrame = ordinary;
+      return new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFrame = resolve;
+      });
+    };
+    speak(true);
+    now += SCREEN_SHARE_PICTURE_WAIT_MS + 1;
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+    expect(annotated).toEqual([]);
+
+    releaseFrame(frameOf("a"));
+    await flush();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(annotated).toEqual([1]);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "drawing" }),
+    );
+  });
+
   /** A share that ends takes the drawing on it with it. */
   test("a stop clears the hand as well as the target", async () => {
     renderShare();

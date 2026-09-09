@@ -236,6 +236,12 @@ export function useLiveVoiceScreenShare(): void {
     // to call a request back, so asking again would only pile up requests
     // and the pictures they eventually carry, none of which will be read.
     const outstanding = new Set<{ readonly requestedAtMs: number }>();
+    // A drawing the helper could not be asked for, or did not answer for in
+    // time: the one frame here the user asked for by hand, so it is not
+    // dropped with its occasion but taken the moment the helper answers
+    // again. The newest, since the marks it carries are the ones the user
+    // made last.
+    let carriedDrawing: SharedDrawing | null = null;
     // Occasions are judged one at a time, in the order they came, so the
     // gate sees pictures in the order they were taken: the two edges of a
     // short utterance could otherwise resolve out of order, and the older
@@ -585,6 +591,9 @@ export function useLiveVoiceScreenShare(): void {
           "[live-voice screen share] no picture from the helper in time; skipped",
         );
         carryAsk();
+        if (drawing !== null) {
+          carriedDrawing = drawing;
+        }
         return;
       }
       if (frame === null) {
@@ -660,14 +669,17 @@ export function useLiveVoiceScreenShare(): void {
           requestedAtMs - request.requestedAtMs >
           SCREEN_SHARE_PICTURE_WAIT_MS
         ) {
-          // Stalled. The occasion is skipped rather than asked for, and its
+          // Stalled. The occasion is skipped rather than asked for. Its
           // ask, if it has one, goes to the next picture the helper does
-          // answer.
+          // answer, and a drawing is taken then.
           console.warn(
             "[live-voice screen share] the helper has not answered; not asked again",
           );
           if (askedAtMs !== null) {
             carriedAskMs = askedAtMs;
+          }
+          if (drawing !== null) {
+            carriedDrawing = drawing;
           }
           return;
         }
@@ -676,6 +688,14 @@ export function useLiveVoiceScreenShare(): void {
       outstanding.add(request);
       const settled = (): void => {
         outstanding.delete(request);
+        // The helper is answering again. A drawing held back while it was
+        // not is taken now, on the run it was made in: a later run's
+        // subscriber bumps the generation and the take refuses it.
+        if (carriedDrawing !== null && !cancelled && run === generation) {
+          const held = carriedDrawing;
+          carriedDrawing = null;
+          share(held);
+        }
       };
       const picture = captureCompanionScreen(target);
       picture.then(settled, settled);
@@ -729,6 +749,7 @@ export function useLiveVoiceScreenShare(): void {
           baseline = null;
           armedAtMs = null;
           carriedAskMs = null;
+          carriedDrawing = null;
         }
         return;
       }
