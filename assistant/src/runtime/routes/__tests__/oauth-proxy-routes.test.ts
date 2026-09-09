@@ -237,8 +237,16 @@ async function envelope(response: Response): Promise<ErrorEnvelope> {
  * dot-segment coverage drives the handler with a URL-shaped stub. Only
  * `pathname` and `search` are read.
  */
+// A real URL normalizes dot segments away, so these cases need a hand-built
+// pathname. The URL prototype keeps the handler's `instanceof URL` transport
+// guard satisfied; JSON over IPC can only ever produce a plain object.
 function rawUrlStub(pathname: string, search = ""): URL {
-  return { pathname, search } as unknown as URL;
+  // Own data properties shadow the prototype accessors, which refuse to run
+  // without a real URL's internal slots.
+  return Object.create(URL.prototype, {
+    pathname: { value: pathname, enumerable: true },
+    search: { value: search, enumerable: true },
+  }) as URL;
 }
 
 function requireCaptured(): OAuthConnectionRequest {
@@ -550,7 +558,10 @@ describe("response emission", () => {
 
     expect(requireCaptured().manualRedirect).toBe(true);
     expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe(
+    // The target moves off `location` so no client auto-follows it back to the
+    // provider carrying the proxy grant as its bearer token.
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("x-vellum-proxy-location")).toBe(
       "https://files.stripe.com/blob/abc",
     );
   });
@@ -782,6 +793,26 @@ describe("path safety", () => {
 
     // The gateway's IPC proxy reads this code as "retry over HTTP", so the
     // caller is served rather than hard-failed.
+    await expect(
+      Promise.resolve(ROUTES[0].handler(args)),
+    ).rejects.toMatchObject({
+      statusCode: 421,
+      code: "BINARY_UNSUPPORTED_OVER_IPC",
+    });
+    expect(resolverCalls).toHaveLength(0);
+    expect(captured).toBeUndefined();
+  });
+
+  test("a forged plain-object rawUrl is refused before the provider", async () => {
+    // An IPC caller controls every handler arg, and the handler reads only
+    // pathname and search, so a truthiness guard would have let this through
+    // to a real provider call carrying the user's credential.
+    const args = {
+      pathParams: { provider: "stripe_link" },
+      headers: { "x-vellum-subject": SUBJECT },
+      rawUrl: { pathname: "/v1/oauth/proxy/stripe_link/v1/me", search: "" },
+    } as unknown as RouteHandlerArgs;
+
     await expect(
       Promise.resolve(ROUTES[0].handler(args)),
     ).rejects.toMatchObject({
