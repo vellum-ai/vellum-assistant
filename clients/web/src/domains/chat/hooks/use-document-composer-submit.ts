@@ -48,6 +48,7 @@ import { resolvePostError } from "@/domains/chat/utils/send-message-utils";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { findConversation } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 import { useTranslation } from "@/i18n";
@@ -64,17 +65,6 @@ export interface DocumentComposerSubmitResult {
   status: DocumentComposerSendStatus;
   /** Sends whatever is currently in the `"document"` composer slot. */
   submit: () => Promise<void>;
-}
-
-/**
- * Who the shared `"document"` composer slot belongs to. Both halves matter:
- * the draft is dropped when the open document changes and when the active
- * assistant does, so a send only owns the slot it left behind if neither has
- * moved since.
- */
-interface DocumentSlotOwner {
-  assistantId: string | null;
-  surfaceId: string | null;
 }
 
 /** How long the inline "Sent" micro-state stays up before fading, mirroring
@@ -102,23 +92,29 @@ export function useDocumentComposerSubmit({
   // attempt in flight: its idempotency nonce, and the conversation it already
   // put on the reply watcher's list. A send reads all three as it resolves,
   // by which point the hook may point at another document or another
-  // assistant. The nonce survives a thrown send so the retry carries the same
-  // id, which lets the daemon dedupe the case where it accepted the message
-  // and only the response was lost. The nonce is tied to the exact
-  // content/attachment snapshot it was minted for: a retry only reuses it when
-  // the payload is unchanged, since the daemon dedupes on
-  // `(conversation, clientMessageId)` back to the ORIGINAL payload, and
-  // reusing it against an edited draft would have the daemon answer the old
-  // message while the hook cleared the new edits.
+  // assistant. Ownership is a count rather than the (assistant, surface) pair
+  // it stands for, because every transition drops the draft and hands the slot
+  // to a fresh one: an A to B to A round trip leaves a different owner in
+  // place even though the pair matches the one an earlier send captured. The
+  // nonce survives a thrown send so the retry carries the same id, which lets
+  // the daemon dedupe the case where it accepted the message and only the
+  // response was lost. The nonce is tied to the exact content/attachment
+  // snapshot it was minted for: a retry only reuses it when the payload is
+  // unchanged, since the daemon dedupes on `(conversation, clientMessageId)`
+  // back to the ORIGINAL payload, and reusing it against an edited draft would
+  // have the daemon answer the old message while the hook cleared the new
+  // edits.
   const surfaceId = doc?.surfaceId ?? null;
-  const currentOwnerRef = useRef<DocumentSlotOwner>({ assistantId, surfaceId });
+  const ownerGenerationRef = useRef(0);
+  const currentAssistantIdRef = useRef(assistantId);
   const pendingClientMessageRef = useRef<{
     clientMessageId: string;
     snapshot: string;
   } | null>(null);
   const armedReplyConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    currentOwnerRef.current = { assistantId, surfaceId };
+    currentAssistantIdRef.current = assistantId;
+    ownerGenerationRef.current += 1;
     // The draft is cleared when either half of the owner changes, so the next
     // send is a different message: its own nonce, its own wait. A wait an
     // earlier attempt armed stays up, since that message may still be on its
@@ -179,7 +175,7 @@ export function useDocumentComposerSubmit({
     if (!assistantId || !doc) {
       return;
     }
-    const owner: DocumentSlotOwner = { assistantId, surfaceId: doc.surfaceId };
+    const ownerGeneration = ownerGenerationRef.current;
     // Every gate that frames the send reads the version of whichever
     // assistant is active when it runs (`supportsServerMintedConversation`
     // here, `pickConversationIdWireField` inside `postChatMessage`), so an
@@ -190,10 +186,8 @@ export function useDocumentComposerSubmit({
     // left to send, to take back down, or to say on a composer that is not
     // the one it started on.
     const assistantChanged = () =>
-      currentOwnerRef.current.assistantId !== owner.assistantId;
-    const ownsSlotNow = () =>
-      !assistantChanged() &&
-      currentOwnerRef.current.surfaceId === owner.surfaceId;
+      currentAssistantIdRef.current !== assistantId;
+    const ownsSlotNow = () => ownerGenerationRef.current === ownerGeneration;
 
     const { documentInput, documentAttachments } = useComposerStore.getState();
     const content = documentInput.trim();
@@ -439,13 +433,29 @@ export function useDocumentComposerSubmit({
       const ownsSlot = isMountedRef.current && ownsSlotNow();
       if (ownsSlot) {
         useComposerStore.getState().setInput("", "document");
-        useComposerStore.getState().resetAttachments("document");
+        // Nothing renders a sent bubble for this slot, so its preview blob
+        // URLs have no reader once the message is away: the full reset clears
+        // the slot and revokes exactly the URLs it created, leaving the main
+        // slot's alive.
+        useComposerStore.getState().fullReset("document");
         setStatus("sent");
       }
       toast.info(t("documentComposer.messageSentToast"), {
         action: {
           label: t("documentComposer.viewConversation"),
-          onClick: () => navigateToConversation(navigate, conversationId),
+          onClick: () => {
+            // The row belongs to the assistant this send went out under, and
+            // the toast outlives a switch away from it. Selecting the
+            // conversation under another assistant would point the chat at a
+            // row that assistant has never seen, so the action goes quiet
+            // instead.
+            const activeAssistantId =
+              useResolvedAssistantsStore.getState().activeAssistantId;
+            if (activeAssistantId !== assistantId) {
+              return;
+            }
+            navigateToConversation(navigate, conversationId);
+          },
         },
       });
     } catch {

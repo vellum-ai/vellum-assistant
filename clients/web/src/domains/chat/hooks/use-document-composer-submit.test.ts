@@ -10,7 +10,10 @@
  * guard that keeps a late-resolving send from clearing a draft typed for a
  * document, or an assistant, it was never about. Also covers dropping a send
  * whose assistant changed while it was resolving, and the refused document
- * link that stops the first turn from running without the document.
+ * link that stops the first turn from running without the document. Ownership
+ * covers the round trip too (away to another assistant and back), alongside
+ * the full slot reset that frees the composer's preview URLs and the
+ * "View conversation" action going quiet under another assistant.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -27,6 +30,7 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import type { PostMessageResult } from "@/domains/chat/api/messages";
+import type { ComposerSlot } from "@/domains/chat/composer-store";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
 
 const realMessages = await import("@/domains/chat/api/messages");
@@ -134,11 +138,33 @@ const { listPage } = await import("@/utils/conversation-list.test-helper");
 const { useDocumentComposerReplyStore } =
   await import("@/domains/chat/document-composer-reply-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { useDocumentComposerSubmit } =
   await import("./use-document-composer-submit");
 
 const ASSISTANT_ID = "assistant-1";
 const SURFACE_ID = "surf-1";
+
+/**
+ * Which slot-clearing action ran, and against which slot. The real actions
+ * still run behind these, so the composer store behaves as it does in the app;
+ * only the choice between them is observed. `fullReset` is the one that
+ * revokes the slot's preview blob URLs.
+ */
+const composerResets: string[] = [];
+const realResetAttachments = useComposerStore.getState().resetAttachments;
+const realFullReset = useComposerStore.getState().fullReset;
+useComposerStore.setState({
+  resetAttachments: (slot?: ComposerSlot) => {
+    composerResets.push(`resetAttachments:${slot ?? "main"}`);
+    realResetAttachments(slot);
+  },
+  fullReset: (slot?: ComposerSlot) => {
+    composerResets.push(`fullReset:${slot ?? "main"}`);
+    realFullReset(slot);
+  },
+});
 
 let queryClient: QueryClient;
 
@@ -301,6 +327,8 @@ beforeEach(() => {
   });
   useViewerStore.setState({ openedDocumentState: null });
   useAssistantIdentityStore.setState({ version: null });
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+  composerResets.length = 0;
   window.sessionStorage.clear();
   postChatMessageMock = mock(defaultPostChatMessage);
   conversationsPostMock = mock(defaultConversationsPost);
@@ -315,6 +343,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
     queuedReplyConversationIds: new Set(),
@@ -579,6 +608,45 @@ describe("success path", () => {
     const options = toastInfoMock.mock.calls[0]?.[1] as {
       action: { onClick: () => void };
     };
+    options.action.onClick();
+    expect(navigateToConversationMock).toHaveBeenCalledWith(
+      navigateSpy,
+      "conv-existing",
+    );
+  });
+
+  test("fully resets the document slot, so its preview URLs are revoked", async () => {
+    const { result } = renderSubmit("conv-existing");
+    useComposerStore.getState().setInput("hello", "document");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // Nothing on this surface renders a sent bubble, so the preview blob URLs
+    // the slot created have no reader left once the message is away.
+    expect(composerResets).toEqual(["fullReset:document"]);
+    expect(useComposerStore.getState().documentInput).toBe("");
+  });
+
+  test("the View conversation action does nothing once another assistant is active", async () => {
+    const { result } = renderSubmit("conv-existing");
+    useComposerStore.getState().setInput("hello", "document");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    const options = toastInfoMock.mock.calls[0]?.[1] as {
+      action: { onClick: () => void };
+    };
+    // The toast outlives a switch away from the assistant that sent, and the
+    // row it points at belongs to that assistant alone.
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    options.action.onClick();
+    expect(navigateToConversationMock).not.toHaveBeenCalled();
+
+    useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
     options.action.onClick();
     expect(navigateToConversationMock).toHaveBeenCalledWith(
       navigateSpy,
@@ -1462,6 +1530,35 @@ describe("a send that outlives its owner", () => {
     // active one.
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(isAwaitingReply("conv-a")).toBe(true);
+  });
+
+  test("a completion after the assistant left and came back leaves the new draft alone", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first draft", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // Away and back: the assistant matches the one this send started under
+    // again, but the round trip cleared the draft twice and the composer on
+    // screen belongs to the draft typed after it.
+    rerender({ assistantId: "assistant-2" });
+    rerender({ assistantId: ASSISTANT_ID });
+    useComposerStore.getState().setInput("a draft typed since", "document");
+
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    expect(useComposerStore.getState().documentInput).toBe(
+      "a draft typed since",
+    );
+    expect(result.current.status).toBe("idle");
   });
 
   test("a completion after the hook unmounted leaves the new draft alone", async () => {

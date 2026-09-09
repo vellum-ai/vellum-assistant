@@ -5,6 +5,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { useTranslation } from "@/i18n";
 
@@ -172,10 +173,22 @@ export function DocumentComposerReplyWatcher() {
     if (!conversationId || !stopAwaitingReply(conversationId)) {
       return;
     }
+    // The conversation belongs to the assistant that replied, so the action
+    // is inert once the user has switched to a different one.
+    const repliedAssistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
     toast.success(t("documentComposer.assistantRepliedToast"), {
       action: {
         label: t("documentComposer.viewReply"),
-        onClick: () => navigateToConversation(navigate, conversationId),
+        onClick: () => {
+          if (
+            useResolvedAssistantsStore.getState().activeAssistantId !==
+            repliedAssistantId
+          ) {
+            return;
+          }
+          navigateToConversation(navigate, conversationId);
+        },
       },
     });
   });

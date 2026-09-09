@@ -37,6 +37,9 @@ const { useConversationStore } = await import("@/stores/conversation-store");
 const { useDocumentComposerReplyStore } = await import(
   "@/domains/chat/document-composer-reply-store"
 );
+const { useResolvedAssistantsStore } = await import(
+  "@/stores/resolved-assistants-store"
+);
 const { publish } = await import("@/lib/event-bus");
 const { DocumentComposerReplyWatcher } = await import(
   "@/domains/chat/components/document-composer-reply-watcher"
@@ -208,6 +211,7 @@ beforeEach(() => {
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
   });
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   navigateSpy.mockClear();
   navigateToConversationMock.mockClear();
   toastSuccessMock.mockClear();
@@ -249,6 +253,23 @@ describe("DocumentComposerReplyWatcher", () => {
       navigateSpy,
       "conv-1",
     );
+  });
+
+  test("the toast's action is inert once another assistant is active", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishMessageComplete("conv-1");
+
+    const options = toastSuccessMock.mock.calls[0]?.[1] as {
+      action: { onClick: () => void };
+    };
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    options.action.onClick();
+
+    // conv-1 belongs to the assistant that replied, so selecting it under a
+    // different one would open the wrong conversation.
+    expect(navigateToConversationMock).not.toHaveBeenCalled();
   });
 
   test("ignores a message_complete for a conversation nobody is waiting on", () => {
