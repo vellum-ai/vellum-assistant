@@ -103,7 +103,7 @@ export interface SameActorLiveArgs {
 export interface SameActorPersistedArgs {
   sourceActorPrincipalId: string | undefined;
   targetActorPrincipalId: string | undefined;
-  targetClientId: string;
+  targetClientId?: string;
   op: SameActorOp;
   /**
    * Fill-if-missing fallback for dev-bypass deployments: when the PERSISTED
@@ -136,12 +136,15 @@ function isLive(
 function detectRejection(
   args: SameActorLiveArgs | SameActorPersistedArgs,
 ): RejectionReason | undefined {
-  const { sourceActorPrincipalId, targetClientId, op } = args;
+  const { sourceActorPrincipalId, op } = args;
+  const targetClientId = args.targetClientId;
   const targetActorPrincipalId = isLive(args)
-    ? args.hub.getActorPrincipalIdForClient(targetClientId)
+    ? args.hub.getActorPrincipalIdForClient(args.targetClientId)
     : (args.targetActorPrincipalId ??
-      (isHttpAuthDisabled()
-        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(targetClientId)
+      (isHttpAuthDisabled() && targetClientId
+        ? args.hubForMissingTarget?.getActorPrincipalIdForClient(
+            targetClientId,
+          )
         : undefined));
 
   let reason: RejectionReason | undefined;
@@ -259,6 +262,27 @@ export function pickSameUserAutoResolve(args: {
     return { kind: "match", clientId: sameUser[0].clientId };
   }
   return { kind: "ambiguous" };
+}
+
+/**
+ * Actor principal persisted on a host-proxy pending interaction.
+ *
+ * Targeted dispatch snapshots the target client's actor. Untargeted dispatch
+ * snapshots the turn's source actor so result routes can still reject a
+ * different principal even when no `targetClientId` was bound.
+ */
+export function snapshotHostProxyActorPrincipalId(args: {
+  hub: Pick<AssistantEventHub, "getActorPrincipalIdForClient">;
+  targetClientId?: string;
+  sourceActorPrincipalId?: string;
+}): string | undefined {
+  if (args.targetClientId != null) {
+    return (
+      args.hub.getActorPrincipalIdForClient(args.targetClientId) ??
+      args.sourceActorPrincipalId
+    );
+  }
+  return args.sourceActorPrincipalId;
 }
 
 /**

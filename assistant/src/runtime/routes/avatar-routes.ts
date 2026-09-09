@@ -26,7 +26,6 @@ import {
   ensureAvatarRaster,
   ensureAvatarRasterPath,
 } from "../../avatar/ensure-raster.js";
-import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import type { CharacterTraits } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
@@ -34,9 +33,16 @@ import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { detectMediaType } from "../../tools/shared/filesystem/image-read.js";
 import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { getLogger } from "../../util/logger.js";
-import { getAvatarDir, getWorkspaceDir } from "../../util/platform.js";
+import {
+  getAvatarDir,
+  getAvatarImagePath,
+  getWorkspaceDir,
+} from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
-import { publishAvatarChanged } from "../sync/resource-sync-events.js";
+import {
+  getOriginClientId,
+  publishAvatarChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   RouteError,
@@ -111,12 +117,12 @@ async function handleSetAvatarAccent({ body, headers }: RouteHandlerArgs) {
     }
   }
 
-  const state = await setAccent(hex);
+  const state = await setAccent(hex, {
+    originClientId: getOriginClientId(headers),
+  });
   if (!state) {
     throw new BadRequestError("No avatar to set an accent on");
   }
-
-  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return state;
 }
 
@@ -135,7 +141,9 @@ function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  const result = setCharacter(traits);
+  const result = setCharacter(traits, {
+    originClientId: getOriginClientId(headers),
+  });
 
   if (!result.ok) {
     switch (result.reason) {
@@ -147,15 +155,12 @@ function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
         throw new RouteError(result.message, "INTERNAL_ERROR", 500);
     }
   }
-
-  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true };
 }
 
 async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
-  const description = (body as Record<string, unknown>)?.description as
-    | string
-    | undefined;
+  const raw = (body as Record<string, unknown>)?.description;
+  const description = typeof raw === "string" ? raw.trim() : "";
   if (!description) {
     throw new BadRequestError("description is required");
   }
@@ -176,11 +181,10 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
     throw new ServiceUnavailableError(result.content);
   }
 
-  // Route through the store: atomically writes the PNG, removes the now-stale
-  // character sidecars (traits + ASCII), and records an AI-sourced manifest.
-  await setImage(result.pngBuffer, "ai");
-
-  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+  await setImage(result.pngBuffer, "ai", {
+    originClientId: getOriginClientId(headers),
+    imageDescription: description,
+  });
   return { ok: true, message: result.content };
 }
 
@@ -224,11 +228,9 @@ async function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  // Route through the store: atomically writes the PNG, removes the now-stale
-  // character sidecars (traits + ASCII), and records an uploaded-image manifest.
-  await setImage(buffer, "upload");
-
-  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+  await setImage(buffer, "upload", {
+    originClientId: getOriginClientId(headers),
+  });
   return { ok: true };
 }
 
@@ -256,11 +258,9 @@ async function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError(`Image file not found: ${normalized}`);
   }
 
-  // Route through the store so traits sidecars are cleared and the manifest is
-  // recorded as an uploaded image atomically (no more stale both-files state).
-  await setImage(readFileSync(normalized), "upload");
-
-  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+  await setImage(readFileSync(normalized), "upload", {
+    originClientId: getOriginClientId(headers),
+  });
   return { ok: true };
 }
 
@@ -277,13 +277,7 @@ function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
   // nothing to revert to — the legacy "re-render character from traits" branch
   // has been removed. avatar/remove is now a plain clear, reachable only via
   // CLI/host.
-  clearAvatar();
-
-  updateIdentityAvatarSection(
-    "Default character avatar (no custom image set)",
-    log,
-  );
-  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+  clearAvatar({ originClientId: getOriginClientId(headers) });
   return { ok: true, hadAvatar };
 }
 
@@ -490,9 +484,7 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: LOCAL_PRINCIPALS,
     },
     handler: ({ headers }: RouteHandlerArgs) => {
-      publishAvatarChanged(
-        headers?.["x-vellum-client-id"]?.trim() || undefined,
-      );
+      publishAvatarChanged(getOriginClientId(headers));
       return { ok: true };
     },
     summary: "Notify avatar updated",
@@ -516,6 +508,27 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["avatar"],
     requestBody: z.object({ description: z.string() }),
     responseBody: z.object({ ok: z.boolean(), message: z.string() }),
+  },
+  {
+    // Swift macOS clients post here and read `avatarPath`: an alias of
+    // avatar/generate with the response shape they need.
+    operationId: "settings_avatar_generate_post",
+    endpoint: "settings/avatar/generate",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: async (args: RouteHandlerArgs) => {
+      await handleGenerateAvatar(args);
+      return { ok: true, avatarPath: getAvatarImagePath() };
+    },
+    summary: "Generate AI avatar (legacy alias)",
+    description:
+      "Alias of avatar/generate kept for older clients; returns the avatar image path.",
+    tags: ["settings"],
+    requestBody: z.object({ description: z.string() }),
+    responseBody: z.object({ ok: z.boolean(), avatarPath: z.string() }),
   },
   {
     operationId: "avatar_set",

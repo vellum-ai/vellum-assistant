@@ -7,20 +7,11 @@
 import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import {
-  enforceSameActorOrThrow,
-  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
-} from "../auth/same-actor.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { SAME_ACTOR_FORBIDDEN_DESCRIPTION } from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from "./errors.js";
+import { ConflictError, NotFoundError } from "./errors.js";
+import { assertHostProxyResultBinding } from "./host-proxy-result-binding.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -69,38 +60,14 @@ async function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  // Validate submitting client matches the targeted client (if any).
-  if (peeked.targetClientId != null) {
-    const headerMap = (headers as Record<string, string | undefined>) ?? {};
-    const submittingClientId =
-      headerMap["x-vellum-client-id"]?.trim() || undefined;
-    if (!submittingClientId) {
-      throw new BadRequestError(
-        "x-vellum-client-id header is missing for a targeted host file request.",
-      );
-    }
-    if (submittingClientId !== peeked.targetClientId) {
-      throw new ForbiddenError(
-        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
-      );
-    }
-
-    // Defense-in-depth: also require the submitting actor's principal id to
-    // match the actor that opened the target client's SSE stream. This blocks
-    // cross-user submissions even if a different user somehow obtains the
-    // target client id.
-    const submittingActorPrincipalId =
-      await resolveActorPrincipalIdForLocalGuardian(
-        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-      );
-    enforceSameActorOrThrow({
-      sourceActorPrincipalId: submittingActorPrincipalId,
-      targetActorPrincipalId: peeked.targetActorPrincipalId,
-      targetClientId: peeked.targetClientId,
-      op: "host_file",
-      hubForMissingTarget: assistantEventHub,
-    });
-  }
+  await assertHostProxyResultBinding({
+    headers: headers as Record<string, string | undefined> | undefined,
+    targetClientId: peeked.targetClientId,
+    targetActorPrincipalId: peeked.targetActorPrincipalId,
+    op: "host_file",
+    missingClientIdMessage:
+      "x-vellum-client-id header is missing for a targeted host file request.",
+  });
 
   HostFileProxy.instance.resolve(requestId, {
     content: content ?? "",

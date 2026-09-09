@@ -124,8 +124,8 @@ describe("ActivityStepsPanel — level 2 drill-in", () => {
       queryByText,
     } = renderPanel();
     fireEvent.click(getByLabelText("View details: Checking git status"));
-    // Level 2: the tool detail body (tool name + input + output).
-    expect(getByText("Bash")).toBeTruthy();
+    // Level 2: the tool detail, headed by the tool and showing its output.
+    expect(getByText("Run Command")).toBeTruthy();
     expect(getByText("On branch main")).toBeTruthy();
     // The timeline is replaced, and the header swaps to the step's title with
     // the back chevron on its left (the run summary is gone). The header owns

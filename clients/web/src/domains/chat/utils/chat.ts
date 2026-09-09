@@ -23,6 +23,11 @@ import {
   clientOsDisplayName,
   detectClientOs,
 } from "@/runtime/platform-detection";
+import {
+  COMMAND_KEYS,
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
@@ -519,12 +524,15 @@ export function deriveCommandText(
   if (!input) {
     return toolName;
   }
-  const preferredKeys = ["command", "cmd", "path", "file", "url"];
-  for (const key of preferredKeys) {
-    const val = input[key];
-    if (typeof val === "string" && val.trim()) {
-      return val.trim();
-    }
+  const preferred = readToolInputString(
+    input,
+    ...COMMAND_KEYS,
+    ...FILE_PATH_KEYS,
+    "file",
+    "url",
+  );
+  if (preferred) {
+    return preferred;
   }
   for (const val of Object.values(input)) {
     if (typeof val === "string" && val.trim()) {

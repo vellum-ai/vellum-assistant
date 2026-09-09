@@ -81,6 +81,7 @@ function createRecordingGate(): {
     observe(grid, nowMs) {
       observed.push({ grid, cells: Array.from(grid), nowMs });
     },
+    adopt() {},
     armForcedKeep() {},
     reset() {},
   };

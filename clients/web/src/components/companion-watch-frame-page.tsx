@@ -1,5 +1,6 @@
 /**
- * The frame around what is being read: a border, and nothing inside it.
+ * The frame around what is being read: a border, and one line of words at
+ * the top of it.
  *
  * Drawn in its own click-through window, which the macOS shell opens for a
  * watch session or a call's screen share, sizes to whatever is being read (a
@@ -11,12 +12,18 @@
  *
  * Both kinds of read get the same border, because the fact the border states
  * is the same one: this surface is leaving the machine. Which control started
- * it is the pill's business, not the desktop's.
+ * it is the pill's business, not the desktop's. The label is where the two
+ * part: it says which way the surface is leaving and to whom, in words, and
+ * stays up for as long as the border does. An edge alone is a thing the eye
+ * can learn to stop seeing; a sentence at the top of the screen is not.
  *
  * A border and no glow, deliberately. A frame's job is to say exactly where
  * the read stops, and light bleeding inward from the edge says the opposite:
  * it dims the thing the user is working on and makes the boundary a
- * gradient. The edge is the whole signal.
+ * gradient. The edge is the whole signal, so it is drawn to hold on any
+ * background: the accent between a white hairline and a dark rim, rather
+ * than the accent alone, which vanishes against a wallpaper near its own
+ * colour.
  *
  * Drawn in the assistant's own accent, the colour the call pill is ringed in,
  * and resolved through the same `companionAccentHexFor` the surface uses so
@@ -39,7 +46,7 @@
  * does not own.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 import {
   companionAccentHexFor,
@@ -47,11 +54,93 @@ import {
 } from "@/components/companion-accent";
 import { CompanionCoachmarks } from "@/components/companion-coachmarks";
 import { CompanionShareAnnotation } from "@/components/companion-share-annotation";
+import { useTranslation } from "@/i18n";
 import {
   getCompanionState,
   subscribeCompanionState,
 } from "@/runtime/companion-surface";
-import type { CompanionSurfaceState } from "@vellumai/ipc-contract";
+import type {
+  CompanionSurfaceState,
+  WatchCaptureTarget,
+} from "@vellumai/ipc-contract";
+
+/**
+ * What the frame is around, as the one thing the label has to say.
+ *
+ * The watch session first, because the shell frames it first (`framedTarget`
+ * in `companion-window.ts`): while both run, the window this is drawn in is
+ * around the watched surface, and a label naming the share would be a
+ * sentence about a surface this window is not on.
+ */
+type FramedRead =
+  | { kind: "teaching" }
+  | { kind: "sharing"; target: WatchCaptureTarget };
+
+function framedRead(
+  watching: boolean,
+  screenShare: WatchCaptureTarget | undefined,
+): FramedRead | null {
+  if (watching) {
+    return { kind: "teaching" };
+  }
+  if (screenShare !== undefined) {
+    return { kind: "sharing", target: screenShare };
+  }
+  return null;
+}
+
+/**
+ * The words at the top of the framed surface: what is happening to it, and
+ * the name of the assistant it is happening to.
+ *
+ * A display and a window are told apart because the difference is the one
+ * the user cares about: a shared window is one thing, a shared screen is
+ * everything on it. A Chrome tab reaches here as the window it was raised
+ * into, so it reads as a window, which is what is on screen.
+ *
+ * Named after the assistant when the app has said who that is, and plain
+ * when it has not, the way the call pill's "Calling" is: a name the shell
+ * has not published yet is not one to leave a hole for.
+ */
+function CompanionWatchFrameLabel({
+  read,
+  assistantName,
+  style,
+}: {
+  read: FramedRead;
+  assistantName: string;
+  style: CSSProperties | undefined;
+}) {
+  const { t } = useTranslation();
+  const named = assistantName !== "";
+  const words =
+    read.kind === "teaching"
+      ? named
+        ? t("companionWatchFramePage.teachingNamed", { name: assistantName })
+        : t("companionWatchFramePage.teaching")
+      : read.target.kind === "display"
+        ? named
+          ? t("companionWatchFramePage.sharingScreenNamed", {
+              name: assistantName,
+            })
+          : t("companionWatchFramePage.sharingScreen")
+        : named
+          ? t("companionWatchFramePage.sharingWindowNamed", {
+              name: assistantName,
+            })
+          : t("companionWatchFramePage.sharingWindow");
+  return (
+    <div
+      className="companion-watch-frame-label"
+      data-testid="companion-watch-frame-label"
+      data-read={read.kind}
+      style={style}
+    >
+      <span className="companion-watch-frame-label-dot" />
+      {words}
+    </div>
+  );
+}
 
 /**
  * How many captures this window has watched arrive, which is not the same as
@@ -114,7 +203,10 @@ export function CompanionWatchFramePage() {
   // absence is nothing shared. The shell sizes this window to it; the page
   // only draws.
   const sharing = state?.screenShare !== undefined;
-  const lit = watching || sharing;
+  // The border and the label are up for exactly the same reads, so one
+  // answer serves both.
+  const read = framedRead(watching, state?.screenShare);
+  const lit = read !== null;
   // Counted against the watch session alone. `captureCount` is that session's
   // total and a share does not advance it, so a share left holding the frame
   // after a watch ended would sit on the last count that session reported and
@@ -138,6 +230,18 @@ export function CompanionWatchFramePage() {
     accentHex === undefined
       ? undefined
       : { ["--companion-ring-accent" as string]: accentHex };
+
+  // The label's, on top of the accent: how far down the framed surface it
+  // has to start to clear the menu bar, when a whole display is framed and
+  // the bar draws over the top of this window. The shell reports it from
+  // where it put the window; a shell that says nothing is one whose frame
+  // has no bar over it, or predates the field, and the label sits against
+  // the edge as it did.
+  const inset = state?.frameInsetTop ?? 0;
+  const labelStyle =
+    inset > 0
+      ? { ...accentStyle, ["--companion-frame-inset" as string]: `${inset}px` }
+      : accentStyle;
 
   // Read the same way `watching` is, and for the sharper version of the same
   // reason: this one decides whether the window under the pointer takes the
@@ -163,6 +267,16 @@ export function CompanionWatchFramePage() {
         <div
           className="companion-watch-frame fixed inset-0"
           style={accentStyle}
+        />
+      )}
+      {/* The sentence the edge cannot say. Drawn off the same read the edge
+          is, so the two go up and come down together, and inside the same
+          accent so the words and the border are one light. */}
+      {read !== null && (
+        <CompanionWatchFrameLabel
+          read={read}
+          assistantName={state?.assistantName ?? ""}
+          style={labelStyle}
         />
       )}
       {/* One capture, as a single brightening of the same edge. The frame

@@ -77,6 +77,30 @@ export function installIpcMock(): void {
       params?: Record<string, unknown>,
     ) => handleCall(method, params),
 
+    IpcCallError: class MockIpcCallError extends Error {
+      constructor(message: string) {
+        super(message);
+        this.name = "IpcCallError";
+      }
+    },
+    IpcConnectError: class MockIpcConnectError extends Error {
+      readonly code?: string;
+      constructor(message: string, code?: string) {
+        super(message);
+        this.name = "IpcConnectError";
+        if (code !== undefined) {
+          this.code = code;
+        }
+      }
+    },
+    isRetryableIpcConnectError: (err: unknown) => {
+      if (typeof err === "object" && err !== null && "code" in err) {
+        const code = (err as { code?: unknown }).code;
+        return code === "ENOENT" || code === "ECONNREFUSED";
+      }
+      return false;
+    },
+
     PersistentIpcClient: class MockPersistentIpcClient {
       async call(
         method: string,

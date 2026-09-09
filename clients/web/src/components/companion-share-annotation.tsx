@@ -25,12 +25,24 @@
  * annotation layer: the user pointed at something and the call has the
  * picture, and a circle still sitting on the screen a minute later is a
  * circle they have to clear up.
+ *
+ * **The app underneath stays scrollable.** This layer takes the wheel along
+ * with the presses, and a window cannot hand on a wheel event it has taken,
+ * so on the first one it asks main to make the frame click-through for the
+ * rest of the scroll (`setCompanionFrameScrolling`). Main takes the mouse
+ * back when the scroll ends, which it hears from the desktop, and this layer
+ * asks for it back on the first pointer move main forwards afterwards, in
+ * case that comes first. Drawing is a mode the user is in, not a lock on the
+ * surface they are sharing.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWindowBox } from "@/components/companion-window-box";
-import { annotateCompanionShare } from "@/runtime/companion-surface";
+import {
+  annotateCompanionShare,
+  setCompanionFrameScrolling,
+} from "@/runtime/companion-surface";
 import {
   COMPANION_ANNOTATION_MAX_POINTS,
   COMPANION_ANNOTATION_MAX_STROKES,
@@ -42,12 +54,20 @@ import {
  * How long a finished mark stays at full strength before it starts to go, and
  * how long it takes to go.
  *
- * The hold is there so the user sees the mark land: the frame leaves on the
- * same release, and a line that began dissolving as the hand came off would
- * read as a drawing that failed rather than one that was sent. The fade is
- * slow enough to be a departure rather than a blink.
+ * The hold is the time it takes to say what the mark is about. The frame
+ * leaves on the release, but the user is usually mid-sentence when the hand
+ * comes off ("this button, here"), and a circle that has dissolved before the
+ * sentence ends reads as a drawing that failed rather than one that was
+ * sent. Long enough for that sentence and for the assistant to start
+ * answering to it; short enough that the surface is clear again before the
+ * next thing worth pointing at. The fade is slow enough to be a departure
+ * rather than a blink.
+ *
+ * The overlay's stylesheet reads both through custom properties set on the
+ * layer, so the moment the element is dropped and the moment its fade ends
+ * are the same number.
  */
-export const COMPANION_INK_HOLD_MS = 500;
+export const COMPANION_INK_HOLD_MS = 4500;
 export const COMPANION_INK_FADE_MS = 900;
 
 /** A fraction of the shared surface, held inside it. */
@@ -79,6 +99,33 @@ export function movedEnough(
   return dx * dx + dy * dy >= COMPANION_ANNOTATION_MIN_STEP ** 2;
 }
 
+/** Lucide's `pencil`, as path data: a cursor is an image, not an element. */
+const PENCIL_MARKS =
+  '<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>' +
+  '<path d="m15 5 4 4"/>';
+
+/**
+ * The pointer while drawing is on: a pencil, in the ink the mark will be.
+ *
+ * This is how the user learns the mode took: the pill's control is behind
+ * them and the surface under the pointer is someone else's app, so the
+ * pointer is the only thing on screen that can say a press here is now a
+ * mark. Its colour is the mark's, for the same reason the frame's edge is.
+ *
+ * The ink is laid over a white halo so the pencil holds over a dark editor
+ * and a white page alike. The hotspot is the pencil's tip, so a mark starts
+ * where the pencil points. A crosshair stands behind it for a browser that
+ * refuses the image.
+ */
+export function pencilCursor(ink: string): string {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+    `<g stroke="#ffffff" stroke-width="4">${PENCIL_MARKS}</g>` +
+    `<g stroke="${ink}" stroke-width="2">${PENCIL_MARKS}</g>` +
+    "</svg>";
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 22, crosshair`;
+}
+
 export function CompanionShareAnnotation({ ink }: { ink: string }) {
   const [strokes, setStrokes] = useState<readonly LiveStroke[]>([]);
   /**
@@ -92,6 +139,17 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
    */
   const live = useRef<readonly LiveStroke[]>([]);
   const drawing = useRef<number | null>(null);
+  /**
+   * Whether this layer last asked main to step aside for a scroll.
+   *
+   * Kept for the way back only, so a pointer resting after a scroll, which
+   * is many moves, asks for the mouse once. It is not the truth about the
+   * frame: main takes the mouse back on its own when the desktop says the
+   * scroll has ended, and this layer is not told. So a wheel event never
+   * reads it. One reaching this layer at all means the frame is holding the
+   * mouse right now, whatever was asked for last.
+   */
+  const scrolling = useRef(false);
   const nextId = useRef(0);
   // The timers dropping spent marks once they have finished fading, cleared on
   // unmount so nothing is left to write to a component that has gone.
@@ -157,7 +215,49 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
     y: box.height === 0 ? 0 : clamp(event.clientY / box.height),
   });
 
+  /**
+   * A wheel event on the layer is a scroll meant for the app under it, and
+   * this window cannot hand it on: a window taking presses takes the wheel
+   * with them. What it can do is ask main to stop taking them, so the rest of
+   * the scroll reaches the app underneath. The one event that got here is
+   * the price of finding out.
+   *
+   * Every one, not the first: while the frame is stepped aside the wheel
+   * goes to the app and none arrive here, so one that does arrive is the
+   * start of a scroll the frame is taking, either the first or the next
+   * after main took the mouse back on its own. Main ignores an ask that
+   * changes nothing.
+   *
+   * Not mid-stroke. The hand is down and captured, and a frame that let go
+   * of the mouse now would lose the release that sends the mark and lifts
+   * the hold on the session's frames.
+   */
+  const handleWheel = (): void => {
+    if (drawing.current !== null) {
+      return;
+    }
+    scrolling.current = true;
+    setCompanionFrameScrolling(true);
+  };
+
+  /**
+   * Take the mouse back after a scroll. Main forwards mouse-move while the
+   * frame is stepped aside, so the first move to arrive is a hand that has
+   * stopped scrolling and is pointing at something again. Main also takes it
+   * back on its own when the desktop says the scroll has ended, so a press
+   * with no move before it still lands here; that path never reaches this
+   * layer, and the flag here is cleared by the next move either way.
+   */
+  const reclaim = (): void => {
+    if (!scrolling.current) {
+      return;
+    }
+    scrolling.current = false;
+    setCompanionFrameScrolling(false);
+  };
+
   const handleDown = (event: React.PointerEvent<SVGSVGElement>): void => {
+    reclaim();
     if (drawing.current !== null) {
       return;
     }
@@ -176,6 +276,7 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   };
 
   const handleMove = (event: React.PointerEvent<SVGSVGElement>): void => {
+    reclaim();
     const id = drawing.current;
     if (id === null) {
       return;
@@ -239,16 +340,27 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   // so this line and the one drawn onto the captured frame carry the same
   // weight relative to the surface they are on.
   const width = COMPANION_ANNOTATION_STROKE * Math.min(box.width, box.height);
+  // Built once per colour rather than on every move: the layer re-renders as
+  // the hand travels, and the cursor does not change under it.
+  const cursor = useMemo(() => pencilCursor(ink), [ink]);
 
   return (
     <svg
       className="companion-share-annotation fixed inset-0 h-full w-full"
+      style={
+        {
+          cursor,
+          "--companion-ink-hold": `${COMPANION_INK_HOLD_MS}ms`,
+          "--companion-ink-fade": `${COMPANION_INK_FADE_MS}ms`,
+        } as React.CSSProperties
+      }
       data-testid="companion-share-annotation"
       role="presentation"
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={handleUp}
       onPointerCancel={handleUp}
+      onWheel={handleWheel}
     >
       {strokes.map((stroke) => (
         <Ink

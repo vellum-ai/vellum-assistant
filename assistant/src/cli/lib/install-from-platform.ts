@@ -29,6 +29,10 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import {
+  MALFORMED_USTAR_SIZE,
+  parseUstarSizeField,
+} from "../../archive/ustar-size.js";
 import { getPlatformBaseUrl } from "../../config/env.js";
 import { getExistingDeviceId } from "../../util/device-id.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
@@ -593,18 +597,12 @@ function readHeaderName(header: Buffer): string {
   return prefix ? `${prefix}/${name}` : name;
 }
 
-/** Parse the octal `size` field (bytes 124–136). */
 function parseTarSize(pluginName: string, header: Buffer): number {
-  const raw = header
-    .subarray(124, 136)
-    .toString("utf-8")
-    .replace(/\0/g, "")
-    .trim();
-  const size = raw ? Number.parseInt(raw, 8) : 0;
-  if (!Number.isFinite(size) || size < 0) {
-    throw new PluginArchiveError(pluginName, "malformed tar size field");
+  try {
+    return parseUstarSizeField(header);
+  } catch {
+    throw new PluginArchiveError(pluginName, MALFORMED_USTAR_SIZE);
   }
-  return size;
 }
 
 /** Decode a NUL-terminated field to a UTF-8 string. */

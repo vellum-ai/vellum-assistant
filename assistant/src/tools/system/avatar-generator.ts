@@ -17,7 +17,7 @@ export interface AvatarGenerationResult {
  * the bytes through the avatar store (`setImage`) so the manifest and artifacts
  * stay consistent.
  *
- * Used by the HTTP route handler at POST /v1/settings/avatar/generate.
+ * Used by the HTTP route handler at POST /v1/avatar/generate.
  */
 export async function generateAvatarImage(
   description: string,

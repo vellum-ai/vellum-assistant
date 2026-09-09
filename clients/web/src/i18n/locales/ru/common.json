@@ -35,6 +35,14 @@
     "next": "Далее",
     "done": "Понятно"
   },
+  "companionWatchFramePage": {
+    "sharingScreen": "Показываем ваш экран",
+    "sharingScreenNamed": "Показываем ваш экран {name}",
+    "sharingWindow": "Показываем окно",
+    "sharingWindowNamed": "Показываем окно {name}",
+    "teaching": "Обучаем",
+    "teachingNamed": "Обучаем {name}"
+  },
   "deployStore": {
     "appExported": "Приложение экспортировано",
     "deployFailed": "Не удалось опубликовать",
