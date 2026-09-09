@@ -9,7 +9,7 @@
  * shows the fetched path without a daemon behind it.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
@@ -22,6 +22,7 @@ import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attach
 import { CHAT_INFO_ASSISTANT_ID } from "@/domains/chat/components/chat-info-story-fixtures";
 import {
   CHAT_INFO_T0,
+  makeChatInfoQueryClient,
   makeDocumentAsset,
   makeDocumentSummary,
   makeFileAsset,
@@ -95,9 +96,7 @@ const FRAME_FILE = makeFrameAsset(
   CHAT_INFO_T0,
 );
 
-const storyClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const storyClient = makeChatInfoQueryClient();
 // The bytes the daemon would return, decoded from a sample preview data URL.
 storyClient.setQueryData(
   attachmentContentQueryKey(CHAT_INFO_ASSISTANT_ID, LAZY_IMAGE_ATTACHMENT.id),

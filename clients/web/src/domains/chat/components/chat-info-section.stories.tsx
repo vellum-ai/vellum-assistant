@@ -11,16 +11,21 @@
  * it under a row that looks complete.
  *
  * Read the phone stories at the Mobile viewports: the frame draws
- * `DetailShell`'s lift surface and 20px body inset, which the strip cancels.
+ * `DetailShell`'s lift surface and body inset, which the strip cancels.
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
+import { DETAIL_SHELL_BODY_INSET_PX } from "@/components/detail-shell";
 import {
   makeMixedAttachments,
   makePreviewableImages,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
+import {
+  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_NARROW_PHONE_PX,
+} from "@/domains/chat/components/chat-info.test-helper";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import {
@@ -40,22 +45,31 @@ const FITTING_SET: DisplayAttachment[] = [
   ...makeMixedAttachments().filter((file) => file.previewUrl === null),
 ];
 
-/** The drawer body's column on the desktop mock: 569px inside `DetailShell`'s lift surface and 20px inset. */
+/** The drawer body's column on the desktop mock, inside `DetailShell`'s lift surface and body inset. */
 const inDrawerColumn: Decorator = (Story) => (
-  <div className="bg-[var(--surface-lift)] p-5">
-    <div className="w-[569px]">
+  <div
+    className="bg-[var(--surface-lift)]"
+    style={{ padding: DETAIL_SHELL_BODY_INSET_PX }}
+  >
+    <div style={{ width: CHAT_INFO_DRAWER_WIDTH_PX }}>
       <Story />
     </div>
   </div>
 );
 
 /**
- * A phone page at the shell's 20px body inset, which the strip's negative
- * margin cancels so the tiles run to the screen edge and the last one is cut
- * off, as in the mobile mock.
+ * A phone page at the shell's body inset, which the strip's negative margin
+ * cancels so the tiles run to the screen edge and the last one is cut off, as
+ * in the mobile mock.
  */
 const inPhonePage: Decorator = (Story) => (
-  <div className="max-w-[402px] bg-[var(--surface-lift)] p-5">
+  <div
+    className="bg-[var(--surface-lift)]"
+    style={{
+      maxWidth: CHAT_INFO_NARROW_PHONE_PX,
+      padding: DETAIL_SHELL_BODY_INSET_PX,
+    }}
+  >
     <Story />
   </div>
 );

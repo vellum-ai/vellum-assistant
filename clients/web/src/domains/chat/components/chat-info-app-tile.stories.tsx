@@ -7,35 +7,30 @@
  * tile to see the options menu appear; on a touch device it is always visible.
  */
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
 import {
   CHAT_INFO_ASSISTANT_ID,
-  chatInfoPreviewHtml,
+  CHAT_INFO_CONVERSATION_ID,
+  chatInfoApps,
+  primeChatInfoAppPreviews,
 } from "@/domains/chat/components/chat-info-story-fixtures";
-import { makeAppSummary } from "@/domains/chat/components/chat-info.test-helper";
-import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { AppSummary } from "@/types/app-types";
-import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import {
+  CHAT_INFO_DRAWER_WIDTH_PX,
+  makeAppSummary,
+  makeChatInfoQueryClient,
+  seedChatInfoConversation,
+} from "@/domains/chat/components/chat-info.test-helper";
 
 import { ChatInfoAppTile } from "./chat-info-app-tile";
 
-const TRIP_PLANNER = makeAppSummary({
-  id: "app-trip-planner",
-  name: "Trip Planner",
-});
-const PACKING_LIST = makeAppSummary({
-  id: "app-packing-list",
-  name: "Packing List",
-  icon: "🧳",
-});
-const FERRY_TIMES = makeAppSummary({
-  id: "app-ferry-times",
-  name: "Ferry Times",
-  icon: "⛴️",
-});
+const FEATURED = chatInfoApps(3);
+const TRIP_PLANNER = FEATURED[0]!;
+const PACKING_LIST = FEATURED[1]!;
+const FERRY_TIMES = FEATURED[2]!;
+
 const LONG_NAME = makeAppSummary({
   id: "app-itinerary",
   name: "Coastal Itinerary and Harbour Tour Booking Planner",
@@ -48,31 +43,16 @@ const NO_PREVIEW = makeAppSummary({
   icon: "📓",
 });
 
-const PRIMED: Array<[AppSummary, string[]]> = [
-  [TRIP_PLANNER, ["Book the ferry", "Pack a rain shell", "Confirm the tour"]],
-  [PACKING_LIST, ["Rain shell", "Walking boots", "Ferry tickets"]],
-  [FERRY_TIMES, ["07:40 harbour", "11:15 harbour", "16:50 harbour"]],
-  [LONG_NAME, ["Day 1 coast road", "Day 2 harbour", "Day 3 return"]],
-];
+const PRIMED = [...FEATURED, LONG_NAME];
+primeChatInfoAppPreviews(CHAT_INFO_ASSISTANT_ID, PRIMED);
 
-for (const [app, items] of PRIMED) {
-  primeAppHtmlCache(
-    CHAT_INFO_ASSISTANT_ID,
-    app.id,
-    chatInfoPreviewHtml(app.name, items),
-  );
-}
-
-const storyClient = new QueryClient({
-  defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-});
+const storyClient = makeChatInfoQueryClient();
 // The options menu reads the app list to know whether the app is pinned.
-storyClient.setQueryData(
-  appsGetQueryKey({ path: { assistant_id: CHAT_INFO_ASSISTANT_ID } }),
-  {
-    apps: [TRIP_PLANNER, PACKING_LIST, FERRY_TIMES, LONG_NAME, NO_PREVIEW],
-  },
-);
+seedChatInfoConversation(storyClient, {
+  assistantId: CHAT_INFO_ASSISTANT_ID,
+  conversationId: CHAT_INFO_CONVERSATION_ID,
+  apps: [...PRIMED, NO_PREVIEW],
+});
 
 const withPrimedPreviews: Decorator = (Story) => (
   <QueryClientProvider client={storyClient}>
@@ -106,7 +86,7 @@ export const Default: Story = {};
 export const Stretched: Story = {
   args: { stretch: true },
   render: (args) => (
-    <div className="flex w-[569px] gap-2">
+    <div className="flex gap-2" style={{ width: CHAT_INFO_DRAWER_WIDTH_PX }}>
       <ChatInfoAppTile {...args} app={TRIP_PLANNER} />
       <ChatInfoAppTile {...args} app={PACKING_LIST} />
       <ChatInfoAppTile {...args} app={FERRY_TIMES} />

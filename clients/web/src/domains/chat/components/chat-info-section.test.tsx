@@ -22,37 +22,30 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DETAIL_SHELL_BODY_INSET_PX } from "@/components/detail-shell";
 import { CHAT_INFO_APP_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-app-tile";
 import { CHAT_INFO_FILE_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-file-tile";
-import type * as ElementSizeModule from "@/hooks/use-element-size";
-import type * as IsMobileModule from "@/hooks/use-is-mobile";
+import {
+  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_NARROW_PHONE_PX,
+  makeElementSizeMock,
+  makeIsMobileMock,
+} from "@/domains/chat/components/chat-info.test-helper";
 
-const widthRef = { value: 569 };
+const widthRef = { value: CHAT_INFO_DRAWER_WIDTH_PX };
 const isMobileRef = { value: false };
 
-mock.module(
-  "@/hooks/use-element-size",
-  (): Partial<typeof ElementSizeModule> => ({
-    useElementSize: () => ({
-      ref: () => {},
-      size: { w: widthRef.value, h: 0 },
-    }),
-  }),
+mock.module("@/hooks/use-element-size", () =>
+  makeElementSizeMock(() => widthRef.value),
 );
 
-mock.module(
-  "@/hooks/use-is-mobile",
-  (): Partial<typeof IsMobileModule> => ({
-    useIsMobile: () => isMobileRef.value,
-    MOBILE_MEDIA_QUERY: "(max-width: 767px)",
-  }),
+mock.module("@/hooks/use-is-mobile", () =>
+  makeIsMobileMock(() => isMobileRef.value),
 );
 
 const { ChatInfoSection, fitTileCount } =
   await import("@/domains/chat/components/chat-info-section");
 
-/** The drawer's body width on the desktop mock. */
-const DRAWER_WIDTH = 569;
-/** What a 402px phone leaves once the body takes its inset off both edges. */
-const NARROW_COLUMN_WIDTH = 402 - DETAIL_SHELL_BODY_INSET_PX * 2;
+/** What the narrowest phone leaves once the body takes its inset off both edges. */
+const NARROW_COLUMN_WIDTH =
+  CHAT_INFO_NARROW_PHONE_PX - DETAIL_SHELL_BODY_INSET_PX * 2;
 
 const SEE_ALL_ARIA = "See all apps";
 const TILE_TESTID = "section-tile";
@@ -104,7 +97,7 @@ function seeAll(): HTMLElement | null {
 }
 
 beforeEach(() => {
-  widthRef.value = DRAWER_WIDTH;
+  widthRef.value = CHAT_INFO_DRAWER_WIDTH_PX;
   isMobileRef.value = false;
 });
 
@@ -118,8 +111,8 @@ afterAll(() => {
 
 describe("fitTileCount", () => {
   test.each([
-    [DRAWER_WIDTH, CHAT_INFO_APP_TILE_WIDTH_PX, 3],
-    [DRAWER_WIDTH, CHAT_INFO_FILE_TILE_WIDTH_PX, 4],
+    [CHAT_INFO_DRAWER_WIDTH_PX, CHAT_INFO_APP_TILE_WIDTH_PX, 3],
+    [CHAT_INFO_DRAWER_WIDTH_PX, CHAT_INFO_FILE_TILE_WIDTH_PX, 4],
     [378, CHAT_INFO_APP_TILE_WIDTH_PX, 2],
     [378, CHAT_INFO_FILE_TILE_WIDTH_PX, 2],
     [0, CHAT_INFO_FILE_TILE_WIDTH_PX, 1],
