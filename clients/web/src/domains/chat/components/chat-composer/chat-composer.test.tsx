@@ -730,6 +730,7 @@ beforeEach(() => {
   // them between tests so seeded values can't leak across cases.
   useComposerStore.setState({
     input: "",
+    documentInput: "",
     attachments: [],
     attachmentLastError: null,
     restoredDraftConversationId: null,
@@ -2288,6 +2289,40 @@ describe("Slash popup — SSR rendering", () => {
     // that the role="listbox" is absent when no slash input is active.
     const html = renderComposer({ input: "" });
     expect(html).not.toContain('role="listbox"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Slash commands are main-slot only
+//
+// The popup is portaled out of the composer's own container, so these read
+// `document.body`. Typing goes through the textarea so each case exercises the
+// slot the composer actually reads its draft from.
+// ---------------------------------------------------------------------------
+
+const slashPopup = () => document.body.querySelector('[role="listbox"]');
+
+describe("Slash popup: the document slot is not offered commands", () => {
+  test("typing a slash into the document composer opens no popup", () => {
+    // GIVEN the composer pinned to the document editor, whose submit posts
+    // straight at the document with no command dispatch behind it
+    const { container } = renderComposerView({ slot: "document" });
+
+    // WHEN the user types the slash that would trigger the popup
+    typeDraft(container, "/");
+
+    // THEN nothing is offered, so no command can be sent as literal text
+    expect(useComposerStore.getState().documentInput).toBe("/");
+    expect(slashPopup()).toBeNull();
+  });
+
+  test("typing a slash into the main composer still opens the popup", () => {
+    const { container } = renderComposerView();
+
+    typeDraft(container, "/");
+
+    expect(useComposerStore.getState().input).toBe("/");
+    expect(slashPopup()).not.toBeNull();
   });
 });
 

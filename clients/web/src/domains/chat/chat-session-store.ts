@@ -523,6 +523,10 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       // the outgoing assistant too, and are just as dead as the main slot's.
       useComposerStore.getState().fullReset();
       useComposerStore.getState().fullReset("document");
+      // The document slot has no draft persistence, so nothing else clears its
+      // text and the outgoing assistant's would greet the incoming one. The
+      // main slot's text belongs to `handleConversationSwitch` above.
+      useComposerStore.getState().setInput("", "document");
     } else {
       // Same assistant, different conversation — keep blob URLs for sent messages.
       useComposerStore.getState().resetAttachments();

@@ -577,6 +577,8 @@ describe("chat-session-store: composer reset on assistant switch", () => {
       activeConversationId: "conv-A",
     });
     useComposerStore.setState({
+      input: "main draft",
+      documentInput: "document draft",
       attachments: [
         {
           kind: "uploaded",
@@ -610,5 +612,18 @@ describe("chat-session-store: composer reset on assistant switch", () => {
 
     expect(useComposerStore.getState().attachments).toHaveLength(0);
     expect(useComposerStore.getState().documentAttachments).toHaveLength(0);
+    // The document slot has no draft map to restore from, so its text has to
+    // be cleared outright or the outgoing assistant's survives the switch.
+    expect(useComposerStore.getState().documentInput).toBe("");
+    // The main slot stays with draft persistence: conv-B has no saved draft,
+    // and conv-A's text comes back when it does.
+    expect(useComposerStore.getState().input).toBe("");
+
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    expect(useComposerStore.getState().input).toBe("main draft");
+    expect(useComposerStore.getState().documentInput).toBe("");
   });
 });

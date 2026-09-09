@@ -9,7 +9,9 @@
  * Deliberately thinner than `useComposerSubmit` + `useSendMessage`: this
  * surface has no transcript to reconcile against, so there is no optimistic
  * message row, no turn-store phase flip, and no SSE stream to fold, just a
- * direct POST and a local status the caller renders.
+ * POST and a local status the caller renders. A fresh draft mints its
+ * conversation first, so the document is already linked to it when the
+ * daemon assembles the first turn's context.
  *
  * Also raises the inline "Sent" toast with a "View conversation" action on
  * send. The follow-up "Assistant replied" toast is not owned here: this hook
@@ -28,6 +30,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { postChatMessage } from "@/domains/chat/api/messages";
+import { conversationsPost } from "@/generated/daemon/sdk.gen";
 import {
   selectUploadedIds,
   selectUploadingCount,
@@ -132,19 +135,51 @@ export function useDocumentComposerSubmit({
       const resolvedId = resolveDocumentConversationId(doc, assistantId);
       // A fresh client-minted id (never sent to the server) can't be sent as
       // a strict-lookup `conversationId` on assistants >= 0.8.6, which 404s
-      // on an id it has never minted. Mirrors the server-mint branch in
-      // `use-send-message.ts`: omit the conversation id wire field entirely
-      // and adopt whatever id the assistant mints in response. A reused
-      // cached id is not fresh (it was already resolved, and either sent
-      // successfully before or is the document's own id), so it always takes
-      // the direct path regardless of assistant support.
+      // on an id it has never minted, so those assistants mint the row for
+      // this send instead. A reused cached id is not fresh (it was already
+      // resolved, and either sent successfully before or is the document's
+      // own id), so it always takes the direct path regardless of assistant
+      // support.
       const isFreshDraft =
         useConversationStore.getState().draftConversationIds.has(resolvedId);
       const useServerMint = isFreshDraft && supportsServerMintedConversation();
 
-      if (!useServerMint) {
-        await linkDocumentConversationIfNeeded(doc, assistantId, resolvedId);
+      // The daemon starts the turn inside the send and prompt assembly reads
+      // the document's conversation link, so the row is minted and linked
+      // before the message goes out. Letting the send mint the row instead
+      // would run the first turn without the document or its comments.
+      let targetConversationId = resolvedId;
+      if (useServerMint) {
+        const minted = await conversationsPost({
+          path: { assistant_id: assistantId },
+          // No key, so the daemon mints the id; no title, so the auto-titler
+          // still names the conversation once messages arrive.
+          body: {},
+          throwOnError: true,
+        });
+        targetConversationId = minted.data.id;
+        // The row exists server-side now, so the client-side draft mark no
+        // longer applies.
+        useConversationStore.getState().clearDraftConversationId(resolvedId);
+        if (targetConversationId !== resolvedId) {
+          resolveEditChatDraftConversationId(resolvedId, targetConversationId);
+          // If the document open in the viewer store is the one this mint was
+          // for, keep its conversation id in sync so a later submit does not
+          // resolve back to the now-dead draft id (see
+          // `resolveDocumentConversationId`'s fallback order).
+          await rekeyOpenedDocumentConversation(
+            assistantId,
+            resolvedId,
+            targetConversationId,
+          );
+        }
+        persistDocumentConversationId(doc, assistantId, targetConversationId);
       }
+      await linkDocumentConversationIfNeeded(
+        doc,
+        assistantId,
+        targetConversationId,
+      );
 
       // The current `latestAssistantMessageAt` snapshot, seeded the same way
       // `use-send-message.ts` seeds it: without a snapshot, the graduation
@@ -162,7 +197,7 @@ export function useDocumentComposerSubmit({
 
       const result = await postChatMessage(
         assistantId,
-        useServerMint ? null : resolvedId,
+        targetConversationId,
         content,
         { attachmentIds, clientMessageId },
       );
@@ -184,26 +219,10 @@ export function useDocumentComposerSubmit({
       pendingClientMessageIdRef.current = null;
 
       const conversationId = result.conversationId;
-      if (isFreshDraft) {
-        // The row is confirmed to exist server-side now, whether via the
-        // mint branch or the legacy conversationKey create-or-lookup, so the
-        // client-side draft mark no longer applies.
+      if (isFreshDraft && !useServerMint) {
+        // The legacy conversationKey create-or-lookup materialized the row, so
+        // the client-side draft mark no longer applies.
         useConversationStore.getState().clearDraftConversationId(resolvedId);
-      }
-      if (useServerMint) {
-        if (conversationId !== resolvedId) {
-          resolveEditChatDraftConversationId(resolvedId, conversationId);
-          // If the document open in the viewer store is the one this mint was
-          // for, keep its conversation id in sync so a later submit does not
-          // resolve back to the now-dead draft id (see
-          // `resolveDocumentConversationId`'s fallback order).
-          await rekeyOpenedDocumentConversation(
-            assistantId,
-            resolvedId,
-            conversationId,
-          );
-        }
-        await linkDocumentConversationIfNeeded(doc, assistantId, conversationId);
       }
       persistDocumentConversationId(doc, assistantId, conversationId);
 

@@ -300,6 +300,9 @@ const MOBILE_SEND_FILL_CLASS =
  */
 const MOBILE_TEXT_FIELD_INSET_X_PX = 16;
 
+/** Stable empty result for a composer slot that offers no slash commands. */
+const NO_SLASH_COMMANDS: SlashCommand[] = [];
+
 interface AddToChatButtonProps {
   disabled: boolean;
   label: string;
@@ -769,14 +772,20 @@ export function ChatComposer({
   // active assistant is self-hosted (the Doctor tab doesn't exist there).
   const doctorGated = usePlatformGate({ platformHostedOnly: true }) === "gated";
   const searchSlashCommands = useCallback(
-    (filter: string) => {
+    (filter: string): SlashCommand[] => {
+      // Slash commands belong to the main composer alone. The document slot
+      // posts its text straight at the document, a path with no command
+      // dispatch, so an offered command would be sent as literal text.
+      if (slot !== "main") {
+        return NO_SLASH_COMMANDS;
+      }
       const commands = filteredCommands(filter);
       if (!doctorGated) {
         return commands;
       }
       return commands.filter((command) => command.name !== "doctor");
     },
-    [doctorGated],
+    [doctorGated, slot],
   );
 
   // Slash and emoji popups — state is derived from the input text, not stored.

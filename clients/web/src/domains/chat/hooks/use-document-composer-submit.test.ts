@@ -12,10 +12,10 @@
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
  *
- * `postChatMessage` and `documentsByIdConversationsPost` are mocked (network);
- * `edit-chat-session` (sessionStorage) and the composer/conversation/reply
- * stores are real, so the resolution branches are exercised for real rather
- * than asserted against a mock's call args.
+ * `postChatMessage`, `conversationsPost` and `documentsByIdConversationsPost`
+ * are mocked (network); `edit-chat-session` (sessionStorage) and the
+ * composer/conversation/reply stores are real, so the resolution branches are
+ * exercised for real rather than asserted against a mock's call args.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -43,17 +43,57 @@ async function defaultPostChatMessage(
   };
 }
 let postChatMessageMock = mock(defaultPostChatMessage);
+
+/**
+ * The order network calls land in, across mocks. The fix this file guards
+ * turns on ordering: the conversation row and the document link both have to
+ * exist before the message that starts the first turn goes out.
+ */
+const callOrder: string[] = [];
+
 mock.module("@/domains/chat/api/messages", () => ({
   ...realMessages,
-  postChatMessage: (...args: unknown[]) => postChatMessageMock(...(args as [])),
+  postChatMessage: (...args: unknown[]) => {
+    callOrder.push("postChatMessage");
+    return postChatMessageMock(...(args as []));
+  },
 }));
+
+const MINTED_CONVERSATION_ID = "conv-server-minted";
 
 const documentsByIdConversationsPostMock = mock(async () => ({
   data: { success: true },
 }));
+interface MintedConversationResult {
+  data: {
+    id: string;
+    conversationKey: string;
+    conversationType: string;
+    created: boolean;
+  };
+}
+async function defaultConversationsPost(
+  ..._args: unknown[]
+): Promise<MintedConversationResult> {
+  return {
+    data: {
+      id: MINTED_CONVERSATION_ID,
+      conversationKey: MINTED_CONVERSATION_ID,
+      conversationType: "standard",
+      created: true,
+    },
+  };
+}
+let conversationsPostMock = mock(defaultConversationsPost);
 mock.module("@/generated/daemon/sdk.gen", () => ({
-  documentsByIdConversationsPost: (...args: unknown[]) =>
-    documentsByIdConversationsPostMock(...(args as [])),
+  documentsByIdConversationsPost: (...args: unknown[]) => {
+    callOrder.push("documentsByIdConversationsPost");
+    return documentsByIdConversationsPostMock(...(args as []));
+  },
+  conversationsPost: (...args: unknown[]) => {
+    callOrder.push("conversationsPost");
+    return conversationsPostMock(...(args as []));
+  },
 }));
 
 const navigateSpy = mock((_to: string) => {});
@@ -174,6 +214,8 @@ beforeEach(() => {
   useAssistantIdentityStore.setState({ version: null });
   window.sessionStorage.clear();
   postChatMessageMock = mock(defaultPostChatMessage);
+  conversationsPostMock = mock(defaultConversationsPost);
+  callOrder.length = 0;
   documentsByIdConversationsPostMock.mockClear();
   navigateSpy.mockClear();
   navigateToConversationMock.mockClear();
@@ -236,15 +278,18 @@ describe("conversation id resolution", () => {
     ).toBe(false);
   });
 
-  test("a fresh draft on a server-mint-capable assistant omits the wire id and adopts the minted one", async () => {
+  test("a fresh draft on a server-mint-capable assistant mints and links the conversation before it sends", async () => {
     useAssistantIdentityStore.setState({ version: "0.9.0" });
+    // The session cache is written for real (sessionStorage), so its ordering
+    // against the send shows up here rather than in `callOrder`.
+    const cachedIdAtSend: (string | null)[] = [];
     postChatMessageMock = mock(
-      async (..._args: unknown[]): Promise<PostMessageResult> => ({
-        ok: true,
-        assistantId: ASSISTANT_ID,
-        conversationId: "conv-server-minted",
-        messageId: "msg-1",
-      }),
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        cachedIdAtSend.push(
+          getEditChatConversationId(ASSISTANT_ID, SURFACE_ID),
+        );
+        return defaultPostChatMessage(..._args);
+      },
     );
     const { result } = renderSubmit("");
     useComposerStore.getState().setInput("hello", "document");
@@ -253,15 +298,29 @@ describe("conversation id resolution", () => {
       await result.current.submit();
     });
 
-    // The wire field is omitted entirely for the mint request.
-    expect(postChatMessageMock.mock.calls[0]?.[1]).toBeNull();
+    expect(conversationsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: ASSISTANT_ID },
+      body: {},
+      throwOnError: true,
+    });
+    // The daemon starts the agent loop inside the send and the active-document
+    // injector reads the link during prompt assembly, so the row and the link
+    // both exist before the first turn starts.
+    expect(callOrder).toEqual([
+      "conversationsPost",
+      "documentsByIdConversationsPost",
+      "postChatMessage",
+    ]);
+    expect(cachedIdAtSend[0]).toBe(MINTED_CONVERSATION_ID);
+    // The send carries the minted id, not a null asking the daemon to mint.
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
     // The minted id (not the local draft id) is what gets cached and linked.
     expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBe(
-      "conv-server-minted",
+      MINTED_CONVERSATION_ID,
     );
     expect(documentsByIdConversationsPostMock).toHaveBeenCalledWith({
       path: { assistant_id: ASSISTANT_ID, id: SURFACE_ID },
-      body: { conversationId: "conv-server-minted" },
+      body: { conversationId: MINTED_CONVERSATION_ID },
       throwOnError: true,
     });
     // The local draft mark is gone: nothing is left registered as an
@@ -270,7 +329,7 @@ describe("conversation id resolution", () => {
     expect(
       useConversationStore
         .getState()
-        .processingConversationIds.has("conv-server-minted"),
+        .processingConversationIds.has(MINTED_CONVERSATION_ID),
     ).toBe(true);
 
     const options = toastInfoMock.mock.calls[0]?.[1] as {
@@ -279,7 +338,7 @@ describe("conversation id resolution", () => {
     options.action.onClick();
     expect(navigateToConversationMock).toHaveBeenCalledWith(
       navigateSpy,
-      "conv-server-minted",
+      MINTED_CONVERSATION_ID,
     );
   });
 
@@ -542,6 +601,51 @@ describe("failure path", () => {
     expect(toastErrorMock.mock.calls[0]?.[0]).toBe("Something broke");
     // Nothing was optimistically cleared, so there is nothing to restore.
     expect(useComposerStore.getState().documentInput).toBe("hello");
+  });
+
+  test("a failed mint sends nothing and leaves the draft ready to retry", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    conversationsPostMock = mock(
+      async (..._args: unknown[]): Promise<MintedConversationResult> => {
+        throw new Error("mint failed");
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.status).toBe("error");
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
+      "Couldn't send your message. Try again.",
+    );
+    // No row exists, so nothing goes out and nothing is recorded against an id
+    // the daemon never minted.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBeNull();
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+    // The id stays marked as an unconfirmed client-side draft, and the text
+    // the user typed is still in the composer.
+    expect(useConversationStore.getState().draftConversationIds.size).toBe(1);
+    expect(useComposerStore.getState().documentInput).toBe("hello");
+
+    // The retry is an ordinary first send: the message the failed mint never
+    // dispatched still carries its own idempotency nonce.
+    conversationsPostMock = mock(defaultConversationsPost);
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.status).toBe("sent");
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+    expect(sentOptions(0).clientMessageId).toBeTruthy();
   });
 });
 
