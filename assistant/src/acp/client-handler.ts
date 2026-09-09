@@ -21,6 +21,7 @@ import type {
   ReleaseTerminalResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  SessionConfigOption,
   SessionNotification,
   TerminalOutputRequest,
   TerminalOutputResponse,
@@ -103,6 +104,9 @@ export class VellumAcpClientHandler implements Client {
     private readonly acpSessionId: string,
     private readonly sendToVellum: (msg: AssistantEvent) => void,
     private readonly parentConversationId: string,
+    private readonly onConfigOptions?: (
+      configOptions: SessionConfigOption[],
+    ) => void,
   ) {}
 
   /** Forwards an update to Vellum, stamping a contiguous per-session `seq`. */
@@ -182,7 +186,12 @@ export class VellumAcpClientHandler implements Client {
   async sessionUpdate(params: SessionNotification): Promise<void> {
     const update = params.update;
 
-    if (this.suppressForwarding) {
+    // Config options are current state rather than transcript history, so they
+    // are applied even while a replay is being suppressed.
+    if (
+      this.suppressForwarding &&
+      update.sessionUpdate !== "config_option_update"
+    ) {
       log.debug(
         { acpSessionId: this.acpSessionId, updateType: update.sessionUpdate },
         "Dropping replayed session update during suppression",
@@ -286,10 +295,14 @@ export class VellumAcpClientHandler implements Client {
         break;
       }
 
+      case "config_option_update": {
+        this.onConfigOptions?.(update.configOptions);
+        break;
+      }
+
       default: {
         // Other update types (available_commands_update, current_mode_update,
-        // config_option_update, session_info_update) are not forwarded to
-        // Vellum.
+        // session_info_update) are not forwarded to Vellum.
         log.debug(
           {
             acpSessionId: this.acpSessionId,
