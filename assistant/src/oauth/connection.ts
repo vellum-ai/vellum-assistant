@@ -2,6 +2,16 @@ export interface OAuthConnectionRequest {
   method: string;
   path: string; // relative, e.g. "/2/tweets"
   query?: Record<string, string | string[]>;
+  /**
+   * Query string appended to the URL verbatim, leading `?` optional and the
+   * text already wire-encoded. For callers forwarding a query a provider signs,
+   * where rebuilding {@link OAuthConnectionRequest.query} would reorder
+   * interleaved repeated keys, rewrite `%20` as `+`, and give a valueless flag
+   * an `=`. An empty one falls through to `query`. Honored by BYO connections;
+   * a managed connection sends `query` to the platform proxy, which rebuilds
+   * it.
+   */
+  rawQuery?: string;
   headers?: Record<string, string>;
   /**
    * A string is forwarded to the provider verbatim under the caller's own

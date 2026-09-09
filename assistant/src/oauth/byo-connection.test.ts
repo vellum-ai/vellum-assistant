@@ -324,6 +324,70 @@ describe("BYOOAuthConnection", () => {
       expect(parsed.searchParams.get("labelIds")).toBe("INBOX");
     });
 
+    test("appends rawQuery verbatim, keeping interleaved repeated keys", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "?a=1&b=2&a=3",
+      });
+
+      // Rebuilding through URLSearchParams would group the two `a` values.
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?a=1&b=2&a=3",
+      );
+    });
+
+    test("leaves %20 and a valueless flag as the caller wrote them", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "q=a%20b&flag",
+      });
+
+      // URLSearchParams would emit `q=a+b&flag=`, which a signed query rejects.
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=a%20b&flag",
+      );
+    });
+
+    test("falls back to the parsed query when rawQuery is empty", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "",
+        query: { maxResults: "10" },
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
+      );
+    });
+
+    test("prefers rawQuery over the parsed query", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "?signed=1",
+        query: { maxResults: "10" },
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?signed=1",
+      );
+    });
+
     test("uses per-request baseUrl override", async () => {
       await setupCredential("google");
       const conn = createConnection();

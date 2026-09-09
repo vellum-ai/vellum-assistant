@@ -12,7 +12,10 @@
  */
 
 import { isHttpAuthDisabled } from "../../config/env.js";
-import type { OAuthConnectionResponse } from "../../oauth/connection.js";
+import {
+  isIdempotentHttpMethod,
+  type OAuthConnectionResponse,
+} from "../../oauth/connection.js";
 import type { OAuthConnectionResolution } from "../../oauth/connection-resolver.js";
 import { resolveOAuthConnectionWithMeta } from "../../oauth/connection-resolver.js";
 import { getProvider } from "../../oauth/oauth-store.js";
@@ -136,6 +139,14 @@ export async function handleOAuthProxy(
       // The caller's own HTTP client decides what to do with a 3xx; the
       // proxy never makes an upstream hop on its behalf.
       manualRedirect: true,
+      // A retryable status can arrive after the provider has already been
+      // called, so a write the caller cannot repeat is never replayed. GET and
+      // the other idempotent methods keep their retries.
+      singleAttempt: !isIdempotentHttpMethod(method),
+      // The provider signing this query sees the bytes the caller wrote: key
+      // order, `%20`, and valueless flags all survive. Managed connections
+      // have no raw mode and send `query` instead.
+      rawQuery: args.rawUrl.search,
     });
   } catch (err) {
     throw mapProxyRequestError(err, provider);
@@ -175,6 +186,7 @@ const ERROR_RESPONSES: Record<string, { description: string }> = {
   "404": { description: "Unknown provider" },
   "405": { description: "The resolved connection rejects this method" },
   "409": { description: "Several accounts are connected and none was pinned" },
+  "421": { description: "Dispatched over IPC; retry over HTTP" },
   "424": { description: "No usable connection; reconnect the provider" },
   "502": { description: "The provider API could not be reached" },
 };
