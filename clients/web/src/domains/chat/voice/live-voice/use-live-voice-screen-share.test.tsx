@@ -1087,6 +1087,74 @@ describe("useLiveVoiceScreenShare: a helper that stalls", () => {
     await flush();
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
   });
+
+  /**
+   * The question is still open when its own picture fails to come, so its
+   * ask goes to the next picture that does: the stop edge is judged at the
+   * question's bar rather than the ambient one.
+   */
+  test("a question whose picture never came keeps its ask for the next picture", async () => {
+    shortenTheBound(SCREEN_SHARE_PICTURE_WAIT_MS);
+    renderShare();
+    share(WINDOW);
+    await flush();
+    // The helper stalls on the question's picture and answers the next.
+    const ordinary = answerFrame;
+    answerFrame = () => {
+      answerFrame = ordinary;
+      return new Promise<ScreenCaptureFrame>(() => {});
+    };
+    speak(true);
+    show("a+");
+    speak(false);
+    await flush();
+    await flush();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "forced" }),
+    );
+  });
+
+  /**
+   * The bridge cannot call a request back, so a helper that has stopped
+   * answering is not asked again until it has: every further ask would be
+   * another request, and another picture nobody reads, for the better part
+   * of a minute.
+   */
+  test("a helper that has not answered is not asked again until it has", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+    const ordinary = answerFrame;
+    answerFrame = () => {
+      answerFrame = ordinary;
+      return new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFrame = resolve;
+      });
+    };
+    speak(true);
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+    now += SCREEN_SHARE_PICTURE_WAIT_MS + 1;
+    show("b");
+    speak(false);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+
+    // Once it answers, the next occasion is asked for, and the ask the
+    // stalled occasion carried goes with it.
+    releaseFrame(frameOf("a"));
+    await flush();
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "forced" }),
+    );
+  });
 });
 
 describe("useLiveVoiceScreenShare: an upload that hangs", () => {

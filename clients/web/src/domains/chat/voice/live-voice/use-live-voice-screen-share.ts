@@ -224,6 +224,18 @@ export function useLiveVoiceScreenShare(): void {
     // When the gate was last asked for a frame of the question's view, for
     // the timing a forced keep reports. Null once a keep has answered it.
     let armedAtMs: number | null = null;
+    // An ask whose own occasion produced nothing to judge: the helper did
+    // not answer in time, or answered with something that was not a
+    // picture. The question is still open, so the ask goes to the next
+    // picture the cadence takes rather than out with the occasion. A newer
+    // question's ask replaces it.
+    let carriedAskMs: number | null = null;
+    // The helper's answers still outstanding, by when they were asked for.
+    // A helper that has not answered one inside the picture bound is
+    // stalled, and is not asked again until it has: the bridge has no way
+    // to call a request back, so asking again would only pile up requests
+    // and the pictures they eventually carry, none of which will be read.
+    const outstanding = new Set<{ readonly requestedAtMs: number }>();
     // Occasions are judged one at a time, in the order they came, so the
     // gate sees pictures in the order they were taken: the two edges of a
     // short utterance could otherwise resolve out of order, and the older
@@ -415,13 +427,17 @@ export function useLiveVoiceScreenShare(): void {
       if (drawing !== null) {
         keep = { reason: "drawing" };
       } else {
-        if (askedAtMs !== null) {
+        // This occasion's own ask, or one carried from an occasion that
+        // produced nothing to judge.
+        const ask = askedAtMs ?? carriedAskMs;
+        carriedAskMs = null;
+        if (ask !== null) {
           // The ask is placed just before its own picture is judged, with
           // its window running from now, since the queue may have held the
           // picture, and its bound at the question: the picture was asked
           // for at that moment, so it can spend the ask.
-          armedAtMs = askedAtMs;
-          gate.armForcedKeep(nowMs, askedAtMs);
+          armedAtMs = ask;
+          gate.armForcedKeep(nowMs, ask);
         }
         const decision = gate.offer(grid, nowMs, requestedAtMs);
         // A flat screen whose colour changed is a new view the gate cannot
@@ -533,6 +549,13 @@ export function useLiveVoiceScreenShare(): void {
       askedAtMs: number | null,
     ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
+      // An occasion that produces nothing to judge keeps its ask for the
+      // next one; see `carriedAskMs`.
+      const carryAsk = (): void => {
+        if (askedAtMs !== null) {
+          carriedAskMs = askedAtMs;
+        }
+      };
       if (stale()) {
         return;
       }
@@ -561,6 +584,7 @@ export function useLiveVoiceScreenShare(): void {
         console.warn(
           "[live-voice screen share] no picture from the helper in time; skipped",
         );
+        carryAsk();
         return;
       }
       if (frame === null) {
@@ -572,6 +596,7 @@ export function useLiveVoiceScreenShare(): void {
         console.warn(
           "[live-voice screen share] the helper's frame is not a picture; skipped",
         );
+        carryAsk();
         return;
       }
       const still = await stillFrameGrid(bytes, grids);
@@ -588,6 +613,7 @@ export function useLiveVoiceScreenShare(): void {
           console.warn(
             "[live-voice screen share] frame could not be judged; skipped",
           );
+          carryAsk();
           return;
         }
         void sight.capture({
@@ -629,7 +655,30 @@ export function useLiveVoiceScreenShare(): void {
       // is still waiting on. The helper's own failure is its answer, read
       // when the picture is judged.
       const requestedAtMs = performance.now();
+      for (const request of outstanding) {
+        if (
+          requestedAtMs - request.requestedAtMs >
+          SCREEN_SHARE_PICTURE_WAIT_MS
+        ) {
+          // Stalled. The occasion is skipped rather than asked for, and its
+          // ask, if it has one, goes to the next picture the helper does
+          // answer.
+          console.warn(
+            "[live-voice screen share] the helper has not answered; not asked again",
+          );
+          if (askedAtMs !== null) {
+            carriedAskMs = askedAtMs;
+          }
+          return;
+        }
+      }
+      const request = { requestedAtMs };
+      outstanding.add(request);
+      const settled = (): void => {
+        outstanding.delete(request);
+      };
       const picture = captureCompanionScreen(target);
+      picture.then(settled, settled);
       queue = queue
         .then(() => take(drawing, run, picture, requestedAtMs, askedAtMs))
         .catch((err: unknown) => {
@@ -679,6 +728,7 @@ export function useLiveVoiceScreenShare(): void {
           delivered = null;
           baseline = null;
           armedAtMs = null;
+          carriedAskMs = null;
         }
         return;
       }
