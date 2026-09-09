@@ -620,6 +620,9 @@ const currentState = (): CompanionSurfaceState => {
     // being pointed at whether the shell holds marks or has never heard of
     // them.
     coachmarks: coachmarks.length === 0 ? undefined : coachmarks,
+    // Main's as well: where the frame window sits is main's, and this is the
+    // part of that window the menu bar is drawn over.
+    frameInsetTop: publishFrameInsetTop(),
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -901,14 +904,25 @@ const refreshGrowth = (): void => {
   // across displays need not change either growth, and a session outlives
   // the surface being hidden, so its frame has to follow the display with
   // no surface on screen at all.
+  //
+  // The same events move the menu bar over that frame, and the frame's
+  // renderer holds the inset it was last pushed. So a push is due when the
+  // inset moved, on its own account: the growth below can be unchanged, or
+  // there can be no surface to measure it for, while the label sits under a
+  // bar that just got taller.
+  let frameInsetMoved = false;
   if (
     getFloatingWindow(WATCH_FRAME_KIND) !== null &&
     context.captureTarget?.kind !== "window"
   ) {
     syncWatchFrame();
+    frameInsetMoved = frameInsetTop() !== publishedFrameInsetTop;
   }
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   const centre = avatarCentre(win);
@@ -920,6 +934,9 @@ const refreshGrowth = (): void => {
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   growth = nextGrowth;
@@ -1301,7 +1318,10 @@ export const showCompanionCoachmarks = async (
   const marks: PlacedCoachmark[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
-      marks.push(request);
+      // Bounds given outright are an extent someone means, so they keep the
+      // ring. The kind is added here rather than asked for: what the caller
+      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      marks.push({ kind: "region", ...request });
       continue;
     }
     const placed = await placeOnNamedTarget(share, request);
@@ -1311,12 +1331,12 @@ export const showCompanionCoachmarks = async (
     if (sequence !== coachmarkRequests) {
       return { kind: "refused", refusal: "superseded" };
     }
-    // Asked against the share these marks are being
-    // resolved on rather than against whatever is shared now. Resolving a
-    // name is a round trip to the helper and the user is still working the
-    // whole time: a share that moved and had a frame of its own served in
-    // that window answers every check the current state can make, and these
-    // marks would land on it measured against the surface it replaced.
+    // Asked against the share these marks are being resolved on rather than
+    // against whatever is shared now. Resolving a name is a round trip to the
+    // helper and the user is still working the whole time: a share that moved
+    // and had a frame of its own served in that window answers every check
+    // the current state can make, and these marks would land on it measured
+    // against the surface it replaced.
     const moved = whyNotToDraw(conversationId, share);
     if (moved !== null) {
       return { kind: "refused", refusal: moved };
@@ -1400,11 +1420,15 @@ const placeOnNamedTarget = async (
   if (bounds === null) {
     return { target: request.target, reason: "no-tree", candidates: [] };
   }
+  // The centre, not the frame. An element's frame is its hit area, which is
+  // routinely a good deal larger than the thing drawn inside it, and it can
+  // belong to the small triangle that discloses a row rather than the row.
+  // Its position is trustworthy where its extent is not, so the arrow is
+  // aimed at the middle of it and nothing claims a size.
   return {
-    x: (located.x - bounds.x) / bounds.width,
-    y: (located.y - bounds.y) / bounds.height,
-    width: located.width / bounds.width,
-    height: located.height / bounds.height,
+    kind: "point",
+    x: (located.x + located.width / 2 - bounds.x) / bounds.width,
+    y: (located.y + located.height / 2 - bounds.y) / bounds.height,
     ...(request.caption === undefined ? {} : { caption: request.caption }),
     matched: located.label,
   };
@@ -1419,6 +1443,19 @@ const placeOnNamedTarget = async (
 const surfaceBounds = async (
   share: WatchCaptureTarget,
 ): Promise<Rectangle | null> => {
+  // The frame's own rectangle, because that is the one the marks are drawn
+  // on, and it is not always the one the share names. A frame asked for a
+  // display's whole bounds is held to that display's work area, which begins
+  // a menu bar lower and ends a menu bar shorter, so a fraction measured
+  // against the display and drawn into the frame lands low by exactly that
+  // much. Deriving the surface twice is what let the two disagree; asking the
+  // frame is what keeps them the same rectangle by construction.
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame !== null) {
+    return frame.getBounds();
+  }
+  // No frame yet, which a mark cannot be drawn on anyway. Answered from the
+  // share so the caller's own guards decide what to say about it.
   if (share.kind === "display") {
     return (
       screen.getAllDisplays().find((d) => d.id === share.displayId)?.bounds ??
@@ -1585,6 +1622,67 @@ const framedTarget = (): WatchCaptureTarget | "screen" | null => {
   return context.screenShare ?? null;
 };
 
+/**
+ * The display a whole-screen frame goes on: the picked one by its id, else
+ * the one under the surface, or under the cursor when the surface is hidden.
+ * See {@link syncWatchFrame} for why each.
+ *
+ * For a target that is not a window. A window frame is placed by following
+ * the window, and the display it happens to be on is not a fact the frame
+ * is about.
+ */
+const framedDisplay = (
+  target: Extract<WatchCaptureTarget, { kind: "display" }> | undefined,
+): Display => {
+  if (target !== undefined) {
+    const display = screen
+      .getAllDisplays()
+      .find((candidate) => candidate.id === target.displayId);
+    if (display !== undefined) {
+      return display;
+    }
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  return displayUnder(
+    win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
+  );
+};
+
+/**
+ * How much of the top of the frame window the menu bar draws over, when a
+ * whole display is framed. See `CompanionSurfaceState.frameInsetTop`.
+ *
+ * Read from the same display {@link syncWatchFrame} places the frame on, so
+ * the inset and the window it describes cannot come from different screens.
+ * Nothing for a window frame, whose top edge is the window's own.
+ */
+const frameInsetTop = (): number | undefined => {
+  const framed = framedTarget();
+  if (framed === null) {
+    return undefined;
+  }
+  const target = framed === "screen" ? undefined : framed;
+  if (target?.kind === "window") {
+    return undefined;
+  }
+  const display = framedDisplay(target);
+  return Math.max(display.workArea.y - display.bounds.y, 0);
+};
+
+/**
+ * The inset the renderers were last handed, so {@link refreshGrowth} can
+ * tell a display event that moved the menu bar from one that did not.
+ *
+ * Every state a renderer receives is built by `currentState`, whether pushed
+ * or pulled on mount, so recording it there is what keeps this honest.
+ */
+let publishedFrameInsetTop: number | undefined;
+
+const publishFrameInsetTop = (): number | undefined => {
+  publishedFrameInsetTop = frameInsetTop();
+  return publishedFrameInsetTop;
+};
+
 const syncWatchFrame = (): void => {
   // Before the frame is placed or taken down, so a mode that has lost its
   // share is off by the time a window could be left holding the mouse for it,
@@ -1606,21 +1704,7 @@ const syncWatchFrame = (): void => {
     return;
   }
   stopFollowingWindow();
-  if (target?.kind === "display") {
-    const display = screen
-      .getAllDisplays()
-      .find((candidate) => candidate.id === target.displayId);
-    if (display !== undefined) {
-      placeWatchFrame(display.bounds);
-      return;
-    }
-  }
-  const win = getFloatingWindow(COMPANION_KIND);
-  placeWatchFrame(
-    displayUnder(
-      win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
-    ).bounds,
-  );
+  placeWatchFrame(framedDisplay(target).bounds);
 };
 
 /**

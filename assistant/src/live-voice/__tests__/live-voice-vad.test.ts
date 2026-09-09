@@ -19,6 +19,7 @@ import type {
 } from "../../stt/types.js";
 import { __resetRegistryForTesting } from "../../tools/registry.js";
 import { getWorkspaceSkillsDir } from "../../util/platform.js";
+import type { LiveVoiceContinuationLabeler } from "../continuation-label.js";
 import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   CONTINUATION_DELIVERY_CONTENT,
@@ -197,6 +198,7 @@ function createHarness(options: {
   // config path is exercised: unset thresholds come from getConfig().
   viaFactory?: boolean;
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  labelBackgroundContinuation?: LiveVoiceContinuationLabeler;
   getTurnTeardown?: (conversationId: string) => Promise<void> | undefined;
   detachTeardownSettleTimeoutMs?: number;
   continuationAnnounceSilenceMs?: number;
@@ -273,6 +275,9 @@ function createHarness(options: {
       : {}),
     ...(options.spawnBackgroundContinuation
       ? { spawnBackgroundContinuation: options.spawnBackgroundContinuation }
+      : {}),
+    ...(options.labelBackgroundContinuation
+      ? { labelBackgroundContinuation: options.labelBackgroundContinuation }
       : {}),
     ...(options.getTurnTeardown
       ? { getTurnTeardown: options.getTurnTeardown }
@@ -855,10 +860,97 @@ describe("LiveVoiceSession server VAD", () => {
 
     const spawnArgs = spawnBackgroundContinuation.mock.calls[0]?.[0];
     expect(spawnArgs?.parentConversationId).toBe("conversation-123");
-    expect(spawnArgs?.label).toContain("live-turn-1");
+    // The label is the interrupted request in the user's words, so the
+    // Activity row reads as work rather than an internal turn id.
+    expect(spawnArgs?.label).toBe("First question");
     // The objective carries the interrupted request so the continuation knows
     // what to finish even before the user message is persisted into history.
     expect(spawnArgs?.objective).toContain("first question");
+  });
+
+  test("the continuation carries the label the model phrased", async () => {
+    const labelCalls: Array<{
+      parentConversationId: string;
+      interruptedRequest: string;
+    }> = [];
+    const labelBackgroundContinuation: LiveVoiceContinuationLabeler = async (
+      args,
+    ) => {
+      labelCalls.push({
+        parentConversationId: args.parentConversationId,
+        interruptedRequest: args.interruptedRequest,
+      });
+      return "Answering the first question";
+    };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      labelBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+
+    expect(labelCalls).toEqual([
+      {
+        parentConversationId: "conversation-123",
+        interruptedRequest: "first question",
+      },
+    ]);
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.label).toBe(
+      "Answering the first question",
+    );
+  });
+
+  test("a failed label call falls back to the transcript label", async () => {
+    const labelBackgroundContinuation: LiveVoiceContinuationLabeler =
+      async () => {
+        throw new Error("provider down");
+      };
+    const spawnBackgroundContinuation = mock(
+      async (_args: {
+        parentConversationId: string;
+        objective: string;
+        label: string;
+        signal: AbortSignal;
+      }): Promise<string> => "",
+    );
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      streamTtsAudio,
+      spawnBackgroundContinuation,
+      labelBackgroundContinuation,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(SUSTAINED_LOUD_CHUNK);
+    await waitFor(() => spawnBackgroundContinuation.mock.calls.length === 1);
+
+    expect(spawnBackgroundContinuation.mock.calls[0]?.[0]?.label).toBe(
+      "First question",
+    );
   });
 
   test("a client interrupt aborts an in-flight continuation", async () => {

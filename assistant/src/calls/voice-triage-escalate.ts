@@ -8,10 +8,10 @@
  *     caller is mid-thought — the leg is discarded and listening continues.
  *   - `[1]` ({@link ESCALATE_VERDICT_TOKEN}) followed by ONE short natural
  *     holding phrase: the turn is too tricky — the phrase is spoken (capped
- *     at a single sentence) while the turn re-runs on the call-site default
- *     profile, the model an un-routed voice turn would have used. Because
- *     the holding phrase is spoken, the caller never hears the stronger
- *     model's think-time as silence.
+ *     at a single sentence) while the turn re-runs on the conversation's
+ *     own profile, the model the caller's typed turns already run on.
+ *     Because the holding phrase is spoken, the caller never hears the
+ *     stronger model's think-time as silence.
  *   - Anything else: the output IS the answer, streamed straight to TTS
  *     (low first-token latency -> the caller hears audio fast).
  *
@@ -38,11 +38,13 @@ export { ESCALATE_VERDICT_TOKEN, HOLD_VERDICT_TOKEN };
 
 // The fast model fronting every turn is pinned by the `voiceFrontDoor` call
 // site (see config/call-site-defaults.ts) — no per-turn profile override.
-// The escalated leg likewise carries NO override: it runs on the ordinary
-// call-agent resolution, i.e. exactly the profile an un-routed voice turn
-// would use (balanced for a fresh workspace, or whatever the user pinned).
-// That guarantees an escalated answer is never weaker OR stronger than the
-// pre-routing behavior, and honors per-user profile choices.
+// The escalated leg is pinned by the bridge to the conversation's own
+// profile: the conversation's pinned profile if it has one, else the
+// workspace chat-model selection — the model the caller's typed turns in the
+// same conversation already run on (see `conversationProfileForEscalation`
+// in voice-session-bridge.ts). A conversation with no such selection keeps
+// the ordinary call-agent resolution. That honors the user's model choice
+// instead of dropping every hand-off onto the call site's shipped default.
 
 /**
  * Which leg of a triaged turn a `startVoiceTurn` call represents. Undefined
