@@ -91,6 +91,7 @@ import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { hasLocalizedEntry } from "../util/language-subtag.js";
 import { getLogger } from "../util/logger.js";
+import { truncateTitle } from "../util/short-title.js";
 import {
   activityLabelForTool,
   approvalActivityLabel,
@@ -1063,6 +1064,25 @@ function createTypedUtterance(text: string): UtteranceCycle {
     ...createSyntheticUtterance(),
     finalTranscriptSegments: [text],
   };
+}
+
+// Label the continuation carries into the Activity panel, the parent's
+// completion notices, and its own conversation title. It is the request the
+// subagent is finishing, in the user's own words, cut to conversation-title
+// length so it reads like the other rows around it. Barge-in can fire before
+// any final transcript has landed, so an empty request gets a plain
+// description rather than an internal identifier.
+export const DUPLEX_CONTINUATION_FALLBACK_LABEL =
+  "Finishing an interrupted reply";
+
+export function buildDuplexContinuationLabel(
+  interruptedRequest: string,
+): string {
+  const collapsed = interruptedRequest.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) {
+    return DUPLEX_CONTINUATION_FALLBACK_LABEL;
+  }
+  return truncateTitle(collapsed.charAt(0).toUpperCase() + collapsed.slice(1));
 }
 
 // Objective handed to the background subagent that continues a barged-in turn.
@@ -3127,7 +3147,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
-          label: `voice-continue-${turn.turnId}`,
+          label: buildDuplexContinuationLabel(interruptedRequest),
           signal: controller.signal,
         });
         // Route the completed continuation's answer. Re-check the stop guards

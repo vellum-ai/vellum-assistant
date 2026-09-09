@@ -855,7 +855,9 @@ describe("LiveVoiceSession server VAD", () => {
 
     const spawnArgs = spawnBackgroundContinuation.mock.calls[0]?.[0];
     expect(spawnArgs?.parentConversationId).toBe("conversation-123");
-    expect(spawnArgs?.label).toContain("live-turn-1");
+    // The label is the interrupted request in the user's words, so the
+    // Activity row reads as work rather than an internal turn id.
+    expect(spawnArgs?.label).toBe("First question");
     // The objective carries the interrupted request so the continuation knows
     // what to finish even before the user message is persisted into history.
     expect(spawnArgs?.objective).toContain("first question");
