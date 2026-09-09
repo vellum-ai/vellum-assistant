@@ -6,6 +6,7 @@ import { Typography } from "@vellumai/design-library";
 import { partitionAttachableFiles } from "@/domains/chat/components/chat-attachments/utils";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import { useDocumentComposerSubmit } from "@/domains/chat/hooks/use-document-composer-submit";
 import { useImageAttachmentsAllowed } from "@/domains/chat/hooks/use-image-attachments-allowed";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
@@ -58,6 +59,31 @@ export function DocumentComposerPanel({
       useComposerStore.getState().fullReset("document");
     };
   }, [surfaceId]);
+
+  // A send the daemon reports as failed is held under the surface it was
+  // composed for, and the panel showing that document takes it into an empty
+  // slot: the failure can arrive while the document is open or long after it
+  // was closed, and the message waits either way. A newer draft, typed or
+  // staged since, is never replaced.
+  const failedSend = useDocumentComposerReplyStore((s) =>
+    surfaceId === null ? undefined : s.failedSends.get(surfaceId),
+  );
+  useEffect(() => {
+    if (surfaceId === null || failedSend === undefined) {
+      return;
+    }
+    const payload = useDocumentComposerReplyStore
+      .getState()
+      .takeFailedSend(surfaceId);
+    if (payload === null) {
+      return;
+    }
+    const composer = useComposerStore.getState();
+    if (composer.documentInput.trim() === "") {
+      composer.setInput(payload.content, "document");
+    }
+    composer.restoreAttachmentsIfEmpty(payload.attachments, "document");
+  }, [surfaceId, failedSend]);
 
   if (!assistantId) {
     return null;

@@ -18,6 +18,7 @@ import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-
 
 /** A draft and its one uploaded attachment, as a send hands them over. */
 const SENT_PAYLOAD: PendingDocumentReplyPayload = {
+  surfaceId: "surf-1",
   content: "a note on the draft",
   attachments: [
     {
@@ -51,7 +52,10 @@ function acknowledgedFlags(conversationId: string): boolean[] {
 }
 
 beforeEach(() => {
-  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
+  useDocumentComposerReplyStore.setState({
+    pendingReplies: new Map(),
+    failedSends: new Map(),
+  });
 });
 
 describe("startAwaitingReply", () => {
@@ -560,6 +564,16 @@ describe("rekeyReplyByNonce", () => {
     expect(pendingFor("conv-server")[0].payload).toEqual(SENT_PAYLOAD);
   });
 
+  test("carries the document the message was composed for across", () => {
+    // The conversation the daemon answers on says nothing about which
+    // document's composer the message came from, so the surface rides along.
+    getState().startAwaitingReply("draft-key", "cm-1", SENT_PAYLOAD);
+
+    getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    expect(pendingFor("conv-server")[0].payload?.surfaceId).toBe("surf-1");
+  });
+
   test("carries the acknowledged and queued flags across", () => {
     getState().startAwaitingReply("draft-key", "cm-1");
     getState().markReplyQueued("draft-key", "cm-1");
@@ -717,11 +731,117 @@ describe("clearAwaitingReplies", () => {
     expect(getState().pendingReplies.size).toBe(0);
   });
 
+  test("drops every held message too", () => {
+    // An assistant switch, a logout, or the lifecycle reset must not carry
+    // one user's message into the next context.
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({ ...SENT_PAYLOAD, surfaceId: "surf-2" });
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().failedSends.size).toBe(0);
+  });
+
   test("is a no-op when nothing is awaiting a reply", () => {
     const before = getState().pendingReplies;
 
     getState().clearAwaitingReplies();
 
     expect(getState().pendingReplies).toBe(before);
+  });
+
+  test("is a no-op when nothing is held either", () => {
+    const before = getState().failedSends;
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().failedSends).toBe(before);
+  });
+});
+
+describe("stashFailedSend", () => {
+  test("holds the message under the document it was composed for", () => {
+    getState().stashFailedSend(SENT_PAYLOAD);
+
+    expect(getState().failedSends.get("surf-1")).toEqual(SENT_PAYLOAD);
+  });
+
+  test("a second failure for the same document keeps both messages", () => {
+    // Two sends from one document can fail before its composer is on screen
+    // to take either back, and neither message is the one to lose.
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({
+      surfaceId: "surf-1",
+      content: "a second note",
+      attachments: [
+        {
+          id: "srv-2",
+          filename: "more.txt",
+          mimeType: "text/plain",
+          sizeBytes: 5,
+          previewUrl: null,
+        },
+      ],
+    });
+
+    // THEN they read oldest first, a blank line apart, and both files are
+    // there in the order they were sent
+    const held = getState().failedSends.get("surf-1");
+    expect(held?.content).toBe("a note on the draft\n\na second note");
+    expect(held?.attachments.map((a) => a.id)).toEqual(["srv-1", "srv-2"]);
+  });
+
+  test("a message with no text joins by the text there is", () => {
+    // An attachment-only send carries no draft, so there is nothing to put a
+    // blank line around.
+    getState().stashFailedSend({ ...SENT_PAYLOAD, content: "" });
+    getState().stashFailedSend({ ...SENT_PAYLOAD, content: "the only text" });
+
+    expect(getState().failedSends.get("surf-1")?.content).toBe("the only text");
+  });
+
+  test("holds each document's message separately", () => {
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({
+      ...SENT_PAYLOAD,
+      surfaceId: "surf-2",
+      content: "another document's note",
+    });
+
+    expect(getState().failedSends.get("surf-1")?.content).toBe(
+      "a note on the draft",
+    );
+    expect(getState().failedSends.get("surf-2")?.content).toBe(
+      "another document's note",
+    );
+  });
+});
+
+describe("takeFailedSend", () => {
+  test("returns the document's message and stops holding it", () => {
+    getState().stashFailedSend(SENT_PAYLOAD);
+
+    expect(getState().takeFailedSend("surf-1")).toEqual(SENT_PAYLOAD);
+
+    expect(getState().failedSends.has("surf-1")).toBe(false);
+  });
+
+  test("reports nothing for a document holding no message", () => {
+    expect(getState().takeFailedSend("surf-1")).toBeNull();
+  });
+
+  test("leaves another document's message alone", () => {
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({
+      ...SENT_PAYLOAD,
+      surfaceId: "surf-2",
+      content: "another document's note",
+    });
+
+    getState().takeFailedSend("surf-1");
+
+    expect(getState().failedSends.get("surf-2")?.content).toBe(
+      "another document's note",
+    );
   });
 });

@@ -3,11 +3,7 @@ import { useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { useComposerStore } from "@/domains/chat/composer-store";
-import {
-  type PendingDocumentReplyPayload,
-  useDocumentComposerReplyStore,
-} from "@/domains/chat/document-composer-reply-store";
+import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -58,18 +54,6 @@ function rekeyByNonce(
 }
 
 /**
- * Put the message a failed send carried back into the document composer. The
- * composer may hold a newer draft by now, which the restore never replaces.
- */
-function restoreFailedSend(payload: PendingDocumentReplyPayload): void {
-  const composer = useComposerStore.getState();
-  if (composer.documentInput.trim() === "") {
-    composer.setInput(payload.content, "document");
-  }
-  composer.restoreAttachmentsIfEmpty(payload.attachments, "document");
-}
-
-/**
  * Fires the document composer's "Assistant replied" toast once the daemon
  * reports a turn complete for a send `useDocumentComposerSubmit` flagged as
  * awaiting a reply (`document-composer-reply-store.ts`), and ends the wait
@@ -78,7 +62,8 @@ function restoreFailedSend(payload: PendingDocumentReplyPayload): void {
  * run a batch of them, and raises one toast for them all. An `error` naming
  * a message is the exception: it ends only the send carrying that nonce, and
  * is the one failure the watcher reports, raising that send's failure toast
- * and handing its message back to the document composer.
+ * and holding its message for the document it was composed for, which that
+ * document's composer panel takes back.
  *
  * A terminal settles a send only once the stream has acknowledged it as
  * running: the daemon's echo says it took the send in and started its turn,
@@ -231,7 +216,7 @@ export function DocumentComposerReplyWatcher() {
       // handler sees the error.
       toast.error(t("documentComposer.sendFailed"));
       if (failed.payload) {
-        restoreFailedSend(failed.payload);
+        replyStore.stashFailedSend(failed.payload);
       }
       return;
     }

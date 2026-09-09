@@ -454,6 +454,7 @@ export function useDocumentComposerSubmit({
       // and told the user it went out, and nothing else holds the message by
       // then.
       const sentPayload = {
+        surfaceId: doc.surfaceId,
         content,
         attachments: documentAttachments.filter(
           (attachment): attachment is UploadedAttachment =>

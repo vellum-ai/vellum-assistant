@@ -11,6 +11,10 @@
  * the queue; the watcher settles the sends that are running when a terminal
  * event arrives for that conversation.
  *
+ * The store also holds the messages of sends the daemon reported as failed,
+ * keyed by the document surface each one was composed for, until that
+ * document's composer panel takes its own back.
+ *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
@@ -22,8 +26,11 @@ import type { DisplayAttachment } from "@/types/attachment-types";
 import { createSelectors } from "@/utils/create-selectors";
 
 /** What a send carried, kept so a failure the daemon reports after the
- *  composer was cleared can hand the message back. */
+ *  composer was cleared can hand the message back to the document it was
+ *  composed for. */
 export interface PendingDocumentReplyPayload {
+  /** The document surface whose composer the message was written in. */
+  surfaceId: string;
   content: string;
   attachments: DisplayAttachment[];
 }
@@ -61,6 +68,12 @@ export interface DocumentComposerReplyState {
    * conversation with nothing pending has no entry.
    */
   pendingReplies: ReadonlyMap<string, readonly PendingDocumentReply[]>;
+  /**
+   * The messages of failed sends, keyed by the document surface each was
+   * composed for, waiting for that document's composer to take one back. A
+   * surface holding nothing has no entry.
+   */
+  failedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
 }
 
 export interface DocumentComposerReplyActions {
@@ -146,7 +159,23 @@ export interface DocumentComposerReplyActions {
     clientMessageId: string,
     queued: boolean,
   ) => void;
-  /** Drop every pending send, for a context change no reply can arrive across. */
+  /**
+   * Hold the message of a failed send for the document surface it was
+   * composed for, until that document's composer takes it back. A surface
+   * already holding one keeps both, oldest first: the two drafts are joined
+   * by a blank line and the attachments run one list after the other.
+   */
+  stashFailedSend: (payload: PendingDocumentReplyPayload) => void;
+  /**
+   * Take the message held for `surfaceId`, removing it, so one document's
+   * composer reclaims only what was composed there. Null when that surface
+   * holds none.
+   */
+  takeFailedSend: (surfaceId: string) => PendingDocumentReplyPayload | null;
+  /**
+   * Drop every pending send and every held message, for a context change no
+   * reply can arrive across and no composer should carry a message over.
+   */
   clearAwaitingReplies: () => void;
 }
 
@@ -183,6 +212,24 @@ function indexOfAwaitedSend(
   return noncesDecide ? -1 : fallback;
 }
 
+/**
+ * Two messages held for one surface as a single message, `older` first: the
+ * drafts joined by a blank line when both carry text, and the attachments run
+ * one list after the other.
+ */
+function mergeFailedSends(
+  older: PendingDocumentReplyPayload,
+  newer: PendingDocumentReplyPayload,
+): PendingDocumentReplyPayload {
+  return {
+    surfaceId: older.surfaceId,
+    content: [older.content, newer.content]
+      .filter((content) => content !== "")
+      .join("\n\n"),
+    attachments: [...older.attachments, ...newer.attachments],
+  };
+}
+
 /** The map with `conversationId`'s list replaced, or removed when empty. */
 function withPending(
   map: ReadonlyMap<string, readonly PendingDocumentReply[]>,
@@ -201,6 +248,7 @@ function withPending(
 const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set, get) => ({
     pendingReplies: new Map(),
+    failedSends: new Map(),
 
     startAwaitingReply: (conversationId, clientMessageId, payload) => {
       set((s) => {
@@ -395,12 +443,37 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       });
     },
 
+    stashFailedSend: (payload) => {
+      set((s) => {
+        const held = s.failedSends.get(payload.surfaceId);
+        const next = new Map(s.failedSends);
+        next.set(
+          payload.surfaceId,
+          held ? mergeFailedSends(held, payload) : payload,
+        );
+        return { failedSends: next };
+      });
+    },
+
+    takeFailedSend: (surfaceId) => {
+      const held = get().failedSends.get(surfaceId);
+      if (held === undefined) {
+        return null;
+      }
+      set((s) => {
+        const next = new Map(s.failedSends);
+        next.delete(surfaceId);
+        return { failedSends: next };
+      });
+      return held;
+    },
+
     clearAwaitingReplies: () => {
       set((s) => {
-        if (s.pendingReplies.size === 0) {
+        if (s.pendingReplies.size === 0 && s.failedSends.size === 0) {
           return s;
         }
-        return { pendingReplies: new Map() };
+        return { pendingReplies: new Map(), failedSends: new Map() };
       });
     },
   }),

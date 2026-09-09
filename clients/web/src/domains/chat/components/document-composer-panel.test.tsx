@@ -8,7 +8,7 @@
  * default), not `ChatComposer`'s or the submit hook's own behavior.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 
 import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
 import type { DocumentComposerSendStatus } from "@/domains/chat/hooks/use-document-composer-submit";
@@ -52,6 +52,8 @@ mock.module("@/domains/chat/components/chat-composer/chat-composer", () => ({
 }));
 
 const { useComposerStore } = await import("@/domains/chat/composer-store");
+const { useDocumentComposerReplyStore } =
+  await import("@/domains/chat/document-composer-reply-store");
 const { DocumentComposerPanel } = await import(
   "@/domains/chat/components/document-composer-panel"
 );
@@ -66,6 +68,7 @@ function resetComposerDocumentSlot() {
 
 afterEach(() => {
   cleanup();
+  useDocumentComposerReplyStore.setState({ failedSends: new Map() });
   hookStatus = "idle";
   imageAttachmentsAllowed = true;
   submitMock.mockClear();
@@ -94,6 +97,21 @@ function stageDocumentDraft() {
     documentAttachmentLastError: "Upload failed",
   });
 }
+
+/** The draft and the uploaded file a failed send to `surf-1` carried. */
+const FAILED_SEND_PAYLOAD = {
+  surfaceId: "surf-1",
+  content: "a note on the draft",
+  attachments: [
+    {
+      id: "srv-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      previewUrl: null,
+    },
+  ],
+};
 
 function documentSlot() {
   const state = useComposerStore.getState();
@@ -315,5 +333,85 @@ describe("DocumentComposerPanel: document-slot lifecycle", () => {
     );
 
     expect(useComposerStore.getState().documentInput).toBe("still typing");
+  });
+});
+
+describe("DocumentComposerPanel: a send the daemon could not persist", () => {
+  test("takes the message held for its own document into an empty slot", () => {
+    // GIVEN a send to this document that failed while the document was closed
+    useDocumentComposerReplyStore
+      .getState()
+      .stashFailedSend(FAILED_SEND_PAYLOAD);
+
+    // WHEN the document is opened again
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    // THEN the message is back in the composer, and nothing holds it any more
+    expect(useComposerStore.getState().documentInput).toBe(
+      "a note on the draft",
+    );
+    expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
+    expect(useComposerStore.getState().documentAttachments[0]).toMatchObject({
+      kind: "uploaded",
+      id: "srv-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      previewUrl: null,
+    });
+    expect(
+      useDocumentComposerReplyStore.getState().failedSends.has("surf-1"),
+    ).toBe(false);
+  });
+
+  test("takes a message held while it is showing that document", () => {
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    act(() => {
+      useDocumentComposerReplyStore
+        .getState()
+        .stashFailedSend(FAILED_SEND_PAYLOAD);
+    });
+
+    expect(useComposerStore.getState().documentInput).toBe(
+      "a note on the draft",
+    );
+    expect(
+      useDocumentComposerReplyStore.getState().failedSends.has("surf-1"),
+    ).toBe(false);
+  });
+
+  test("leaves another document's message where it is", () => {
+    // The panel showing `surf-1` must never stage what was written for
+    // `surf-2`, or the next send here would carry that document's files.
+    useDocumentComposerReplyStore
+      .getState()
+      .stashFailedSend({ ...FAILED_SEND_PAYLOAD, surfaceId: "surf-2" });
+
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    expect(documentSlot()).toEqual({
+      documentInput: "",
+      documentAttachments: [],
+      documentAttachmentLastError: null,
+    });
+    expect(
+      useDocumentComposerReplyStore.getState().failedSends.has("surf-2"),
+    ).toBe(true);
+  });
+
+  test("keeps a draft typed since, staging only the files", () => {
+    useDocumentComposerReplyStore
+      .getState()
+      .stashFailedSend(FAILED_SEND_PAYLOAD);
+    useComposerStore.getState().setInput("the next message", "document");
+
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    expect(useComposerStore.getState().documentInput).toBe("the next message");
+    expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
+    expect(useComposerStore.getState().documentAttachments[0]).toMatchObject({
+      id: "srv-1",
+    });
   });
 });

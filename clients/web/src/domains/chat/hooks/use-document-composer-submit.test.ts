@@ -1401,6 +1401,9 @@ describe("when the reply wait goes up", () => {
     // cleared the composer, so the entry holds what went out: the draft, and
     // the attachments that reached the server.
     const payload = awaitingPayload("conv-existing");
+    // The surface says which document's composer wrote it, so a failure the
+    // daemon reports later goes back to that document and no other.
+    expect(payload?.surfaceId).toBe(SURFACE_ID);
     expect(payload?.content).toBe("hello");
     expect(payload?.attachments).toHaveLength(1);
     expect(payload?.attachments[0]).toMatchObject({
@@ -1428,6 +1431,7 @@ describe("when the reply wait goes up", () => {
     // daemon answered with, and the message it carried moves with it.
     expect(awaitingPayload("conv-key")).toBeUndefined();
     expect(awaitingPayload("conv-minted")).toEqual({
+      surfaceId: SURFACE_ID,
       content: "hello",
       attachments: [],
     });
@@ -2859,7 +2863,11 @@ describe("an attempt nothing can retry", () => {
         clientMessageId: secondNonce,
         acknowledged: true,
         queued: false,
-        payload: { content: "hello, edited", attachments: [] },
+        payload: {
+          surfaceId: SURFACE_ID,
+          content: "hello, edited",
+          attachments: [],
+        },
       },
     ]);
     expect(isProcessing("conv-existing")).toBe(true);

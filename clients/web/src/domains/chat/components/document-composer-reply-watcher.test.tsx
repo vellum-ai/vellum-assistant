@@ -285,6 +285,7 @@ function processing(conversationId: string): boolean {
 
 /** The draft and the uploaded attachment a document send carried. */
 const FAILED_SEND_PAYLOAD = {
+  surfaceId: "surf-1",
   content: "a note on the draft",
   attachments: [
     {
@@ -305,8 +306,16 @@ function documentAttachments() {
   return useComposerStore.getState().documentAttachments;
 }
 
+/** The message held for `surfaceId`, for the composer panel to take back. */
+function heldFor(surfaceId: string) {
+  return useDocumentComposerReplyStore.getState().failedSends.get(surfaceId);
+}
+
 beforeEach(() => {
-  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
+  useDocumentComposerReplyStore.setState({
+    pendingReplies: new Map(),
+    failedSends: new Map(),
+  });
   useConversationStore.setState({
     processingConversationIds: new Set(),
     processingSnapshots: new Map(),
@@ -1233,7 +1242,7 @@ describe("DocumentComposerReplyWatcher", () => {
   });
 
   describe("a document send the daemon could not persist", () => {
-    test("reports the failure and hands the message back", () => {
+    test("reports the failure and holds the message for its document", () => {
       // GIVEN a send running in the conversation, listed with the message it
       // carried, on a composer its own success path already cleared
       useDocumentComposerReplyStore
@@ -1247,7 +1256,7 @@ describe("DocumentComposerReplyWatcher", () => {
       publishStreamError("conv-1", "cm-1", "message");
 
       // THEN the wait and its marker are down, the user is told the send
-      // failed, and the message is back in the composer to send again
+      // failed, and the message waits under the document it was composed for
       expect(awaiting("conv-1")).toBe(false);
       expect(processing("conv-1")).toBe(false);
       expect(toastSuccessMock).not.toHaveBeenCalled();
@@ -1255,16 +1264,23 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
         "Couldn't send your message. Try again.",
       );
-      expect(documentInput()).toBe("a note on the draft");
-      expect(documentAttachments()).toHaveLength(1);
-      expect(documentAttachments()[0]).toMatchObject({
-        kind: "uploaded",
-        id: "srv-1",
-        filename: "notes.txt",
-        mimeType: "text/plain",
-        sizeBytes: 12,
-        previewUrl: null,
-      });
+      expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+    });
+
+    test("writes no composer slot of its own", () => {
+      // The watcher outlives every document host and knows nothing about
+      // which document is on screen, so the panel showing `surf-1` is what
+      // takes the message back.
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      acknowledgeRunning("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-1", "message");
+
+      expect(documentInput()).toBe("");
+      expect(documentAttachments()).toHaveLength(0);
     });
 
     test("leaves a draft the user has typed since alone", () => {
@@ -1310,7 +1326,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(documentAttachments()[0]).toMatchObject({ id: "srv-newer" });
     });
 
-    test("reports a send listed without its message, restoring nothing", () => {
+    test("reports a send listed without its message, holding nothing", () => {
       useDocumentComposerReplyStore
         .getState()
         .startAwaitingReply("conv-1", "cm-1");
@@ -1321,6 +1337,7 @@ describe("DocumentComposerReplyWatcher", () => {
 
       expect(awaiting("conv-1")).toBe(false);
       expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(useDocumentComposerReplyStore.getState().failedSends.size).toBe(0);
       expect(documentInput()).toBe("");
       expect(documentAttachments()).toHaveLength(0);
     });
@@ -1336,6 +1353,7 @@ describe("DocumentComposerReplyWatcher", () => {
 
       expect(nonces("conv-1")).toEqual(["cm-1"]);
       expect(toastErrorMock).not.toHaveBeenCalled();
+      expect(useDocumentComposerReplyStore.getState().failedSends.size).toBe(0);
       expect(documentInput()).toBe("");
       expect(documentAttachments()).toHaveLength(0);
     });
