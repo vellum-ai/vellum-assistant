@@ -26,7 +26,7 @@ import {
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../acp/session-manager.js";
-import type { AcpSessionState } from "../../acp/types.js";
+import { type AcpSessionState, isLiveAcpStatus } from "../../acp/types.js";
 import {
   AcpSessionModelUpdateEventSchema,
   type AssistantEvent,
@@ -654,10 +654,7 @@ function deleteSession({ pathParams }: RouteHandlerArgs) {
 
   try {
     const state = manager.getStatus(id);
-    if (
-      !Array.isArray(state) &&
-      (state.status === "running" || state.status === "initializing")
-    ) {
+    if (!Array.isArray(state) && isLiveAcpStatus(state.status)) {
       throw new ConflictError(
         `ACP session "${id}" is still ${state.status}. Cancel or close it before deleting.`,
       );

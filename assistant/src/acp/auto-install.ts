@@ -109,23 +109,26 @@ const pinChecks = new Map<string, Promise<AdapterInstallResult>>();
 const installRuns = new Map<string, Promise<AdapterInstallResult>>();
 
 /** Composite map key over fields that may contain any character. */
-function joinKey(...parts: string[]): string {
-  return parts.join("\u0000");
+function joinKey(first: string, second: string): string {
+  return `${first}\u0000${second}`;
 }
+
+/**
+ * Stands in for an agent that names no `env.PATH` and inherits the daemon's.
+ * A real PATH string cannot contain NUL, so this never collides with one,
+ * including the empty PATH.
+ */
+const INHERITED_SEARCH_PATH = "\u0000inherit";
 
 /**
  * The scope a pin verdict is proven on. Verification asks what a spawn on
  * this search path selects, so a give-up or a spent retry budget belongs to
- * the triple, not to the command: an agent whose `env.PATH` cannot reach
- * bun's global bin dir never satisfies the pin, and must not unpin the agents
- * whose path can.
+ * the command and the search path together, never to the command alone: an
+ * agent whose `env.PATH` cannot reach bun's global bin dir never satisfies
+ * the pin, and must not unpin the agents whose path can.
  */
-function pinScope(
-  command: string,
-  packageSpec: string,
-  searchPath: string | undefined,
-): string {
-  return joinKey(command, packageSpec, searchPath ?? "");
+function pinScope(command: string, searchPath: string | undefined): string {
+  return joinKey(command, searchPath ?? INHERITED_SEARCH_PATH);
 }
 
 /**
@@ -491,8 +494,9 @@ export function ensureAdapterInstalled(
   // Nothing survives the call: the probe is a manifest read plus a realpath,
   // cheap enough to repeat, and caching a no-install decision would pin the
   // daemon to whatever the adapter looked like at first spawn.
-  return coalesce(pinChecks, joinKey(command, searchPath ?? ""), () =>
-    installToPin(bunPath, command, packageSpec, searchPath),
+  const scope = pinScope(command, searchPath);
+  return coalesce(pinChecks, scope, () =>
+    installToPin(bunPath, command, packageSpec, scope, searchPath),
   );
 }
 
@@ -557,9 +561,9 @@ async function installToPin(
   bunPath: string,
   command: string,
   packageSpec: string,
+  scope: string,
   searchPath?: string,
 ): Promise<AdapterInstallResult> {
-  const scope = pinScope(command, packageSpec, searchPath);
   const fields = { command, packageSpec, searchPath };
   const probe = await probePin(command, packageSpec, searchPath);
   if (probe.action === "external") {
@@ -579,8 +583,7 @@ async function installToPin(
     return { installed: false };
   }
   if (probe.action === "unknown") {
-    warnUnverifiable(scope, { ...fields, binaryPath: probe.binaryPath });
-    recordInstallAttempt(scope, fields);
+    noteUnverifiablePin(scope, fields, probe.binaryPath);
     return { installed: false };
   }
   // Probes stay per PATH, but two PATHs spelling the same bun tree reach one
@@ -601,24 +604,30 @@ async function installToPin(
       "ACP adapter install reported success but PATH still does not select the pinned version; leaving it alone for the rest of this process",
     );
   } else if (verified.action === "unknown") {
-    warnUnverifiable(scope, { ...fields, binaryPath: verified.binaryPath });
-    recordInstallAttempt(scope, fields);
+    noteUnverifiablePin(scope, fields, verified.binaryPath);
   } else {
     installAttempts.delete(scope);
   }
   return result;
 }
 
-function warnUnverifiable(
+/**
+ * Report a probe that could not answer, and charge the scope one attempt. The
+ * warning is worth saying once per scope; the attempt is spent every time, so
+ * a filesystem that never answers still lands on the cooldown.
+ */
+function noteUnverifiablePin(
   scope: string,
   fields: Record<string, unknown>,
+  binaryPath: string | undefined,
 ): void {
   warnOnce(
     warnedUnverifiablePins,
     scope,
-    fields,
+    { ...fields, binaryPath },
     "Could not read the installed ACP adapter to check its version pin; leaving it in place and re-checking on the next spawn",
   );
+  recordInstallAttempt(scope, fields);
 }
 
 /**
@@ -733,10 +742,12 @@ export async function resolveAgentWithAutoInstall(
  * A resolution that succeeded still has to satisfy the pin: the adapter on
  * PATH may be an older bun-managed install, or one linked by a different
  * package that owns the same binary name. Reinstall and re-resolve when it
- * does not match. Every path here keeps an agent the caller can spawn: the
- * resolution that came in was already good, so a reinstall that fails, or one
- * that lands but leaves the re-resolve failing, warns and hands back that
- * original agent rather than turning a working spawn into a hard failure.
+ * does not match. A reinstall that fails outright leaves the disk as the
+ * probe found it, so the agent that came in is still spawnable and is handed
+ * back rather than turning a working spawn into a hard failure. A reinstall
+ * that lands and then fails to re-resolve is the opposite: the command is
+ * gone from PATH, so the failed resolution is returned with its actionable
+ * hint instead of an agent no spawn could start.
  * `autoInstalledPackage` is only claimed when the re-resolve confirmed it.
  */
 async function enforcePin(
@@ -761,9 +772,11 @@ async function enforcePin(
       warnedReresolveFailure,
       command,
       { agentId, command, reason: retried.reason },
-      "ACP adapter reinstall landed but the adapter no longer resolves; spawning the one resolved before it",
+      "ACP adapter reinstall landed but the adapter no longer resolves; reporting the resolution failure",
     );
-  } else if (install.error) {
+    return { resolved: retried };
+  }
+  if (install.error) {
     warnOnce(
       warnedInstallFailure,
       command,

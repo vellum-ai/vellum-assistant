@@ -665,6 +665,60 @@ describe("AcpSessionManager: live model switching", () => {
     });
   });
 
+  test("a switch issued during the spawn pin waits for it instead of overlapping it", async () => {
+    seedConversationRow("conv-pin-queue");
+    config.setConfig({ defaultModel: "opus" });
+    scriptedConfigOptions = [[modelOption("default")]];
+    let releasePin = () => {};
+    const pinHeld = new Promise<void>((resolve) => {
+      releasePin = resolve;
+    });
+    let releaseSwitch = () => {};
+    const switchHeld = new Promise<void>((resolve) => {
+      releaseSwitch = resolve;
+    });
+    setConfigOptionResponder = async (value) => {
+      await (value === "opus" ? pinHeld : switchHeld);
+      return [modelOption(String(value))];
+    };
+
+    const manager = new AcpSessionManager(5);
+    const spawned = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-queue",
+      () => {},
+    );
+    await waitForConfigOptionCalls(1);
+    const acpSessionId = manager.getActiveAndPendingIds()[0]!;
+    const switched = manager.setModel(acpSessionId, "sonnet");
+
+    // The pin holds the adapter until it answers, so the switch has not been
+    // dispatched yet.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(setConfigOptionCalls.map((call) => call.value)).toEqual(["opus"]);
+
+    releasePin();
+    await spawned;
+    await waitForConfigOptionCalls(2);
+
+    // The switch is the only round trip in flight, so its in-flight flag is
+    // still up: the adapter reporting a model now is this manager's own doing
+    // rather than the user picking one.
+    await emitConfigOptions(manager, acpSessionId, [modelOption("haiku")]);
+    expect(
+      getAcpConversationModelPreference("conv-pin-queue", "agent-model"),
+    ).toBeUndefined();
+
+    releaseSwitch();
+    await expect(switched).resolves.toMatchObject({ model: "sonnet" });
+    expect(
+      getAcpConversationModelPreference("conv-pin-queue", "agent-model"),
+    ).toBe("sonnet");
+  });
+
   test("a refused switch leaves the next one free to run", async () => {
     const { manager, acpSessionId } = await spawnSwitchable("conv-chain");
     setConfigOptionResponder = async (value) => {

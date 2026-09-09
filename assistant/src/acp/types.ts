@@ -62,6 +62,20 @@ export interface AcpSessionState {
   availableModels?: AcpModelOption[];
 }
 
+/**
+ * Statuses a session is still live in. One list for every place that asks the
+ * question: the boot sweep over persisted rows, the in-memory liveness guard,
+ * `close()`, and the delete route's conflict guard.
+ */
+export const ACP_LIVE_STATUSES = ["running", "initializing"] as const;
+
+/** Whether a status is one a session can still move from. */
+export function isLiveAcpStatus(
+  status: AcpSessionState["status"],
+): status is (typeof ACP_LIVE_STATUSES)[number] {
+  return ACP_LIVE_STATUSES.some((live) => live === status);
+}
+
 /** Context-window usage snapshot tracked from ACP `usage_update`. */
 export interface AcpUsageSnapshot {
   usedTokens: number;

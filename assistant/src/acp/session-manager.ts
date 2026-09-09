@@ -42,7 +42,12 @@ import { deriveModelInfo, resolveAcpModel } from "./model-config.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
 import { canonicalAgentId, formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
-import type { AcpAgentConfig, AcpSessionState } from "./types.js";
+import {
+  ACP_LIVE_STATUSES,
+  type AcpAgentConfig,
+  type AcpSessionState,
+  isLiveAcpStatus,
+} from "./types.js";
 
 const log = getLogger("acp:session-manager");
 
@@ -173,20 +178,6 @@ export class AcpResumeError extends Error {
   }
 }
 
-/**
- * Statuses a session is still live in. One list for every place that asks the
- * question: the boot sweep over persisted rows, the in-memory liveness guard,
- * and close().
- */
-const ACP_LIVE_STATUSES = ["running", "initializing"] as const;
-
-/** Whether a status is one a session can still move from. */
-function isLiveAcpStatus(
-  status: AcpSessionState["status"],
-): status is (typeof ACP_LIVE_STATUSES)[number] {
-  return ACP_LIVE_STATUSES.some((live) => live === status);
-}
-
 /** Maximum number of update events kept in a session's ring buffer. */
 const MAX_BUFFER_EVENTS = 200;
 /** Maximum aggregate JSON size of a session's ring buffer, in bytes. */
@@ -226,8 +217,9 @@ interface SessionEntry {
    *  none. Both the id to write a model back through and the flag that says
    *  this session has a model to publish at all. */
   modelConfigId?: string;
-  /** Tail of this session's model-switch chain, so overlapping setModel calls
-   *  reach the adapter one at a time and the last choice wins. */
+  /** Tail of this session's model-switch chain, so the manager's own spawn
+   *  and resume pins and any overlapping setModel calls reach the adapter one
+   *  at a time and the last choice wins. */
   modelSwitchQueue: Promise<void>;
   /** Last model value this manager asked the adapter for, so a
    *  `config_option_update` the adapter sends as that call's side effect is
@@ -246,10 +238,6 @@ interface SessionEntry {
    *  than the user choosing, and writing it as the conversation's preference
    *  would freeze that default in. */
   modelBaselineEstablished: boolean;
-  /** Model this run's history row recorded, kept only when a resume could not
-   *  put the adapter back on it. Read by `persistTerminal` alone, so the row
-   *  preserves the record while state stays on the model the run is really on. */
-  recordedModel?: string;
 }
 
 /** What a spawn or resume pin did about the model it was asked for. */
@@ -505,11 +493,6 @@ export class AcpSessionManager {
     const info = deriveModelInfo(configOptions);
     entry.modelConfigId = info.modelConfigId;
     if (info.modelConfigId) {
-      if (info.model !== entry.state.model) {
-        // The run has moved off whatever a resume could not restore it to, so
-        // the row's record no longer describes it.
-        entry.recordedModel = undefined;
-      }
       entry.state.model = info.model;
       entry.state.availableModels = info.availableModels;
     }
@@ -529,24 +512,49 @@ export class AcpSessionManager {
    * rung (config default, remembered preference) is only logged, so a config
    * the user never typed here does not surface as a warning on every spawn.
    */
-  private async pinSessionModel(
+  private pinSessionModel(
     entry: SessionEntry,
     configOptions: SessionConfigOption[],
     requestedModel: string | undefined,
     resolvedModel: string | undefined,
   ): Promise<ModelPinResult> {
-    const result = await this.applyModelPin(
-      entry,
-      configOptions,
-      requestedModel,
-      resolvedModel,
+    return this.enqueueModelWork(entry, async () => {
+      const result = await this.applyModelPin(
+        entry,
+        configOptions,
+        requestedModel,
+        resolvedModel,
+      );
+      // Latched only once the round trip is done. The window while it is in
+      // flight belongs to `managerPinInFlight`, and by now the adapter has
+      // reported what the session is on, so anything unsolicited after this is
+      // a change rather than an opening announcement.
+      entry.modelBaselineEstablished = entry.modelConfigId !== undefined;
+      return result;
+    });
+  }
+
+  /**
+   * Chains `work` onto this session's model-switch queue, so the manager's
+   * own pins and a client's `setModel` reach the adapter one at a time.
+   * `managerPinInFlight` is a single boolean covering every call in flight,
+   * which only holds while nothing overlaps: two concurrent round trips would
+   * each clear it on their own way out, and whichever answered first would
+   * open the window for the other. The queue is idle when a spawn or resume
+   * pins, so serializing costs those nothing.
+   *
+   * A refusal belongs to its caller alone; the chain carries on either way.
+   */
+  private enqueueModelWork<T>(
+    entry: SessionEntry,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    const queued = entry.modelSwitchQueue.then(work);
+    entry.modelSwitchQueue = queued.then(
+      () => undefined,
+      () => undefined,
     );
-    // Latched only once the round trip is done. The window while it is in
-    // flight belongs to `managerPinInFlight`, and by now the adapter has
-    // reported what the session is on, so anything unsolicited after this is
-    // a change rather than an opening announcement.
-    entry.modelBaselineEstablished = entry.modelConfigId !== undefined;
-    return result;
+    return queued;
   }
 
   /**
@@ -788,7 +796,8 @@ export class AcpSessionManager {
    * the next turn, and cancelling a running turn to change a model would cost
    * the user the work in flight.
    *
-   * Switches run one at a time per session. A picker changed twice in quick
+   * Switches run one at a time per session, on the same queue as the
+   * manager's own spawn and resume pins. A picker changed twice in quick
    * succession would otherwise have two round trips in flight at once, and a
    * slow first one landing last would put the state, the preference, and the
    * client back on the model the user already moved off.
@@ -801,15 +810,9 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
-    const switched = entry.modelSwitchQueue.then(() =>
+    return this.enqueueModelWork(entry, () =>
       this.applyModelSwitch(acpSessionId, entry, model),
     );
-    // A refusal belongs to its caller alone; the chain carries on either way.
-    entry.modelSwitchQueue = switched.then(
-      () => undefined,
-      () => undefined,
-    );
-    return switched;
   }
 
   /**
@@ -1228,13 +1231,9 @@ export class AcpSessionManager {
     );
     if (recordedModel && !applied) {
       // State keeps the adapter's own answer, so the model event, the status
-      // projection and the panel all name the model the run is really on.
-      // Only the terminal upsert keeps the record, and only until something
-      // moves the run off it. The baseline goes back down with it: the
-      // manager just failed to control this session's model, so the adapter's
-      // next announcement is a report rather than a choice the user made.
-      entry.recordedModel = recordedModel;
-      entry.modelBaselineEstablished = false;
+      // projection, the panel and the terminal row all name the model the run
+      // is really on. A later resume then re-pins to that, which is the run
+      // the user is coming back to.
       log.warn(
         {
           acpSessionId,
@@ -1597,9 +1596,9 @@ export class AcpSessionManager {
       parentToolUseId: entry.state.parentToolUseId ?? null,
       authErrorCode: entry.state.authErrorCode ?? null,
       authErrorCredential: entry.state.authErrorCredential ?? null,
-      // The record wins only while a resume could not put the run back on it;
-      // anything that moves the model afterwards clears it.
-      model: entry.recordedModel ?? entry.state.model ?? null,
+      // The adapter's own truth: the row records the model the run ended on,
+      // which is what a later resume re-pins to.
+      model: entry.state.model ?? null,
       usedTokens: usage?.usedTokens ?? null,
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,
