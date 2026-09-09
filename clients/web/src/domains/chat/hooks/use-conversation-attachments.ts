@@ -1,12 +1,16 @@
 /**
- * Every attachment a conversation carries, newest first.
+ * Every attachment a conversation carries: rows newest first, and the
+ * attachments within one row in the order they were sent.
  *
  * Read from the transcript rows that carry attachments, which is the loaded
  * pages only, so `totalFiles` counts what is loaded rather than what the
  * conversation holds. Subscribing to those rows alone rather than to the whole
  * transcript keeps the always-mounted header trigger still while a turn
  * streams: older rows keep their identity and the streaming assistant row
- * carries nothing, so the selected set stays shallow-equal.
+ * carries nothing, so the selected set stays shallow-equal. Selecting the
+ * snapshot's `messages` reference instead would cost less per store write and
+ * re-render this hook on every token batch, which is the per-commit traffic
+ * `docs/CONVENTIONS.md` keeps out of a streaming conversation.
  * The transcript also cannot see the camera-frame tag: that lives in daemon
  * message metadata which never crosses the message wire, so `sightFrame` is
  * always false and `totalFrames` is always 0 on this source.
@@ -43,6 +47,12 @@ export interface ConversationAttachments {
   /** Exact on the daemon path; the entry counts on the transcript path. */
   totalFiles: number;
   totalFrames: number;
+  /**
+   * Whether these entries are the target's own loaded transcript: its chat
+   * session owns the snapshot and a snapshot is loaded. Empty entries mean
+   * "no files" only once this is true.
+   */
+  transcriptReady: boolean;
   hasMoreFiles: boolean;
   hasMoreFrames: boolean;
   loadMoreFiles: () => void;
@@ -83,23 +93,6 @@ function selectAttachmentRows(state: ChatSessionStore): DisplayMessage[] {
   );
 }
 
-/**
- * Files and frames partition the entries: one captured by the camera gate
- * counts as a frame and nowhere else, so the two totals cannot double-count it.
- */
-function countEntryTotals(entries: ConversationAttachmentEntry[]): {
-  totalFiles: number;
-  totalFrames: number;
-} {
-  let totalFrames = 0;
-  for (const entry of entries) {
-    if (entry.sightFrame) {
-      totalFrames += 1;
-    }
-  }
-  return { totalFiles: entries.length - totalFrames, totalFrames };
-}
-
 export function useConversationAttachments(target: {
   assistantId: string;
   conversationId: string;
@@ -112,6 +105,8 @@ export function useConversationAttachments(target: {
   const ownsTranscript =
     ownerAssistantId === target.assistantId &&
     ownerConversationId === target.conversationId;
+
+  const hasSnapshot = useChatSessionStore((state) => state.snapshot !== null);
 
   const messages = useChatSessionStore(useShallow(selectAttachmentRows));
 
@@ -154,13 +149,16 @@ export function useConversationAttachments(target: {
   return useMemo(
     () => ({
       entries,
-      ...countEntryTotals(entries),
+      totalFiles: entries.length,
+      // The transcript path cannot produce a frame: it never sees the tag.
+      totalFrames: 0,
+      transcriptReady: ownsTranscript && hasSnapshot,
       hasMoreFiles: false,
       hasMoreFrames: false,
       loadMoreFiles: NOOP,
       loadMoreFrames: NOOP,
       source: "transcript",
     }),
-    [entries],
+    [entries, hasSnapshot, ownsTranscript],
   );
 }

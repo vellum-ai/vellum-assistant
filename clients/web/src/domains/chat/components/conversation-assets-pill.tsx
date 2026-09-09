@@ -3,9 +3,10 @@
  *
  * Clicking it toggles the viewer store's `chat-info` view, which the drawer
  * renders beside the chat on a roomy window and the mobile overlay renders
- * full-screen under a thumb. The control itself only reports the conversation's
- * asset count, carries the unseen-changes dot, and reflects whether the panel
- * is currently showing this conversation.
+ * full-screen under a thumb. The control itself reports the conversation's
+ * asset count, or that those assets could not be loaded, carries the
+ * unseen-changes dot, and reflects whether the panel is currently showing this
+ * conversation.
  */
 
 import { Layers } from "lucide-react";
@@ -86,9 +87,13 @@ export function ConversationAssetsPill({
     useViewerStore.getState().toggleChatInfo({ assistantId, conversationId });
   }, [assistantId, conversationId]);
 
-  // A conversation with nothing to show has no trigger, but one whose sources
-  // failed keeps it: the panel is where the user finds out why.
-  if (status === "ready" && count === 0) {
+  // A conversation with nothing to show has no trigger, and neither does one
+  // whose sources have not settled: counting nothing yet is not the same as
+  // holding nothing, and a trigger that flashes "0 items" on every uncached
+  // chat is worse than none. A failed load keeps it: the panel is where the
+  // user finds out why.
+  const failedToLoad = status === "error";
+  if (count === 0 && !failedToLoad) {
     return null;
   }
 
@@ -97,11 +102,17 @@ export function ConversationAssetsPill({
   // two forms English has. The unseen variant is its own key rather than a
   // `select` branch appended to the base one: translators get a whole sentence
   // to work with, and languages that place the qualifier somewhere other than
-  // the end are free to move it.
-  const label = t("conversationAssets.label", { count });
-  const ariaLabel = hasUnseenChanges
+  // the end are free to move it. A failed load names no count at all, since
+  // what reached the client is a fraction of what the conversation holds.
+  const countedAriaLabel = hasUnseenChanges
     ? t("conversationAssets.ariaLabelUnseen", { count })
     : t("conversationAssets.ariaLabel", { count });
+  const label = failedToLoad
+    ? t("conversationAssets.labelUnavailable")
+    : t("conversationAssets.label", { count });
+  const ariaLabel = failedToLoad
+    ? t("conversationAssets.ariaLabelUnavailable")
+    : countedAriaLabel;
 
   // Same dot as the notifications bell in this header cluster: ringed in the
   // color of the surface behind it so the ring reads as a gap carved out of

@@ -1,13 +1,14 @@
 /**
- * `ChatInfoCategoryGrid`: the panel's second level, given one category's
+ * `ChatInfoFileGrid`: the panel's second level, given one file category's
  * items.
  *
- * The real tiles render here, since what the grid owns is the set of them and
- * the paging control under it. Bytes are never fetched: the frames carry their
- * preview inline and the query client serves only what a test seeds.
+ * The real tiles render here, since what the grid owns is the set of them, the
+ * paging control under it, and what it says with nothing to show. Bytes are
+ * never fetched: the frames carry their preview inline and the query client
+ * serves only what a test seeds. How a tile labels itself is the tile suite's.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -19,19 +20,14 @@ import {
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 
-installChatInfoDomStubs();
+const restoreDomStubs = installChatInfoDomStubs();
 
-const { ChatInfoCategoryGrid } =
-  await import("@/domains/chat/components/chat-info-category-grid");
+const { ChatInfoFileGrid } =
+  await import("@/domains/chat/components/chat-info-file-grid");
 const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
-const { formatCaptureTime } = await import("@/utils/format-date");
 
 const ASSISTANT_ID = "asst-1";
-/** The suite pins i18next to English, which is the locale the tile formats in. */
-const LOCALE = "en";
-
-const FRAME_CAPTURED_AT = new Date(2001, 4, 27, 10, 30).getTime();
 
 const FRAME = makeFrameAsset(
   makeDisplayAttachment({
@@ -40,7 +36,7 @@ const FRAME = makeFrameAsset(
     mimeType: "image/jpeg",
     previewUrl: SAMPLE_PREVIEWS[1]!,
   }),
-  FRAME_CAPTURED_AT,
+  new Date(2001, 4, 27, 10, 30).getTime(),
 );
 
 const FILE = makeFileAsset(
@@ -64,7 +60,7 @@ function renderGrid({
 } = {}): void {
   render(
     <QueryClientProvider client={makeChatInfoQueryClient()}>
-      <ChatInfoCategoryGrid
+      <ChatInfoFileGrid
         items={items}
         assistantId={ASSISTANT_ID}
         hasMore={hasMore}
@@ -83,16 +79,12 @@ afterEach(() => {
   cleanup();
 });
 
-describe("ChatInfoCategoryGrid", () => {
-  test("labels a camera frame by when it was captured", () => {
-    renderGrid();
+afterAll(() => {
+  restoreDomStubs();
+  mock.restore();
+});
 
-    expect(screen.getByLabelText("Preview camera frame")).toBeDefined();
-    expect(
-      screen.getByText(formatCaptureTime(FRAME_CAPTURED_AT, LOCALE)),
-    ).toBeDefined();
-  });
-
+describe("ChatInfoFileGrid", () => {
   test("gives every item its own tile", () => {
     renderGrid({ items: [FRAME, FILE] });
 
@@ -123,5 +115,11 @@ describe("ChatInfoCategoryGrid", () => {
     renderGrid({ hasMore: false });
 
     expect(loadMore()).toBeNull();
+  });
+
+  test("says so for a category with nothing in it", () => {
+    renderGrid({ items: [] });
+
+    expect(screen.getByText("No assets in this chat yet")).toBeDefined();
   });
 });
