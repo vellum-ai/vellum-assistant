@@ -1,7 +1,7 @@
 import type { ClientOs, InterfaceId } from "../channels/types.js";
 
 /** Public download page for the desktop apps. */
-export const DESKTOP_APP_DOWNLOAD_URL = "https://www.vellum.ai/download";
+export const DESKTOP_APP_DOWNLOAD_URL = "https://www.vellum.ai/downloads";
 
 /** Chrome Web Store listing for the Vellum Assistant browser extension. */
 export const CHROME_WEB_STORE_INSTALL_URL =
