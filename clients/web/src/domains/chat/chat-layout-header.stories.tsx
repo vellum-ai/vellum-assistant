@@ -13,31 +13,32 @@
  * is the same ghost icon-only `Button` with the same glyph, which is all this
  * story needs it to be. It exists to occupy the cluster, not to be exercised.
  *
+ * The Assets pill's conversation is seeded by the shared Chat Info decorator,
+ * on ids of this file's own so a panel opened here can only be this header's.
+ *
  * The states covered are the composition's, not a per-component matrix: the
- * desktop and mobile baselines, a channel-bound header, and each viewport with
- * the Chat Info panel open, where the Assets trigger reads as selected.
+ * desktop and mobile baselines, a channel-bound header, and the desktop header
+ * with the Chat Info panel open, where the Assets trigger reads as selected.
+ * The mobile trigger carries the same `active` fill open or closed, so there is
+ * no second open state to show.
  */
 
 import { useEffect, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { Bell } from "lucide-react";
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 
 import { Button } from "@vellumai/design-library";
 
-import {
-  appsGetQueryKey,
-  documentsGetQueryKey,
-} from "@/generated/daemon/@tanstack/react-query.gen";
 import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
+import { inChatInfoConversation } from "@/domains/chat/components/chat-info-story-fixtures";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
 
+/** This header's own conversation, distinct from the panel stories' fixture ids. */
 const ASSISTANT_ID = "asst-story";
 const CONVERSATION_ID = "conv-story";
-const T0 = 1_700_000_000_000;
 
 const LONG_TITLE =
   "Investigating why the nightly ingestion job silently drops Slack threads " +
@@ -63,10 +64,6 @@ function NotificationsStandIn() {
 // Harness
 // ---------------------------------------------------------------------------
 
-/**
- * Seeds the assets query cache, so the Assets pill has something to show
- * without a daemon.
- */
 function Harness({
   isMobile,
   channelBound = false,
@@ -76,39 +73,6 @@ function Harness({
    *  way `useChatHeaderRegistration` composes it for channel-bound chats. */
   channelBound?: boolean;
 }) {
-  const queryClient = useQueryClient();
-  const [seeded] = useState(() => {
-    queryClient.setQueryData(
-      appsGetQueryKey({
-        path: { assistant_id: ASSISTANT_ID },
-        query: { conversationId: CONVERSATION_ID },
-      }),
-      {
-        apps: [
-          {
-            id: "app-1",
-            name: "Ingestion dashboard",
-            createdAt: T0,
-            updatedAt: T0,
-            version: "1",
-            contentId: "c1",
-            origin: "workspace",
-          },
-        ],
-      },
-    );
-    queryClient.setQueryData(
-      documentsGetQueryKey({
-        path: { assistant_id: ASSISTANT_ID },
-        query: { conversationId: CONVERSATION_ID },
-      }),
-      { documents: [] },
-    );
-    return true;
-  });
-  void seeded;
-
-
   return (
     <ChatLayoutHeader
       isMobile={isMobile}
@@ -155,9 +119,9 @@ function setMatchMedia(impl: typeof window.matchMedia) {
  * shows the mobile composition regardless of the viewport the docs page happens
  * to render at.
  */
-function ForceMobile({ children }: { children: React.ReactNode }) {
+const forceMobile: Decorator = function ForceMobile(Story) {
   // Installed from a `useState` initializer, which runs exactly once and during
-  // this component's render, i.e. before any child samples the query. An
+  // this decorator's render, i.e. before the story samples the query. An
   // identity check against the saved original would not work here: `bind`
   // returns a new function object, so it never compares equal to the global.
   const [original] = useState(() => {
@@ -184,35 +148,42 @@ function ForceMobile({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return () => setMatchMedia(original);
   }, [original]);
-  return <>{children}</>;
-}
+  return <Story />;
+};
 
 /**
- * Opens the Chat Info panel for the story's conversation, so the Assets
+ * Opens the Chat Info panel for this header's conversation, so the Assets
  * trigger renders the selected state it holds while the panel is on screen.
- *
- * Opened from a `useState` initializer, which runs during this component's
- * render, i.e. before the trigger below it first samples the store.
  */
-function ChatInfoOpen({ children }: { children: React.ReactNode }) {
-  const [opened] = useState(() => {
+const withChatInfoOpen: Decorator = function WithChatInfoOpen(Story) {
+  // A `useState` initializer runs during this decorator's own render, i.e.
+  // before the trigger below it first samples the store.
+  useState(() => {
     useViewerStore.getState().openChatInfo({
       assistantId: ASSISTANT_ID,
       conversationId: CONVERSATION_ID,
     });
-    return true;
   });
-  void opened;
   useEffect(() => {
     return () => useViewerStore.getState().closeChatInfo();
   }, []);
-  return <>{children}</>;
-}
+  return <Story />;
+};
 
 const meta: Meta<typeof Harness> = {
   title: "Chat/ChatLayoutHeader",
   component: Harness,
-  parameters: { layout: "fullscreen" },
+  parameters: {
+    layout: "fullscreen",
+    chatInfo: {
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+      appCount: 1,
+      documentCount: 0,
+      attachments: [],
+    },
+  },
+  decorators: [inChatInfoConversation],
 };
 
 export default meta;
@@ -243,13 +214,7 @@ export const DesktopChannelBound: Story = {
  */
 export const MobileBaseline: Story = {
   args: { isMobile: true },
-  decorators: [
-    (Story) => (
-      <ForceMobile>
-        <Story />
-      </ForceMobile>
-    ),
-  ],
+  decorators: [forceMobile],
 };
 
 /**
@@ -258,29 +223,5 @@ export const MobileBaseline: Story = {
  */
 export const AssetsPanelOpen: Story = {
   args: { isMobile: false },
-  decorators: [
-    (Story) => (
-      <ChatInfoOpen>
-        <Story />
-      </ChatInfoOpen>
-    ),
-  ],
-};
-
-/**
- * The same open state on the narrow header, where the trigger is the filled
- * icon button.
- */
-export const AssetsPanelOpenMobile: Story = {
-  args: { isMobile: true },
-  globals: { viewport: { value: "sbMobile", isRotated: false } },
-  decorators: [
-    (Story) => (
-      <ForceMobile>
-        <ChatInfoOpen>
-          <Story />
-        </ChatInfoOpen>
-      </ForceMobile>
-    ),
-  ],
+  decorators: [withChatInfoOpen],
 };

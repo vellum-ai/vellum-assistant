@@ -27,8 +27,14 @@ import type { ReactElement } from "react";
 
 import * as appHtmlCache from "@/utils/app-html-cache";
 import * as downloadAttachmentModule from "@/domains/chat/components/chat-attachments/download-attachment";
-import type { AppSummary } from "@/types/app-types";
-import type { DocumentSummary } from "@/types/document-types";
+import {
+  makeAppSummary,
+  makeDocumentAsset,
+  makeDocumentSummary,
+  makeFileAsset,
+  makeFrameAsset,
+} from "@/domains/chat/components/chat-info.test-helper";
+import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 
 const OBJECT_URL = "blob:chat-info-tile";
 
@@ -90,48 +96,13 @@ const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
 const { appsGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
 const { formatCaptureTime } = await import("@/utils/format-date");
-type ConversationFileAsset =
-  import("@/domains/chat/hooks/use-conversation-assets").ConversationFileAsset;
 
 const ASSISTANT_ID = "asst-1";
 
-const APP: AppSummary = {
-  id: "app-1",
-  name: "Trip Planner",
-  icon: "🧭",
-  createdAt: 1_700_000_000_000,
-  updatedAt: 1_700_000_000_001,
-  version: "1.0.0",
-  contentId: "content-1",
-  origin: "workspace",
-};
-
-const DOC: DocumentSummary = {
-  surfaceId: "surface-1",
-  conversationId: "conv-1",
-  title: "Trip Notes",
-  wordCount: 120,
-  createdAt: 1_700_000_000_000,
-  updatedAt: 1_700_000_000_001,
-};
-
-const DOCUMENT_ASSET: ConversationFileAsset = {
-  kind: "document",
-  id: "doc-surface-1",
-  title: DOC.title,
-  doc: DOC,
-};
-
-function attachmentAsset(
-  attachment: ReturnType<typeof makeDisplayAttachment>,
-): ConversationFileAsset {
-  return {
-    kind: "attachment",
-    id: `att-${attachment.id}`,
-    title: attachment.filename,
-    attachment,
-  };
-}
+const APP = makeAppSummary({ id: "app-1", name: "Trip Planner" });
+const DOCUMENT_ASSET = makeDocumentAsset(
+  makeDocumentSummary({ title: "Trip Notes" }),
+);
 
 function renderTile(ui: ReactElement) {
   const client = new QueryClient({
@@ -205,7 +176,7 @@ describe("ChatInfoFileTile documents", () => {
 
 describe("ChatInfoFileTile attachments", () => {
   test("renders an inline preview without fetching", () => {
-    const file = attachmentAsset(
+    const file = makeFileAsset(
       makeDisplayAttachment({
         id: "inline-1",
         filename: "harbour.png",
@@ -228,7 +199,7 @@ describe("ChatInfoFileTile attachments", () => {
   });
 
   test("spins while it fetches, then renders the object URL", async () => {
-    const file = attachmentAsset(
+    const file = makeFileAsset(
       makeDisplayAttachment({ id: "lazy-1", filename: "photo.png" }),
     );
     const { container } = renderTile(
@@ -251,7 +222,7 @@ describe("ChatInfoFileTile attachments", () => {
   });
 
   test("falls back to the image glyph when the bytes will not decode", async () => {
-    const file = attachmentAsset(
+    const file = makeFileAsset(
       makeDisplayAttachment({ id: "broken-1", filename: "broken.png" }),
     );
     const { container } = renderTile(
@@ -273,7 +244,7 @@ describe("ChatInfoFileTile attachments", () => {
 
   test("falls back to the image glyph when the fetch resolves nothing", async () => {
     fetchAttachmentContentBlob.mockImplementationOnce(async () => null);
-    const file = attachmentAsset(
+    const file = makeFileAsset(
       makeDisplayAttachment({ id: "missing-1", filename: "missing.png" }),
     );
     const { container } = renderTile(
@@ -292,7 +263,7 @@ describe("ChatInfoFileTile attachments", () => {
 
   test("falls back to the image glyph for a legacy image it can never fetch", () => {
     // A row reloaded from a summary line carries a synthetic id and no bytes.
-    const file = attachmentAsset(
+    const file = makeFileAsset(
       makeDisplayAttachment({ id: "rehydrated:0", filename: "legacy.png" }),
     );
     const { container } = renderTile(
@@ -309,7 +280,7 @@ describe("ChatInfoFileTile attachments", () => {
   });
 
   test("renders the PDF glyph without fetching", () => {
-    const file = attachmentAsset(
+    const file = makeFileAsset(
       makeDisplayAttachment({
         id: "pdf-1",
         filename: "report.pdf",
@@ -334,18 +305,15 @@ describe("ChatInfoFileTile camera frames", () => {
   const LOCALE = "en";
 
   function frameAsset(capturedAt: number): ConversationFileAsset {
-    return {
-      kind: "frame",
-      id: "frame-1",
-      title: "frame-01.jpg",
-      attachment: makeDisplayAttachment({
+    return makeFrameAsset(
+      makeDisplayAttachment({
         id: "frame-1",
         filename: "frame-01.jpg",
         mimeType: "image/jpeg",
         previewUrl: SAMPLE_PREVIEWS[1]!,
       }),
       capturedAt,
-    };
+    );
   }
 
   test("labels a frame from today with its time of day", () => {

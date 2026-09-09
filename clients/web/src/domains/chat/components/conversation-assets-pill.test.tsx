@@ -25,6 +25,7 @@ import {
 } from "@testing-library/react";
 import * as motionReact from "motion/react";
 
+import { makeDocumentSummary } from "@/domains/chat/components/chat-info.test-helper";
 import type { DocumentSummary } from "@/types/document-types";
 
 const isMobileRef = { value: false };
@@ -71,14 +72,7 @@ function makeDocument(
   conversationId = CONVERSATION_ID,
   surfaceId = SURFACE_ID,
 ): DocumentSummary {
-  return {
-    surfaceId,
-    conversationId,
-    title: DOC_TITLE,
-    wordCount: 12,
-    createdAt: 1_700_000_000_000,
-    updatedAt: 1_700_000_000_001,
-  };
+  return makeDocumentSummary({ surfaceId, conversationId, title: DOC_TITLE });
 }
 
 /**

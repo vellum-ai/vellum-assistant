@@ -291,6 +291,14 @@ const emDashEnforcedPaths = [
   // pre-existing em dashes that must not be swept retroactively.
   "src/domains/chat/components/surfaces/watch-retro-surface.tsx",
   "src/domains/chat/components/surfaces/watch-retro-surface.test.tsx",
+  // Chat Info: the panel and its rows, the tiles, the mobile host, the asset
+  // menus, the header trigger, and the hooks the three of them read.
+  "src/domains/chat/components/chat-info*.{ts,tsx}",
+  "src/domains/chat/components/mobile-chat-info-overlay*.tsx",
+  "src/domains/chat/components/conversation-asset*.{ts,tsx}",
+  "src/domains/chat/hooks/use-conversation-assets*.{ts,tsx}",
+  "src/domains/chat/hooks/use-conversation-attachments*.{ts,tsx}",
+  "src/domains/chat/chat-layout-header.stories.tsx",
 ];
 
 const eslintConfig = defineConfig([

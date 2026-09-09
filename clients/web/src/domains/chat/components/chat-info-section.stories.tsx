@@ -11,7 +11,7 @@
  * it under a row that looks complete.
  *
  * Read the phone stories at the Mobile viewports: the frame draws
- * `DetailShell`'s 20px body inset, which the strip cancels.
+ * `DetailShell`'s lift surface and 20px body inset, which the strip cancels.
  */
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
@@ -40,9 +40,9 @@ const FITTING_SET: DisplayAttachment[] = [
   ...makeMixedAttachments().filter((file) => file.previewUrl === null),
 ];
 
-/** The drawer body's column on the desktop mock: 569px inside the shell's inset. */
+/** The drawer body's column on the desktop mock: 569px inside `DetailShell`'s lift surface and 20px inset. */
 const inDrawerColumn: Decorator = (Story) => (
-  <div className="bg-[var(--surface-base)] p-5">
+  <div className="bg-[var(--surface-lift)] p-5">
     <div className="w-[569px]">
       <Story />
     </div>
@@ -55,7 +55,7 @@ const inDrawerColumn: Decorator = (Story) => (
  * off, as in the mobile mock.
  */
 const inPhonePage: Decorator = (Story) => (
-  <div className="max-w-[402px] bg-[var(--surface-base)] p-5">
+  <div className="max-w-[402px] bg-[var(--surface-lift)] p-5">
     <Story />
   </div>
 );
