@@ -381,8 +381,7 @@ function profileIsSubscriptionRouted(
     return fragmentIsSubscriptionBound(shadow, lookup);
   }
   return (
-    DEFAULT_PROFILE_KEYS.has(name) &&
-    defaultProviderIsSubscription(llm, lookup.isSubscription)
+    DEFAULT_PROFILE_KEYS.has(name) && defaultProviderIsSubscription(llm, lookup)
   );
 }
 
@@ -405,11 +404,11 @@ function userShadow(
 /**
  * Whether `llm.defaultProvider` routes its default column through the
  * subscription: the `chatgpt` identity, or `openai` pinning a subscription
- * row by `connectionName`.
+ * row by `connectionName`, which is only ever a row name.
  */
 function defaultProviderIsSubscription(
   llm: Record<string, unknown>,
-  isSubscriptionProvider: (provider: unknown) => boolean,
+  lookup: ProviderLookup,
 ): boolean {
   const defaultProvider = readObject(llm.defaultProvider);
   if (defaultProvider === null) {
@@ -418,9 +417,12 @@ function defaultProviderIsSubscription(
   if (defaultProvider.provider === CHATGPT_IDENTITY) {
     return true;
   }
+  const name = defaultProvider.connectionName;
   return (
     defaultProvider.provider === "openai" &&
-    isSubscriptionProvider(defaultProvider.connectionName)
+    typeof name === "string" &&
+    name.length > 0 &&
+    lookup.isSubscriptionRow(name)
   );
 }
 

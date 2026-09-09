@@ -205,6 +205,25 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     const llm = readLlm();
     expect(llm.profiles.subRow.model).toBe(REPLACEMENT);
     expect(llm.profiles.keyRow.model).toBe(STALE_MINI);
+
+    // The default provider's connectionName is a row name the same way.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "openai", connectionName: "openai" },
+        callSites: { recall: { model: STALE } },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    expect(readLlm().callSites.recall.model).toBe(REPLACEMENT);
+
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "openai", connectionName: "chatgpt" },
+        callSites: { recall: { model: STALE } },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    expect(readLlm().callSites.recall.model).toBe(STALE);
   });
 
   test("leaves API-key, other-vendor, and dangling fragments untouched", () => {
