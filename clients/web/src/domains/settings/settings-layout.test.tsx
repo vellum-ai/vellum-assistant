@@ -16,6 +16,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     settingsDeveloperNav: () => assistantFlags.settingsDeveloperNav ?? false,
+    vellumHostedInference: () => assistantFlags.vellumHostedInference ?? false,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -179,7 +180,7 @@ describe("SettingsLayout", () => {
     expect(screen.getByRole("link", { name: "Credentials" })).not.toBeNull();
   });
 
-  test("renders Personality only when developer nav is on", () => {
+  test("renders Personality only when hosted inference is on", () => {
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
         <SettingsLayout />
@@ -188,14 +189,25 @@ describe("SettingsLayout", () => {
     expect(screen.queryByRole("link", { name: "Personality" })).toBeNull();
     cleanup();
 
-    assistantFlags.settingsDeveloperNav = true;
+    assistantFlags.vellumHostedInference = true;
     render(
       <MemoryRouter initialEntries={["/assistant/settings"]}>
         <SettingsLayout />
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: "Personality" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Developer" })).toBeNull();
+  });
+
+  test("renders Developer only when developer nav is on", () => {
+    assistantFlags.settingsDeveloperNav = true;
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
     expect(screen.getByRole("link", { name: "Developer" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Personality" })).toBeNull();
   });
 
   test("renders Notifications only in the native Android app", () => {

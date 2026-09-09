@@ -35,7 +35,7 @@ function input(
 ): ModelFirstInput {
   return {
     connections,
-    developerMode: false,
+    hostedInference: false,
     activeAssistantIsSelfHosted: true,
     labelFor: (provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider,
     defaultEntryMetaLabel: "Default",

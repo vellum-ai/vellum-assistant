@@ -62,7 +62,8 @@
     "toggleFailed": "Failed to toggle schedule.",
     "notUsedForWorkflow": "Not used for workflow runs",
     "enabled": "Enabled",
-    "disabled": "Disabled"
+    "disabled": "Disabled",
+    "timezone": "Timezone"
   },
   "systemTaskDetail": {
     "openMemorySettings": "Open Memory settings",

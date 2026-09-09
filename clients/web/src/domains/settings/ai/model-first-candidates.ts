@@ -20,6 +20,7 @@
  */
 
 import {
+  catalogEnabledFlags,
   getVisibleModelsForProvider,
   MODELS_BY_PROVIDER,
   vendorDisplayName,
@@ -90,8 +91,8 @@ export interface ModelFirstOption {
 
 export interface ModelFirstInput {
   readonly connections: readonly ProviderConnection[];
-  /** Whether feature-flagged catalog entries are visible. */
-  readonly developerMode: boolean;
+  /** Whether Vellum-hosted GPU catalog entries are visible. */
+  readonly hostedInference: boolean;
   readonly activeAssistantIsSelfHosted: boolean;
   /** Provider id to display name. */
   readonly labelFor: (provider: ConnectionProvider) => string;
@@ -291,7 +292,12 @@ export function resolveModelFirstOptions(
       continue;
     }
 
-    const models = getVisibleModelsForProvider(kind, input.developerMode);
+    const models = getVisibleModelsForProvider(
+      kind,
+      catalogEnabledFlags({
+        hostedInference: input.hostedInference,
+      }),
+    );
     if (models.length === 0) {
       continue;
     }
