@@ -40,6 +40,7 @@ import type {
 } from "@vellumai/plugin-api";
 
 import { ProviderError } from "../../../../../util/errors.js";
+import { OpenAIChatCompletionsProvider } from "../../../../../providers/openai/chat-completions-provider.js";
 import { sectionHeadLine } from "../sections.js";
 import type { MemoryRoutingTurn, Section } from "../types.js";
 
@@ -841,5 +842,102 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     expect(line.endsWith("§Notes: we said: weekly, turnip is the label")).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectPool — thinking-mode tool_choice rejection on an OpenAI-compatible
+// profile (ATL-1346: Kimi 400s a forced `select_pages` while thinking is on).
+// ---------------------------------------------------------------------------
+
+describe("selectPool — thinking-mode tool_choice rejection on an OpenAI-compatible profile", () => {
+  test("the captured Kimi 400 retries inside the provider and still yields a structured selection", async () => {
+    // A real OpenAI chat-completions provider stands in for a thinking-enabled
+    // Kimi profile; the SDK client is swapped for a stub that 400s the first
+    // create with the captured wording, then streams a select_pages tool call.
+    const wireRequests: unknown[] = [];
+    const kimi = new OpenAIChatCompletionsProvider("test-key", "kimi-model");
+    (kimi as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            // Snapshot: the provider fallback mutates params between attempts.
+            wireRequests.push(JSON.parse(JSON.stringify(params)));
+            if (wireRequests.length === 1) {
+              throw Object.assign(
+                new Error(
+                  "tool_choice 'specified' is incompatible with thinking enabled",
+                ),
+                { status: 400 },
+              );
+            }
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: 0,
+                            id: "call-1",
+                            function: {
+                              name: "select_pages",
+                              arguments: '{"ids":[3]}',
+                            },
+                          },
+                        ],
+                      },
+                      finish_reason: "tool_calls",
+                    },
+                  ],
+                  usage: { prompt_tokens: 10, completion_tokens: 2 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    // The profile layer injects the thinking effort onto the call config in
+    // production; emulate that here so the forced tool_choice rides alongside
+    // reasoning on the wire.
+    providerStub = {
+      name: "kimi-openai-compat",
+      sendMessage: (messages: Message[], options?: SendMessageOptions) =>
+        kimi.sendMessage(messages, {
+          ...options,
+          config: { ...options?.config, effort: "high" },
+        }),
+    };
+
+    const selection = await selectPool(makePool(), makeTurn("rollout?"));
+
+    // The provider-level one-retry absorbed the 400: exactly two wire
+    // requests, and the pool-level re-prompt loop never engaged.
+    expect(wireRequests).toHaveLength(2);
+    const first = wireRequests[0] as {
+      tool_choice?: { type: string; function: { name: string } };
+      reasoning_effort?: string;
+    };
+    const second = wireRequests[1] as {
+      tool_choice?: unknown;
+      reasoning_effort?: string;
+    };
+    expect(first.tool_choice).toEqual({
+      type: "function",
+      function: { name: "select_pages" },
+    });
+    expect(first.reasoning_effort).toBe("high");
+    expect(second.tool_choice).toBeUndefined();
+    expect(second.reasoning_effort).toBe("high");
+    expect(
+      warnPayloads().filter((p) => p.reason === "provider_error"),
+    ).toEqual([]);
+
+    // Structured selection survived: ids [3] is the topic-x finder line.
+    expect(selection.keptAll).toBe(false);
+    expect(selection.pages).toEqual([{ slug: "topic-x", sections: [] }]);
   });
 });
