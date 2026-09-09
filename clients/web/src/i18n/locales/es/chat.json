@@ -381,6 +381,7 @@
     "appsTitle": "Apps",
     "backAria": "Volver a la información del chat",
     "backTooltip": "Información del chat",
+    "categoryEmpty": "Aún no hay nada en esta categoría",
     "closeAria": "Cerrar la información del chat",
     "empty": "Aún no hay recursos en este chat",
     "filesTitle": "Documentos e imágenes",

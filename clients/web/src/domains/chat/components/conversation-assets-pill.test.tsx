@@ -33,7 +33,9 @@ import {
 } from "@testing-library/react";
 import * as motionReact from "motion/react";
 
+import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
+  attachmentRows,
   clearTranscriptMessages,
   installChatInfoDomStubs,
   makeChatInfoQueryClient,
@@ -78,6 +80,8 @@ const OTHER_CONVERSATION_ID = "conv-2";
 const OTHER_SURFACE_ID = "surface-2";
 
 const DOC_TITLE = "Roadmap";
+
+const UNAVAILABLE_LABEL = "Conversation assets, could not be loaded";
 
 // Singular: these fixtures seed one asset, and the ICU `plural` in
 // `conversationAssets.ariaLabel` agrees with the count.
@@ -128,13 +132,29 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
     /** Swap the prop on the already-mounted pill, as the chat header does. */
     switchConversation: (conversationId: string) => {
       // Every real switch drops the transcript panel payloads before the
-      // header re-renders; the store settles the view from there.
+      // header re-renders; the store settles the view from there. The chat
+      // session follows the header too, so the incoming conversation is the
+      // one that owns the loaded transcript.
       act(() => {
         useViewerStore.getState().clearTranscriptPanelPayloads();
+        seedTranscriptMessages(ASSISTANT_ID, conversationId, []);
       });
       view.rerender(pill(conversationId));
     },
   };
+}
+
+/** A client whose documents source failed with nothing cached under it. */
+function failedDocumentsClient(): QueryClient {
+  const client = makePendingChatInfoQueryClient();
+  seedQueryFailure(
+    client,
+    documentsGetQueryKey({
+      path: { assistant_id: ASSISTANT_ID },
+      query: { conversationId: CONVERSATION_ID },
+    }),
+  );
+  return client;
 }
 
 /** Mounts the trigger alone against a client a test has set up itself. */
@@ -437,25 +457,54 @@ describe("empty asset list", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  // The three sources resolve one at a time, so a total counted before they
+  // all have is a number the trigger would have to take back.
+  test("renders nothing while a source is unresolved, whatever it has counted", () => {
+    seedTranscriptMessages(
+      ASSISTANT_ID,
+      CONVERSATION_ID,
+      attachmentRows([makeDisplayAttachment({ id: "att-1" })]),
+    );
+
+    renderPillWith(makePendingChatInfoQueryClient());
+
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   // A first load that failed also counts nothing, and hiding the trigger there
   // would leave the user no way to reach the panel that reports the failure.
   // It names the failure rather than a count it cannot know.
   test("keeps the trigger when a source could not be loaded", () => {
-    const client = makePendingChatInfoQueryClient();
-    seedQueryFailure(
-      client,
-      documentsGetQueryKey({
-        path: { assistant_id: ASSISTANT_ID },
-        query: { conversationId: CONVERSATION_ID },
-      }),
-    );
-
-    renderPillWith(client);
+    renderPillWith(failedDocumentsClient());
 
     expect(
-      screen.getByRole("button", {
-        name: "Conversation assets, could not be loaded",
-      }),
+      screen.getByRole("button", { name: UNAVAILABLE_LABEL }),
     ).toBeTruthy();
+  });
+});
+
+describe("desktop tooltip", () => {
+  // The count and the failure copy reach the screen nowhere else on a roomy
+  // window: the glyph carries no label of its own.
+  test("carries the count the trigger holds", async () => {
+    renderPill();
+
+    act(() => {
+      screen.getByRole("button", { name: SEEN_LABEL }).focus();
+    });
+
+    expect((await screen.findByRole("tooltip")).textContent).toBe("1 asset");
+  });
+
+  test("names the failure instead of a count it cannot know", async () => {
+    renderPillWith(failedDocumentsClient());
+
+    act(() => {
+      screen.getByRole("button", { name: UNAVAILABLE_LABEL }).focus();
+    });
+
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Assets could not be loaded",
+    );
   });
 });

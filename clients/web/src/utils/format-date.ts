@@ -4,10 +4,11 @@ import { formatLocale } from "@/i18n";
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
  *
- * Every formatter in this file defaults to {@link formatLocale}, so one label
+ * Every formatter in this file formats in {@link formatLocale}, so one label
  * never pairs an app-locale date with a browser-locale time and a user whose
- * region differs from their language keeps their own date order. Pass
- * `locale` to pin the formatting.
+ * region differs from their language keeps their own date order. This
+ * formatter and {@link formatCaptureTime} take a `locale` to pin the
+ * formatting; the rest have no caller that needs one.
  */
 export function formatFriendlyDate(
   date: Date,
@@ -110,13 +111,12 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
  */
 export function formatCompactLocalDate(
   dateStr: string | null | undefined,
-  locale: string = formatLocale(),
 ): string {
   if (!dateStr) {
     return "";
   }
   const date = new Date(dateStr);
-  return `${formatFriendlyDate(date, { locale })}, ${formatTimeOfDay(date, locale)}`;
+  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date)}`;
 }
 
 /**
@@ -125,12 +125,11 @@ export function formatCompactLocalDate(
  */
 export function formatFullLocalDate(
   dateStr: string | null | undefined,
-  locale: string = formatLocale(),
 ): string {
   if (!dateStr) {
     return "";
   }
-  return new Date(dateStr).toLocaleString(locale, {
+  return new Date(dateStr).toLocaleString(formatLocale(), {
     month: "long",
     day: "numeric",
     year: "numeric",

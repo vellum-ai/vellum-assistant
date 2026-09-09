@@ -21,6 +21,7 @@ import {
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
+import { isExpectedDaemonTransientError } from "@/utils/daemon-errors";
 
 export type ConversationFileAsset =
   | { kind: "document"; id: string; title: string; doc: DocumentSummary }
@@ -41,11 +42,11 @@ export type ConversationFileAsset =
 /**
  * How far the panel's three sources have got: the two daemon queries and the
  * conversation's own transcript, which is loaded rather than fetched and is
- * unready until the chat session owns a snapshot for this conversation.
+ * unsettled until the chat session's history load for this conversation ends.
  */
 export type ConversationAssetsStatus = "pending" | "error" | "ready";
 
-export interface ConversationAssets {
+interface ConversationAssets {
   apps: AppSummary[];
   /** Documents, newest first, then the attachments that are not frames. */
   files: ConversationFileAsset[];
@@ -64,7 +65,7 @@ export interface ConversationAssets {
   loadMoreFrames: () => void;
 }
 
-export interface ConversationAssetsTarget {
+interface ConversationAssetsTarget {
   assistantId: string;
   conversationId: string;
   /** Bumped externally to trigger a refetch (e.g. on ui_surface_show). Only one mounted caller should pass it. */
@@ -168,16 +169,23 @@ export function useConversationAssets({
   // would read ready and empty until the snapshot lands.
   const appsUnresolved = appsQuery.data === undefined;
   const documentsUnresolved = documentsQuery.data === undefined;
+  // The daemon's startup and auth races answer nothing yet rather than
+  // refusing: a 503 through `vellum wake` would otherwise leave every
+  // conversation header reporting a failure for the length of a restart.
+  const failed =
+    (appsQuery.isError &&
+      appsUnresolved &&
+      !isExpectedDaemonTransientError(appsQuery.error)) ||
+    (documentsQuery.isError &&
+      documentsUnresolved &&
+      !isExpectedDaemonTransientError(documentsQuery.error));
   let status: ConversationAssetsStatus = "ready";
-  if (
-    (appsQuery.isError && appsUnresolved) ||
-    (documentsQuery.isError && documentsUnresolved)
-  ) {
+  if (failed) {
     status = "error";
   } else if (
     appsUnresolved ||
     documentsUnresolved ||
-    !attachments.transcriptReady
+    !attachments.transcriptSettled
   ) {
     status = "pending";
   }

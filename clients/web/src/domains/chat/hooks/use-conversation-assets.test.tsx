@@ -34,6 +34,8 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
+import { ApiError } from "@/utils/api-errors";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
@@ -119,6 +121,17 @@ function seedMessages(messages: DisplayMessage[]) {
   seedTranscriptMessages(ASSISTANT_ID, CONVERSATION_ID, messages);
 }
 
+/** The conversation owns the transcript, with no snapshot and history `loading`. */
+function ownWithoutSnapshot(loading: boolean): void {
+  useChatSessionStore.setState({
+    snapshot: null,
+    optimisticSends: [],
+    previousAssistantId: ASSISTANT_ID,
+    previousConversationId: CONVERSATION_ID,
+    isLoadingHistory: loading,
+  });
+}
+
 beforeEach(() => {
   seedMessages([]);
 });
@@ -126,6 +139,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clearTranscriptMessages();
+  // The store is a module singleton, so its loading flag goes back to the
+  // value a fresh chat session starts on.
+  useChatSessionStore.setState({ isLoadingHistory: true });
 });
 
 describe("useConversationAssets", () => {
@@ -224,6 +240,18 @@ describe("useConversationAssets status", () => {
     return seedClient({ client: makePendingChatInfoQueryClient() });
   }
 
+  /** Re-stamps a seeded failure with the error shape the daemon client throws. */
+  function failWith(
+    client: QueryClient,
+    queryKey: readonly unknown[],
+    status: number,
+  ): void {
+    client
+      .getQueryCache()
+      .find({ queryKey })!
+      .setState({ error: new ApiError(status, `HTTP ${status}`) });
+  }
+
   // An empty category means "nothing here" only once this reads "ready", so
   // the panel can tell an empty conversation from one still loading.
   test("is pending until both sources resolve", () => {
@@ -289,6 +317,52 @@ describe("useConversationAssets status", () => {
     const { result } = renderAssets({ client: seededQueries() });
 
     expect(result.current.status).toBe("pending");
+  });
+
+  // The transcript is loaded rather than fetched, and a history load that
+  // failed is never coming back: holding the panel pending on a snapshot that
+  // will never arrive would hide the trigger for the rest of the session.
+  test("is ready once a failed history load has settled the transcript", () => {
+    const client = seededQueries();
+    ownWithoutSnapshot(false);
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("ready");
+  });
+
+  test("is pending while the history load is still in flight", () => {
+    const client = seededQueries();
+    ownWithoutSnapshot(true);
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  // The daemon answers a startup or auth race with a status of its own, and
+  // those are sources that have not answered yet: reporting a failure there
+  // puts "could not be loaded" on every chat header through a restart.
+  test("is pending when a source failed the way a starting daemon does", () => {
+    const client = seededQueries();
+    client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+    failWith(client, documentsGetQueryKey(QUERY_ARGS), 503);
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  test("is error when a source failed the way a broken one does", () => {
+    const client = seededQueries();
+    client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+    failWith(client, documentsGetQueryKey(QUERY_ARGS), 500);
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("error");
   });
 
   test("reports a failed source before the transcript has landed", () => {

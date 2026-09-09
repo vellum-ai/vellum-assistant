@@ -27,6 +27,17 @@ function seed(messages: DisplayMessage[]): void {
   seedTranscriptMessages(TARGET.assistantId, TARGET.conversationId, messages);
 }
 
+/** The target owns the transcript, with no snapshot and history `loading`. */
+function ownWithoutSnapshot(loading: boolean): void {
+  useChatSessionStore.setState({
+    snapshot: null,
+    optimisticSends: [],
+    previousAssistantId: TARGET.assistantId,
+    previousConversationId: TARGET.conversationId,
+    isLoadingHistory: loading,
+  });
+}
+
 beforeEach(() => {
   seed([]);
 });
@@ -34,6 +45,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clearTranscriptMessages();
+  // The store is a module singleton, so its loading flag goes back to the
+  // value a fresh chat session starts on.
+  useChatSessionStore.setState({ isLoadingHistory: true });
 });
 
 describe("useConversationAttachments", () => {
@@ -66,7 +80,7 @@ describe("useConversationAttachments", () => {
     expect(result.current.totalFiles).toBe(2);
     // The transcript never carries the frame tag, so this source has none.
     expect(result.current.totalFrames).toBe(0);
-    expect(result.current.transcriptReady).toBe(true);
+    expect(result.current.transcriptSettled).toBe(true);
     expect(result.current.hasMoreFiles).toBe(false);
     expect(result.current.hasMoreFrames).toBe(false);
   });
@@ -346,7 +360,7 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.entries).toHaveLength(0);
     expect(result.current.totalFiles).toBe(0);
-    expect(result.current.transcriptReady).toBe(false);
+    expect(result.current.transcriptSettled).toBe(false);
   });
 
   test("lists nothing when another assistant owns the snapshot", () => {
@@ -374,17 +388,29 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.entries).toHaveLength(0);
     expect(result.current.totalFiles).toBe(0);
-    expect(result.current.transcriptReady).toBe(false);
+    expect(result.current.transcriptSettled).toBe(false);
   });
 
   // An owned conversation with no snapshot yet is the first paint of a chat:
   // no files listed, and not yet the same thing as a chat with none.
-  test("is unready until a snapshot is loaded", () => {
-    clearTranscriptMessages();
+  test("is unsettled while the history load is in flight", () => {
+    ownWithoutSnapshot(true);
 
     const { result } = renderHook(() => useConversationAttachments(TARGET));
 
-    expect(result.current.transcriptReady).toBe(false);
+    expect(result.current.transcriptSettled).toBe(false);
+    expect(result.current.entries).toHaveLength(0);
+  });
+
+  // A history load that failed sets the flag down and leaves the snapshot
+  // null, and no later load is coming: waiting on a snapshot here would keep
+  // the caller unsettled for the rest of the session.
+  test("settles once a failed history load is over", () => {
+    ownWithoutSnapshot(false);
+
+    const { result } = renderHook(() => useConversationAttachments(TARGET));
+
+    expect(result.current.transcriptSettled).toBe(true);
     expect(result.current.entries).toHaveLength(0);
   });
 

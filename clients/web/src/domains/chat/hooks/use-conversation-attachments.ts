@@ -48,11 +48,12 @@ export interface ConversationAttachments {
   totalFiles: number;
   totalFrames: number;
   /**
-   * Whether these entries are the target's own loaded transcript: its chat
-   * session owns the snapshot and a snapshot is loaded. Empty entries mean
-   * "no files" only once this is true.
+   * Whether the target's own transcript has stopped loading: its chat session
+   * owns it, and either a snapshot is loaded or the history fetch is over.
+   * Empty entries mean "no files" only once this is true, and a history load
+   * that failed settles here rather than staying unready for good.
    */
-  transcriptReady: boolean;
+  transcriptSettled: boolean;
   hasMoreFiles: boolean;
   hasMoreFrames: boolean;
   loadMoreFiles: () => void;
@@ -107,6 +108,9 @@ export function useConversationAttachments(target: {
     ownerConversationId === target.conversationId;
 
   const hasSnapshot = useChatSessionStore((state) => state.snapshot !== null);
+  // The store's own loading flag, never its `error` field: a failed send sets
+  // that too, and a send has nothing to say about the transcript.
+  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
 
   const messages = useChatSessionStore(useShallow(selectAttachmentRows));
 
@@ -152,13 +156,13 @@ export function useConversationAttachments(target: {
       totalFiles: entries.length,
       // The transcript path cannot produce a frame: it never sees the tag.
       totalFrames: 0,
-      transcriptReady: ownsTranscript && hasSnapshot,
+      transcriptSettled: ownsTranscript && (hasSnapshot || !isLoadingHistory),
       hasMoreFiles: false,
       hasMoreFrames: false,
       loadMoreFiles: NOOP,
       loadMoreFrames: NOOP,
       source: "transcript",
     }),
-    [entries, hasSnapshot, ownsTranscript],
+    [entries, hasSnapshot, isLoadingHistory, ownsTranscript],
   );
 }

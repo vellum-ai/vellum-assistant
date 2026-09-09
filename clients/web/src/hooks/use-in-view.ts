@@ -16,19 +16,7 @@
 
 import { useEffect, useState, type RefObject } from "react";
 
-export function useInView(
-  ref: RefObject<Element | null>,
-  {
-    threshold = 0,
-  }: {
-    /**
-     * Fraction of the element that must be showing to count as visible. The
-     * default asks for any sliver, which is the right test for "the user can
-     * already see this, so don't show them a second copy of it".
-     */
-    threshold?: number;
-  } = {},
-): boolean {
+export function useInView(ref: RefObject<Element | null>): boolean {
   const [inView, setInView] = useState(false);
 
   useEffect(() => {
@@ -36,16 +24,15 @@ export function useInView(
     if (!el || typeof IntersectionObserver === "undefined") {
       return;
     }
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (!entry) {
-          return;
-        }
-        setInView(entry.isIntersecting);
-      },
-      { threshold },
-    );
+    // Any sliver counts, which is the right test for "the user can already see
+    // this, so don't show them a second copy of it".
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      setInView(entry.isIntersecting);
+    });
     observer.observe(el);
     return () => {
       observer.disconnect();
@@ -54,7 +41,7 @@ export function useInView(
       // last "visible" answer behind and suppress the floating copy forever.
       setInView(false);
     };
-  }, [ref, threshold]);
+  }, [ref]);
 
   return inView;
 }

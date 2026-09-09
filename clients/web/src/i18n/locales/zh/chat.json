@@ -380,6 +380,7 @@
     "appsTitle": "应用",
     "backAria": "返回聊天信息",
     "backTooltip": "聊天信息",
+    "categoryEmpty": "此类别中还没有内容",
     "closeAria": "关闭聊天信息",
     "empty": "此聊天中还没有内容",
     "filesTitle": "文档与图片",

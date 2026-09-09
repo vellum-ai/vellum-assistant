@@ -19,7 +19,7 @@ import { useConversationAssets } from "@/domains/chat/hooks/use-conversation-ass
 import { useHasUnseenDocumentChanges } from "@/domains/chat/unseen-document-changes-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
-import { chatInfoTargetKey, useViewerStore } from "@/stores/viewer-store";
+import { sameChatInfoTarget, useViewerStore } from "@/stores/viewer-store";
 import { cn } from "@/utils/misc";
 
 export const ASSETS_PILL_UNSEEN_DOT_TESTID = "assets-pill-unseen-dot";
@@ -28,18 +28,17 @@ export const ASSETS_PILL_UNSEEN_DOT_TESTID = "assets-pill-unseen-dot";
 export const ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS = "unseen-dot-pulse";
 
 /** Dismiss the chat-info panel when it is the one this trigger owns. */
-function closeOwnedChatInfo(targetKey: string): void {
+function closeOwnedChatInfo(target: {
+  assistantId: string;
+  conversationId: string;
+}): void {
   const state = useViewerStore.getState();
-  if (
-    state.mainView === "chat-info" &&
-    state.activeChatInfo !== null &&
-    chatInfoTargetKey(state.activeChatInfo) === targetKey
-  ) {
+  if (sameChatInfoTarget(state, target)) {
     state.closeChatInfo();
   }
 }
 
-export interface ConversationAssetsPillProps {
+interface ConversationAssetsPillProps {
   assistantId: string;
   conversationId: string;
   /** Bumped externally to trigger a refetch (e.g. on ui_surface_show). */
@@ -57,13 +56,12 @@ export function ConversationAssetsPill({
     refreshKey,
   });
 
-  const targetKey = chatInfoTargetKey({ assistantId, conversationId });
   const mainView = useViewerStore.use.mainView();
   const activeChatInfo = useViewerStore.use.activeChatInfo();
-  const isOpen =
-    mainView === "chat-info" &&
-    activeChatInfo !== null &&
-    chatInfoTargetKey(activeChatInfo) === targetKey;
+  const isOpen = sameChatInfoTarget(
+    { mainView, activeChatInfo },
+    { assistantId, conversationId },
+  );
 
   // The panel this pill opened must not outlive the pill's target: the chat
   // header swaps `conversationId` on this same mounted pill, and an assistant
@@ -73,9 +71,9 @@ export function ConversationAssetsPill({
   // conversation, not even for one frame.
   useLayoutEffect(() => {
     return () => {
-      closeOwnedChatInfo(targetKey);
+      closeOwnedChatInfo({ assistantId, conversationId });
     };
-  }, [targetKey]);
+  }, [assistantId, conversationId]);
 
   // The header cluster only has room for a labelled pill on a roomy window.
   const isMobile = useIsMobile();
@@ -89,11 +87,11 @@ export function ConversationAssetsPill({
 
   // A conversation with nothing to show has no trigger, and neither does one
   // whose sources have not settled: counting nothing yet is not the same as
-  // holding nothing, and a trigger that flashes "0 items" on every uncached
-  // chat is worse than none. A failed load keeps it: the panel is where the
+  // holding nothing, and a partial total that changes as the other sources
+  // land is worse than none. A failed load keeps it: the panel is where the
   // user finds out why.
   const failedToLoad = status === "error";
-  if (count === 0 && !failedToLoad) {
+  if (status === "pending" || (count === 0 && !failedToLoad)) {
     return null;
   }
 
