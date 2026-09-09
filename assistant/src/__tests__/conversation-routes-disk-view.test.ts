@@ -7,6 +7,7 @@ import type { Conversation } from "../daemon/conversation.js";
 import { persistUserMessage } from "../daemon/conversation-messaging.js";
 import {
   addMessage,
+  findMessageIdByClientMessageId,
   getConversation,
   provenanceFromTrustContext,
 } from "../persistence/conversation-crud.js";
@@ -929,6 +930,38 @@ describe("host-proxy preactivation across an interrupt", () => {
     await sendMacosMessage(conversationKey, "already sent", clientMessageId);
 
     expect(conv.pendingInterruptActivityBridge).toBe(false);
+  });
+
+  test("a retry in the pre-persist window leaves its own turn alone", async () => {
+    // A turn arms its abort controller and takes the lock before it inserts its
+    // row, so for that window a retry finds a busy conversation and no row. It
+    // must not abort there: it would kill the turn its own original request
+    // started, then dedup against the row landing a moment later and start
+    // nothing, leaving the send answered by neither.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-prepersist-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const clientMessageId = `cmid-${crypto.randomUUID()}`;
+    const conv = busyConversation(conversationId) as Conversation & {
+      currentTurnClientMessageId?: string;
+    };
+    // The turn is armed and holding the lock, but its row is not inserted yet.
+    conv.currentTurnClientMessageId = clientMessageId;
+    expect(
+      findMessageIdByClientMessageId(conversationId, clientMessageId),
+    ).toBeUndefined();
+
+    const response = await sendMacosMessage(
+      conversationKey,
+      "the original send",
+      clientMessageId,
+    );
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { queued?: boolean };
+    expect(body.queued).toBeUndefined();
+    // Untouched: no abort, and the turn still holds the conversation.
+    expect(conv.isProcessing()).toBe(true);
   });
 
   test("a retransmitted send answers from the existing row instead of interrupting", async () => {

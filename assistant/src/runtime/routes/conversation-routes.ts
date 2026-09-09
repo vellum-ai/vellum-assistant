@@ -2934,6 +2934,31 @@ export async function handleSendMessage(
   };
 
   if (conversation.isProcessing()) {
+    // The narrowest form of the same retransmission problem, and it has to be
+    // checked first: a turn arms its abort controller and takes the processing
+    // lock BEFORE it inserts its row (`persistUserMessage`), so for that window
+    // a retry finds a busy conversation and no row to recognise. Aborting there
+    // would kill the turn its own original request had just started, and the
+    // retry would then deduplicate against the row that lands a moment later
+    // and start nothing, so the send is answered by neither. The running turn
+    // carries the nonce it was started by, which is what settles it.
+    if (
+      clientMessageId &&
+      conversation.currentTurnClientMessageId === clientMessageId
+    ) {
+      log.info(
+        { conversationId: mapping.conversationId, clientMessageId },
+        "Duplicate send for the turn it started; leaving that turn alone",
+      );
+      return {
+        accepted: true,
+        conversationId: mapping.conversationId,
+        ...(conversation.currentRequestId
+          ? { requestId: conversation.currentRequestId }
+          : {}),
+      };
+    }
+
     // A retransmission of a send that was already accepted must not stop the
     // turn its own original request started. The idempotent insert inside
     // `completeSend` settles duplicates, but it settles them by returning the

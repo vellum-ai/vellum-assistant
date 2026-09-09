@@ -486,6 +486,20 @@ export class Conversation {
   enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
+   * The `clientMessageId` the running turn was started by, recorded in the same
+   * synchronous step that takes the processing lock.
+   *
+   * A retransmitted send is normally recognised by finding the row its original
+   * already wrote, but a turn takes the lock and arms its abort controller
+   * before it inserts that row. In that window a retry finds a busy
+   * conversation and no row, and would abort the very turn its own original
+   * request just started, then deduplicate against the row that lands a moment
+   * later and start nothing. This is what lets such a retry recognise the turn
+   * as its own.
+   * @internal
+   */
+  currentTurnClientMessageId?: string;
+  /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
    * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
    * the main reply apart from background agent-loop work (compaction,

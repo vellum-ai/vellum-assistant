@@ -229,6 +229,8 @@ export interface MessagingConversationContext {
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
+  /** See {@link Conversation.currentTurnClientMessageId}. */
+  currentTurnClientMessageId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
   authContext?: AuthContext;
@@ -1079,6 +1081,10 @@ export async function persistUserMessage(
 
   const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
+  // Recorded in the same synchronous step as the abort controller and the lock
+  // below, so a retransmission of this very send can never find the turn armed
+  // but unattributed and abort it.
+  ctx.currentTurnClientMessageId = options.clientMessageId;
   ctx.abortController = new AbortController();
 
   let owner: number | null = null;
@@ -1110,6 +1116,7 @@ export async function persistUserMessage(
       ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
+      ctx.currentTurnClientMessageId = undefined;
     }
     return result;
   } catch (err) {
@@ -1129,6 +1136,7 @@ export async function persistUserMessage(
     }
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
+    ctx.currentTurnClientMessageId = undefined;
     throw err;
   }
 }

@@ -860,6 +860,7 @@ export async function runAgentLoopImpl(
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
     ctx.currentRequestId = undefined;
+    ctx.currentTurnClientMessageId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
     ctx.diskPressureCleanupModeActive = false;
