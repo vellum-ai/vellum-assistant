@@ -130,9 +130,21 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     ]);
     writeConfig({
       llm: {
+        default: {
+          provider: "openai",
+          provider_connection: "chatgpt-subscription",
+          model: STALE,
+        },
         profiles: {
           bound: { provider: "chatgpt-subscription", model: STALE },
           legacy: { provider: "legacy-sub", model: STALE_MINI },
+          // Legacy binding: dispatch honors it ahead of the declared
+          // provider and accepts the ChatGPT row for openai.
+          pinned: {
+            provider: "openai",
+            provider_connection: "chatgpt-subscription",
+            model: STALE,
+          },
         },
       },
     });
@@ -140,8 +152,10 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
 
     const llm = readConfig().llm as Record<string, any>;
+    expect(llm.default.model).toBe(REPLACEMENT);
     expect(llm.profiles.bound.model).toBe(REPLACEMENT);
     expect(llm.profiles.legacy.model).toBe(REPLACEMENT_MINI);
+    expect(llm.profiles.pinned.model).toBe(REPLACEMENT);
   });
 
   test("leaves API-key, other-vendor, providerless, and dangling fragments untouched", () => {
@@ -203,10 +217,18 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
           memoryRouter: { profile: "balanced", model: STALE },
           // A missing site profile falls through to the default provider.
           vision: { profile: "ghost", model: STALE },
+          // A mix whose every arm is subscription-routed.
+          memoryV2Sweep: { profile: "blend", model: STALE_MINI },
         },
         profiles: {
           codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
           bound: { provider: "chatgpt-subscription", model: "gpt-5.5" },
+          blend: {
+            mix: [
+              { profile: "codex", weight: 3 },
+              { profile: "bound", weight: 1 },
+            ],
+          },
           legacyBound: {
             provider: "openai",
             provider_connection: "chatgpt-subscription",
@@ -227,6 +249,7 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     expect(llm.callSites.compactionAgent.model).toBe(REPLACEMENT_MINI);
     expect(llm.callSites.memoryRouter.model).toBe(REPLACEMENT);
     expect(llm.callSites.vision.model).toBe(REPLACEMENT);
+    expect(llm.callSites.memoryV2Sweep.model).toBe(REPLACEMENT_MINI);
   });
 
   test("repairs providerless call-site pins under an openai default provider pinning the subscription row", () => {
@@ -269,7 +292,7 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
           // A disabled chatgpt site profile falls through to the vellum
           // default column.
           compactionAgent: { profile: "off", model: STALE },
-          // A mix winner is ambiguous.
+          // A mix with an API-key arm is ambiguous.
           memoryRouter: { profile: "blend", model: STALE },
         },
         profiles: {
@@ -277,7 +300,12 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
           byok: { provider: "openai", model: "gpt-5.5" },
           keyBound: { provider: "openai-key", model: "gpt-5.5" },
           off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
-          blend: { mix: { arms: [{ profile: "codex", weight: 1 }] } },
+          blend: {
+            mix: [
+              { profile: "codex", weight: 1 },
+              { profile: "byok", weight: 1 },
+            ],
+          },
         },
       },
     };

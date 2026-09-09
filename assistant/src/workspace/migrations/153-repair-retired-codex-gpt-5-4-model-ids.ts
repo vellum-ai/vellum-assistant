@@ -16,9 +16,10 @@ import type { WorkspaceMigration } from "./types.js";
  * fragment keeps its model.
  *
  * A fragment routes through the subscription when its `provider` is the
- * `chatgpt` routing identity, or an entry name whose `provider_connections`
- * row is the subscription (row kind `chatgpt`, or an `oauth_subscription`
- * auth on the pre-DB-migration-366 row shape). The identity form fails
+ * `chatgpt` routing identity, or when its `provider` or legacy
+ * `provider_connection` binding names a `provider_connections` row that is
+ * the subscription (row kind `chatgpt`, or an `oauth_subscription` auth on
+ * the pre-DB-migration-366 row shape). The identity form fails
  * `LLMSchema.superRefine` once the allowlist drops the model, and the
  * loader's per-section salvage then resets the whole `llm` section; the
  * entry-bound form bypasses the auto-resolution compat gate and 400s on
@@ -31,9 +32,10 @@ import type { WorkspaceMigration } from "./types.js";
  * allowlist a `chatgpt` winner no longer serves it, so the resolver implies
  * provider `openai` and a subscription-only workspace has no connection for
  * it; a winner pinning the subscription row keeps that pin and 400s. Such a
- * pin is repaired only when the winner is provably subscription-routed; a
- * winner on an API-key or managed route still serves the model, and an
- * ambiguous winner (a mix) is left alone.
+ * pin is repaired only when the winner is provably subscription-routed: a
+ * standard profile bound to the subscription, or a mix whose every arm is.
+ * A winner on an API-key or managed route still serves the model, and a mix
+ * with any other arm is ambiguous and left alone.
  *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
@@ -70,10 +72,9 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       return;
     }
 
-    // Entry rows load lazily: only a stale fragment whose provider is
-    // neither the identity nor absent needs them. An unreadable DB then
-    // fails the run (retried next boot) rather than checkpointing a pass
-    // that skips entry-bound profiles.
+    // Entry rows load lazily: only a stale fragment bound to an entry name
+    // needs them. An unreadable DB then fails the run (retried next boot)
+    // rather than checkpointing a pass that skips entry-bound profiles.
     let subscriptionEntries: Set<string> | null | undefined;
     const isSubscriptionProvider = (provider: unknown): boolean => {
       if (provider === CHATGPT_IDENTITY) {
@@ -93,31 +94,28 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       return subscriptionEntries.has(provider);
     };
 
+    const isBound = (fragment: Record<string, unknown>): boolean =>
+      fragmentIsSubscriptionBound(fragment, isSubscriptionProvider);
+
     let changed = false;
 
-    changed =
-      repairFragment(readObject(llm.default), isSubscriptionProvider) ||
-      changed;
+    changed = repairFragment(readObject(llm.default), isBound) || changed;
 
     const callSites = readObject(llm.callSites);
     if (callSites !== null) {
       for (const [site, rawConfig] of Object.entries(callSites)) {
-        const isSubscriptionRouted = (provider: unknown): boolean =>
-          provider === undefined
-            ? winnerIsSubscriptionRouted(site, llm, isSubscriptionProvider)
-            : isSubscriptionProvider(provider);
-        changed =
-          repairFragment(readObject(rawConfig), isSubscriptionRouted) ||
-          changed;
+        const isRouted = (fragment: Record<string, unknown>): boolean =>
+          isBound(fragment) ||
+          (fragment.provider === undefined &&
+            winnerIsSubscriptionRouted(site, llm, isSubscriptionProvider));
+        changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
     }
 
     const profiles = readObject(llm.profiles);
     if (profiles !== null) {
       for (const rawProfile of Object.values(profiles)) {
-        changed =
-          repairFragment(readObject(rawProfile), isSubscriptionProvider) ||
-          changed;
+        changed = repairFragment(readObject(rawProfile), isBound) || changed;
       }
     }
 
@@ -155,7 +153,7 @@ const REPLACEMENTS: ReadonlyMap<string, string> = new Map([
 
 function repairFragment(
   fragment: Record<string, unknown> | null,
-  isSubscriptionProvider: (provider: unknown) => boolean,
+  isSubscriptionRouted: (fragment: Record<string, unknown>) => boolean,
 ): boolean {
   if (fragment === null || typeof fragment.model !== "string") {
     return false;
@@ -164,11 +162,27 @@ function repairFragment(
   if (replacement === undefined) {
     return false;
   }
-  if (!isSubscriptionProvider(fragment.provider)) {
+  if (!isSubscriptionRouted(fragment)) {
     return false;
   }
   fragment.model = replacement;
   return true;
+}
+
+/**
+ * Whether a fragment's own routing goes through the subscription: its
+ * `provider` (the identity or a subscription entry name) or its legacy
+ * `provider_connection` binding, which dispatch honors ahead of the
+ * declared provider and accepts a ChatGPT row for an expected `openai`.
+ */
+function fragmentIsSubscriptionBound(
+  fragment: Record<string, unknown>,
+  isSubscriptionProvider: (provider: unknown) => boolean,
+): boolean {
+  return (
+    isSubscriptionProvider(fragment.provider) ||
+    isSubscriptionProvider(fragment.provider_connection)
+  );
 }
 
 // Frozen snapshot of `DEFAULT_PROFILE_KEYS`: a reference to one of these
@@ -185,53 +199,80 @@ const DEFAULT_PROFILE_KEYS = new Set([
  * Whether the profile that wins `site` dispatches through the subscription.
  * Mirrors the resolver's single-winner chain: `llm.activeProfile` (mainAgent
  * only), then `llm.callSites[site].profile`, then the default column of
- * `llm.defaultProvider`. A named rung that is missing, disabled, or
- * incomplete falls through the way the resolver skips it; a mix winner is
- * ambiguous and reports false.
+ * `llm.defaultProvider`. A named rung the resolver would skip falls through
+ * to the next one.
  */
 function winnerIsSubscriptionRouted(
   site: string,
   llm: Record<string, unknown>,
   isSubscriptionProvider: (provider: unknown) => boolean,
 ): boolean {
-  const profiles = readObject(llm.profiles);
   const siteConfig = readObject(readObject(llm.callSites)?.[site]);
   const rungs =
     site === "mainAgent"
       ? [llm.activeProfile, siteConfig?.profile]
       : [siteConfig?.profile];
   for (const name of rungs) {
-    if (typeof name !== "string" || name.length === 0) {
-      continue;
-    }
-    const shadow = readObject(profiles?.[name]);
-    if (shadow === null || shadow.source === "managed") {
-      if (DEFAULT_PROFILE_KEYS.has(name)) {
-        return defaultProviderIsSubscription(llm, isSubscriptionProvider);
-      }
-      continue;
-    }
-    if (shadow.status === "disabled") {
-      continue;
-    }
-    if (shadow.mix !== undefined) {
-      return false;
-    }
-    if (
-      typeof shadow.provider !== "string" ||
-      typeof shadow.model !== "string"
-    ) {
-      if (DEFAULT_PROFILE_KEYS.has(name)) {
-        return defaultProviderIsSubscription(llm, isSubscriptionProvider);
-      }
-      continue;
-    }
-    return (
-      isSubscriptionProvider(shadow.provider) ||
-      isSubscriptionProvider(shadow.provider_connection)
+    const route = profileIsSubscriptionRouted(
+      name,
+      llm,
+      isSubscriptionProvider,
+      true,
     );
+    if (route !== "skipped") {
+      return route;
+    }
   }
   return defaultProviderIsSubscription(llm, isSubscriptionProvider);
+}
+
+/**
+ * Whether a named profile dispatches through the subscription, or
+ * `"skipped"` when the resolver would pass over it (missing, disabled, or
+ * incomplete). A default key without a usable user-owned shadow resolves to
+ * the default provider's column. A mix (top level only; arms cannot nest)
+ * is subscription-routed only when every arm provably is: the arm is a
+ * seeded pick, so any other arm makes the route ambiguous.
+ */
+function profileIsSubscriptionRouted(
+  name: unknown,
+  llm: Record<string, unknown>,
+  isSubscriptionProvider: (provider: unknown) => boolean,
+  allowMix: boolean,
+): boolean | "skipped" {
+  if (typeof name !== "string" || name.length === 0) {
+    return "skipped";
+  }
+  const shadow = readObject(readObject(llm.profiles)?.[name]);
+  if (shadow === null || shadow.source === "managed") {
+    return DEFAULT_PROFILE_KEYS.has(name)
+      ? defaultProviderIsSubscription(llm, isSubscriptionProvider)
+      : "skipped";
+  }
+  if (shadow.status === "disabled") {
+    return "skipped";
+  }
+  if (Array.isArray(shadow.mix)) {
+    return (
+      allowMix &&
+      shadow.mix.length > 0 &&
+      shadow.mix.every(
+        (arm) =>
+          profileIsSubscriptionRouted(
+            readObject(arm)?.profile,
+            llm,
+            isSubscriptionProvider,
+            false,
+          ) === true,
+      )
+    );
+  }
+  if (typeof shadow.provider !== "string" || typeof shadow.model !== "string") {
+    return DEFAULT_PROFILE_KEYS.has(name)
+      ? defaultProviderIsSubscription(llm, isSubscriptionProvider)
+      : "skipped";
+  }
+  return fragmentIsSubscriptionBound(shadow, isSubscriptionProvider);
 }
 
 /**
