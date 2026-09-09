@@ -20,6 +20,7 @@ import {
 import {
   getSubagentManager,
   SubagentAbortedError,
+  SubagentSpawnCancelledError,
 } from "../../subagent/index.js";
 import {
   type ResolvedSubagentRole,
@@ -339,6 +340,12 @@ export async function executeSubagentSpawn(
         ...forkFields,
       },
       sendToClient as (msg: unknown) => void,
+      // The turn's cancellation signal guards the manager's own async setup:
+      // a user who stops the turn while the child conversation is being
+      // bootstrapped runs the parent's abort sweep before this child is in the
+      // manager to be swept, so the signal has to reach the one place that can
+      // still catch it.
+      context.signal ? { signal: context.signal } : undefined,
     );
 
     return {
@@ -357,6 +364,11 @@ export async function executeSubagentSpawn(
       isError: false,
     };
   } catch (err) {
+    // A spawn the user stopped is not a failure to report as one: nothing went
+    // wrong, and the turn this result would have reached is already over.
+    if (err instanceof SubagentSpawnCancelledError) {
+      return spawnCancelledResult(label);
+    }
     // A cancelled turn is not a spawn failure: let it reach the executor's
     // abort handling instead of being rendered as a tool error.
     if (isAbortLikeError(err)) {
@@ -365,6 +377,18 @@ export async function executeSubagentSpawn(
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+/**
+ * The result for a spawn abandoned because the requesting turn was stopped.
+ * Not an error: the user cancelled, no child was started, and there is nothing
+ * for the model to recover from.
+ */
+function spawnCancelledResult(label: string): ToolExecutionResult {
+  return {
+    content: `Subagent "${label}" was not spawned: this turn was stopped before it started.`,
+    isError: false,
+  };
 }
 
 // ── Output contract ──────────────────────────────────────────────────

@@ -53,19 +53,21 @@ export async function executeContactMerge(
   const keepContact = keepRes.result!.contact;
   const mergeContact = mergeRes.result!.contact;
 
-  // Recheck: the two existence lookups above are awaits, and their
-  // signal-driven rejection would otherwise surface as an ordinary error
-  // result rather than a cancellation.
+  // Recheck: the two existence lookups above are awaits, so a cancel landing
+  // in either must not reach the merge.
   throwIfCancelled(context);
 
+  // Deliberately detached from the turn signal. `cliIpcCall` cancels only the
+  // client socket, so an abort after the request is on the wire resolves
+  // "Request aborted" here while the route and the gateway finish the merge
+  // regardless. That quick resolution would settle inside the loop's abort
+  // grace and hand the model an ordinary failure for a merge that destroyed a
+  // contact. Staying attached leaves the call unsettled instead, which is what
+  // makes the loop say the work may still have completed.
   const mergeResult = await cliIpcCall<{
     ok: boolean;
     contact?: ContactRead;
-  }>(
-    "merge_contacts",
-    { body: { keepId, mergeId } },
-    { signal: context.signal },
-  );
+  }>("merge_contacts", { body: { keepId, mergeId } });
 
   if (!mergeResult.ok) {
     return { content: `Error: ${mergeResult.error}`, isError: true };
@@ -76,12 +78,13 @@ export async function executeContactMerge(
   const mergedId = mergeResult.result?.contact?.id ?? keepId;
 
   // Re-read the surviving contact through the gateway-relayed read so role and
-  // interactionCount come from the gateway ContactRead.
-  const mergedRes = await cliIpcCall<{ contact: ContactRead }>(
-    "getContact",
-    { pathParams: { id: mergedId } },
-    { signal: context.signal },
-  );
+  // interactionCount come from the gateway ContactRead. Detached from the turn
+  // signal for the same reason as the merge above: the destructive step has
+  // already run, so aborting the read here would report a failure for work that
+  // succeeded.
+  const mergedRes = await cliIpcCall<{ contact: ContactRead }>("getContact", {
+    pathParams: { id: mergedId },
+  });
 
   if (!mergedRes.ok) {
     return { content: `Error: ${mergedRes.error}`, isError: true };

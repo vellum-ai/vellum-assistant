@@ -91,7 +91,10 @@ import {
   type SubagentRecord,
   upsertSubagentRecord,
 } from "../persistence/subagent-store.js";
-import { getSubagentManager } from "../subagent/index.js";
+import {
+  getSubagentManager,
+  SubagentSpawnCancelledError,
+} from "../subagent/index.js";
 import {
   buildSubagentSystemPrompt,
   SubagentAbortedError,
@@ -570,6 +573,57 @@ describe("Subagent spawn success and failure", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Failed to spawn subagent");
       expect(result.content).toContain("parent is itself a subagent");
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("spawn hands the manager the turn signal", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    let capturedOpts: { signal?: AbortSignal } | undefined;
+    manager.spawn = async (
+      _config: unknown,
+      _send: unknown,
+      opts?: { signal?: AbortSignal },
+    ) => {
+      capturedOpts = opts;
+      return "signal-subagent-id";
+    };
+    const controller = new AbortController();
+
+    try {
+      await executeSubagentSpawn(
+        { label: "Signalled", objective: "Carry the signal" },
+        makeContext("sess-spawn-signal", {
+          sendToClient: () => {},
+          signal: controller.signal,
+        }),
+      );
+      // Setup is asynchronous, so the manager rechecks on both sides of it.
+      expect(capturedOpts?.signal).toBe(controller.signal);
+    } finally {
+      manager.spawn = originalSpawn;
+    }
+  });
+
+  test("a spawn cancelled during setup is reported as a benign non-error", async () => {
+    const manager = getSubagentManager();
+    const originalSpawn = manager.spawn.bind(manager);
+    manager.spawn = async () => {
+      throw new SubagentSpawnCancelledError();
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Stopped", objective: "Never runs" },
+        makeContext("sess-spawn-cancelled", { sendToClient: () => {} }),
+      );
+      // Nothing went wrong and no child started, so this is not an error the
+      // model should try to recover from.
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("was not spawned");
+      expect(result.content).toContain("this turn was stopped");
     } finally {
       manager.spawn = originalSpawn;
     }

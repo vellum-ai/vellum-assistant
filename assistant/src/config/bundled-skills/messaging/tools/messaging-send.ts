@@ -233,6 +233,9 @@ export async function run(
             cc: ccList.length > 0 ? ccList.join(", ") : undefined,
             attachments,
           });
+          // Recheck: the thread lookups and the attachment reads above are
+          // awaits, and this creates a real mailbox draft.
+          throwIfCancelled(context);
           const draft = await createDraftRaw(gmailConn, raw, threadId);
 
           const filenames = attachments.map((a) => a.filename).join(", ");
@@ -245,6 +248,9 @@ export async function run(
           );
         }
 
+        // Recheck: the thread and profile lookups above are awaits, and this
+        // creates a real mailbox draft.
+        throwIfCancelled(context);
         const draft = await createDraft(
           gmailConn,
           toList.join(", "),
@@ -276,6 +282,9 @@ export async function run(
           inReplyTo,
           attachments,
         });
+        // Recheck: the attachment reads above are awaits, and this creates a
+        // real mailbox draft.
+        throwIfCancelled(context);
         const draft = await createDraftRaw(gmailConn, raw, threadId);
 
         const filenames = attachments.map((a) => a.filename).join(", ");
@@ -285,6 +294,9 @@ export async function run(
       }
 
       // Without attachments: use standard createDraft
+      // Recheck: provider and connection resolution above are awaits, and
+      // this creates a real mailbox draft.
+      throwIfCancelled(context);
       const draft = await createDraft(
         gmailConn,
         conversationId,

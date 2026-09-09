@@ -76,6 +76,9 @@ export async function executeCallStart(
     assistantId: context.assistantId,
     callerIdentityMode: parsed.caller_identity_mode,
     skipDisclosure: input.skip_disclosure === true,
+    // Setup is asynchronous, and the domain rechecks immediately before it
+    // dials, so a turn stopped during setup never places the call.
+    ...(context.signal ? { signal: context.signal } : {}),
   });
 
   if (!result.ok) {
