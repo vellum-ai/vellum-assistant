@@ -71,6 +71,13 @@
 	<true/>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<!-- Required alongside the com.apple.developer.usernotifications.communication
+	     entitlement: App Store validation rejects the upload with ITMS-90894
+	     when the entitlement is present and this key does not list the intent. -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

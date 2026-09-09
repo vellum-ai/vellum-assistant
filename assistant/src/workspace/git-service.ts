@@ -167,6 +167,13 @@ const EMPTY_TREE_OID = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const DEFAULT_MAX_FILE_SIZE_BYTES = 256000;
 
 /**
+ * Default files per git add + git commit. A single `git add -A` of ~9k
+ * changed files trips interactiveGitTimeoutMs (10s), so large working
+ * trees are split into batches of this size.
+ */
+const DEFAULT_STAGE_BATCH_SIZE = 1000;
+
+/**
  * History compaction keeps commits younger than this; older ones are
  * squashed into a scrubbed base commit so oversized blobs referenced only
  * by old history can be pruned from .git.
@@ -243,6 +250,33 @@ function parsePorcelainZ(
     }
   }
   return parsed;
+}
+
+/**
+ * Every path git status knows about, including rename/copy origins.
+ * Origins are skipped by {@link parsePorcelainZ} (they have no status
+ * prefix) but still need to be staged so a deletion is not left behind
+ * when a rename is split across add batches.
+ */
+function collectDirtyPathsFromPorcelain(stdout: string): string[] {
+  const entries = stdout.split("\0");
+  const paths: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i] ?? "";
+    if (entry.length < 4) {
+      continue;
+    }
+    const status = entry.substring(0, 2);
+    paths.push(entry.substring(3));
+    if (status[0] === "R" || status[0] === "C") {
+      i++;
+      const origin = entries[i];
+      if (origin && origin.length > 0) {
+        paths.push(origin);
+      }
+    }
+  }
+  return paths;
 }
 
 /** Properties added by Node's child_process errors. */
@@ -608,15 +642,11 @@ export class WorkspaceGitService {
             (f) => !autoCreatedInitFiles.has(f),
           );
 
-          await this.stageAllLocked();
-
           const message = hasExistingFiles
             ? "Initial commit: migrated existing workspace"
             : "Initial commit: new workspace";
 
-          await this.execGit(
-            this.buildSafeCommitArgs(["-m", message, "--allow-empty"]),
-          );
+          await this.stageAndCommitLocked(message, { allowEmpty: true });
 
           this.initialized = true;
           this.recordInitSuccess();
@@ -640,10 +670,6 @@ export class WorkspaceGitService {
     await this.mutex.withLock(async () => {
       await this.cleanStaleLockFile();
 
-      // Stage all changes (minus oversized files)
-      await this.stageAllLocked();
-
-      // Build commit message with metadata if provided
       let fullMessage = message;
       if (metadata && Object.keys(metadata).length > 0) {
         fullMessage +=
@@ -653,10 +679,7 @@ export class WorkspaceGitService {
             .join("\n");
       }
 
-      // Commit (will succeed even if no changes)
-      await this.execGit(
-        this.buildSafeCommitArgs(["-m", fullMessage, "--allow-empty"]),
-      );
+      await this.stageAndCommitLocked(fullMessage, { allowEmpty: true });
     });
   }
 
@@ -786,25 +809,6 @@ export class WorkspaceGitService {
           return { committed: false, status, didRunGit: true as const };
         }
 
-        await this.stageAllLocked();
-
-        // Verify something was actually staged. Another service instance
-        // (or external process) could have committed between our status
-        // check and the add, leaving the index clean.
-        try {
-          await this.execGit(["diff", "--cached", "--quiet"]);
-          // Exit code 0 means nothing staged — nothing to commit
-          return { committed: false, status, didRunGit: true as const };
-        } catch (err) {
-          // git diff --cached --quiet exits with code 1 when there are staged changes.
-          // Any other error (timeout, permission, etc.) should be treated as a failure.
-          const execErr = err as ExecError;
-          if (execErr.code !== 1) {
-            throw err;
-          }
-          // Exit code 1 = staged changes exist — proceed with commit
-        }
-
         let fullMessage = decision.message;
         if (decision.metadata && Object.keys(decision.metadata).length > 0) {
           fullMessage +=
@@ -814,8 +818,10 @@ export class WorkspaceGitService {
               .join("\n");
         }
 
-        await this.execGit(this.buildSafeCommitArgs(["-m", fullMessage]));
-        return { committed: true, status, didRunGit: true as const };
+        const { committed } = await this.stageAndCommitLocked(fullMessage, {
+          deadlineMs: options?.deadlineMs,
+        });
+        return { committed, status, didRunGit: true as const };
       });
       if (result.didRunGit) {
         this.recordSuccess();
@@ -868,8 +874,8 @@ export class WorkspaceGitService {
         staged.push(file);
       }
       // Oversized files are invisible to auto-commit: they can never be
-      // committed (stageAllLocked unstages them), so reporting them here
-      // would keep the workspace permanently dirty and make every turn /
+      // committed (staging unstages them), so reporting them here would
+      // keep the workspace permanently dirty and make every turn /
       // heartbeat cycle re-attempt a commit that stages nothing.
       if (workingStatus === "M" || workingStatus === "D") {
         if (!this.isOversized(file)) {
@@ -894,6 +900,10 @@ export class WorkspaceGitService {
     return (
       getConfig().workspaceGit?.maxFileSizeBytes ?? DEFAULT_MAX_FILE_SIZE_BYTES
     );
+  }
+
+  private stageBatchSize(): number {
+    return getConfig().workspaceGit?.stageBatchSize ?? DEFAULT_STAGE_BATCH_SIZE;
   }
 
   /**
@@ -1269,7 +1279,7 @@ export class WorkspaceGitService {
         return { ...noop, keptCommits: commits.length };
       }
       if (verdict === "prunable") {
-        // Only unreachable blobs (e.g. an external add that stageAllLocked
+        // Only unreachable blobs (e.g. an external add that staging later
         // reset) — prune reclaims them without rewriting any history.
         await this.expireReflogsAndPruneLocked();
         log.info(
@@ -1472,20 +1482,106 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Stage all workspace changes except files whose working-tree size exceeds
-   * workspaceGit.maxFileSizeBytes. Oversized files stay on disk untouched —
-   * they just never enter workspace history. Deletions always stage (they
-   * shrink the repo). Must be called with the lock held.
+   * Stage and commit workspace changes, splitting into add+commit batches when
+   * the dirty set exceeds workspaceGit.stageBatchSize. A single `git add -A`
+   * (or one commit of thousands of staged paths) trips interactiveGitTimeoutMs
+   * on large working trees; batching keeps each git invocation bounded.
    *
-   * Oversized paths are excluded from the add pathspec up front so git never
-   * hashes their blobs: an `add` of a multi-GB artifact would be slow enough
-   * to trip interactiveGitTimeoutMs and would bloat .git/objects even if the
-   * file were unstaged afterwards. A post-add scan then unstages any
-   * oversized blob that reached the index anyway (e.g. staged by an external
-   * `git add` before this ran).
+   * Must be called with the lock held.
    */
-  private async stageAllLocked(): Promise<void> {
-    // Streamed: output scales with the number of changed files.
+  private async stageAndCommitLocked(
+    message: string,
+    options?: { allowEmpty?: boolean; deadlineMs?: number },
+  ): Promise<{ committed: boolean }> {
+    const { toStage, oversized } = await this.listDirtyPathsLocked();
+    const batchSize = this.stageBatchSize();
+
+    if (toStage.length === 0 && oversized.size === 0) {
+      if (options?.allowEmpty) {
+        await this.execGit(
+          this.buildSafeCommitArgs(["-m", message, "--allow-empty"]),
+        );
+        return { committed: true };
+      }
+      return { committed: false };
+    }
+
+    if (toStage.length <= batchSize) {
+      await this.stageDirtySetLocked(oversized);
+      if (!(await this.hasStagedChangesLocked())) {
+        if (options?.allowEmpty) {
+          await this.execGit(
+            this.buildSafeCommitArgs(["-m", message, "--allow-empty"]),
+          );
+          return { committed: true };
+        }
+        return { committed: false };
+      }
+      await this.execGit(this.buildSafeCommitArgs(["-m", message]));
+      return { committed: true };
+    }
+
+    if (isDeadlineExpired(options?.deadlineMs)) {
+      log.debug(
+        { workspaceDir: this.workspaceDir },
+        "Deadline expired before batched git add/commit, skipping commit",
+      );
+      return { committed: false };
+    }
+
+    const batchCount = Math.ceil(toStage.length / batchSize);
+    log.info(
+      {
+        workspaceDir: this.workspaceDir,
+        fileCount: toStage.length,
+        batchSize,
+        batchCount,
+      },
+      "Committing workspace changes in batches",
+    );
+
+    // Unstage everything first so a previously staged dump cannot land in
+    // the first batch commit (git commit records the whole index). Re-drop
+    // oversized tracked blobs so those staged deletions ride along with the
+    // first batch instead of remaining in history.
+    await this.unstageAllLocked();
+    await this.untrackOversizedFilesLocked();
+
+    let committedAny = false;
+    for (let i = 0; i < toStage.length; i += batchSize) {
+      if (isDeadlineExpired(options?.deadlineMs)) {
+        log.debug(
+          {
+            workspaceDir: this.workspaceDir,
+            committedBatches: committedAny,
+          },
+          "Deadline expired mid-batch, leaving remaining files uncommitted",
+        );
+        return { committed: committedAny };
+      }
+
+      const batch = toStage.slice(i, i + batchSize);
+      const batchIndex = Math.floor(i / batchSize) + 1;
+      await this.stagePathsLocked(batch);
+      await this.unstageOversizedLocked(oversized);
+      if (!(await this.hasStagedChangesLocked())) {
+        continue;
+      }
+      const batchMessage =
+        batchCount > 1
+          ? `${message}\n\nbatch: ${batchIndex}/${batchCount}`
+          : message;
+      await this.execGit(this.buildSafeCommitArgs(["-m", batchMessage]));
+      committedAny = true;
+    }
+
+    return { committed: committedAny };
+  }
+
+  private async listDirtyPathsLocked(): Promise<{
+    toStage: string[];
+    oversized: Set<string>;
+  }> {
     const changed = await this.execGitStreaming([
       "status",
       "--porcelain",
@@ -1493,17 +1589,33 @@ export class WorkspaceGitService {
       "-z",
     ]);
     const oversized = new Set<string>();
-    for (const { path } of parsePorcelainZ(changed.stdout)) {
+    const toStage: string[] = [];
+    const seen = new Set<string>();
+    for (const path of collectDirtyPathsFromPorcelain(changed.stdout)) {
+      if (seen.has(path)) {
+        continue;
+      }
+      seen.add(path);
       if (this.isOversized(path)) {
         oversized.add(path);
+      } else {
+        toStage.push(path);
       }
     }
+    return { toStage, oversized };
+  }
 
+  /**
+   * Stage a small dirty set in one git add. Uses `git add -A` when there
+   * are no oversized files so untracked directories and typechanges stay
+   * covered. When oversized files are present, they are excluded from the
+   * pathspec so git never hashes them, while staged deletions of those
+   * paths (from the init untrack sweep) stay in the index.
+   */
+  private async stageDirtySetLocked(oversized: Set<string>): Promise<void> {
     if (oversized.size === 0) {
       await this.execGit(["add", "-A"]);
     } else {
-      // Pathspecs via stdin to stay clear of OS argv limits; literal magic
-      // so filenames containing glob characters are not pattern-matched.
       const pathspecs = [
         ".",
         ...[...oversized].map((p) => `:(exclude,literal)${p}`),
@@ -1513,7 +1625,59 @@ export class WorkspaceGitService {
         { input: pathspecs.join("\0") },
       );
     }
+    await this.unstageOversizedLocked(oversized);
+  }
 
+  private async stagePathsLocked(paths: string[]): Promise<void> {
+    if (paths.length === 0) {
+      return;
+    }
+    await this.execGitStreaming(
+      ["add", "-A", "--pathspec-from-file=-", "--pathspec-file-nul"],
+      { input: paths.map((p) => `:(literal)${p}`).join("\0") },
+    );
+  }
+
+  private async unstageAllLocked(): Promise<void> {
+    const base = await this.resolveStagedDiffBaseLocked();
+    if (base === EMPTY_TREE_OID) {
+      try {
+        await this.execGit([
+          "rm",
+          "-r",
+          "--cached",
+          "-q",
+          "--ignore-unmatch",
+          ".",
+        ]);
+      } catch {
+        // Index already empty.
+      }
+      return;
+    }
+    await this.execGit(["reset", "-q", "HEAD"]);
+  }
+
+  private async hasStagedChangesLocked(): Promise<boolean> {
+    try {
+      await this.execGit(["diff", "--cached", "--quiet"]);
+      return false;
+    } catch (err) {
+      const execErr = err as ExecError;
+      if (execErr.code !== 1) {
+        throw err;
+      }
+      return true;
+    }
+  }
+
+  /**
+   * Unstage oversized blobs that reached the index (e.g. staged by an
+   * external `git add` before this ran) and warn on newly seen paths.
+   */
+  private async unstageOversizedLocked(
+    porcelainOversized: Set<string>,
+  ): Promise<void> {
     const base = await this.resolveStagedDiffBaseLocked();
     // Everything but deletions — T covers a tracked symlink/submodule
     // replaced by a staged regular file, which ACMR alone would miss.
@@ -1530,18 +1694,14 @@ export class WorkspaceGitService {
       .filter((p) => p.length > 0 && this.isOversized(p));
 
     if (stagedOversized.length > 0) {
-      // Literal pathspecs via stdin, mirroring the add above: a filename
-      // containing glob characters must not unstage other matching paths.
       await this.execGitStreaming(
         ["reset", "-q", base, "--pathspec-from-file=-", "--pathspec-file-nul"],
         { input: stagedOversized.map((p) => `:(literal)${p}`).join("\0") },
       );
-      // The external add already hashed these blobs into .git/objects; a
-      // compaction pass prunes them even if the boot-time one already ran.
       this.scheduleHistoryCompaction();
     }
 
-    const excluded = [...new Set([...oversized, ...stagedOversized])];
+    const excluded = [...new Set([...porcelainOversized, ...stagedOversized])];
     const newlyWarned = excluded.filter(
       (p) => !this.warnedOversizedPaths.has(p),
     );

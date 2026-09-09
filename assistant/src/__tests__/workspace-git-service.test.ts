@@ -25,6 +25,7 @@ import {
   isDeadlineExpired,
   WorkspaceGitService,
 } from "../workspace/git-service.js";
+import { setConfig } from "./helpers/set-config.js";
 
 describe("WorkspaceGitService", () => {
   let testDir: string;
@@ -353,6 +354,174 @@ describe("WorkspaceGitService", () => {
       });
 
       expect(log).toContain("Empty commit for checkpoint");
+    });
+  });
+
+  describe("batched add and commit", () => {
+    const withStageBatchSize = async (
+      size: number,
+      fn: () => Promise<void>,
+    ) => {
+      const configPath = getWorkspaceConfigPath();
+      mkdirSync(dirname(configPath), { recursive: true });
+      const previous = existsSync(configPath)
+        ? readFileSync(configPath, "utf-8")
+        : null;
+      setConfig("workspaceGit", { stageBatchSize: size });
+      try {
+        await fn();
+      } finally {
+        if (previous === null) {
+          rmSync(configPath, { force: true });
+        } else {
+          writeFileSync(configPath, previous);
+        }
+      }
+    };
+
+    const commitFileLists = (skipInitial = true): string[][] => {
+      const hashes = execFileSync("git", ["log", "--pretty=%H", "--reverse"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      })
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+      const selected = skipInitial ? hashes.slice(1) : hashes;
+      return selected.map((hash) =>
+        execFileSync(
+          "git",
+          ["diff-tree", "--no-commit-id", "--name-only", "-r", hash],
+          { cwd: testDir, encoding: "utf-8" },
+        )
+          .trim()
+          .split("\n")
+          .filter(Boolean),
+      );
+    };
+
+    const trackedFiles = () =>
+      execFileSync("git", ["ls-files"], { cwd: testDir, encoding: "utf-8" })
+        .trim()
+        .split("\n")
+        .filter(Boolean);
+
+    test("splits a large dirty set into multiple add+commit batches", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const names = ["a.txt", "b.txt", "c.txt", "d.txt", "e.txt"];
+      for (const name of names) {
+        writeFileSync(join(testDir, name), name);
+      }
+
+      await withStageBatchSize(2, async () => {
+        await service.commitChanges("Add files in batches");
+      });
+
+      const batches = commitFileLists();
+      expect(batches).toHaveLength(3);
+      expect(batches[0]).toHaveLength(2);
+      expect(batches[1]).toHaveLength(2);
+      expect(batches[2]).toHaveLength(1);
+      expect(batches.flat().sort()).toEqual(names);
+      for (const name of names) {
+        expect(trackedFiles()).toContain(name);
+      }
+
+      const messages = execFileSync("git", ["log", "--pretty=%B", "--reverse"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(messages).toContain("batch: 1/3");
+      expect(messages).toContain("batch: 2/3");
+      expect(messages).toContain("batch: 3/3");
+    });
+
+    test("unstage-first keeps an already-staged dump from landing in one commit", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      const names = ["w.txt", "x.txt", "y.txt", "z.txt"];
+      for (const name of names) {
+        writeFileSync(join(testDir, name), name);
+      }
+      execFileSync("git", ["add", "-A"], { cwd: testDir });
+
+      await withStageBatchSize(2, async () => {
+        await service.commitChanges("Split pre-staged files");
+      });
+
+      const batches = commitFileLists();
+      expect(batches).toHaveLength(2);
+      expect(batches[0]).toHaveLength(2);
+      expect(batches[1]).toHaveLength(2);
+      expect(batches.flat().sort()).toEqual(names);
+    });
+
+    test("commitIfDirty batches the same way as commitChanges", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      for (const name of ["p.txt", "q.txt", "r.txt"]) {
+        writeFileSync(join(testDir, name), name);
+      }
+
+      await withStageBatchSize(2, async () => {
+        const result = await service.commitIfDirty(() => ({
+          message: "Dirty batches",
+        }));
+        expect(result.committed).toBe(true);
+      });
+
+      const batches = commitFileLists();
+      expect(batches).toHaveLength(2);
+      expect(batches.flat().sort()).toEqual(["p.txt", "q.txt", "r.txt"]);
+    });
+
+    test("batched commits still skip oversized files", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      const big = Buffer.alloc(256001, 120);
+
+      writeFileSync(join(testDir, "one.txt"), "one");
+      writeFileSync(join(testDir, "two.txt"), "two");
+      writeFileSync(join(testDir, "three.txt"), "three");
+      writeFileSync(join(testDir, "huge.bin"), big);
+
+      await withStageBatchSize(2, async () => {
+        await service.commitChanges("Mixed size batches");
+      });
+
+      expect(trackedFiles()).toContain("one.txt");
+      expect(trackedFiles()).toContain("two.txt");
+      expect(trackedFiles()).toContain("three.txt");
+      expect(trackedFiles()).not.toContain("huge.bin");
+      expect(existsSync(join(testDir, "huge.bin"))).toBe(true);
+    });
+
+    test("batched commits include deletions", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      for (const name of ["keep.txt", "gone-a.txt", "gone-b.txt", "gone-c.txt"]) {
+        writeFileSync(join(testDir, name), name);
+      }
+      await service.commitChanges("Seed files");
+
+      rmSync(join(testDir, "gone-a.txt"));
+      rmSync(join(testDir, "gone-b.txt"));
+      rmSync(join(testDir, "gone-c.txt"));
+      writeFileSync(join(testDir, "keep.txt"), "updated");
+
+      await withStageBatchSize(2, async () => {
+        await service.commitChanges("Delete in batches");
+      });
+
+      expect(trackedFiles()).toContain("keep.txt");
+      expect(trackedFiles()).not.toContain("gone-a.txt");
+      expect(trackedFiles()).not.toContain("gone-b.txt");
+      expect(trackedFiles()).not.toContain("gone-c.txt");
     });
   });
 
@@ -2100,7 +2269,7 @@ describe("WorkspaceGitService", () => {
       await service.ensureInitialized();
 
       // A loose blob with no referencing commit — e.g. an external
-      // `git add` that stageAllLocked later reset out of the index.
+      // `git add` that staging later reset out of the index.
       const blobSha = execFileSync("git", ["hash-object", "-w", "--stdin"], {
         cwd: testDir,
         input: bigContent(),

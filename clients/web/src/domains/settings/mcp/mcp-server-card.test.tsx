@@ -18,12 +18,10 @@ const noop = () => {};
 
 const handlers = {
   toolsSummary: undefined,
-  onToggleEnabled: noop,
   onRemove: noop,
   onConfigure: noop,
   onAuthenticate: noop,
   onRevokeOAuth: noop,
-  isUpdating: false,
   isAuthenticating: false,
   isRevoking: false,
 };
@@ -33,8 +31,6 @@ function server(overrides: Partial<McpServerEntry> = {}): McpServerEntry {
     id: "figma",
     status: "connected",
     transport: { type: "streamable-http", url: "https://example.com/mcp" },
-    enabled: true,
-    defaultRiskLevel: "medium",
     hasOAuth: false,
     hasStaticAuth: false,
     authType: "none",

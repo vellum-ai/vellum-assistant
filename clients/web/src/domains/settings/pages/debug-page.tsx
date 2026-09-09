@@ -5,6 +5,7 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { AllConversationsView } from "@/domains/settings/components/all-conversations-view";
 import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel";
+import { DatabaseDebugPanel } from "@/domains/settings/components/panels/database-debug-panel";
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
 import { resolveDebugTabParam } from "@/domains/settings/pages/debug-page.helpers";
@@ -17,6 +18,7 @@ const ALL_TABS = [
   { id: "general", labelKey: "debugPage.tabs.general", defaultLabel: "General" },
   { id: "terminal", labelKey: "debugPage.tabs.terminal", defaultLabel: "Terminal" },
   { id: "doctor", labelKey: "debugPage.tabs.doctor", defaultLabel: "Doctor" },
+  { id: "database", labelKey: "debugPage.tabs.database", defaultLabel: "Database" },
   { id: "conversations", labelKey: "debugPage.tabs.conversations", defaultLabel: "Conversations" },
 ] as const;
 
@@ -116,6 +118,9 @@ export function DebugPage() {
             <DoctorPanel />
           </Tabs.Panel>
         )}
+        <Tabs.Panel value="database" className="pt-4">
+          <DatabaseDebugPanel />
+        </Tabs.Panel>
         <Tabs.Panel
           value="conversations"
           className="flex min-h-0 flex-1 flex-col pt-4"

@@ -1,4 +1,4 @@
-import { BrowserWindow, Notification } from "electron";
+import { BrowserWindow, nativeImage, Notification } from "electron";
 import { z } from "zod";
 
 import {
@@ -59,11 +59,27 @@ export interface NotificationLike {
   show(): void;
 }
 
+/**
+ * The assistant a notification is from, decoded once at the IPC boundary so
+ * every factory works from bytes rather than re-decoding the base64 payload.
+ */
+export interface NotificationSenderImage {
+  id: string;
+  name: string;
+  avatarPng: Buffer;
+  avatarHash: string;
+}
+
 export interface NotificationCreateOptions {
   title: string;
   body: string;
   silent: boolean;
   actions: CategoryAction[];
+  /**
+   * Absent when the renderer sent no notification avatar; a factory then
+   * renders the plain app-icon notification.
+   */
+  sender?: NotificationSenderImage;
 }
 
 export interface NotificationsRuntime {
@@ -118,16 +134,21 @@ export interface CategoryAction {
  * `toolConfirmation`      → "Allow" / "Deny"
  * `voiceResponseComplete` → "View Response"
  * `notificationIntent`    → "View" (follow the deep link)
+ *
+ * Exported because a client that posts through its own `create` factory has
+ * to register the same label sets with the OS ahead of time, and a second copy
+ * of them drifts.
  */
-const CATEGORY_ACTIONS: Record<NotificationCategory, CategoryAction[]> = {
-  activityComplete: [{ type: "button", text: "View Results" }],
-  toolConfirmation: [
-    { type: "button", text: "Allow" },
-    { type: "button", text: "Deny" },
-  ],
-  voiceResponseComplete: [{ type: "button", text: "View Response" }],
-  notificationIntent: [{ type: "button", text: "View" }],
-};
+export const CATEGORY_ACTIONS: Record<NotificationCategory, CategoryAction[]> =
+  {
+    activityComplete: [{ type: "button", text: "View Results" }],
+    toolConfirmation: [
+      { type: "button", text: "Allow" },
+      { type: "button", text: "Deny" },
+    ],
+    voiceResponseComplete: [{ type: "button", text: "View Response" }],
+    notificationIntent: [{ type: "button", text: "View" }],
+  };
 
 /**
  * Per-category cooldown thresholds (milliseconds). Suppresses duplicate
@@ -147,7 +168,24 @@ const CATEGORY_COOLDOWN_MS: Record<NotificationCategory, number> = {
 
 export type { ShowNotificationPayload };
 
-const showPayloadSchema = z.tuple([showNotificationPayloadSchema]);
+/**
+ * The parsed payload, plus whether the renderer sent a `sender` the schema had
+ * to drop. The schema degrades a malformed sender to none so the user still
+ * gets the banner, which leaves the degrade invisible; this carries it far
+ * enough to be logged once.
+ */
+type ShowPayload = ShowNotificationPayload & { senderDropped?: boolean };
+
+const showPayloadSchema = z.tuple([
+  z.unknown().transform((raw): ShowPayload => {
+    const parsed = showNotificationPayloadSchema.parse(raw);
+    const sentSender =
+      typeof raw === "object" &&
+      raw !== null &&
+      (raw as { sender?: unknown }).sender !== undefined;
+    return { ...parsed, senderDropped: sentSender && !parsed.sender };
+  }),
+]);
 
 // ---------------------------------------------------------------------------
 // Notification action event (main → renderer)
@@ -210,12 +248,14 @@ const pruneStaleEntries = (): void => {
  * Swift client, which acks only after `UNUserNotificationCenter.add(...)`'s
  * completion handler resolves.
  *
- * Unlike the Swift client, Electron cannot request authorization up front, so
- * the very first notification races the macOS permission prompt — neither
- * event fires until the user answers. The timeout is deliberately generous so
- * a user who takes a few seconds to click "Allow" still acks as delivered;
- * only a genuinely unanswered or dropped notification falls through to the
- * conservative "not confirmed" failure ack.
+ * The first notification races the macOS permission prompt on both delivery
+ * paths: `electron.Notification` posts against a prompt the user has yet to
+ * answer, and the macOS native addon requests authorization inside the post
+ * itself. Neither reports an outcome until the user answers, so the timeout
+ * has to cover the prompt. It is deliberately generous so a user who takes a
+ * few seconds to click "Allow" still acks as delivered; only a genuinely
+ * unanswered or dropped notification falls through to the conservative "not
+ * confirmed" failure ack.
  */
 const DELIVERY_TIMEOUT_MS = 30_000;
 
@@ -240,10 +280,40 @@ interface ShowResult {
   errorMessage?: string;
 }
 
-const showNotification = (
-  payload: ShowNotificationPayload,
-): Promise<ShowResult> => {
+/**
+ * The `electron.Notification` path, which can show the sender's avatar on
+ * exactly one platform.
+ *
+ * libnotify draws `icon` as the notification's image and takes the app icon
+ * from the desktop entry, which is the treatment the feature asks for. macOS
+ * draws it as a right-side thumbnail beside the app icon instead, so the
+ * avatar never reaches this path there: a client that renders the sender on
+ * macOS or Windows supplies its own `create` factory, and this path ignores
+ * `sender` on both. Windows toasts have no icon slot on this path at all.
+ *
+ * Exported so a `create` factory that only handles some notifications can hand
+ * the rest back to Electron's presenter.
+ */
+export const createElectronNotification = (
+  options: NotificationCreateOptions,
+): NotificationLike => {
+  const { sender, ...constructorOptions } = options;
+  if (sender && process.platform === "linux") {
+    return new Notification({
+      ...constructorOptions,
+      icon: nativeImage.createFromBuffer(sender.avatarPng),
+    });
+  }
+  return new Notification(constructorOptions);
+};
+
+const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
   const { ensureVisible, isSupported, create, logger } = requireRuntime();
+  if (payload.senderDropped) {
+    (logger ?? console).warn(
+      "[notifications] Dropped a malformed sender; posting with the app icon",
+    );
+  }
   if (!(isSupported ?? Notification.isSupported)()) {
     return Promise.resolve({
       success: false,
@@ -259,14 +329,23 @@ const showNotification = (
   }
 
   const actions = CATEGORY_ACTIONS[payload.category];
+  const sender = payload.sender;
 
-  const notif: NotificationLike = (
-    create ?? ((options) => new Notification(options))
-  )({
+  const notif: NotificationLike = (create ?? createElectronNotification)({
     title: payload.title,
     body: payload.body,
     silent: false,
     actions,
+    ...(sender
+      ? {
+          sender: {
+            id: sender.id,
+            name: sender.name,
+            avatarPng: Buffer.from(sender.avatarBase64, "base64"),
+            avatarHash: sender.avatarHash,
+          },
+        }
+      : {}),
   });
 
   // Build the metadata forwarded on every interaction so the renderer
@@ -342,8 +421,10 @@ const showNotification = (
 let pruneTimer: NodeJS.Timeout | null = null;
 
 export const installNotifications = (): void => {
-  requireRuntime().ipc.handle(NOTIFICATIONS_SHOW, showPayloadSchema, ([payload]) =>
-    showNotification(payload),
+  requireRuntime().ipc.handle(
+    NOTIFICATIONS_SHOW,
+    showPayloadSchema,
+    ([payload]) => showNotification(payload),
   );
 
   pruneTimer = setInterval(pruneStaleEntries, PRUNE_INTERVAL_MS);

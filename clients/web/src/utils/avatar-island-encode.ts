@@ -44,6 +44,7 @@
 
 import { rasterizeAvatar } from "@/utils/avatar-raster";
 import type { AvatarRender } from "@/utils/avatar-render";
+import { encodeBase64Bytes } from "@/utils/base64";
 
 /**
  * Byte ceiling for the encoded avatar.
@@ -92,15 +93,6 @@ const CANDIDATES: ReadonlyArray<{
   { size: 48, type: "image/jpeg", quality: 0.6 },
 ];
 
-/** Base64 for bytes, without a data-URI prefix: the bridge carries the payload raw. */
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
-}
-
 /**
  * Rasterize `render` as small as it needs to be to fit `maxBytes`, returning
  * base64 or null.
@@ -148,7 +140,7 @@ export async function encodeAvatarForIsland(
       throw new Error("avatar rasterizer produced no bytes");
     }
     if (bytes.byteLength <= maxBytes) {
-      return toBase64(bytes);
+      return encodeBase64Bytes(bytes);
     }
   }
   return null;

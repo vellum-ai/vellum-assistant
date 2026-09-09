@@ -45,12 +45,13 @@ jobs:
           fi
           echo "Building iOS $ENVIRONMENT release, version $VERSION"
 
-      # Every environment resolves three bundle IDs and three provisioning
-      # profiles: the app's, the VoiceActivity extension, and the Share
-      # extension. The profile names must match character for character both
-      # the Apple Developer portal and the `PROVISIONING_PROFILE_SPECIFIER_Manual`
-      # values in `clients/ios/App/App/Config/*.xcconfig`. See "Signing: three
-      # profiles per environment" in `clients/ios/README.md`.
+      # Every environment resolves four bundle IDs and four provisioning
+      # profiles: the app's, the VoiceActivity extension, the Share extension,
+      # and the NotificationService extension. The profile names must match
+      # character for character both the Apple Developer portal and the
+      # `PROVISIONING_PROFILE_SPECIFIER_Manual` values in
+      # `clients/ios/App/App/Config/*.xcconfig`. See "Signing: four profiles per
+      # environment" in `clients/ios/README.md`.
       - name: Resolve environment config
         id: config
         env:
@@ -60,6 +61,7 @@ jobs:
             production)
               echo "scheme=App" >> "$GITHUB_OUTPUT"
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios" >> "$GITHUB_OUTPUT"
+              echo "app_group=group.ai.vocify-inc.vellum-assistant-ios" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Distribution" >> "$GITHUB_OUTPUT"
               echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.VoiceActivity" >> "$GITHUB_OUTPUT"
@@ -68,6 +70,9 @@ jobs:
               echo "share_bundle_id=ai.vocify-inc.vellum-assistant-ios.Share" >> "$GITHUB_OUTPUT"
               echo "share_profile_key=IOS_PROVISIONING_PROFILE_SHARE" >> "$GITHUB_OUTPUT"
               echo "share_profile_name=Vellum Assistant iOS Share Distribution" >> "$GITHUB_OUTPUT"
+              echo "nse_bundle_id=ai.vocify-inc.vellum-assistant-ios.NotificationService" >> "$GITHUB_OUTPUT"
+              echo "nse_profile_key=IOS_PROVISIONING_PROFILE_NSE" >> "$GITHUB_OUTPUT"
+              echo "nse_profile_name=Vellum Assistant iOS NotificationService Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_PROD" >> "$GITHUB_OUTPUT"
               echo "vellum_env=production" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=false" >> "$GITHUB_OUTPUT"
@@ -75,6 +80,7 @@ jobs:
             staging)
               echo "scheme=App Staging" >> "$GITHUB_OUTPUT"
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.staging" >> "$GITHUB_OUTPUT"
+              echo "app_group=group.ai.vocify-inc.vellum-assistant-ios.staging" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_STAGING" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Staging Distribution" >> "$GITHUB_OUTPUT"
               echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity" >> "$GITHUB_OUTPUT"
@@ -83,6 +89,9 @@ jobs:
               echo "share_bundle_id=ai.vocify-inc.vellum-assistant-ios.staging.Share" >> "$GITHUB_OUTPUT"
               echo "share_profile_key=IOS_PROVISIONING_PROFILE_SHARE_STAGING" >> "$GITHUB_OUTPUT"
               echo "share_profile_name=Vellum Assistant iOS Staging Share Distribution" >> "$GITHUB_OUTPUT"
+              echo "nse_bundle_id=ai.vocify-inc.vellum-assistant-ios.staging.NotificationService" >> "$GITHUB_OUTPUT"
+              echo "nse_profile_key=IOS_PROVISIONING_PROFILE_NSE_STAGING" >> "$GITHUB_OUTPUT"
+              echo "nse_profile_name=Vellum Assistant iOS Staging NotificationService Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_STAGING" >> "$GITHUB_OUTPUT"
               echo "vellum_env=staging" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=true" >> "$GITHUB_OUTPUT"
@@ -90,6 +99,7 @@ jobs:
             dev)
               echo "scheme=App Dev" >> "$GITHUB_OUTPUT"
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.dev" >> "$GITHUB_OUTPUT"
+              echo "app_group=group.ai.vocify-inc.vellum-assistant-ios.dev" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_DEV" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Dev Distribution" >> "$GITHUB_OUTPUT"
               echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity" >> "$GITHUB_OUTPUT"
@@ -98,6 +108,9 @@ jobs:
               echo "share_bundle_id=ai.vocify-inc.vellum-assistant-ios.dev.Share" >> "$GITHUB_OUTPUT"
               echo "share_profile_key=IOS_PROVISIONING_PROFILE_SHARE_DEV" >> "$GITHUB_OUTPUT"
               echo "share_profile_name=Vellum Assistant iOS Dev Share Distribution" >> "$GITHUB_OUTPUT"
+              echo "nse_bundle_id=ai.vocify-inc.vellum-assistant-ios.dev.NotificationService" >> "$GITHUB_OUTPUT"
+              echo "nse_profile_key=IOS_PROVISIONING_PROFILE_NSE_DEV" >> "$GITHUB_OUTPUT"
+              echo "nse_profile_name=Vellum Assistant iOS Dev NotificationService Distribution" >> "$GITHUB_OUTPUT"
               echo "apple_app_id_key=APPLE_APP_ID_DEV" >> "$GITHUB_OUTPUT"
               echo "vellum_env=dev" >> "$GITHUB_OUTPUT"
               echo "testflight_internal=true" >> "$GITHUB_OUTPUT"
@@ -153,7 +166,18 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
+          if [ -z "$CERT_P12" ]; then
+            echo "::error::DIST_CERTIFICATE_P12 is empty. Export the Apple Distribution certificate as a .p12, encode it with 'base64 -i <file>', and set the secret."
+            exit 1
+          fi
+          # Without this the decode writes an empty or truncated file and
+          # 'security import' fails on the file rather than on the secret,
+          # which sends the operator to the keychain for a fault that is in
+          # the secret.
+          if ! echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12; then
+            echo "::error::DIST_CERTIFICATE_P12 is not valid base64. Re-encode the .p12 with 'base64 -i <file>' and replace the secret."
+            exit 1
+          fi
           security import /tmp/ios-certificate.p12 \
             -k "$KEYCHAIN_PATH" \
             -P "$CERT_PASSWORD" \
@@ -183,7 +207,12 @@ jobs:
           IOS_PROVISIONING_PROFILE_SHARE: ${{ secrets.IOS_PROVISIONING_PROFILE_SHARE }}
           IOS_PROVISIONING_PROFILE_SHARE_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_SHARE_STAGING }}
           IOS_PROVISIONING_PROFILE_SHARE_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_SHARE_DEV }}
+          IOS_PROVISIONING_PROFILE_NSE: ${{ secrets.IOS_PROVISIONING_PROFILE_NSE }}
+          IOS_PROVISIONING_PROFILE_NSE_STAGING: ${{ secrets.IOS_PROVISIONING_PROFILE_NSE_STAGING }}
+          IOS_PROVISIONING_PROFILE_NSE_DEV: ${{ secrets.IOS_PROVISIONING_PROFILE_NSE_DEV }}
         run: |
+          set -o pipefail
+
           PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
           mkdir -p "$PROFILE_DIR"
 
@@ -192,15 +221,89 @@ jobs:
           # as an opaque export error.
           #
           # Returns non-zero when the secret is empty, leaving how fatal that
-          # is to the caller.
+          # is to the caller. A secret that is present but not base64 is a
+          # different fault with a different fix, so it exits here rather than
+          # returning the "empty" status a caller may choose to tolerate.
           install_profile() {
             local key="$1" filename="$2"
             local b64="${!key}"
             if [ -z "$b64" ]; then
               return 1
             fi
-            echo "$b64" | base64 -D > "$PROFILE_DIR/$filename"
+            if ! echo "$b64" | base64 -D > "$PROFILE_DIR/$filename"; then
+              echo "::error::Provisioning profile secret $key is not valid base64. Re-encode the downloaded .mobileprovision with 'base64 -i <file>' and replace the secret."
+              exit 1
+            fi
             echo "Provisioning profile installed from $key"
+          }
+
+          # Decodes an installed profile into a plist for the checks below.
+          #
+          # Decoding and checking are separate steps on purpose: a profile that
+          # is not CMS-signed at all (a mis-encoded secret, a truncated
+          # download) fails the decode, and folding that into an entitlement
+          # test would report a missing capability and send the operator to the
+          # portal for a fault that is in the secret.
+          decode_profile() {
+            local filename="$1" plist="$2" secret="$3"
+            if ! security cms -D -i "$PROFILE_DIR/$filename" > "$plist"; then
+              echo "::error::Could not decode the profile installed from $secret with 'security cms -D'. The secret does not hold a CMS-signed .mobileprovision: re-download the profile from the Apple Developer portal, re-encode it with 'base64 -i <file>', and replace $secret."
+              exit 1
+            fi
+          }
+
+          # Fails the run when the profile does not grant $key as true. The
+          # plist is read by key path rather than grepped, so the check is
+          # anchored to Entitlements and asserts the value.
+          require_entitlement_true() {
+            local plist="$1" key="$2" remedy="$3"
+            local granted
+            granted=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$plist" 2>/dev/null || true)
+            if [ "$granted" != "true" ]; then
+              echo "::error::$remedy"
+              exit 1
+            fi
+          }
+
+          # Fails the run when the profile carries no $key at all. An
+          # entitlement whose value is an array has no "true" to compare
+          # against, so presence is the whole of the assertion.
+          require_entitlement_present() {
+            local plist="$1" key="$2" remedy="$3"
+            if ! /usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$plist" > /dev/null 2>&1; then
+              echo "::error::$remedy"
+              exit 1
+            fi
+          }
+
+          # The App Group this environment's bundles name, restated from
+          # clients/ios/App/App/Config/App*.xcconfig and pinned to them by
+          # clients/ios/scripts/__tests__/notification-service-bundle-ids.test.ts.
+          APP_GROUP="${{ steps.config.outputs.app_group }}"
+
+          # Every signed bundle declares the App Group: the app through
+          # App/App.entitlements and App/App-Dev.entitlements, all three
+          # appexes through App/Extension.entitlements. A profile issued before
+          # the group was assigned to its App ID does not grant it, and the
+          # build fails at Archive with an error that names neither the
+          # entitlement nor the fix.
+          #
+          # The array has to carry this environment's group specifically. An
+          # empty array satisfies presence and grants nothing, and the
+          # production group is a prefix of the staging and dev ones, so a
+          # profile issued against the wrong environment's App ID passes any
+          # check looser than a whole-line match.
+          require_app_group() {
+            local plist="$1" secret="$2" target="$3"
+            require_entitlement_present "$plist" com.apple.security.application-groups \
+              "Provisioning profile $secret does not grant com.apple.security.application-groups, which $target declares. Archive would fail while signing $target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md for this environment's row: assign $APP_GROUP to this App ID (steps 1 and 2), reissue its distribution profile under the identical name (steps 3 and 4), then replace $secret."
+            if ! /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:com.apple.security.application-groups" "$plist" \
+              | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              | grep -qxF "$APP_GROUP"; then
+              echo "::error::Provisioning profile $secret grants com.apple.security.application-groups but not $APP_GROUP, which $target declares. Archive would fail while signing $target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md for this environment's row: assign $APP_GROUP to this App ID (steps 1 and 2), reissue its distribution profile under the identical name (steps 3 and 4), then replace $secret."
+              exit 1
+            fi
           }
 
           # The app profile is non-negotiable: without it there is no build to
@@ -211,6 +314,21 @@ jobs:
             exit 1
           fi
 
+          # The app entitlements declare
+          # com.apple.developer.usernotifications.communication, and a profile
+          # issued before Communication Notifications was enabled on the App ID
+          # does not grant it. Xcode only notices at Archive, long after the
+          # build has started, with an error that names neither the entitlement
+          # nor the fix, so the profile is decoded and checked here instead.
+          # The appexes carry no entitlement of their own beyond the App Group,
+          # so the communication check belongs to the app profile alone.
+          APP_PLIST="$RUNNER_TEMP/app_profile.plist"
+          decode_profile ios_distribution.mobileprovision "$APP_PLIST" "$APP_PROFILE_KEY"
+          require_entitlement_true "$APP_PLIST" \
+            com.apple.developer.usernotifications.communication \
+            "Provisioning profile $APP_PROFILE_KEY does not grant com.apple.developer.usernotifications.communication, which App.entitlements and App-Dev.entitlements declare. Archive would fail while signing the app target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md, steps 2 and 4 for this environment's app row: tick Communication Notifications on the app App ID, reissue its distribution profile under the identical name, then replace $APP_PROFILE_KEY."
+          require_app_group "$APP_PLIST" "$APP_PROFILE_KEY" "the app target"
+
           # A missing extension profile is tolerated: the App IDs and profiles
           # behind IOS_PROVISIONING_PROFILE_EXT* do not exist in the Apple
           # Developer portal yet. The archive fails either way, so exiting here
@@ -220,6 +338,9 @@ jobs:
           EXT_PROFILE_KEY="${{ steps.config.outputs.ext_profile_key }}"
           if install_profile "$EXT_PROFILE_KEY" ios_distribution_ext.mobileprovision; then
             echo "ext_profile_installed=true" >> "$GITHUB_OUTPUT"
+            EXT_PLIST="$RUNNER_TEMP/ext_profile.plist"
+            decode_profile ios_distribution_ext.mobileprovision "$EXT_PLIST" "$EXT_PROFILE_KEY"
+            require_app_group "$EXT_PLIST" "$EXT_PROFILE_KEY" "the VoiceActivity extension"
           else
             echo "ext_profile_installed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Provisioning profile secret $EXT_PROFILE_KEY is empty, so the VoiceActivity extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.ext_profile_name }}' found ... (in target 'VoiceActivity ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $EXT_PROFILE_KEY."
@@ -228,9 +349,23 @@ jobs:
           SHARE_PROFILE_KEY="${{ steps.config.outputs.share_profile_key }}"
           if install_profile "$SHARE_PROFILE_KEY" ios_distribution_share.mobileprovision; then
             echo "share_profile_installed=true" >> "$GITHUB_OUTPUT"
+            SHARE_PLIST="$RUNNER_TEMP/share_profile.plist"
+            decode_profile ios_distribution_share.mobileprovision "$SHARE_PLIST" "$SHARE_PROFILE_KEY"
+            require_app_group "$SHARE_PLIST" "$SHARE_PROFILE_KEY" "the Share extension"
           else
             echo "share_profile_installed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Provisioning profile secret $SHARE_PROFILE_KEY is empty, so the Share extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.share_profile_name }}' found ... (in target 'Share ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $SHARE_PROFILE_KEY."
+          fi
+
+          NSE_PROFILE_KEY="${{ steps.config.outputs.nse_profile_key }}"
+          if install_profile "$NSE_PROFILE_KEY" ios_distribution_nse.mobileprovision; then
+            echo "nse_profile_installed=true" >> "$GITHUB_OUTPUT"
+            NSE_PLIST="$RUNNER_TEMP/nse_profile.plist"
+            decode_profile ios_distribution_nse.mobileprovision "$NSE_PLIST" "$NSE_PROFILE_KEY"
+            require_app_group "$NSE_PLIST" "$NSE_PROFILE_KEY" "the NotificationService extension"
+          else
+            echo "nse_profile_installed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Provisioning profile secret $NSE_PROFILE_KEY is empty, so the NotificationService extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.nse_profile_name }}' found ... (in target 'NotificationService ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $NSE_PROFILE_KEY."
           fi
 
       - name: Set version
@@ -265,6 +400,9 @@ jobs:
           SHARE_BUNDLE_ID: ${{ steps.config.outputs.share_bundle_id }}
           SHARE_PROFILE_NAME: ${{ steps.config.outputs.share_profile_name }}
           SHARE_PROFILE_INSTALLED: ${{ steps.profiles.outputs.share_profile_installed }}
+          NSE_BUNDLE_ID: ${{ steps.config.outputs.nse_bundle_id }}
+          NSE_PROFILE_NAME: ${{ steps.config.outputs.nse_profile_name }}
+          NSE_PROFILE_INSTALLED: ${{ steps.profiles.outputs.nse_profile_installed }}
           TESTFLIGHT_INTERNAL: ${{ steps.config.outputs.testflight_internal }}
         run: |
           EXT_ENTRY=""
@@ -276,6 +414,11 @@ jobs:
           if [ "$SHARE_PROFILE_INSTALLED" = "true" ]; then
             SHARE_ENTRY="<key>$SHARE_BUNDLE_ID</key>
                   <string>$SHARE_PROFILE_NAME</string>"
+          fi
+          NSE_ENTRY=""
+          if [ "$NSE_PROFILE_INSTALLED" = "true" ]; then
+            NSE_ENTRY="<key>$NSE_BUNDLE_ID</key>
+                  <string>$NSE_PROFILE_NAME</string>"
           fi
 
           INTERNAL_ENTRY=""
@@ -300,6 +443,7 @@ jobs:
                   <string>$PROFILE_NAME</string>
                   $EXT_ENTRY
                   $SHARE_ENTRY
+                  $NSE_ENTRY
               </dict>
               $INTERNAL_ENTRY
           </dict>
@@ -308,10 +452,11 @@ jobs:
 
       # PROVISIONING_PROFILE_SPECIFIER is deliberately NOT passed here. An
       # xcodebuild CLI override applies to every target in the archive, so a
-      # single specifier would push the app profile onto the embedded
-      # VoiceActivity or Share appex, which it does not cover. The per-target mapping
-      # lives in `clients/ios/App/App/Config/*.xcconfig` instead, next to the
-      # per-target bundle IDs it has to agree with. Those xcconfigs key the
+      # single specifier would push the app profile onto an embedded
+      # VoiceActivity, Share or NotificationService appex, which it does not
+      # cover. The per-target mapping lives in
+      # `clients/ios/App/App/Config/*.xcconfig` instead, next to the per-target
+      # bundle IDs it has to agree with. Those xcconfigs key the
       # specifier off CODE_SIGN_STYLE, so the `CODE_SIGN_STYLE=Manual`
       # override below is what activates it — local Xcode builds stay on
       # automatic signing and pick up no specifier at all.

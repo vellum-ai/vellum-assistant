@@ -58,28 +58,24 @@ const log = getLogger("plugin-mcp-servers");
 export const PLUGIN_MCP_MANIFEST = "mcp.json";
 
 /**
- * Risk level assigned to a plugin-declared server. `mcp.json` has no risk
- * field, since the spec defines none, so a host default applies.
+ * Plugin-declared servers start at low risk in the MCP tool factory.
+ * `mcp.json` has no risk field, since the spec defines none, so a host
+ * default applies.
  *
- * `low` — so a plugin's tools run without prompting under the default
- * auto-approve threshold — because the review happens earlier: the
- * marketplace catalog (`plugins/marketplace.json`) is a curated whitelist
- * of SHA-pinned entries, and installing a plugin is itself the user's
- * decision to run the code it ships. Gating every call afterwards prompts
- * on the tools the user installed the plugin to get.
+ * The review happens earlier: the marketplace catalog
+ * (`plugins/marketplace.json`) is a curated whitelist of SHA-pinned
+ * entries, and installing a plugin is itself the user's decision to run
+ * the code it ships. Gating every call afterwards prompts on the tools
+ * the user installed the plugin to get.
  *
  * The gap this leaves is deliberate and known: a plugin installed
  * off-marketplace straight from a GitHub URL gets the same default, and
  * nothing recorded at install time distinguishes the two afterwards. A
  * provenance signal is what would let this default be curation-gated
- * rather than blanket. The user can still override per server — see the
- * `defaultRiskLevel` field on a workspace `config.json` entry, which
- * outranks a plugin's declaration of the same id.
+ * rather than blanket. A workspace entry of the same id replaces the
+ * plugin server wholesale (transport included) and uses the workspace
+ * origin risk.
  */
-const PLUGIN_SERVER_DEFAULT_RISK = "low" as const;
-
-/** Matches the `maxTools` default in `McpServerConfigSchema`. */
-const PLUGIN_SERVER_DEFAULT_MAX_TOOLS = 20;
 
 // ---------------------------------------------------------------------------
 // Wire schema (Agent Plugins 1.0.0)
@@ -299,9 +295,6 @@ export function readPluginMcpServers(
         serverKey,
         config: {
           transport: projectTransport(entry.data, plugin.target),
-          enabled: true,
-          defaultRiskLevel: PLUGIN_SERVER_DEFAULT_RISK,
-          maxTools: PLUGIN_SERVER_DEFAULT_MAX_TOOLS,
           source: "plugin",
         },
       });

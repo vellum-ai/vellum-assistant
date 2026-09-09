@@ -52,10 +52,16 @@ export function RiskChip({ level }: { level?: string }) {
       {/* `Tooltip` mounts its trigger with Radix `asChild`, which needs a child
           that forwards the ref and spreads the props it is handed, and
           `RiskBadge` accepts only its own three. `tabIndex` makes the wrapper
-          focusable so the tooltip opens on keyboard focus as well as hover. */}
+          focusable so the tooltip opens on keyboard focus as well as hover.
+          `cursor-help` because the pill is neither a button nor prose: without
+          it the wrapper inherits `auto`, which over text is the I-beam, so a
+          chip carrying an explanation looked like a text selection. It matches
+          the design library's own tooltip example and the plugins picker.
+          `select-none` for the same reason: a pill is a label, not a sentence
+          to drag across. */}
       <span
         tabIndex={0}
-        className="inline-flex rounded-[100px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-active)]"
+        className="inline-flex cursor-help rounded-[100px] select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--border-active)]"
       >
         <RiskBadge level={level} />
       </span>

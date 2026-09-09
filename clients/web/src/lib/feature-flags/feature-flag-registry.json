@@ -432,6 +432,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "push-avatar-sender",
+      "scope": "client",
+      "key": "push-avatar-sender",
+      "label": "Push Avatar Sender",
+      "description": "Native notifications show the assistant's avatar as the icon with the assistant's name on line one. Same key the platform reads for APNs/FCM sender blocks.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",

@@ -6202,6 +6202,18 @@ components:
           type: string
           minLength: 1
           maxLength: 128
+        capabilities:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          description: 'What the shell registering this token can render. Known values:
+            native-notification-render. An unknown value is dropped and the rest of
+            the registration succeeds, so a client can advertise a capability this
+            server does not know yet. Omitting the field resets the stored list to
+            [].'
+          maxItems: 16
       required:
       - bundle_id
       - platform
@@ -7288,9 +7300,21 @@ components:
           oneOf:
           - $ref: '#/components/schemas/ApnsEnvironmentEnum'
           - $ref: '#/components/schemas/NullEnum'
+        capabilities:
+          type: array
+          items:
+            type: string
+            maxLength: 64
+          description: 'What the shell registering this token can render. Known values:
+            native-notification-render. An unknown value is dropped and the rest of
+            the registration succeeds, so a client can advertise a capability this
+            server does not know yet. Omitting the field resets the stored list to
+            [].'
+          maxItems: 16
       required:
       - apns_environment
       - bundle_id
+      - capabilities
       - platform
       - token
     DevicePushTokenUpsertPlatformEnum:
@@ -9216,15 +9240,17 @@ components:
         Write surface for ``PATCH /v1/assistants/{id}/``.
 
         Accepts a narrow allowlist (``name``, ``description``, ``handle``,
-        ``avatar_base64``) and delegates handle format validation to
-        :func:`app.assistant.handle_validation.validate_handle`. Uniqueness is
-        enforced at the database layer via the case-insensitive functional
-        unique index on ``LOWER(handle)``; the view converts the resulting
-        ``IntegrityError`` to a 409 (see :meth:`AssistantViewSet.partial_update`).
+        ``avatar_base64``, ``notification_avatar_base64``) and delegates handle
+        format validation to :func:`app.assistant.handle_validation.validate_handle`.
+        Uniqueness is enforced at the database layer via the case-insensitive
+        functional unique index on ``LOWER(handle)``; the view converts the
+        resulting ``IntegrityError`` to a 409 (see
+        :meth:`AssistantViewSet.partial_update`).
 
-        ``avatar_base64`` is a write-only, non-model field: the daemon sends the
-        raw image inline, and :meth:`AssistantViewSet.partial_update` pops the
-        decoded payload out of ``validated_data`` before the model save.
+        ``avatar_base64`` and ``notification_avatar_base64`` are write-only,
+        non-model fields: the daemon sends the raw images inline, and
+        :meth:`AssistantViewSet.partial_update` pops the decoded payloads out of
+        ``validated_data`` before the model save.
       properties:
         name:
           type: string
@@ -9241,9 +9267,17 @@ components:
           type: string
           writeOnly: true
           nullable: true
-          description: Base64-encoded avatar image (PNG, JPEG, WebP, or GIF), at most
+          description: Base64-encoded avatar image (PNG, JPEG, GIF, or WebP), at most
             524288 bytes (512 KiB) decoded. Send null or an empty string to remove
             the current avatar; omit the field to leave it alone.
+        notification_avatar_base64:
+          type: string
+          writeOnly: true
+          nullable: true
+          description: Base64-encoded notification avatar image (PNG only), square
+            and at most 512 pixels per side, at most 131072 bytes (128 KiB) decoded.
+            Send null or an empty string to remove the current notification avatar;
+            omit the field to leave it alone.
     PatchedSleepPolicyRequest:
       type: object
       description: Serializer for the assistant sleep/wake policy.

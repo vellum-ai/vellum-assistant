@@ -3,8 +3,7 @@
  * for the HTTP server's route table.
  */
 
-import { IpcConnectError } from "@vellumai/gateway-client/ipc-client";
-
+import { mapGatewayIpcConnectError } from "../../ipc/gateway-ipc-errors.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
@@ -186,22 +185,16 @@ export function routeDefinitionsToHTTPRoutes(
           headers: responseHeaders,
         });
       } catch (err) {
-        if (err instanceof RouteError) {
+        const mapped = mapGatewayIpcConnectError(err);
+        if (mapped instanceof RouteError) {
           return httpError(
-            err.code as HttpErrorCode,
-            err.message,
-            err.statusCode,
-            err.details,
+            mapped.code as HttpErrorCode,
+            mapped.message,
+            mapped.statusCode,
+            mapped.details,
           );
         }
-        if (err instanceof IpcConnectError) {
-          return httpError(
-            "SERVICE_UNAVAILABLE",
-            `Gateway is not reachable over IPC: ${err.message}`,
-            503,
-          );
-        }
-        throw err;
+        throw mapped;
       }
     },
   }));
