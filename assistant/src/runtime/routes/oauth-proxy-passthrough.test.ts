@@ -30,9 +30,18 @@ const bodyText = async (body: BodyInit | null): Promise<string> =>
   await new Response(body).text();
 
 describe("route constants", () => {
-  test("the endpoint pattern and the prefix agree", () => {
-    expect(PROXY_ROUTE_ENDPOINT).toBe("oauth/proxy/:provider/:path*");
-    expect(PROXY_PATH_PREFIX).toBe("/v1/oauth/proxy/");
+  test("the prefix is the v1 mount of the route pattern", () => {
+    // Route endpoints are registered without the `/v1/` the server mounts
+    // them under, and the prefix is that same pattern up to the provider.
+    const [beforeProvider] = PROXY_ROUTE_ENDPOINT.split(":provider");
+    expect(PROXY_PATH_PREFIX).toBe(`/v1/${beforeProvider}`);
+  });
+
+  test("the remainder starts after the prefix and the provider segment", () => {
+    const url = proxyUrl("stripe_link/v1/items");
+
+    expect(url.pathname).toBe(`${PROXY_PATH_PREFIX}stripe_link/v1/items`);
+    expect(extractProxyRemainder(url)).toBe("v1/items");
   });
 });
 
@@ -119,6 +128,18 @@ describe("provider segment", () => {
     expect(
       parseProxyProviderSegment(decodeURIComponent("stripe_link@a%3Ab")),
     ).toEqual({ provider: "stripe_link", account: "a:b" });
+  });
+
+  test("an empty account pins nothing and stays well formed", () => {
+    const segment = encodeProxyProviderSegment("stripe_link", "");
+
+    expect(segment).toBe("stripe_link");
+    expect(parseProxyProviderSegment(segment)).toEqual({
+      provider: "stripe_link",
+    });
+    expect(proxyGrantSubject("stripe_link", "")).toBe(
+      "local:self:oauth-proxy.stripe_link",
+    );
   });
 
   test("refuses an account that cannot be percent-encoded", () => {
@@ -407,12 +428,27 @@ describe("materializeProxyResponse", () => {
     ).toBe(null);
   });
 
-  test("HEAD, 204, and 304 carry no body but keep their headers", () => {
+  test("a 205 carrying the BYO empty-byte body still has no body", () => {
+    // `new Response(new Uint8Array(0), { status: 205 })` is a TypeError under
+    // a spec-strict Response, and a 205 may not carry content on the wire.
+    const response = materializeProxyResponse(
+      upstream({ status: 205, body: new Uint8Array(0) }),
+      "POST",
+    );
+
+    expect(response.body).toBeNull();
+    expect(response.status).toBe(205);
+  });
+
+  test("HEAD and every null-body status keep their headers and no body", () => {
     const headers = { "content-type": "application/json", etag: 'W/"1"' };
 
     for (const [status, method] of [
       [200, "HEAD"],
+      [101, "GET"],
+      [103, "GET"],
       [204, "DELETE"],
+      [205, "POST"],
       [304, "GET"],
     ] as const) {
       const response = materializeProxyResponse(
@@ -578,6 +614,39 @@ describe("ambiguousConnectionError", () => {
         "stripe_link@a%40example.com",
         "stripe_link@b%40example.com",
       ],
+    });
+  });
+
+  test("names every account even when a label pins no segment", () => {
+    // Account labels are nullable free text: one may be empty, and one may
+    // hold a lone surrogate that `encodeURIComponent` refuses.
+    const accounts = ["", "\uD800", "b@example.com"];
+
+    const err = ambiguousConnectionError("stripe_link", accounts);
+
+    expect(err.statusCode).toBe(409);
+    expect(err.code).toBe("CONFLICT");
+    for (const account of accounts) {
+      expect(err.message).toContain(account);
+    }
+    expect(err.message).toContain('"stripe_link@b%40example.com"');
+    expect(err.details).toEqual({
+      provider: "stripe_link",
+      accounts,
+      providerSegments: ["stripe_link@b%40example.com"],
+    });
+  });
+
+  test("drops the example when no account can pin a segment", () => {
+    const err = ambiguousConnectionError("stripe_link", ["", "\uD800"]);
+
+    expect(err.statusCode).toBe(409);
+    expect(err.message).toContain("Multiple stripe_link connections");
+    expect(err.message).not.toContain("for example");
+    expect(err.details).toEqual({
+      provider: "stripe_link",
+      accounts: ["", "\uD800"],
+      providerSegments: [],
     });
   });
 });

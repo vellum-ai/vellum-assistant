@@ -34,11 +34,11 @@ export const PROXY_ROUTE_ENDPOINT = "oauth/proxy/:provider/:path*";
 export const PROXY_PATH_PREFIX = "/v1/oauth/proxy/";
 
 /**
- * Number of leading `/`-separated pieces before the upstream path: the empty
- * piece before the leading slash, then `v1`, `oauth`, `proxy`, and the
- * provider segment.
+ * Leading `/`-separated pieces before the upstream path. Splitting the prefix
+ * yields the empty piece before its leading slash, `v1`, `oauth`, `proxy`, and
+ * a trailing empty piece: the slot the provider segment fills.
  */
-const PROXY_PATH_SEGMENT_COUNT = 5;
+const PROXY_PATH_SEGMENT_COUNT = PROXY_PATH_PREFIX.split("/").length;
 
 /** Request headers that must never reach the provider. */
 const STRIPPED_REQUEST_HEADERS = new Set([
@@ -63,6 +63,14 @@ const STRIPPED_REQUEST_HEADERS = new Set([
 
 const TEXT_ENCODER = new TextEncoder();
 
+/**
+ * Statuses the `Response` constructor refuses a body on. A provider reaches
+ * here with 204, 205, or 304; 101 and 103 are interim statuses no HTTP client
+ * surfaces as a final response, and are listed so the set is the spec's rather
+ * than a subset to re-derive.
+ */
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
 /** Response headers describing a framing this daemon re-does itself. */
 const STRIPPED_RESPONSE_HEADERS = new Set([
   "content-length",
@@ -75,14 +83,9 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 ]);
 
 /**
- * Characters `encodeURIComponent` leaves unescaped. None of them is `:`, which
- * is what lets an encoded account sit inside a subject component.
- */
-const ENCODED_ACCOUNT_PATTERN = /^[A-Za-z0-9\-_.!~*'()%]+$/;
-
-/**
  * Provider segment for a base URL. An account pins one connection when the
- * provider has several.
+ * provider has several; an empty label pins nothing, leaving the bare provider
+ * key as the segment and an unpinned subject to match.
  *
  * A provider key carrying `@` or `/` would parse back as a different provider,
  * and one carrying `:` would split {@link proxyGrantSubject} into a fourth
@@ -111,24 +114,18 @@ export function encodeProxyProviderSegment(
  * Percent-encode an account for the segment, and with it for the subject the
  * segment is embedded in: encoding is what keeps a `:` in an account from
  * ending the subject component early, and a control character out of the
- * `x-vellum-subject` header. Text that cannot be encoded is refused here
- * rather than surfacing as an unhandled `URIError`.
+ * `x-vellum-subject` header. Its output alphabet holds none of those, so the
+ * only text refused here is text `encodeURIComponent` itself rejects, such as
+ * a lone surrogate.
  */
 function encodeAccount(account: string): string {
-  let encoded: string;
   try {
-    encoded = encodeURIComponent(account);
+    return encodeURIComponent(account);
   } catch {
     throw new BadRequestError(
       `An OAuth proxy account must be encodable text: "${account}"`,
     );
   }
-  if (!ENCODED_ACCOUNT_PATTERN.test(encoded)) {
-    throw new BadRequestError(
-      `An OAuth proxy account may not carry characters that a subject cannot hold: "${account}"`,
-    );
-  }
-  return encoded;
 }
 
 /**
@@ -291,9 +288,7 @@ export function materializeProxyResponse(
   }
 
   const bodyless =
-    method.toUpperCase() === "HEAD" ||
-    upstream.status === 204 ||
-    upstream.status === 304;
+    method.toUpperCase() === "HEAD" || NULL_BODY_STATUSES.has(upstream.status);
   if (bodyless) {
     return new RouteResponse(null, headers, upstream.status);
   }
@@ -361,20 +356,42 @@ export function mapProxyRequestError(
 /**
  * Several connections match the provider and the caller pinned none. The CLI
  * prints only the message, so it names the accounts and how to pick one.
+ *
+ * Account labels are free text a provider chose, so some of them pin nothing
+ * (an empty label) or cannot be encoded at all. Every account is still named:
+ * building this error may not throw, or the caller would see an encoding
+ * failure in place of the 409.
  */
 export function ambiguousConnectionError(
   provider: string,
   accounts: string[],
 ): ConflictError {
-  const providerSegments = accounts.map((account) =>
-    encodeProxyProviderSegment(provider, account),
-  );
-  const example = providerSegments[0] ?? provider;
+  const providerSegments = accounts
+    .map((account) => pinningProviderSegment(provider, account))
+    .filter((segment): segment is string => segment !== null);
+  const example = providerSegments[0];
+  const pin =
+    "Pin one by putting its account in the provider segment of the base URL";
   return new ConflictError(
     `Multiple ${provider} connections are available (${accounts.join(", ")}). ` +
-      `Pin one by putting its account in the provider segment of the base URL, for example "${example}".`,
+      (example ? `${pin}, for example "${example}".` : `${pin}.`),
     { provider, accounts, providerSegments },
   );
+}
+
+/** Segment pinning one account, or null when the label cannot pin one. */
+function pinningProviderSegment(
+  provider: string,
+  account: string,
+): string | null {
+  if (!account) {
+    return null;
+  }
+  try {
+    return encodeProxyProviderSegment(provider, account);
+  } catch {
+    return null;
+  }
 }
 
 /**
