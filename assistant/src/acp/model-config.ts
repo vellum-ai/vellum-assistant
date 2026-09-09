@@ -41,7 +41,7 @@ export type AcpModelOption = z.infer<
 >["availableModels"][number];
 
 /** What an adapter's config-option set says about the session's model. */
-type AcpModelInfo = {
+export type AcpModelInfo = {
   model?: string;
   availableModels: AcpModelOption[];
   modelConfigId?: string;

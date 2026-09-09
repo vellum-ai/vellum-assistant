@@ -34,6 +34,11 @@ const cancelCalls: string[] = [];
 
 /** Config options each `createSession` reports, one entry per call. */
 let scriptedConfigOptions: SessionConfigOption[][] = [];
+/**
+ * When set, `createSession` stalls on this gate before it answers, so a test
+ * can drive a notification into the still-open call.
+ */
+let createSessionGate: Promise<void> | null = null;
 /** Every `setConfigOption` the manager dispatched to a fake process. */
 const setConfigOptionCalls: Array<{
   sessionId: string;
@@ -64,6 +69,9 @@ mock.module("../agent-process.js", () => ({
     async createSession(
       _cwd: string,
     ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
+      if (createSessionGate) {
+        await createSessionGate;
+      }
       return {
         sessionId: `proto-${this.agentId}`,
         configOptions: scriptedConfigOptions.shift() ?? [],
@@ -115,6 +123,7 @@ type Manager = InstanceType<typeof AcpSessionManager>;
 
 beforeEach(() => {
   scriptedConfigOptions = [];
+  createSessionGate = null;
   setConfigOptionCalls.length = 0;
   setConfigOptionResult = [];
   setConfigOptionResponder = null;
@@ -1180,6 +1189,90 @@ describe("AcpSessionManager: unsolicited model updates", () => {
     expect(
       getAcpConversationModelPreference("conv-pin-then-typed", "agent-model"),
     ).toBe("opus");
+  });
+
+  test("a selector announced during session/new survives a response that omits it", async () => {
+    seedConversationRow("conv-open-race");
+    config.setConfig({ defaultModel: "opus" });
+    // The adapter answers session/new with no config options at all.
+    scriptedConfigOptions = [[]];
+    setConfigOptionResult = [modelOption("opus")];
+    let release = () => {};
+    createSessionGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawning = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-open-race",
+      (msg: AssistantEvent) => sent.push(msg),
+    );
+    const acpSessionId = (manager.getStatus() as AcpSessionState[])[0].id;
+
+    // The adapter announces its selector while session/new is still open.
+    await emitConfigOptions(manager, acpSessionId, [modelOption("sonnet")]);
+    release();
+    await spawning;
+
+    // The selector is still there for the configured default to be pinned
+    // through, and the picker still reaches the client after the spawn.
+    expect(setConfigOptionCalls).toEqual([
+      { sessionId: "proto-agent-model", configId: "model", value: "opus" },
+    ]);
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "opus",
+    );
+    expect(sent.map((e) => e.type)).toEqual([
+      "acp_session_model_update",
+      "acp_session_spawned",
+      "acp_session_model_update",
+    ]);
+    expect(sent[2]).toMatchObject({
+      model: "opus",
+      availableModels: MODEL_OPTION_MODELS,
+    });
+  });
+
+  test("an opening response naming a selector outranks one announced mid-call", async () => {
+    seedConversationRow("conv-open-response");
+    scriptedConfigOptions = [[modelOption("opus")]];
+    let release = () => {};
+    createSessionGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawning = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-open-response",
+      (msg: AssistantEvent) => sent.push(msg),
+    );
+    const acpSessionId = (manager.getStatus() as AcpSessionState[])[0].id;
+
+    await emitConfigOptions(manager, acpSessionId, [modelOption("sonnet")]);
+    release();
+    await spawning;
+
+    // Nothing was requested and the response says the session is on opus, so
+    // the adapter is never asked to change.
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "opus",
+    );
+    expect(setConfigOptionCalls).toEqual([]);
+    expect(sent[sent.length - 1]).toMatchObject({
+      type: "acp_session_model_update",
+      model: "opus",
+      availableModels: MODEL_OPTION_MODELS,
+    });
   });
 });
 

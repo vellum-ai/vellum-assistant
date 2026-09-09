@@ -849,6 +849,40 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     ).toBeUndefined();
   });
 
+  test("a session/load answering with no config options keeps the replayed selector", async () => {
+    fakeCaps.loadSession = true;
+    seedConversationRow("conv-1");
+    // The selector reaches the manager only through the replayed
+    // notification: the load itself answers with no config options at all.
+    replayConfigOptions = [modelOption("default")];
+    resumeConfigOptions = [];
+    insertHistoryRow({ id: "resume-replay-only", model: "opus" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-replay-only", (msg) =>
+      sent.push(msg),
+    );
+
+    // The re-pin still reaches the adapter, so the run comes back on the
+    // model its row recorded.
+    expect(setConfigOptionCalls).toEqual([
+      { sessionId: "proto-old", configId: "model", value: "opus" },
+    ]);
+    expect(
+      (manager.getStatus("resume-replay-only") as AcpSessionState).model,
+    ).toBe("opus");
+    // The announced default, then the model the run was put back on.
+    const modelEvents = sent.filter(
+      (m) => m.type === "acp_session_model_update",
+    );
+    expect(modelEvents.map((m) => m.model)).toEqual(["default", "opus"]);
+    expect(modelEvents[1]).toMatchObject({
+      acpSessionId: "resume-replay-only",
+      availableModels: MODEL_OPTION_MODELS,
+    });
+  });
+
   test("a resume the adapter refuses to re-pin runs on the adapter's model and records that on the row", async () => {
     fakeCaps.resume = true;
     seedConversationRow("conv-1");
