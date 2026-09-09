@@ -1566,6 +1566,21 @@ function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
 }
 
 /**
+ * Clearing the default coding-agent model is a PATCH of
+ * `{ acp: { defaultModel: null } }`, and the deep-merge assigns that literal
+ * `null` because the stored value is a scalar. `AcpConfigSchema.defaultModel`
+ * is an optional string, so a persisted `null` makes every later
+ * `loadConfig()` warn and take its salvage path. Clearing means removing the
+ * key, so drop it here.
+ */
+function scrubNulledAcpDefaultModel(raw: Record<string, unknown>): void {
+  const acp = readPlainObject(raw.acp);
+  if (acp && acp.defaultModel === null) {
+    delete acp.defaultModel;
+  }
+}
+
+/**
  * A persisted `services.stt` block must satisfy SttServiceSchema, whose
  * `provider` is required. The services-level default fills the provider only
  * when `services.stt` is wholly absent, so a sparse patch like
@@ -1615,6 +1630,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   }
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
+  scrubNulledAcpDefaultModel(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");

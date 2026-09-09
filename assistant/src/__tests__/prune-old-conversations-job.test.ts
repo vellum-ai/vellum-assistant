@@ -58,8 +58,7 @@ function seedConversation(id: string, updatedAt: number): void {
       payload: "{}",
     })
     .run();
-  // Conversation-keyed with no foreign key, so only an explicit delete in the
-  // prune transaction reaches it.
+  // Cascades from the conversation, so the prune deletes it without naming it.
   upsertAcpConversationModelPreference({
     parentConversationId: id,
     agentId: "claude",

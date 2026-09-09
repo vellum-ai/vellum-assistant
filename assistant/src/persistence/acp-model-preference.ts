@@ -5,21 +5,15 @@
  * given agent should be put on. Written only when the user chooses one, so it
  * never inherits a fallback the user never asked for; `acp_session_history` is
  * the record of what a finished run actually used.
+ *
+ * Nothing here deletes: the row cascades from its conversation, so a
+ * conversation delete takes its preferences with it.
  */
 
 import { and, eq } from "drizzle-orm";
 
-import { type DrizzleDb, getDb } from "./db-connection.js";
+import { getDb } from "./db-connection.js";
 import { acpConversationModelPreference } from "./schema/index.js";
-
-/**
- * Enough of a database handle to delete rows.
- *
- * Named as a slice so the delete can be handed the open transaction of a
- * conversation delete, and the preference rows commit or roll back with the
- * conversation row they belong to.
- */
-type ModelPreferenceWriter = Pick<DrizzleDb, "delete">;
 
 /** The model this conversation prefers for this agent, if it has chosen one. */
 export function getAcpConversationModelPreference(
@@ -59,20 +53,5 @@ export function upsertAcpConversationModelPreference(preference: {
       ],
       set: { model: preference.model, updatedAt },
     })
-    .run();
-}
-
-/** Drop every agent's preference for a conversation that is going away. */
-export function deleteAcpConversationModelPreferences(
-  parentConversationId: string,
-  db: ModelPreferenceWriter = getDb(),
-): void {
-  db.delete(acpConversationModelPreference)
-    .where(
-      eq(
-        acpConversationModelPreference.parentConversationId,
-        parentConversationId,
-      ),
-    )
     .run();
 }

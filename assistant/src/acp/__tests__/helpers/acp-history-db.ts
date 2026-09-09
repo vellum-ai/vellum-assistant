@@ -1,5 +1,5 @@
 /**
- * Shared test helpers for the `acp_session_history` table.
+ * Shared test helpers for the tables the ACP suites read and write directly.
  *
  * Several suites (session-manager resume/persistence, the ACP route
  * handlers) seed and read history rows directly via SQL; this module
@@ -35,8 +35,29 @@ export interface HistoryRow {
   model: string | null;
 }
 
+/**
+ * Clears both ACP tables a suite can leave behind. The model preference is
+ * conversation-keyed rather than session-keyed, so a suite that asserts a
+ * conversation has chosen nothing is order-dependent without it.
+ */
 export function clearHistory(): void {
-  getSqlite().run("DELETE FROM acp_session_history");
+  const sqlite = getSqlite();
+  sqlite.run("DELETE FROM acp_session_history");
+  sqlite.run("DELETE FROM acp_conversation_model_preference");
+}
+
+/**
+ * Inserts the `conversations` row the model preference's foreign key needs
+ * before a preference can be written for that id. Idempotent, so a suite that
+ * reuses an id across tests can call it every time.
+ */
+export function seedConversationRow(id: string): void {
+  getSqlite()
+    .query(
+      `INSERT OR IGNORE INTO conversations (id, title, created_at, updated_at)
+       VALUES (?, 'acp test', 0, 0)`,
+    )
+    .run(id);
 }
 
 /**
