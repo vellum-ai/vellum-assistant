@@ -16,13 +16,6 @@ import type { AcpRunEntry } from "@/domains/chat/acp-run-store";
 mock.module("@/domains/chat/utils/acp-run-actions", () => ({
   steerAcpRun: mock(async () => ({ acpSessionId: "acp-1", steered: true })),
   stopAcpRun: mock(async () => {}),
-  // The mock replaces the whole module, so every export the chat view imports
-  // has to be here or the import fails to resolve.
-  switchAcpRunModel: mock(async () => ({
-    acpSessionId: "acp-1",
-    model: "opus",
-    availableModels: [],
-  })),
 }));
 
 const { AcpRunDetailPanel } =

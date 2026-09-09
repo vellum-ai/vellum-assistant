@@ -459,30 +459,6 @@
     "tryAgain": "Попробовать снова",
     "viewPlans": "Смотреть планы"
   },
-  "codingAgentsCard": {
-    "agentDefaultOption": "Использовать модель агента по умолчанию",
-    "configUpdateFailedToast": "Не удалось обновить конфигурацию ассистента. Повторите попытку.",
-    "customModelHint": "Сохраняется как введено, поэтому подойдёт и алиас, и полный идентификатор модели, который понимает агент кодирования.",
-    "customModelLabel": "Модель",
-    "customModelOption": "Своя модель",
-    "customModelPlaceholder": "claude-opus-4-1",
-    "modelLabel": "Модель по умолчанию",
-    "modelOptions": {
-      "best": "Лучшая доступная",
-      "default": "По умолчанию",
-      "fable": "Fable",
-      "fable1m": "Fable (контекст 1M)",
-      "haiku": "Haiku",
-      "opus": "Opus",
-      "opus1m": "Opus (контекст 1M)",
-      "opusplan": "Opus в режиме плана",
-      "sonnet": "Sonnet",
-      "sonnet1m": "Sonnet (контекст 1M)"
-    },
-    "savedToast": "Настройки агентов кодирования сохранены.",
-    "subtitle": "Выберите модель, с которой начинаются новые сессии агентов кодирования. В списке перечислены модели Claude, а другие агенты кодирования используют собственную модель по умолчанию.",
-    "title": "Агенты кодирования"
-  },
   "communityPage": {
     "communityHubDescription": "Витрины, гайды и проекты от сообщества.",
     "communityHubTitle": "Центр сообщества",

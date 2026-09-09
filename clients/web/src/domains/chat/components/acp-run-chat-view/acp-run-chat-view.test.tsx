@@ -15,27 +15,17 @@ const steerAcpRun = mock(async () => ({
   steered: true,
 }));
 const stopAcpRun = mock(async () => {});
-const switchAcpRunModel = mock(async () => ({
-  acpSessionId: "acp-1",
-  model: "sonnet",
-  availableModels: [{ value: "sonnet", label: "Sonnet" }],
-}));
 
 // The real actions module imports the daemon client + resolved-assistants
 // store; mock at that boundary so the view's steer/stop calls stay in-process.
 mock.module("@/domains/chat/utils/acp-run-actions", () => ({
   steerAcpRun,
   stopAcpRun,
-  switchAcpRunModel,
 }));
 
 // Modules are imported AFTER the mock registers so the real actions module
 // (which pulls in the not-generated daemon client) is never evaluated.
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
-const { useAssistantIdentityStore } =
-  await import("@/stores/assistant-identity-store");
-const { MIN_VERSION } =
-  await import("@/lib/backwards-compat/acp-model-switching");
 const { AcpRunChatView } = await import("./acp-run-chat-view");
 
 // Reset only the data slices (merge, not replace) so the store's action
@@ -77,7 +67,6 @@ beforeEach(() => {
   useAcpRunStore.setState(freshState());
   steerAcpRun.mockClear();
   stopAcpRun.mockClear();
-  switchAcpRunModel.mockClear();
 });
 
 afterEach(cleanup);
@@ -417,69 +406,39 @@ describe("AcpRunChatView", () => {
 });
 
 describe("AcpRunChatView metrics grid", () => {
-  const MODEL_OPTIONS = [
-    { value: "opus", label: "Opus" },
-    { value: "sonnet", label: "Sonnet" },
-  ];
-
   /** The assistant the panel says owns the run. */
   const OWNER_ASSISTANT_ID = "asst-owner";
 
-  /** The gate is scoped, so the held version has an owner as well as a value. */
-  function setIdentity(
-    version: string | null,
-    assistantId: string | null = OWNER_ASSISTANT_ID,
-  ) {
-    useAssistantIdentityStore.setState({ version, assistantId });
+  function renderView(e: AcpRunEntry) {
+    seed(e, []);
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+    return screen.getByTestId("acp-run-metrics");
   }
-
-  afterEach(() => {
-    useAssistantIdentityStore.setState({ version: null, assistantId: null });
-  });
 
   // The panel is a 400px drawer, so the model tile takes a row of its own
   // beside the token tiles rather than a third column. No viewport breakpoint
   // decides that: `sm:` would report the window, not the panel.
   test("gives the MODEL tile a row of its own beside the token tiles", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({
-      inputTokens: 1000,
-      outputTokens: 200,
-      model: "opus",
-      availableModels: MODEL_OPTIONS,
-    });
-    seed(e, []);
-
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
+    const metrics = renderView(
+      entry({ inputTokens: 1000, outputTokens: 200, model: "opus" }),
     );
 
-    const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-2");
     expect(metrics.className).not.toContain("sm:");
     expect(metrics.children).toHaveLength(3);
-    expect(metrics.children[2]!.textContent).toContain("Opus");
+    expect(metrics.children[2]!.textContent).toContain("opus");
     expect(metrics.children[2]!.className).toBe("col-span-2");
   });
 
   test("keeps two columns for a run with no model", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({ inputTokens: 1000, outputTokens: 200 });
-    seed(e, []);
+    const metrics = renderView(entry({ inputTokens: 1000, outputTokens: 200 }));
 
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-2");
     expect(metrics.children).toHaveLength(2);
   });
@@ -487,105 +446,37 @@ describe("AcpRunChatView metrics grid", () => {
   // A run reports tokens from its first usage event, so a just-spawned run has
   // none. Token tiles reading zero would be a number nobody measured.
   test("shows only the MODEL tile for a run with no usage yet", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({ model: "opus", availableModels: MODEL_OPTIONS });
-    seed(e, []);
+    const metrics = renderView(entry({ model: "opus" }));
 
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-1");
     expect(metrics.children).toHaveLength(1);
-    expect(metrics.textContent).toContain("Opus");
+    expect(metrics.textContent).toContain("opus");
     expect(metrics.textContent).not.toContain("Input");
     expect(metrics.textContent).not.toContain("Output");
   });
 
-  // The gate reads the option list, not the reported current value: an adapter
-  // that offers a list without naming a current model still has a switch.
-  test("shows the MODEL tile when the adapter names no current model", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({
-      inputTokens: 1000,
-      outputTokens: 200,
-      availableModels: MODEL_OPTIONS,
-    });
-    seed(e, []);
+  // The tile reports what the daemon said and offers nothing to press, so an
+  // adapter with no selector to advertise still gets its model named.
+  test("names the model of a run whose adapter lists no options", () => {
+    const metrics = renderView(entry({ model: "opus", availableModels: [] }));
 
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    const metrics = screen.getByTestId("acp-run-metrics");
-    expect(metrics.children).toHaveLength(3);
-    // The whole name: without its own copy an unnamed model announces
-    // "Model: . Change model" and leaves the value row empty.
-    expect(
-      screen.getByRole("button", {
-        name: "Model: Agent default. Change model",
-      }).textContent,
-    ).toContain("Agent default");
+    expect(metrics.textContent).toContain("opus");
+    expect(screen.queryByRole("button", { name: /model/i })).toBeNull();
   });
 
-  test("omits the MODEL tile when a live adapter offers no models", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({
-      inputTokens: 1000,
-      outputTokens: 200,
-      model: "opus",
-      availableModels: [],
-    });
-    seed(e, []);
-
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
+  test("shows a terminal run's model", () => {
+    const metrics = renderView(
+      entry({
+        status: "completed",
+        completedAt: 1,
+        model: "claude-opus-4-1-20250805",
+      }),
     );
 
-    const metrics = screen.getByTestId("acp-run-metrics");
-    expect(metrics.className).toContain("grid-cols-2");
-    expect(metrics.textContent).not.toContain("Opus");
-  });
-
-  // A run from history carries the model it ran on and no list to switch with,
-  // so the tile is the plain metric rather than a picker.
-  test("shows a terminal run's model as a static tile", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({
-      status: "completed",
-      completedAt: 1,
-      model: "claude-opus-4-1-20250805",
-    });
-    seed(e, []);
-
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.textContent).toContain("claude-opus-4-1-20250805");
-    expect(screen.queryByRole("button", { name: /Change model/ })).toBeNull();
   });
 
   test("renders no grid at all for a run with neither stat", () => {
-    setIdentity(MIN_VERSION);
     const e = entry();
     seed(e, []);
 
@@ -598,72 +489,5 @@ describe("AcpRunChatView metrics grid", () => {
     );
 
     expect(screen.queryByTestId("acp-run-metrics")).toBeNull();
-  });
-
-  // Mid-switch the active id has moved on while the identity store still holds
-  // the outgoing version. The grid follows the run's own assistant, so it drops
-  // back to two columns rather than offering a switch the incoming assistant
-  // may not serve.
-  test("omits the MODEL tile when the held version has another owner", () => {
-    setIdentity(MIN_VERSION, "asst-incoming");
-    const e = entry({
-      inputTokens: 1000,
-      outputTokens: 200,
-      model: "opus",
-      availableModels: MODEL_OPTIONS,
-    });
-    seed(e, []);
-
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    const metrics = screen.getByTestId("acp-run-metrics");
-    expect(metrics.className).toContain("grid-cols-2");
-    expect(metrics.textContent).not.toContain("Opus");
-  });
-
-  test("omits the MODEL tile when the panel names no owner", () => {
-    setIdentity(MIN_VERSION);
-    const e = entry({
-      inputTokens: 1000,
-      outputTokens: 200,
-      model: "opus",
-      availableModels: MODEL_OPTIONS,
-    });
-    seed(e, []);
-
-    render(<AcpRunChatView entry={e} onClose={() => {}} />);
-
-    const metrics = screen.getByTestId("acp-run-metrics");
-    expect(metrics.className).toContain("grid-cols-2");
-    expect(metrics.textContent).not.toContain("Opus");
-  });
-
-  test("omits the MODEL tile when the assistant predates model switching", () => {
-    setIdentity("0.1.0");
-    const e = entry({
-      inputTokens: 1000,
-      outputTokens: 200,
-      model: "opus",
-      availableModels: MODEL_OPTIONS,
-    });
-    seed(e, []);
-
-    render(
-      <AcpRunChatView
-        entry={e}
-        onClose={() => {}}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    const metrics = screen.getByTestId("acp-run-metrics");
-    expect(metrics.className).toContain("grid-cols-2");
-    expect(metrics.textContent).not.toContain("Opus");
   });
 });

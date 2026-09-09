@@ -473,30 +473,6 @@
     "tryAgain": "再試一次",
     "viewPlans": "查看方案"
   },
-  "codingAgentsCard": {
-    "agentDefaultOption": "使用代理的預設模型",
-    "configUpdateFailedToast": "更新助理設定失敗。請再試一次。",
-    "customModelHint": "會依輸入內容原樣儲存，因此別名或程式設計代理能辨識的完整模型 id 都可以使用。",
-    "customModelLabel": "模型",
-    "customModelOption": "自訂模型",
-    "customModelPlaceholder": "claude-opus-4-1",
-    "modelLabel": "預設模型",
-    "modelOptions": {
-      "best": "最佳可用",
-      "default": "預設",
-      "fable": "Fable",
-      "fable1m": "Fable（1M 上下文）",
-      "haiku": "Haiku",
-      "opus": "Opus",
-      "opus1m": "Opus（1M 上下文）",
-      "opusplan": "Opus 計畫模式",
-      "sonnet": "Sonnet",
-      "sonnet1m": "Sonnet（1M 上下文）"
-    },
-    "savedToast": "程式設計代理設定已儲存。",
-    "subtitle": "選擇新的程式設計代理會話啟動時使用的模型。清單中是 Claude 的模型，其他程式設計代理會回退到各自的預設模型。",
-    "title": "程式設計代理"
-  },
   "communityPage": {
     "communityHubDescription": "社群分享的展示、指南和專案。",
     "communityHubTitle": "社群中心",
