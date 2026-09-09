@@ -226,10 +226,13 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   const task = body?.task as string | undefined;
   const conversationId = body?.conversationId as string | undefined;
   const cwd = (body?.cwd as string | undefined) ?? process.cwd();
-  const model = body?.model as string | undefined;
+  const model = body?.model ?? undefined;
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError("agent, task, and conversationId are required");
+  }
+  if (model !== undefined && typeof model !== "string") {
+    throw new BadRequestError("model must be a string when provided");
   }
 
   // High-risk approval gate. Block BEFORE any side effects — resolution can
