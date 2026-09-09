@@ -79,6 +79,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "vellum-hosted-inference",
+      "scope": "assistant",
+      "key": "vellum-hosted-inference",
+      "label": "Vellum Hosted Inference",
+      "description": "Show Vellum-hosted GPU models (Qwen3 8B) in the catalog and the Settings Personality sliders that steer them.",
+      "defaultEnabled": false
+    },
+    {
       "id": "developer-menu-items",
       "scope": "client",
       "key": "developer-menu-items",

@@ -36,7 +36,7 @@ function input(
 ): ModelFirstInput {
   return {
     connections,
-    developerMode: false,
+    hostedInference: false,
     activeAssistantIsSelfHosted: true,
     labelFor: (provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider,
     defaultEntryMetaLabel: "Default",
@@ -192,12 +192,12 @@ describe("resolveModelFirstOptions", () => {
     );
   });
 
-  test("holds a flagged catalog entry back until developer mode is on", () => {
+  test("holds a flagged catalog entry back until hosted inference is on", () => {
     const hidden = resolveModelFirstOptions(
       input([VELLUM_CONNECTION]),
     ).map((option) => option.displayName);
     const shown = resolveModelFirstOptions(
-      input([VELLUM_CONNECTION], { developerMode: true }),
+      input([VELLUM_CONNECTION], { hostedInference: true }),
     ).map((option) => option.displayName);
     expect(hidden).not.toContain("Qwen3 8B");
     expect(shown).toContain("Qwen3 8B");
