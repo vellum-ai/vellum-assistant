@@ -61,10 +61,16 @@ function reconstructUrl(args: RouteHandlerArgs): URL {
  * URL the handler is given: the wire pathname and query when the request
  * arrived over HTTP, so percent-encoding and repeated query keys survive,
  * always under {@link USER_HANDLER_ORIGIN}.
+ *
+ * An IPC caller controls every handler arg, so the guard checks the type
+ * rather than truthiness. A `URL` pathname always carries a single leading
+ * slash; a plain object could carry two, and `//host/x` resolves against any
+ * base to `http://host/x`, which is the one thing this origin exists to
+ * prevent.
  */
 function handlerUrl(args: RouteHandlerArgs): URL {
   const rawUrl = args.rawUrl;
-  if (!rawUrl) {
+  if (!(rawUrl instanceof URL)) {
     return reconstructUrl(args);
   }
   return new URL(`${rawUrl.pathname}${rawUrl.search}`, USER_HANDLER_ORIGIN);

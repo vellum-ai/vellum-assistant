@@ -13,12 +13,8 @@
 
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
-import type {
-  AuthContext,
-  PrincipalType,
-  Scope,
-  ScopeProfile,
-} from "./types.js";
+import { isNarrowScopeProfile } from "./scopes.js";
+import type { AuthContext, PrincipalType, Scope } from "./types.js";
 
 const log = getLogger("route-policy");
 
@@ -68,26 +64,6 @@ export const GATEWAY_PRINCIPALS: PrincipalType[] = ["svc_gateway"];
 export const LOCAL_PRINCIPALS: PrincipalType[] = ["local"];
 
 // ---------------------------------------------------------------------------
-// Scope profiles a route may admit on identity alone
-// ---------------------------------------------------------------------------
-
-/**
- * Profiles broad enough to reach a route that names no scope of its own.
- * A profile outside this set is minted for a single route and handed to code
- * outside this install's trust boundary, so it reaches only a route whose
- * policy names the scope it carries. New profiles land outside the set and
- * therefore fail closed.
- */
-const UNSCOPED_ROUTE_PROFILES: ReadonlySet<ScopeProfile> =
-  new Set<ScopeProfile>([
-    "actor_client_v1",
-    "gateway_ingress_v1",
-    "gateway_service_v1",
-    "local_v1",
-    "ui_page_v1",
-  ]);
-
-// ---------------------------------------------------------------------------
 // Enforcement
 // ---------------------------------------------------------------------------
 
@@ -98,8 +74,9 @@ const UNSCOPED_ROUTE_PROFILES: ReadonlySet<ScopeProfile> =
  * if the request is allowed to proceed.
  *
  * A route naming no scope (`policy` null, or empty `requiredScopes`) is
- * unprotected (e.g. health, debug) for the broad profiles in
- * {@link UNSCOPED_ROUTE_PROFILES}, and closed to every other profile.
+ * unprotected (e.g. health, debug) for a broad profile, and closed to a
+ * narrow one. {@link isNarrowScopeProfile} classifies every profile, so a new
+ * one has to be classified there rather than compiling into either answer.
  *
  * When auth is bypassed (dev mode), the policy is still checked
  * against the synthetic context for type safety but always returns
@@ -119,7 +96,7 @@ export function enforcePolicy(
   // unprotected one refuses it rather than admitting any valid token.
   if (
     (policy?.requiredScopes.length ?? 0) === 0 &&
-    !UNSCOPED_ROUTE_PROFILES.has(authCtx.scopeProfile)
+    isNarrowScopeProfile(authCtx.scopeProfile)
   ) {
     log.warn(
       { endpoint, scopeProfile: authCtx.scopeProfile },

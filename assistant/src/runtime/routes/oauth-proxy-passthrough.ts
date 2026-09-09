@@ -14,7 +14,6 @@ import {
 import {
   CredentialRequiredError,
   InsufficientBalanceError,
-  ProviderUnreachableError,
 } from "../../oauth/platform-connection.js";
 import type { TokenExpiredError } from "../../security/token-manager.js";
 import { findContentTypeHeader } from "../../util/oauth-request-body.js";
@@ -93,10 +92,13 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 ]);
 
 /**
- * The same, minus the entity metadata. A HEAD or a 304 carries no body to
- * re-frame, and that metadata is what the caller made the request to read.
+ * The same, minus the entity metadata a HEAD is made to read. Only a HEAD
+ * keeps it: Bun forwards `content-length` verbatim there, and writes its own
+ * `Content-Length: 0` over whatever a 204, 205, or 304 carries, so a
+ * forwarded value would sit in the `RouteResponse` and never reach the wire.
+ * RFC 7230 section 3.3.2 forbids the header on a 204 in any case.
  */
-const STRIPPED_BODYLESS_RESPONSE_HEADERS = new Set(
+const STRIPPED_HEAD_RESPONSE_HEADERS = new Set(
   [...STRIPPED_RESPONSE_HEADERS].filter(
     (name) => !ENTITY_METADATA_HEADERS.includes(name),
   ),
@@ -305,17 +307,17 @@ export function sanitizeInboundHeaders(
 /**
  * Turn a connection response into the bytes and headers the caller sees. The
  * provider's status is preserved; framing headers are dropped because a
- * body-carrying response is re-framed on the way out, while a HEAD or a
- * null-body status keeps the entity metadata it exists to convey.
+ * body-carrying response is re-framed on the way out, while a HEAD keeps the
+ * entity metadata it exists to convey.
  */
 export function materializeProxyResponse(
   upstream: OAuthConnectionResponse,
   method: string,
 ): RouteResponse {
-  const bodyless =
-    method.toUpperCase() === "HEAD" || NULL_BODY_STATUSES.has(upstream.status);
-  const stripped = bodyless
-    ? STRIPPED_BODYLESS_RESPONSE_HEADERS
+  const head = method.toUpperCase() === "HEAD";
+  const bodyless = head || NULL_BODY_STATUSES.has(upstream.status);
+  const stripped = head
+    ? STRIPPED_HEAD_RESPONSE_HEADERS
     : STRIPPED_RESPONSE_HEADERS;
 
   const headers: Record<string, string> = {};
@@ -391,34 +393,56 @@ export function mapProxyResolveError(
   if (err instanceof RouteError) {
     return err;
   }
-  const message =
-    audience === "operator"
-      ? errorMessage(err)
-      : `No usable ${provider} connection is available.`;
-  return new FailedDependencyError(message, reconnectDetails(provider));
+  return new FailedDependencyError(
+    audienceMessage(
+      audience,
+      err,
+      `No usable ${provider} connection is available.`,
+    ),
+    reconnectDetails(provider),
+  );
 }
 
-/** Map a connection-layer failure onto the status the caller should see. */
+/**
+ * Map a connection-layer failure onto the status the caller should see.
+ *
+ * Upstream text arrives here verbatim: a BYO refresh failure carries the
+ * provider token endpoint's own response and the refresh breaker's state, and
+ * a managed provider that could not be reached carries the platform proxy's
+ * body. The grant holder learns which dependency failed and what repairs it,
+ * and nothing the provider or the platform wrote; the route logs the verbatim
+ * text so the operator still has it.
+ *
+ * `InsufficientBalanceError` is the exception: it is raised on a bare status
+ * with a fixed message about this install's own balance, so both audiences
+ * read it.
+ */
 export function mapProxyRequestError(
   err: unknown,
   provider: string,
+  audience: ProxyErrorAudience = "grant-holder",
 ): RouteError {
   if (err instanceof CredentialRequiredError || isBYOCredentialFailure(err)) {
     return new FailedDependencyError(
-      errorMessage(err),
+      audienceMessage(
+        audience,
+        err,
+        `The ${provider} credential is no longer usable.`,
+      ),
       reconnectDetails(provider),
     );
   }
   if (err instanceof InsufficientBalanceError) {
     return new PaymentRequiredError(err.message);
   }
-  if (err instanceof ProviderUnreachableError) {
-    return new BadGatewayError(err.message);
-  }
   if (err instanceof RouteError) {
     return err;
   }
-  return new BadGatewayError(errorMessage(err));
+  // Everything left is an upstream failure, `ProviderUnreachableError` and a
+  // platform envelope this daemon could not parse alike.
+  return new BadGatewayError(
+    audienceMessage(audience, err, `The ${provider} API could not be reached.`),
+  );
 }
 
 /**
@@ -509,6 +533,15 @@ function reconnectDetails(provider: string): {
   reconnect: string;
 } {
   return { provider, reconnect: `assistant oauth connect ${provider}` };
+}
+
+/** The upstream text for an operator, the fixed line for a grant holder. */
+function audienceMessage(
+  audience: ProxyErrorAudience,
+  err: unknown,
+  redacted: string,
+): string {
+  return audience === "operator" ? errorMessage(err) : redacted;
 }
 
 function errorMessage(err: unknown): string {

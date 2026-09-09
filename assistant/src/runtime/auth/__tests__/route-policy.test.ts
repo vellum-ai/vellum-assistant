@@ -189,6 +189,22 @@ describe("enforcePolicy", () => {
     expect(result!.status).toBe(403);
   });
 
+  test("an unrecognized profile is refused on a route naming no scope", () => {
+    authDisabled = false;
+    // Claims come from JSON, so a profile outside the union reaches this, and
+    // a prototype key resolves to an object rather than the `true` a broad
+    // profile carries.
+    for (const profile of ["bogus_v1", "__proto__", "constructor"]) {
+      const ctx = buildTestContext({
+        scopeProfile: profile as never,
+        scopes: [],
+      });
+      const result = enforcePolicy("_internal/health", null, ctx);
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe(403);
+    }
+  });
+
   test("empty requiredScopes admits a broad-profile principal of allowed type", () => {
     authDisabled = false;
     const openPolicy: RoutePolicy = {

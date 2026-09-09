@@ -152,6 +152,9 @@ export async function handleOAuthProxy(
       rawQuery: args.rawUrl.search,
     });
   } catch (err) {
+    // The grant holder is told only which dependency failed, so the provider's
+    // own text lives here. Neither the grant nor the credential is in it.
+    log.warn({ provider, method, path, err }, "OAuth proxy request failed");
     throw mapProxyRequestError(err, provider);
   }
 

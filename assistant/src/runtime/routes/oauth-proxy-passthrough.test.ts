@@ -508,34 +508,74 @@ describe("materializeProxyResponse", () => {
     }
   });
 
-  test("a bodyless response keeps the entity metadata it exists to convey", () => {
-    // A HEAD is made to read exactly these, and a 304 tells a cache what the
-    // entity it already holds looks like.
+  const entityMetadataUpstream = () =>
+    upstream({
+      headers: {
+        "Content-Length": "4096",
+        "content-encoding": "gzip",
+        "transfer-encoding": "chunked",
+        connection: "keep-alive",
+        "set-cookie": "sid=abc",
+        etag: 'W/"1"',
+      },
+    });
+
+  test("a HEAD keeps the entity metadata it exists to convey", () => {
+    const response = materializeProxyResponse(entityMetadataUpstream(), "HEAD");
+
+    expect(response.body).toBeNull();
+    expect(response.headers).toEqual({
+      "Content-Length": "4096",
+      "content-encoding": "gzip",
+      etag: 'W/"1"',
+    });
+  });
+
+  test("a null-body status drops the entity metadata", () => {
+    // Bun writes its own `Content-Length: 0` over any value on these, so a
+    // forwarded one would sit in the RouteResponse and never reach the wire.
     for (const [status, method] of [
-      [200, "HEAD"],
+      [204, "DELETE"],
+      [205, "POST"],
       [304, "GET"],
     ] as const) {
       const response = materializeProxyResponse(
-        upstream({
-          status,
-          headers: {
-            "Content-Length": "4096",
-            "content-encoding": "gzip",
-            "transfer-encoding": "chunked",
-            connection: "keep-alive",
-            "set-cookie": "sid=abc",
-            etag: 'W/"1"',
-          },
-        }),
+        { ...entityMetadataUpstream(), status },
         method,
       );
 
       expect(response.body).toBeNull();
-      expect(response.headers).toEqual({
-        "Content-Length": "4096",
-        "content-encoding": "gzip",
-        etag: 'W/"1"',
-      });
+      expect(response.status).toBe(status);
+      expect(response.headers).toEqual({ etag: 'W/"1"' });
+    }
+  });
+
+  test("the length a null-body status declares is the one the wire carries", async () => {
+    // Served through Bun, as the HTTP adapter serves it: Bun writes its own
+    // `Content-Length: 0` on a null-body status, so anything the object
+    // declares and the wire does not is a number no caller can ever read.
+    const response = materializeProxyResponse(
+      { ...entityMetadataUpstream(), status: 204 },
+      "DELETE",
+    );
+    const server = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(response.body, {
+          status: response.status,
+          headers: response.headers,
+        }),
+    });
+    try {
+      const wire = await fetch(server.url);
+      const declared = Object.entries(response.headers).find(
+        ([name]) => name.toLowerCase() === "content-length",
+      )?.[1];
+
+      expect(wire.status).toBe(204);
+      expect(wire.headers.get("content-length")).toBe(declared ?? "0");
+    } finally {
+      server.stop(true);
     }
   });
 
@@ -633,19 +673,10 @@ describe("mapProxyResolveError", () => {
 });
 
 describe("mapProxyRequestError", () => {
-  test("an expired credential asks the caller to reconnect", () => {
-    const mapped = mapProxyRequestError(
-      new CredentialRequiredError("Token revoked"),
-      "stripe_link",
-    );
-
-    expect(mapped.statusCode).toBe(424);
-    expect(mapped.message).toBe("Token revoked");
-    expect(mapped.details).toEqual({
-      provider: "stripe_link",
-      reconnect: "assistant oauth connect stripe_link",
-    });
-  });
+  const RECONNECT = {
+    provider: "stripe_link",
+    reconnect: "assistant oauth connect stripe_link",
+  };
 
   // Stands in for `TokenExpiredError` from security/token-manager.js, which
   // this pure module deliberately does not import.
@@ -655,86 +686,107 @@ describe("mapProxyRequestError", () => {
     return err;
   };
 
-  test("a BYO token expiry asks the caller to reconnect", () => {
-    const mapped = mapProxyRequestError(
-      tokenExpiredError(
-        'No access token found for "stripe_link". Authorization required.',
-      ),
-      "stripe_link",
-    );
+  /** An upstream failure the connection layer surfaced with a status. */
+  const withStatus = (status: number): Error => {
+    const err = new Error(`HTTP ${status} from stripe_link`);
+    (err as Error & { status: number }).status = status;
+    return err;
+  };
 
-    expect(mapped.statusCode).toBe(424);
-    expect(mapped.details).toEqual({
-      provider: "stripe_link",
-      reconnect: "assistant oauth connect stripe_link",
-    });
+  const credentialFailures = (): Error[] => [
+    new CredentialRequiredError("Token revoked"),
+    tokenExpiredError(
+      'Token refresh failed for "stripe_link": {"error":"invalid_grant"}.',
+    ),
+    tokenExpiredError(
+      'Token refresh for "stripe_link" is temporarily suspended after 3 ' +
+        "consecutive failures. Retrying in 42s.",
+    ),
+    withStatus(401),
+  ];
+
+  const upstreamFailures = (): Error[] => [
+    new ProviderUnreachableError(
+      "The external service provider is temporarily unreachable (HTTP 502). " +
+        "Detail: upstream said no",
+    ),
+    new BackendError("Platform proxy returned unexpected status 500"),
+    new TypeError("fetch failed"),
+    withStatus(403),
+  ];
+
+  test("a dead credential asks the grant holder to reconnect and names no upstream text", () => {
+    // The provider token endpoint's own response and the refresh breaker's
+    // state ride on these messages.
+    for (const err of credentialFailures()) {
+      const mapped = mapProxyRequestError(err, "stripe_link");
+
+      expect(mapped.statusCode).toBe(424);
+      expect(mapped.message).toBe(
+        "The stripe_link credential is no longer usable.",
+      );
+      expect(mapped.details).toEqual(RECONNECT);
+    }
   });
 
-  test("a BYO 401 that survived a refresh asks the caller to reconnect", () => {
-    const err = new Error("HTTP 401 from stripe_link");
-    (err as Error & { status: number }).status = 401;
+  test("the operator reads the same failures verbatim", () => {
+    for (const err of credentialFailures()) {
+      const mapped = mapProxyRequestError(err, "stripe_link", "operator");
 
-    const mapped = mapProxyRequestError(err, "stripe_link");
-
-    expect(mapped.statusCode).toBe(424);
-    expect(mapped.message).toBe("HTTP 401 from stripe_link");
-    expect(mapped.details).toEqual({
-      provider: "stripe_link",
-      reconnect: "assistant oauth connect stripe_link",
-    });
+      expect(mapped.statusCode).toBe(424);
+      expect(mapped.message).toBe(err.message);
+      expect(mapped.details).toEqual(RECONNECT);
+    }
   });
 
-  test("another upstream status is still a bad gateway", () => {
-    const err = new Error("HTTP 403 from stripe_link");
-    (err as Error & { status: number }).status = 403;
-
-    expect(mapProxyRequestError(err, "stripe_link")).toMatchObject({
-      statusCode: 502,
-      code: "BAD_GATEWAY",
-      message: "HTTP 403 from stripe_link",
-    });
+  test("an upstream failure reaches the grant holder as an unreachable API", () => {
+    for (const err of upstreamFailures()) {
+      expect(mapProxyRequestError(err, "stripe_link")).toMatchObject({
+        statusCode: 502,
+        code: "BAD_GATEWAY",
+        message: "The stripe_link API could not be reached.",
+      });
+    }
   });
 
-  test("an insufficient balance is payment required", () => {
-    const mapped = mapProxyRequestError(
-      new InsufficientBalanceError("Add funds"),
-      "stripe_link",
-    );
+  test("the operator reads the upstream body verbatim", () => {
+    for (const err of upstreamFailures()) {
+      const mapped = mapProxyRequestError(err, "stripe_link", "operator");
 
-    expect(mapped.statusCode).toBe(402);
-    expect(mapped.code).toBe("PAYMENT_REQUIRED");
-    expect(mapped.message).toBe("Add funds");
+      expect(mapped.statusCode).toBe(502);
+      expect(mapped.message).toBe(err.message);
+    }
   });
 
-  test("an unreachable provider is a bad gateway", () => {
-    const mapped = mapProxyRequestError(
-      new ProviderUnreachableError("Upstream 502"),
-      "stripe_link",
-    );
+  test("an insufficient balance reads the same to both audiences", () => {
+    // Raised on a bare platform status with a fixed message about this
+    // install's own balance, so there is nothing upstream to withhold.
+    for (const audience of ["grant-holder", "operator"] as const) {
+      const mapped = mapProxyRequestError(
+        new InsufficientBalanceError(),
+        "stripe_link",
+        audience,
+      );
 
-    expect(mapped.statusCode).toBe(502);
-    expect(mapped.code).toBe("BAD_GATEWAY");
-    expect(mapped.message).toBe("Upstream 502");
+      expect(mapped.statusCode).toBe(402);
+      expect(mapped.code).toBe("PAYMENT_REQUIRED");
+      expect(mapped.message).toBe(new InsufficientBalanceError().message);
+    }
   });
 
-  test("returns a RouteError unchanged", () => {
+  test("returns a RouteError unchanged for either audience", () => {
     const original = new RouteError("teapot", "TEAPOT", 418);
     expect(mapProxyRequestError(original, "stripe_link")).toBe(original);
+    expect(mapProxyRequestError(original, "stripe_link", "operator")).toBe(
+      original,
+    );
   });
 
-  test("any other failure is a bad gateway carrying the message", () => {
-    expect(
-      mapProxyRequestError(
-        new BackendError("Platform proxy returned unexpected status 500"),
-        "stripe_link",
-      ),
-    ).toMatchObject({
-      statusCode: 502,
-      message: "Platform proxy returned unexpected status 500",
-    });
-    expect(
-      mapProxyRequestError(new TypeError("fetch failed"), "stripe_link"),
-    ).toMatchObject({ statusCode: 502, message: "fetch failed" });
+  test("the grant holder is the default audience", () => {
+    const err = new CredentialRequiredError("Token revoked");
+    expect(mapProxyRequestError(err, "stripe_link").message).toBe(
+      mapProxyRequestError(err, "stripe_link", "grant-holder").message,
+    );
   });
 });
 
