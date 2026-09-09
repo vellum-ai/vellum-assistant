@@ -5789,11 +5789,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
-    // No overrideProfile: the escalated leg runs on the call-site default —
-    // the exact profile an un-routed voice turn would use (see
-    // voice-triage-escalate.ts). The bridge phrase the caller just heard is
-    // handed along so the escalated continuation rule can quote it and ban
-    // a re-announcing echo ("Let me check…" twice in a row).
+    // No overrideProfile here: the bridge pins the escalated leg to the
+    // conversation's own profile, the model the caller's typed turns already
+    // run on (see voice-triage-escalate.ts). The bridge phrase the caller
+    // just heard is handed along so the escalated continuation rule can
+    // quote it and ban a re-announcing echo ("Let me check…" twice in a
+    // row).
     void this.startAssistantLeg(activeTurn, {
       content: ESCALATION_CONTINUATION_CONTENT,
       routingLeg: "escalated",
