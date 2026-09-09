@@ -19,7 +19,7 @@ import {
   toDaemonSubject,
   validateEdgeToken,
 } from "../../auth/token-exchange.js";
-import type { TokenClaims } from "../../auth/types.js";
+import type { ScopeProfile, TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import {
   IpcHandlerError,
@@ -298,18 +298,64 @@ export async function tryIpcProxy(
 // ---------------------------------------------------------------------------
 
 /**
+ * Profiles broad enough to reach a route that names no scope of its own.
+ * A profile outside this set is minted for a single route and handed to code
+ * outside this install's trust boundary, so it reaches only a route whose
+ * policy names the scope it carries. New profiles land outside the set and
+ * therefore fail closed.
+ *
+ * Mirrors `UNSCOPED_ROUTE_PROFILES` in
+ * `assistant/src/runtime/auth/route-policy.ts`. The daemon's IPC server runs
+ * no policy check of its own, so this fast path is the only place the rule
+ * applies to IPC-served requests.
+ */
+const UNSCOPED_ROUTE_PROFILES: ReadonlySet<ScopeProfile> =
+  new Set<ScopeProfile>([
+    "actor_client_v1",
+    "gateway_ingress_v1",
+    "gateway_service_v1",
+    "local_v1",
+    "ui_page_v1",
+  ]);
+
+/**
  * Enforce the route's scope/principal policy against the caller's token.
  * Returns a 403 Response when denied, null when allowed.
+ *
+ * A route naming no scope (`policy` null, or empty `requiredScopes`) is
+ * unprotected (e.g. health, debug) for the broad profiles in
+ * {@link UNSCOPED_ROUTE_PROFILES}, and closed to every other profile.
  */
 function enforceRoutePolicy(
   policy: RouteSchemaPolicy | null,
   claims: TokenClaims | undefined,
   path: string,
 ): Response | null {
-  if (!policy) return null;
-
   // When auth is disabled (dev mode), no claims → skip enforcement.
   if (!claims) return null;
+
+  // A single-route grant reaches only a route that names its scope, so an
+  // unprotected one refuses it rather than admitting any valid token.
+  if (
+    (policy?.requiredScopes.length ?? 0) === 0 &&
+    !UNSCOPED_ROUTE_PROFILES.has(claims.scope_profile)
+  ) {
+    log.warn(
+      { path, scopeProfile: claims.scope_profile },
+      "IPC proxy policy denied: grant is scoped to a single route",
+    );
+    return Response.json(
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: "This grant is not permitted for this endpoint",
+        },
+      },
+      { status: 403 },
+    );
+  }
+
+  if (!policy) return null;
 
   // Check principal type.
   if (policy.allowedPrincipalTypes.length > 0) {
