@@ -796,6 +796,186 @@ describe("TranscriptMessageBody", () => {
     }
   });
 
+  test("renders all activity inline for a row marked private", () => {
+    // The row's prose is a scratchpad and its reply is a deliberate
+    // `send_user_message` call, so there is no "earlier" prose to fold.
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "private-response",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+  });
+
+  test("still collapses a row carrying no visibility marker", () => {
+    // An unmarked row sits beside private rows in the same conversation and
+    // keeps the standard rendering. The decision is the row's, so nothing
+    // about the assistant's current settings reaches it.
+    const { getByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "legacy-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(getByRole("button", { name: "Earlier activity" })).not.toBeNull();
+    expect(queryByText("I will check that.")).toBeNull();
+  });
+
+  test("still collapses a fallback row marked visible", () => {
+    // A row marked visible carries its own plain text as the reply, so that
+    // text is prose the user reads and the standard folding applies to it.
+    const { getByRole } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "fallback-response",
+          role: "assistant",
+          assistantTextVisibility: "visible",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(getByRole("button", { name: "Earlier activity" })).not.toBeNull();
+  });
+
+  test("keeps an already-sent reply visible while the turn keeps working", () => {
+    // A turn can speak, keep working, and speak again. Once the second reply
+    // opens a later text group, the first sits before the final one and would
+    // fold into "Earlier activity" if the row were not already marked private,
+    // hiding a reply the user has read.
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "two-reply-row",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            thinkingBlock("planning"),
+            toolUseBlock({
+              id: "tc-fetch",
+              name: "web_fetch",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Found it."),
+            toolUseBlock({
+              id: "tc-bash",
+              name: "bash",
+              input: {},
+              completedAt: 2,
+            }),
+            textBlock("All done."),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(queryByText("Found it.")).not.toBeNull();
+    expect(queryByText("All done.")).not.toBeNull();
+  });
+
+  test("renders a projected private row through the thinking UI", () => {
+    // The server projects such a row before it ships: the raw prose arrives as
+    // thinking, each `send_user_message` call as its own text block. Nothing
+    // new renders it; it reads as an ordinary reasoning row above the reply.
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "private-history",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            thinkingBlock("private working notes"),
+            textBlock("Found it."),
+            textBlock("Sending now."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(
+      container.querySelectorAll("[data-testid='thought-process-link']").length,
+    ).toBe(1);
+    expect(queryByText("Found it.")).not.toBeNull();
+    expect(queryByText("Sending now.")).not.toBeNull();
+  });
+
+  test("draws no chip and no trailing thinking row for a send_user_message call", () => {
+    // The live block order of a tool-gated turn: the daemon streams the reply
+    // as text just before the call that carried it lands.
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "tool-gated-live",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here you go."),
+            toolUseBlock({
+              id: "tc-send",
+              name: "send_user_message",
+              input: { message: "Here you go." },
+            }),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Here you go.")).not.toBeNull();
+    expect(container.textContent).not.toContain("send_user_message");
+    expect(container.textContent).not.toContain("Thinking");
+  });
+
   test("renders the answered question card for a settled ask_question", () => {
     const { queryByTestId, queryByText } = render(
       <TranscriptMessageBody

@@ -1746,3 +1746,84 @@ describe("recoverFromAwaitingUserInput", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Tool-gated turn (send_user_message)
+// ---------------------------------------------------------------------------
+
+describe("a tool-gated turn", () => {
+  /**
+   * With `send-user-message` on, the daemon streams no raw assistant text: the
+   * first text delta is the message a `send_user_message` call carries, and it
+   * arrives after the turn's real tool work. The stop button and the spinner
+   * are driven off the phase and the in-flight tool count, so both must hold
+   * through that longer silence and clear at `message_complete`.
+   */
+  const events: DomainEvent[] = [
+    { type: "USER_SEND_REQUESTED", turnId: "turn-1" },
+    { type: "USER_SEND_ACCEPTED", turnId: "turn-1" },
+    // web_fetch
+    { type: "TOOL_USE_START" },
+    { type: "TOOL_RESULT" },
+    // the reply, streamed from the tool's argument
+    { type: "ASSISTANT_TEXT_DELTA" },
+    // send_user_message
+    { type: "TOOL_USE_START" },
+    { type: "TOOL_RESULT" },
+    { type: "MESSAGE_COMPLETE" },
+  ];
+
+  test("stays busy through the whole turn and clears at message_complete", () => {
+    let state = INITIAL_TURN_STATE;
+    const busyAlong: boolean[] = [];
+    for (const event of events.slice(0, -1)) {
+      state = turnReducer(state, event);
+      busyAlong.push(
+        isAssistantBusy(state.phase, {
+          ...defaultCtx,
+          // The bubble exists from the first delta onward; before it, only the
+          // phase says a turn is running.
+          hasStreamingAssistantMessage: state.phase === "streaming",
+        }),
+      );
+    }
+    expect(busyAlong.every(Boolean)).toBe(true);
+
+    state = turnReducer(state, { type: "MESSAGE_COMPLETE" });
+    expect(state.phase).toBe("idle");
+    expect(state.activeToolCallCount).toBe(0);
+    expect(isAssistantBusy(state.phase, defaultCtx)).toBe(false);
+  });
+
+  test("shows the thinking indicator in the silence before the reply", () => {
+    // After the tool work settles and before the tool-carried text arrives,
+    // nothing is streaming and no tool is in flight, so the dots are the only
+    // sign the turn is alive and must show.
+    const beforeReply = applyEvents(INITIAL_TURN_STATE, events.slice(0, 4));
+    expect(beforeReply.activeToolCallCount).toBe(0);
+    expect(shouldShowThinkingIndicator(beforeReply.phase, 0, defaultCtx)).toBe(
+      true,
+    );
+
+    // Once the reply streams, the bubble owns the indicator.
+    const afterReply = applyEvents(INITIAL_TURN_STATE, events.slice(0, 5));
+    expect(afterReply.phase).toBe("streaming");
+    expect(
+      shouldShowThinkingIndicator(afterReply.phase, 0, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("the send_user_message call itself does not end the turn", () => {
+    const afterSendCall = applyEvents(INITIAL_TURN_STATE, events.slice(0, 7));
+    expect(afterSendCall.phase).toBe("streaming");
+    expect(
+      isAssistantBusy(afterSendCall.phase, {
+        ...defaultCtx,
+        hasStreamingAssistantMessage: true,
+      }),
+    ).toBe(true);
+  });
+});

@@ -1201,11 +1201,17 @@ export function TranscriptMessageBody({
     groups,
     groupDrawsVisibleOutput,
   );
-  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
-  // no group is collapsible, so the whole response renders inline at full
-  // size and none of the collapsed styling applies.
+  // Two reasons no group is collapsible, after which the whole response
+  // renders inline at full size and none of the collapsed styling applies: the
+  // per-user opt-out, and a row the daemon marks private, whose prose arrives
+  // projected into thinking blocks with the reply as its own text, leaving no
+  // "earlier" prose to fold away. The second reason is the row's own marker,
+  // so each row in a conversation stands on its own.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
-    if (inlineAssistantIntermediates) {
+    if (
+      inlineAssistantIntermediates ||
+      message.assistantTextVisibility === "private"
+    ) {
       return [];
     }
     if (groupIndex >= finalResponseGroupIndex) {

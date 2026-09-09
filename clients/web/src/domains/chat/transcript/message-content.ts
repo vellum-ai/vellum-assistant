@@ -17,6 +17,7 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
+import { isSendUserMessageCall } from "@/domains/chat/utils/assistant-text-visibility";
 import { isArtifactPointerSurface } from "@/domains/chat/transcript/response-artifacts";
 import {
   containsInlineThinkingTag,
@@ -169,6 +170,16 @@ export function groupContentBlocks(
       if (!hasToolCallId(block.toolCall)) {
         continue;
       }
+      // A `send_user_message` call is dropped rather than grouped, the way a
+      // pointer surface is: its message is already a text block beside it, and
+      // grouping it would open an activity run holding nothing renderable,
+      // which draws a shimmering "Thinking" row under the reply for the rest of
+      // a streaming turn and counts a step no card has anything to show.
+      // Leaving the open run open lets the tool calls either side of it merge
+      // into one run, the way they would had the call never been made.
+      if (isSendUserMessageCall(block.toolCall)) {
+        continue;
+      }
       openActivity().items.push({
         type: "tool_use",
         toolCall: block.toolCall,
@@ -291,11 +302,16 @@ export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
 }
 
 /**
- * UI surface tools are rendered by the inline surface widget, not as tool-call
- * chips — unless they carry a pending confirmation, in which case the chip must
- * render so the inline confirmation card is visible.
+ * Tool calls that draw no chip of their own. UI surface tools are rendered by
+ * the inline surface widget, unless they carry a pending confirmation, in
+ * which case the chip must render so the inline confirmation card is visible.
+ * `send_user_message` is rendered as the prose it carries, and has no
+ * confirmation policy, so it is suppressed unconditionally.
  */
 export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
+  if (isSendUserMessageCall(tc)) {
+    return true;
+  }
   return (
     !tc.pendingConfirmation &&
     (tc.name === "ui_show" ||

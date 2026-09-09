@@ -8,6 +8,7 @@ import type {
   ConversationMessageSurface,
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { AssistantTextVisibility } from "@/domains/chat/utils/assistant-text-visibility";
 import { isToolCallCompleted } from "@/domains/chat/utils/tool-call-status";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { ExternalSourceLink } from "@/utils/external-source-link";
@@ -165,6 +166,12 @@ export interface DisplayMessage {
    *  Mirrors `ConversationMessage["noResponse"]`; renders as a quiet marker
    *  and counts as the turn's reply. */
   isNoResponse?: boolean;
+  /** Whether this row's plain text is something the user reads. Mirrors
+   *  `ConversationMessage["assistantTextVisibility"]` and the same field on
+   *  `message_complete`; `"private"` marks a row whose prose is a scratchpad
+   *  the daemon projects into thinking blocks. A property of the row, so each
+   *  row renders by its own marker rather than by any current setting. */
+  assistantTextVisibility?: AssistantTextVisibility;
   /** Reaction row, either direction; renders as a reaction line, never the
    *  stored sentinel text. */
   reaction?: ConversationMessage["reaction"];
