@@ -764,6 +764,30 @@ function isToolSupportedOnClientOs(name: string, ctx: Conversation): boolean {
  * `createResolveToolsCallback` — including the subagent allowlist,
  * `toolsDisabledDepth`, and disk-pressure cleanup restrictions.
  */
+/**
+ * Whether a tool survives disk-pressure cleanup mode on this turn.
+ *
+ * The cleanup set holds tools that can free space without consuming it.
+ * `send_user_message` consumes nothing either: its executor is a no-op, and
+ * the text it carries is text the turn would otherwise have streamed. On a
+ * gated turn it is also the only channel that reaches the user, so withholding
+ * it would leave the model under a prompt naming a tool it does not have,
+ * spend the empty-response nudge asking for it, and fall through to raw text.
+ * Off a gated turn the name resolves false here as everywhere else, so the
+ * tool never appears on a cleanup turn that was not gated to begin with.
+ *
+ * Shared by the wire filter in `createResolveToolsCallback` and the mirror in
+ * {@link isToolActiveForContext}, which must report the same set.
+ */
+function survivesDiskPressureCleanup(name: string, ctx: Conversation): boolean {
+  if (isDiskPressureCleanupToolName(name)) {
+    return true;
+  }
+  return (
+    name === SEND_USER_MESSAGE_TOOL_NAME && resolveSendUserMessageActive(ctx)
+  );
+}
+
 export function isToolActiveForContext(
   name: string,
   ctx: Conversation,
@@ -817,7 +841,7 @@ export function isToolActiveForContext(
   }
   if (
     ctx.diskPressureCleanupModeActive === true &&
-    !isDiskPressureCleanupToolName(name)
+    !survivesDiskPressureCleanup(name, ctx)
   ) {
     return false;
   }
@@ -1186,11 +1210,11 @@ export function createResolveToolsCallback(
         };
       });
     if (ctx.diskPressureCleanupModeActive === true) {
-      const cleanupDefs = allBaseDefs.filter((d) =>
-        isDiskPressureCleanupToolName(d.name),
-      );
+      const survivesCleanup = (name: string): boolean =>
+        survivesDiskPressureCleanup(name, ctx);
+      const cleanupDefs = allBaseDefs.filter((d) => survivesCleanup(d.name));
       ctx.allowedToolNames = new Set(
-        Array.from(turnAllowed).filter(isDiskPressureCleanupToolName),
+        Array.from(turnAllowed).filter(survivesCleanup),
       );
       return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
     }

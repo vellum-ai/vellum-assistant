@@ -154,7 +154,17 @@ export function projectUserFacingContent(
     const message = sendUserMessageText(block);
     if (message !== null) {
       changed = true;
-      return { type: "text", text: message };
+      // Carry the persist path's `_redactionVersion` rider onto the text
+      // block this becomes. The message is redacted when the row is built, so
+      // a sentinel inside it is redactor-authored; without the rider the
+      // history renderer would treat the projected block as pre-feature and
+      // neutralize that sentinel into an inert glyph string.
+      const rider = isRecord(block) ? block["_redactionVersion"] : undefined;
+      return {
+        type: "text",
+        text: message,
+        ...(typeof rider === "number" ? { _redactionVersion: rider } : {}),
+      };
     }
     return block;
   });

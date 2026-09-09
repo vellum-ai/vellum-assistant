@@ -195,3 +195,30 @@ describe("hasSendUserMessageCall", () => {
     expect(hasSendUserMessageCall(undefined)).toBe(false);
   });
 });
+
+describe("the redaction rider on a projected message", () => {
+  test("carries the persist path's rider onto the text block it becomes", () => {
+    // The message is redacted when the row is built, so a sentinel inside it
+    // is redactor-authored. Without the rider the history renderer would read
+    // the projected block as pre-feature and neutralize that sentinel.
+    const call = sendCall(
+      "key: 〔redacted:OpenAI Project Key:openai:api_key〕",
+    );
+    (call as unknown as Record<string, unknown>)["_redactionVersion"] = 2;
+
+    const [projected] = projectUserFacingContent([call], {
+      toolGated: true,
+    }) as unknown as Array<Record<string, unknown>>;
+
+    expect(projected.type).toBe("text");
+    expect(projected._redactionVersion).toBe(2);
+  });
+
+  test("adds no rider when the source call never carried one", () => {
+    const [projected] = projectUserFacingContent([sendCall("Hi.")], {
+      toolGated: true,
+    }) as unknown as Array<Record<string, unknown>>;
+
+    expect(projected).toEqual({ type: "text", text: "Hi." });
+  });
+});

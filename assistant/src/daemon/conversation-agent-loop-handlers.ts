@@ -57,6 +57,7 @@ import type { AssistantTextVisibility } from "../persistence/user-facing-content
 import {
   ASSISTANT_TEXT_VISIBILITY_KEY,
   projectUserFacingContent,
+  sendUserMessageText,
 } from "../persistence/user-facing-content.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
@@ -971,7 +972,32 @@ export function buildPersistedAssistantContent(
         : {}),
     } as unknown as ContentBlock);
   }
+  // One redactor for every block shape below, so the plain-text branch and the
+  // tool-delivered branch can never drift on which mode they run in.
+  const redact = (value: string): string =>
+    revealCandidates !== undefined
+      ? redactSecretsForChat(value, revealCandidates, forChatMints)
+      : redactCandidateValuesLegacy(value, legacyFallbackCandidates);
+
   return withSurfaces.map((block) => {
+    // A `send_user_message` call carries text a user reads: the read-side
+    // projection turns it into this row's text block, and history, exports,
+    // previews and the lexical index all show it. It is redacted here, at the
+    // one place the row is built, so no secret the model quoted into the
+    // message reaches SQLite in the clear.
+    const delivered = sendUserMessageText(block);
+    if (delivered !== null) {
+      const redacted = redact(delivered);
+      if (redacted === delivered) {
+        return block;
+      }
+      const tu = block as Extract<ContentBlock, { type: "tool_use" }>;
+      return {
+        ...tu,
+        input: { ...tu.input, message: redacted },
+        _redactionVersion: SENTINEL_REDACTION_VERSION,
+      } as ContentBlock;
+    }
     if (block.type === "text") {
       const tb = block as Extract<ContentBlock, { type: "text" }>;
       // Sentinel mode (chat-credential-reveal flag on) persists redactions
