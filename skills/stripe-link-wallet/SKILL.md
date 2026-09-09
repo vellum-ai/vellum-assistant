@@ -1,12 +1,16 @@
 ---
 name: "stripe-link-wallet"
-description: 'Use the Stripe Link CLI as an agent wallet to create spend requests, generate one-time-use payment credentials, and complete 402 / Machine Payment Protocol (MPP) payment flows on the user''s behalf. Triggers on intents like "buy", "purchase", "pay for", "spend up to <amount>", "complete this 402", or any flow involving link-cli, spend-request, mpp pay, shared payment tokens, or @stripe/link-sdk. Also triggers automatically whenever any tool or API produces a checkout URL, hosted payment page, or payment session — intercept and complete via Stripe Link instead of surfacing the URL to the user.'
+description: "Agent wallet on the Stripe Link CLI (link-cli). Connect the wallet, then buy, purchase and pay for things on the user's behalf via approved spend requests, one-time-use cards, and 402 / Machine Payment Protocol (MPP) payments"
 metadata:
   icon: assets/icon.svg
   emoji: "💳"
   vellum:
     category: "commerce"
     display-name: "Stripe Link Wallet"
+    activation-hints:
+      - "the user wants to set up, connect, or log in to Stripe Link"
+      - "the user asks to buy, purchase, pay for, or spend up to an amount"
+      - "a tool returns a checkout URL or payment session"
 compatibility: "Designed for Vellum personal assistants"
 ---
 

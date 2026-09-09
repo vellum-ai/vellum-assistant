@@ -61,3 +61,28 @@ export function resolveScheduleTimezone(
     null
   );
 }
+
+/**
+ * Wall-clock hour (0-23) of `now` in `timeZone`.
+ *
+ * Heartbeat active hours are stored as 0-23 integers. Evaluating them against
+ * the host clock (UTC on a managed container) shifts the window by the user's
+ * offset, so 8:00-22:00 becomes 1am-3pm Pacific. This reads the hour in the
+ * same zone `resolveScheduleTimezone` selected.
+ */
+export function hourInTimeZone(
+  timeZone: string,
+  now: Date = new Date(),
+): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hourCycle: "h23",
+    hour: "numeric",
+  }).formatToParts(now);
+  const raw = Number(parts.find((part) => part.type === "hour")?.value);
+  if (!Number.isFinite(raw)) {
+    return now.getHours();
+  }
+  // Some runtimes emit "24" for midnight under hourCycle h23.
+  return raw === 24 ? 0 : raw;
+}

@@ -457,7 +457,7 @@ describe("camera gate readout access", () => {
   test("a switch left on by a session with no access never reaches the gate", () => {
     const store = useCameraGateDebugStore.getState();
     store.setHudEnabled(true);
-    store.setOverride("minIntervalMs", 1_000);
+    store.setOverride("maxIntervalMs", 10_000);
 
     expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
       ...DEFAULT_FRAME_GATE_OPTIONS,

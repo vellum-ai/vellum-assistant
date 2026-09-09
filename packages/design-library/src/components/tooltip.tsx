@@ -92,7 +92,10 @@ function Content({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 rounded-sm bg-[var(--primary-base)] px-2 py-1 shadow-[var(--shadow-popover)]",
+          // radius: off-scale. 5px sits between the token scale's `sm` (4px)
+          // and `md` (8px), and the softer corner is the one this bubble is
+          // drawn with.
+          "z-50 rounded-[5px] bg-[var(--primary-base)] px-2 py-1.5 shadow-[var(--shadow-popover)]",
           "text-body-small-default text-[color:var(--content-inset)]",
           // A sentence-length tooltip would otherwise render as one
           // unbroken line the width of its text. Capped so it wraps, and
