@@ -306,14 +306,19 @@ function CollapsibleNavSectionSection({
      the other is inert, so the geometry and the content are declared once and
      the branch below chooses only the element. */
   /* A card supplies the section's own inset, so the header sits flush
-     inside it as a bare 16px row with the smaller of the two title sizes. */
+     inside it as a bare row with no vertical padding of its own. Its title
+     takes the smaller of the two sizes on a wide viewport, and on a touch
+     viewport the same large body size the pills above it (the assistant
+     row, a pinned app) set their labels in, so a card's title stands at the
+     same size as every other entry in the drawer rather than reading as a
+     caption beneath them. */
   const titleClasses = cn(
     card ? "py-0" : "py-[6px] max-md:py-3",
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
     /* `!` twice over: the shared title classes pin their own weight the same
        way, so a plain utility here loses to them rather than replacing them. */
     card &&
-      "text-body-small-default max-md:text-body-small-default font-[500]!",
+      "text-body-small-default max-md:text-body-large-default font-[500]!",
   );
 
   const titleStyle = {

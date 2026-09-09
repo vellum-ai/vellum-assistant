@@ -179,7 +179,23 @@ export function PinnedAppNavItem({
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger>
-        <SwipeActionReveal trailingActions={trailingActions}>
+        {/* Where the swipe is armed, the wrapper paints an opaque layer
+            under the pill to hide the Unpin button until a swipe slides
+            the pill off it. That layer takes the wrapper's own shape and
+            surface, so the wrapper has to be the pill's: hugging it
+            (`w-fit`), capsule-clipped (`rounded-full`, which the layer box
+            inherits), and painted in the pill's resting surface - the
+            tint when the pin has one, `--surface-lift` otherwise. Left at
+            the defaults it was a full-width square panel-coloured slab
+            behind a capsule, which is what made a pinned app look
+            unrounded on touch. The tint is restated here because the pill
+            declares it on itself and a custom property does not flow
+            upward to the wrapper. */}
+        <SwipeActionReveal
+          trailingActions={trailingActions}
+          style={tintStyle}
+          className="w-fit max-w-full rounded-full [--swipe-reveal-bg:var(--panel-item-bg,var(--surface-lift))]"
+        >
           {item}
         </SwipeActionReveal>
       </ContextMenu.Trigger>

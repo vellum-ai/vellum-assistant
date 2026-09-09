@@ -211,6 +211,42 @@ describe("PinnedAppNavItem", () => {
     ).not.toBeNull();
   });
 
+  /* The swipe layer under the pill is opaque so the Unpin button stays
+     hidden until a swipe slides the pill off it, and it takes the wrapper's
+     shape and surface. Left at the defaults it was a full-width square slab
+     behind a capsule, which is what made a pinned app look unrounded on
+     touch: so the wrapper hugs the pill, clips to its capsule, and names the
+     pill's own surface for the layer to paint. */
+  test("expanded: shapes the swipe layer as the pill on touch", () => {
+    viewport.set({ narrow: true, coarsePointer: true });
+
+    const { container } = render(
+      <PinnedAppNavItem
+        app={TEAL_APP}
+        active={false}
+        collapsed={false}
+        onOpen={() => {}}
+        {...actions()}
+      />,
+    );
+
+    const swipeRow = container.querySelector<HTMLElement>(
+      '[data-slot="swipe-action-row"]',
+    );
+    expect(swipeRow).not.toBeNull();
+    expect(swipeRow?.className).toContain("rounded-full");
+    expect(swipeRow?.className).toContain("w-fit");
+    expect(swipeRow?.className).toContain("--swipe-reveal-bg");
+    // The pill's tint, restated on the wrapper so the layer reads it. The
+    // pill is the wrapper's outermost `role="button"`, found by structure:
+    // on touch its accessible name is not "My App", since the trailing
+    // unpin button standing inside it contributes to the name.
+    const pill = swipeRow!.querySelector<HTMLElement>('[role="button"]')!;
+    const pillTint = tintOf(pill).bg;
+    expect(pillTint).toContain(TEAL_HEX);
+    expect(swipeRow!.style.getPropertyValue("--panel-item-bg")).toBe(pillTint);
+  });
+
   /* The tile is the shape with the most riding on the menu: no hover button,
      nothing to swipe, so this is its only route to an unpin. Collapsing the
      rail changes what a pinned app looks like, not what can be done to it. */
