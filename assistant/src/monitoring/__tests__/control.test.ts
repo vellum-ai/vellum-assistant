@@ -12,8 +12,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import * as realLogger from "../../util/logger.js";
-import { isProcessAlive } from "../../util/process-liveness.js";
 import * as realPlatform from "../../util/platform.js";
+import { isProcessAlive } from "../../util/process-liveness.js";
 
 let tmpDir: string;
 let pidPath: string;
