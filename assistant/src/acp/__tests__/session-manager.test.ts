@@ -1274,6 +1274,47 @@ describe("AcpSessionManager: unsolicited model updates", () => {
       availableModels: MODEL_OPTION_MODELS,
     });
   });
+
+  test("several updates announced while session/new is open record no preference", async () => {
+    seedConversationRow("conv-open-updates");
+    // The response carries nothing, so the announcements are everything the
+    // manager hears about the selector before the pin latches.
+    scriptedConfigOptions = [[]];
+    let release = () => {};
+    createSessionGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const manager = new AcpSessionManager(5);
+    const spawning = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-open-updates",
+      () => {},
+    );
+    const acpSessionId = (manager.getStatus() as AcpSessionState[])[0].id;
+
+    await emitConfigOptions(manager, acpSessionId, [modelOption("sonnet")]);
+    await emitConfigOptions(manager, acpSessionId, [modelOption("opus")]);
+    release();
+    await spawning;
+
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "opus",
+    );
+    expect(
+      getAcpConversationModelPreference("conv-open-updates", "agent-model"),
+    ).toBeUndefined();
+
+    // The pin latched the baseline, so the next change is the user's own.
+    await emitConfigOptions(manager, acpSessionId, [modelOption("sonnet")]);
+
+    expect(
+      getAcpConversationModelPreference("conv-open-updates", "agent-model"),
+    ).toBe("sonnet");
+  });
 });
 
 /**

@@ -239,6 +239,11 @@ interface SessionEntry {
    *  than the user choosing, and writing it as the conversation's preference
    *  would freeze that default in. */
   modelBaselineEstablished: boolean;
+  /** Whether the session is still opening: `session/new`, `session/load` or
+   *  `session/resume` and the pin that follows it. Every notification until
+   *  the pin latches reports what the session opens on, so the baseline
+   *  belongs to the pin alone. */
+  modelOpeningInFlight: boolean;
 }
 
 /** What a spawn or resume pin did about the model it was asked for. */
@@ -547,10 +552,12 @@ export class AcpSessionManager {
         requestedModel,
         resolvedModel,
       );
-      // Latched only once the round trip is done. The window while it is in
-      // flight belongs to `managerPinInFlight`, and by now the adapter has
-      // reported what the session is on, so anything unsolicited after this is
-      // a change rather than an opening announcement.
+      // The opening ends here, which makes this the one place an opening
+      // arms the baseline. The window while the pin is in flight belongs to
+      // `managerPinInFlight`, and by now the adapter has reported what the
+      // session is on, so anything unsolicited after this is a change rather
+      // than an opening announcement.
+      entry.modelOpeningInFlight = false;
       entry.modelBaselineEstablished = entry.modelConfigId !== undefined;
       return result;
     });
@@ -762,6 +769,7 @@ export class AcpSessionManager {
       modelSwitchQueue: Promise.resolve(),
       managerPinInFlight: false,
       modelBaselineEstablished: false,
+      modelOpeningInFlight: true,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -957,10 +965,10 @@ export class AcpSessionManager {
    * options by notification, and a `session/load` replay during a resume, are
    * both announcing a default rather than relaying a choice.
    *
-   * That first announcement is also what arms the baseline for an adapter
-   * whose selector never appeared in a `session/new` or `session/resume`
-   * response, so a `/model` the user types after it is remembered instead of
-   * being swallowed as another opening announcement forever.
+   * An adapter whose selector appears only once the opening is over arms the
+   * baseline on that first announcement, so a `/model` the user types after
+   * it is remembered instead of being swallowed forever. Announcements made
+   * during an opening, however many, belong to the pin that ends it.
    *
    * A session past its terminal transition takes nothing from a late
    * notification at all: its history row is already written, so mutating
@@ -982,10 +990,14 @@ export class AcpSessionManager {
     if (this.clearVanishedModelSelector(acpSessionId, entry)) {
       return;
     }
-    // A selector seen here for the first time arms the baseline, so the next
+    // A selector first seen after the opening arms the baseline, so the next
     // change the adapter reports is read as a choice rather than swallowed as
     // another opening announcement.
-    if (!hadBaseline && entry.modelConfigId !== undefined) {
+    if (
+      !hadBaseline &&
+      !entry.modelOpeningInFlight &&
+      entry.modelConfigId !== undefined
+    ) {
       entry.modelBaselineEstablished = true;
     }
 
