@@ -247,13 +247,10 @@ export function HelpCommonIssuesContent() {
             your terminal finds if another version takes precedence.
           </p>
           <SectionHeading id="windows-logs" level={3}>
-            Finding logs for a bug report
+            Sending logs with a bug report
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
             Use Help &gt; Send Feedback in the app to send a report with recent logs.
-            Desktop logs are also available at{" "}
-            <code>{"%APPDATA%\\Vellum Dev\\logs\\vellum.log"}</code> for the dev build
-            or <code>{"%APPDATA%\\Vellum\\logs\\vellum.log"}</code> for production.
             Include your Windows version, installer architecture, and the steps that
             reproduce the problem.
           </p>
