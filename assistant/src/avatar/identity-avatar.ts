@@ -13,6 +13,24 @@ export const NO_AVATAR_IDENTITY_NOTE =
   "Default character avatar (no custom image set)";
 
 /**
+ * Longest note written to IDENTITY.md. The note rides in every system prompt,
+ * and an AI prompt can run to paragraphs.
+ */
+export const AVATAR_IDENTITY_NOTE_MAX_CHARS = 240;
+
+/**
+ * One line, at most {@link AVATAR_IDENTITY_NOTE_MAX_CHARS} long. A line break
+ * would let a description carry its own `## Heading` out of the managed
+ * Avatar section.
+ */
+function toIdentityLine(text: string): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > AVATAR_IDENTITY_NOTE_MAX_CHARS
+    ? `${line.slice(0, AVATAR_IDENTITY_NOTE_MAX_CHARS - 3).trimEnd()}...`
+    : line;
+}
+
+/**
  * A plain-text note on the avatar just written, so the assistant knows what
  * it looks like across sessions even when the change came from a client and
  * no skill ran to describe it. `imageDescription` is what an image shows when
@@ -28,7 +46,7 @@ export function describeAvatarState(
   }
   if (state.kind === "image" && state.source === "ai") {
     return imageDescription
-      ? `An AI-generated image: ${imageDescription}`
+      ? toIdentityLine(`An AI-generated image: ${imageDescription}`)
       : "An AI-generated image.";
   }
   if (state.kind === "image") {

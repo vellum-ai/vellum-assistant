@@ -511,9 +511,8 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({ ok: z.boolean(), message: z.string() }),
   },
   {
-    // The legacy Swift macOS app posted here and read `avatarPath`; those
-    // installs never update, so the endpoint stays as an alias of
-    // avatar/generate with the response shape they expect.
+    // Swift macOS clients post here and read `avatarPath`: an alias of
+    // avatar/generate with the response shape they need.
     operationId: "settings_avatar_generate_post",
     endpoint: "settings/avatar/generate",
     method: "POST",
