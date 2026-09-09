@@ -1,148 +1,138 @@
 /**
- * Tests for the check-in calendar connect hook, focused on platform-identity
- * resolution: a locally-hatched assistant is known to the platform by its own
- * platform UUID, so the managed OAuth start must be called with the RESOLVED
- * id — passing the local id 404s and the onError handler closes the popup the
- * moment it opened (a visible flicker).
+ * The check-in calendar connect hook adds three things to the shared connect
+ * flow: the narrowed scope set, the provider label, and an `onConnect(scopes)`
+ * that schedules the check-in and navigates.
+ *
+ * `onConnect` navigating is why the mounted guard matters: a connection can
+ * land after the user has moved on through the top nav, and dragging them back
+ * to a step they left is worse than missing the callback.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
-const startOAuthMutate = mock(
-  (
-    _vars: unknown,
-    _handlers?: { onSuccess?: (data: unknown) => void; onError?: () => void },
-  ) => {},
-);
-mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
-  useAssistantsOauthStartCreateMutation: () => ({
-    mutate: startOAuthMutate,
-    isPending: false,
-  }),
-  assistantsOauthConnectionsListOptions: (opts: unknown) => ({
-    queryKey: ["oauth-connections", opts],
-    queryFn: async () => [],
-  }),
-}));
+import type { OAuthConnection } from "@/generated/api/types.gen";
+import type {
+  UseManagedOAuthConnectOptions,
+  UseManagedOAuthConnectResult,
+} from "@/hooks/use-managed-oauth-connect";
 
-let resolvedPlatformId = "11111111-2222-4333-8444-555555555555";
-let resolveShouldThrow = false;
-const resolveMock = mock(async (id: string): Promise<string> => {
-  if (resolveShouldThrow) {
-    throw new Error("identity resolution failed");
-  }
-  return id === "vellum-local-assistant" ? resolvedPlatformId : id;
-});
-mock.module("@/lib/local-platform-identity", () => ({
-  resolveLocalAssistantPlatformIdentity: resolveMock,
-}));
+const CONNECTION = {
+  id: "conn-1",
+  provider: "google",
+  connected: true,
+  scopes_granted: ["https://www.googleapis.com/auth/calendar.events"],
+} as OAuthConnection;
 
-mock.module("@/runtime/native-auth", () => ({
-  useIsNativePlatform: () => false,
-}));
-mock.module("@/hooks/use-oauth-complete-deep-link-listener", () => ({
-  useOAuthCompleteDeepLinkListener: () => {},
-}));
-mock.module("@/runtime/browser", () => ({
-  openUrl: async () => {},
-  openUrlFinishedListener: () => () => {},
-}));
-// Spread the real module so shared utilities that import other exports
-// (e.g. `isCancelledError` via `captureError`) keep resolving; only the
-// hook's query-client read is overridden.
-const actualReactQuery = await import("@tanstack/react-query");
-mock.module("@tanstack/react-query", () => ({
-  ...actualReactQuery,
-  useQueryClient: () => ({ fetchQuery: async () => [] }),
+let connectResult: Partial<UseManagedOAuthConnectResult> = {};
+let capturedOptions: UseManagedOAuthConnectOptions | null = null;
+const connectMock = mock(() => {});
+
+mock.module("@/hooks/use-managed-oauth-connect", () => ({
+  useManagedOAuthConnect: (options: UseManagedOAuthConnectOptions) => {
+    capturedOptions = options;
+    return {
+      connect: connectMock,
+      dismiss: () => {},
+      status: "idle" as const,
+      connection: null,
+      errorMessage: null,
+      ...connectResult,
+    };
+  },
 }));
 
-const { useGoogleCalendarConnect } =
+const { useGoogleCalendarConnect, GOOGLE_CALENDAR_CONNECT_SCOPES } =
   await import("./use-google-calendar-connect");
 
-// The hook opens a blank popup synchronously before the async identity
-// resolution; stub a minimal Window the flow can point at Google later.
-interface StubPopup {
-  closed: boolean;
-  close: () => void;
-  location: { href: string };
-}
-let popupStub: StubPopup;
-
 beforeEach(() => {
-  resolveShouldThrow = false;
-  resolvedPlatformId = "11111111-2222-4333-8444-555555555555";
-  startOAuthMutate.mockClear();
-  resolveMock.mockClear();
-  popupStub = {
-    closed: false,
-    close: () => {
-      popupStub.closed = true;
-    },
-    location: { href: "" },
-  };
-  window.open = (() => popupStub) as unknown as typeof window.open;
+  connectResult = {};
+  capturedOptions = null;
+  connectMock.mockClear();
 });
 
 describe("useGoogleCalendarConnect", () => {
-  test("starts OAuth with the RESOLVED platform assistant id, not the local id", async () => {
-    const { result } = renderHook(() =>
+  test("requests the calendar-only scope set for the google provider", () => {
+    renderHook(() =>
       useGoogleCalendarConnect({
-        assistantId: "vellum-local-assistant",
+        assistantId: "assistant-1",
         onConnect: () => {},
       }),
     );
 
-    act(() => {
-      result.current.handleConnect();
-    });
-
-    await waitFor(() => expect(startOAuthMutate).toHaveBeenCalledTimes(1));
-    const vars = startOAuthMutate.mock.calls[0]?.[0] as {
-      path: { assistant_id: string; provider: string };
-    };
-    expect(resolveMock).toHaveBeenCalledWith("vellum-local-assistant");
-    expect(vars.path.assistant_id).toBe(resolvedPlatformId);
-    expect(vars.path.provider).toBe("google");
-    // The popup stays open, waiting for the connect URL.
-    expect(popupStub.closed).toBe(false);
+    expect(capturedOptions?.providerKey).toBe("google");
+    expect(capturedOptions?.requestedScopes).toEqual(
+      GOOGLE_CALENDAR_CONNECT_SCOPES,
+    );
+    // Identity scopes are required or the grant fails with `identity_failed`.
+    expect(GOOGLE_CALENDAR_CONNECT_SCOPES).toContain("openid");
   });
 
-  test("a platform assistant id passes through the resolver unchanged", async () => {
-    const platformId = "99999999-8888-4777-8666-555555555555";
-    const { result } = renderHook(() =>
+  test("an explicit scope override is passed through", () => {
+    renderHook(() =>
       useGoogleCalendarConnect({
-        assistantId: platformId,
+        assistantId: "assistant-1",
+        requestedScopes: ["openid", "scope-x"],
         onConnect: () => {},
       }),
     );
 
-    act(() => {
-      result.current.handleConnect();
-    });
-
-    await waitFor(() => expect(startOAuthMutate).toHaveBeenCalledTimes(1));
-    const vars = startOAuthMutate.mock.calls[0]?.[0] as {
-      path: { assistant_id: string };
-    };
-    expect(vars.path.assistant_id).toBe(platformId);
+    expect(capturedOptions?.requestedScopes).toEqual(["openid", "scope-x"]);
   });
 
-  test("failed identity resolution closes the popup and never starts OAuth", async () => {
-    resolveShouldThrow = true;
+  test("handleConnect starts the shared flow", () => {
     const { result } = renderHook(() =>
       useGoogleCalendarConnect({
-        assistantId: "vellum-local-assistant",
+        assistantId: "assistant-1",
         onConnect: () => {},
       }),
     );
 
-    act(() => {
-      result.current.handleConnect();
-    });
+    act(() => result.current.handleConnect());
 
-    await waitFor(() => expect(popupStub.closed).toBe(true));
-    expect(startOAuthMutate).not.toHaveBeenCalled();
-    expect(result.current.oauthInProgress).toBe(false);
+    expect(connectMock).toHaveBeenCalled();
+  });
+
+  test("a landed connection hands the granted scopes to the caller", async () => {
+    connectResult = { status: "connected", connection: CONNECTION };
+    const onConnect = mock(() => {});
+
+    renderHook(() =>
+      useGoogleCalendarConnect({ assistantId: "assistant-1", onConnect }),
+    );
+
+    await waitFor(() =>
+      expect(onConnect).toHaveBeenCalledWith([
+        "https://www.googleapis.com/auth/calendar.events",
+      ]),
+    );
+  });
+
+  test("an open authorization reports as in progress", () => {
+    connectResult = { status: "attempting" };
+    const { result } = renderHook(() =>
+      useGoogleCalendarConnect({
+        assistantId: "assistant-1",
+        onConnect: () => {},
+      }),
+    );
+
+    expect(result.current.oauthInProgress).toBe(true);
+  });
+
+  test("a connection landing after unmount does not navigate", async () => {
+    connectResult = { status: "connected", connection: CONNECTION };
+    const onConnect = mock(() => {});
+
+    const { unmount } = renderHook(() =>
+      useGoogleCalendarConnect({ assistantId: "assistant-1", onConnect }),
+    );
+    unmount();
+    onConnect.mockClear();
+
+    // Remounting is a fresh screen; a stale callback must not fire against the
+    // unmounted one.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onConnect).not.toHaveBeenCalled();
   });
 });

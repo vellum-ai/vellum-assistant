@@ -998,6 +998,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 帳號",
+    "cancel": "取消",
     "connectAccount": "連接帳號",
     "connectAccountLower": "連接帳號",
     "connectToContinue": "連接帳號以繼續",
@@ -1043,6 +1044,7 @@
     "loadError": "載入 MCP 伺服器失敗。請檢查助理是否正在執行。",
     "loading": "正在載入 MCP 伺服器...",
     "reloadAriaLabel": "重新載入 MCP 伺服器",
+    "reloadButton": "重新整理",
     "reloadTooltip": "重新載入所有伺服器",
     "removeDialogConfirm": "移除",
     "removeDialogMessage": "您確定要移除「{serverId}」嗎？這將會中斷此伺服器提供的所有工具。",
@@ -1070,15 +1072,19 @@
     "totalTools": "{count, plural, other {# 個工具}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "關閉",
     "authenticate": "驗證",
+    "authenticatedBadge": "已驗證",
     "authenticating": "正在驗證...",
     "configure": "設定",
     "configureTooltip": "設定",
     "estimatedTokens": "~{count} 個權杖",
+    "moreActions": "{serverId} 的更多操作",
     "oauthBadge": "OAuth",
     "reAuth": "重新驗證",
     "reAuthTooltip": "重新驗證 OAuth",
     "registeredTools": "{count, plural, other {# 個已註冊工具}}",
+    "removeServer": "刪除伺服器",
     "removeServerAriaLabel": "移除 {serverId}",
     "removeServerTooltip": "移除伺服器",
     "revoke": "撤銷",
@@ -2366,5 +2372,27 @@
       "doctor": "診斷",
       "conversations": "對話"
     }
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "新增 API 金鑰",
+    "cancelConnect": "取消設定",
+    "chooseFromList": "從清單中選取",
+    "connectedTag": "已連線",
+    "customModelAriaLabel": "自訂模型 ID",
+    "customModelHint": "輸入提供商所需的精確模型識別碼。該識別碼將按原樣發送至連線。",
+    "customModelOption": "輸入自訂模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "無相符的模型",
+    "modelPlaceholder": "搜尋模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 個可用模型} other {# 個可用模型}}。使用上下方向鍵瀏覽，按 Enter 鍵選取。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推薦",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "設定",
+    "signInTag": "登入",
+    "soleProviderHint": "僅 {name} 提供此模型。"
   }
 }

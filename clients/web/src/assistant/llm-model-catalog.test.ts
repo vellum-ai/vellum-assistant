@@ -26,6 +26,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
+  catalogEnabledFlags,
   getVisibleModelsForProvider,
   getManagedUpstreamForModel,
   VELLUM_SERVED_PROVIDERS,
@@ -160,19 +161,21 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();
   });
 
-  test("vellum GPU models stay out of pickers and hide without developer mode", () => {
+  test("vellum GPU models stay out of pickers and hide without hosted inference", () => {
     expect(Object.keys(MODELS_BY_PROVIDER)).toContain("vellum");
     expect(INFERENCE_PROVIDERS).not.toContain("vellum");
     expect(CONNECTION_PROVIDERS).not.toContain("vellum");
     expect(
-      getVisibleModelsForProvider("vellum", false).some(
-        (model) => model.id === "qwen/qwen3-8b",
-      ),
+      getVisibleModelsForProvider(
+        "vellum",
+        catalogEnabledFlags({ hostedInference: false }),
+      ).some((model) => model.id === "qwen/qwen3-8b"),
     ).toBe(false);
     expect(
-      getVisibleModelsForProvider("vellum", true).some(
-        (model) => model.id === "qwen/qwen3-8b",
-      ),
+      getVisibleModelsForProvider(
+        "vellum",
+        catalogEnabledFlags({ hostedInference: true }),
+      ).some((model) => model.id === "qwen/qwen3-8b"),
     ).toBe(true);
   });
 

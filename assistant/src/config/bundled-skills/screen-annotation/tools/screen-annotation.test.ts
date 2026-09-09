@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import type { ToolContext } from "../../../../tools/types.js";
@@ -70,5 +72,70 @@ describe("screen_clear_marks", () => {
       target_client_id: "client-9",
       marks: [],
     });
+  });
+});
+
+/**
+ * The shape of a mark, as the model is told it.
+ *
+ * The published schema is the only account of the contract the model ever
+ * sees: a mark it composes from that schema and sends is rejected on the host
+ * by a union that admits exactly two shapes, and the model has no way to
+ * learn why. So the schema carries the same two shapes.
+ */
+describe("the published mark schema", () => {
+  interface OneOfBranch {
+    required?: string[];
+  }
+  interface ItemSchema {
+    oneOf?: OneOfBranch[];
+    properties?: Record<string, unknown>;
+  }
+  const toolsJson = JSON.parse(
+    readFileSync(join(import.meta.dir, "..", "TOOLS.json"), "utf-8"),
+  ) as {
+    tools: {
+      name: string;
+      input_schema: { properties: { marks: { items: ItemSchema } } };
+    }[];
+  };
+  const item = toolsJson.tools.find((tool) => tool.name === "screen_point_at")!
+    .input_schema.properties.marks.items;
+
+  /** `oneOf` as JSON Schema reads it: satisfied by exactly one branch. */
+  const accepts = (mark: Record<string, unknown>): boolean => {
+    const fits = (item.oneOf ?? []).filter((branch) =>
+      (branch.required ?? []).every((key) => key in mark),
+    );
+    return fits.length === 1;
+  };
+
+  test("a named target is a mark", () => {
+    expect(accepts({ target: "Send" })).toBe(true);
+    expect(accepts({ target: "Send", caption: "Click this" })).toBe(true);
+  });
+
+  test("all four bounds are a mark", () => {
+    expect(accepts({ x: 0.1, y: 0.2, width: 0.3, height: 0.1 })).toBe(true);
+  });
+
+  test("neither shape, or half of one, is not a mark", () => {
+    expect(accepts({})).toBe(false);
+    expect(accepts({ caption: "Click this" })).toBe(false);
+    expect(accepts({ x: 0.2 })).toBe(false);
+    expect(accepts({ x: 0.1, y: 0.2, width: 0.3 })).toBe(false);
+  });
+
+  /** An empty name is a name of nothing, and the host rejects it as one. */
+  test("a target has to say something", () => {
+    const target = item.properties?.target as { minLength?: number };
+    expect(target.minLength).toBe(1);
+  });
+
+  /** Both shapes at once names a target and estimates it in the same breath. */
+  test("a name and bounds together is not a mark", () => {
+    expect(
+      accepts({ target: "Send", x: 0.1, y: 0.2, width: 0.3, height: 0.1 }),
+    ).toBe(false);
   });
 });

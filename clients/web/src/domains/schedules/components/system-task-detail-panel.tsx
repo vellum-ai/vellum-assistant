@@ -15,7 +15,7 @@ import {
   heartbeatSubtitle,
   isBookkeepingRun,
   isExecutedRun,
-  RETROSPECTIVE_SUBTITLE,
+  retrospectiveSubtitle,
 } from "@/domains/settings/utils/schedule-formatters";
 import { toScheduleRun } from "@/domains/settings/utils/system-task-run-transforms";
 import {
@@ -122,7 +122,7 @@ export function SystemTaskDetailPanel({
     onRunNow = systemTasks.runConsolidationNow;
   } else {
     name = t("systemTaskDetail.nameRetrospective");
-    subtitle = RETROSPECTIVE_SUBTITLE;
+    subtitle = retrospectiveSubtitle();
     enabled = retrospectiveConfig?.enabled ?? false;
     // Event-driven: no global "next run".
     nextRunAt = retrospectiveConfig?.nextRunAt ?? null;

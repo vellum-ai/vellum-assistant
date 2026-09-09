@@ -22,6 +22,7 @@ import {
   type McpToolsSummaryServer,
 } from "./mcp-api";
 import { McpServerCard } from "./mcp-server-card";
+import { McpActionButton } from "./mcp-action-button";
 import { McpServerDetailModal } from "./mcp-server-detail-modal";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
@@ -103,9 +104,7 @@ function McpPageInner() {
       toast.success(t("mcpPage.toastRemoved", { serverId: removeServerId }));
       setRemoveServerId(null);
     } catch {
-      toast.error(
-        t("mcpPage.toastRemoveFailed", { serverId: removeServerId }),
-      );
+      toast.error(t("mcpPage.toastRemoveFailed", { serverId: removeServerId }));
     } finally {
       setIsRemoving(false);
     }
@@ -124,9 +123,7 @@ function McpPageInner() {
       }
       try {
         if (result.already_authenticated) {
-          toast.success(
-            t("mcpPage.toastAlreadyAuthenticated", { serverId }),
-          );
+          toast.success(t("mcpPage.toastAlreadyAuthenticated", { serverId }));
           invalidateAll();
           return;
         }
@@ -136,16 +133,13 @@ function McpPageInner() {
           await new Promise((resolve) => setTimeout(resolve, 3000));
           const status = await pollMcpAuthStatus(assistantId, serverId);
           if (status.status === "complete") {
-            toast.success(
-              t("mcpPage.toastAuthenticatedSuccess", { serverId }),
-            );
+            toast.success(t("mcpPage.toastAuthenticatedSuccess", { serverId }));
             invalidateAll();
             return;
           }
           if (status.status === "error") {
             toast.error(
-              status.error ??
-                t("mcpPage.toastAuthFailed", { serverId }),
+              status.error ?? t("mcpPage.toastAuthFailed", { serverId }),
             );
             return;
           }
@@ -314,31 +308,22 @@ function McpPageInner() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-title-small text-[var(--content-default)]">
-            {t("mcpPage.title")}
-          </h2>
-          <p className="mt-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
-            {t("mcpPage.subtitle")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="compact"
-            iconOnly={
-              <RefreshCw className={isReloading ? "animate-spin" : ""} />
-            }
+      {/* `flow-root` so the floated actions are contained rather than escaping
+          the header, and floated rather than laid out in a row: the subtitle
+          runs up to the buttons and then wraps *under* them, instead of
+          stopping short of the whole column or starting below the button. */}
+      <div className="flow-root">
+        <div className="float-right ml-4 flex shrink-0 items-center gap-2">
+          <McpActionButton
+            variant="outlined"
+            icon={<RefreshCw className={isReloading ? "animate-spin" : ""} />}
+            label={t("mcpPage.reloadButton")}
             onClick={handleReload}
             disabled={isReloading}
-            tooltip={t("mcpPage.reloadTooltip")}
-            aria-label={t("mcpPage.reloadAriaLabel")}
           />
           {mcpAddServerEnabled ? (
             <Button
               variant="primary"
-              size="compact"
               leftIcon={<Plus />}
               onClick={() => setAddModalOpen(true)}
             >
@@ -346,6 +331,12 @@ function McpPageInner() {
             </Button>
           ) : null}
         </div>
+        <h2 className="text-title-small text-[var(--content-default)]">
+          {t("mcpPage.title")}
+        </h2>
+        <p className="mt-0.5 text-body-medium-lighter text-[var(--content-tertiary)]">
+          {t("mcpPage.subtitle")}
+        </p>
       </div>
 
       {toolsData ? (
