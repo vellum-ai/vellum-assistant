@@ -1390,10 +1390,23 @@ export async function wakeAgentForOpportunity(
           );
         }
       }
-      // The prompt is part of what the wake scoped, so it comes back with the
-      // rest rather than leaving the loop holding a wake-scoped prompt for
-      // whatever runs next. Runs even when no allowlist was applied, because
-      // the wake's per-turn stamps (call site, presence) move the gate too.
+    };
+
+    /**
+     * Undo everything the wake scoped onto the conversation, then rebuild the
+     * prompt once under what is left.
+     *
+     * The order is load-bearing. `wakePersonaOverride` is read by
+     * `buildCurrentSystemPrompt`, so a rebuild that runs before the clear
+     * leaves the loop holding the wake's persona: the next wake's pre-run
+     * compaction gate reads `conversation.systemPrompt` through the window
+     * manager and would size, and summarize, against a prompt belonging to a
+     * turn that already ended. Rebuilding after both restores is also why this
+     * is one function rather than a rebuild bolted onto either half.
+     */
+    const restoreWakeTurnScope = (): void => {
+      restoreWakeAllowedTools();
+      clearWakePersonaOverride();
       syncWakeLoopSystemPrompt();
     };
     const applyWakeAllowedTools = (): boolean => {
@@ -1745,8 +1758,7 @@ export async function wakeAgentForOpportunity(
       // accepts entries while processing === true, and drain expects
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
-      restoreWakeAllowedTools();
-      clearWakePersonaOverride();
+      restoreWakeTurnScope();
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1771,8 +1783,7 @@ export async function wakeAgentForOpportunity(
       // the try body before reaching the drain block, so `drainedInTry` is
       // still false.
       if (!drainedInTry) {
-        restoreWakeAllowedTools();
-        clearWakePersonaOverride();
+        restoreWakeTurnScope();
         try {
           conversation.setProcessing(false);
         } catch (err) {

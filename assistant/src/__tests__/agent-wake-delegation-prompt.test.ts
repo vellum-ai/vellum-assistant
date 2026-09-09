@@ -156,6 +156,37 @@ describe("the delegation section on a direct wake", () => {
     expect(promptDuringRun).toContain(DELEGATION_SECTION);
   });
 
+  test("the restored prompt is built without the wake's persona", async () => {
+    // `wakePersonaOverride` feeds `buildCurrentSystemPrompt`, so a rebuild
+    // that ran before the clear would leave the loop holding the wake's
+    // persona: the next wake's pre-run compaction gate reads that prompt and
+    // would size against a turn that already ended.
+    const personaSeen: Array<unknown> = [];
+    const { target, loopPrompt } = makeTarget(() => {});
+    const buildUnderPersona = () => {
+      personaSeen.push(target.wakePersonaOverride);
+      return target.wakePersonaOverride
+        ? "base [wake persona]"
+        : "base [delegation section]";
+    };
+    (target as unknown as Record<string, unknown>).buildCurrentSystemPrompt =
+      buildUnderPersona;
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: target.conversationId,
+        hint: "test hint",
+        source: "scheduler",
+        personaOverride: { userSlug: "someone" },
+      },
+      { resolveTarget: async () => target },
+    );
+
+    // The last build saw no override, and that is the prompt the loop keeps.
+    expect(personaSeen.at(-1)).toBeUndefined();
+    expect(loopPrompt()).toBe("base [delegation section]");
+  });
+
   test("the prompt is restored once the wake's scope comes off", async () => {
     const { target, loopPrompt } = makeTarget(() => {});
 
