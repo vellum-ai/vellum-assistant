@@ -391,6 +391,75 @@ describe("pointing at the shared surface", () => {
     expect(showCoachmarks).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The host bounds the names it sends back, so a surface carrying hundreds
+   * arrives as a handful. Counting the rest off the list that arrived would
+   * tell the assistant a page of 300 controls has 24 of them.
+   */
+  test("counts the names it is not showing off the surface, not off the list", async () => {
+    showCoachmarks.mockImplementationOnce(
+      async () =>
+        ({
+          kind: "unresolved",
+          unresolved: {
+            target: "white balance",
+            reason: "no-match",
+            candidates: Array.from({ length: 30 }, (_, i) => `Control ${i}`),
+            candidateCount: 312,
+          },
+        }) as CoachmarkResult,
+    );
+    const executor = createHostCuExecutor({
+      helper: helperReturning({}),
+      showCoachmarks,
+    });
+    const { poster, postCuResult } = makePoster();
+
+    executor.handleRequest(
+      pointAt({ marks: [{ target: "white balance" }] }),
+      poster,
+    );
+    await tick();
+
+    const told = (
+      postCuResult.mock.calls[0]?.[0] as { executionError?: string }
+    ).executionError;
+    expect(told).toContain("(and 288 more)");
+    expect(told).toContain("Control 23");
+    expect(told).not.toContain("Control 24");
+  });
+
+  /** A host that sends no count is read off the names it did send. */
+  test("counts off the list when the host sent no total", async () => {
+    showCoachmarks.mockImplementationOnce(
+      async () =>
+        ({
+          kind: "unresolved",
+          unresolved: {
+            target: "white balance",
+            reason: "no-match",
+            candidates: Array.from({ length: 30 }, (_, i) => `Control ${i}`),
+          },
+        }) as CoachmarkResult,
+    );
+    const executor = createHostCuExecutor({
+      helper: helperReturning({}),
+      showCoachmarks,
+    });
+    const { poster, postCuResult } = makePoster();
+
+    executor.handleRequest(
+      pointAt({ marks: [{ target: "white balance" }] }),
+      poster,
+    );
+    await tick();
+
+    expect(
+      (postCuResult.mock.calls[0]?.[0] as { executionError?: string })
+        .executionError,
+    ).toContain("(and 6 more)");
+  });
+
   test("refuses coordinates measured against some other surface", async () => {
     const executor = createHostCuExecutor({
       helper: helperReturning({}),

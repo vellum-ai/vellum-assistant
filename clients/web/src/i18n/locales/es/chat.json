@@ -296,7 +296,8 @@
     "title": "Mostrar"
   },
   "cardSurface": {
-    "tasksProgress": "{completed} / {total} tareas"
+    "tasksProgress": "{completed} / {total} tareas",
+    "viewDetails": "Ver detalles"
   },
   "channelReferenceChip": {
     "heading": "Haciendo referencia a un mensaje de {channel}",
@@ -855,7 +856,8 @@
     "windows": "La voz ya está activa en la aplicación de Windows."
   },
   "liveVoiceButton": {
-    "startVoiceMode": "Iniciar el modo de voz"
+    "startVoiceMode": "Iniciar el modo de voz",
+    "tooltip": "Habla en voz alta con el modo de voz"
   },
   "liveVoiceStatus": {
     "connecting": "Conectando…",
@@ -1737,6 +1739,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "Silenciado"
+  },
+  "wakeCard": {
+    "commandFinished": "Comando en segundo plano finalizado",
+    "incomingEvent": "Evento entrante",
+    "memoryReview": "Revisión de la memoria",
+    "ranOnItsOwn": "Se ejecutó por su cuenta",
+    "resumed": "Reanudado tras una interrupción",
+    "scheduledRun": "Ejecución programada",
+    "watchReview": "Revisión de la sesión de observación",
+    "workflowFinished": "Flujo de trabajo finalizado"
+  },
+  "wakeDetailPanel": {
+    "close": "Cerrar",
+    "details": "Detalles",
+    "result": "Resultado",
+    "runStatus": "Estado de la ejecución",
+    "title": "La conversación se activó",
+    "workflow": "Flujo de trabajo"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

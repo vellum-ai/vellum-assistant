@@ -642,6 +642,24 @@ final class MacHelper: @unchecked Sendable {
         }
     }
 
+    /// How many names a refusal carries back, and how long each may be.
+    ///
+    /// The tree behind them can be a web page: ten thousand elements, any
+    /// number of them carrying a paragraph of `aria-label` apiece. Sent whole
+    /// that is an IPC payload the caller cannot act on and a turn's context
+    /// spent reading it. Bounded here rather than at the far end, because the
+    /// far end can only bound what has already crossed. The count travels
+    /// beside the list so the caller can still say how many it is not naming.
+    ///
+    /// The limit is well past what anything chooses between by reading, and
+    /// the length is a name rather than a description of one.
+    private static let labelsReturned = 48
+    private static let labelLength = 60
+
+    private static func shortlist(_ labels: [String]) -> [String] {
+        AXLabel.shortlist(labels, limit: labelsReturned, each: labelLength)
+    }
+
     /// Where in a window the control someone named actually is.
     ///
     /// The point of the whole errand: the accessibility tree knows every
@@ -763,7 +781,7 @@ final class MacHelper: @unchecked Sendable {
                 let (element, frame) = elements[index]
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": true,
-                    "label": element.title ?? "",
+                    "label": AXLabel.singleLine(element.title ?? "", max: Self.labelLength),
                     "role": element.role,
                     "x": Double(frame.origin.x),
                     "y": Double(frame.origin.y),
@@ -774,13 +792,15 @@ final class MacHelper: @unchecked Sendable {
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": false,
                     "reason": "ambiguous",
-                    "ambiguous": labels,
+                    "ambiguous": Self.shortlist(labels),
+                    "candidateCount": labels.count,
                 ]))
             case let .notFound(labels):
                 self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
                     "found": false,
                     "reason": "no-match",
-                    "available": labels,
+                    "available": Self.shortlist(labels),
+                    "candidateCount": labels.count,
                 ]))
             }
         }

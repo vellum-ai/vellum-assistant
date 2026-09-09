@@ -296,7 +296,13 @@ function Pointer({
         // and a whole box above it when the tail hangs above, which is what
         // puts the turned tip back on the point.
         top: Math.round(mark.y * box.height - (above ? arrow.height : 0)),
-        transform: above ? "rotate(180deg)" : undefined,
+        // Through the variable the entrance composes with, never as a plain
+        // transform: the keyframe's implicit end state is this element's own
+        // transform, so an arrow that set one here would animate into its
+        // rotation rather than arriving already turned.
+        ...(above
+          ? { ["--companion-coachmark-turn" as string]: "rotate(180deg)" }
+          : {}),
       }}
     >
       <path className="companion-coachmark-halo" d={arrow.shaft} />

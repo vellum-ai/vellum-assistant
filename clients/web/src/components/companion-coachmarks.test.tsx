@@ -353,6 +353,31 @@ describe("an arrow at a place on the shared surface", () => {
     expect(placement.above).toBe(true);
   });
 
+  /**
+   * And it turns through the variable the entrance composes with, not through
+   * a transform of its own.
+   *
+   * The keyframe declares only a `from`, so an element's own transform is the
+   * animation's end state: an arrow that set `rotate(180deg)` directly would
+   * spend its whole entrance rotating into place rather than arriving turned.
+   * The static result looks identical, which is why this is pinned here
+   * rather than left to the eye.
+   */
+  test("the turned arrow rotates through the entrance's own variable", () => {
+    const { container } = render(
+      <CompanionCoachmarks
+        marks={[{ kind: "point" as const, x: 0.5, y: 0.99 }]}
+        ink={INK}
+      />,
+    );
+    const pointer = pointerOf(container);
+    expect(pointer?.dataset.above).toBe("");
+    expect(pointer?.style.getPropertyValue("--companion-coachmark-turn")).toBe(
+      "rotate(180deg)",
+    );
+    expect(pointer?.style.transform).toBe("");
+  });
+
   /** A point keeps clear of its own arrow when its caption is placed. */
   test("the caption clears the arrow rather than sitting on it", () => {
     const point = { kind: "point" as const, x: 0.5, y: 0.5 };

@@ -300,7 +300,8 @@
     "title": "Show"
   },
   "cardSurface": {
-    "tasksProgress": "{completed} / {total} tasks"
+    "tasksProgress": "{completed} / {total} tasks",
+    "viewDetails": "View details"
   },
   "channelReferenceChip": {
     "heading": "Referencing a {channel} message",
@@ -899,7 +900,8 @@
     "windows": "Voice is already active in the Windows app."
   },
   "liveVoiceButton": {
-    "startVoiceMode": "Start voice mode"
+    "startVoiceMode": "Start voice mode",
+    "tooltip": "Talk out loud with voice mode"
   },
   "liveVoiceStatus": {
     "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
@@ -1783,6 +1785,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "Muted"
+  },
+  "wakeCard": {
+    "commandFinished": "Background command finished",
+    "incomingEvent": "Incoming event",
+    "memoryReview": "Memory review",
+    "ranOnItsOwn": "Ran on its own",
+    "resumed": "Resumed after an interruption",
+    "scheduledRun": "Scheduled run",
+    "watchReview": "Watch session review",
+    "workflowFinished": "Workflow finished"
+  },
+  "wakeDetailPanel": {
+    "close": "Close",
+    "details": "Details",
+    "result": "Result",
+    "runStatus": "Run status",
+    "title": "Conversation woke",
+    "workflow": "Workflow"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

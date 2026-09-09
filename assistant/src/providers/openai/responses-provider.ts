@@ -47,7 +47,7 @@ export interface OpenAIResponsesProviderOptions {
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
   /** When true, target the Codex subscription endpoint and strip fields it
-   *  rejects (`max_output_tokens`). */
+   *  rejects (`max_output_tokens`, `prompt_cache_options`, breakpoints). */
   codexSubscription?: boolean;
   /** Static HTTP headers sent with every request (e.g. OpenRouter app
    *  attribution). Merged under any per-request attribution headers. */
@@ -309,13 +309,13 @@ export class OpenAIResponsesProvider implements Provider {
 
       // A per-conversation prompt-cache key gives OpenAI's cache router a
       // stable affinity key so a conversation's requests land on the same
-      // cache shard. Every model on the direct API receives it — both
+      // cache shard. Every Responses model receives it, including the Codex
+      // subscription endpoint: the key is a supported routing field there
+      // (the official Codex client defaults it from thread identity). Both
       // breakpoint-capable models (which additionally opt into explicit mode
-      // below) and implicit-mode models, which carry no explicit breakpoints
-      // yet still gain prefix-cache routing affinity from a stable key. The
-      // Codex subscription endpoint rejects extra params, so it is skipped
-      // there.
-      if (!this.codexSubscription && promptCacheKey) {
+      // below) and implicit-mode models, which carry no explicit breakpoints,
+      // still gain prefix-cache routing affinity from a stable key.
+      if (promptCacheKey) {
         params.prompt_cache_key = promptCacheKey;
       }
 
@@ -329,7 +329,9 @@ export class OpenAIResponsesProvider implements Provider {
       // breakpoints neither uses the cache nor incurs cache-write charges,
       // which is exactly the opt-out `disableCache` wants (omitting the param
       // would re-enable implicit mode). The Codex subscription endpoint
-      // rejects extra params, so these params are skipped entirely there.
+      // rejects `prompt_cache_options` and block-level breakpoints, so those
+      // stay off there. Codex runs in implicit prefix-cache mode and relies
+      // on `prompt_cache_key` above for routing affinity.
       if (
         !this.codexSubscription &&
         PROMPT_CACHE_BREAKPOINT_MODEL_IDS.has(effectiveModel)

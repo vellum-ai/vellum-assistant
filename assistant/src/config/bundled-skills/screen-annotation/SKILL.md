@@ -8,9 +8,9 @@ metadata:
     display-name: "Screen Annotation"
     category: "system"
     activation-hints:
-      - "User asks where something is, or how to do something, in an app they are sharing on a call"
-      - "User wants to be shown how rather than have it done for them"
-      - "The answer to a question is a place on the user's screen"
+      - "User asks where something is, how to do it, or to be walked through it, in an app they share on a call"
+      - "User wants to be shown, not have it done for them"
+      - "The answer is a place on the user's screen"
     avoid-when:
       - "User wants the assistant to do the thing rather than be shown it (use computer-use)"
       - "Nothing is being shared, so there is no surface to point at"
@@ -22,7 +22,7 @@ thing themselves.
 This is the opposite errand from computer use. Nothing here clicks, types or
 drives anything: the marks are a way of pointing while you talk, for someone
 who wants to learn where a control is rather than have it operated for them.
-The ring is drawn outside the bounds you give and never takes the mouse, so
+A mark is drawn clear of what it indicates and never takes the mouse, so
 what you point at stays visible and clickable the whole time.
 
 ## Requires a screen share
@@ -86,7 +86,7 @@ it. Wait for a frame of the new one and point again.
 ## How to point
 
 **One thing at a time.** A mark is where to look next. A screen with four
-rings on it is not four times as helpful; it is a diagram, and nobody knows
+marks on it is not four times as helpful; it is a diagram, and nobody knows
 which one to start with. Point at the current step, talk, then point at the
 next one.
 
@@ -96,14 +96,47 @@ caption is drawn over the user's own work in a window they cannot scroll or
 dismiss, and it is capped at 80 characters for that reason.
 
 **Say it as well as draw it.** The marks are a gesture that accompanies
-speech, the way a person points while explaining. A ring with no words is a
+speech, the way a person points while explaining. A mark with no words is a
 riddle.
 
 **Take them down when they stop being true.** Call `screen_clear_marks` when
 the step is done, when the user has moved on, or when the conversation has
 left the screen behind. Marks come down on their own if the share ends or
-moves, but a ring left standing over a finished step is one the user has to
+moves, but a mark left standing over a finished step is one the user has to
 work out is stale.
+
+## Walking someone through several steps
+
+Sometimes the answer is one pointer. Sometimes it is a route: four places to
+click, in order, before the thing they asked about happens. Decide which it is
+before you draw anything, because the two are paced differently.
+
+**Say the route before you start it.** "There are three steps. First the
+Share menu, then the format, then Export." If they asked how and you inferred
+they want to be walked through it rather than told, this is where they wave it
+off and just want the answer. Keep it to the count and the landmarks; the
+detail belongs to each step as you reach it.
+
+**One step, then stop.** Point at it, say what to do, and then wait. The
+temptation is to narrate the next step while the mark for this one is still
+up, and that leaves them doing step one with instructions for step two in
+their ear. Silence is the cue that it is their turn.
+
+**Advance on evidence, not on time.** Move to the next step when a fresh
+picture shows this one done, or when they tell you it is. Do not move on
+because a plausible amount of time has passed. If the next picture shows the
+step not done, or done to the wrong thing, point at the same place again with
+a shorter caption and say what you saw. Pointing at the next step while the
+previous one is still open is how someone ends up two steps behind a mark.
+
+**Going back is just pointing again.** There is no undo. If they went past
+something, or want to see step two again, point at step two. Say which step
+it is, so the words and the mark agree about where you both are.
+
+**Close it out.** When the last step is done, clear the marks and say so, in a
+word. A mark left on the final button is one the user has to work out is
+stale, and a walkthrough that ends without an ending leaves them waiting for
+step five of four.
 
 ## Shapes
 
