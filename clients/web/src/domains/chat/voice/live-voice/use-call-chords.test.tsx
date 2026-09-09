@@ -30,13 +30,15 @@ mock.module("@/runtime/hotkey", () => ({
 }));
 
 const handleCallChord = mock((_key: string) => {});
+/** The binding as the real module shapes it, by the one answer it varies on. */
+const callChords = (canBeShownTheScreen: boolean): ChordBinding => ({
+  kind: "chord",
+  modifiers: ["option"],
+  keys: canBeShownTheScreen ? ["s", "d", "m", "a"] : ["m", "a"],
+});
 mock.module("@/domains/chat/voice/live-voice/call-chords", () => ({
   handleCallChord,
-  CALL_CHORDS: {
-    kind: "chord",
-    modifiers: ["option"],
-    keys: ["s", "d"],
-  } satisfies ChordBinding,
+  callChords,
 }));
 
 let canBeShownTheScreen = false;
@@ -89,11 +91,37 @@ describe("the call's chords", () => {
 
     setCall(true);
 
-    expect(armedWith()).toEqual({
-      kind: "chord",
-      modifiers: ["option"],
-      keys: ["s", "d"],
+    expect(armedWith()).toEqual(callChords(true));
+  });
+
+  /**
+   * The mutes are the call's whatever it can be shown. The share and the pen
+   * are armed on the same answer the pill offers Share on, and follow it.
+   */
+  test("arms only the mutes for a call that cannot be shown the screen", () => {
+    renderHook(() => useCallChords());
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
     });
+
+    expect(armedWith()).toEqual(callChords(false));
+  });
+
+  test("adds the share and the pen when the call can be shown the screen", () => {
+    renderHook(() => useCallChords());
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    act(() => {
+      canBeShownTheScreen = true;
+      // The answer is read through the store, so a change to it reaches the
+      // hook with the next store update, the way the real conjunction's terms do.
+      useLiveVoiceStore.getState().setState("speaking");
+    });
+
+    expect(armedWith()).toEqual(callChords(true));
   });
 
   /**

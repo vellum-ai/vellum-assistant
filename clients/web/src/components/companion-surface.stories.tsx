@@ -482,10 +482,22 @@ export const InCallWhileWatching: Story = {
 /**
  * Mid-call with the screen shared: Share held down beside Teach, since the
  * two are the same gesture aimed at different ends, and the call is being
- * shown what a Teach session would be reading.
+ * shown what a Teach session would be reading. The captions carry the keys
+ * the desktop app's helper answers for these four controls.
  */
 export const InCallSharing: Story = {
-  args: { phase: "call", shareEnabled: true, sharing: true, call: DEMO_CALL },
+  args: {
+    phase: "call",
+    shareEnabled: true,
+    sharing: true,
+    call: DEMO_CALL,
+    shortcuts: {
+      share: "⌥S",
+      draw: "⌥D",
+      muteMicrophone: "⌥M",
+      muteAssistant: "⌥A",
+    },
+  },
 };
 
 /**
