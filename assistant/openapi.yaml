@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.8
+  version: 0.11.10
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -5102,7 +5102,7 @@ paths:
     put:
       operationId: config_embeddings_put
       summary: Set embedding config
-      description: Change the embedding provider and optionally model.
+      description: Change the embedding provider, model, and optional custom endpoint.
       tags:
         - config
       requestBody:
@@ -5116,6 +5116,14 @@ paths:
                   type: string
                 model:
                   type: string
+                baseUrl:
+                  type: string
+                dimensions:
+                  anyOf:
+                    - type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    - type: "null"
               required:
                 - provider
       responses:
@@ -5421,6 +5429,10 @@ paths:
                   minLength: 1
                 allowUnlisted:
                   type: boolean
+                inputModalities:
+                  anyOf:
+                    - $ref: "#/components/schemas/InputModalities"
+                    - type: "null"
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -5785,8 +5797,11 @@ paths:
   /v1/contact_prompt_flags:
     post:
       operationId: contact_prompt_flags_post
-      summary: Read flags for a pending contact prompt
-      description: Returns whether the pending prompt asked the gateway to mark the submitted channel verified.
+      summary: Read a pending contact prompt's flags and binding target
+      description:
+        Returns whether a form is still parked under this id, whether the pending prompt asked the gateway to mark
+        the submitted channel verified, and the contact the parked form targets, or the name and notes it proposes for a
+        contact to create. known=false means no such form is pending, so nothing it may have targeted can be read.
       tags:
         - contacts
       requestBody:
@@ -5809,9 +5824,19 @@ paths:
               schema:
                 type: object
                 properties:
+                  known:
+                    type: boolean
+                    description: Whether a form is still parked under this requestId. False leaves the target unreadable rather than absent.
                   verify:
                     type: boolean
+                  contactId:
+                    type: string
+                  displayName:
+                    type: string
+                  notes:
+                    type: string
                 required:
+                  - known
                   - verify
                 additionalProperties: false
   /v1/contact-channels/{contactChannelId}:
@@ -6743,6 +6768,18 @@ paths:
                     Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an
                     unchecked box leaves the channel unverified.
                   type: boolean
+                contactId:
+                  description: The contact this address binds to. Fixed by the command, not by the form.
+                  type: string
+                contactDisplayName:
+                  description: That contact's current name, so the form can say where the channel is going.
+                  type: string
+                displayName:
+                  description: Proposed name for a contact this form would create. Editable in the form.
+                  type: string
+                notes:
+                  description: Proposed notes for a contact this form would create.
+                  type: string
                 timeoutMs:
                   description:
                     How long to hold the form open (ms). The caller waits slightly longer than this, so the form closing is
@@ -6772,6 +6809,10 @@ paths:
                     type: string
                   verified:
                     type: boolean
+                  notesSaved:
+                    type: boolean
+                  cancelled:
+                    type: boolean
                 required:
                   - ok
                 additionalProperties: false
@@ -6797,9 +6838,10 @@ paths:
                     - create
                     - update
                     - delete
+                    - merge
                   description: Which record write the guardian is being asked to confirm.
                 contactId:
-                  description: Target contact. Required for update and delete.
+                  description: Target contact. Required for update, delete and merge (the survivor).
                   type: string
                 currentDisplayName:
                   description:
@@ -6815,6 +6857,25 @@ paths:
                   description:
                     The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show
                     what access is about to be lost.
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      address:
+                        type: string
+                    required:
+                      - type
+                      - address
+                donorContactId:
+                  description: The contact being merged away. Present only on a merge.
+                  type: string
+                donorDisplayName:
+                  description: That contact's name, so the confirmation can say who is being absorbed.
+                  type: string
+                donorChannels:
+                  description: The channels moving to the survivor.
                   type: array
                   items:
                     type: object
@@ -6869,6 +6930,14 @@ paths:
                   notesSaved:
                     type: boolean
                   nothingWritten:
+                    type: boolean
+                  merged:
+                    type: boolean
+                  renamed:
+                    type: boolean
+                  mirrored:
+                    type: boolean
+                  cancelled:
                     type: boolean
                 required:
                   - ok
@@ -8316,54 +8385,6 @@ paths:
           description: The assistant is currently responding
         "422":
           description: No user message exists to retry from
-  /v1/conversations/{id}/sight-frame:
-    post:
-      operationId: conversations_by_id_sightframe_post
-      summary: Persist an ambient camera frame
-      description:
-        Add an already-uploaded camera frame to a conversation as its own message, tagged so retention can age the
-        image out of the model's context while the transcript keeps it. No reply is generated. Returns persisted=false
-        when the frame was dropped, in which case the assistant owns the upload and there is nothing to clean up.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                attachmentId:
-                  type: string
-                  description: Id of the uploaded attachment holding the frame.
-              required:
-                - attachmentId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  persisted:
-                    type: boolean
-                  messageId:
-                    description: The message the frame landed on, when one was written.
-                    type: string
-                required:
-                  - persisted
-                additionalProperties: false
-        "400":
-          description: Missing or empty attachmentId
-        "404":
-          description: Conversation not found
   /v1/conversations/{id}/slash:
     post:
       operationId: conversations_by_id_slash_post
@@ -9928,8 +9949,6 @@ paths:
                                   type: string
                                 source:
                                   type: string
-                                pinned:
-                                  type: boolean
                                 sectionOrdinal:
                                   anyOf:
                                     - type: number
@@ -9941,10 +9960,52 @@ paths:
                               required:
                                 - slug
                                 - source
-                                - pinned
                               additionalProperties: false
                           injectedText:
                             type: string
+                          pool:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  poolSize:
+                                    type: number
+                                  selectedCount:
+                                    type: number
+                                  candidates:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        slug:
+                                          type: string
+                                        lane:
+                                          type: string
+                                        sectionHeading:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        sectionKey:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        chosen:
+                                          type: boolean
+                                      required:
+                                        - slug
+                                        - lane
+                                        - sectionHeading
+                                        - sectionKey
+                                        - chosen
+                                      additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
+                                required:
+                                  - poolSize
+                                  - selectedCount
+                                  - candidates
+                                  - selectorRan
+                                additionalProperties: false
+                              - type: "null"
                         required:
                           - turn
                           - live
@@ -13145,6 +13206,13 @@ paths:
                   reason:
                     description: Decline reason (present only when applied is false)
                     type: string
+                  committed:
+                    description:
+                      "Whether the decision was recorded before the decline. Present only for a resolver failure: true under
+                      resolver_failed (the decision committed and its follow-through failed), false under
+                      decision_not_persisted (nothing was written; retry is safe). Absent on daemons that report both
+                      under resolver_failed."
+                    type: boolean
                   replyText:
                     description: Resolver reply text for the guardian (e.g. verification code)
                     type: string
@@ -13685,6 +13753,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13702,6 +13777,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -13741,7 +13817,7 @@ paths:
                     - type: string
                     - type: "null"
                 timezone:
-                  description: Timezone for cron evaluation
+                  description: Timezone for cron and active-hours evaluation
                   anyOf:
                     - type: string
                     - type: "null"
@@ -13773,6 +13849,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13790,6 +13873,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -19984,6 +20068,7 @@ paths:
                               - openai
                               - gemini
                               - ollama
+                              - custom
                           - type: "null"
                       model:
                         anyOf:
@@ -22136,8 +22221,6 @@ paths:
                                   type: string
                                 source:
                                   type: string
-                                pinned:
-                                  type: boolean
                                 sectionOrdinal:
                                   anyOf:
                                     - type: number
@@ -22149,10 +22232,52 @@ paths:
                               required:
                                 - slug
                                 - source
-                                - pinned
                               additionalProperties: false
                           injectedText:
                             type: string
+                          pool:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  poolSize:
+                                    type: number
+                                  selectedCount:
+                                    type: number
+                                  candidates:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        slug:
+                                          type: string
+                                        lane:
+                                          type: string
+                                        sectionHeading:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        sectionKey:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        chosen:
+                                          type: boolean
+                                      required:
+                                        - slug
+                                        - lane
+                                        - sectionHeading
+                                        - sectionKey
+                                        - chosen
+                                      additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
+                                required:
+                                  - poolSize
+                                  - selectedCount
+                                  - candidates
+                                  - selectorRan
+                                additionalProperties: false
+                              - type: "null"
                         required:
                           - turn
                           - live
@@ -24568,12 +24693,13 @@ paths:
   /v1/platform/credits:
     get:
       operationId: platform_credits_get
-      summary: Get the organization's remaining credit balance and daily-limit state
+      summary: Get the organization's credit balance, plan-credit usage, and daily-limit state
       description:
         "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
-        billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which
-        excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the
-        low-balance warning state."
+        billing summary, plus plan-included credit usage (remaining, total, and the used fraction shown by the in-app
+        usage meter), extra credit bought or earned on top, credit expiring within 30 days, and the daily-limit state:
+        today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so
+        it is not total spend), the limit itself, and the low-balance warning state."
       tags:
         - platform
       responses:
@@ -24624,6 +24750,56 @@ paths:
                   low_balance_warning:
                     type: boolean
                     description: True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.
+                  plan_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unused credit (USD) remaining on the unexpired plan-included grants (initial credit, Pro credit bundle).
+                      Null when the platform did not report grant figures.
+                  plan_credit_total:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Total credit (USD) those plan-included grants were worth, net of refunds. Null when the platform did not
+                      report grant figures.
+                  plan_credit_used_fraction:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter. A
+                      Pro subscription whose unexpired grants total nothing reads as 1 (everything granted is used or
+                      expired). Null when there is no usable reading: grant figures missing, or a zero total on a base
+                      or unknown plan."
+                  plan_credits_spent:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      True when the plan-included credit is used up or expired. Whether further managed usage is funded is
+                      extra_credit_remaining (zero means the organization is out of credit). Null when there is no
+                      plan-credit reading.
+                  extra_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Credit (USD) bought or earned on top of the plan-included grants: remaining minus plan_credit_remaining,
+                      floored at zero. Null when grant figures are missing."
+                  credits_expiring_soon:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unexpired credit (USD) on grants that expire within the next 30 days. Null when the platform did not report
+                      it.
+                  next_credit_expiry_at:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Earliest upcoming expiry (ISO 8601) across grants that still hold credit, or null when none is scheduled.
                 required:
                   - remaining
                   - settled
@@ -24637,6 +24813,13 @@ paths:
                   - daily_limit_snoozed
                   - low_balance_threshold
                   - low_balance_warning
+                  - plan_credit_remaining
+                  - plan_credit_total
+                  - plan_credit_used_fraction
+                  - plan_credits_spent
+                  - extra_credit_remaining
+                  - credits_expiring_soon
+                  - next_credit_expiry_at
                 additionalProperties: false
   /v1/platform/disconnect:
     post:
@@ -27035,6 +27218,406 @@ paths:
                 required:
                   - runs
                   - nextCursor
+                additionalProperties: false
+  /v1/roadmap:
+    get:
+      operationId: roadmap_get
+      summary: List public roadmap items
+      description:
+        Lists items from the public Vellum roadmap. Authenticated as the assistant when a platform API key is
+        stored, which fills in viewerUpvoted; anonymous otherwise.
+      tags:
+        - roadmap
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Search query
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by status
+        - name: tag
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by tag slug
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+          description: "Sort order: 'upvotes' or 'created'"
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of items to return
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Number of items to skip
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        title:
+                          type: string
+                        status:
+                          type: string
+                        url:
+                          type: string
+                          description: Public page for this item
+                        upvoteCount:
+                          type: number
+                        commentCount:
+                          type: number
+                        tags:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              slug:
+                                type: string
+                              name:
+                                type: string
+                            required:
+                              - slug
+                              - name
+                            additionalProperties: false
+                        viewerUpvoted:
+                          anyOf:
+                            - type: boolean
+                            - type: "null"
+                          description: Whether the assistant has upvoted; null when read anonymously
+                      required:
+                        - slug
+                        - title
+                        - status
+                        - url
+                        - upvoteCount
+                        - commentCount
+                        - tags
+                        - viewerUpvoted
+                      additionalProperties: false
+                  total:
+                    type: number
+                required:
+                  - items
+                  - total
+                additionalProperties: false
+    post:
+      operationId: roadmap_post
+      summary: File a roadmap item as the assistant
+      description: Creates a publicly visible roadmap item attributed to the assistant. Requires a stored platform API key.
+      tags:
+        - roadmap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: Item title
+                description:
+                  type: string
+                tags:
+                  description: Tag slugs
+                  type: array
+                  items:
+                    type: string
+              required:
+                - title
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: string
+                  url:
+                    type: string
+                    description: Public page for this item
+                required:
+                  - slug
+                  - title
+                  - status
+                  - url
+                additionalProperties: false
+  /v1/roadmap/{slug}:
+    delete:
+      operationId: roadmap_by_slug_delete
+      summary: Delete a roadmap item
+      description: Permanently removes a roadmap item. The roadmap service decides which items this assistant may delete.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  deleted:
+                    type: boolean
+                    const: true
+                required:
+                  - slug
+                  - deleted
+                additionalProperties: false
+    get:
+      operationId: roadmap_by_slug_get
+      summary: Get one roadmap item
+      description: Returns a single roadmap item with its description and comment thread.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: string
+                  url:
+                    type: string
+                    description: Public page for this item
+                  upvoteCount:
+                    type: number
+                  commentCount:
+                    type: number
+                  tags:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        slug:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - slug
+                        - name
+                      additionalProperties: false
+                  viewerUpvoted:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description: Whether the assistant has upvoted; null when read anonymously
+                  description:
+                    type: string
+                  creatorUsername:
+                    type: string
+                  creatorKind:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  created:
+                    type: string
+                  comments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        authorUsername:
+                          type: string
+                        authorKind:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: e.g. 'assistant' or 'user'
+                        authorIsStaff:
+                          type: boolean
+                        body:
+                          type: string
+                        created:
+                          type: string
+                      required:
+                        - id
+                        - authorUsername
+                        - authorKind
+                        - authorIsStaff
+                        - body
+                        - created
+                      additionalProperties: false
+                required:
+                  - slug
+                  - title
+                  - status
+                  - url
+                  - upvoteCount
+                  - commentCount
+                  - tags
+                  - viewerUpvoted
+                  - description
+                  - creatorUsername
+                  - creatorKind
+                  - created
+                  - comments
+                additionalProperties: false
+    patch:
+      operationId: roadmap_by_slug_patch
+      summary: Update a roadmap item
+      description:
+        Updates a roadmap item. At least one field is required; the roadmap service decides which items this
+        assistant may edit.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+                status:
+                  type: string
+                tags:
+                  description: Tag slugs
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  title:
+                    type: string
+                  status:
+                    type: string
+                  url:
+                    type: string
+                    description: Public page for this item
+                required:
+                  - slug
+                  - title
+                  - status
+                  - url
+                additionalProperties: false
+  /v1/roadmap/{slug}/upvote:
+    delete:
+      operationId: roadmap_by_slug_upvote_delete
+      summary: Remove the assistant's upvote
+      description: Removes the assistant's upvote from a roadmap item.
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  upvoteCount:
+                    type: number
+                required:
+                  - slug
+                  - upvoteCount
+                additionalProperties: false
+    post:
+      operationId: roadmap_by_slug_upvote_post
+      summary: Upvote a roadmap item as the assistant
+      description: "Adds the assistant's upvote. Idempotent: upvoting twice leaves the count unchanged."
+      tags:
+        - roadmap
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slug:
+                    type: string
+                  upvoteCount:
+                    type: number
+                required:
+                  - slug
+                  - upvoteCount
                 additionalProperties: false
   /v1/routes/worker/start:
     post:
@@ -35875,6 +36458,12 @@ components:
           anyOf:
             - type: boolean
             - type: "null"
+        inputModalities:
+          anyOf:
+            - anyOf:
+                - $ref: "#/components/schemas/InputModalities"
+                - type: "null"
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -35905,6 +36494,24 @@ components:
               minLength: 1
             - type: "null"
       additionalProperties: {}
+    InputModalities:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverride"
+        image:
+          $ref: "#/components/schemas/ModalityOverride"
+        audio:
+          $ref: "#/components/schemas/ModalityOverride"
+        video:
+          $ref: "#/components/schemas/ModalityOverride"
+    ModalityOverride:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
     ProfileStatus:
       type: string
       enum:
@@ -36656,6 +37263,10 @@ components:
           minLength: 1
         allowUnlisted:
           type: boolean
+        inputModalities:
+          anyOf:
+            - $ref: "#/components/schemas/InputModalitiesOutput"
+            - type: "null"
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -37197,6 +37808,26 @@ components:
         - name
         - status
         - origin
+      additionalProperties: false
+    InputModalitiesOutput:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        image:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        audio:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        video:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+      additionalProperties: false
+    ModalityOverrideOutput:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
       additionalProperties: false
     AuthOutput:
       oneOf:

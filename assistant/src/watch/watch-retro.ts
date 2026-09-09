@@ -127,12 +127,13 @@ const WATCH_RETRO_WAKE_SOURCE = "watch-retro";
  * be enumerated, the question is not ready to be asked, and the honest move is
  * to leave the step described rather than explained.
  *
- * **Every page is skippable, and every skip lands somewhere safe.** A skipped
- * `fill` keeps its pre-filled suggestion, so it is an edit rather than a blank.
- * A skipped `pick` takes the first option, which is the reading the recording
- * already supports. A skipped `gate` takes the first option too, and on a gate
- * that first option must be the cautious one. It is the single place where the
- * default is deliberately not the model's guess.
+ * **The first option is the recommended one, and the card marks it as such.**
+ * On a `pick` that is the reading the recording already supports. On a `gate`
+ * it must be the cautious one, the single place where the recommendation is
+ * deliberately not the model's guess. Nothing is selected for the user: a
+ * `pick` or a `gate` is answered by tapping an option, so the answer that comes
+ * back is one they chose. Only the `fill` is skippable, and a skipped `fill`
+ * keeps its pre-filled suggestion, so it is an edit rather than a blank.
  *
  * **The skill loads before the card is shown, and nothing follows the card.**
  * `skill-management` opens on "Ask before doing anything", so a turn that loads
@@ -169,11 +170,11 @@ The payload:
 - \`eyebrow\`: what the session cost, in the teaching's own words, e.g. "Taught in 4 min" or "Taught in 4 min, 11 screens". Never "watched": the user taught you this, they did not perform for you.
 - \`questions\`: at most three, most consequential first. Fewer is better, and none is a valid answer if the recording settled everything. Each question is \`{ id, kind, prompt }\`: \`prompt\` is the question worded the way you would ask it out loud, and \`id\` is a handle no other question on this card uses. A \`pick\` or a \`gate\` adds \`options\`, each of them \`{ id, label }\` and optionally a \`note\`: \`label\` is the answer as the user reads it, and \`id\` is that option's own handle. Use those names exactly. A question's text is \`prompt\` and never \`question\` or \`text\`; an option's text is \`label\` and never \`value\` or \`title\`. Anything sent under another name is dropped on the way to the card, and the page it belonged to is lost.
 
-Every question is answerable in one tap and every one is skippable, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
+Every question is answerable in one tap, and the user has to answer each one to save, so ask only about what you are genuinely guessing at: a value you could not read, a choice whose rule you could not infer, a step you only saw the result of. Do not ask the user to confirm something the recording already showed you.
 
 - \`kind: "fill"\` is a single text field, and there is at most one of them: what they would say to start this task, in their own words. Always ask it, because the recording cannot tell you. Put your best guess in \`suggestion\` so skipping keeps a working phrase instead of leaving it blank.
-- \`kind: "pick"\` is two to four named alternatives. The first option is the default and must be the reading the recording supports; mark it with a \`note\` saying so. Never ask a yes/no whose "no" tells you nothing: "was the rule X?" wastes the question, where "what decides this?" with X first among the options gets an answer either way. If you cannot name the alternatives, you do not understand the gap well enough to ask about it, so leave the step described and ask nothing.
-- \`kind: "gate"\` is for a destructive or irreversible step, and it is asked however plainly the step was seen. Not "did you do this" (you watched them), but whether you may do it unattended. The first option must be the cautious one ("Ask me first"), because a skipped question takes it.
+- \`kind: "pick"\` is two to four named alternatives. The first option is shown as the recommended one and must be the reading the recording supports; mark it with a \`note\` saying so. Never ask a yes/no whose "no" tells you nothing: "was the rule X?" wastes the question, where "what decides this?" with X first among the options gets an answer either way. If you cannot name the alternatives, you do not understand the gap well enough to ask about it, so leave the step described and ask nothing.
+- \`kind: "gate"\` is for a destructive or irreversible step, and it is asked however plainly the step was seen. Not "did you do this" (you watched them), but whether you may do it unattended. The first option must be the cautious one ("Ask me first"), because it is the one shown as recommended.
 
 Ask about the done condition only if it is genuinely unclear, and as a \`pick\`.`;
 

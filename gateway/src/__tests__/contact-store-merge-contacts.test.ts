@@ -5,7 +5,8 @@
  * (`contacts_mirror_merge_contact`), so there is no compensation path: these
  * tests pin that the gateway sends the op with the survivor's identity
  * (display name + gateway-resolved user_file slug), that a mirror failure is
- * soft (gateway merge still succeeds), and that no raw db_proxy SQL runs.
+ * soft (gateway merge still succeeds) but reported through `mirrored`, and
+ * that no raw db_proxy SQL runs.
  */
 
 import {
@@ -138,10 +139,14 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     seedChannel({ id: "ch_1", contactId: "ct_merge" });
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact, mirrored } = await store.mergeContacts(
+      "ct_keep",
+      "ct_merge",
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe("ct_keep");
+    expect(contact).not.toBeNull();
+    expect(contact!.id).toBe("ct_keep");
+    expect(mirrored).toBe(true);
 
     const calls = mirrorMergeCalls();
     expect(calls).toHaveLength(1);
@@ -165,10 +170,10 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     seedChannel({ id: "ch_1", contactId: "ct_merge" });
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact } = await store.mergeContacts("ct_keep", "ct_merge");
 
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe("ct_keep");
+    expect(contact).not.toBeNull();
+    expect(contact!.id).toBe("ct_keep");
 
     // Channel moved to survivor in gateway DB.
     const db = getGatewayDb();
@@ -196,11 +201,19 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     );
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact, mirrored } = await store.mergeContacts(
+      "ct_keep",
+      "ct_merge",
+    );
 
     // Merge succeeded (gateway DB is source of truth).
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe("ct_keep");
+    expect(contact).not.toBeNull();
+    expect(contact!.id).toBe("ct_keep");
+
+    // The donor's notes are still on the orphaned mirror row rather than
+    // combined onto the survivor, so the caller has to be told the merge only
+    // half landed.
+    expect(mirrored).toBe(false);
 
     // The daemon op is transactional, so a failure means NOTHING applied —
     // there is no compensation: no raw db_proxy SQL, no piecemeal mirror ops.
@@ -218,10 +231,15 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     ipcThrowOn.set("contact_user_file_slugs", new Error("daemon unavailable"));
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact, mirrored } = await store.mergeContacts(
+      "ct_keep",
+      "ct_merge",
+    );
 
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe("ct_keep");
+    expect(contact).not.toBeNull();
+    expect(contact!.id).toBe("ct_keep");
+    // The op itself went out, so the mirror is not what degraded here.
+    expect(mirrored).toBe(true);
 
     // The slug is only consumed by the daemon's rare gap-INSERT branch, so
     // its failure must NOT skip the mirror merge — the op goes out with
@@ -249,9 +267,13 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     ipcThrowOn.set("contacts_info_batch", new Error("daemon unavailable"));
 
     const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
+    const { contact, mirrored } = await store.mergeContacts(
+      "ct_keep",
+      "ct_merge",
+    );
 
-    expect(result).not.toBeNull();
+    expect(contact).not.toBeNull();
+    expect(mirrored).toBe(true);
     const calls = mirrorMergeCalls();
     expect(calls).toHaveLength(1);
     expect(
@@ -264,9 +286,9 @@ describe("ContactStore.mergeContacts — typed transactional mirror", () => {
     seedContact("ct_guardian", "guardian");
 
     const store = new ContactStore();
-    await expect(
-      store.mergeContacts("ct_keep", "ct_guardian"),
-    ).rejects.toThrow(/guardian/i);
+    await expect(store.mergeContacts("ct_keep", "ct_guardian")).rejects.toThrow(
+      /guardian/i,
+    );
 
     expect(mirrorMergeCalls()).toHaveLength(0);
     expect(

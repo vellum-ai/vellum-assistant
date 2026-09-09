@@ -248,15 +248,24 @@
     "adjust": "Adjust",
     "capProgress": " / {cap} this month",
     "connectCardBanner": "Auto-reload requires you to connect a credit card.",
+    "dailyLimitLookupError": "Couldn't check your daily credit limit, which auto-reload requires. Retry to continue.",
     "declinedCutoffNotice": "We paused automatic reloads after several declined payments. Add a new payment method to turn auto-reload back on.",
     "disableError": "Failed to disable auto-reload. Please try again.",
     "dismiss": "Dismiss",
     "loadError": "Failed to load auto-reload configuration.",
     "loading": "Loading…",
+    "retry": "Retry",
     "summary": "Add {amount} when balance falls under {threshold}",
     "toggleHelper": "Auto reloads only occur when plan based usage is exhausted",
     "toggleLabel": "Enable auto-reload",
     "updateError": "Failed to save auto-reload settings. Please try again."
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "Turn off auto-reload",
+    "message": "Auto-reload requires a daily credit limit. Set one to save your auto-reload settings, or turn auto-reload off.",
+    "save": "Save",
+    "saving": "Saving…",
+    "title": "Set a daily credit limit"
   },
   "autoTopUpDisableConfirm": {
     "disable": "Disable",
@@ -446,12 +455,12 @@
     "urlPlaceholder": "Paste callback URL here..."
   },
   "checkoutBonusModal": {
-    "body": "Claim a one-time {amount} credit and we'll add it straight to your account balance. No payment required.",
-    "claim": "Claim {amount} in credits",
+    "body": "Claim {amount} in one-time extra usage and we'll add it straight to your usage balance. No payment required.",
+    "claim": "Claim {amount} in extra usage",
     "decline": "No thanks",
-    "errorToast": "Could not add the credits. Please try again.",
-    "grantedToast": "{amount} in credits added to your account.",
-    "title": "Here's {amount} on us",
+    "errorToast": "Could not add the extra usage. Please try again.",
+    "grantedToast": "{amount} in extra usage added to your usage balance.",
+    "title": "Here's {amount} of extra usage on us",
     "unavailableToast": "This offer is no longer available."
   },
   "checkoutPage": {
@@ -645,6 +654,16 @@
     "loginNotice": "Log in to the Vellum platform to manage backups.",
     "noAssistant": "No assistant found. Hatch an assistant to access debug controls.",
     "onboardingClearedToast": "Onboarding flags cleared.",
+    "previewDescription": "Serve this browser the preview UI build instead of the stable one. Toggling reloads the page.",
+    "previewOffAriaLabel": "Preview channel is off",
+    "previewOnAriaLabel": "Preview channel is on",
+    "previewRequestedPreview": "Requested: preview",
+    "previewRequestedStable": "Requested: stable",
+    "previewRunningPreview": "Running: preview build {version}",
+    "previewRunningStable": "Running: stable build {version}",
+    "previewTitle": "Preview channel (Vellum-only)",
+    "previewUnavailableHint": "No preview build is being served, so this browser is still on stable. Delete the vellum_preview cookie in devtools to reset.",
+    "previewVersionUnknown": "unknown",
     "replay": "Replay",
     "replayDescription": "Clear local onboarding flags and re-walk the privacy → hatch screens. Your existing assistant is preserved.",
     "replayTitle": "Replay onboarding (Vellum-only)",
@@ -989,6 +1008,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} Account",
+    "cancel": "Cancel",
     "connectAccount": "Connect Account",
     "connectAccountLower": "Connect account",
     "connectToContinue": "Connect Account to continue",
@@ -1034,6 +1054,7 @@
     "loadError": "Failed to load MCP servers. Check that an assistant is running.",
     "loading": "Loading MCP servers...",
     "reloadAriaLabel": "Reload MCP servers",
+    "reloadButton": "Refresh",
     "reloadTooltip": "Reload all servers",
     "removeDialogConfirm": "Remove",
     "removeDialogMessage": "Are you sure you want to remove \"{serverId}\"? This will disconnect all tools provided by this server.",
@@ -1063,15 +1084,19 @@
     "totalTools": "{count, plural, one {# total tool} other {# total tools}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "Close",
     "authenticate": "Authenticate",
+    "authenticatedBadge": "Authenticated",
     "authenticating": "Authenticating...",
     "configure": "Configure",
     "configureTooltip": "Configure",
     "estimatedTokens": "~{count} tokens",
+    "moreActions": "More actions for {serverId}",
     "oauthBadge": "OAuth",
     "reAuth": "Re-auth",
     "reAuthTooltip": "Re-authenticate OAuth",
     "registeredTools": "{count, plural, one {# registered tool} other {# registered tools}}",
+    "removeServer": "Delete server",
     "removeServerAriaLabel": "Remove {serverId}",
     "removeServerTooltip": "Remove server",
     "revoke": "Revoke",
@@ -1544,6 +1569,18 @@
     "selectModelError": "Select a model.",
     "selectModelPlaceholder": "Select a model",
     "selectProviderPlaceholder": "Select a provider…"
+  },
+  "profileModalitiesSection": {
+    "audio": "Audio",
+    "enableAria": "Enable {modality}",
+    "enabledColumn": "Enabled",
+    "helper": "The model receives a modality only when it is enabled and marked as supported. Images that are not sent this way are captioned.",
+    "image": "Image",
+    "resolvedOff": "Not sent to the model",
+    "resolvedOn": "Sent to the model",
+    "supportedAria": "Model supports {modality}",
+    "supportedColumn": "Model supports it",
+    "title": "Modalities"
   },
   "profileRow": {
     "actionsAriaLabel": "Actions for {displayName}",
@@ -2189,15 +2226,8 @@
     "customKey": "Custom",
     "defaultBadge": "Default",
     "enableVoiceShortcut": "Enable voice mode shortcut",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn needs Input Monitoring. Grant it in System Settings, or set a custom shortcut.",
     "focusedTabNote": "Push-to-Talk only works while this tab is focused, and browsers may intercept some shortcuts (e.g. Ctrl+T) before the page can see them. For always-on PTT, use the Vellum desktop app.",
     "grantMicrophoneAccessHint": "Grant microphone access to list your available input devices.",
-    "holdToDictateEnable": "Enable hold to dictate",
-    "holdToDictateNeedsInputMonitoring": "Waiting on Input Monitoring. Switch this off and on again to ask once more.",
-    "holdToDictateSubtitle": "Hold Control and Option from any app, speak, and let go. What you said lands at your cursor.",
-    "holdToDictateTitle": "Hold to Dictate",
-    "holdToDictateVoiceOverNote": "Control and Option is VoiceOver's modifier key. If you use VoiceOver, its commands will take these keys first.",
     "interruptSensitivityAriaLabel": "Interrupt sensitivity",
     "interruptSensitivityDescription": "How easily talking over the assistant interrupts it. Lower it if the assistant cuts itself off on background noise or filler words; raise it to interrupt more quickly.",
     "interruptSensitivityHigh": "High",
@@ -2213,7 +2243,6 @@
     "pauseBeforeReplyDescription": "How long the assistant waits after you stop speaking before it replies. A longer pause lets you gather your thoughts mid-sentence without being cut off.",
     "pauseBeforeReplyLabel": "Pause before reply",
     "pressShortcut": "Press a shortcut…",
-    "recommendedBadge": "Recommended",
     "recordingPrompt": "Press a chord or keystroke…",
     "resetToDefaults": "Reset to defaults",
     "savedMicrophone": "Saved microphone",
@@ -2238,6 +2267,20 @@
     "voiceShortcutSubtitleDesktop": "Global shortcut for starting/ending a voice conversation.",
     "voiceShortcutTitle": "Voice Mode Shortcut",
     "captionsRecommendation": "We recommend keeping both off to start. It feels more like a real conversation."
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "Allow Input Monitoring",
+    "customHint": "Hold two or more of Cmd, Ctrl, Option, and Shift, then let go.",
+    "customLabel": "Custom",
+    "fnDictationNote": "If macOS Dictation starts on a double press of Fn, turn that off under Keyboard in System Settings.",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "The key cannot be watched until Input Monitoring is allowed.",
+    "offLabel": "Off",
+    "recordingPrompt": "Hold modifier keys…",
+    "refusedNote": "The key could not be watched. Restart the app to try again.",
+    "subtitle": "Hold it to dictate at your cursor or ask about a selection. Double-tap it to start or end a call.",
+    "title": "Voice Key",
+    "voiceOverNote": "Control and Option is VoiceOver's modifier key. If you use VoiceOver, its commands will take these keys first."
   },
   "voicePickerCard": {
     "changeButton": "Change",
@@ -2311,6 +2354,38 @@
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Waiting for authorization..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Companion",
+        "right": "Coworker"
+      },
+      "executeCollaborate": {
+        "left": "Independent",
+        "right": "Collaborative"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Playful",
+        "right": "Serious"
+      },
+      "politeUnfiltered": {
+        "left": "Polite",
+        "right": "Unfiltered"
+      }
+    },
+    "loadError": "Could not load personality sliders.",
+    "rangeAriaLabel": "{left} to {right}",
+    "save": "Save",
+    "saveErrorToast": "Could not save personality sliders. Please try again.",
+    "saveSuccessToast": "Personality sliders saved.",
+    "saving": "Saving…",
+    "subtitle": "Save the slider values to this assistant. This does not rewrite identity files.",
+    "title": "Personality"
+  },
   "sidebar": {
     "general": "General",
     "model": "Models & Services",
@@ -2326,6 +2401,7 @@
     "community": "Community",
     "debug": "Debug",
     "developer": "Developer",
+    "personality": "Personality",
     "logout": "Log Out",
     "login": "Log In",
     "title": "Settings"

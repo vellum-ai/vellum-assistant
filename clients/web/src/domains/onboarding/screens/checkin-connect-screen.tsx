@@ -34,10 +34,18 @@ export function CheckinConnectScreen({
 }: CheckinConnectScreenProps) {
   const { t } = useTranslation("onboarding");
   const electron = isElectron();
-  const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
-    assistantId,
-    onConnect,
-  });
+  const { handleConnect, cancelConnect, oauthInProgress } =
+    useGoogleCalendarConnect({
+      assistantId,
+      onConnect,
+    });
+
+  // The authorization window cannot be observed, so waiting only ends when the
+  // connection lands or the user leaves. Skip has to stay reachable.
+  const handleSkip = () => {
+    cancelConnect();
+    onSkip();
+  };
 
   const assistantInlineName =
     assistantName.trim() || t("checkinConnectScreen.unnamedAssistant");
@@ -104,7 +112,9 @@ export function CheckinConnectScreen({
           className="mt-8 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.25s both" }}
         >
-          {t("checkinConnectScreen.permissionBody", { name: assistantInlineName })}
+          {t("checkinConnectScreen.permissionBody", {
+            name: assistantInlineName,
+          })}
         </p>
 
         <div
@@ -132,8 +142,7 @@ export function CheckinConnectScreen({
             variant="ghost"
             size="regular"
             fullWidth
-            onClick={onSkip}
-            disabled={oauthInProgress}
+            onClick={handleSkip}
             className={`${electron ? "h-9" : "h-11 text-base"}`}
           >
             {t("actions.skipForNow")}

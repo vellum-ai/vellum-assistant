@@ -7,8 +7,7 @@
  * `utils/voice-mode-activation.ts` for the rules a toggle adds on top.
  *
  * Browsers cannot observe the Fn key, so stored Fn preferences fall back to
- * Ctrl on read unless the Electron host bridge asks to preserve the native
- * Fn binding.
+ * Ctrl on read. The desktop voice key (`utils/voice-key`) is where Fn lives.
  */
 
 export type PTTModifier =
@@ -41,14 +40,6 @@ export const CTRL_PTT_ACTIVATOR: PTTModifierOnly = {
   kind: "modifierOnly",
   modifiers: ["control"],
 };
-export const FN_PTT_ACTIVATOR: PTTModifierOnly = {
-  kind: "modifierOnly",
-  modifiers: ["function"],
-};
-
-interface ParseActivatorOptions {
-  preserveFunction?: boolean;
-}
 
 const MODIFIER_ORDER: PTTModifier[] = [
   "function",
@@ -117,14 +108,6 @@ export function serializeActivator(activator: PTTActivator): string {
   return JSON.stringify(activator);
 }
 
-export function isFnPushToTalkActivator(activator: PTTActivator): boolean {
-  return (
-    activator.kind === "modifierOnly" &&
-    activator.modifiers.length === 1 &&
-    activator.modifiers[0] === "function"
-  );
-}
-
 function isPTTModifier(value: unknown): value is PTTModifier {
   return (
     typeof value === "string" &&
@@ -132,47 +115,23 @@ function isPTTModifier(value: unknown): value is PTTModifier {
   );
 }
 
-function normalizeModifiers(
-  raw: readonly unknown[],
-  options: ParseActivatorOptions,
-): PTTModifier[] {
-  const modifiers = raw.filter(isPTTModifier);
-  if (options.preserveFunction && modifiers.includes("function")) {
-    return FN_PTT_ACTIVATOR.modifiers;
-  }
-  const filtered = options.preserveFunction
-    ? modifiers
-    : modifiers.filter((m) => m !== "function");
-  return sortModifiers(filtered);
+function normalizeModifiers(raw: readonly unknown[]): PTTModifier[] {
+  return sortModifiers(
+    raw.filter(isPTTModifier).filter((m) => m !== "function"),
+  );
 }
 
-export function parseActivator(
-  raw: string | null,
-  options: ParseActivatorOptions = {},
-): PTTActivator {
+export function parseActivator(raw: string | null): PTTActivator {
   if (!raw) {
     return CTRL_PTT_ACTIVATOR;
   }
   // Back-compat with the macOS legacy string values. Browsers cannot detect
   // the Fn key, so any stored "fn" preference falls back to Ctrl.
-  if (raw === "fn") {
-    return {
-      kind: "modifierOnly",
-      modifiers: options.preserveFunction
-        ? FN_PTT_ACTIVATOR.modifiers
-        : CTRL_PTT_ACTIVATOR.modifiers,
-    };
-  }
-  if (raw === "ctrl") {
+  if (raw === "fn" || raw === "ctrl") {
     return CTRL_PTT_ACTIVATOR;
   }
   if (raw === "fn_shift") {
-    return {
-      kind: "modifierOnly",
-      modifiers: options.preserveFunction
-        ? FN_PTT_ACTIVATOR.modifiers
-        : ["shift"],
-    };
+    return { kind: "modifierOnly", modifiers: ["shift"] };
   }
   if (raw === "off") {
     return { kind: "off" };
@@ -183,7 +142,7 @@ export function parseActivator(
       return { kind: "off" };
     }
     if (parsed.kind === "modifierOnly" && Array.isArray(parsed.modifiers)) {
-      const modifiers = normalizeModifiers(parsed.modifiers, options);
+      const modifiers = normalizeModifiers(parsed.modifiers);
       if (modifiers.length === 0) {
         return CTRL_PTT_ACTIVATOR;
       }
@@ -197,7 +156,7 @@ export function parseActivator(
       return {
         kind: "key",
         label: parsed.label,
-        modifiers: normalizeModifiers(parsed.modifiers, options),
+        modifiers: normalizeModifiers(parsed.modifiers),
       };
     }
   } catch {

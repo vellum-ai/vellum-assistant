@@ -47,4 +47,8 @@ describe("API_KEY_PROVIDERS", () => {
     expect(API_KEY_PROVIDERS).toContain("tavily");
     expect(API_KEY_PROVIDERS).toContain("firecrawl");
   });
+
+  test("includes custom for OpenAI-compatible memory embeddings", () => {
+    expect(API_KEY_PROVIDERS).toContain("custom");
+  });
 });

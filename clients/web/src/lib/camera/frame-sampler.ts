@@ -125,7 +125,7 @@ export interface FrameSamplerOptions {
   /**
    * Sample one callback in every `frameStride`, defaulting to all of them.
    *
-   * The gate's own rate floor bounds what is kept, so this bounds what is
+   * The gate's thresholds bound what is kept, so this bounds what is
    * looked at: the escape hatch for a device where a per-frame draw and readback
    * costs more than the decision is worth. Values below 1 are clamped.
    */

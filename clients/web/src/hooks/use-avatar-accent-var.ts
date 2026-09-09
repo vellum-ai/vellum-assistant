@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 
+import { contrastForeground, legibleAccentFill } from "@/utils/avatar-tone";
+
 /**
  * The CSS custom property carrying the active assistant's avatar accent hex
  * (e.g. `#E9642F` for the orange character). Set on `<html>` by
@@ -8,6 +10,87 @@ import { useEffect } from "react";
  * read it with a `var(--avatar-accent, <fallback>)` fallback.
  */
 export const AVATAR_ACCENT_CSS_VAR = "--avatar-accent";
+
+/**
+ * The ink that reads on a surface filled with that accent: black or white,
+ * whichever wins on WCAG contrast (`contrastForeground`). The accent carries no
+ * luminance guarantee, and the palette's yellow is light enough that white text
+ * on it is about 1.6:1, so any surface that fills itself with the accent takes
+ * its foreground from here rather than assuming white.
+ *
+ * Published and cleared alongside {@link AVATAR_ACCENT_CSS_VAR}, so the same
+ * `var(--avatar-accent, <fallback>)` reasoning applies: absent means there is
+ * no accent, and the consumer's own fallback ink stands.
+ */
+export const AVATAR_ACCENT_INK_CSS_VAR = "--avatar-accent-ink";
+
+/**
+ * The accent as a surface that can be FILLED with it and still carry text:
+ * the accent itself wherever text reads on it, and the nearest colour where it
+ * does otherwise (see `legibleAccentFill`). Chrome drawn over video rather than
+ * under text keeps reading {@link AVATAR_ACCENT_CSS_VAR}, which is the colour
+ * the assistant actually is.
+ *
+ * Published and cleared with the other two.
+ */
+export const AVATAR_ACCENT_FILL_CSS_VAR = "--avatar-accent-fill";
+
+/**
+ * The accent trio as an inline style, for the element that PUBLISHES an
+ * accent. Empty for an assistant with no accent, since nothing above the
+ * document root can be inherited and every consumer wants its own fallback.
+ *
+ * An element nested under a publisher needs {@link scopedAvatarAccentVars}
+ * instead, which has an inherited value to shadow.
+ *
+ * One function so the three cannot be published apart: the ink is chosen
+ * against the fill, and an element carrying any two of them is a surface
+ * painted in one colour and lettered for another.
+ */
+export function avatarAccentVars(
+  accentHex: string | null | undefined,
+): Record<string, string> {
+  if (!accentHex) {
+    return {};
+  }
+  const fill = legibleAccentFill(accentHex);
+  return {
+    [AVATAR_ACCENT_CSS_VAR]: accentHex,
+    [AVATAR_ACCENT_FILL_CSS_VAR]: fill,
+    [AVATAR_ACCENT_INK_CSS_VAR]: contrastForeground(fill),
+  };
+}
+
+/** Every property {@link useAvatarAccentVar} owns on the document root. */
+const ACCENT_VAR_NAMES = [
+  AVATAR_ACCENT_CSS_VAR,
+  AVATAR_ACCENT_FILL_CSS_VAR,
+  AVATAR_ACCENT_INK_CSS_VAR,
+] as const;
+
+/**
+ * The same trio for a subtree NESTED under the document root's, where absence
+ * has to be declared rather than left out.
+ *
+ * Custom properties inherit, so an element that publishes nothing inherits the
+ * root's accent, which belongs to the assistant the app has selected rather
+ * than the one this subtree is about. A colourless call under a coloured
+ * assistant would then wear that assistant's colour. The three names take the
+ * CSS-wide `initial` instead, which resolves a custom property to the
+ * guaranteed-invalid value and sends every `var(--x, fallback)` below to its
+ * OWN fallback: the waves to their indigo, the camera chrome to its crimson.
+ * A concrete trio here could only pick one of those and would be wrong for the
+ * other.
+ */
+export function scopedAvatarAccentVars(
+  accentHex: string | null | undefined,
+): Record<string, string> {
+  const published = avatarAccentVars(accentHex);
+  if (Object.keys(published).length > 0) {
+    return published;
+  }
+  return Object.fromEntries(ACCENT_VAR_NAMES.map((name) => [name, "initial"]));
+}
 
 /**
  * Latest value published by {@link useAvatarAccentVar}, for readers that
@@ -36,9 +119,10 @@ export function getPublishedAvatarAccentHex(): string | null {
 }
 
 /**
- * Publishes the avatar accent as `--avatar-accent` on the document root so
- * any component can tint itself to the assistant's colour from plain CSS,
- * with no query subscription at the consumption site, and as the value
+ * Publishes the avatar accent as `--avatar-accent`, and the ink that reads on
+ * it as `--avatar-accent-ink`, on the document root so any component can tint
+ * itself to the assistant's colour from plain CSS, with no query subscription
+ * at the consumption site, and as the value
  * {@link getPublishedAvatarAccentHex} hands to non-React readers. Mounted
  * once in `RootLayout` next to the favicon / Electron icon syncs, fed the
  * `accentHex` the avatar query resolves (see `utils/avatar-accent.ts`).
@@ -46,13 +130,19 @@ export function getPublishedAvatarAccentHex(): string | null {
 export function useAvatarAccentVar(accentHex: string | null): void {
   useEffect(() => {
     const root = document.documentElement;
-    if (accentHex) {
-      root.style.setProperty(AVATAR_ACCENT_CSS_VAR, accentHex);
-    } else {
-      root.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+    const vars = avatarAccentVars(accentHex);
+    for (const name of ACCENT_VAR_NAMES) {
+      const value = vars[name];
+      if (value) {
+        root.style.setProperty(name, value);
+      } else {
+        root.style.removeProperty(name);
+      }
     }
     return () => {
-      root.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+      for (const name of ACCENT_VAR_NAMES) {
+        root.style.removeProperty(name);
+      }
     };
   }, [accentHex]);
 

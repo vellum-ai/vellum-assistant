@@ -170,6 +170,10 @@ import {
   isPluginWebhookSocketData,
 } from "./http/routes/plugin-webhook-websocket.js";
 import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import {
+  reconcilePluginWebhookRoutes,
+  watchPluginIngressForWebhookRoutes,
+} from "./channels/plugin-webhook-route-sync.js";
 import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
@@ -215,7 +219,10 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
-import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
+import {
+  arePlatformFeaturesEnabled,
+  isFeatureFlagEnabled,
+} from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
@@ -244,9 +251,11 @@ import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
 
 import { riskClassificationRoutes } from "./ipc/risk-classification-handlers.js";
 import { createVelayRoutes } from "./ipc/velay-handlers.js";
+import { createWebhookRouteRoutes } from "./ipc/webhook-route-handlers.js";
 import { refreshRouteSchema } from "./ipc/route-schema-cache.js";
 import { initGatewayDb } from "./db/connection.js";
 import { cleanupExpiredInboundEvents } from "./db/inbound-dedup-store.js";
+import { onWebhookIngressRoutesChanged } from "./db/webhook-ingress-route-store.js";
 import { runPostAssistantReady } from "./post-assistant-ready.js";
 import {
   clearManagedPublicBaseUrl,
@@ -398,6 +407,14 @@ async function main() {
   initTrustRuleCache();
   initAdmissionPolicyCache();
 
+  // Plugin rows in the webhook registry are derived from the declarations the
+  // ingress gate currently serves, so startup recomputes them from what is
+  // installed and approved right now rather than trusting whatever the last
+  // run left behind. Anything that moved while the gateway was down settles
+  // here, and the watch below keeps them settling while it runs.
+  reconcilePluginWebhookRoutes();
+  watchPluginIngressForWebhookRoutes();
+
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
   // Handlers read dynamic credentials and config.json values from these
@@ -407,6 +424,16 @@ async function main() {
   const velayTunnelClient = createVelayTunnelClient(config, {
     credentials: credentialCache,
     configFile: configFileCache,
+  });
+  // Velay only sees a webhook route on the next tunnel connect, so a registry
+  // write asks for one. With the flag off the advertised rules are a constant,
+  // so a write changes nothing worth reconnecting for; registry maintenance
+  // must never touch the tunnel in that state. A flag flip re-advertises via
+  // the flag-change handler, which picks up any rows written while off.
+  onWebhookIngressRoutesChanged(() => {
+    if (isFeatureFlagEnabled("velay-webhooks")) {
+      velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
+    }
   });
 
   // ── Integration readiness flags ──
@@ -888,22 +915,27 @@ async function main() {
     },
 
     // ── Vercel control plane ──
+    // The dedicated proxy mints a gateway service token, so the daemon
+    // never sees the caller's scopes. Edge-scoped auth is the check.
     {
       path: "/v1/integrations/vercel/config",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => vercelControlPlaneProxy.handleGetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleSetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleDeleteVercelConfig(req),
     },
 
@@ -2900,10 +2932,16 @@ async function main() {
 
     // Side effect: reconcile Telegram webhook when ingress URL changes
     const onlyVelayPublicBaseUrlChanged = isOnlyVelayPublicBaseUrlChange(event);
+    // A Velay-only publicBaseUrl change is the tunnel registering. While
+    // `velay-webhooks` is on that URL is what Telegram must be pointed at, so
+    // the suppression that keeps a tunnel address out of provider config is
+    // exactly what has to lift.
+    const telegramSuppressed =
+      onlyVelayPublicBaseUrlChanged && !isFeatureFlagEnabled("velay-webhooks");
 
     if (
       event.changedKeys.has("ingress") &&
-      !onlyVelayPublicBaseUrlChanged &&
+      !telegramSuppressed &&
       isTelegramConfigured()
     ) {
       reconcileTelegramWebhook(telegramCaches).catch((err) => {
@@ -2978,6 +3016,7 @@ async function main() {
     }),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createWebhookRouteRoutes(),
     ...createCredentialRequestIpcRoutes(
       config,
       configFileCache,
@@ -2994,8 +3033,27 @@ async function main() {
     assistantRuntimeBaseUrl: config.assistantRuntimeBaseUrl,
   });
 
+  let velayWebhooksEnabled = isFeatureFlagEnabled("velay-webhooks");
   emitFlagChanged = () => {
     ipcServer.emit("feature_flags_changed");
+    // The flag decides the shape of the advertised rules, so flipping it has
+    // to re-advertise rather than wait out the periodic tunnel refresh.
+    const enabled = isFeatureFlagEnabled("velay-webhooks");
+    if (enabled !== velayWebhooksEnabled) {
+      velayWebhooksEnabled = enabled;
+      velayTunnelClient?.requestRulesRefresh("velay-webhooks-flag-changed");
+      // The flag also decides which address a pod hands Telegram, and nothing
+      // else re-runs the reconcile when it moves. One call covers a flip in
+      // either direction because the resolver reads the new value.
+      if (isTelegramConfigured()) {
+        reconcileTelegramWebhook(telegramCaches).catch((err) => {
+          log.error(
+            { err },
+            "Failed to reconcile Telegram webhook after velay-webhooks flag change",
+          );
+        });
+      }
+    }
   };
 
   const featureFlagWatcher = new FeatureFlagWatcher({

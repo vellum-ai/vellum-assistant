@@ -64,7 +64,7 @@ const EXPECTED_ORDER = [
   "slack-messages", // 60
   "thread-focus", // 70
   "memory-v3-shadow", // 1000
-  "memory-v3-spotlight", // 1001
+  "memory-v3-pointer", // 1001
 ];
 
 describe("injector registry order guard", () => {

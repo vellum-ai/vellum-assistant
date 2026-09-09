@@ -160,6 +160,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../skills/catalog-cache.js",
     "../../../../telemetry/watchdog-events-store.js",
     "../../../../tools/skills/delete-managed.js",
+    "../../../../util/json.js",
     "../../../../util/logger.js",
     "../../../../util/platform.js",
     "../../../channels/types.js",
