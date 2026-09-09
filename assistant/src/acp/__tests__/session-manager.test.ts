@@ -6,6 +6,9 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+
+import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
 
 // Records every `cancel(protocolSessionId)` the manager dispatches to a fake
@@ -26,8 +29,10 @@ mock.module("../agent-process.js", () => ({
     ) {}
     spawn(_cwd: string): void {}
     async initialize(): Promise<void> {}
-    async createSession(_cwd: string): Promise<string> {
-      return `proto-${this.agentId}`;
+    async createSession(
+      _cwd: string,
+    ): Promise<{ sessionId: string; configOptions: [] }> {
+      return { sessionId: `proto-${this.agentId}`, configOptions: [] };
     }
     async prompt(): Promise<{ stopReason: string }> {
       // Never resolves — keeps the session alive in `running` state for
@@ -36,6 +41,10 @@ mock.module("../agent-process.js", () => ({
     }
     async cancel(sessionId: string): Promise<void> {
       cancelCalls.push(sessionId);
+    }
+    readonly appliedConfigOptions: SessionConfigOption[][] = [];
+    applyConfigOptionsUpdate(configOptions: SessionConfigOption[]): void {
+      this.appliedConfigOptions.push(configOptions);
     }
     markStderr(): number {
       return 0;
@@ -156,5 +165,56 @@ describe("AcpSessionManager — cancelForParent", () => {
 
     expect(manager.cancelForParent("parent-with-nothing")).toBe(0);
     expect(cancelCalls).toEqual([]);
+  });
+});
+
+describe("AcpSessionManager config option updates", () => {
+  const noopSend = () => {};
+
+  const MODEL_OPTION: SessionConfigOption = {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: "opus",
+    options: [
+      { value: "sonnet", name: "Sonnet" },
+      { value: "opus", name: "Opus" },
+    ],
+  };
+
+  test("a config_option_update notification refreshes the process cache", async () => {
+    const manager = new AcpSessionManager(5);
+
+    const { acpSessionId } = await manager.spawn(
+      "agent-1",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "parent-A",
+      noopSend,
+    );
+
+    const entry = (
+      manager as unknown as {
+        sessions: Map<
+          string,
+          {
+            process: { appliedConfigOptions: SessionConfigOption[][] };
+            clientHandler: VellumAcpClientHandler;
+          }
+        >;
+      }
+    ).sessions.get(acpSessionId);
+
+    await entry?.clientHandler.sessionUpdate({
+      sessionId: "proto-agent-1",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [MODEL_OPTION],
+      },
+    });
+
+    expect(entry?.process.appliedConfigOptions).toEqual([[MODEL_OPTION]]);
   });
 });

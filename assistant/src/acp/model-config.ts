@@ -72,14 +72,29 @@ function toModelOption(
  * Returns `{ availableModels: [] }` when the adapter advertises no model
  * selector, which is how the whole feature degrades to invisible.
  */
-export function deriveModelInfo(
+export type ModelSelectOption = Extract<
+  SessionConfigOption,
+  { type: "select" }
+>;
+
+/**
+ * The adapter's model selector, if it advertises one. `category` is UX-only
+ * per the ACP spec, so a `model` id counts too; non-select options never do.
+ */
+export function findModelConfigOption(
   configOptions: SessionConfigOption[] | null | undefined,
-): AcpModelInfo {
-  const modelOption = configOptions?.find(
-    (option): option is Extract<SessionConfigOption, { type: "select" }> =>
+): ModelSelectOption | undefined {
+  return configOptions?.find(
+    (option): option is ModelSelectOption =>
       option.type === "select" &&
       (option.id === "model" || option.category === "model"),
   );
+}
+
+export function deriveModelInfo(
+  configOptions: SessionConfigOption[] | null | undefined,
+): AcpModelInfo {
+  const modelOption = findModelConfigOption(configOptions);
 
   if (!modelOption) {
     return { availableModels: [] };

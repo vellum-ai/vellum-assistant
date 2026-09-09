@@ -67,24 +67,34 @@ class FakeAcpAgentProcess {
     return fakeCaps.resume;
   }
 
-  async createSession(_cwd: string): Promise<string> {
-    return "proto-new";
+  async createSession(
+    _cwd: string,
+  ): Promise<{ sessionId: string; configOptions: [] }> {
+    return { sessionId: "proto-new", configOptions: [] };
   }
 
-  async loadSession(sessionId: string, cwd: string): Promise<void> {
+  async loadSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: [] }> {
     this.loadSessionCalls.push({ sessionId, cwd });
     // Replay history through the client handler before resolving, exactly
     // as a real agent does per the ACP spec for session/load.
     for (const text of replayChunks) {
       await this.emitChunk(text);
     }
+    return { configOptions: [] };
   }
 
-  async resumeSession(sessionId: string, cwd: string): Promise<void> {
+  async resumeSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: [] }> {
     if (resumeSessionGate) {
       await resumeSessionGate;
     }
     this.resumeSessionCalls.push({ sessionId, cwd });
+    return { configOptions: [] };
   }
 
   /** Drives an agent_message_chunk through the real client handler. */

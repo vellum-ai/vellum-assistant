@@ -8,7 +8,11 @@
 
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AuthMethod, InitializeResponse } from "@agentclientprotocol/sdk";
+import type {
+  AuthMethod,
+  InitializeResponse,
+  SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 
 import { AcpAgentProcess } from "../agent-process.js";
 
@@ -160,6 +164,237 @@ describe("AcpAgentProcess loadSession/resumeSession", () => {
   });
 });
 
+describe("AcpAgentProcess config options", () => {
+  /** The model selector shaped the way claude-agent-acp reports it. */
+  function modelOption(currentValue: string): SessionConfigOption {
+    return {
+      type: "select",
+      id: "model",
+      name: "Model",
+      category: "model",
+      currentValue,
+      options: [
+        { value: "sonnet", name: "Sonnet" },
+        { value: "opus", name: "Opus" },
+      ],
+    };
+  }
+
+  /** Injects a connection whose session calls report `configOptions`. */
+  function stubSessionResponses(
+    proc: AcpAgentProcess,
+    configOptions: SessionConfigOption[] | null | undefined,
+  ): void {
+    (proc as unknown as { connection: unknown }).connection = {
+      newSession: () =>
+        Promise.resolve({ sessionId: "session-1", configOptions }),
+      loadSession: () => Promise.resolve({ configOptions }),
+      resumeSession: () => Promise.resolve({ configOptions }),
+    };
+  }
+
+  test("createSession returns and caches the reported options", async () => {
+    const proc = makeProcess();
+    const options = [modelOption("sonnet")];
+    stubSessionResponses(proc, options);
+
+    await expect(proc.createSession("/tmp/project")).resolves.toEqual({
+      sessionId: "session-1",
+      configOptions: options,
+    });
+    expect(proc.configOptions).toEqual(options);
+  });
+
+  test("loadSession returns and caches the reported options", async () => {
+    const proc = makeProcess();
+    const options = [modelOption("sonnet")];
+    stubSessionResponses(proc, options);
+
+    await expect(
+      proc.loadSession("session-1", "/tmp/project"),
+    ).resolves.toEqual({ configOptions: options });
+    expect(proc.configOptions).toEqual(options);
+  });
+
+  test("resumeSession returns and caches the reported options", async () => {
+    const proc = makeProcess();
+    const options = [modelOption("opus")];
+    stubSessionResponses(proc, options);
+
+    await expect(
+      proc.resumeSession("session-1", "/tmp/project"),
+    ).resolves.toEqual({ configOptions: options });
+    expect(proc.configOptions).toEqual(options);
+  });
+
+  test("a null or absent configOptions normalizes to an empty array", async () => {
+    const created = makeProcess();
+    stubSessionResponses(created, null);
+    await expect(created.createSession("/tmp/project")).resolves.toEqual({
+      sessionId: "session-1",
+      configOptions: [],
+    });
+    expect(created.configOptions).toEqual([]);
+
+    const loaded = makeProcess();
+    stubSessionResponses(loaded, null);
+    await expect(
+      loaded.loadSession("session-1", "/tmp/project"),
+    ).resolves.toEqual({ configOptions: [] });
+
+    const resumed = makeProcess();
+    stubSessionResponses(resumed, undefined);
+    await expect(
+      resumed.resumeSession("session-1", "/tmp/project"),
+    ).resolves.toEqual({ configOptions: [] });
+  });
+
+  test("modelConfigOption is undefined before a session call", () => {
+    const proc = makeProcess();
+
+    expect(proc.modelConfigOption).toBeUndefined();
+    expect(proc.supportsModelSelection).toBe(false);
+  });
+
+  test("modelConfigOption matches a select option by id", async () => {
+    const proc = makeProcess();
+    const option: SessionConfigOption = {
+      ...modelOption("sonnet"),
+      category: undefined,
+    };
+    stubSessionResponses(proc, [option]);
+
+    await proc.createSession("/tmp/project");
+
+    expect(proc.modelConfigOption).toEqual(option);
+    expect(proc.supportsModelSelection).toBe(true);
+  });
+
+  test("modelConfigOption matches a select option by category", async () => {
+    const proc = makeProcess();
+    const option: SessionConfigOption = {
+      ...modelOption("sonnet"),
+      id: "llm",
+    };
+    stubSessionResponses(proc, [option]);
+
+    await proc.createSession("/tmp/project");
+
+    expect(proc.modelConfigOption).toEqual(option);
+  });
+
+  test("modelConfigOption ignores boolean options in the model category", async () => {
+    const proc = makeProcess();
+    stubSessionResponses(proc, [
+      {
+        type: "boolean",
+        id: "model",
+        name: "Extended thinking",
+        category: "model",
+        currentValue: true,
+      },
+    ]);
+
+    await proc.createSession("/tmp/project");
+
+    expect(proc.modelConfigOption).toBeUndefined();
+    expect(proc.supportsModelSelection).toBe(false);
+  });
+
+  test("applyConfigOptionsUpdate replaces the cached set", async () => {
+    const proc = makeProcess();
+    stubSessionResponses(proc, [modelOption("sonnet")]);
+    await proc.createSession("/tmp/project");
+
+    const refreshed = [modelOption("opus")];
+    proc.applyConfigOptionsUpdate(refreshed);
+
+    expect(proc.configOptions).toEqual(refreshed);
+    expect(proc.modelConfigOption).toEqual(refreshed[0]);
+    expect(proc.supportsModelSelection).toBe(true);
+  });
+
+  test("applyConfigOptionsUpdate can drop the model selector", async () => {
+    const proc = makeProcess();
+    stubSessionResponses(proc, [modelOption("sonnet")]);
+    await proc.createSession("/tmp/project");
+
+    proc.applyConfigOptionsUpdate([]);
+
+    expect(proc.configOptions).toEqual([]);
+    expect(proc.modelConfigOption).toBeUndefined();
+    expect(proc.supportsModelSelection).toBe(false);
+  });
+
+  test("setConfigOption forwards the value and caches the refreshed set", async () => {
+    const proc = makeProcess();
+    const calls: unknown[] = [];
+    const refreshed = [modelOption("opus")];
+    (proc as unknown as { connection: unknown }).connection = {
+      setSessionConfigOption: (params: unknown) => {
+        calls.push(params);
+        return Promise.resolve({ configOptions: refreshed });
+      },
+    };
+
+    await expect(
+      proc.setConfigOption("session-1", "model", "opus"),
+    ).resolves.toEqual(refreshed);
+
+    expect(calls).toEqual([
+      { sessionId: "session-1", configId: "model", value: "opus" },
+    ]);
+    expect(proc.configOptions).toEqual(refreshed);
+    expect(proc.modelConfigOption).toMatchObject({ currentValue: "opus" });
+  });
+
+  test("setConfigOption sends the boolean request variant", async () => {
+    const proc = makeProcess();
+    const calls: unknown[] = [];
+    const refreshed = [modelOption("opus")];
+    (proc as unknown as { connection: unknown }).connection = {
+      setSessionConfigOption: (params: unknown) => {
+        calls.push(params);
+        return Promise.resolve({ configOptions: refreshed });
+      },
+    };
+
+    await proc.setConfigOption("session-1", "thinking", true);
+
+    expect(calls).toEqual([
+      {
+        sessionId: "session-1",
+        configId: "thinking",
+        type: "boolean",
+        value: true,
+      },
+    ]);
+  });
+
+  test("setConfigOption omits the discriminator for string values", async () => {
+    const proc = makeProcess();
+    const calls: unknown[] = [];
+    (proc as unknown as { connection: unknown }).connection = {
+      setSessionConfigOption: (params: unknown) => {
+        calls.push(params);
+        return Promise.resolve({ configOptions: [modelOption("opus")] });
+      },
+    };
+
+    await proc.setConfigOption("session-1", "model", "opus");
+
+    expect(calls[0]).not.toHaveProperty("type");
+  });
+
+  test("setConfigOption throws when the process is not spawned", async () => {
+    const proc = makeProcess();
+
+    await expect(
+      proc.setConfigOption("session-1", "model", "opus"),
+    ).rejects.toThrow('ACP agent "test-agent" is not spawned');
+  });
+});
+
 describe("AcpAgentProcess auth_required retry", () => {
   // spawnedEnv is injected the way spawn() builds it ({ ...process.env,
   // ...config.env }), so the advertised var names use a VELLUM_TEST_ prefix
@@ -202,6 +437,7 @@ describe("AcpAgentProcess auth_required retry", () => {
     newSessionRejections?: unknown[];
     loadSessionRejections?: unknown[];
     resumeSessionRejections?: unknown[];
+    setConfigOptionRejections?: unknown[];
     promptRejections?: unknown[];
   }) {
     const proc = new AcpAgentProcess(
@@ -234,6 +470,10 @@ describe("AcpAgentProcess auth_required retry", () => {
       options.resumeSessionRejections ?? [],
       {},
     );
+    const setSessionConfigOption = failThenSucceed(
+      options.setConfigOptionRejections ?? [],
+      { configOptions: [] },
+    );
     const prompt = failThenSucceed(options.promptRejections ?? [], {
       stopReason: "end_turn",
     });
@@ -252,6 +492,7 @@ describe("AcpAgentProcess auth_required retry", () => {
       newSession,
       loadSession,
       resumeSession,
+      setSessionConfigOption,
       prompt,
       authenticate,
     };
@@ -264,6 +505,7 @@ describe("AcpAgentProcess auth_required retry", () => {
       newSession,
       loadSession,
       resumeSession,
+      setSessionConfigOption,
       prompt,
       authenticate,
       internals,
@@ -275,7 +517,7 @@ describe("AcpAgentProcess auth_required retry", () => {
       env: { [OPENAI_VAR]: "sk-test" },
     });
 
-    const sessionId = await proc.createSession("/tmp/project");
+    const { sessionId } = await proc.createSession("/tmp/project");
 
     expect(sessionId).toBe("session-1");
     expect(newSession).toHaveBeenCalledTimes(1);
@@ -288,7 +530,7 @@ describe("AcpAgentProcess auth_required retry", () => {
       newSessionRejections: [authRequiredError],
     });
 
-    const sessionId = await proc.createSession("/tmp/project");
+    const { sessionId } = await proc.createSession("/tmp/project");
 
     expect(sessionId).toBe("session-1");
     expect(authenticate).toHaveBeenCalledTimes(1);
@@ -385,6 +627,19 @@ describe("AcpAgentProcess auth_required retry", () => {
 
     expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
     expect(resumeSession).toHaveBeenCalledTimes(2);
+  });
+
+  test("setConfigOption authenticates and retries on auth_required", async () => {
+    const { proc, setSessionConfigOption, authenticate } =
+      await setupAuthProcess({
+        env: { [OPENAI_VAR]: "sk-test" },
+        setConfigOptionRejections: [authRequiredError],
+      });
+
+    await proc.setConfigOption("session-1", "model", "opus");
+
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "openai-api-key" });
+    expect(setSessionConfigOption).toHaveBeenCalledTimes(2);
   });
 
   test("prompt authenticates and retries on auth_required, returning the response", async () => {
