@@ -15,6 +15,7 @@ import {
   InsufficientBalanceError,
   PlatformOAuthConnection,
   ProviderUnreachableError,
+  unhonoredManagedOptions,
 } from "./platform-connection.js";
 
 function makeMockClient(
@@ -478,6 +479,142 @@ describe("PlatformOAuthConnection", () => {
       conn.request({ method: "GET", path: "/test" }),
     ).rejects.toThrow("Platform proxy returned unexpected status 403");
     expect(callCount).toBe(1);
+  });
+
+  test("singleAttempt makes one attempt on a retryable status", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        return new Response("", { status: 429 });
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({
+        method: "POST",
+        path: "/v1/payment_intents",
+        singleAttempt: true,
+      }),
+    ).rejects.toThrow("Platform proxy returned unexpected status 429");
+    expect(callCount).toBe(1);
+  });
+
+  test("singleAttempt does not replay a write after a 502", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        return new Response("", { status: 502 });
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(
+      conn.request({
+        method: "POST",
+        path: "/v1/payment_intents",
+        singleAttempt: true,
+      }),
+    ).rejects.toThrow(ProviderUnreachableError);
+    expect(callCount).toBe(1);
+  });
+
+  test("a POST without singleAttempt keeps retrying", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        if (callCount <= 2) {
+          return new Response("", { status: 503 });
+        }
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: { ok: true } }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    const result = await conn.request({
+      method: "POST",
+      path: "/messages/send",
+      body: { text: "hi" },
+    });
+
+    expect(result.body).toEqual({ ok: true });
+    expect(callCount).toBe(3);
+  });
+
+  test("singleAttempt leaves a successful response untouched", async () => {
+    let callCount = 0;
+    const client = makeMockClient(
+      mock(async () => {
+        callCount++;
+        return new Response(
+          JSON.stringify({ status: 201, headers: {}, body: { id: "pi_1" } }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    const result = await conn.request({
+      method: "POST",
+      path: "/v1/payment_intents",
+      singleAttempt: true,
+    });
+
+    expect(result.status).toBe(201);
+    expect(result.body).toEqual({ id: "pi_1" });
+    expect(callCount).toBe(1);
+  });
+
+  // The platform proxy parses the response and follows redirects server-side,
+  // so managed mode diverges from BYO on both flags by design.
+  test("names rawResponseBody and manualRedirect as unhonored", () => {
+    expect(unhonoredManagedOptions({ method: "GET", path: "/x" })).toEqual([]);
+    expect(
+      unhonoredManagedOptions({
+        method: "GET",
+        path: "/x",
+        rawResponseBody: true,
+        manualRedirect: true,
+      }),
+    ).toEqual(["rawResponseBody", "manualRedirect"]);
+  });
+
+  test("manualRedirect neither errors nor reaches the proxy envelope", async () => {
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
+        const parsed = JSON.parse(init?.body as string);
+        expect("manual_redirect" in parsed.request).toBe(false);
+        expect("redirect" in parsed.request).toBe(false);
+
+        return new Response(
+          JSON.stringify({
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: { followed: true },
+          }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    const result = await conn.request({
+      method: "GET",
+      path: "/v1/redirecting",
+      manualRedirect: true,
+      rawResponseBody: true,
+    });
+
+    // The platform already followed the redirect and parsed the body, so the
+    // caller sees the destination's JSON rather than a 3xx or raw bytes.
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ followed: true });
   });
 
   test("uses connectionId in proxy URL regardless of provider format", async () => {

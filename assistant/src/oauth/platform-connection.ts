@@ -40,6 +40,22 @@ export class InsufficientBalanceError extends BackendError {
   }
 }
 
+/**
+ * Request options the platform proxy cannot honor. It parses the response body
+ * and follows provider redirects server-side, so a managed connection answers
+ * with re-serialized JSON and the redirect target's response. A caller that
+ * needs the provider's exact bytes or a verbatim 3xx needs a BYO connection.
+ */
+const UNHONORED_MANAGED_OPTIONS = [
+  "rawResponseBody",
+  "manualRedirect",
+] as const;
+
+/** Which of {@link UNHONORED_MANAGED_OPTIONS} this request asks for. */
+export function unhonoredManagedOptions(req: OAuthConnectionRequest): string[] {
+  return UNHONORED_MANAGED_OPTIONS.filter((option) => req[option] === true);
+}
+
 export interface PlatformOAuthConnectionOptions {
   id: string;
   provider: string;
@@ -104,7 +120,20 @@ export class PlatformOAuthConnection implements OAuthConnection {
     }
     const body: Record<string, unknown> = { request };
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const unhonored = unhonoredManagedOptions(req);
+    if (unhonored.length > 0) {
+      log.debug(
+        { provider: this.provider, options: unhonored },
+        "Platform proxy handles the response server-side; these request options do not apply",
+      );
+    }
+
+    // A retry replays the whole request upstream, and a 502 arrives only after
+    // the platform already called the provider, so a caller forwarding a write
+    // it cannot repeat gets a single attempt.
+    const retriesAllowed = req.singleAttempt === true ? 0 : MAX_RETRIES;
+
+    for (let attempt = 0; attempt <= retriesAllowed; attempt++) {
       const response = await this.client.fetch(proxyPath, {
         method: "POST",
         headers: {
@@ -125,11 +154,11 @@ export class PlatformOAuthConnection implements OAuthConnection {
       if (
         !response.ok &&
         isRetryableStatus(response.status) &&
-        attempt < MAX_RETRIES
+        attempt < retriesAllowed
       ) {
         log.warn(
           { status: response.status, attempt, provider: "platform-proxy" },
-          `Retryable status ${response.status} from platform proxy (attempt ${attempt + 1}/${MAX_RETRIES + 1})`,
+          `Retryable status ${response.status} from platform proxy (attempt ${attempt + 1}/${retriesAllowed + 1})`,
         );
         await sleep(getHttpRetryDelay(response, attempt));
         continue;

@@ -31,6 +31,33 @@ export interface OAuthConnectionRequest {
    * provider's own redirect instead of an upstream hop the caller never made.
    */
   manualRedirect?: boolean;
+  /**
+   * When true the connection makes exactly one upstream attempt and surfaces a
+   * retryable status to the caller instead of replaying the request. For
+   * callers forwarding writes they cannot safely repeat. Governs status-driven
+   * retries only: a BYO connection's refresh-and-retry follows a provider 401,
+   * which rejected the request before it took effect.
+   */
+  singleAttempt?: boolean;
+}
+
+/** Methods HTTP defines as idempotent, so replaying one is safe. */
+const IDEMPOTENT_METHODS = new Set([
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "PUT",
+  "DELETE",
+  "TRACE",
+]);
+
+/**
+ * Whether repeating this method is safe by HTTP semantics. Callers forwarding
+ * arbitrary traffic pair this with `singleAttempt` so POST and PATCH are never
+ * replayed on their behalf.
+ */
+export function isIdempotentHttpMethod(method: string): boolean {
+  return IDEMPOTENT_METHODS.has(method.toUpperCase());
 }
 
 export interface OAuthConnectionResponse {
