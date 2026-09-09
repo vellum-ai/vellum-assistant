@@ -123,7 +123,7 @@ export function AcpRunChatView({
 
   // The tile is the grid's third column, so the column count and the tile read
   // one predicate rather than each deciding for itself.
-  const showsModelCard = useShowsAcpModelCard(entry);
+  const showsModelCard = useShowsAcpModelCard(entry, assistantId);
   const showsUsage =
     entry.inputTokens !== undefined || entry.outputTokens !== undefined;
 
@@ -306,6 +306,7 @@ export function AcpRunChatView({
                   <AcpModelStatCard
                     entry={entry}
                     onSwitchModel={switchAcpRunModel}
+                    assistantId={assistantId}
                   />
                 )}
               </div>

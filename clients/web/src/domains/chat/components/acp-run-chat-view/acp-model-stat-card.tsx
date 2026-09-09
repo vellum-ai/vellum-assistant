@@ -30,7 +30,7 @@ import {
 } from "@/domains/chat/components/metric-card";
 import type { SwitchAcpRunModelResponse } from "@/domains/chat/utils/acp-run-actions";
 import { useTranslation } from "@/i18n";
-import { useSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
+import { useAssistantScopedSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
 import { isActiveAcpStatus } from "@/utils/acp-run-status";
 import { badRequestMessage } from "@/utils/api-errors";
 
@@ -49,18 +49,33 @@ export interface AcpModelStatCardProps {
     acpSessionId: string,
     model: string,
   ) => Promise<AcpModelSelection>;
+  /**
+   * Assistant that owns the run, from the panel. The compat gate is scoped to
+   * it so a stale run's menu closes the moment the active assistant moves to
+   * one whose daemon has no `set-model` route.
+   */
+  assistantId?: string | null;
   /** Start the menu open. For tests; the panel leaves it closed. */
   defaultOpen?: boolean;
 }
 
 /**
- * Whether the MODEL tile renders for a run: the compat gate is open, the
- * adapter reported a model, and a live run still has something to switch to.
- * The panel reads it to size its metrics grid, so the grid and the tile cannot
- * disagree about whether there is a third column.
+ * Whether the MODEL tile renders for a run: the compat gate is open for the
+ * run's own assistant, the adapter reported a model, and a live run still has
+ * something to switch to. The panel reads it to size its metrics grid, so the
+ * grid and the tile cannot disagree about whether there is a third column.
+ *
+ * The gate is scoped to `assistantId` rather than to whichever assistant is
+ * active. During a switch the active id moves before the identity store
+ * rehydrates, so an unscoped answer off the outgoing version would leave the
+ * stale run's menu enabled and post `set-model` to an assistant that has no
+ * such route. No owner id means no gate to check, so the tile stays hidden.
  */
-export function useShowsAcpModelCard(entry: AcpRunEntry): boolean {
-  const supported = useSupportsAcpModelSwitching();
+export function useShowsAcpModelCard(
+  entry: AcpRunEntry,
+  assistantId: string | null | undefined,
+): boolean {
+  const supported = useAssistantScopedSupportsAcpModelSwitching(assistantId);
   if (!supported || entry.model === undefined) {
     return false;
   }
@@ -89,10 +104,11 @@ function groupOptions(
 export function AcpModelStatCard({
   entry,
   onSwitchModel,
+  assistantId,
   defaultOpen,
 }: AcpModelStatCardProps) {
   const { t } = useTranslation("chat");
-  const shows = useShowsAcpModelCard(entry);
+  const shows = useShowsAcpModelCard(entry, assistantId);
   const { acpSessionId, model } = entry;
   const options = entry.availableModels ?? EMPTY_OPTIONS;
 

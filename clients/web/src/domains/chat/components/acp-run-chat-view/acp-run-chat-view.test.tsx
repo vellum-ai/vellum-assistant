@@ -422,12 +422,23 @@ describe("AcpRunChatView metrics grid", () => {
     { value: "sonnet", label: "Sonnet" },
   ];
 
+  /** The assistant the panel says owns the run. */
+  const OWNER_ASSISTANT_ID = "asst-owner";
+
+  /** The gate is scoped, so the held version has an owner as well as a value. */
+  function setIdentity(
+    version: string | null,
+    assistantId: string | null = OWNER_ASSISTANT_ID,
+  ) {
+    useAssistantIdentityStore.setState({ version, assistantId });
+  }
+
   afterEach(() => {
-    useAssistantIdentityStore.setState({ version: null });
+    useAssistantIdentityStore.setState({ version: null, assistantId: null });
   });
 
   test("gives the MODEL tile the grid's third column", () => {
-    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    setIdentity(MIN_VERSION);
     const e = entry({
       inputTokens: 1000,
       outputTokens: 200,
@@ -436,7 +447,13 @@ describe("AcpRunChatView metrics grid", () => {
     });
     seed(e, []);
 
-    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-3");
@@ -445,11 +462,17 @@ describe("AcpRunChatView metrics grid", () => {
   });
 
   test("keeps two columns for a run with no model", () => {
-    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    setIdentity(MIN_VERSION);
     const e = entry({ inputTokens: 1000, outputTokens: 200 });
     seed(e, []);
 
-    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-2");
@@ -457,11 +480,17 @@ describe("AcpRunChatView metrics grid", () => {
   });
 
   test("renders the grid for a run whose only stat is its model", () => {
-    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    setIdentity(MIN_VERSION);
     const e = entry({ model: "opus", availableModels: MODEL_OPTIONS });
     seed(e, []);
 
-    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     expect(screen.getByTestId("acp-run-metrics").className).toContain(
       "grid-cols-3",
@@ -469,17 +498,50 @@ describe("AcpRunChatView metrics grid", () => {
   });
 
   test("renders no grid at all for a run with neither stat", () => {
-    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    setIdentity(MIN_VERSION);
     const e = entry();
     seed(e, []);
 
-    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     expect(screen.queryByTestId("acp-run-metrics")).toBeNull();
   });
 
-  test("omits the MODEL tile when the assistant predates model switching", () => {
-    useAssistantIdentityStore.setState({ version: "0.1.0" });
+  // Mid-switch the active id has moved on while the identity store still holds
+  // the outgoing version. The grid follows the run's own assistant, so it drops
+  // back to two columns rather than offering a switch the incoming assistant
+  // may not serve.
+  test("omits the MODEL tile when the held version has another owner", () => {
+    setIdentity(MIN_VERSION, "asst-incoming");
+    const e = entry({
+      inputTokens: 1000,
+      outputTokens: 200,
+      model: "opus",
+      availableModels: MODEL_OPTIONS,
+    });
+    seed(e, []);
+
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.textContent).not.toContain("Opus");
+  });
+
+  test("omits the MODEL tile when the panel names no owner", () => {
+    setIdentity(MIN_VERSION);
     const e = entry({
       inputTokens: 1000,
       outputTokens: 200,
@@ -489,6 +551,29 @@ describe("AcpRunChatView metrics grid", () => {
     seed(e, []);
 
     render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.textContent).not.toContain("Opus");
+  });
+
+  test("omits the MODEL tile when the assistant predates model switching", () => {
+    setIdentity("0.1.0");
+    const e = entry({
+      inputTokens: 1000,
+      outputTokens: 200,
+      model: "opus",
+      availableModels: MODEL_OPTIONS,
+    });
+    seed(e, []);
+
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     const metrics = screen.getByTestId("acp-run-metrics");
     expect(metrics.className).toContain("grid-cols-2");

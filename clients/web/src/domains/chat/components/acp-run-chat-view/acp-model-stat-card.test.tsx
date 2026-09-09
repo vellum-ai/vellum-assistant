@@ -44,6 +44,9 @@ const OPTIONS: AcpModelOption[] = [
 
 const TRIGGER_NAME = "Model: Opus. Change model";
 
+/** The assistant the panel says owns the run, matching the identity store. */
+const OWNER_ASSISTANT_ID = "asst-owner";
+
 const viewport = viewportAxesStub();
 
 function entry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
@@ -83,14 +86,17 @@ const noopSwitch = mock(async () => ({
 
 beforeEach(() => {
   viewport.set({ narrow: false, coarsePointer: false });
-  useAssistantIdentityStore.setState({ version: MIN_VERSION });
+  useAssistantIdentityStore.setState({
+    version: MIN_VERSION,
+    assistantId: OWNER_ASSISTANT_ID,
+  });
   noopSwitch.mockClear();
 });
 
 afterEach(() => {
   cleanup();
   viewport.restore();
-  useAssistantIdentityStore.setState({ version: null });
+  useAssistantIdentityStore.setState({ version: null, assistantId: null });
   useAcpRunStore.getState().reset();
 });
 
@@ -99,7 +105,13 @@ describe("AcpModelStatCard on a live run", () => {
     const e = entry();
     seed(e);
 
-    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
+    render(
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     const trigger = screen.getByRole("button", { name: TRIGGER_NAME });
     expect(trigger.textContent).toContain("Opus");
@@ -111,7 +123,13 @@ describe("AcpModelStatCard on a live run", () => {
     const e = entry();
     seed(e);
 
-    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
+    render(
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
     fireEvent.pointerDown(screen.getByRole("button", { name: TRIGGER_NAME }), {
       button: 0,
       ctrlKey: false,
@@ -126,7 +144,12 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     render(
-      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} defaultOpen />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+        defaultOpen
+      />,
     );
 
     // Radix labels the menu from its trigger, so the surface is found by role.
@@ -157,7 +180,12 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     render(
-      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} defaultOpen />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+        defaultOpen
+      />,
     );
 
     expect(screen.getByText("Claude")).toBeTruthy();
@@ -173,7 +201,12 @@ describe("AcpModelStatCard on a live run", () => {
     }));
 
     render(
-      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={onSwitchModel}
+        assistantId={OWNER_ASSISTANT_ID}
+        defaultOpen
+      />,
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
 
@@ -193,7 +226,12 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     render(
-      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} defaultOpen />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+        defaultOpen
+      />,
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Opus/ }));
 
@@ -209,7 +247,12 @@ describe("AcpModelStatCard on a live run", () => {
     const errorToast = spyOn(toast, "error");
 
     render(
-      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={onSwitchModel}
+        assistantId={OWNER_ASSISTANT_ID}
+        defaultOpen
+      />,
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
     expect(storedModel()).toBe("sonnet");
@@ -231,7 +274,11 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     const { container } = render(
-      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
     );
 
     expect(container.innerHTML).toBe("");
@@ -252,7 +299,12 @@ describe("AcpModelStatCard on a touch surface", () => {
     }));
 
     render(
-      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={onSwitchModel}
+        assistantId={OWNER_ASSISTANT_ID}
+        defaultOpen
+      />,
     );
 
     expect(screen.getByRole("dialog", { name: "Choose model" })).toBeTruthy();
@@ -267,7 +319,13 @@ describe("AcpModelStatCard on a terminal run", () => {
     const e = entry({ status: "completed", completedAt: 1 });
     seed(e);
 
-    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
+    render(
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
 
     expect(screen.getByText("Opus")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
@@ -277,6 +335,43 @@ describe("AcpModelStatCard on a terminal run", () => {
 describe("AcpModelStatCard behind the compat gate", () => {
   test("renders nothing when the assistant predates model switching", () => {
     useAssistantIdentityStore.setState({ version: "0.1.0" });
+    const e = entry();
+    seed(e);
+
+    const { container } = render(
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
+
+  // Mid-switch the active id has moved on while the identity store still holds
+  // the outgoing version. The tile follows the run's own assistant, so it
+  // closes rather than posting `set-model` to one that may lack the route.
+  test("renders nothing when the held version belongs to another assistant", () => {
+    useAssistantIdentityStore.setState({
+      version: MIN_VERSION,
+      assistantId: "asst-incoming",
+    });
+    const e = entry();
+    seed(e);
+
+    const { container } = render(
+      <AcpModelStatCard
+        entry={e}
+        onSwitchModel={noopSwitch}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+
+    expect(container.innerHTML).toBe("");
+  });
+
+  test("renders nothing when the panel names no owner", () => {
     const e = entry();
     seed(e);
 

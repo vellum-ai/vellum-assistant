@@ -79,7 +79,6 @@ let supportsModelSwitching = true;
 let scopedAssistantIds: (string | null | undefined)[] = [];
 mock.module("@/lib/backwards-compat/acp-model-switching", () => ({
   MIN_VERSION: "0.11.10-dev.202609090534.a9ef179",
-  useSupportsAcpModelSwitching: () => supportsModelSwitching,
   useAssistantScopedSupportsAcpModelSwitching: (
     assistantId: string | null | undefined,
   ) => {
