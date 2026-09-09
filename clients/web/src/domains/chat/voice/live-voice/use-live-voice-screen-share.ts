@@ -33,7 +33,9 @@
  * frame it takes is kept at the lower bar a question earns, and reported
  * `answered` when the last keep already shows the view. The gate's rules
  * that are about a lens are turned off; see
- * {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}.
+ * {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}. What the gate judges against is
+ * the last frame the call was actually given: a keep whose upload fails is
+ * put back, so the view it was of is not turned away as one the call has.
  *
  * ## What the control reads
  *
@@ -166,6 +168,11 @@ export function useLiveVoiceScreenShare(): void {
     // utterance could otherwise resolve out of order, and the older picture
     // be judged as the newer view.
     let queue: Promise<void> = Promise.resolve();
+    // The last frame the call was given, as the gate saw it, and when. A copy,
+    // since the producer reuses its one grid. What the gate is put back to
+    // when a keep fails to arrive; null until something has.
+    let delivered: { readonly grid: Uint8Array; readonly atMs: number } | null =
+      null;
     // One gate and one downscale chain for the run. A new target is a new run
     // and so a fresh baseline, which is right: the last keep was of another
     // surface and says nothing about this one.
@@ -187,6 +194,32 @@ export function useLiveVoiceScreenShare(): void {
     };
 
     /**
+     * Put the gate back to the last frame the call was given.
+     *
+     * A keep moves the gate's baseline when it is judged, and the upload
+     * behind it can still fail. Left as it was, the gate would judge every
+     * later frame against a view the call never saw: the same screen turned
+     * away as `unchanged`, a question about it as `answered`, and the call
+     * without a picture until the heartbeat. Later occasions may already have
+     * been judged against the lost frame by the time the failure is known,
+     * since the upload is not waited for; the next one is judged right, which
+     * is the most a failed upload should cost.
+     *
+     * Both ways back drop a standing arm, so the question still open gets
+     * its ask again.
+     */
+    const restoreBaseline = (): void => {
+      if (delivered === null) {
+        gate.reset(performance.now());
+      } else {
+        gate.adopt(delivered.grid, delivered.atMs);
+      }
+      if (armedAtMs !== null) {
+        gate.armForcedKeep(armedAtMs);
+      }
+    };
+
+    /**
      * Take one frame, judge it, and send it if it is worth sending.
      *
      * `drawing` is what the user drew on the surface, and is null for every
@@ -195,10 +228,21 @@ export function useLiveVoiceScreenShare(): void {
      * themselves make it. The gate is told about it instead, so the next
      * frame the cadence takes is judged against the view the call was given
      * rather than against the keep before it.
+     *
+     * `run` is the generation the occasion was queued under. An occasion
+     * queued behind a slow capture is asked for again here before it asks
+     * the helper, since the share it was queued for may have stopped or
+     * moved in the meantime: a frame of a surface the user has stopped
+     * showing is not taken, even to be thrown away.
      */
-    const take = async (drawing: SharedDrawing | null): Promise<void> => {
-      const run = generation;
+    const take = async (
+      drawing: SharedDrawing | null,
+      run: number,
+    ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
+      if (stale()) {
+        return;
+      }
       // The picture's lower bound. The gate must not spend a question's arm
       // on a picture taken before the question, and the helper's answer time
       // is only an upper bound on when its picture was taken.
@@ -223,6 +267,10 @@ export function useLiveVoiceScreenShare(): void {
         return;
       }
       const nowMs = performance.now();
+      // What this occasion is about to make the gate's baseline, copied out
+      // of the producer's reused grid: on delivery it is what the call has,
+      // and until then it is what a failure has to undo.
+      const judged = grid === null ? null : new Uint8Array(grid);
       let keep: SightKeepOrigin;
       if (drawing !== null) {
         if (grid !== null) {
@@ -255,35 +303,55 @@ export function useLiveVoiceScreenShare(): void {
           armedAtMs = null;
         }
       }
+      let shared = false;
       // Not awaited: the queue orders the pictures, and the upload behind
       // each keep is ordered by the capture itself, so the next occasion need
       // not wait for this one to reach the daemon.
-      void sight.capture({
-        assistantId,
-        keep,
-        produceFrame: async (filename) => {
-          const file = new File([bytes], filename, { type: "image/jpeg" });
-          // The marks are drawn here rather than being on the screen
-          // already: a capture excludes Vellum's own windows, so the overlay
-          // the user drew on is never in the pixels. See
-          // `annotate-shared-frame.ts`.
-          return drawing === null
-            ? file
-            : annotateSharedFrame(file, drawing.strokes, drawing.ink);
-        },
-        // Nothing to show: there is no viewfinder to put a pulse on. The
-        // transcript is where a frame is seen. What this does say is that
-        // the call has now been shown this surface, which is what lets the
-        // shell admit the assistant's own marks against it. Said here
-        // rather than at the capture because only this edge means the frame
-        // arrived: everything before it can still fail or be voided.
-        onShared: () => reportCompanionSharedFrame(target),
-      });
+      void sight
+        .capture({
+          assistantId,
+          keep,
+          produceFrame: async (filename) => {
+            const file = new File([bytes], filename, { type: "image/jpeg" });
+            // The marks are drawn here rather than being on the screen
+            // already: a capture excludes Vellum's own windows, so the
+            // overlay the user drew on is never in the pixels. See
+            // `annotate-shared-frame.ts`.
+            return drawing === null
+              ? file
+              : annotateSharedFrame(file, drawing.strokes, drawing.ink);
+          },
+          // Nothing to show: there is no viewfinder to put a pulse on. The
+          // transcript is where a frame is seen. What this does say is that
+          // the call has now been shown this surface, which is what lets the
+          // shell admit the assistant's own marks against it. Said here
+          // rather than at the capture because only this edge means the
+          // frame arrived: everything before it can still fail or be voided.
+          onShared: () => {
+            shared = true;
+            if (judged !== null) {
+              delivered = { grid: judged, atMs: nowMs };
+            }
+            reportCompanionSharedFrame(target);
+          },
+        })
+        .then(() => {
+          // A frame that did not arrive. A run that has since ended has
+          // nothing to put back, and a drawing the gate could not read never
+          // moved it.
+          if (shared || stale() || judged === null) {
+            return;
+          }
+          restoreBaseline();
+        });
     };
 
     const share = (drawing: SharedDrawing | null = null): void => {
+      // Stamped now rather than when the occasion is dequeued, so a stop or
+      // a reconnect that lands while it waits is one it cannot outlive.
+      const run = generation;
       queue = queue
-        .then(() => take(drawing))
+        .then(() => take(drawing, run))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
@@ -328,6 +396,7 @@ export function useLiveVoiceScreenShare(): void {
           // frame from before the drop did land, once per reconnect, which
           // is the cheaper mistake.
           gate.reset(performance.now());
+          delivered = null;
           armedAtMs = null;
         }
         return;

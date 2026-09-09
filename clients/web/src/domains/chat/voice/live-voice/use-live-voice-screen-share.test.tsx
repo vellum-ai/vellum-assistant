@@ -775,6 +775,30 @@ describe("useLiveVoiceScreenShare: stopping", () => {
     expect(controls.sightFrame).not.toHaveBeenCalled();
   });
 
+  /**
+   * The edge was queued while the helper was still answering for the share
+   * start. By the time its turn comes the share is off, and a frame of a
+   * surface the user has stopped showing is not taken even to be thrown
+   * away.
+   */
+  test("an edge queued behind a slow capture never asks the helper once the share is off", async () => {
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+    answerFrame = () =>
+      new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFrame = resolve;
+      });
+    renderShare();
+    share(WINDOW);
+    await Promise.resolve();
+    speak(true);
+    share(null);
+    releaseFrame(frameOf("a"));
+    await flush();
+
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
+    expect(uploadChatAttachment).not.toHaveBeenCalled();
+  });
+
   test("takes nothing more once the share is off", async () => {
     renderShare();
     share(WINDOW);
@@ -793,6 +817,64 @@ describe("useLiveVoiceScreenShare: stopping", () => {
       useLiveVoiceStore.getState().reset();
     });
     expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+  });
+});
+
+/**
+ * The gate moves its baseline when a frame is judged, and the upload behind
+ * the frame can still fail. What the gate judges against has to be what the
+ * call was given, or a view it never saw is turned away as one it has.
+ */
+describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
+  const failNextUpload = (): void => {
+    uploadChatAttachment.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: {},
+    }));
+  };
+
+  test("the first frame failing does not leave the call judged to have the view", async () => {
+    failNextUpload();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    // Same screen. With the lost frame still the baseline this would be
+    // `answered` and the call would go without a picture until the heartbeat.
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "forced" }),
+    );
+  });
+
+  test("a later frame failing puts the gate back to the last one delivered", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    failNextUpload();
+    show("b");
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    // The view the call has is still the first one, so the view it was not
+    // given is news at the ambient bar, on an edge with no question behind
+    // it.
+    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
+    speak(false);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "novel" }),
+    );
   });
 });
 
