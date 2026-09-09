@@ -36,6 +36,7 @@ function input(
   return {
     connections,
     developerMode: false,
+    hostedInference: false,
     activeAssistantIsSelfHosted: true,
     labelFor: (provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider,
     defaultEntryMetaLabel: "Default",
