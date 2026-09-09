@@ -267,3 +267,78 @@ describe("agent loop under the tool-gated reply surface", () => {
     expect(streamedText(events)).toBe("You have two meetings today.");
   });
 });
+
+describe("a send_user_message call that delivers nothing", () => {
+  /** A call the executor rejects: the name is right, the message is not. */
+  function blankSend(message: unknown, id = "tu_blank"): ProviderResponse {
+    return {
+      content: [
+        {
+          type: "tool_use",
+          id,
+          name: "send_user_message",
+          input: { message },
+        },
+      ] as ContentBlock[],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+  }
+
+  test("does not count as having told the user, so the fallback still fires", async () => {
+    // The blank call streams nothing. If it counted as delivery, the nudge
+    // retry's plain text would be suppressed too and the user would be left
+    // with no reply at all.
+    const { provider } = createMockProvider([
+      blankSend("   "),
+      textResponse("Two meetings today."),
+      textResponse("Two meetings today."),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+    });
+
+    expect(streamedText(events)).toContain("Two meetings today.");
+  });
+
+  test("a non-string message is treated the same way", async () => {
+    const { provider } = createMockProvider([
+      blankSend(42),
+      textResponse("Two meetings today."),
+      textResponse("Two meetings today."),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+    });
+
+    expect(streamedText(events)).toContain("Two meetings today.");
+  });
+
+  test("a usable call still counts, so its turn stays private", async () => {
+    const { provider } = createMockProvider([
+      textAndSend("thinking", "Two meetings today."),
+      textResponse("Wrapping up."),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+    });
+
+    expect(streamedText(events)).toBe("Two meetings today.");
+  });
+});

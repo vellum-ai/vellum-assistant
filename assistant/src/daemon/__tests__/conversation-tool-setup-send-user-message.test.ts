@@ -132,3 +132,40 @@ describe("send_user_message under disk-pressure cleanup", () => {
     expect(isToolActiveForContext("file_read", cleanupCtx)).toBe(true);
   });
 });
+
+describe("send_user_message on a tool-disabled turn", () => {
+  test("the gate is off, so nothing is suppressed for a turn with no tools", async () => {
+    // Pointer generation (call-status events) and the live-voice front-door leg
+    // bracket themselves with `toolsDisabledDepth` while keeping the mainAgent
+    // call site. The resolver hands them an empty tool list, so gating them
+    // would suppress their text and name a tool they were never given: the
+    // reply would reach the user only after a wasted nudge and the fallback.
+    setFlag(true);
+    const { isSendUserMessageActiveForTurn } =
+      await import("../../config/send-user-message-gate.js");
+
+    expect(
+      isSendUserMessageActiveForTurn({
+        currentCallSite: "mainAgent",
+        toolsDisabledDepth: 1,
+      }),
+    ).toBe(false);
+    // The same turn with its bracket released is gated again.
+    expect(
+      isSendUserMessageActiveForTurn({
+        currentCallSite: "mainAgent",
+        toolsDisabledDepth: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("the tool is off that turn's surface either way", () => {
+    setFlag(true);
+    expect(
+      isToolActiveForContext(
+        SEND_USER_MESSAGE_TOOL_NAME,
+        ctx({ currentCallSite: "mainAgent", toolsDisabledDepth: 1 }),
+      ),
+    ).toBe(false);
+  });
+});

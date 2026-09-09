@@ -52,22 +52,36 @@ export function isSendUserMessageFlagOn(): boolean {
 export interface SendUserMessageTurnScope {
   currentCallSite?: LLMCallSite;
   isSubagent?: boolean;
+  /**
+   * The turn's tool-disabled bracket depth. Above zero the resolver hands the
+   * model an empty tool list, so the delivery tool is not among them.
+   */
+  toolsDisabledDepth?: number;
 }
 
 /**
  * Whether this turn routes its user-facing text through the tool: the flag is
- * on, the conversation is not a subagent, and the turn resolves to the
- * `mainAgent` call site. Every other call site (subagent spawns, calls and
- * live-voice legs, heartbeat and memory workers) keeps today's behavior.
+ * on, the conversation is not a subagent, the turn has tools at all, and it
+ * resolves to the `mainAgent` call site. Every other call site (subagent
+ * spawns, calls and live-voice legs, heartbeat and memory workers) keeps
+ * today's behavior.
  *
  * A turn with no resolved call site is a main-agent turn: `mainAgent` is what
  * the loop defaults to when a caller supplies none.
+ *
+ * A tool-disabled turn is excluded even though it keeps that call site. The
+ * pointer-generation turn (call-status events) and the live-voice front-door
+ * leg bracket themselves with `toolsDisabledDepth`, so the resolver returns an
+ * empty tool list: gating them would suppress their text and hand them a
+ * prompt naming a tool they were not given, so the reply would reach the user
+ * only after a wasted nudge and the raw-text fallback.
  */
 export function isSendUserMessageTurnScope(
   scope: SendUserMessageTurnScope,
 ): boolean {
   return (
     scope.isSubagent !== true &&
+    (scope.toolsDisabledDepth ?? 0) === 0 &&
     (scope.currentCallSite ?? "mainAgent") === "mainAgent"
   );
 }
