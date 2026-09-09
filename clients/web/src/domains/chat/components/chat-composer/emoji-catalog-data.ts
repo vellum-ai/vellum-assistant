@@ -16,6 +16,7 @@
  * Loaded lazily by `emoji-catalog.ts`, which keeps the dataset out of the
  * initial bundle.
  */
+import { slackEmojiCharacter } from "@vellumai/slack-text";
 import type { CompactEmoji } from "emojibase";
 import compact from "emojibase-data/en/compact.json" with { type: "json" };
 import slackNames from "emojibase-data/en/shortcodes/iamcal.json" with { type: "json" };
@@ -25,10 +26,6 @@ export interface EmojiEntry {
   emoji: string;
   aliases: string[];
 }
-
-/** Slack spells a skin tone as `name::skin-tone-N`, N from 2 to 6. */
-const SKIN_TONE_SUFFIX = /^(.+)::skin-tone-([2-6])$/;
-const SKIN_TONE_MODIFIERS = ["1F3FB", "1F3FC", "1F3FD", "1F3FE", "1F3FF"];
 
 const STOPWORDS = new Set(["and", "the", "with", "face", "flag"]);
 
@@ -48,48 +45,20 @@ function aliasesOf(entry: CompactEmoji, own: string): string[] {
   );
 }
 
-const entryByName = new Map<string, CompactEmoji>();
-
 export const EMOJI_CATALOG: EmojiEntry[] = (compact as CompactEmoji[])
   .flatMap((entry) =>
-    namesOf(entry.hexcode).map((shortcode) => {
-      entryByName.set(shortcode, entry);
-      return {
-        shortcode,
-        emoji: entry.unicode,
-        aliases: aliasesOf(entry, shortcode),
-      };
-    }),
+    namesOf(entry.hexcode).map((shortcode) => ({
+      shortcode,
+      emoji: entry.unicode,
+      aliases: aliasesOf(entry, shortcode),
+    })),
   )
   .sort((a, b) =>
     a.shortcode < b.shortcode ? -1 : a.shortcode > b.shortcode ? 1 : 0,
   );
 
-/**
- * The character for a Slack emoji name, or undefined when Slack has no such
- * standard name (a workspace's custom emoji). A skin tone suffix resolves to
- * the variant carrying exactly that tone, which for a multi-person emoji
- * places the modifier inside the sequence; an emoji without variants keeps
- * its base character.
- */
-export function lookupEmoji(name: string): string | undefined {
-  const toned = SKIN_TONE_SUFFIX.exec(name);
-  const entry = entryByName.get(toned ? toned[1]! : name);
-  if (!entry) {
-    return undefined;
-  }
-  if (!toned) {
-    return entry.unicode;
-  }
-  const modifier = SKIN_TONE_MODIFIERS[Number(toned[2]) - 2]!;
-  const skin = entry.skins?.find((s) => {
-    const modifiers = s.hexcode
-      .split("-")
-      .filter((h) => SKIN_TONE_MODIFIERS.includes(h));
-    return modifiers.length === 1 && modifiers[0] === modifier;
-  });
-  return skin?.unicode ?? entry.unicode;
-}
+/** The character for a Slack emoji name, skin tone suffix included. */
+export const lookupEmoji = slackEmojiCharacter;
 
 /**
  * Returns emoji entries matching `query` (case-insensitive), capped at `limit`.

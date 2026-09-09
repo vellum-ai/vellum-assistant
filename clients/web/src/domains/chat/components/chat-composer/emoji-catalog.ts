@@ -1,7 +1,8 @@
 /**
- * Public API for the emoji autocomplete popup and the reaction lines. The
- * catalog is built from the emojibase dataset in `emoji-catalog-data.ts` and
- * loaded on first use, so the dataset stays out of the initial bundle.
+ * Public API for the emoji autocomplete popup, and for the reaction lines'
+ * transitional fallback. The catalog is built from the emojibase dataset in
+ * `emoji-catalog-data.ts` and loaded on first use, so the dataset stays out
+ * of the initial bundle.
  *
  * Re-exports the `EmojiEntry` type from the data module so consumers don't
  * have to know about the split.

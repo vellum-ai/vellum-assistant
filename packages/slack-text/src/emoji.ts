@@ -6,8 +6,9 @@
  * rather than as the character, and its names are its own list, not
  * Unicode's. emojibase ships that list as the `iamcal` shortcode preset. A
  * name outside it is a workspace's own upload, which only that workspace can
- * render. This is the one place Slack's naming is known; everything past the
- * normalizer speaks characters.
+ * render. This is the one place Slack's naming is known: the gateway's
+ * normalizer resolves inbound reactions through it, and everything past an
+ * adapter speaks characters.
  */
 import type { CompactEmoji } from "emojibase";
 import compact from "emojibase-data/en/compact.json" with { type: "json" };

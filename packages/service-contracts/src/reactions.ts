@@ -60,3 +60,57 @@ export function pickReactionEmojiFields(
       : {}),
   };
 }
+
+/**
+ * Parse Discord's custom-emoji mention form. The form travels the wire as a
+ * reaction's spelling, so more than one package reads it: the daemon rebuilds
+ * a REST path from it when the assistant reacts, and a row carrying only the
+ * spelling recovers its kind from it. One parser, so the two cannot disagree
+ * about what counts as one.
+ *
+ * `animated` reports whether the spelling carries the `a` marker. This
+ * normalizer never writes that marker, so it is read only from spellings that
+ * arrive from elsewhere: a row written by another producer, or a value the
+ * model hands back as it received it.
+ */
+export function parseDiscordEmojiMention(
+  emoji: string,
+): { name: string; id: string; animated: boolean } | null {
+  const match = /^<(a?):([^:>]+):(\d+)>$/.exec(emoji);
+  return match
+    ? { name: match[2]!, id: match[3]!, animated: match[1] === "a" }
+    : null;
+}
+
+/**
+ * Recover an emoji's kind from its spelling alone. This is the one inference
+ * the design permits, reserved for a value that carries the string and no
+ * typed fields: a persisted row, a replayed retry payload, or the emoji the
+ * model hands `react_to_message`, whose contract is the spelling. A payload
+ * that declares its kind never reaches this.
+ *
+ * A mention form is unambiguous. Past that the two remaining kinds are told
+ * apart by whether the string is a name at all: a channel's shortcode is
+ * ASCII word characters, optionally carrying Slack's `::skin-tone-N`
+ * suffix, and anything else is the character itself.
+ */
+export function classifyReactionEmojiSpelling(
+  emoji: string,
+): ReactionEmojiFields & { emojiKind: ReactionEmojiKind; emojiName: string } {
+  const custom = parseDiscordEmojiMention(emoji);
+  if (custom) {
+    // The plain `<:name:id>` form says nothing about animation: the
+    // normalizer spells every custom emoji that way and reports animation
+    // in the typed field instead, so a spelling without the `a` marker is
+    // "unrecorded", not "not animated". Only the `<a:` form asserts it.
+    return {
+      emojiKind: "custom",
+      emojiName: custom.name,
+      emojiId: custom.id,
+      ...(custom.animated ? { emojiAnimated: true } : {}),
+    };
+  }
+  return /^[\w+-]+(::skin-tone-[2-6])?$/.test(emoji)
+    ? { emojiKind: "shortcode", emojiName: emoji }
+    : { emojiKind: "unicode", emojiName: emoji };
+}

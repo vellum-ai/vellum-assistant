@@ -1,3 +1,7 @@
+import {
+  classifyReactionEmojiSpelling,
+  type ReactionEmojiFields,
+} from "@vellumai/service-contracts/reactions";
 import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 import {
   isAcpSpawnCall,
@@ -572,36 +576,28 @@ export function SlackMessageAttribution({
  * since its image belongs to the channel and a name must never swap into an
  * unrelated standard emoji.
  *
- * Rows stored before adapters resolved names carry only a spelling, or a
- * Slack name typed `shortcode`; those go through the composer's catalog with
- * the ":name:" fallback. Transitional: delete once no supported assistant
- * serves such rows (`docs/BACKWARDS_COMPAT.md`, "Related compatibility
- * seams").
+ * Rows stored before adapters resolved names carry only a spelling, whose
+ * kind the contract's classifier recovers, or a Slack name typed
+ * `shortcode`; those go through the composer's catalog with the ":name:"
+ * fallback. Transitional: delete once no supported assistant serves such
+ * rows (`docs/BACKWARDS_COMPAT.md`, "Related compatibility seams").
  */
 export function displayReactionEmoji(
-  reaction: { emoji: string; emojiKind?: string; emojiName?: string },
+  reaction: { emoji: string } & ReactionEmojiFields,
   lookup: (shortcode: string) => string | undefined,
 ): string {
-  const name = reaction.emojiName;
-  if (name !== undefined) {
-    switch (reaction.emojiKind) {
-      case "unicode":
-        return name;
-      case "custom":
-        return `:${name}:`;
-      case "shortcode":
-        return lookup(name) ?? `:${name}:`;
-    }
+  const typed =
+    reaction.emojiKind !== undefined && reaction.emojiName !== undefined
+      ? { emojiKind: reaction.emojiKind, emojiName: reaction.emojiName }
+      : classifyReactionEmojiSpelling(reaction.emoji);
+  switch (typed.emojiKind) {
+    case "unicode":
+      return typed.emojiName;
+    case "custom":
+      return `:${typed.emojiName}:`;
+    case "shortcode":
+      return lookup(typed.emojiName) ?? `:${typed.emojiName}:`;
   }
-  const raw = reaction.emoji;
-  const customMention = /^<a?:([^:>]+):\d+>$/.exec(raw);
-  if (customMention) {
-    return `:${customMention[1]!}:`;
-  }
-  if (/^[\w+'-]+(::skin-tone-[2-6])?$/.test(raw)) {
-    return lookup(raw) ?? `:${raw}:`;
-  }
-  return raw;
 }
 
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {
