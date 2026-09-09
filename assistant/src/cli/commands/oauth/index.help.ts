@@ -897,7 +897,7 @@ Arguments:
 
 Stock third-party CLIs expect to be handed an API base URL and an access
 token. This command produces both without ever revealing the provider
-credential: the grant it mints can reach only /v1/oauth/proxy/<provider>,
+credential: the grant it mints can reach only the one connection it named,
 and it expires. The third-party CLI attaches the grant as its own bearer
 token, and the proxy strips it and substitutes the real credential before
 forwarding the request to the provider. The printed base URL is

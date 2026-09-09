@@ -2,9 +2,10 @@
  * Mints the short-lived grant a third-party CLI presents to the OAuth
  * passthrough proxy (`oauth_proxy_*`).
  *
- * The grant names one provider in its subject and carries the
- * `oauth_proxy_v1` profile, so it opens the proxy route for that provider and
- * nothing else. The provider credential never leaves the daemon.
+ * The grant names one provider, and the account it resolved to, in its subject
+ * and carries the `oauth_proxy_v1` profile, so it opens the proxy route for
+ * that one connection and nothing else. The provider credential never leaves
+ * the daemon.
  */
 
 import { z } from "zod";
@@ -80,25 +81,28 @@ export async function handleOAuthProxyGrant({
     throw ambiguousConnectionError(provider, resolution.allAccounts);
   }
 
-  // Pinning the resolved label keeps the grant pointed at this connection if a
-  // second account connects before the grant expires.
+  // The pinned account is named by the subject as well as by the segment, so
+  // the proxy refuses this grant against any other account of the provider.
   const pinnedAccount = account ?? resolution.connection.accountInfo ?? null;
+
+  // Built before the token so a provider key or account the subject cannot
+  // hold fails with a 400 rather than yielding a grant that never verifies.
+  const segment = encodeProxyProviderSegment(
+    provider,
+    pinnedAccount ?? undefined,
+  );
 
   // The gateway validates the edge token and re-mints a daemon token with the
   // same subject and profile; the daemon middleware also accepts this audience
   // directly.
   const token = mintToken({
     aud: "vellum-gateway",
-    sub: proxyGrantSubject(provider),
+    sub: proxyGrantSubject(provider, pinnedAccount ?? undefined),
     scope_profile: "oauth_proxy_v1",
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds,
   });
 
-  const segment = encodeProxyProviderSegment(
-    provider,
-    pinnedAccount ?? undefined,
-  );
   const path = `/v1/oauth/proxy/${segment}`;
   const baseUrl = `${getGatewayInternalBaseUrl().replace(/\/+$/, "")}${path}`;
 
@@ -135,7 +139,7 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: GrantRequestSchema,
     responseBody: GrantResponseSchema,
     additionalResponses: {
-      "400": { description: "Malformed request or provider key" },
+      "400": { description: "Malformed request, provider key, or account" },
       "404": { description: "Unknown provider" },
       "409": {
         description: "Several accounts are connected and none was pinned",

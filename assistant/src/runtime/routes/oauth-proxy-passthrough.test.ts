@@ -89,6 +89,45 @@ describe("provider segment", () => {
     );
     expect(() => encodeProxyProviderSegment("")).toThrow(BadRequestError);
   });
+
+  test("refuses a provider key that the subject cannot hold", () => {
+    // "vendor:region" mints a four-component local subject, which every
+    // subject parser rejects, so the grant could never be used.
+    expect(() => encodeProxyProviderSegment("vendor:region")).toThrow(
+      BadRequestError,
+    );
+    expect(() =>
+      encodeProxyProviderSegment("vendor:region", "a@example.com"),
+    ).toThrow(BadRequestError);
+    expect(() => parseProxyProviderSegment("vendor:region")).toThrow(
+      BadRequestError,
+    );
+    expect(() =>
+      parseProxyProviderSegment("vendor:region@a@example.com"),
+    ).toThrow(BadRequestError);
+  });
+
+  test("percent-encoding keeps a subject-hostile account safe", () => {
+    // A colon or a newline in an account never reaches the subject or the
+    // header verbatim, so the account needs no rejection of its own.
+    expect(encodeProxyProviderSegment("stripe_link", "a:b")).toBe(
+      "stripe_link@a%3Ab",
+    );
+    expect(encodeProxyProviderSegment("stripe_link", "a\nb")).toBe(
+      "stripe_link@a%0Ab",
+    );
+    expect(
+      parseProxyProviderSegment(decodeURIComponent("stripe_link@a%3Ab")),
+    ).toEqual({ provider: "stripe_link", account: "a:b" });
+  });
+
+  test("refuses an account that cannot be percent-encoded", () => {
+    // A lone surrogate makes `encodeURIComponent` throw; the caller gets a 400
+    // rather than an unhandled URIError.
+    expect(() => encodeProxyProviderSegment("stripe_link", "\uD800")).toThrow(
+      BadRequestError,
+    );
+  });
 });
 
 describe("proxyGrantSubject", () => {
@@ -96,6 +135,34 @@ describe("proxyGrantSubject", () => {
     expect(proxyGrantSubject("stripe_link")).toBe(
       "local:self:oauth-proxy.stripe_link",
     );
+  });
+
+  test("an unpinned grant keeps the shape already in circulation", () => {
+    expect(proxyGrantSubject("stripe_link", undefined)).toBe(
+      "local:self:oauth-proxy.stripe_link",
+    );
+  });
+
+  test("a pinned account gets its own subject, matching the URL segment", () => {
+    const subject = proxyGrantSubject("stripe_link", "a@example.com");
+
+    expect(subject).toBe("local:self:oauth-proxy.stripe_link@a%40example.com");
+    expect(subject).toBe(
+      `local:self:oauth-proxy.${encodeProxyProviderSegment(
+        "stripe_link",
+        "a@example.com",
+      )}`,
+    );
+    expect(subject).not.toBe(proxyGrantSubject("stripe_link"));
+    expect(subject).not.toBe(proxyGrantSubject("stripe_link", "b@example.com"));
+  });
+
+  test("stays a three-component local subject whatever the account holds", () => {
+    for (const account of ["a@example.com", "a:b", "a b", "a/b", "a%3Ab"]) {
+      expect(proxyGrantSubject("stripe_link", account).split(":")).toHaveLength(
+        3,
+      );
+    }
   });
 });
 

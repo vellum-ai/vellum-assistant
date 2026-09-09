@@ -24383,7 +24383,7 @@ paths:
                   - ttlSeconds
                 additionalProperties: false
         "400":
-          description: Malformed request or provider key
+          description: Malformed request, provider key, or account
         "404":
           description: Unknown provider
         "409":
@@ -24396,7 +24396,8 @@ paths:
       summary: Proxy a DELETE request through an OAuth connection
       description:
         Forwards the remainder path, query, headers, and body to the provider's API base through the connection
-        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
       tags:
         - oauth
       parameters:
@@ -24428,7 +24429,7 @@ paths:
         "402":
           description: The managed account is out of balance
         "403":
-          description: The grant was minted for a different provider
+          description: The grant was minted for a different provider or account
         "404":
           description: Unknown provider
         "405":
@@ -24444,7 +24445,8 @@ paths:
       summary: Proxy a GET request through an OAuth connection
       description:
         Forwards the remainder path, query, headers, and body to the provider's API base through the connection
-        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
       tags:
         - oauth
       parameters:
@@ -24469,7 +24471,7 @@ paths:
         "402":
           description: The managed account is out of balance
         "403":
-          description: The grant was minted for a different provider
+          description: The grant was minted for a different provider or account
         "404":
           description: Unknown provider
         "405":
@@ -24485,7 +24487,8 @@ paths:
       summary: Proxy a HEAD request through an OAuth connection
       description:
         Forwards the remainder path, query, headers, and body to the provider's API base through the connection
-        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
       tags:
         - oauth
       parameters:
@@ -24510,7 +24513,7 @@ paths:
         "402":
           description: The managed account is out of balance
         "403":
-          description: The grant was minted for a different provider
+          description: The grant was minted for a different provider or account
         "404":
           description: Unknown provider
         "405":
@@ -24526,7 +24529,8 @@ paths:
       summary: Proxy a PATCH request through an OAuth connection
       description:
         Forwards the remainder path, query, headers, and body to the provider's API base through the connection
-        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
       tags:
         - oauth
       parameters:
@@ -24556,7 +24560,7 @@ paths:
         "402":
           description: The managed account is out of balance
         "403":
-          description: The grant was minted for a different provider
+          description: The grant was minted for a different provider or account
         "404":
           description: Unknown provider
         "405":
@@ -24572,7 +24576,8 @@ paths:
       summary: Proxy a POST request through an OAuth connection
       description:
         Forwards the remainder path, query, headers, and body to the provider's API base through the connection
-        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
       tags:
         - oauth
       parameters:
@@ -24602,7 +24607,7 @@ paths:
         "402":
           description: The managed account is out of balance
         "403":
-          description: The grant was minted for a different provider
+          description: The grant was minted for a different provider or account
         "404":
           description: Unknown provider
         "405":
@@ -24618,7 +24623,8 @@ paths:
       summary: Proxy a PUT request through an OAuth connection
       description:
         Forwards the remainder path, query, headers, and body to the provider's API base through the connection
-        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
       tags:
         - oauth
       parameters:
@@ -24648,7 +24654,7 @@ paths:
         "402":
           description: The managed account is out of balance
         "403":
-          description: The grant was minted for a different provider
+          description: The grant was minted for a different provider or account
         "404":
           description: Unknown provider
         "405":

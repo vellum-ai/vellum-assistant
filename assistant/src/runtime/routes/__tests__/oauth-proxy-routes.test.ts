@@ -132,13 +132,17 @@ const HTTP_ROUTES = routeDefinitionsToHTTPRoutes(ROUTES);
 // ── Harness ─────────────────────────────────────────────────────────────────
 
 const SUBJECT = "local:self:oauth-proxy.stripe_link";
+/** Subject of a grant minted with `--account user@example.com`. */
+const PINNED_SUBJECT = "local:self:oauth-proxy.stripe_link@user%40example.com";
+/** Wire segment the pinned grant's base URL carries. */
+const PINNED_SEGMENT = "stripe_link@user%40example.com";
 
 function buildAuthContext(subject: string): AuthContext {
   return {
     subject,
     principalType: "local",
     assistantId: "self",
-    conversationId: "oauth-proxy.stripe_link",
+    conversationId: subject.slice("local:self:".length),
     scopeProfile: "oauth_proxy_v1",
     scopes: resolveScopeProfile("oauth_proxy_v1"),
     policyEpoch: 0,
@@ -499,7 +503,7 @@ describe("response emission", () => {
 
 describe("connection selection", () => {
   test("pins the account from the provider segment", async () => {
-    await callProxy({ segment: "stripe_link@user%40example.com" });
+    await callProxy({ segment: PINNED_SEGMENT, subject: PINNED_SUBJECT });
 
     expect(resolverCalls).toEqual([
       { provider: "stripe_link", options: { account: "user@example.com" } },
@@ -524,10 +528,7 @@ describe("connection selection", () => {
 
     expect(response.status).toBe(409);
     const { error } = await envelope(response);
-    expect(error.details?.accounts).toEqual([
-      "a@example.com",
-      "b@example.com",
-    ]);
+    expect(error.details?.accounts).toEqual(["a@example.com", "b@example.com"]);
     expect(error.message).toContain("a@example.com");
     expect(error.message).toContain("b@example.com");
     expect(captured).toBeUndefined();
@@ -587,15 +588,82 @@ describe("failure mapping", () => {
 // ── Grant binding and path safety ───────────────────────────────────────────
 
 describe("grant binding", () => {
+  /** Nothing downstream of the subject check ran. */
+  async function expectRefusedBeforeResolution(
+    response: Response,
+  ): Promise<void> {
+    expect(response.status).toBe(403);
+    expect((await envelope(response)).error.code).toBe("FORBIDDEN");
+    expect(resolverCalls).toHaveLength(0);
+    expect(providerLookups).toHaveLength(0);
+    expect(captured).toBeUndefined();
+  }
+
   test("a grant for another provider is rejected before resolution", async () => {
     const response = await callProxy({
       subject: "local:self:oauth-proxy.google",
     });
 
-    expect(response.status).toBe(403);
-    expect((await envelope(response)).error.code).toBe("FORBIDDEN");
+    await expectRefusedBeforeResolution(response);
+  });
+
+  test("a grant pinned to an account reaches that account", async () => {
+    const response = await callProxy({
+      segment: PINNED_SEGMENT,
+      subject: PINNED_SUBJECT,
+    });
+
+    expect(response.status).toBe(200);
+    expect(resolverCalls).toEqual([
+      { provider: "stripe_link", options: { account: "user@example.com" } },
+    ]);
+  });
+
+  test("a pinned grant cannot be rewritten onto another account", async () => {
+    const response = await callProxy({
+      segment: "stripe_link@other%40example.com",
+      subject: PINNED_SUBJECT,
+    });
+
+    await expectRefusedBeforeResolution(response);
+  });
+
+  test("a pinned grant cannot fall back to the default connection", async () => {
+    // The bare segment resolves to whichever connection the resolver prefers,
+    // which is not necessarily the one the grant was minted for.
+    const response = await callProxy({ subject: PINNED_SUBJECT });
+
+    await expectRefusedBeforeResolution(response);
+  });
+
+  test("an unpinned grant works against the bare provider segment", async () => {
+    const response = await callProxy({ subject: SUBJECT });
+
+    expect(response.status).toBe(200);
+    expect(resolverCalls).toEqual([
+      { provider: "stripe_link", options: undefined },
+    ]);
+  });
+
+  test("an unpinned grant cannot name an account of its own", async () => {
+    // Unpinned means the mint identified no account, so any account the caller
+    // supplies here is one the grant never stood for.
+    const response = await callProxy({
+      segment: PINNED_SEGMENT,
+      subject: SUBJECT,
+    });
+
+    await expectRefusedBeforeResolution(response);
+  });
+
+  test("a provider segment the subject cannot hold is a 400", async () => {
+    const response = await callProxy({
+      segment: "vendor%3Aregion",
+      subject: "local:self:oauth-proxy.vendor:region",
+    });
+
+    expect(response.status).toBe(400);
     expect(resolverCalls).toHaveLength(0);
-    expect(providerLookups).toHaveLength(0);
   });
 });
 

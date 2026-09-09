@@ -19,7 +19,9 @@ const providerLookups: string[] = [];
 mock.module("../../../oauth/oauth-store.js", () => ({
   getProvider: (provider: string) => {
     providerLookups.push(provider);
-    return provider === "stripe_link"
+    // "vendor:eu" stands in for a custom provider key, which is caller-chosen
+    // and unconstrained.
+    return provider === "stripe_link" || provider === "vendor:eu"
       ? { provider, baseUrl: "https://api.link.com" }
       : undefined;
   },
@@ -144,15 +146,61 @@ beforeEach(() => {
 // ── Minted grant ────────────────────────────────────────────────────────────
 
 describe("the minted grant", () => {
-  test("verifies under the provider's own subject with the proxy profile", async () => {
+  test("verifies under the resolved connection's subject with the proxy profile", async () => {
     const result = await grant({ provider: "stripe_link" });
 
     const claims = claimsOf(result.token);
-    expect(claims.sub).toBe("local:self:oauth-proxy.stripe_link");
+    expect(claims.sub).toBe(
+      "local:self:oauth-proxy.stripe_link@user%40example.com",
+    );
     expect(claims.scope_profile).toBe("oauth_proxy_v1");
 
     const expectedExp = Math.floor(Date.now() / 1000) + 900;
     expect(Math.abs(claims.exp - expectedExp)).toBeLessThanOrEqual(2);
+  });
+
+  test("the subject names the same segment the base URL points at", async () => {
+    const result = await grant({
+      provider: "stripe_link",
+      account: "other user@example.com",
+    });
+
+    expect(claimsOf(result.token).sub).toBe(
+      "local:self:oauth-proxy.stripe_link@other%20user%40example.com",
+    );
+    expect(result.path).toBe(
+      "/v1/oauth/proxy/stripe_link@other%20user%40example.com",
+    );
+  });
+
+  test("a grant for a second account gets a subject of its own", async () => {
+    const first = await grant({ provider: "stripe_link", account: "a@x.test" });
+    const second = await grant({
+      provider: "stripe_link",
+      account: "b@x.test",
+    });
+
+    expect(claimsOf(first.token).sub).not.toBe(claimsOf(second.token).sub);
+  });
+
+  test("an unpinned grant keeps the bare provider subject", async () => {
+    resolution = { ...resolution, connection: connection(null) };
+
+    const result = await grant({ provider: "stripe_link" });
+
+    expect(claimsOf(result.token).sub).toBe(
+      "local:self:oauth-proxy.stripe_link",
+    );
+  });
+
+  test("every minted subject stays a three-component local sub", async () => {
+    for (const account of [undefined, "a:b@example.com", "a/b", "a b"]) {
+      const result = await grant({
+        provider: "stripe_link",
+        ...(account && { account }),
+      });
+      expect(claimsOf(result.token).sub.split(":")).toHaveLength(3);
+    }
   });
 
   test("points the base URL at the resolved account's provider segment", async () => {
@@ -245,6 +293,25 @@ describe("request validation", () => {
     expect((await grantError({})).statusCode).toBe(400);
     expect((await grantError({ provider: "" })).statusCode).toBe(400);
     expect(providerLookups).toEqual([]);
+  });
+
+  test("refuses a registered provider key the subject cannot hold", async () => {
+    // "vendor:eu" would mint a four-component local subject, which every
+    // subject parser rejects, so the grant could never be used.
+    const err = await grantError({ provider: "vendor:eu" });
+
+    expect(err.statusCode).toBe(400);
+    expect(err.message).toContain("vendor:eu");
+  });
+
+  test("an account with a colon is encoded rather than refused", async () => {
+    const result = await grant({
+      provider: "stripe_link",
+      account: "a:b@example.com",
+    });
+
+    expect(result.account).toBe("a:b@example.com");
+    expect(result.path).toBe("/v1/oauth/proxy/stripe_link@a%3Ab%40example.com");
   });
 });
 
