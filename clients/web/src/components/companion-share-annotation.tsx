@@ -25,12 +25,24 @@
  * annotation layer: the user pointed at something and the call has the
  * picture, and a circle still sitting on the screen a minute later is a
  * circle they have to clear up.
+ *
+ * **The app underneath stays scrollable.** This layer takes the wheel along
+ * with the presses, and a window cannot hand on a wheel event it has taken,
+ * so on the first one it asks main to make the frame click-through for the
+ * rest of the scroll (`setCompanionFrameScrolling`). Main takes the mouse
+ * back when the scroll ends, which it hears from the desktop, and this layer
+ * asks for it back on the first pointer move main forwards afterwards, in
+ * case that comes first. Drawing is a mode the user is in, not a lock on the
+ * surface they are sharing.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useWindowBox } from "@/components/companion-window-box";
-import { annotateCompanionShare } from "@/runtime/companion-surface";
+import {
+  annotateCompanionShare,
+  setCompanionFrameScrolling,
+} from "@/runtime/companion-surface";
 import {
   COMPANION_ANNOTATION_MAX_POINTS,
   COMPANION_ANNOTATION_MAX_STROKES,
@@ -127,6 +139,17 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
    */
   const live = useRef<readonly LiveStroke[]>([]);
   const drawing = useRef<number | null>(null);
+  /**
+   * Whether this layer last asked main to step aside for a scroll.
+   *
+   * Kept for the way back only, so a pointer resting after a scroll, which
+   * is many moves, asks for the mouse once. It is not the truth about the
+   * frame: main takes the mouse back on its own when the desktop says the
+   * scroll has ended, and this layer is not told. So a wheel event never
+   * reads it. One reaching this layer at all means the frame is holding the
+   * mouse right now, whatever was asked for last.
+   */
+  const scrolling = useRef(false);
   const nextId = useRef(0);
   // The timers dropping spent marks once they have finished fading, cleared on
   // unmount so nothing is left to write to a component that has gone.
@@ -192,7 +215,49 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
     y: box.height === 0 ? 0 : clamp(event.clientY / box.height),
   });
 
+  /**
+   * A wheel event on the layer is a scroll meant for the app under it, and
+   * this window cannot hand it on: a window taking presses takes the wheel
+   * with them. What it can do is ask main to stop taking them, so the rest of
+   * the scroll reaches the app underneath. The one event that got here is
+   * the price of finding out.
+   *
+   * Every one, not the first: while the frame is stepped aside the wheel
+   * goes to the app and none arrive here, so one that does arrive is the
+   * start of a scroll the frame is taking, either the first or the next
+   * after main took the mouse back on its own. Main ignores an ask that
+   * changes nothing.
+   *
+   * Not mid-stroke. The hand is down and captured, and a frame that let go
+   * of the mouse now would lose the release that sends the mark and lifts
+   * the hold on the session's frames.
+   */
+  const handleWheel = (): void => {
+    if (drawing.current !== null) {
+      return;
+    }
+    scrolling.current = true;
+    setCompanionFrameScrolling(true);
+  };
+
+  /**
+   * Take the mouse back after a scroll. Main forwards mouse-move while the
+   * frame is stepped aside, so the first move to arrive is a hand that has
+   * stopped scrolling and is pointing at something again. Main also takes it
+   * back on its own when the desktop says the scroll has ended, so a press
+   * with no move before it still lands here; that path never reaches this
+   * layer, and the flag here is cleared by the next move either way.
+   */
+  const reclaim = (): void => {
+    if (!scrolling.current) {
+      return;
+    }
+    scrolling.current = false;
+    setCompanionFrameScrolling(false);
+  };
+
   const handleDown = (event: React.PointerEvent<SVGSVGElement>): void => {
+    reclaim();
     if (drawing.current !== null) {
       return;
     }
@@ -211,6 +276,7 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   };
 
   const handleMove = (event: React.PointerEvent<SVGSVGElement>): void => {
+    reclaim();
     const id = drawing.current;
     if (id === null) {
       return;
@@ -283,17 +349,18 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
       className="companion-share-annotation fixed inset-0 h-full w-full"
       style={
         {
+          cursor,
           "--companion-ink-hold": `${COMPANION_INK_HOLD_MS}ms`,
           "--companion-ink-fade": `${COMPANION_INK_FADE_MS}ms`,
         } as React.CSSProperties
       }
       data-testid="companion-share-annotation"
       role="presentation"
-      style={{ cursor }}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={handleUp}
       onPointerCancel={handleUp}
+      onWheel={handleWheel}
     >
       {strokes.map((stroke) => (
         <Ink

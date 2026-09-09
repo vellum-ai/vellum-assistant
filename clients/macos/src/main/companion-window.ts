@@ -90,6 +90,7 @@ import {
   windowBoundsFor,
 } from "./companion-capture-sources";
 import { setPointerOnCompanion } from "./companion-pointer";
+import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
@@ -1094,9 +1095,52 @@ let annotating = false;
 const framesTheShare = (): boolean =>
   context.watching !== true && context.screenShare !== undefined;
 
-/** Give the frame the mouse, or give it back to the desktop. */
+/**
+ * Whether the frame has handed the mouse back to the desktop for a scroll,
+ * while the mode stays on.
+ *
+ * A frame taking presses takes the wheel with them, and a transparent window
+ * the size of the shared surface that eats every wheel event is a shared
+ * app the user cannot scroll or move through. Nothing on the desktop forwards
+ * a wheel event through a window that is taking the mouse, so the frame
+ * steps aside instead: the renderer reports the first wheel event it
+ * receives, the frame goes click-through with mouse-move forwarded so the
+ * rest of that scroll reaches the app underneath, and the frame takes the
+ * mouse back when the scroll ends. Two things say it has. The renderer
+ * reports the first move it is forwarded, since a hand that has moved the
+ * pointer is pointing at something again. The mac helper reports the scroll
+ * stopping, since a hand that scrolls and then presses without moving the
+ * pointer is one the renderer would never hear from, and the press would
+ * land on the app.
+ *
+ * Main's for the reason {@link annotating} is: it decides what a window main
+ * opened does with the mouse.
+ */
+let frameScrolling = false;
+
+/**
+ * Give the frame the mouse, or give it back to the desktop.
+ *
+ * Forwarded mouse-move only while the frame has stepped aside for a scroll:
+ * that is the one state in which the renderer has to see the pointer without
+ * holding it, so it can ask for the mouse back. Off the mode, nothing is
+ * forwarded, since there is nothing on the frame to point at and a forwarded
+ * move over a display-sized window is a move on every pixel of the screen.
+ */
 const applyFrameMouse = (): void => {
-  getFloatingWindow(WATCH_FRAME_KIND)?.setIgnoreMouseEvents(!annotating);
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame === null) {
+    return;
+  }
+  if (!annotating) {
+    frame.setIgnoreMouseEvents(true);
+    return;
+  }
+  if (frameScrolling) {
+    frame.setIgnoreMouseEvents(true, { forward: true });
+    return;
+  }
+  frame.setIgnoreMouseEvents(false);
 };
 
 /**
@@ -1106,6 +1150,11 @@ const applyFrameMouse = (): void => {
  * Idempotent, and run after every change to the context as well as on the
  * press: a mode left on over a share that ended is a transparent window
  * eating every click on that display.
+ *
+ * Either edge forgets a scroll the frame stepped aside for. The mode going
+ * on is the user asking for the mouse, whatever the pointer was doing before
+ * the press; the mode going off leaves nothing for the scroll to have stepped
+ * aside from.
  */
 const setAnnotating = (next: boolean): void => {
   const resolved = next && framesTheShare();
@@ -1113,8 +1162,31 @@ const setAnnotating = (next: boolean): void => {
     return;
   }
   annotating = resolved;
+  frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
   pushState();
+};
+
+/**
+ * Step aside for a scroll on the frame, or take the mouse back after one.
+ *
+ * Refused off the mode rather than remembered: a frame that is not taking
+ * presses has no mouse to hand back, and a scroll recorded against the next
+ * time the mode goes on would open it click-through.
+ */
+const setFrameScrolling = (next: boolean): void => {
+  const resolved = next && annotating;
+  if (resolved === frameScrolling) {
+    return;
+  }
+  frameScrolling = resolved;
+  if (resolved) {
+    watchFrameScroll(() => setFrameScrolling(false));
+  } else {
+    unwatchFrameScroll();
+  }
+  applyFrameMouse();
 };
 
 /**
@@ -1521,7 +1593,11 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   win.setAlwaysOnTop(true, "floating", -1);
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
-  // share moves to another target.
+  // share moves to another target. A scroll the old window stepped aside for
+  // does not: this window's renderer has seen no scroll and would never ask
+  // for a mouse it does not know it gave up.
+  frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
 };
 
@@ -2140,6 +2216,20 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
     setAnnotating(!annotating);
+  });
+
+  /**
+   * A scroll on the frame, or the pointer moving after one, from the frame's
+   * own window.
+   *
+   * The frame is what decides where a wheel event lands, and it cannot
+   * forward one it has taken. What it can do is stop taking them: on the
+   * first the renderer sees, the frame steps aside so the rest of the scroll
+   * reaches the app underneath, and on the first forwarded move it takes the
+   * mouse back. See {@link frameScrolling}.
+   */
+  on("vellum:companion:setFrameScrolling", z.tuple([z.boolean()]), ([next]) => {
+    setFrameScrolling(next);
   });
 
   /**

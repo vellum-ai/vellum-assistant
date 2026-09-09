@@ -15,12 +15,18 @@ const sent: {
   strokes: readonly CompanionAnnotationStroke[];
 }[] = [];
 
+/** What the layer told main about the frame stepping aside for a scroll. */
+const scrolled: boolean[] = [];
+
 mock.module("@/runtime/companion-surface", () => ({
   annotateCompanionShare: (
     phase: string,
     strokes: readonly CompanionAnnotationStroke[],
   ) => {
     sent.push({ phase, strokes });
+  },
+  setCompanionFrameScrolling: (scrolling: boolean) => {
+    scrolled.push(scrolling);
   },
 }));
 
@@ -42,6 +48,7 @@ const INK = "#a78bfa";
 
 beforeEach(() => {
   sent.length = 0;
+  scrolled.length = 0;
   // The window is what the shell sizes to the shared surface, and what the
   // marks are measured against.
   Object.defineProperty(window, "innerWidth", { value: SIDE, writable: true });
@@ -79,6 +86,83 @@ const move = (layer: Element, x: number, y: number): void => {
 const up = (layer: Element, x: number, y: number): void => {
   fireEvent.pointerUp(layer, { pointerId: 1, clientX: x, clientY: y });
 };
+const wheel = (layer: Element): void => {
+  fireEvent.wheel(layer, { deltaY: 40 });
+};
+
+/**
+ * Scrolling the app under the frame. The layer takes the wheel along with the
+ * presses and cannot hand it on, so what it does is tell main to step aside
+ * for the rest of the scroll, and to take the mouse back once the pointer
+ * moves. Each edge is said once, however many events make it up.
+ */
+describe("scrolling the app under the frame", () => {
+  /**
+   * In the window itself, only the first wheel event of a scroll ever
+   * reaches the layer: the frame steps aside on it and the rest go to the
+   * app. A second one arriving is therefore the next scroll, after main took
+   * the mouse back on its own when the desktop said the first had ended,
+   * which this layer is never told about. Each has to ask again, or a scroll
+   * that follows a scroll, with no move between, is swallowed whole.
+   */
+  test("every wheel event that reaches the layer asks main to step aside", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    wheel(layer);
+    wheel(layer);
+    expect(scrolled).toEqual([true, true]);
+    move(layer, 200, 200);
+    move(layer, 300, 300);
+    expect(scrolled).toEqual([true, true, false]);
+  });
+
+  test("the pointer moving afterwards takes the mouse back", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    wheel(layer);
+    move(layer, 200, 200);
+    move(layer, 300, 300);
+    expect(scrolled).toEqual([true, false]);
+    // A move with no stroke in flight draws nothing.
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a press arriving first takes the mouse back as well", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    wheel(layer);
+    down(layer, 200, 200);
+    up(layer, 200, 200);
+    expect(scrolled).toEqual([true, false]);
+    expect(sent.filter((one) => one.phase === "released")).toHaveLength(1);
+  });
+
+  /**
+   * The hand is down and captured. A frame that let go of the mouse now would
+   * lose the release that sends the mark and lifts the hold on the session's
+   * frames.
+   */
+  test("a wheel event mid-stroke keeps the hand", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    wheel(layer);
+    move(layer, 500, 500);
+    up(layer, 500, 500);
+    expect(scrolled).toHaveLength(0);
+    expect(sent.at(-1)?.phase).toBe("released");
+    expect(sent.at(-1)?.strokes[0]?.points).toHaveLength(2);
+  });
+
+  test("says nothing about the mouse when nothing was scrolled", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    move(layer, 200, 200);
+    down(layer, 200, 200);
+    up(layer, 200, 200);
+    expect(scrolled).toHaveLength(0);
+  });
+});
 
 /**
  * Drawing on the surface a call is being shown. What these pin is the bargain

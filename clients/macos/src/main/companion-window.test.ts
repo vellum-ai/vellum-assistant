@@ -378,7 +378,15 @@ type GlowWindow = {
   isVisible: () => boolean;
   /** Whether presses go through it, which is the whole of drawing mode. */
   clickThrough: boolean;
-  setIgnoreMouseEvents: (ignore: boolean) => void;
+  /**
+   * Whether mouse-move still reaches the page while presses go through,
+   * which is how the frame knows to take the mouse back after a scroll.
+   */
+  forwarded: boolean;
+  setIgnoreMouseEvents: (
+    ignore: boolean,
+    options?: { forward?: boolean },
+  ) => void;
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
@@ -428,8 +436,10 @@ const openGlow = (options: {
     isVisible: () => window.visible,
     // How main opens it, and where it goes back to whenever drawing is off.
     clickThrough: true,
-    setIgnoreMouseEvents: (ignore) => {
+    forwarded: false,
+    setIgnoreMouseEvents: (ignore, options) => {
       window.clickThrough = ignore;
+      window.forwarded = ignore && options?.forward === true;
     },
   };
   glow = window;
@@ -531,6 +541,12 @@ const {
   installCompanionWindow,
 } = await import("./companion-window");
 
+const {
+  __resetFrameScrollWatchForTesting,
+  frameScrollEnded,
+  provideFrameScrollWatch,
+} = await import("./frame-scroll-watch");
+
 installCompanionWindow();
 
 /**
@@ -538,6 +554,7 @@ installCompanionWindow();
  * size leaves it there. Put both axes back and forget the window's position.
  */
 beforeEach(() => {
+  __resetFrameScrollWatchForTesting();
   sizes.avatar = "small";
   sizes.options = "small";
   setCompanionSurfaceSize("avatar", "small");
@@ -3194,6 +3211,131 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:toggleAnnotating");
     expect(state().annotating).toBe(false);
     expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * A frame taking presses takes the wheel with them, and it cannot forward
+   * a wheel event it has taken. So on the first one the renderer sees, the
+   * frame steps aside for the rest of the scroll, with mouse-move forwarded
+   * so the renderer can see the pointer move and ask for the mouse back. The
+   * mode stays on the whole time: the user did not press Draw again.
+   */
+  test("a scroll on the frame lets the rest of it through to the app", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(true);
+    expect(state().annotating).toBe(true);
+  });
+
+  test("the pointer moving after a scroll takes the mouse back", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(glow?.clickThrough).toBe(false);
+    expect(state().annotating).toBe(true);
+  });
+
+  /**
+   * A hand that scrolls and then presses without moving the pointer never
+   * sends the renderer a move to ask with, and the press would land on the
+   * app. The desktop knows when the scroll stopped, so main asks the helper
+   * to watch for that while the frame is stepped aside, and takes the mouse
+   * back the moment it hears it.
+   */
+  test("the scroll ending takes the mouse back without a move", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(watches).toEqual([true]);
+    frameScrollEnded();
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
+    expect(state().annotating).toBe(true);
+    expect(watches).toEqual([true, false]);
+  });
+
+  /** The watch is up only while the frame is stepped aside, whichever way that ends. */
+  test("every way out of a scroll takes the watch down with it", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(watches).toEqual([true, false]);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(watches).toEqual([true, false, true, false]);
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(watches).toEqual([true, false, true, false, true, false]);
+
+    // A scroll that ended after the frame stopped waiting changes nothing.
+    frameScrollEnded();
+    expect(watches).toHaveLength(6);
+  });
+
+  /** Off the mode there is no watch to put up, and no scroll end to act on. */
+  test("a scroll ending with the mode off is nothing", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    frameScrollEnded();
+    expect(watches).toEqual([]);
+    expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * Off the mode the frame has no mouse to hand back, and a scroll remembered
+   * against the next press would open the mode click-through.
+   */
+  test("a scroll with the mode off changes nothing, now or later", () => {
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+  });
+
+  /** The mode going off leaves nothing for the scroll to have stepped aside from. */
+  test("the mode going off forgets the scroll it stepped aside for", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+  });
+
+  /**
+   * The mode outlives the frame's window, which is replaced when the share
+   * ends and starts again. The new window's renderer has seen no scroll, so
+   * one the old window stepped aside for would leave it click-through with
+   * nothing to ask for the mouse back.
+   */
+  test("a frame opened afresh takes the mouse whatever the last one did", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
   });
 
   /**
