@@ -433,10 +433,16 @@ export function useDocumentComposerSubmit({
       // of it and finish this message before the POST answers, and the
       // watcher takes this mark down with the wait it ends. Raised off the
       // response instead, it would go up after the watcher had already tried
-      // to remove it and stand until an unrelated reconciliation.
-      useConversationStore
-        .getState()
-        .addProcessingConversationId(targetConversationId, snapshot);
+      // to remove it and stand until an unrelated reconciliation. It goes up
+      // only while this message still has an entry to take it down with: a
+      // retry of a message the watcher has already settled is deduped by the
+      // daemon without another terminal, so a mark raised for it would stand
+      // the same way.
+      if (ownsReplyWait(targetConversationId)) {
+        useConversationStore
+          .getState()
+          .addProcessingConversationId(targetConversationId, snapshot);
+      }
 
       const result = await postChatMessage(
         assistantId,

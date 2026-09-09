@@ -1289,13 +1289,17 @@ describe("when the reply wait goes up", () => {
 
     // The first attempt landed after all: the daemon echoed the send back on
     // the stream, and the terminal that followed settled it, so the watcher
-    // took the wait back down before the user retried.
+    // took the wait and the processing mark back down before the user
+    // retried.
     useDocumentComposerReplyStore
       .getState()
       .markReplyRunning("conv-existing", sentOptions(0).clientMessageId);
     useDocumentComposerReplyStore
       .getState()
       .settleRunningReplies("conv-existing");
+    useConversationStore
+      .getState()
+      .removeProcessingConversationId("conv-existing");
 
     await act(async () => {
       await result.current.submit();
@@ -1303,9 +1307,43 @@ describe("when the reply wait goes up", () => {
 
     // The daemon deduped the retry against a turn that is already over, and
     // nothing in its response says so. Nothing is left waiting, so the next
-    // unrelated completion cannot fire an "Assistant replied" toast.
+    // unrelated completion cannot fire an "Assistant replied" toast, and no
+    // mark goes back up for a turn nothing will end again.
     expect(result.current.status).toBe("sent");
     expect(isAwaitingReply("conv-existing")).toBe(false);
+    expect(isProcessing("conv-existing")).toBe(false);
+  });
+
+  test("a retry of a message still pending keeps its processing mark up", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("network dropped");
+        }
+        return sentResult("conv-existing");
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    // GIVEN a first attempt that threw while its entry is still pending.
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+
+    // WHEN the user retries the same draft.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the entry it rides carries the mark, so the mark is up for the
+    // watcher to take down with it.
+    expect(result.current.status).toBe("sent");
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+    expect(isProcessing("conv-existing")).toBe(true);
   });
 
   test("a refused retry takes down the wait its first attempt raised", async () => {
