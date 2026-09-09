@@ -144,6 +144,12 @@ export function SkillsReferenceACPContent() {
               <strong>Choose the right agent.</strong> Claude Code for general development, Codex for
               code generation, Gemini CLI for Google ecosystem integration.
             </li>
+            <li>
+              <strong>Ask for a model.</strong> Say which model a coding-agent session should run on,
+              for example &ldquo;use opus&rdquo;, and that choice is remembered for the rest of the
+              conversation with that agent. Set <code>acp.defaultModel</code> in your Assistant
+              config to choose the default for all sessions.
+            </li>
           </ul>
         </section>
       </DocsContent>
