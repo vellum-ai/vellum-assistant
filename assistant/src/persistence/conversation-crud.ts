@@ -4838,26 +4838,44 @@ function isToolResultMessage(role: string, content: string): boolean {
 }
 
 /**
- * A `WHERE` fragment keeping every row {@link isToolResultMessage} rejects,
- * with the same semantics: a non-object element, or an element whose `type` is
- * anything else, makes the row an ordinary one. The classification runs inside
- * SQLite so no message body is read into memory to decide it. Every `CASE`
- * pins an evaluation order the planner could otherwise reorder an `AND` chain
- * out of: a plain-text body never reaches a JSON function, and an element's
- * type is checked before `json_extract` for the same reason, since `json_each`
- * exposes a bare string element unquoted.
+ * A `WHERE` fragment keeping every row the transcript displays, mirroring
+ * `isToolResultOnlyUserMessage` (`conversations/message-consolidation.ts`) in
+ * SQL: the transcript suppresses a `user` row that carries at least one
+ * tool-result block and nothing besides tool-result and `<system_notice>` text
+ * blocks, and any other element, a non-object one included, makes the row an
+ * ordinary one.
+ *
+ * The classification runs inside SQLite so no message body is read into memory
+ * to decide it. Every `CASE` pins an evaluation order the planner could
+ * otherwise reorder an `AND` chain out of: a plain-text body never reaches a
+ * JSON function, and an element's type is checked before `json_extract` for
+ * the same reason, since `json_each` exposes a bare string element unquoted.
+ * `COALESCE` keeps a missing `$.type` or `$.text` a definite mismatch, since a
+ * NULL inside the `NOT EXISTS` would drop the element from the scan instead.
  */
 function excludesToolResultRows(): SQL {
+  const blockType = sql`COALESCE(json_extract(block.value, '$.type'), '')`;
+  const blockText = sql`COALESCE(json_extract(block.value, '$.text'), '')`;
+  const isToolBlock = sql`${blockType} IN ('tool_result', 'web_search_tool_result')`;
+  const isNoticeBlock = sql`substr(${blockText}, 1, 15) = '<system_notice>' AND substr(${blockText}, -16) = '</system_notice>'`;
   return sql`NOT (CASE
     WHEN ${messages.role} = 'user' AND json_valid(${messages.content})
       THEN CASE
         WHEN json_type(${messages.content}) = 'array'
-          THEN json_array_length(${messages.content}) > 0
+          THEN EXISTS (
+              SELECT 1 FROM json_each(${messages.content}) AS block
+              WHERE CASE WHEN block.type = 'object' THEN ${isToolBlock} ELSE 0 END
+            )
             AND NOT EXISTS (
               SELECT 1 FROM json_each(${messages.content}) AS block
               WHERE CASE
                 WHEN block.type = 'object'
-                  THEN json_extract(block.value, '$.type') IS NOT 'tool_result'
+                  THEN CASE
+                    WHEN ${isToolBlock} THEN 0
+                    WHEN ${blockType} = 'text'
+                      THEN CASE WHEN ${isNoticeBlock} THEN 0 ELSE 1 END
+                    ELSE 1
+                  END
                 ELSE 1
               END
             )

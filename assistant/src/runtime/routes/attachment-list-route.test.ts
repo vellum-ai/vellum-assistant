@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
+import { isToolResultOnlyUserMessage } from "../../conversations/message-consolidation.js";
 import {
   linkAttachmentToMessage,
   setAttachmentThumbnail,
@@ -20,9 +21,11 @@ import {
   addMessage,
   createConversation,
   forkConversationForRetrospective,
+  type MessageRow,
 } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { resolveMessageContentBlocks } from "../../persistence/message-content-file.js";
 import {
   messageAttachments,
   messages,
@@ -96,6 +99,22 @@ function setContent(messageId: string, content: string): void {
     .where(eq(messages.id, messageId))
     .run();
 }
+
+/** The row the transcript classifier sees for a stored content string. */
+function messageRowFor(content: string): MessageRow {
+  return {
+    id: "msg-parity",
+    conversationId: "conv-parity",
+    role: "user",
+    content: resolveMessageContentBlocks(content),
+    createdAt: 0,
+    metadata: null,
+    clientMessageId: null,
+    finalized: 1,
+  };
+}
+
+const SYSTEM_NOTICE = "<system_notice>done</system_notice>";
 
 /** The grouped row the agent loop writes for a turn's tool results. */
 function toolResultContent(toolUseId: string): string {
@@ -434,6 +453,125 @@ describe("GET /v1/attachments", () => {
 
     expect(result.attachments.map((a) => a.id)).toEqual([toolPhoto, textPhoto]);
     expect(result.total).toBe(2);
+  });
+
+  test("excludes a row holding tool results beside a system notice", async () => {
+    const conversation = createConversation("Noticed turn");
+
+    const noticedPhoto = await newAttachment("noticed.png");
+    const noticed = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(noticed.id, noticedPhoto, 0);
+    setCreatedAt(noticed.id, 1000);
+    setContent(
+      noticed.id,
+      JSON.stringify([
+        { type: "tool_result", tool_use_id: "x", content: "ok" },
+        { type: "text", text: SYSTEM_NOTICE },
+      ]),
+    );
+
+    const spokenPhoto = await newAttachment("spoken.png");
+    const spoken = await addMessage(conversation.id, "user", "mine", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(spoken.id, spokenPhoto, 0);
+    setCreatedAt(spoken.id, 2000);
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments.map((a) => a.id)).toEqual([spokenPhoto]);
+    expect(result.total).toBe(1);
+  });
+
+  test("excludes a row holding only a web search tool result", async () => {
+    const conversation = createConversation("Web search turn");
+
+    const searchPhoto = await newAttachment("search.png");
+    const search = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(search.id, searchPhoto, 0);
+    setCreatedAt(search.id, 1000);
+    setContent(
+      search.id,
+      JSON.stringify([
+        { type: "web_search_tool_result", tool_use_id: "x", content: [] },
+      ]),
+    );
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments).toHaveLength(0);
+    expect(result.total).toBe(0);
+  });
+
+  test("lists a row holding only a system notice", async () => {
+    const conversation = createConversation("Notice only");
+
+    const photo = await newAttachment("notice-only.png");
+    const row = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(row.id, photo, 0);
+    setCreatedAt(row.id, 1000);
+    setContent(row.id, JSON.stringify([{ type: "text", text: SYSTEM_NOTICE }]));
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments.map((a) => a.id)).toEqual([photo]);
+    expect(result.total).toBe(1);
+  });
+
+  test("agrees with the transcript classifier across stored content shapes", async () => {
+    const bodies = [
+      "first photo",
+      '{"ref":"x"}',
+      "[]",
+      '[{"type":"tool_result","tool_use_id":"a","content":"ok"}]',
+      '[{"type":"web_search_tool_result","tool_use_id":"a","content":[]}]',
+      `[{"type":"tool_result","tool_use_id":"a","content":"ok"},{"type":"text","text":"${SYSTEM_NOTICE}"}]`,
+      `[{"type":"text","text":"${SYSTEM_NOTICE}"}]`,
+      '[{"type":"text","text":"<SYSTEM_NOTICE>done</SYSTEM_NOTICE>"}]',
+      '[{"type":"text","text":"hi"},{"type":"tool_result","tool_use_id":"a","content":"ok"}]',
+      '[{"type":"text","text":"hi"},"bare string"]',
+      '[{"type":"tool_result","tool_use_id":"a","content":"ok"},"bare string"]',
+      '[{"type":"tool_result","tool_use_id":"a","content":"ok"},null]',
+      '[{"type":1}]',
+      '["tool_result"]',
+    ];
+
+    const conversation = createConversation("Parity");
+    const attachmentIds: string[] = [];
+    for (const [index, body] of bodies.entries()) {
+      const attachmentId = await newAttachment(`parity-${index}.png`);
+      const row = await addMessage(conversation.id, "user", "placeholder", {
+        skipIndexing: true,
+      });
+      linkAttachmentToMessage(row.id, attachmentId, 0);
+      setCreatedAt(row.id, 1000 + index);
+      setContent(row.id, body);
+      attachmentIds.push(attachmentId);
+    }
+
+    const listed = new Set(
+      listAttachments({
+        conversationId: conversation.id,
+        limit: String(bodies.length),
+      }).attachments.map((a) => a.id),
+    );
+
+    const disagreements = bodies.filter((body, index) => {
+      const hidden = isToolResultOnlyUserMessage(messageRowFor(body));
+      return listed.has(attachmentIds[index]) === hidden;
+    });
+
+    expect(disagreements).toEqual([]);
+    expect(listed.size).toBe(
+      bodies.filter((body) => !isToolResultOnlyUserMessage(messageRowFor(body)))
+        .length,
+    );
   });
 
   test("lists an attachment carried twice once, under the newest carrier", async () => {
