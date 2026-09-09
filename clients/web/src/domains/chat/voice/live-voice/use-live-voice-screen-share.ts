@@ -695,20 +695,23 @@ export function useLiveVoiceScreenShare(): void {
       outstanding.add(request);
       const settled = (frame: ScreenCaptureFrame | null): void => {
         outstanding.delete(request);
-        if (cancelled || run !== generation) {
+        if (cancelled) {
           return;
         }
         // An answer the occasion gave up waiting for is still the helper's
-        // answer. Nothing, arriving late, means what it means arriving in
-        // time: the target cannot be captured, and the share comes down
-        // rather than asking again and again for what it will not get.
-        if (!request.read && frame === null) {
+        // answer, on the run that asked: nothing, arriving late, means what
+        // it means arriving in time, that the target cannot be captured,
+        // and the share comes down rather than asking again and again for
+        // what it will not get. A run since ended by a reconnect is not
+        // spoken for by an answer from before it.
+        if (run === generation && !request.read && frame === null) {
           lowerShare();
           return;
         }
-        // The helper is answering again. A drawing held back while it was
-        // not is taken now, on the run it was made in: a later run's
-        // subscriber bumps the generation and the take refuses it.
+        // The helper is answering again, whichever run asked it: a request
+        // from before a reconnect was holding the resumed run back all the
+        // same. A drawing held back while the helper was not answering is
+        // taken now, on the run it was made in, which `share` stamps.
         if (carriedDrawing !== null) {
           const held = carriedDrawing;
           carriedDrawing = null;

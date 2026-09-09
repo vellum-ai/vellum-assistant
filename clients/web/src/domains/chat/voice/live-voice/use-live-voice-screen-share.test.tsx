@@ -829,6 +829,47 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     );
   });
 
+  /**
+   * The request that stalled was made before a reconnect, and the mark
+   * after it. The stall held the resumed run back all the same, and its end
+   * releases the mark all the same.
+   */
+  test("a mark held back by a request from before a reconnect is taken when that request settles", async () => {
+    renderShare();
+    share(WINDOW);
+    await flush();
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+    const ordinary = answerFrame;
+    answerFrame = () => {
+      answerFrame = ordinary;
+      return new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFrame = resolve;
+      });
+    };
+    speak(true);
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setReconnecting(false);
+    });
+    now += SCREEN_SHARE_PICTURE_WAIT_MS + 1;
+    draw();
+    release();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+
+    releaseFrame(frameOf("a"));
+    await flush();
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(annotated).toEqual([1]);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "drawing" }),
+    );
+  });
+
   /** A share that ends takes the drawing on it with it. */
   test("a stop clears the hand as well as the target", async () => {
     renderShare();
