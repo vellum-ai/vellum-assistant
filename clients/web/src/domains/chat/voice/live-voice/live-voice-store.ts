@@ -292,8 +292,18 @@ export interface LiveVoiceSessionStarter {
    * Put a typed turn to the running session. Returns whether it went out: a
    * session that is not up, or an assistant without typed turns, takes
    * nothing, and the caller keeps the words.
+   *
+   * `retryWhenBusy` keeps the turn if the assistant refuses it for being
+   * mid-reply and puts it again once it can be taken. For a turn the user
+   * did not type and cannot see refused: a click on a pointed-at control is
+   * one, since the user is likely still hearing the step they just did.
    */
-  sendText(text: string): boolean;
+  sendText(text: string, options?: LiveVoiceTypedTurnOptions): boolean;
+}
+
+/** How a typed turn is put to the session. See {@link LiveVoiceSessionStarter}. */
+export interface LiveVoiceTypedTurnOptions {
+  retryWhenBusy?: boolean;
 }
 
 /**

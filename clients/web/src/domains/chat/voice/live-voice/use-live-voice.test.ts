@@ -3572,6 +3572,115 @@ describe("speak first (seed turn)", () => {
   });
 
   /**
+   * The assistant refuses a typed turn while its last reply is still audible.
+   * A turn nobody is watching a composer for, a press on a pointed-at control,
+   * asks to be kept and is put again until it is taken.
+   */
+  describe("a typed turn refused as busy", () => {
+    const RETRY_WAIT_MS = 600;
+
+    test("is put again when it asked to be kept", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      expect(
+        h.view.result.current.sendText("I clicked Share", {
+          retryWhenBusy: true,
+        }),
+      ).toBe(true);
+      act(() => {
+        h.client.emit("textTurnRejected", { reason: "busy", message: "busy" });
+      });
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+
+      await act(async () => {
+        await sleep(RETRY_WAIT_MS);
+      });
+      expect(h.client.sentText).toEqual(["I clicked Share", "I clicked Share"]);
+      expect(h.client.sentTextOptions.at(-1)).toEqual({ hidden: false });
+    });
+
+    test("is dropped when it did not ask to be kept", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      h.view.result.current.sendText("what is this");
+      act(() => {
+        h.client.emit("textTurnRejected", { reason: "busy", message: "busy" });
+      });
+
+      await act(async () => {
+        await sleep(RETRY_WAIT_MS);
+      });
+      expect(h.client.sentText).toEqual(["what is this"]);
+    });
+
+    test("is dropped for any refusal but busy", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      h.view.result.current.sendText("I clicked Share", {
+        retryWhenBusy: true,
+      });
+      act(() => {
+        h.client.emit("textTurnRejected", {
+          reason: "unsupported",
+          message: "unknown frame",
+        });
+      });
+
+      await act(async () => {
+        await sleep(RETRY_WAIT_MS);
+      });
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+    });
+
+    /** Words the user put after it are the ones that stand. */
+    test("gives way to a typed turn put after it", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      h.view.result.current.sendText("I clicked Share", {
+        retryWhenBusy: true,
+      });
+      act(() => {
+        h.client.emit("textTurnRejected", { reason: "busy", message: "busy" });
+      });
+      h.view.result.current.sendText("what is this");
+
+      await act(async () => {
+        await sleep(RETRY_WAIT_MS);
+      });
+      expect(h.client.sentText).toEqual(["I clicked Share", "what is this"]);
+    });
+
+    test("dies with the session", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      h.view.result.current.sendText("I clicked Share", {
+        retryWhenBusy: true,
+      });
+      act(() => {
+        h.client.emit("textTurnRejected", { reason: "busy", message: "busy" });
+      });
+      await act(async () => {
+        await h.view.result.current.stop();
+      });
+
+      await act(async () => {
+        await sleep(RETRY_WAIT_MS);
+      });
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+    });
+  });
+
+  /**
    * A question asked from another application is answered and done: the
    * session ends once the reply has been heard and nothing else has started.
    */

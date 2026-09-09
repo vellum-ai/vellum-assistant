@@ -460,6 +460,9 @@
     "title": "Limpiando tu asistente…",
     "warningAria": "advertencia"
   },
+  "coachmarkPress": {
+    "turn": "Hice clic en {label}. ¿Y ahora qué?"
+  },
   "collapsedGroupIcon": {
     "noConversations": "No hay conversaciones"
   },

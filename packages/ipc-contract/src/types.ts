@@ -206,6 +206,22 @@ export type VellumCommand =
    * that draws it also draws a way to stop.
    */
   | { kind: "toggleVoice" }
+  /**
+   * The user pressed a control the assistant was pointing at on the shared
+   * surface, which is the step it was walking them through being done.
+   *
+   * `label` is the control's own name as the surface reports it, the same
+   * word the assistant was told it had pointed at. The window holding the
+   * session puts the press to the call as the user's turn, so the assistant
+   * hears the step is done and says what comes next without anyone having to
+   * say so. A press on a surface with no session up lands nowhere, which is
+   * right: there is no one to tell.
+   *
+   * Like `annotateShare`, this does not raise the app. The user is working
+   * in the app they were pointed at, and the whole point is that they stay
+   * there.
+   */
+  | { kind: "coachmarkPressed"; label: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }

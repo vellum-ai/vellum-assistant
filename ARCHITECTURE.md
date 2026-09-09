@@ -817,6 +817,8 @@ The assistant points at things on the screen the user is sharing with a call, so
 
 **Lifetime.** Marks are drawn in the companion's watch frame (`clients/web/src/components/companion-coachmarks.tsx`, placed by `companion-window.ts`) and come down on their own when the share ends or moves to another surface, since a mark that outlives the surface it was measured against rings whatever has moved under it. Drawing also drops the frame's own annotating mode: a mark says go and press that, and the press has to reach the app underneath.
 
+**The press is heard.** A control found by name keeps the frame the tree reported for it, in screen points, beside the mark. Main asks the mac helper to watch for a left mouse down inside those frames (`clients/macos/src/main/coachmark-press-watch.ts`, the helper's `input.setPressWatch`); the helper hit-tests in its own process (`PressWatch` in `MacHelperCore`) and reports only which rectangle was hit, once, then takes its monitor down. Main takes the marks down and sends the main window a `coachmarkPressed` command carrying the control's label, and the root layout puts it to the running live-voice session as the user's own visible turn (`coachmark-press-turn.ts`), so the assistant hears the step is done and speaks the next one. The daemon refuses a typed turn while its last reply is still audible, and a press usually lands then, so the hook keeps a turn that asked to be kept and puts it again on a short cadence until it is taken (`retryWhenBusy` on the starter's `sendText`). A ring drawn from bounds the model gave is an extent, not a button, and is never watched.
+
 ```mermaid
 graph LR
     SKILL["screen-annotation skill<br/>screen_point_at · screen_clear_marks"]
@@ -840,6 +842,9 @@ graph LR
     LOCATE -->|"bounded candidate labels"| PAINT
     PAINT -->|"fractions of the surface"| FRAME
     PAINT -->|"placed · refused · unresolved"| EXEC
+    PAINT -->|"hit rects · input.setPressWatch"| PRESS["mac helper<br/>PressWatch · one hit"]
+    PRESS -->|"input.pressed · index"| PAINT
+    PAINT -->|"coachmarkPressed · label"| TURN["root layout<br/>coachmark-press-turn · sendText"]
 ```
 
 ## Notification Sender Avatars

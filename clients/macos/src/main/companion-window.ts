@@ -89,6 +89,11 @@ import {
   resolveCapturePick,
   windowBoundsFor,
 } from "./companion-capture-sources";
+import {
+  unwatchCoachmarkPress,
+  watchCoachmarkPress,
+  type CoachmarkPressRect,
+} from "./coachmark-press-watch";
 import { setPointerOnCompanion } from "./companion-pointer";
 import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
@@ -1278,8 +1283,52 @@ const sameCaptureTarget = (
   return b.kind === "window" && a.windowId === b.windowId;
 };
 
-/** Point at things on the shared surface, or take down what is pointed at. */
-const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
+/**
+ * A pointed-at control the user can press, and what to call it when they do.
+ *
+ * Only a control found by name has one. Its rectangle is the frame the tree
+ * reported for it, in screen points, which is the one description of where
+ * a press would land that does not go through the picture. A ring drawn from
+ * bounds the model gave is an extent someone means, not a button, and a
+ * press inside it says nothing about a step.
+ */
+interface CoachmarkPress {
+  rect: CoachmarkPressRect;
+  /** The control's own name, for the turn the press becomes. */
+  label: string;
+}
+
+const NO_PRESSES: readonly CoachmarkPress[] = [];
+
+/**
+ * The user pressed the control a mark was pointing at.
+ *
+ * The marks come down first: the step they described is done, and a mark
+ * left on a button that has just been pressed is one the user has to work
+ * out is stale. Then the press goes to the window holding the call, which
+ * puts it to the assistant as the user's turn. Main cannot say it itself,
+ * since the call lives in the renderer; the command is how the surface has
+ * always reached it.
+ */
+const onCoachmarkPressed = (press: CoachmarkPress): void => {
+  setCoachmarks(NO_COACHMARKS);
+  dispatchToMain({ kind: "coachmarkPressed", label: press.label });
+};
+
+/**
+ * Point at things on the shared surface, or take down what is pointed at.
+ *
+ * `presses` are the marks among `next` the user can press, which is how the
+ * step a mark describes is heard to be done. Asked for beside the marks
+ * rather than kept with them, because the renderer draws the marks and has
+ * no use for a rectangle in screen points, and because they are one-shot
+ * where the marks are not: a press consumes the watch and leaves the marks
+ * to whoever asked for them.
+ */
+const setCoachmarks = (
+  next: readonly CompanionCoachmark[],
+  presses: readonly CoachmarkPress[] = NO_PRESSES,
+): void => {
   const resolved = framesTheShare() ? next : NO_COACHMARKS;
   if (resolved.length > 0) {
     // A mark says go and press that, so the press has to reach the app under
@@ -1289,6 +1338,24 @@ const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
     // up rather than about who put them there. The mode is the user's, and
     // pressing Draw again gets it back.
     setAnnotating(false);
+  }
+  // Before the settle below, because the watch is armed by a request and
+  // not by the marks changing: pointing at the same control twice is two
+  // steps, and the second one's press has to be heard too. Marks coming
+  // down for any reason take the watch with them, since a press on a
+  // control nothing points at is not a step being done.
+  if (resolved === NO_COACHMARKS) {
+    unwatchCoachmarkPress();
+  } else {
+    watchCoachmarkPress(
+      presses.map((press) => press.rect),
+      (index) => {
+        const press = presses[index];
+        if (press !== undefined) {
+          onCoachmarkPressed(press);
+        }
+      },
+    );
   }
   const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
   if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
@@ -1403,6 +1470,7 @@ export const showCompanionCoachmarks = async (
   const sequence = coachmarkRequests;
 
   const marks: PlacedCoachmark[] = [];
+  const presses: CoachmarkPress[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
       // Bounds given outright are an extent someone means, so they keep the
@@ -1411,7 +1479,7 @@ export const showCompanionCoachmarks = async (
       marks.push({ kind: "region", ...request });
       continue;
     }
-    const placed = await placeOnNamedTarget(share, request);
+    const located = await placeOnNamedTarget(share, request);
     // Both asked after every await, because both answers can change across
     // one. Something else asking to point in the meantime owns the screen
     // now, and this request touching it at all would undo that.
@@ -1428,20 +1496,25 @@ export const showCompanionCoachmarks = async (
     if (moved !== null) {
       return { kind: "refused", refusal: moved };
     }
-    if ("reason" in placed) {
+    if ("reason" in located) {
       // A request replaces everything on screen, and it has replaced it with
       // nothing it can draw. Leaving the last step's mark up would point the
       // user at a control this turn is about to say it could not find.
       setCoachmarks(NO_COACHMARKS);
-      return { kind: "unresolved", unresolved: placed };
+      return { kind: "unresolved", unresolved: located };
     }
+    const { hit, ...placed } = located;
     marks.push(placed);
+    presses.push({ rect: hit, label: placed.matched });
   }
 
   // The name a mark resolved from is for the caller to read back, not for the
   // frame to draw: what goes on screen is a rectangle, and the renderer has
   // no use for the label it came from.
-  setCoachmarks(marks.map(({ matched: _matched, ...mark }) => mark));
+  setCoachmarks(
+    marks.map(({ matched: _matched, ...mark }) => mark),
+    presses,
+  );
   return { kind: "placed", marks };
 };
 
@@ -1482,6 +1555,18 @@ const whyNotToDraw = (
 };
 
 /**
+ * A mark that was found by name, with the frame it was found at.
+ *
+ * `hit` is where a press on the control would land, in the screen points
+ * the tree reported. It stays on this side: the mark the renderer draws is
+ * the centre alone, for the reason {@link placeOnNamedTarget} gives.
+ */
+type LocatedCoachmark = PlacedCoachmark & {
+  matched: string;
+  hit: CoachmarkPressRect;
+};
+
+/**
  * One named control as a mark, or why it could not be one.
  *
  * The conversion is the whole point of resolving through the tree: the helper
@@ -1491,7 +1576,7 @@ const whyNotToDraw = (
 const placeOnNamedTarget = async (
   share: WatchCaptureTarget,
   request: { target: string; caption?: string },
-): Promise<PlacedCoachmark | CoachmarkUnresolved> => {
+): Promise<LocatedCoachmark | CoachmarkUnresolved> => {
   const located = await locateOnTarget(share, request.target);
   if (!located.found) {
     return {
@@ -1511,13 +1596,22 @@ const placeOnNamedTarget = async (
   // routinely a good deal larger than the thing drawn inside it, and it can
   // belong to the small triangle that discloses a row rather than the row.
   // Its position is trustworthy where its extent is not, so the arrow is
-  // aimed at the middle of it and nothing claims a size.
+  // aimed at the middle of it and nothing claims a size. The extent is still
+  // the right answer to a different question, which is whether a press
+  // landed on the control: a hit area is exactly what a press is tested
+  // against.
   return {
     kind: "point",
     x: (located.x + located.width / 2 - bounds.x) / bounds.width,
     y: (located.y + located.height / 2 - bounds.y) / bounds.height,
     ...(request.caption === undefined ? {} : { caption: request.caption }),
     matched: located.label,
+    hit: {
+      x: located.x,
+      y: located.y,
+      width: located.width,
+      height: located.height,
+    },
   };
 };
 

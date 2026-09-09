@@ -106,6 +106,7 @@ import {
   minimizeVoiceRoom,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
+  type LiveVoiceTypedTurnOptions,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import {
   interruptSensitivityToMs,
@@ -195,7 +196,7 @@ export interface UseLiveVoiceResult {
    * when there is no session up to take it or the assistant does not take
    * typed turns; the caller keeps the text either way.
    */
-  sendText: (text: string) => boolean;
+  sendText: (text: string, options?: LiveVoiceTypedTurnOptions) => boolean;
 }
 
 /** Per-session options for {@link UseLiveVoiceResult.start}. */
@@ -407,7 +408,30 @@ interface SessionContext {
   heldPlaybackTimer: ReturnType<typeof setTimeout> | null;
   /** Resolved {@link HELD_PLAYBACK_TIMEOUT_MS} for this session. */
   heldPlaybackTimeoutMs: number;
+  /**
+   * A typed turn that asked to be kept if the assistant refuses it for being
+   * mid-reply, and how many times it has been put again. Set when such a turn
+   * goes out and cleared by any other typed turn, since a turn the user put
+   * after it is the one that stands. See {@link retryBusyTypedTurn}.
+   */
+  busyRetry: {
+    text: string;
+    hidden: boolean;
+    attempts: number;
+    timer: ReturnType<typeof setTimeout> | null;
+  } | null;
 }
+
+/**
+ * How long a typed turn refused for being mid-reply waits before it is put
+ * again, and how many times. The assistant refuses a typed turn while its
+ * last reply is still audible, and says nothing about when that ends, so the
+ * turn is put again on a short cadence until it is taken. The cap is the
+ * longest a reply's tail plausibly runs; past it the turn is dropped, since a
+ * click the user made that long ago is one the next frame already shows.
+ */
+const BUSY_TYPED_TURN_RETRY_MS = 500;
+const BUSY_TYPED_TURN_RETRY_LIMIT = 30;
 
 /** Number of bytes per Int16 PCM sample. */
 const BYTES_PER_SAMPLE = 2;
@@ -591,6 +615,7 @@ export function useLiveVoice(
     sessionRef.current = null;
     session.generation += 1;
     clearAssistantAudioActive(session);
+    clearBusyRetry(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) {
       unsubscribe();
@@ -888,6 +913,7 @@ export function useLiveVoice(
         heldPlaybackTimer: null,
         heldPlaybackTimeoutMs:
           opts.heldPlaybackTimeoutMs ?? HELD_PLAYBACK_TIMEOUT_MS,
+        busyRetry: null,
       };
 
       const capture = (
@@ -1356,6 +1382,12 @@ export function useLiveVoice(
             .getState()
             .noteSightFrameRefused(rejected.unsupported, rejected.attachmentId);
         }),
+        client.on("textTurnRejected", (rejected) => {
+          if (!live()) {
+            return;
+          }
+          retryBusyTypedTurn(session, rejected.reason);
+        }),
         client.on("busy", (frame) => {
           if (!live()) {
             return;
@@ -1614,13 +1646,16 @@ export function useLiveVoice(
    * `false` when there is no session up to take it, or the assistant does
    * not take typed turns; the caller keeps the text either way.
    */
-  const sendText = useCallback((text: string): boolean => {
-    const session = sessionRef.current;
-    if (!session) {
-      return false;
-    }
-    return sendTextTurn(session, text);
-  }, []);
+  const sendText = useCallback(
+    (text: string, options?: LiveVoiceTypedTurnOptions): boolean => {
+      const session = sessionRef.current;
+      if (!session) {
+        return false;
+      }
+      return sendTextTurn(session, text, options);
+    },
+    [],
+  );
 
   return {
     state,
@@ -1655,6 +1690,7 @@ function disposeSessionPrimitives(
   session.generation += 1;
   clearAssistantAudioActive(session);
   clearHeldPlaybackTimer(session);
+  clearBusyRetry(session);
   for (const unsubscribe of session.unsubscribes) {
     unsubscribe();
   }
@@ -1876,13 +1912,67 @@ function releasePushToTalk(session: SessionContext): void {
 function sendTextTurn(
   session: SessionContext,
   text: string,
-  options?: { hidden?: boolean },
+  options?: { hidden?: boolean; retryWhenBusy?: boolean },
 ): boolean {
-  const sent = session.client.sendText(text, options);
+  const hidden = options?.hidden === true;
+  const sent = session.client.sendText(text, { hidden });
   if (sent) {
     session.speechEndedAtMs = performance.now();
+    // Any typed turn going out settles what a busy refusal would be about:
+    // the one just sent. A turn that did not ask to be kept clears a kept
+    // one, since the user put words after it and those are what stand.
+    clearBusyRetry(session);
+    if (options?.retryWhenBusy === true) {
+      session.busyRetry = { text, hidden, attempts: 0, timer: null };
+    }
   }
   return sent;
+}
+
+/**
+ * The assistant refused the last typed turn. Put it again after a moment if
+ * it asked to be kept and the refusal was only that the assistant was still
+ * replying; forget it for any other refusal, or once it has been put
+ * {@link BUSY_TYPED_TURN_RETRY_LIMIT} times.
+ *
+ * The retry goes through the client alone rather than {@link sendTextTurn}:
+ * the latency anchor was stamped when the turn first went out, and the turn
+ * is already the kept one.
+ */
+function retryBusyTypedTurn(
+  session: SessionContext,
+  reason: "busy" | "unsupported",
+): void {
+  const retry = session.busyRetry;
+  if (retry === null) {
+    return;
+  }
+  if (reason !== "busy" || retry.attempts >= BUSY_TYPED_TURN_RETRY_LIMIT) {
+    clearBusyRetry(session);
+    return;
+  }
+  retry.attempts += 1;
+  const generation = session.generation;
+  retry.timer = setTimeout(() => {
+    retry.timer = null;
+    if (session.generation !== generation || session.busyRetry !== retry) {
+      return;
+    }
+    if (!session.client.sendText(retry.text, { hidden: retry.hidden })) {
+      clearBusyRetry(session);
+    }
+  }, BUSY_TYPED_TURN_RETRY_MS);
+}
+
+function clearBusyRetry(session: SessionContext): void {
+  const retry = session.busyRetry;
+  if (retry === null) {
+    return;
+  }
+  if (retry.timer !== null) {
+    clearTimeout(retry.timer);
+  }
+  session.busyRetry = null;
 }
 
 /**

@@ -42,6 +42,12 @@ import type {
   ModifierHoldRegistrationResult,
 } from "@vellumai/ipc-contract";
 
+import {
+  coachmarkPressed,
+  provideCoachmarkPressWatch,
+  watchedCoachmarkPress,
+  type CoachmarkPressRect,
+} from "./coachmark-press-watch";
 import { isPointerOnCompanion } from "./companion-pointer";
 import {
   frameScrollEnded,
@@ -456,6 +462,31 @@ const sendScrollWatch = async (enable: boolean): Promise<boolean> => {
     return false;
   }
 };
+
+/**
+ * Ask the helper to report the next press on something the assistant is
+ * pointing at, or to stop when there is nothing. Wanted-or-not lives in
+ * `coachmark-press-watch.ts`, where the marks put it, so a helper that comes
+ * back from a crash is put back to watching the same rectangles.
+ */
+const sendPressWatch = async (
+  rects: readonly CoachmarkPressRect[],
+): Promise<boolean> => {
+  try {
+    const result = await client.call("input.setPressWatch", { rects });
+    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+    return parsed.success && parsed.data.enabled === (rects.length > 0);
+  } catch (err) {
+    log.warn(
+      `[mac-helper] press watch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
+};
+
+const INPUT_PRESSED_SCHEMA = z.object({
+  index: z.number().int().nonnegative(),
+});
 
 /**
  * Whether a paste sent to the application in front would land in something
@@ -897,6 +928,10 @@ const handleHelperState = (state: MacHelperState): void => {
     if (isFrameScrollWatched()) {
       void sendScrollWatch(true);
     }
+    const pressRects = watchedCoachmarkPress();
+    if (pressRects !== null) {
+      void sendPressWatch(pressRects);
+    }
     return;
   }
 
@@ -930,6 +965,7 @@ let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeInputActivity: (() => void) | null = null;
 let unsubscribeScrollEnded: (() => void) | null = null;
+let unsubscribePressed: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
 let unsubscribeDictationFinalized: (() => void) | null = null;
@@ -963,6 +999,16 @@ export const installHotkeyHelper = (): void => {
   );
   provideFrameScrollWatch((enable) => {
     void sendScrollWatch(enable);
+  });
+  unsubscribePressed = client.onNotification(
+    "input.pressed",
+    INPUT_PRESSED_SCHEMA,
+    (event) => {
+      coachmarkPressed(event.index);
+    },
+  );
+  provideCoachmarkPressWatch((rects) => {
+    void sendPressWatch(rects);
   });
   unsubscribeDictationPartials = client.onNotification(
     "dictation.partial",
@@ -1125,6 +1171,8 @@ export const __resetForTesting = (): void => {
   unsubscribeInputActivity = null;
   unsubscribeScrollEnded?.();
   unsubscribeScrollEnded = null;
+  unsubscribePressed?.();
+  unsubscribePressed = null;
   unsubscribeHelperState?.();
   unsubscribeHelperState = null;
   unsubscribeDictationPartials?.();

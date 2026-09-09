@@ -128,6 +128,12 @@ const {
 } = await import("./frame-scroll-watch");
 
 const {
+  __resetCoachmarkPressWatchForTesting,
+  unwatchCoachmarkPress,
+  watchCoachmarkPress,
+} = await import("./coachmark-press-watch");
+
+const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
@@ -248,6 +254,7 @@ beforeEach(() => {
 afterEach(() => {
   __resetForTesting();
   __resetFrameScrollWatchForTesting();
+  __resetCoachmarkPressWatchForTesting();
 });
 
 describe("getMacHelperPath", () => {
@@ -892,6 +899,53 @@ describe("installHotkeyHelper", () => {
     await wait(0);
     writes = lastChild?.stdin.writes.join("") ?? "";
     expect(writes).toContain('"enable":false');
+  });
+
+  /**
+   * The marks ask for the press watch through `coachmark-press-watch.ts`, the
+   * way the frame asks for the scroll watch: they are main's, and the press
+   * is main's to act on.
+   */
+  test("asks the helper to watch for a press on a pointed-at control and reports it", async () => {
+    __setSupervisorOptionsForTesting({ initialBackoffMs: 1, maxBackoffMs: 1 });
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    const pressed: number[] = [];
+    const rect = { x: 120, y: 80, width: 60, height: 20 };
+    watchCoachmarkPress([rect], (index) => {
+      pressed.push(index);
+    });
+    await wait(0);
+    let writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setPressWatch"');
+    expect(writes).toContain(JSON.stringify({ rects: [rect] }));
+
+    // The watch goes down with the helper and comes back with it, still on
+    // the same rectangles.
+    lastChild?.emit("close", 1, null);
+    await wait(10);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setPressWatch"');
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.pressed","params":{"index":0}}\n'),
+    );
+    expect(pressed).toEqual([0]);
+
+    // A press is one-shot on both sides: a second report is nobody's.
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.pressed","params":{"index":0}}\n'),
+    );
+    expect(pressed).toEqual([0]);
+
+    watchCoachmarkPress([rect], () => {});
+    unwatchCoachmarkPress();
+    await wait(0);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"rects":[]');
   });
 
   test("forwards input activity to the window that holds the key", async () => {
