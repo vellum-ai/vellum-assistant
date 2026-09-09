@@ -50,10 +50,10 @@ import {
   type HookFunction,
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
   type Message,
+  parseSurfaceShowResultId,
   type PostModelCallContext,
 } from "@vellumai/plugin-api";
 
-import { parseSurfaceShowResultId } from "../../../../api/surface-show-result.js";
 import {
   isSurfaceCompletionNudged,
   markSurfaceCompletionNudged,
