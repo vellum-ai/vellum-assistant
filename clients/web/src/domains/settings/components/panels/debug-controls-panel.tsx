@@ -10,11 +10,17 @@ import { RestartAssistant } from "@/domains/settings/components/restart-assistan
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { useTranslation } from "@/i18n";
 import { isVellumStaff } from "@/lib/auth/staff";
+import {
+  getRunningChannel,
+  isPreviewRequested,
+  setPreviewRequested,
+} from "@/lib/preview-channel";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
 import { clearConsentForUser } from "@/lib/consent/consent-persistence";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
+import { Toggle } from "@vellumai/design-library/components/toggle";
 import { toast } from "@vellumai/design-library/components/toast";
 
 export function DebugControlsPanel() {
@@ -27,6 +33,16 @@ export function DebugControlsPanel() {
   const [assistant, setAssistant] = useState<Assistant | null>(null);
   const [loading, setLoading] = useState(true);
   const fetchedRef = useRef(false);
+
+  const previewRequested = isPreviewRequested();
+  const running = getRunningChannel();
+  const runningVersion =
+    running.version ?? t("debugControlsPanel.previewVersionUnknown");
+
+  const handlePreviewToggle = useCallback((next: boolean) => {
+    setPreviewRequested(next);
+    window.location.reload();
+  }, []);
 
   const handleReplayOnboarding = useCallback(() => {
     clearConsentForUser(user?.id ?? null);
@@ -111,25 +127,69 @@ export function DebugControlsPanel() {
           />
 
           {showInternalControls && (
-            <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-              <div className="min-w-0">
-                <p className="text-body-medium-default text-[var(--content-default)]">
-                  {t("debugControlsPanel.replayTitle")}
-                </p>
-                <p className="text-body-small-lighter text-[var(--content-tertiary)]">
-                  {t("debugControlsPanel.replayDescription")}
-                </p>
+            <>
+              <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+                <div className="min-w-0">
+                  <p className="text-body-medium-default text-[var(--content-default)]">
+                    {t("debugControlsPanel.replayTitle")}
+                  </p>
+                  <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                    {t("debugControlsPanel.replayDescription")}
+                  </p>
+                </div>
+                <div className="ml-4 shrink-0">
+                  <Button
+                    variant="outlined"
+                    leftIcon={<RotateCw />}
+                    onClick={handleReplayOnboarding}
+                  >
+                    {t("debugControlsPanel.replay")}
+                  </Button>
+                </div>
               </div>
-              <div className="ml-4 shrink-0">
-                <Button
-                  variant="outlined"
-                  leftIcon={<RotateCw />}
-                  onClick={handleReplayOnboarding}
-                >
-                  {t("debugControlsPanel.replay")}
-                </Button>
+
+              <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
+                <div className="flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-body-medium-default text-[var(--content-default)]">
+                      {t("debugControlsPanel.previewTitle")}
+                    </p>
+                    <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+                      {t("debugControlsPanel.previewDescription")}
+                    </p>
+                  </div>
+                  <div className="ml-4 shrink-0">
+                    <Toggle
+                      checked={previewRequested}
+                      onChange={handlePreviewToggle}
+                      aria-label={
+                        previewRequested
+                          ? t("debugControlsPanel.previewOnAriaLabel")
+                          : t("debugControlsPanel.previewOffAriaLabel")
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 space-y-0.5 text-body-small-lighter text-[var(--content-tertiary)]">
+                  <p>
+                    {previewRequested
+                      ? t("debugControlsPanel.previewRequestedPreview")
+                      : t("debugControlsPanel.previewRequestedStable")}
+                  </p>
+                  <p>
+                    {t(
+                      running.channel === "preview"
+                        ? "debugControlsPanel.previewRunningPreview"
+                        : "debugControlsPanel.previewRunningStable",
+                      { version: runningVersion },
+                    )}
+                  </p>
+                  {previewRequested && running.channel === "stable" && (
+                    <p>{t("debugControlsPanel.previewUnavailableHint")}</p>
+                  )}
+                </div>
               </div>
-            </div>
+            </>
           )}
 
           {platformGate === "disabled" && (

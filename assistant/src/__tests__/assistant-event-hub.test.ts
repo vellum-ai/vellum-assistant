@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import type { AssistantEventEnvelope } from "../api/index.js";
 import {
   AssistantEventHub,
+  assistantEventHub,
   broadcastMessage,
   capabilityForMessageType,
 } from "../runtime/assistant-event-hub.js";
@@ -644,4 +645,48 @@ describe("broadcastMessage — replay ring", () => {
       "assistant_text_delta",
     ]);
   });
+});
+
+test("window requests never reach an older overlapping connection with the same device ID", async () => {
+  const receivedLegacy: unknown[] = [];
+  const receivedSupported: unknown[] = [];
+  const legacy = assistantEventHub.subscribe({
+    type: "client",
+    clientId: "window-client",
+    interfaceId: "macos",
+    capabilities: ["host_cu"],
+    callback: (event) => {
+      receivedLegacy.push(event);
+    },
+  });
+  const supported = assistantEventHub.subscribe({
+    type: "client",
+    clientId: "window-client",
+    interfaceId: "macos",
+    capabilities: ["host_cu", "host_cu_window_capture"],
+    callback: (event) => {
+      receivedSupported.push(event);
+    },
+  });
+  try {
+    broadcastMessage(
+      {
+        type: "host_cu_request",
+        requestId: "window-request",
+        conversationId: "window-session",
+        toolName: "computer_use_observe",
+        input: { capture_window_id: 12 },
+        stepNumber: 1,
+        targetClientId: "window-client",
+      },
+      "window-session",
+      { targetClientId: "window-client" },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(receivedLegacy).toHaveLength(0);
+    expect(receivedSupported).toHaveLength(1);
+  } finally {
+    legacy.dispose();
+    supported.dispose();
+  }
 });

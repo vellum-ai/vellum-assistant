@@ -18,8 +18,9 @@ export interface ManagedTabProps {
   logoUrl: string | null;
   connections: OAuthConnection[];
   connectionsLoading: boolean;
-  startPending: boolean;
   oauthInProgress: boolean;
+  /** Abandon an authorization in progress. */
+  onCancelConnect: () => void;
   disconnectingId: string | null;
   /** Pass `requestedScopes` to request a scoped subset; omit for full default. */
   onConnect: (requestedScopes?: string[]) => void;
@@ -34,15 +35,14 @@ export function ManagedTab({
   logoUrl,
   connections,
   connectionsLoading,
-  startPending,
   oauthInProgress,
+  onCancelConnect,
   disconnectingId,
   onConnect,
   onDisconnect,
   connectPresets = [],
 }: ManagedTabProps) {
   const { t } = useTranslation("settings");
-  const connectBusy = startPending || oauthInProgress;
   if (connectionsLoading) {
     return (
       <div className="flex items-center justify-center py-10">
@@ -52,7 +52,7 @@ export function ManagedTab({
   }
 
   if (connections.length === 0) {
-    if (startPending || oauthInProgress) {
+    if (oauthInProgress) {
       return (
         <div className="flex flex-col items-center gap-3 py-10">
           <IntegrationIcon
@@ -64,6 +64,9 @@ export function ManagedTab({
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t("managedOauthTab.waitingForAuthorization")}
+            <Button variant="ghost" size="compact" onClick={onCancelConnect}>
+              {t("managedOauthTab.cancel")}
+            </Button>
           </div>
         </div>
       );
@@ -85,7 +88,7 @@ export function ManagedTab({
             size="compact"
             leftIcon={<Plus />}
             onClick={() => onConnect()}
-            disabled={connectBusy}
+            disabled={oauthInProgress}
           >
             {t("managedOauthTab.connectAccount")}
           </Button>
@@ -96,7 +99,7 @@ export function ManagedTab({
               size="compact"
               leftIcon={<CalendarPlus />}
               onClick={() => onConnect(preset.scopes)}
-              disabled={connectBusy}
+              disabled={oauthInProgress}
             >
               {preset.label}
             </Button>
@@ -149,10 +152,13 @@ export function ManagedTab({
         })}
       </ul>
       <div className="border-t border-[var(--border-base)] px-4 py-3 dark:border-[var(--border-base)]">
-        {connectBusy ? (
+        {oauthInProgress ? (
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             {t("managedOauthTab.waitingForAuthorization")}
+            <Button variant="ghost" size="compact" onClick={onCancelConnect}>
+              {t("managedOauthTab.cancel")}
+            </Button>
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-2">
@@ -161,7 +167,7 @@ export function ManagedTab({
               size="compact"
               leftIcon={<ExternalLink />}
               onClick={() => onConnect()}
-              disabled={connectBusy}
+              disabled={oauthInProgress}
             >
               {t("managedOauthTab.connectAccountLower")}
             </Button>
@@ -172,7 +178,7 @@ export function ManagedTab({
                 size="compact"
                 leftIcon={<CalendarPlus />}
                 onClick={() => onConnect(preset.scopes)}
-                disabled={connectBusy}
+                disabled={oauthInProgress}
               >
                 {preset.label}
               </Button>

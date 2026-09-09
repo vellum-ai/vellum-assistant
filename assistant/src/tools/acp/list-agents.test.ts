@@ -90,7 +90,7 @@ describe("executeAcpListAgents", () => {
     const codex = parsed.agents.find((a: { id: string }) => a.id === "codex");
     expect(codex.available).toBe(false);
     expect(codex.unavailableReason).toBe("'codex-acp' is not on PATH");
-    expect(codex.setupHint).toBe("bun add -g @zed-industries/codex-acp");
+    expect(codex.setupHint).toBe("bun add -g @agentclientprotocol/codex-acp");
 
     const claude = parsed.agents.find((a: { id: string }) => a.id === "claude");
     expect(claude.available).toBe(true);

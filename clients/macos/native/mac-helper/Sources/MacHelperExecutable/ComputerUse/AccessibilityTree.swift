@@ -1,5 +1,6 @@
 import ApplicationServices
 import AppKit
+import MacHelperCore
 import os
 
 private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "AXTree")
@@ -68,7 +69,10 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     /// probe multiple apps, while staying generous enough for slow/heavy
     /// targets (Chrome with many tabs, Electron during GC) where individual
     /// attribute reads can momentarily take upwards of 1s.
-    private static let axMessagingTimeoutSeconds: Float = 3.0
+    static let axMessagingTimeoutSeconds: Float = 3.0
+
+    /// Roles whose content is the text itself rather than a name for a thing.
+    static let textRoles: Set<String> = ["AXStaticText", "AXHeading"]
 
     static let interactiveRoles: Set<String> = [
         "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
@@ -324,22 +328,94 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         }.value
     }
 
-    private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+    /// A window as the window server describes it: who owns it, what it is
+    /// called, and where it is. Nil for an id the window server does not know.
+    struct ServerWindow {
+        let pid: pid_t
+        let name: String?
+        let bounds: CGRect
+    }
+
+    func serverWindow(for windowId: CGWindowID) -> ServerWindow? {
+        // Asked of the window list with the id as the filter rather than of
+        // `CGWindowListCreateDescriptionFromArray`: that call wants its ids as
+        // raw values in the array, and an array bridged from Swift carries
+        // numbers instead, so it answers with nothing for a window that is
+        // plainly there. The list call takes the id directly. The option
+        // promises only that the window is in the answer, not that it is
+        // alone there, so the entry is picked by its window number rather
+        // than taken from the front of the list.
         guard
-            let descriptions = CGWindowListCreateDescriptionFromArray([windowId] as CFArray) as? [[String: Any]],
-            let description = descriptions.first,
+            let descriptions = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowId) as? [[String: Any]],
+            let description = descriptions.first(where: { entry in
+                (entry[kCGWindowNumber as String] as? Int).map { CGWindowID($0) } == windowId
+            }),
             let ownerPID = description[kCGWindowOwnerPID as String] as? Int
         else {
+            return nil
+        }
+        var bounds = CGRect.zero
+        if let boundsDict = description[kCGWindowBounds as String] as? NSDictionary,
+           let rect = CGRect(dictionaryRepresentation: boundsDict) {
+            bounds = rect
+        }
+        return ServerWindow(pid: pid_t(ownerPID), name: description[kCGWindowName as String] as? String, bounds: bounds)
+    }
+
+    /// The one AX window of `pid` that is `window`: the single window at its
+    /// frame, or else the single window its title names (see
+    /// `AXWindowMatch`, which allows for an app that appends its own suffix).
+    /// Two windows at one frame (two maximized browser windows) or titled
+    /// alike (two "Untitled" documents) would otherwise let the wrong one be
+    /// read or raised beside the right one's screenshot, so a frame or title
+    /// that fits more than one window decides nothing. Nil when neither fits
+    /// exactly one.
+    ///
+    /// The app element is handed back with the match because a caller that
+    /// wants to read the tree marks it first, and one that only wants to raise
+    /// the window does not.
+    func axWindow(for window: ServerWindow, in appElement: AXUIElement) -> AXUIElement? {
+        var windowsRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+              let windows = windowsRef as? [AXUIElement],
+              !windows.isEmpty else {
+            log.warning("axWindow: pid \(window.pid) exposes no AX windows")
+            return nil
+        }
+        // A minimized window is still in both lists: the window server keeps
+        // describing it, with the bounds it had on screen, and the app keeps
+        // reporting that same frame through AX, so the frame match holds for
+        // a window that is in the Dock.
+        let framed = windows.filter { candidate in
+            let frame = getFrameAttribute(candidate)
+            return abs(frame.origin.x - window.bounds.origin.x) <= 2
+                && abs(frame.origin.y - window.bounds.origin.y) <= 2
+                && abs(frame.width - window.bounds.width) <= 2
+                && abs(frame.height - window.bounds.height) <= 2
+        }
+        if framed.count == 1 {
+            return framed[0]
+        }
+        // No window at that frame (a sheet, a window mid-resize) or several
+        // (stacked windows of one size): the title settles it, among the
+        // windows at the frame when there are any, since a title shared with
+        // a window elsewhere still names one window here.
+        let candidates = framed.isEmpty ? windows : framed
+        let titles = candidates.map { getStringAttribute($0, kAXTitleAttribute as CFString) }
+        return AXWindowMatch.uniqueTitle(
+            serverName: window.name,
+            titles: titles,
+            candidates: framed.isEmpty ? .everyWindow : .sharingOneFrame
+        ).map { candidates[$0] }
+    }
+
+    private func enumerateWindowSync(windowId: CGWindowID) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        guard let server = serverWindow(for: windowId) else {
             log.warning("enumerateWindow: window \(windowId) is not known to the window server")
             return nil
         }
-        let pid = pid_t(ownerPID)
-        let cgName = description[kCGWindowName as String] as? String
-        var cgBounds = CGRect.zero
-        if let boundsDict = description[kCGWindowBounds as String] as? NSDictionary,
-           let rect = CGRect(dictionaryRepresentation: boundsDict) {
-            cgBounds = rect
-        }
+        let pid = server.pid
+        let cgName = server.name
 
         let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
         let appElement = AXUIElementCreateApplication(pid)
@@ -350,30 +426,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
             log.info("Set AXEnhancedUserInterface on \(appName, privacy: .public) (pid \(pid)): \(result == .success ? "success" : "failed (\(result.rawValue))")")
         }
 
-        var windowsRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
-              let windows = windowsRef as? [AXUIElement],
-              !windows.isEmpty else {
-            log.warning("enumerateWindow: \(appName, privacy: .public) (pid \(pid)) exposes no AX windows")
-            return nil
-        }
-
-        let byFrame = windows.first(where: { window in
-            let frame = getFrameAttribute(window)
-            return abs(frame.origin.x - cgBounds.origin.x) <= 2
-                && abs(frame.origin.y - cgBounds.origin.y) <= 2
-                && abs(frame.width - cgBounds.width) <= 2
-                && abs(frame.height - cgBounds.height) <= 2
-        })
-        // A title only stands in for the frame when it names exactly one of
-        // the app's windows. Two windows titled alike (two "Untitled"
-        // documents, two browser windows on the same page) would otherwise
-        // let the wrong one's tree be filed beside the right one's screenshot.
-        let byTitle: AXUIElement? = cgName.flatMap { name in
-            let titled = windows.filter { getStringAttribute($0, kAXTitleAttribute as CFString) == name }
-            return titled.count == 1 ? titled[0] : nil
-        }
-        guard let windowElement = byFrame ?? byTitle else {
+        guard let windowElement = axWindow(for: server, in: appElement) else {
             log.warning("enumerateWindow: no AX window of \(appName, privacy: .public) matches window \(windowId)")
             return nil
         }
@@ -466,8 +519,21 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         guard depth < maxDepth else { return [] }
 
         let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
-        let title = getStringAttribute(element, kAXTitleAttribute as CFString)
-            ?? getStringAttribute(element, kAXDescriptionAttribute as CFString)
+        // Emptiness, not nil, is what makes an attribute worth falling past:
+        // icon-only controls routinely carry `AXTitle` as "" and keep the name
+        // a user would say in `AXDescription` or the tooltip. Chained through
+        // `??` so an element that answers on its title costs one read: each of
+        // these is synchronous IPC into the target app, run per element.
+        //
+        // Only for a control. Text on screen is read out of its value, and a
+        // description or a tooltip standing in as its title would be reported
+        // in place of the words the user is actually looking at.
+        let namesAControl = !Self.textRoles.contains(role)
+        let title = AXLabel.nonBlank(getStringAttribute(element, kAXTitleAttribute as CFString))
+            ?? (namesAControl
+                ? AXLabel.nonBlank(getStringAttribute(element, kAXDescriptionAttribute as CFString))
+                    ?? AXLabel.nonBlank(getStringAttribute(element, kAXHelpAttribute as CFString))
+                : nil)
         let value = getValueAttribute(element)
         let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
         let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
@@ -480,7 +546,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         let isInteractive = Self.interactiveRoles.contains(role)
         let isContainer = Self.containerRoles.contains(role)
         let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
-        let isStaticText = role == "AXStaticText" || role == "AXHeading"
+        let isStaticText = Self.textRoles.contains(role)
 
         // Enumerate children with safety checks
         var childElements: [AXElement] = []
@@ -651,7 +717,7 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
     private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
         for element in elements {
             let isInteractiveRole = interactiveRoles.contains(element.role)
-            let isText = element.role == "AXStaticText" || element.role == "AXHeading"
+            let isText = textRoles.contains(element.role)
 
             if isInteractiveRole {
                 // Skip unlabeled non-text elements — the model can't meaningfully target
@@ -672,26 +738,28 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
                 let centerY = Int(element.frame.midY)
                 var line = "[\(element.id)] \(cleanedRole)"
                 if let title = element.title, !title.isEmpty {
-                    line += " \"\(title)\""
+                    line += " \"\(AXLabel.singleLine(title))\""
                 }
                 line += " at (\(centerX), \(centerY))"
                 if element.isFocused { line += " FOCUSED" }
                 if !element.isEnabled { line += " disabled" }
                 if let value = element.value, !value.isEmpty {
-                    let truncated = value.count > 50 ? String(value.prefix(50)) + "..." : value
-                    line += " value: \"\(truncated)\""
+                    line += " value: \"\(AXLabel.singleLine(value, max: 50))\""
                 } else if let placeholder = element.placeholderValue, !placeholder.isEmpty {
-                    line += " placeholder: \"\(placeholder)\""
+                    line += " placeholder: \"\(AXLabel.singleLine(placeholder))\""
                 }
                 if let url = element.url, !url.isEmpty {
                     line += " → \(url)"
                 }
                 interactive.append(line)
             } else if isText {
+                // Kept whole, unlike a name: this is what the user is reading,
+                // and the tail of it can be the half of an error message that
+                // says what to do about the first half.
                 if let title = element.title, !title.isEmpty {
-                    staticTexts.append(title)
+                    staticTexts.append(AXLabel.collapsed(title))
                 } else if let value = element.value, !value.isEmpty {
-                    staticTexts.append(value)
+                    staticTexts.append(AXLabel.collapsed(value))
                 }
             }
 
@@ -754,6 +822,39 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         for element in elements {
             result.append(element)
             result.append(contentsOf: flattenElements(element.children))
+        }
+        return result
+    }
+
+    /// Roles that show a window on part of their contents and hide the rest.
+    ///
+    /// A scrolled-away row keeps the frame it would have if it were on screen,
+    /// so its position reads as real while nothing is drawn there. Anything
+    /// deciding where a thing is has to know which ancestors are cropping it.
+    static let clippingRoles: Set<String> = ["AXScrollArea"]
+
+    /// Every element in the tree, each with the rectangle its ancestors leave
+    /// it, which is what a caller pointing at one has to measure against.
+    ///
+    /// A clipping ancestor narrows the rectangle to its own frame, so a row
+    /// scrolled out of a pane comes back with a rectangle its frame does not
+    /// meet. `visible` is nil where nothing is cropping, which is most of a
+    /// tree and every tree from an app that scrolls nothing.
+    ///
+    /// See `AXClip` for what each ancestor leaves.
+    static func flattenClipped(
+        _ elements: [AXElement],
+        within clip: CGRect? = nil
+    ) -> [(element: AXElement, visible: CGRect?)] {
+        var result: [(element: AXElement, visible: CGRect?)] = []
+        for element in elements {
+            result.append((element: element, visible: clip))
+            let inner = AXClip.narrowed(
+                clip,
+                by: element.frame,
+                clips: clippingRoles.contains(element.role)
+            )
+            result.append(contentsOf: flattenClipped(element.children, within: inner))
         }
         return result
     }

@@ -988,12 +988,11 @@ export function ChatMainPanel({
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
   const visionGateActive = useVisionAttachmentGate();
-  // Whether an image attached to the next message would survive the turn. One
-  // resolution for every surface that can attach one: the drop/pick filter
-  // below, the Eyes toggle, and the send's own camera frame. On an assistant
-  // with the image-fallback plugin the gate is inactive and the question does
-  // not arise; below it, an image on a profile without vision fails the whole
-  // turn on the provider's rejection.
+  // Whether an image attached to the next message would survive the turn, read
+  // by the drop/pick filter below. On an assistant with the image-fallback
+  // plugin the gate is inactive and the question does not arise; below it, an
+  // image on a profile without vision fails the whole turn on the provider's
+  // rejection.
   const imageAttachmentsAllowed =
     !visionGateActive || activeModelSupportsVision;
 
@@ -1106,7 +1105,6 @@ export function ChatMainPanel({
     typingDisabled,
     assistantId,
     activeConversationId,
-    imageAttachmentsAllowed,
     // Synchronous pre-send gate: re-scans the outgoing content so pastes
     // sent inside the detection debounce window are still caught. No
     // secrets → returns true, fully inert.
@@ -1381,7 +1379,6 @@ export function ChatMainPanel({
       typingDisabled={typingDisabled}
       sendDisabled={sendDisabled}
       onAddAttachmentFiles={handleDroppedFiles}
-      imageAttachmentsAllowed={imageAttachmentsAllowed}
       voiceInputRef={voiceInputRef}
       voiceInterim={voiceInterim ?? undefined}
       onVoiceTranscript={handleVoiceTranscript}

@@ -21,13 +21,16 @@
 import { getPlatformAssistantId, getPlatformBaseUrl } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import { ipcRegisterWebhookRoute } from "../ipc/gateway-client.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { resolveClaimedPodWebhookUrl } from "./pod-webhook-claim.js";
 import {
   PublicIngressDisabledError,
   tryGetPublicBaseUrl,
 } from "./public-ingress-urls.js";
+import { isVelayWebhooksEnabled } from "./velay-webhooks-gate.js";
 
 const log = getLogger("platform-callback-registration");
 
@@ -178,14 +181,62 @@ function resolveSelfHostedCallbackBaseUrl(): string | undefined {
 }
 
 /**
+ * Claim a webhook subpath on the gateway so the Velay tunnel forwards it.
+ *
+ * The registry matches paths exactly, so query parameters a caller appends to
+ * the resolved URL play no part. Returns false when the gateway declines the
+ * claim or cannot be reached, leaving platform callback registration as the
+ * way to keep the webhook reachable.
+ *
+ * @param callbackPath - The path to claim, e.g. "webhooks/twilio/voice".
+ */
+export async function registerLocalWebhookRoute(
+  callbackPath: string,
+  type: string,
+  sourceIdentifier?: string,
+): Promise<boolean> {
+  const path = callbackPath.startsWith("/") ? callbackPath : `/${callbackPath}`;
+  const result = await ipcRegisterWebhookRoute({
+    path,
+    type,
+    source: sourceIdentifier,
+  });
+
+  if (!result.ok) {
+    log.warn(
+      { path, type, reason: result.reason },
+      "Gateway webhook route registration failed, falling back to the platform",
+    );
+    return false;
+  }
+  if (result.disabled) {
+    log.info(
+      { path, type },
+      "Gateway is not serving its own webhooks, falling back to the platform",
+    );
+    return false;
+  }
+
+  log.debug({ path, type }, "Gateway webhook route registered");
+  return true;
+}
+
+/**
  * Resolve a callback URL, registering with the platform when appropriate.
  *
  * Resolution order, matching `handleWebhooksRegister` in
  * `runtime/routes/webhook-routes.ts` and `hasWebhookRoutingConfigured` in
  * `config/webhook-routing.ts`:
  *
- *   1. **Platform pods** (`IS_PLATFORM`) always register with the platform
- *      gateway: they have no ingress of their own to advertise.
+ *   1. **Platform pods** (`IS_PLATFORM`) with the `velay-webhooks` flag off
+ *      always register with the platform gateway. With the flag on, they try
+ *      the direct supplier first — the gateway's Velay client publishes the
+ *      tunnel URL into `ingress.publicBaseUrl` — and fall back to platform
+ *      registration on any failure, including an explicit
+ *      `ingress.enabled: false`: a pod owner toggling that flag must not
+ *      lose webhooks entirely. The subpath is claimed on the gateway before
+ *      the tunnel URL is handed out, and a refused claim falls back the same
+ *      way.
  *   2. **A configured public ingress wins** for everyone else, so the direct
  *      supplier is tried first and its value returned when it resolves.
  *   3. **Platform-connected assistants with no ingress** register with the
@@ -194,12 +245,12 @@ function resolveSelfHostedCallbackBaseUrl(): string | undefined {
  *      ID + assistant API key), not by `IS_PLATFORM`, which is only ever true
  *      on a platform pod.
  *
- * An explicit `ingress.enabled: false` is a decision not to accept inbound
- * webhooks at all, so `PublicIngressDisabledError` propagates instead of being
- * routed around. Ingress precedes the platform fallback because any logged-in
- * local assistant holds platform credentials for the LLM proxy: treating
- * credential presence as "managed" would silently reroute an explicitly
- * configured self-hosted callback through the platform.
+ * Off a pod, an explicit `ingress.enabled: false` is a decision not to accept
+ * inbound webhooks at all, so `PublicIngressDisabledError` propagates instead
+ * of being routed around. Ingress precedes the platform fallback because any
+ * logged-in local assistant holds platform credentials for the LLM proxy:
+ * treating credential presence as "managed" would silently reroute an
+ * explicitly configured self-hosted callback through the platform.
  *
  * The `directUrl` parameter is a **lazy supplier** (a function returning a
  * string) rather than an eagerly-evaluated string. This is critical because
@@ -222,10 +273,20 @@ export async function resolveCallbackUrl(
   queryParams?: Record<string, string>,
   sourceIdentifier?: string,
 ): Promise<string> {
-  if (!getIsPlatform()) {
+  if (getIsPlatform()) {
+    if (isVelayWebhooksEnabled()) {
+      const claimed = await resolveClaimedPodWebhookUrl(directUrl, () =>
+        registerLocalWebhookRoute(callbackPath, type, sourceIdentifier),
+      );
+      if (claimed !== undefined) {
+        return claimed;
+      }
+    }
+  } else {
+    let ingressUrl: string | undefined;
     let ingressError: unknown;
     try {
-      return directUrl();
+      ingressUrl = directUrl();
     } catch (err) {
       if (err instanceof PublicIngressDisabledError) {
         throw err;
@@ -233,8 +294,13 @@ export async function resolveCallbackUrl(
       ingressError = err;
     }
 
+    if (ingressUrl !== undefined) {
+      return ingressUrl;
+    }
+
     // No ingress configured. Fall back to the platform gateway when this
-    // assistant is connected to the platform.
+    // assistant is connected to the platform. Platform pods always are, so
+    // they skip the context probe and register directly.
     const context = await resolvePlatformCallbackRegistrationContext();
     if (!context.enabled) {
       throw ingressError;

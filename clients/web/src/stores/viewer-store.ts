@@ -61,6 +61,7 @@ type OverlayView =
   | "acp-run-detail"
   | "background-task-detail"
   | "skill-detail"
+  | "wake-detail"
   | "channel-setup"
   | "channel-transcript";
 
@@ -134,6 +135,7 @@ function resolveViewBefore(
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
     | "viewBeforeSkillDetail"
+    | "viewBeforeWakeDetail"
     | "viewBeforeChannelSetup"
     | "viewBeforeChannelTranscript",
 ): Exclude<MainView, OverlayView> {
@@ -148,6 +150,7 @@ function resolveViewBefore(
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
     mv === "skill-detail" ||
+    mv === "wake-detail" ||
     mv === "channel-setup" ||
     mv === "channel-transcript"
   ) {
@@ -173,6 +176,7 @@ export type MainView =
   | "acp-run-detail"
   | "background-task-detail"
   | "skill-detail"
+  | "wake-detail"
   | "channel-setup"
   | "channel-transcript";
 
@@ -413,6 +417,21 @@ export interface ToolDetailPayload {
  * the live source can't be resolved (message paged out, or identity-less
  * callers like stories).
  */
+/**
+ * Payload for the wake-detail side panel: everything the transcript card
+ * folds away behind "View details".
+ *
+ * A snapshot rather than a surface id, because a wake card is written once and
+ * never revised: there is no later version of it for the panel to miss, and a
+ * lookup would strand the panel empty whenever the message it came from has
+ * been paged out of the loaded transcript window.
+ */
+export interface WakeDetailPayload {
+  title: string;
+  body: string;
+  metadata: Array<{ label: string; value: string }>;
+}
+
 export interface ActivityStepsPayload {
   messageId?: string;
   groupIndex?: number;
@@ -514,6 +533,8 @@ export interface ViewerState {
   viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
   activeSkillDetailId: string | null;
   viewBeforeSkillDetail: Exclude<MainView, OverlayView>;
+  activeWakeDetail: WakeDetailPayload | null;
+  viewBeforeWakeDetail: Exclude<MainView, OverlayView>;
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
@@ -570,6 +591,10 @@ export interface ViewerActions {
   // --- Skill detail ---
   openSkillDetail: (skillId: string) => void;
   closeSkillDetail: () => void;
+
+  // --- Wake detail ---
+  openWakeDetail: (payload: WakeDetailPayload) => void;
+  closeWakeDetail: () => void;
 
   // --- Process-detail routing facade ---
   /**
@@ -731,6 +756,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeBackgroundTaskDetail: "chat",
   activeSkillDetailId: null,
   viewBeforeSkillDetail: "chat",
+  activeWakeDetail: null,
+  viewBeforeWakeDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   activeChannelTranscript: null,
@@ -955,6 +982,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  // --- Wake detail ---
+
+  openWakeDetail: (payload) => {
+    set({
+      mainView: "wake-detail",
+      activeWakeDetail: payload,
+      viewBeforeWakeDetail: resolveViewBefore(get(), "viewBeforeWakeDetail"),
+    });
+  },
+
+  closeWakeDetail: () => {
+    set({
+      mainView: get().viewBeforeWakeDetail,
+      activeWakeDetail: null,
+    });
+  },
+
   // --- Process-detail routing facade ---
 
   openProcessDetail: ({ kind, id }) => {
@@ -1006,6 +1050,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         return true;
       case "skill-detail":
         get().closeSkillDetail();
+        return true;
+      case "wake-detail":
+        get().closeWakeDetail();
         return true;
       case "channel-setup":
         get().closeChannelSetup();

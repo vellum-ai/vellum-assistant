@@ -16,11 +16,15 @@ Manage the user's contacts, relationship graph, access control (trusted contacts
 
 ## Contact Management
 
-> **Every contact write goes through the guardian.** You can list, search, and merge contacts on your own. To create, edit, or delete one, run the matching command below: each opens a form in the guardian's app, and the write happens only if they submit it. You are proposing, not writing. Say so: "I'll put that up for you to confirm," not "Done."
+> **Every contact write goes through the guardian.** You can list and search contacts on your own. To create, edit, delete, merge, or bind a channel to one, run the matching command below: each opens a form in the guardian's app, and the write happens only if they submit it. You are proposing, not writing. Say so: "I'll put that up for you to confirm," not "Done."
 >
-> Two things a contact record does **not** do: it grants no access (a record has no channels, so nobody can message the assistant through it), and it is not a channel. Use `assistant contacts prompt` to bind an address, or `assistant contacts invites create` to let someone bind their own.
+> Two things a contact record does **not** do: it grants no access (a record has no channels, so nobody can message the assistant through it), and it is not a channel. Use `assistant contacts channels add <contact_id>` to bind an address to a contact that already exists, or `assistant contacts invites create` to let someone bind their own.
 >
 > The form needs the guardian's desktop or web app to be open. If a command reports that it timed out, nobody answered: tell the user, and do not retry in a loop.
+>
+> One exception you must not take: the `contact_merge` tool writes immediately, with no confirmation. Use `assistant contacts merge` instead, so the guardian sees what is being combined before the donor record is deleted.
+>
+> A form the guardian closes without answering is not a failure. The command prints `Cancelled: nothing was written`, exits 130, and writes nothing. Report that as "the guardian did not confirm", not as an error, and do not retry in a loop.
 
 ### Create a contact
 
@@ -33,10 +37,49 @@ Opens an add-contact form prefilled with what you pass. The guardian can edit th
 Optional flags:
 
 - `--notes` -- proposed notes, prefilled into the form
+- `--channel` -- also bind a channel on the same form (`email`, `phone`, `telegram`, `whatsapp`, `slack`). Requires `--name`.
+- `--address` -- address to pre-fill for that channel; the guardian can edit it before submitting. Requires `--channel`.
+- `--verify` -- pre-check the form's "mark verified" box. Requires `--channel`.
 - `--label` / `--description` -- what the form says about why you are asking
 - `--timeout` -- how long the form stays open, in ms (default 300000)
 
+With `--channel`, the record and the channel are one form and one guardian confirmation:
+
+```bash
+assistant contacts create --name "Alice" --channel email --address "alice@example.com" --json
+```
+
+`--name` is required in that mode, because the contact is created under it. The form shows `--notes` but does not let the guardian edit them, so they are written as passed; use `assistant contacts update` to change them afterwards. `--address` and `--verify` each need `--channel`, so either one without it is refused rather than ignored.
+
+The `--json` shape follows the mode: without `--channel` it is `{ok, contact}`, so the new id is `contact.id`; with `--channel` it is the address form's `{ok, contactId, channelId, channelType, address, verified}`, so the id is `contactId`. Read the right one before passing it to `contacts invites create --contact-id`.
+
 Use this before creating an invite for someone who is not in the contact graph yet.
+
+### Bind a channel to an existing contact
+
+```bash
+assistant contacts channels add "<contact_id>" --channel email --address "alice@example.com" --json
+```
+
+Opens an address form naming that contact, so the guardian can see where the channel is going. Whatever address they submit binds to that contact: one confirmation, and no second record. This is how you add an address to somebody who is already in the graph. `--channel` is required.
+
+Optional flags:
+
+- `--address` -- address to pre-fill; the guardian can edit it before submitting
+- `--verify` -- pre-check the form's "mark verified" box. The guardian decides: unchecked, the channel stays unverified and cannot message the assistant.
+- `--label` / `--description` -- what the form says about why you are asking
+- `--timeout` -- how long the form stays open, in ms (default 300000)
+
+Two contacts cannot share one address. An address held by a different contact when the form is submitted is refused, the refusal names that contact, and nothing is written. Passing `--address` also checks up front and warns when the address looks taken, without refusing.
+
+For an address that belongs to nobody yet, `assistant contacts prompt` is the create-or-bind path:
+
+```bash
+assistant contacts prompt --channel email --json
+assistant contacts prompt --contact-id "<contact_id>" --channel email --json
+```
+
+On its own it looks up the `(channel type, address)` pair the guardian submits: a match reuses that contact and channel, and no match creates a new contact named after the address. `--contact-id` targets an existing contact instead, the same bind `channels add` does under its own verb.
 
 ### Update a contact
 
@@ -53,7 +96,7 @@ Opens an edit form showing the current name next to the proposed change. At leas
 assistant contacts delete "<contact_id>" --json
 ```
 
-Opens a confirmation showing the contact and its channels. Deleting a contact deletes its channels too, so anyone reaching the assistant through them loses access. A guardian contact cannot be deleted. When two records are the same person, merge them with the `contact_merge` tool instead: merging keeps the surviving contact's channels.
+Opens a confirmation showing the contact and its channels. Deleting a contact deletes its channels too, so anyone reaching the assistant through them loses access. A guardian contact cannot be deleted. When two records are the same person, run `assistant contacts merge <surviving_contact_id> <donor_contact_id>` instead: the donor's channels move to the survivor rather than being destroyed with it.
 
 ### Search contacts
 
@@ -72,16 +115,23 @@ Optional flags:
 
 ### Merge contacts
 
-When you discover two contacts are the same person (e.g. same person on email and Slack), merge them to consolidate. Merging:
-
-- Combines all channels from both contacts
-- Merges notes from both contacts
-- Sums interaction counts
-- Deletes the donor contact
+When you discover two contacts are the same person (e.g. same person on email and Slack), merge them to consolidate.
 
 ```bash
 assistant contacts merge <surviving_contact_id> <donor_contact_id> --json
 ```
+
+Opens a confirmation naming both contacts and listing the channels that move. Nothing is merged unless the guardian submits it. On submit:
+
+- The donor's channels move to the surviving contact
+- Notes from both contacts are combined
+- The donor record is deleted
+
+A contact's interaction count is the sum over its channels, so a moved channel brings its history with it. An address the survivor already holds is left where it is, and its donor-side history goes with the deleted record.
+
+Nobody loses access: every address that reached the donor reaches the survivor afterwards. A guardian contact cannot be the donor, so keep the guardian as the survivor.
+
+The survivor keeps its own name unless the guardian edits it on the form. `--keep-donor-name` seeds that field with the donor's name, for when the donor is the better-named record of the two.
 
 ## Access Control (Trusted Contacts)
 
@@ -138,7 +188,7 @@ Access is granted per channel, not per contact, and it always takes proof that t
 
 1. **Contact record** -- if they are not in the graph yet, `assistant contacts create --name "<name>"`. The guardian confirms it. This alone grants nothing.
 2. **Invite link** -- `assistant contacts invites create --source-channel <channel> --contact-id <contact_id>`. The invitee redeems it from the address they actually control, which is what makes the channel trusted. This is the path to prefer: it works even when nobody knows the invitee's handle on that channel up front.
-3. **Address the guardian already knows** -- `assistant contacts prompt --channel <channel>` opens a form for them to type it in. The channel lands unverified unless the guardian checks the verify box on that form, and an unverified channel cannot message the assistant.
+3. **Address the guardian already knows** -- for someone already in the graph, `assistant contacts channels add <contact_id> --channel <channel>` opens a form naming that contact and binds the address there. For a brand new address with no record behind it, `assistant contacts prompt --channel <channel>` creates the contact from what the guardian types. Either way the channel lands unverified unless the guardian checks the verify box on that form, and an unverified channel cannot message the assistant.
 
 Only the guardian's own submission can complete any of these, so never promise access is live until the command returns.
 
@@ -501,7 +551,7 @@ Each channel has:
 
 **"Rename [name]"** / **"Update [name]'s notes"** -- Find the contact with `assistant contacts list --json`, then `assistant contacts update <contact_id> --name ... --notes ...`.
 
-**"Delete [name]"** / **"Remove [name] from my contacts"** -- Find the contact, then `assistant contacts delete <contact_id>`. Mention that this drops their channels too. If the user actually means two records are the same person, merge instead with the `contact_merge` tool.
+**"Delete [name]"** / **"Remove [name] from my contacts"** -- Find the contact, then `assistant contacts delete <contact_id>`. Mention that this drops their channels too. If the user actually means two records are the same person, run `assistant contacts merge <surviving_contact_id> <donor_contact_id>` instead.
 
 **"Add my friend to Telegram"** -- Create the contact with `assistant contacts create --name "<their name>"` and wait for the guardian to confirm the form. Then create an invite with `assistant contacts invites create --source-channel telegram --contact-id <contact_id>` and present the deep link. You never need their Telegram user ID: redeeming the invite is what binds their account.
 

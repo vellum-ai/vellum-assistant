@@ -50,6 +50,12 @@ const EMBEDDING_PROVIDER_CATALOG = [
     defaultModel: "nomic-embed-text",
     requiresKey: false,
   },
+  {
+    id: "custom",
+    displayName: "Custom (OpenAI-compatible)",
+    defaultModel: "text-embedding-3-small",
+    requiresKey: false,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -61,6 +67,7 @@ const PROVIDER_MODEL_FIELD: Record<string, string> = {
   openai: "openaiModel",
   gemini: "geminiModel",
   ollama: "ollamaModel",
+  custom: "customModel",
 };
 
 // ---------------------------------------------------------------------------
@@ -70,6 +77,8 @@ const PROVIDER_MODEL_FIELD: Record<string, string> = {
 export async function getEmbeddingConfigInfo(): Promise<{
   provider: string;
   model: string | null;
+  baseUrl: string | null;
+  dimensions: number | null;
   activeProvider: string | null;
   activeModel: string | null;
   availableProviders: typeof EMBEDDING_PROVIDER_CATALOG;
@@ -88,6 +97,8 @@ export async function getEmbeddingConfigInfo(): Promise<{
   return {
     provider: embeddingConfig.provider,
     model: typeof model === "string" ? model : null,
+    baseUrl: embeddingConfig.baseUrl ?? null,
+    dimensions: embeddingConfig.customDimensions ?? null,
     activeProvider: backendStatus.provider,
     activeModel: backendStatus.model,
     availableProviders: EMBEDDING_PROVIDER_CATALOG,
@@ -107,6 +118,10 @@ export async function setEmbeddingConfig(
   provider: string,
   model: string | undefined,
   ctx: ModelSetContext,
+  extras?: {
+    baseUrl?: string;
+    dimensions?: number | null;
+  },
 ): Promise<ReturnType<typeof getEmbeddingConfigInfo>> {
   const validProviders = new Set<string>(VALID_MEMORY_EMBEDDING_PROVIDERS);
   if (!validProviders.has(provider)) {
@@ -127,6 +142,22 @@ export async function setEmbeddingConfig(
       } else {
         setMemoryEmbeddingField(raw, fieldName, model);
       }
+    }
+  }
+
+  if (extras?.baseUrl !== undefined) {
+    if (extras.baseUrl === "") {
+      deleteMemoryEmbeddingField(raw, "baseUrl");
+    } else {
+      setMemoryEmbeddingField(raw, "baseUrl", extras.baseUrl);
+    }
+  }
+
+  if (extras?.dimensions !== undefined) {
+    if (extras.dimensions === null) {
+      deleteMemoryEmbeddingField(raw, "customDimensions");
+    } else {
+      setMemoryEmbeddingField(raw, "customDimensions", extras.dimensions);
     }
   }
 

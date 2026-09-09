@@ -35,7 +35,7 @@ interface StopResponse {
 interface EmbeddingStatus {
   enabled: boolean;
   degraded: boolean;
-  provider: "local" | "openai" | "gemini" | "ollama" | null;
+  provider: "local" | "openai" | "gemini" | "ollama" | "custom" | null;
   model: string | null;
   reason: string | null;
 }

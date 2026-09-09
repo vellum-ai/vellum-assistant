@@ -382,15 +382,15 @@ describe("injector chain", () => {
 
   test("the injector chain sorts the defaults plus the memory-v3 injectors by ascending order", () => {
     // The assembled chain merges the defaults with the two memory-v3
-    // injectors and sorts by `order`, so the cards injector (order 1000) and
-    // the spotlight injector (order 1001) sit last, in that order.
+    // injectors and sorts by `order`, so the sections injector (order 1000)
+    // and the pointer injector (order 1001) sit last, in that order.
     const chain = getRegisteredInjectors();
     const orders = chain.map((i) => i.order);
     expect(orders).toEqual([...orders].sort((a, b) => a - b));
     // The two memory-v3 injectors (order 1000 / 1001) sort last, in that order.
     expect(chain.map((i) => i.name).slice(-2)).toEqual([
       "memory-v3-shadow",
-      "memory-v3-spotlight",
+      "memory-v3-pointer",
     ]);
   });
 

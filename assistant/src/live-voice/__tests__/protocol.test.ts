@@ -339,6 +339,73 @@ describe("parseLiveVoiceClientTextFrame", () => {
     expect("client" in result.frame).toBe(false);
   });
 
+  test("parses the entry point from the start frame", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        client: "macos",
+        entry: "companion",
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.frame).toMatchObject({
+      type: "start",
+      client: "macos",
+      entry: "companion",
+    });
+  });
+
+  test("carries an entry token it has never seen, since the clients mint them", () => {
+    // An open set on purpose: a daemon older than the client that sent the
+    // value must carry it through rather than erase it.
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        entry: "some_future_surface",
+        audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.frame).toMatchObject({ entry: "some_future_surface" });
+  });
+
+  test.each([
+    ["not a string", 42],
+    ["empty", ""],
+    ["uppercase", "Companion"],
+    ["punctuation", "companion:talk"],
+    ["over-long", "a".repeat(33)],
+  ])(
+    "drops an off-shape entry (%s) rather than rejecting the session",
+    (_label, entry) => {
+      const result = parseLiveVoiceClientTextFrame(
+        JSON.stringify({
+          type: "start",
+          entry,
+          audio: { mimeType: "audio/pcm", sampleRate: 24000, channels: 1 },
+        }),
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+
+      expect("entry" in result.frame).toBe(false);
+    },
+  );
+
   test("drops an unrecognized client rather than rejecting the session", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({

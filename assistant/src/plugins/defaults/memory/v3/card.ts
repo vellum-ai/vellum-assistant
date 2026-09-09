@@ -6,12 +6,12 @@ import type { Slug } from "./types.js";
 /**
  * Compact card renderer for memory-v3: a page's head section (the `# Title`
  * line plus lead paragraphs, everything before the first `## ` heading) plus a
- * one-line section TOC. Cards are the compact injection unit — they carry
- * enough signal to act on (or `file_read` the full page) at a fraction of the
- * full-page byte cost.
+ * one-line section TOC. Cards are the selector pool's stable-prefix unit;
+ * they carry enough signal to judge a page (or `file_read` the full page) at
+ * a fraction of the full-page byte cost.
  *
  * The `# memory/concepts/<slug>.md` header (shared builder:
- * `injectedConceptHeader` in `memory/v2/injected-block-slugs.ts`) matches the
+ * `injectedConceptHeader` in `substrate/injected-block-slugs.ts`) matches the
  * v2 memory-block page convention, so the existing `file_read` affordance
  * instruction applies to cards unchanged.
  *
@@ -72,7 +72,9 @@ function renderTocLine(
   if (headings.length === 0) {
     return null;
   }
-  return `[sections: ${headings.map((h) => `§${h}`).join(" · ")}]`;
+  // A heading that already opens with the section sigil keeps it as-is
+  // rather than doubling up.
+  return `[sections: ${headings.map((h) => (h.startsWith("§") ? h : `§${h}`)).join(" · ")}]`;
 }
 
 /** Max characters of a `current:` line carried onto the card. A `current:` is
@@ -81,11 +83,16 @@ function renderTocLine(
 const CURRENT_MAX_CHARS = 280;
 
 /**
- * Render a page's `current:` frontmatter (one-line live state) as a card
- * annotation, or `null` when the page has none. Whitespace-collapsed and
- * capped at {@link CURRENT_MAX_CHARS}.
+ * Render a page's `current:` frontmatter (one-line live state) as the
+ * `[current: …]` annotation line, or `null` when the page has none.
+ * Whitespace-collapsed and capped at {@link CURRENT_MAX_CHARS}. Rendered
+ * directly under the header on the selector card and on the page's lead
+ * injection (`page-content.ts`), so the state that makes the selector pick
+ * a page reaches the model with it.
  */
-function renderCurrentLine(fields: Record<string, unknown>): string | null {
+export function renderCurrentLine(
+  fields: Record<string, unknown>,
+): string | null {
   const current = fields.current;
   if (typeof current !== "string") {
     return null;
@@ -164,10 +171,4 @@ export function renderCard(
   }
 
   return card;
-}
-
-/** UTF-8 byte length of a rendered card (prune-valve and footprint
- * accounting both budget in bytes, not characters). */
-export function cardBytes(card: string): number {
-  return Buffer.byteLength(card, "utf8");
 }

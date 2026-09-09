@@ -17,8 +17,10 @@ import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-set
 import {
   endLiveVoiceSession,
   isLiveVoiceSessionActive,
+  setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useCallChords } from "@/domains/chat/voice/live-voice/use-call-chords";
 import {
   cancelPendingVoiceStart,
   startVoiceFromSurface,
@@ -101,6 +103,7 @@ import { RemoveFromDeviceDialog } from "@/components/remove-from-device-dialog";
 import { RetireConfirmDialog } from "@/components/retire-confirm-dialog";
 import { useTranslation } from "@/i18n";
 import { toast } from "@vellumai/design-library/components/toast";
+import { answerDictationOffer } from "@/domains/chat/voice/dictation-offer-actions";
 
 /**
  * App-level layout route. Owns four cross-route concerns:
@@ -154,6 +157,13 @@ export function RootLayout() {
   // from any route — including setMainView("chat") calls made while the chat
   // layout is unmounted — still sends the close signal.
   useChannelSetupCloseNotify();
+
+  // Option+S and Option+D while a call is running, from whatever application
+  // the user is in. Mounted here rather than beside the session because the
+  // binding follows the session's *state* and not its controller: the window
+  // that has a call is the one that arms them, and a window that has none
+  // never takes the keys.
+  useCallChords();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantVersion = useAssistantIdentityStore.use.version();
@@ -339,9 +349,10 @@ export function RootLayout() {
       );
     },
     startVoice: () => {
-      // See `startVoiceFromSurface` for the three steps and why the window
-      // stays where it is.
-      startVoiceFromSurface(navigate);
+      // The companion surface's Talk, the one sender of this command. See
+      // `startVoiceFromSurface` for the three steps and why the window stays
+      // where it is.
+      startVoiceFromSurface(navigate, { entry: "companion" });
     },
     cancelVoiceStart: () => {
       // The companion's dial, ended. Handled here rather than beside the
@@ -359,7 +370,7 @@ export function RootLayout() {
         endLiveVoiceSession();
         return;
       }
-      startVoiceFromSurface(navigate);
+      startVoiceFromSurface(navigate, { entry: "voice_key" });
     },
     answerWatchRetro: (command) => {
       if (command.kind !== "answerWatchRetro") {
@@ -395,6 +406,12 @@ export function RootLayout() {
       // `navigateToConversation` exists to prevent.
       navigateToConversation(navigate, retro.conversationId);
     },
+    answerDictationOffer: (command) => {
+      if (command.kind !== "answerDictationOffer") {
+        return;
+      }
+      void answerDictationOffer(command.answer, command.offerId);
+    },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so
     // its refusal is worth being able to test, and a module is what makes that
@@ -404,6 +421,26 @@ export function RootLayout() {
       handleToggleWatchCommand(
         command.kind === "toggleWatch" ? command.target : undefined,
       );
+    },
+    // The share the companion's control asks for, or its stop. Straight to
+    // the session's store: the frames are taken by a hook mounted beside the
+    // session, and a target with no session to show it to is dropped there.
+    setScreenShare: (command) => {
+      setLiveVoiceScreenShare(
+        command.kind === "setScreenShare" ? (command.target ?? null) : null,
+      );
+    },
+    // A mark the user is drawing on what the call is being shown. Straight to
+    // the session's store, the way the share itself is: the frame that
+    // carries the mark is taken by the hook mounted beside the session, and a
+    // drawing with no session to send it to is dropped there.
+    annotateShare: (command) => {
+      if (command.kind !== "annotateShare") {
+        return;
+      }
+      useLiveVoiceStore
+        .getState()
+        .setShareAnnotation(command.phase, command.strokes, command.ink);
     },
     replayOnboarding: () => {
       void navigate(`${routes.onboarding.privacy}?preview=true`);

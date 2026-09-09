@@ -121,7 +121,30 @@ describe("live-voice session telemetry", () => {
 
     await session.start();
 
-    expect(recordLiveVoiceSessionStarted).toHaveBeenCalledWith("session-123");
+    expect(recordLiveVoiceSessionStarted).toHaveBeenCalledWith({
+      sessionId: "session-123",
+      screen: "started_unknown:unknown",
+    });
+
+    await session.close("client_end");
+  });
+
+  test("stamps the started row with the client and entry the start frame declared", async () => {
+    // The dimension this row exists to carry: the same `macos` client covers
+    // the chat's voice button, the companion's Talk and the voice key, and
+    // only the entry says which one the user reached for.
+    const session = readySession({
+      ...START_FRAME,
+      client: "macos",
+      entry: "companion",
+    });
+
+    await session.start();
+
+    expect(recordLiveVoiceSessionStarted).toHaveBeenCalledWith({
+      sessionId: "session-123",
+      screen: "started_macos:companion",
+    });
 
     await session.close("client_end");
   });
@@ -138,7 +161,10 @@ describe("live-voice session telemetry", () => {
 
     // The denominator of the failure rate: a session rejected before `ready`
     // is exactly the one that must not go missing from the started count.
-    expect(recordLiveVoiceSessionStarted).toHaveBeenCalledWith("session-123");
+    expect(recordLiveVoiceSessionStarted).toHaveBeenCalledWith({
+      sessionId: "session-123",
+      screen: "started_unknown:unknown",
+    });
   });
 
   test("records the close reason and a completed outcome on a clean end", async () => {
@@ -328,5 +354,19 @@ describe("live-voice turn attribution", () => {
     const options = await captureTurnOptions(START_FRAME);
 
     expect(options.voiceTelemetry).toEqual({ sessionId: "session-123" });
+  });
+
+  test("carries the entry point onto the turn beside the client", async () => {
+    const options = await captureTurnOptions({
+      ...START_FRAME,
+      client: "macos",
+      entry: "voice_key",
+    });
+
+    expect(options.voiceTelemetry).toEqual({
+      sessionId: "session-123",
+      client: "macos",
+      entry: "voice_key",
+    });
   });
 });

@@ -136,7 +136,9 @@ export function CameraViewSettings({ panelHost }: CameraViewSettingsProps) {
         </Popover.Trigger>
         <Popover.Content
           side="bottom"
-          align="end"
+          // The trigger sits in the room's left corner, so the panel hangs
+          // from its leading edge and grows inward, away from the screen edge.
+          align="start"
           sideOffset={8}
           data-testid="camera-view-settings-panel"
           // Radix presents this as a dialog, and an unnamed one is announced

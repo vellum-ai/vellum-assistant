@@ -1,40 +1,61 @@
 /**
  * Tests for the memory-v3 injection layer (`injector.ts`): frozen net-new
- * cards + per-turn spotlight.
+ * sections + per-turn pointer.
  *
- *   - net-new dedup: a turn re-selecting already-injected pages renders zero
- *     new cards (empty-text block — still produced, so v2 suppression holds);
- *   - commit deferral: the everInjected-store write happens in the block's
+ *   - section grain: a page injects its matched section, or its lead when
+ *     selected without a match; the same page re-selected with a different
+ *     section is net-new, re-selected with the same section is not;
+ *   - net-new dedup: a turn re-selecting already-injected sections renders
+ *     zero new sections (empty-text block, still produced, so v2 suppression
+ *     holds) and lists them in the pointer instead;
+ *   - commit deferral: the net-new record happens in the block's
  *     attachment-commit callback (invoked by assembly on user-tail turns),
  *     never in `produce()` itself;
+ *   - selection stamping: every selected section carries the turn's time,
+ *     the resident ones (capability units included) stamped at
+ *     classification ahead of any await, so a queued valve ranks the fresh
+ *     recency and an all-empty render still stamps them, and the net-new
+ *     ones with their record at commit;
+ *   - pointer re-validation: a resident entry the valve tombstones between
+ *     classification and the pointer render is dropped from the pointer;
  *   - trust gate: an untrusted remote actor's turn produces nothing and
  *     records nothing (the v2 personal-memory gate);
- *   - fork dedup: a conversation whose everInjected record was seeded from
- *     inherited blocks does not re-render those slugs;
- *   - prune round-trip: a pruned slug that is re-selected re-injects;
- *   - spotlight: current-window entries only, re-rendered (never accumulated),
- *     bounded by `n × (windowTurns + 1)`, live-only, absent from the
- *     persistent card layer.
+ *   - fork dedup: a conversation whose record was seeded from inherited
+ *     blocks does not re-render those sections;
+ *   - prune round-trip: a pruned section that is re-selected re-injects, and
+ *     the valve evicts with no lane exemptions;
+ *   - pointer: resident re-selections only, paths without bodies, capability
+ *     slugs excluded, fixed for the turn across re-entry, live-only.
  *
  * Orchestration is stubbed at the `observeTurn` seam (the injectors' shared
- * input); the everInjected store runs REAL against an in-memory SQLite DB so
- * the dedup contract is exercised end-to-end. `mock.module` is process-global,
- * so every stub delegates to the real implementation unless this file's tests
+ * input); the section store runs REAL against an in-memory SQLite DB so the
+ * dedup contract is exercised end-to-end. `mock.module` is process-global, so
+ * every stub delegates to the real implementation unless this file's tests
  * are running (`injectionMockActive`) — mirrors the sibling test files.
  */
 
 import { Database } from "bun:sqlite";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
-import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
+import type { Conversation } from "../../../../../daemon/conversation.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { InjectionBlock } from "../../../../types.js";
 import { unwrapMemoryBlock } from "../../memory-marker.js";
+import { isCapabilitySlug } from "../capabilities.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import { ensureMemoryV3InjectedSectionsSchema } from "../plugin-schema.js";
+import { sectionHeadLine } from "../sections.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type Section,
@@ -57,7 +78,6 @@ let injectionMockActive = false;
 
 let liveEnabled = false;
 let memoryEnabled = true;
-let spotlightConfig = { n: 6, windowTurns: 2 };
 /** `null` disables the prune valve (the default for tests not exercising it —
  *  `runPruneValve` bails when the config block is absent). */
 let pruneConfig: {
@@ -90,20 +110,19 @@ mock.module("../../../../../util/logger.js", () => ({
 }));
 
 let testSqlite: Database;
-// The prune valve's recency ranking reads `memory_v3_selections` over the
-// dedicated memory connection, resolved via `getMemorySqlite` — stubbed to a
-// second in-memory DB carrying the relocated table's schema.
+// The section store (the prune valve's candidate set and recency) lives on
+// the dedicated memory connection, resolved via `getMemorySqlite`, stubbed to
+// a second in-memory DB carrying the store's schema.
 let memorySqlite: Database;
 let testDb = makeDb();
 function makeDb() {
   testSqlite = new Database(":memory:");
   const db = drizzle(testSqlite, { schema });
   memorySqlite = new Database(":memory:");
-  ensureMemoryV3SelectionsSchema(memorySqlite);
-  ensureMemoryV3EverInjectedSchema(memorySqlite);
-  // The prune valve plans only against slugs whose card sections are
-  // locatable in persisted `memoryV3InjectedBlock` rows
-  // (`collectPersistedV3Cards`) — minimal `messages` shape it reads.
+  ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+  // The prune valve strips only sections locatable in persisted
+  // `memoryV3InjectedBlock` rows (`collectPersistedV3Sections`), minimal
+  // `messages` shape it reads.
   testSqlite.run(/*sql*/ `
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -134,9 +153,9 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDbConnection.getMemoryDb(),
 }));
 
-// The injector reads `memory.enabled` / `memory.v3.live` / `memory.v3.spotlight`
-// through the real `getConfig()`; the produce helpers seed those for real from
-// the mutable knobs below via `seedMemoryConfig()`.
+// The injector reads `memory.enabled` / `memory.v3.live` through the real
+// `getConfig()`; the produce helpers seed those for real from the mutable
+// knobs below via `seedMemoryConfig()`.
 
 // Memory code resolves its config through the plugin's own accessor, not
 // getConfig(); the prune valve reads its bounds there — stub the same
@@ -148,7 +167,6 @@ mock.module("../../config.js", () => ({
           enabled: memoryEnabled,
           v3: {
             live: liveEnabled,
-            spotlight: spotlightConfig,
             prune: pruneConfig ?? undefined,
           },
         }
@@ -159,8 +177,14 @@ mock.module("../../config.js", () => ({
 // (dynamically imported). Stub it so the deferred valve never drags the heavy
 // daemon module graph into this test process; `undefined` = "conversation not
 // live" (the valve skips the live strip).
+// Conversations whose turn is running: the injector pins their memo against
+// LRU eviction by the live conversation's processing flag.
+let processingConversations = new Set<string>();
 mock.module("../../../../../daemon/conversation-registry.js", () => ({
-  findConversationOrSubagent: () => undefined,
+  findConversationOrSubagent: (conversationId: string) =>
+    processingConversations.has(conversationId)
+      ? ({ isProcessing: () => true } as unknown as Conversation)
+      : undefined,
 }));
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
@@ -179,14 +203,32 @@ mock.module("../../../../../config/assistant-feature-flags.js", () => ({
   },
 }));
 
+/** The lead render the entry stub produces for a page (no disk pages here). */
+function leadRender(slug: Slug): string {
+  return `# memory/concepts/${slug}.md\n# ${slug}\nlead for ${slug}`;
+}
+
 mock.module("../page-content.js", () => ({
   ...realPageContent,
-  renderV3CardContent: async (slug: Slug) =>
-    injectionMockActive
-      ? slug === "missing-page"
-        ? ""
-        : `# memory/concepts/${slug}.md\ncard body for ${slug}`
-      : realPageContent.renderV3CardContent(slug),
+  // Pages do not exist on disk in this unit, so the entry renderer is stubbed
+  // at the injector's seam: a matched section renders through the REAL
+  // section renderer, an unmatched page renders a synthetic lead, a
+  // capability slug renders its capability form, and `missing-page` renders
+  // nothing (a deleted page).
+  renderV3InjectionEntry: async (slug: Slug, section: Section | undefined) => {
+    if (!injectionMockActive) {
+      return realPageContent.renderV3InjectionEntry(slug, section);
+    }
+    if (slug === "missing-page") {
+      return "";
+    }
+    if (isCapabilitySlug(slug)) {
+      return `# Skill: ${slug.slice("skills/".length)}\nskill body`;
+    }
+    return section
+      ? realPageContent.renderV3SectionInjection(slug, section)
+      : leadRender(slug);
+  },
 }));
 
 mock.module("../shadow-plugin.js", () => ({
@@ -199,57 +241,74 @@ mock.module("../shadow-plugin.js", () => ({
 
 const {
   memoryV3Injector,
-  memoryV3SpotlightInjector,
+  memoryV3PointerInjector,
+  memoryV3TurnMemoSizeForTests,
   resetMemoryV3InjectorStateForTests,
 } = await import("../injector.js");
 const {
-  getActiveSlugs,
+  clearConversation,
+  getActiveSections,
   getInjected,
-  getPrunedSlugs,
+  getPrunedSections,
   markPruned,
   recordInjected,
+  seedEverInjectedFromBlocks,
 } = await import("../ever-injected-store.js");
-const { V3_CARDS_INJECTION_HEADER } = await import("../render-injection.js");
-const { flushPruneValveForTests } = await import("../prune.js");
+const { V3_INJECTION_HEADER } = await import("../render-injection.js");
+const { flushPruneValveForTests, runPruneValve } = await import("../prune.js");
 const { drainConversationNotices, resetConversationNoticesForTests } =
   await import("../../../../../daemon/conversation-notices.js");
 const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
-/** Seed the real config the injector reads (`memory.enabled` / `v3.live` /
- *  `v3.spotlight`) from the mutable per-test knobs. Called by the produce
- *  helpers just before invoking the injector so each test's edits take effect. */
+/** Seed the real config the injector reads (`memory.enabled` / `v3.live`)
+ *  from the mutable per-test knobs. Called by the produce helpers just before
+ *  invoking the injector so each test's edits take effect. */
 function seedMemoryConfig(): void {
   setConfig("memory", {
     enabled: memoryEnabled,
-    v3: { live: liveEnabled, spotlight: spotlightConfig },
+    v3: { live: liveEnabled },
   });
 }
 
-function section(slug: Slug, title: string, text: string): Section {
-  return { article: slug, title, text, ordinal: 1 };
+/** A heading section as the section index would build it: synthetic head
+ *  line plus body. */
+function section(slug: Slug, title: string, body: string): Section {
+  return {
+    article: slug,
+    title,
+    text: `${sectionHeadLine(slug, title)}\n${body}`,
+    ordinal: 1,
+  };
 }
 
-/** An orchestrate result selecting `slugs`, with optional finder-matched
- *  sections (slug → section) feeding the spotlight. */
+/** An orchestrate result selecting `slugs`, with optional selected sections
+ *  (slug → section; a slug listed twice selects two of its sections). */
 function result(
   slugs: Slug[],
   matched: Array<[Slug, Section]> = [],
 ): OrchestrateResult {
   return {
-    selections: slugs.map((slug) => ({ slug, pinned: false })),
-    matchedSections: new Map(matched),
+    selections: slugs.map((slug) => ({
+      slug,
+      sections: matched
+        .filter(([matchedSlug]) => matchedSlug === slug)
+        .map(([, section]) => section),
+    })),
     lanes: {
       core: [],
       hot: [],
       fresh: [],
-      finder: matched.map(([slug]) => ({
+      always: [],
+      finder: matched.map(([slug, section]) => ({
         slug,
+        section,
         descriptor: "",
         lane: "needle" as const,
       })),
     },
+    selectorRan: true,
   };
 }
 
@@ -259,18 +318,18 @@ const GUARDIAN_TRUST = {
 } as const;
 
 /** Invoke the block's attachment-commit callback — simulating runtime
- *  assembly's user-tail commit point, where the everInjected-store write
- *  (and the prune-valve schedule) now happens. */
-function commitCardsBlock(block: InjectionBlock | null): void {
+ *  assembly's user-tail commit point, where the section-store write (and the
+ *  prune-valve schedule) happens. */
+function commitSectionsBlock(block: InjectionBlock | null): void {
   const commit = block?.meta?.[MEMORY_V3_COMMIT_META_KEY];
   if (typeof commit === "function") {
     (commit as () => void)();
   }
 }
 
-/** Produce the cards block WITHOUT committing — what assembly observes on a
- *  turn whose tail is not a user message (the block never attaches). */
-function produceCardsWithoutCommit(
+/** Produce the sections block WITHOUT committing, what assembly observes on
+ *  a turn whose tail is not a user message (the block never attaches). */
+function produceSectionsWithoutCommit(
   conversationId: string,
   turnIndex: number,
   trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
@@ -284,21 +343,18 @@ function produceCardsWithoutCommit(
   });
 }
 
-/** Produce the cards block and commit it (the normal user-tail turn). */
-async function produceCards(conversationId: string, turnIndex: number) {
-  const block = await produceCardsWithoutCommit(conversationId, turnIndex);
-  commitCardsBlock(block);
+/** Produce the sections block and commit it (the normal user-tail turn). */
+async function produceSections(conversationId: string, turnIndex: number) {
+  const block = await produceSectionsWithoutCommit(conversationId, turnIndex);
+  commitSectionsBlock(block);
   return block;
 }
 
-/** Persist a produced card block to message metadata, as the conversation
+/** Persist a produced block to message metadata, as the conversation
  *  assembly does in production (unwrapped, under `memoryV3InjectedBlock`) —
- *  the prune valve's plan only counts slugs locatable in persisted rows. */
+ *  the prune valve's strip only locates sections in persisted rows. */
 let persistedMessageSeq = 0;
-function persistCardBlockMetadata(
-  conversationId: string,
-  blockText: string,
-): void {
+function persistBlockMetadata(conversationId: string, blockText: string): void {
   testSqlite
     .query(
       /*sql*/ `
@@ -313,18 +369,39 @@ function persistCardBlockMetadata(
     );
 }
 
-function produceSpotlight(
+function producePointer(
   conversationId: string,
   turnIndex: number,
   trust: { sourceChannel: string; trustClass: string } = GUARDIAN_TRUST,
 ) {
   seedMemoryConfig();
-  return memoryV3SpotlightInjector.produce({
+  return memoryV3PointerInjector.produce({
     requestId: "req-1",
     conversationId,
     turnIndex,
     trust: trust as never,
   });
+}
+
+/** The active set as `slug § key` ids, for terse assertions. */
+function activeIds(conversationId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const [slug, keys] of getActiveSections(conversationId)) {
+    for (const key of keys) {
+      ids.add(`${slug}§${key}`);
+    }
+  }
+  return ids;
+}
+
+function prunedIds(conversationId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const [slug, keys] of getPrunedSections(conversationId)) {
+    for (const key of keys) {
+      ids.add(`${slug}§${key}`);
+    }
+  }
+  return ids;
 }
 
 beforeEach(async () => {
@@ -334,12 +411,12 @@ beforeEach(async () => {
   injectionMockActive = true;
   liveEnabled = false;
   memoryEnabled = true;
-  spotlightConfig = { n: 6, windowTurns: 2 };
   pruneConfig = null;
   turnResults = new Map();
   observeTurnSpy.mockClear();
   logCalls.length = 0;
   testDb = makeDb();
+  processingConversations = new Set();
   resetMemoryV3InjectorStateForTests();
   resetConversationNoticesForTests();
 });
@@ -350,18 +427,21 @@ afterAll(async () => {
   injectionMockActive = false;
 });
 
-// ─── frozen net-new cards ───────────────────────────────────────────────────
+// ─── frozen net-new sections ────────────────────────────────────────────────
 
-describe("memoryV3Injector — frozen net-new cards", () => {
+describe("memoryV3Injector: frozen net-new sections", () => {
+  const alpha = section("page-a", "Alpha", "alpha section text");
+  const beta = section("page-a", "Beta", "beta section text");
+
   test("global memory disabled → both injectors produce null without orchestration", async () => {
     liveEnabled = true;
     memoryEnabled = false;
     turnResults.set(0, result(["page-a"]));
 
-    expect(await produceCardsWithoutCommit("conv-1", 0)).toBeNull();
-    expect(await produceSpotlight("conv-1", 0)).toBeNull();
+    expect(await produceSectionsWithoutCommit("conv-1", 0)).toBeNull();
+    expect(await producePointer("conv-1", 0)).toBeNull();
     expect(observeTurnSpy).not.toHaveBeenCalled();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(activeIds("conv-1")).toEqual(new Set());
   });
 
   test("voice front door skips current-turn orchestration in both injectors", async () => {
@@ -377,9 +457,9 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     };
 
     expect(await memoryV3Injector.produce(ctx)).toBeNull();
-    expect(await memoryV3SpotlightInjector.produce(ctx)).toBeNull();
+    expect(await memoryV3PointerInjector.produce(ctx)).toBeNull();
     expect(observeTurnSpy).not.toHaveBeenCalled();
-    expect(getActiveSlugs("conv-voice")).toEqual(new Set());
+    expect(activeIds("conv-voice")).toEqual(new Set());
   });
 
   test("live retrieval failure queues a degraded-memory notice", async () => {
@@ -389,7 +469,7 @@ describe("memoryV3Injector — frozen net-new cards", () => {
       new MemoryV3RetrievalUnavailableError("selector unavailable"),
     );
 
-    await expect(produceCardsWithoutCommit("conv-1", 0)).resolves.toBeNull();
+    await expect(produceSectionsWithoutCommit("conv-1", 0)).resolves.toBeNull();
 
     expect(drainConversationNotices("conv-1")).toEqual([
       {
@@ -404,115 +484,384 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     ]);
   });
 
-  test("turn 1 renders cards; turn 2 re-selecting the same pages renders ZERO new cards", async () => {
+  test("turn 1 renders matched sections and leads; turn 2 re-selecting the same renders ZERO new sections", async () => {
     liveEnabled = true;
-    turnResults.set(0, result(["page-a", "page-b"]));
-    turnResults.set(1, result(["page-a", "page-b"]));
+    turnResults.set(0, result(["page-a", "page-b"], [["page-a", alpha]]));
+    turnResults.set(1, result(["page-a", "page-b"], [["page-a", alpha]]));
 
-    const t1 = await produceCards("conv-1", 0);
+    const t1 = await produceSections("conv-1", 0);
     expect(t1).not.toBeNull();
     expect(t1!.placement).toBe("after-memory-prefix");
     expect(t1!.text.startsWith("<memory>\n")).toBe(true);
-    expect(t1!.text).toContain(V3_CARDS_INJECTION_HEADER);
-    expect(t1!.text).toContain("# memory/concepts/page-a.md");
-    expect(t1!.text).toContain("# memory/concepts/page-b.md");
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a", "page-b"]));
-    // Recorded bytes match the rendered card sizes (non-zero).
-    for (const entry of getInjected("conv-1").values()) {
+    expect(t1!.text).toContain(V3_INJECTION_HEADER);
+    // The matched section renders under its `§ key` header without the
+    // synthetic head line; the unmatched page renders its lead.
+    expect(t1!.text).toContain(
+      "# memory/concepts/page-a.md § Alpha\nalpha section text",
+    );
+    expect(t1!.text).not.toContain("page-a - Alpha");
+    expect(t1!.text).toContain(leadRender("page-b"));
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha", "page-b§"]));
+    // Recorded bytes match the rendered sizes (non-zero).
+    for (const entry of getInjected("conv-1")) {
       expect(entry.bytes).toBeGreaterThan(0);
       expect(entry.prunedAt).toBeNull();
     }
 
     // All-repeat turn: the block is still PRODUCED (its presence keys v2
     // suppression) but carries no text — no new persistent bytes.
-    const t2 = await produceCards("conv-1", 1);
+    const t2 = await produceSections("conv-1", 1);
     expect(t2).not.toBeNull();
     expect(t2!.text).toBe("");
   });
 
-  test("a partially-new turn renders only the net-new cards", async () => {
+  test("a partially-new turn renders only the net-new sections", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a"]));
     turnResults.set(1, result(["page-a", "page-c"]));
 
-    await produceCards("conv-1", 0);
-    const t2 = await produceCards("conv-1", 1);
+    await produceSections("conv-1", 0);
+    const t2 = await produceSections("conv-1", 1);
     expect(t2!.text).toContain("# memory/concepts/page-c.md");
     expect(t2!.text).not.toContain("# memory/concepts/page-a.md");
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a", "page-c"]));
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§", "page-c§"]));
   });
 
-  test("fork-seeded dedup record suppresses re-rendering inherited slugs", async () => {
+  test("the same page re-selected with a DIFFERENT matched section injects that section net-new", async () => {
     liveEnabled = true;
-    // PR 4's fork hooks seed the child's record from inherited metadata
-    // blocks; from the injector's perspective that is just pre-existing rows.
-    recordInjected("conv-fork", [{ slug: "page-a", bytes: 0 }]);
-    turnResults.set(0, result(["page-a", "page-b"]));
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    turnResults.set(1, result(["page-a"], [["page-a", beta]]));
+    turnResults.set(2, result(["page-a"], [["page-a", alpha]]));
 
-    const block = await produceCards("conv-fork", 0);
+    await produceSections("conv-1", 0);
+    const t2 = await produceSections("conv-1", 1);
+    expect(t2!.text).toContain("# memory/concepts/page-a.md § Beta");
+    expect(t2!.text).not.toContain("§ Alpha");
+    expect(activeIds("conv-1")).toEqual(
+      new Set(["page-a§Alpha", "page-a§Beta"]),
+    );
+
+    // Re-selecting Alpha injects nothing: both sections are resident.
+    const t3 = await produceSections("conv-1", 2);
+    expect(t3!.text).toBe("");
+  });
+
+  test("two sections of one page selected on one turn both inject, and either is resident afterwards", async () => {
+    liveEnabled = true;
+    turnResults.set(
+      0,
+      result(
+        ["page-a"],
+        [
+          ["page-a", alpha],
+          ["page-a", beta],
+        ],
+      ),
+    );
+    turnResults.set(1, result(["page-a"], [["page-a", beta]]));
+
+    const t1 = await produceSections("conv-1", 0);
+    expect(t1!.text).toContain(
+      "# memory/concepts/page-a.md § Alpha\nalpha section text",
+    );
+    expect(t1!.text).toContain(
+      "# memory/concepts/page-a.md § Beta\nbeta section text",
+    );
+    // Both sections were selected, so the lead is not the fallback unit.
+    expect(t1!.text).not.toContain(leadRender("page-a"));
+    expect(activeIds("conv-1")).toEqual(
+      new Set(["page-a§Alpha", "page-a§Beta"]),
+    );
+
+    // Re-selecting one of them injects nothing and points at it.
+    const t2 = await produceSections("conv-1", 1);
+    expect(t2!.text).toBe("");
+    const pointer = await producePointer("conv-1", 1);
+    expect(pointer!.text).toContain("memory/concepts/page-a.md § Beta");
+    expect(pointer!.text).not.toContain("§ Alpha");
+  });
+
+  test("every selected section carries the turn's time: resident ones (pointer entries and capability units) are stamped at classification, net-new ones with their record at commit", async () => {
+    liveEnabled = true;
+    const skill = "skills/test-skill";
+    turnResults.set(
+      0,
+      result(
+        ["page-a", skill],
+        [
+          ["page-a", alpha],
+          ["page-a", beta],
+        ],
+      ),
+    );
+    // Turn 1 re-selects Beta (a pointer entry) and the skill (resident, with
+    // no pointer line) beside net-new page-c; Alpha is not selected.
+    turnResults.set(1, result(["page-a", "page-c", skill], [["page-a", beta]]));
+    const stamps = () =>
+      new Map(
+        getInjected("conv-1").map((row) => [
+          `${row.slug}§${row.key}`,
+          row.lastSelectedAt,
+        ]),
+      );
+
+    try {
+      setSystemTime(new Date(1_000_000));
+      await produceSections("conv-1", 0);
+      expect(stamps()).toEqual(
+        new Map([
+          ["page-a§Alpha", 1_000_000],
+          ["page-a§Beta", 1_000_000],
+          [`${skill}§`, 1_000_000],
+        ]),
+      );
+
+      // The resident stamps land in produce() itself, ahead of the commit,
+      // while page-c is not yet recorded.
+      setSystemTime(new Date(2_000_000));
+      const block = await produceSectionsWithoutCommit("conv-1", 1);
+      expect(stamps()).toEqual(
+        new Map([
+          ["page-a§Alpha", 1_000_000],
+          ["page-a§Beta", 2_000_000],
+          [`${skill}§`, 2_000_000],
+        ]),
+      );
+      commitSectionsBlock(block);
+      expect(stamps()).toEqual(
+        new Map([
+          ["page-a§Alpha", 1_000_000],
+          ["page-a§Beta", 2_000_000],
+          ["page-c§", 2_000_000],
+          [`${skill}§`, 2_000_000],
+        ]),
+      );
+      // A touched section keeps its record's injected_at.
+      expect(
+        getInjected("conv-1").find((row) => row.key === "Beta")!.injectedAt,
+      ).toBe(1_000_000);
+      const pointer = await producePointer("conv-1", 1);
+      expect(pointer!.text).toContain("memory/concepts/page-a.md § Beta");
+      expect(pointer!.text).not.toContain("test-skill");
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("a queued valve that runs between classification and the commit ranks a re-selected resident section by this turn's stamp and evicts the stale ones instead", async () => {
+    liveEnabled = true;
+    // Each stubbed lead is 52 bytes. Turn 0 injects three with the valve
+    // unconfigured, then the cap is set below their 156 resident bytes so the
+    // next valve run must free two of them.
+    turnResults.set(0, result(["page-a", "page-b", "page-d"]));
+    turnResults.set(1, result(["page-a", "page-c"]));
+    const stamp = (slug: Slug) =>
+      getInjected("conv-1").find((row) => row.slug === slug)?.lastSelectedAt;
+
+    try {
+      setSystemTime(new Date(1_000_000));
+      await produceSections("conv-1", 0);
+      await flushPruneValveForTests();
+      pruneConfig = { maxResidentBytes: 110, targetResidentBytes: 100 };
+
+      // Turn 1 re-selects page-a beside net-new page-c: page-a is stamped in
+      // produce() itself, ahead of the commit.
+      setSystemTime(new Date(2_000_000));
+      const block = await produceSectionsWithoutCommit("conv-1", 1);
+      expect(stamp("page-a")).toBe(2_000_000);
+      expect(stamp("page-b")).toBe(1_000_000);
+      expect(stamp("page-d")).toBe(1_000_000);
+
+      // The pending valve fires before the commit. On turn 0's stamps alone
+      // page-a would be the first to go (the slug tiebreak); this turn's
+      // stamp keeps it, and the two stale leads go instead.
+      const plan = await runPruneValve("conv-1", { liveMessages: () => null });
+      expect(plan?.sections).toEqual([
+        { slug: "page-b", key: "" },
+        { slug: "page-d", key: "" },
+      ]);
+      expect(prunedIds("conv-1")).toEqual(new Set(["page-b§", "page-d§"]));
+
+      commitSectionsBlock(block);
+      await flushPruneValveForTests();
+      expect(activeIds("conv-1")).toEqual(new Set(["page-a§", "page-c§"]));
+      const pointer = await producePointer("conv-1", 1);
+      expect(pointer!.text).toContain("memory/concepts/page-a.md");
+      expect(pointer!.text).not.toContain("page-b");
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("a resident section selected beside net-new units that all render empty still takes this turn's stamp and is still pointed at", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-a", "missing-page"]));
+    const stamp = () =>
+      getInjected("conv-1").find((row) => row.slug === "page-a")!
+        .lastSelectedAt;
+
+    try {
+      setSystemTime(new Date(1_000_000));
+      await produceSections("conv-1", 0);
+      expect(stamp()).toBe(1_000_000);
+
+      // Every net-new unit renders empty: no block and no commit, but the
+      // resident page-a was selected this turn and ages from it.
+      setSystemTime(new Date(2_000_000));
+      expect(await produceSections("conv-1", 1)).toBeNull();
+      expect(stamp()).toBe(2_000_000);
+      expect(activeIds("conv-1")).toEqual(new Set(["page-a§"]));
+      const pointer = await producePointer("conv-1", 1);
+      expect(pointer!.text).toContain("memory/concepts/page-a.md");
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("a capability page selected on two sections injects its content once", async () => {
+    liveEnabled = true;
+    // Capability content injects whole under the empty key, so two selected
+    // sections of a skill page are one unit.
+    const skill = "skills/test-skill";
+    turnResults.set(
+      0,
+      result(
+        [skill],
+        [
+          [skill, section(skill, "Usage", "usage text")],
+          [skill, section(skill, "Notes", "notes text")],
+        ],
+      ),
+    );
+
+    const block = await produceSections("conv-1", 0);
+    expect(block!.text.split("# Skill: test-skill")).toHaveLength(2);
+    expect(activeIds("conv-1")).toEqual(new Set([`${skill}§`]));
+  });
+
+  test("a page selected without a matched section after a section injection injects its lead once", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    turnResults.set(1, result(["page-a"]));
+    turnResults.set(2, result(["page-a"]));
+
+    await produceSections("conv-1", 0);
+    const t2 = await produceSections("conv-1", 1);
+    expect(t2!.text).toContain(leadRender("page-a"));
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha", "page-a§"]));
+    const t3 = await produceSections("conv-1", 2);
+    expect(t3!.text).toBe("");
+  });
+
+  test("fork-seeded dedup record suppresses re-rendering inherited sections", async () => {
+    liveEnabled = true;
+    // The fork hooks seed the child's record from inherited block headers;
+    // from the injector's perspective that is just pre-existing rows.
+    recordInjected("conv-fork", [{ slug: "page-a", key: "Alpha", bytes: 0 }]);
+    turnResults.set(0, result(["page-a", "page-b"], [["page-a", alpha]]));
+
+    const block = await produceSections("conv-fork", 0);
     expect(block!.text).toContain("# memory/concepts/page-b.md");
     expect(block!.text).not.toContain("# memory/concepts/page-a.md");
   });
 
-  test("a pruned slug that is re-selected re-injects as a fresh card", async () => {
+  test("fork-seeded capability rows suppress re-injecting inherited skill and CLI-command chunks", async () => {
     liveEnabled = true;
-    turnResults.set(0, result(["page-a"]));
-    turnResults.set(1, result(["page-a"]));
+    // The fork hooks seed the child's record from the inherited block, which
+    // carries capability chunks beside the sections.
+    seedEverInjectedFromBlocks(
+      "conv-parent",
+      "conv-fork",
+      [
+        {
+          inner: [
+            V3_INJECTION_HEADER,
+            "# Skills\nhint",
+            "# Skill: test-skill\nskill body",
+            "# CLI command: export\nExport a conversation.",
+            leadRender("page-a"),
+          ].join("\n\n"),
+          format: "current",
+        },
+      ],
+      1_000,
+    );
+    expect(activeIds("conv-fork")).toEqual(
+      new Set(["skills/test-skill§", "cli-commands/export§", "page-a§"]),
+    );
+    turnResults.set(
+      0,
+      result(["skills/test-skill", "cli-commands/export", "page-a", "page-b"]),
+    );
 
-    await produceCards("conv-1", 0);
-    markPruned("conv-1", ["page-a"], Date.now());
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
-
-    const t2 = await produceCards("conv-1", 1);
-    expect(t2!.text).toContain("# memory/concepts/page-a.md");
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+    const block = await produceSections("conv-fork", 0);
+    expect(block!.text).toContain("# memory/concepts/page-b.md");
+    expect(block!.text).not.toContain("# Skill:");
+    expect(block!.text).not.toContain("# CLI command:");
+    expect(block!.text).not.toContain("# memory/concepts/page-a.md");
   });
 
-  test("end-of-turn prune valve: fires deferred after live injection, exempting core/hot lanes", async () => {
+  test("a pruned section that is re-selected re-injects as a fresh entry", async () => {
     liveEnabled = true;
-    // Each stubbed card is ~47 bytes; cap so the second turn tips over and
-    // one prune reaches the target.
-    pruneConfig = { maxResidentBytes: 60, targetResidentBytes: 50 };
-    const t0 = result(["page-a"]);
-    t0.lanes.core = ["page-a"]; // page-a is a core-lane member this turn…
-    turnResults.set(0, t0);
-    turnResults.set(1, result(["page-b"])); // …but not on turn 1's lanes.
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    turnResults.set(1, result(["page-a"], [["page-a", alpha]]));
 
-    const b0 = await produceCards("conv-1", 0);
-    persistCardBlockMetadata("conv-1", b0!.text);
+    await produceSections("conv-1", 0);
+    markPruned("conv-1", [{ slug: "page-a", key: "Alpha" }], Date.now());
+    expect(activeIds("conv-1")).toEqual(new Set());
+
+    const t2 = await produceSections("conv-1", 1);
+    expect(t2!.text).toContain("# memory/concepts/page-a.md § Alpha");
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha"]));
+  });
+
+  test("end-of-turn prune valve: fires deferred after live injection, with no lane exemptions", async () => {
+    liveEnabled = true;
+    // Each stubbed lead is 52 bytes; cap so the second turn tips over and
+    // one prune reaches the target.
+    pruneConfig = { maxResidentBytes: 80, targetResidentBytes: 60 };
+    const t0 = result(["page-a"]);
+    t0.lanes.core = ["page-a"]; // page-a is a core-lane member…
+    turnResults.set(0, t0);
+    turnResults.set(1, result(["page-b"]));
+
+    const b0 = await produceSections("conv-1", 0);
+    persistBlockMetadata("conv-1", b0!.text);
     await flushPruneValveForTests();
     // Turn 0 is within the cap — nothing pruned.
-    expect(getPrunedSlugs("conv-1").size).toBe(0);
+    expect(prunedIds("conv-1").size).toBe(0);
 
-    const b1 = await produceCards("conv-1", 1);
-    persistCardBlockMetadata("conv-1", b1!.text);
+    const b1 = await produceSections("conv-1", 1);
+    persistBlockMetadata("conv-1", b1!.text);
     // The valve is DEFERRED: nothing pruned synchronously at produce time.
-    expect(getPrunedSlugs("conv-1").size).toBe(0);
+    expect(prunedIds("conv-1").size).toBe(0);
     await flushPruneValveForTests();
-    // Over the cap, page-a (oldest, and no longer lane-exempt) is pruned.
-    expect(getPrunedSlugs("conv-1")).toEqual(new Set(["page-a"]));
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-b"]));
+    // …and over the cap its lead is pruned like any other section: the
+    // oldest goes first, core lane or not.
+    expect(prunedIds("conv-1")).toEqual(new Set(["page-a§"]));
+    expect(activeIds("conv-1")).toEqual(new Set(["page-b§"]));
   });
 
-  test("slugs whose card renders empty are neither attached nor recorded", async () => {
+  test("pages whose entry renders empty are neither attached nor recorded", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["missing-page", "page-a"]));
 
-    const block = await produceCards("conv-1", 0);
+    const block = await produceSections("conv-1", 0);
     expect(block!.text).toContain("# memory/concepts/page-a.md");
     expect(block!.text).not.toContain("missing-page");
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§"]));
   });
 
-  test("EVERY net-new card rendering empty → null (v2 fallback), not an empty block", async () => {
+  test("EVERY net-new entry rendering empty → null (v2 fallback), not an empty block", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["missing-page"]));
 
     // An empty-text block would suppress v2 with nothing to show — a
     // memory-less turn. Distinct from the all-repeat case (empty netNew),
     // where the empty block correctly keeps v2 suppressed.
-    expect(await produceCards("conv-1", 0)).toBeNull();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(await produceSections("conv-1", 0)).toBeNull();
+    expect(activeIds("conv-1")).toEqual(new Set());
   });
 
   test("produce() defers the store write to the commit callback — a never-attached block records nothing", async () => {
@@ -520,15 +869,15 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     turnResults.set(0, result(["page-a"]));
 
     // A turn whose tail is not a user message: assembly never invokes the
-    // commit, so the store must not claim the cards (which would suppress
+    // commit, so the store must not claim the sections (which would suppress
     // them until compaction despite never reaching history).
-    const block = await produceCardsWithoutCommit("conv-1", 0);
+    const block = await produceSectionsWithoutCommit("conv-1", 0);
     expect(block).not.toBeNull();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(activeIds("conv-1")).toEqual(new Set());
 
     // Assembly's user-tail commit point records them.
-    commitCardsBlock(block);
-    expect(getActiveSlugs("conv-1")).toEqual(new Set(["page-a"]));
+    commitSectionsBlock(block);
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§"]));
   });
 
   test("untrusted remote actor → both injectors produce null, no orchestration, nothing recorded", async () => {
@@ -536,28 +885,33 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     turnResults.set(0, result(["page-a"]));
     const untrusted = { sourceChannel: "telegram", trustClass: "unknown" };
 
-    expect(await produceCardsWithoutCommit("conv-1", 0, untrusted)).toBeNull();
-    expect(await produceSpotlight("conv-1", 0, untrusted)).toBeNull();
+    expect(
+      await produceSectionsWithoutCommit("conv-1", 0, untrusted),
+    ).toBeNull();
+    expect(await producePointer("conv-1", 0, untrusted)).toBeNull();
     // The gate runs before orchestration: nothing selected, nothing recorded.
     expect(observeTurnSpy).not.toHaveBeenCalled();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(activeIds("conv-1")).toEqual(new Set());
   });
 
-  test("capability cards (skills / CLI commands) record ZERO bytes", async () => {
+  test("capability entries (skills / CLI commands) record ZERO bytes under the empty key", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["skills/test-skill", "page-a"]));
 
-    const block = await produceCards("conv-1", 0);
-    // Both cards attach…
-    expect(block!.text).toContain("skills/test-skill");
+    const block = await produceSections("conv-1", 0);
+    // Both entries attach…
+    expect(block!.text).toContain("# Skill: test-skill");
     expect(block!.text).toContain("# memory/concepts/page-a.md");
-    // …but the capability card's bytes are recorded as 0: its `# Skill:`
-    // header is invisible to the prune valve's `# memory/concepts/<slug>.md`
-    // section grammar, so non-zero bytes could never be freed and would
-    // loop-fire the valve.
+    // …but the capability entry's bytes are recorded as 0: its `# Skill:`
+    // header is invisible to the prune valve's section grammar, so non-zero
+    // bytes could never be freed and would loop-fire the valve.
     const injected = getInjected("conv-1");
-    expect(injected.get("skills/test-skill")!.bytes).toBe(0);
-    expect(injected.get("page-a")!.bytes).toBeGreaterThan(0);
+    expect(
+      injected.find((row) => row.slug === "skills/test-skill"),
+    ).toMatchObject({ key: "", bytes: 0 });
+    expect(
+      injected.find((row) => row.slug === "page-a")!.bytes,
+    ).toBeGreaterThan(0);
   });
 
   test("per-conversation memo LRU: a key refresh evicts nothing; new-key eviction prefers stale entries", async () => {
@@ -566,188 +920,407 @@ describe("memoryV3Injector — frozen net-new cards", () => {
     turnResults.set(1, result(["page-a"]));
     // Fill the memo to its 256-entry cap.
     for (let i = 0; i < 256; i++) {
-      await produceCards(`conv-${i}`, 0);
+      await produceSections(`conv-${i}`, 0);
     }
     // A new turn for a tracked conversation is a key REFRESH — nothing may be
-    // evicted for it (the pre-fix code evicted the oldest entry here).
-    await produceCards("conv-5", 1);
+    // evicted for it.
+    await produceSections("conv-5", 1);
     observeTurnSpy.mockClear();
-    await produceCards("conv-0", 0);
+    await produceSections("conv-0", 0);
     expect(observeTurnSpy).toHaveBeenCalledTimes(0); // still memoized
     // A genuinely NEW key at the cap evicts the least-recently-set entry
     // (conv-0); the refreshed conv-5 survives.
-    await produceCards("conv-new", 0);
+    await produceSections("conv-new", 0);
     observeTurnSpy.mockClear();
-    await produceCards("conv-5", 1);
+    await produceSections("conv-5", 1);
     expect(observeTurnSpy).toHaveBeenCalledTimes(0); // refreshed → survived
-    await produceCards("conv-0", 0);
+    await produceSections("conv-0", 0);
     expect(observeTurnSpy).toHaveBeenCalledTimes(1); // evicted → re-observed
   });
 
-  test("empty selection → null (fallback to v2), nothing recorded", async () => {
+  test("empty selection → null (fallback to v2), nothing recorded, no pointer", async () => {
     liveEnabled = true;
     turnResults.set(0, result([]));
-    expect(await produceCards("conv-1", 0)).toBeNull();
-    expect(getActiveSlugs("conv-1")).toEqual(new Set());
+    expect(await produceSections("conv-1", 0)).toBeNull();
+    expect(await producePointer("conv-1", 0)).toBeNull();
+    expect(activeIds("conv-1")).toEqual(new Set());
   });
 
-  test("the persistent card block never contains the spotlight wrapper", async () => {
+  test("the persistent block never contains the pointer wrapper", async () => {
     liveEnabled = true;
-    turnResults.set(
-      0,
-      result(
-        ["page-a"],
-        [["page-a", section("page-a", "Heading", "section text")]],
-      ),
-    );
-    const block = await produceCards("conv-1", 0);
-    expect(block!.text).not.toContain("<memory_spotlight>");
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    const block = await produceSections("conv-1", 0);
+    expect(block!.text).not.toContain("<memory_pointer>");
   });
 
   test("both injectors share ONE orchestration per turn (memoized)", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a"]));
-    await produceCards("conv-1", 0);
-    await produceSpotlight("conv-1", 0);
+    await produceSections("conv-1", 0);
+    await producePointer("conv-1", 0);
     expect(observeTurnSpy).toHaveBeenCalledTimes(1);
   });
 });
 
-// ─── per-turn spotlight ─────────────────────────────────────────────────────
+// ─── per-turn pointer ───────────────────────────────────────────────────────
 
-describe("memoryV3SpotlightInjector — ephemeral section spotlight", () => {
-  const sectionA = section("page-a", "Alpha", "alpha section text");
-  const sectionB = section("page-b", "Beta", "beta section text");
-  const sectionC = section("page-c", "Gamma", "gamma section text");
+describe("memoryV3PointerInjector: ephemeral resident-section pointer", () => {
+  const alpha = section("page-a", "Alpha", "alpha section text");
+  const beta = section("page-a", "Beta", "beta section text");
+  const gamma = section("page-c", "Gamma", "gamma section text");
 
-  test("renders selected finder hits' matched sections as an after-memory-prefix spotlight", async () => {
+  test("lists this turn's re-selected resident sections as paths, net-new ones excluded, no bodies", async () => {
     liveEnabled = true;
-    turnResults.set(0, result(["page-a", "page-b"], [["page-a", sectionA]]));
-
-    const block = await produceSpotlight("conv-1", 0);
-    expect(block).not.toBeNull();
-    expect(block!.placement).toBe("after-memory-prefix");
-    expect(block!.text.startsWith("<memory_spotlight>\n")).toBe(true);
-    expect(block!.text.endsWith("\n</memory_spotlight>")).toBe(true);
-    expect(block!.text).toContain(
-      "## memory/concepts/page-a.md § Alpha\nalpha section text",
-    );
-  });
-
-  test("unselected finder hits do not spotlight; top-n bound applies", async () => {
-    liveEnabled = true;
-    spotlightConfig = { n: 1, windowTurns: 0 };
-    turnResults.set(
-      0,
-      result(
-        ["page-a", "page-b"],
-        [
-          ["page-c", sectionC], // finder hit, NOT selected
-          ["page-a", sectionA],
-          ["page-b", sectionB], // selected but over the n=1 cut
-        ],
-      ),
-    );
-    const block = await produceSpotlight("conv-1", 0);
-    expect(block!.text).toContain("page-a.md § Alpha");
-    expect(block!.text).not.toContain("page-b.md");
-    expect(block!.text).not.toContain("page-c.md");
-  });
-
-  test("capability slugs never spotlight — their sections are full-help index slices", async () => {
-    liveEnabled = true;
-    const cliSection = section(
-      "cli-commands/schedules",
-      "CLI command: schedules",
-      "Full help:\n  --cron <expr>  the schedule to run on",
-    );
-    turnResults.set(
-      0,
-      result(
-        ["cli-commands/schedules", "page-a"],
-        [
-          ["cli-commands/schedules", cliSection],
-          ["page-a", sectionA],
-        ],
-      ),
-    );
-    const block = await produceSpotlight("conv-1", 0);
-    expect(block!.text).toContain("page-a.md § Alpha");
-    expect(block!.text).not.toContain("cli-commands/schedules");
-    expect(block!.text).not.toContain("Full help:");
-  });
-
-  test("carries the previous windowTurns turns' entries, ages older ones out, never accumulates", async () => {
-    liveEnabled = true;
-    spotlightConfig = { n: 6, windowTurns: 1 };
-    turnResults.set(0, result(["page-a"], [["page-a", sectionA]]));
-    turnResults.set(1, result(["page-b"], [["page-b", sectionB]]));
-    turnResults.set(2, result(["page-c"], [["page-c", sectionC]]));
-
-    const t1 = await produceSpotlight("conv-1", 0);
-    expect(t1!.text).toContain("Alpha");
-
-    // Turn 1: current (Beta) + previous turn (Alpha).
-    const t2 = await produceSpotlight("conv-1", 1);
-    expect(t2!.text).toContain("Beta");
-    expect(t2!.text).toContain("Alpha");
-
-    // Turn 2: current (Gamma) + turn 1 (Beta); turn 0 (Alpha) aged out.
-    const t3 = await produceSpotlight("conv-1", 2);
-    expect(t3!.text).toContain("Gamma");
-    expect(t3!.text).toContain("Beta");
-    expect(t3!.text).not.toContain("Alpha");
-  });
-
-  test("re-producing the SAME turn replaces its window entry (no duplication)", async () => {
-    liveEnabled = true;
-    spotlightConfig = { n: 6, windowTurns: 2 };
-    turnResults.set(0, result(["page-a"], [["page-a", sectionA]]));
-
-    await produceSpotlight("conv-1", 0);
-    const again = await produceSpotlight("conv-1", 0);
-    const occurrences = again!.text.split("page-a.md § Alpha").length - 1;
-    expect(occurrences).toBe(1);
-  });
-
-  test("window is bounded by n × (windowTurns + 1) entries", async () => {
-    liveEnabled = true;
-    spotlightConfig = { n: 2, windowTurns: 1 };
-    const sections = (turn: number): Array<[Slug, Section]> =>
-      ["w", "x", "y", "z"].map((s) => {
-        const slug = `page-${s}${turn}`;
-        return [slug, section(slug, `T${turn}${s}`, "text")] as [Slug, Section];
-      });
-    turnResults.set(
-      0,
-      result(
-        sections(0).map(([s]) => s),
-        sections(0),
-      ),
-    );
+    turnResults.set(0, result(["page-a", "page-b"], [["page-a", alpha]]));
     turnResults.set(
       1,
       result(
-        sections(1).map(([s]) => s),
-        sections(1),
+        ["page-a", "page-b", "page-c"],
+        [
+          ["page-a", alpha],
+          ["page-c", gamma],
+        ],
       ),
     );
 
-    await produceSpotlight("conv-1", 0);
-    const block = await produceSpotlight("conv-1", 1);
-    const entryCount = (block!.text.match(/^## memory\/concepts\//gm) ?? [])
-      .length;
-    expect(entryCount).toBeLessThanOrEqual(2 * (1 + 1));
+    await produceSections("conv-1", 0);
+    // Turn 0: nothing was resident yet → no pointer.
+    expect(await producePointer("conv-1", 0)).toBeNull();
+
+    const sections = await produceSections("conv-1", 1);
+    expect(sections!.text).toContain("# memory/concepts/page-c.md § Gamma");
+    expect(sections!.text).not.toContain("page-a.md");
+
+    const pointer = await producePointer("conv-1", 1);
+    expect(pointer).not.toBeNull();
+    expect(pointer!.placement).toBe("after-memory-prefix");
+    expect(pointer!.text.startsWith("<memory_pointer>\n")).toBe(true);
+    expect(pointer!.text.endsWith("\n</memory_pointer>")).toBe(true);
+    expect(pointer!.text).toContain("memory/concepts/page-a.md § Alpha");
+    expect(pointer!.text).toContain("\nmemory/concepts/page-b.md\n");
+    expect(pointer!.text).not.toContain("page-c");
+    expect(pointer!.text).not.toContain("alpha section text");
   });
 
-  test("no matched sections in the window → no block", async () => {
+  test("the same page with a different matched section is net-new, not pointed at", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    turnResults.set(1, result(["page-a"], [["page-a", beta]]));
+
+    await produceSections("conv-1", 0);
+    const sections = await produceSections("conv-1", 1);
+    expect(sections!.text).toContain("§ Beta");
+    expect(await producePointer("conv-1", 1)).toBeNull();
+  });
+
+  test("capability slugs are never pointed at", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["skills/test-skill", "page-a"]));
+    turnResults.set(1, result(["skills/test-skill", "page-a"]));
+
+    await produceSections("conv-1", 0);
+    await produceSections("conv-1", 1);
+    const pointer = await producePointer("conv-1", 1);
+    expect(pointer!.text).toContain("memory/concepts/page-a.md");
+    expect(pointer!.text).not.toContain("test-skill");
+  });
+
+  test("re-entry within the same turn re-emits the first produce's sections and pointer byte for byte, carries no commit, and leaves the store unchanged", async () => {
     liveEnabled = true;
     turnResults.set(0, result(["page-a"]));
-    expect(await produceSpotlight("conv-1", 0)).toBeNull();
+    turnResults.set(1, result(["page-a", "page-c"], [["page-c", gamma]]));
+
+    try {
+      setSystemTime(new Date(1_000_000));
+      await produceSections("conv-1", 0);
+      const first = await produceSections("conv-1", 1);
+      const firstPointer = await producePointer("conv-1", 1);
+      expect(first!.text).toContain("§ Gamma");
+      expect(firstPointer!.text).toContain("memory/concepts/page-a.md");
+      expect(firstPointer!.text).not.toContain("page-c");
+      const storeBefore = getInjected("conv-1");
+
+      // Re-entry (the re-injection strip cleared the tail's block and
+      // pointer): the same bytes come back. The store counts page-c's section
+      // active, so partitioning against it alone would have read it as
+      // resident. The clock is stepped so a stray selection stamp on page-a
+      // could not tie with the first produce's.
+      setSystemTime(new Date(2_000_000));
+      const again = await produceSectionsWithoutCommit("conv-1", 1);
+      expect(again!.text).toBe(first!.text);
+      expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+      expect((await producePointer("conv-1", 1))!.text).toBe(
+        firstPointer!.text,
+      );
+      expect(getInjected("conv-1")).toEqual(storeBefore);
+    } finally {
+      setSystemTime();
+    }
   });
 
-  test("live off → null", async () => {
-    turnResults.set(0, result(["page-a"], [["page-a", sectionA]]));
-    expect(await produceSpotlight("conv-1", 0)).toBeNull();
+  test("a resident section the valve tombstones between classification and the pointer render is left out of the pointer block", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a", "page-b"]));
+    turnResults.set(1, result(["page-a", "page-b", "page-c"]));
+
+    await produceSections("conv-1", 0);
+    // Turn 1 classifies page-a and page-b as resident (its pointer entries)
+    // beside net-new page-c, and a valve fires before the pointer renders,
+    // taking page-a.
+    const block = await produceSections("conv-1", 1);
+    expect(block!.text).toContain("# memory/concepts/page-c.md");
+    markPruned("conv-1", [{ slug: "page-a", key: "" }], Date.now());
+
+    const pointer = await producePointer("conv-1", 1);
+    expect(pointer!.text).toContain("\nmemory/concepts/page-b.md\n");
+    expect(pointer!.text).not.toContain("page-a");
+
+    // With every remembered entry tombstoned, no pointer is emitted at all.
+    markPruned("conv-1", [{ slug: "page-b", key: "" }], Date.now());
+    expect(await producePointer("conv-1", 1)).toBeNull();
+  });
+
+  test("a re-entry after a compaction's store reset re-emits the first produce's entries, renders the formerly resident pairs anew, and points at nothing", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-a", "page-c"], [["page-c", gamma]]));
+
+    await produceSections("conv-1", 0);
+    const first = await produceSections("conv-1", 1);
+    expect(first!.text).not.toContain("memory/concepts/page-a.md");
+    clearConversation("conv-1");
+
+    const again = await produceSectionsWithoutCommit("conv-1", 1);
+    expect(again!.text).toContain("§ Gamma");
+    expect(again!.text).toContain("memory/concepts/page-a.md");
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(await producePointer("conv-1", 1)).toBeNull();
+    expect(activeIds("conv-1").size).toBe(0);
+  });
+
+  test("a turn in flight keeps its memo under LRU pressure, so its re-entry still re-emits the first produce's bytes; an idle conversation's memo is evicted", async () => {
+    liveEnabled = true;
+    resetMemoryV3InjectorStateForTests(2);
+    turnResults.set(0, result(["page-a", "page-c"], [["page-c", gamma]]));
+    processingConversations.add("conv-live");
+    const first = await produceSections("conv-live", 0);
+    expect(first!.text).toContain("§ Gamma");
+
+    // More idle conversations than the cap observe their own turns.
+    for (const idle of ["conv-idle-1", "conv-idle-2", "conv-idle-3"]) {
+      await produceSections(idle, 0);
+    }
+
+    // The live turn's re-entry: memoized, byte-identical, no commit.
+    const again = await produceSectionsWithoutCommit("conv-live", 0);
+    expect(again!.text).toBe(first!.text);
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(
+      observeTurnSpy.mock.calls.filter(([id]) => id === "conv-live"),
+    ).toHaveLength(1);
+
+    // The first idle conversation's memo left: its next produce observes
+    // the turn again and is a first produce (it carries a commit).
+    const idleAgain = await produceSectionsWithoutCommit("conv-idle-1", 0);
+    expect(idleAgain!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeDefined();
+    expect(
+      observeTurnSpy.mock.calls.filter(([id]) => id === "conv-idle-1"),
+    ).toHaveLength(2);
+  });
+
+  test("after a burst of turns in flight past the cap, the next insert shrinks the memo back to capacity", async () => {
+    liveEnabled = true;
+    resetMemoryV3InjectorStateForTests(2);
+    turnResults.set(0, result(["page-a"]));
+    const burst = ["conv-b1", "conv-b2", "conv-b3", "conv-b4"];
+    for (const id of burst) {
+      processingConversations.add(id);
+    }
+    for (const id of burst) {
+      await produceSections(id, 0);
+    }
+    // Every entry's turn was in flight, so the map grew past the cap.
+    expect(memoryV3TurnMemoSizeForTests()).toBe(burst.length);
+
+    // The burst finishes; one more conversation's turn evicts idle entries
+    // until the insert fits.
+    processingConversations.clear();
+    await produceSections("conv-after", 0);
+    expect(memoryV3TurnMemoSizeForTests()).toBe(2);
+  });
+
+  test("after a burst of turns in flight past the cap, a tracked conversation's next turn (a refresh, not an insert) shrinks the memo back to capacity too", async () => {
+    liveEnabled = true;
+    resetMemoryV3InjectorStateForTests(2);
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-c"], [["page-c", gamma]]));
+    const burst = ["conv-b1", "conv-b2", "conv-b3", "conv-b4"];
+    for (const id of burst) {
+      processingConversations.add(id);
+    }
+    for (const id of burst) {
+      await produceSections(id, 0);
+    }
+    expect(memoryV3TurnMemoSizeForTests()).toBe(burst.length);
+
+    // The burst finishes and only an already-tracked conversation stays
+    // active: its next turn refreshes its own entry, evicting idle entries
+    // until the map fits, and keeps that entry for its own re-entries.
+    processingConversations.clear();
+    processingConversations.add("conv-b1");
+    const first = await produceSections("conv-b1", 1);
+    expect(first!.text).toContain("§ Gamma");
+    expect(memoryV3TurnMemoSizeForTests()).toBe(2);
+
+    const again = await produceSectionsWithoutCommit("conv-b1", 1);
+    expect(again!.text).toBe(first!.text);
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(
+      observeTurnSpy.mock.calls.filter(([id]) => id === "conv-b1"),
+    ).toHaveLength(2);
+  });
+
+  test("a re-entry never revives a section the valve tombstoned since the first produce", async () => {
+    liveEnabled = true;
+    turnResults.set(
+      0,
+      result(
+        ["page-a", "page-c"],
+        [
+          ["page-a", alpha],
+          ["page-c", gamma],
+        ],
+      ),
+    );
+
+    const first = await produceSections("conv-1", 0);
+    expect(first!.text).toContain("§ Alpha");
+    markPruned("conv-1", [{ slug: "page-a", key: "Alpha" }], Date.now());
+
+    const again = await produceSectionsWithoutCommit("conv-1", 0);
+    expect(again!.text).toContain("§ Gamma");
+    expect(again!.text).not.toContain("§ Alpha");
+    expect(await producePointer("conv-1", 0)).toBeNull();
+    expect(prunedIds("conv-1")).toEqual(new Set(["page-a§Alpha"]));
+  });
+
+  test("live off → null even with resident re-selections", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"]));
+    turnResults.set(1, result(["page-a"]));
+    await produceSections("conv-1", 0);
+    await produceSections("conv-1", 1);
+
+    liveEnabled = false;
+    expect(await producePointer("conv-1", 1)).toBeNull();
+  });
+});
+
+// ─── run-messages replacement ───────────────────────────────────────────────
+
+describe("memoryV3Injector: run-messages replacement (Slack transcript)", () => {
+  const alpha = section("page-a", "Alpha", "alpha section text");
+  const gamma = section("page-c", "Gamma", "gamma section text");
+
+  /** Produce for an assembly that replaces the run messages with a
+   *  transcript rendered from persisted rows, which the chain walker states
+   *  on the turn context once the transcript injector has produced it. */
+  function produceReplaced(conversationId: string, turnIndex: number) {
+    seedMemoryConfig();
+    return memoryV3Injector.produce({
+      requestId: "req-1",
+      conversationId,
+      turnIndex,
+      trust: GUARDIAN_TRUST as never,
+      replacesRunMessages: true,
+    });
+  }
+
+  function producePointerReplaced(conversationId: string, turnIndex: number) {
+    seedMemoryConfig();
+    return memoryV3PointerInjector.produce({
+      requestId: "req-1",
+      conversationId,
+      turnIndex,
+      trust: GUARDIAN_TRUST as never,
+      replacesRunMessages: true,
+    });
+  }
+
+  test("a resident section renders again with its body, nothing is pointed at, the block carries no commit, and the store is unchanged", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    turnResults.set(
+      1,
+      result(
+        ["page-a", "page-c"],
+        [
+          ["page-a", alpha],
+          ["page-c", gamma],
+        ],
+      ),
+    );
+
+    try {
+      // Turn 0 froze Alpha into history and recorded it resident.
+      setSystemTime(new Date(1_000_000));
+      await produceSections("conv-1", 0);
+      expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha"]));
+      const storeBefore = getInjected("conv-1");
+
+      // Turn 1 is assembled onto a transcript that carries no frozen block,
+      // so Alpha's body renders again beside the net-new Gamma. Residency
+      // means nothing there, so Alpha takes no selection stamp either (the
+      // clock is stepped so a stray one could not tie with turn 0's).
+      setSystemTime(new Date(2_000_000));
+      const block = await produceReplaced("conv-1", 1);
+      expect(block!.text).toContain(
+        "# memory/concepts/page-a.md § Alpha\nalpha section text",
+      );
+      expect(block!.text).toContain(
+        "# memory/concepts/page-c.md § Gamma\ngamma section text",
+      );
+      expect(block!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+      expect(await producePointerReplaced("conv-1", 1)).toBeNull();
+      expect(getInjected("conv-1")).toEqual(storeBefore);
+      expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha"]));
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("a re-entry of a replaced turn re-emits the same bytes and still carries no commit", async () => {
+    liveEnabled = true;
+    turnResults.set(
+      0,
+      result(
+        ["page-a", "page-c"],
+        [
+          ["page-a", alpha],
+          ["page-c", gamma],
+        ],
+      ),
+    );
+
+    const first = await produceReplaced("conv-1", 0);
+    expect(first!.text).toContain("§ Alpha");
+    const again = await produceReplaced("conv-1", 0);
+    expect(again!.text).toBe(first!.text);
+    expect(again!.meta?.[MEMORY_V3_COMMIT_META_KEY]).toBeUndefined();
+    expect(observeTurnSpy).toHaveBeenCalledTimes(1);
+    expect(activeIds("conv-1")).toEqual(new Set());
+  });
+
+  test("the next turn assembled without a replacement records its sections as usual", async () => {
+    liveEnabled = true;
+    turnResults.set(0, result(["page-a"], [["page-a", alpha]]));
+    turnResults.set(1, result(["page-a"], [["page-a", alpha]]));
+
+    await produceReplaced("conv-1", 0);
+    expect(activeIds("conv-1")).toEqual(new Set());
+
+    const block = await produceSections("conv-1", 1);
+    expect(block!.text).toContain("§ Alpha");
+    expect(activeIds("conv-1")).toEqual(new Set(["page-a§Alpha"]));
   });
 });

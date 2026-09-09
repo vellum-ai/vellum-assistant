@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, jest, mock, test } from "bun:test";
 
 const sentMessages: unknown[] = [];
+const sentOptions: unknown[] = [];
 let mockHasClient = false;
 type MockClient = {
   clientId: string;
@@ -10,13 +11,18 @@ type MockClient = {
 let mockClients: MockClient[] = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
-  broadcastMessage: (msg: unknown) => {
+  broadcastMessage: (
+    msg: unknown,
+    _conversationId: unknown,
+    options: unknown,
+  ) => {
     // Skip `interaction_resolved` envelopes — pending-interactions emits one
     // on every resolve and these tests assert on host-proxy wire messages.
     if ((msg as { type?: string } | null)?.type === "interaction_resolved") {
       return;
     }
     sentMessages.push(msg);
+    sentOptions.push(options);
   },
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
@@ -39,6 +45,7 @@ describe("HostCuProxy", () => {
 
   function setup(maxSteps?: number) {
     sentMessages.length = 0;
+    sentOptions.length = 0;
     mockHasClient = false;
     mockClients = [];
     pendingInteractions.clear();
@@ -1492,6 +1499,157 @@ describe("HostCuProxy", () => {
       proxy.processObservation(sent.requestId as string, { axTree: "ok" });
       const result = await resultPromise;
       expect(result.isError).toBe(false);
+    });
+  });
+
+  describe("window capture privacy and observation history", () => {
+    function connect(supported = true) {
+      mockClients = [
+        {
+          clientId: "mac-1",
+          actorPrincipalId: "user-1",
+          capabilities: supported
+            ? ["host_cu", "host_cu_window_capture"]
+            : ["host_cu"],
+        },
+      ];
+    }
+    function observe(input: Record<string, unknown>, targetClientId?: string) {
+      return proxy.request(
+        "computer_use_observe",
+        input,
+        "session-1",
+        1,
+        undefined,
+        undefined,
+        targetClientId,
+        "user-1",
+      );
+    }
+    async function finish(
+      input: Record<string, unknown>,
+      observation: Record<string, string>,
+    ) {
+      proxy.recordAction("computer_use_observe", input);
+      const pending = observe(input);
+      const sent = sentMessages.at(-1) as { requestId: string };
+      proxy.processObservation(sent.requestId, observation);
+      return await pending;
+    }
+
+    test("old clients fail closed for both explicit and automatic targeting", async () => {
+      setup();
+      connect(false);
+      for (const target of [undefined, "mac-1"]) {
+        expect((await observe({ capture_window_id: 12 }, target)).isError).toBe(
+          true,
+        );
+      }
+      expect(sentMessages).toHaveLength(0);
+    });
+    test("unknown support never falls back to an untargeted broadcast", async () => {
+      setup();
+      expect((await observe({ capture_window_id: 12 })).isError).toBe(true);
+      expect(sentMessages).toHaveLength(0);
+    });
+    test("supported clients receive explicitly targeted dispatch", async () => {
+      setup();
+      connect();
+      for (const target of [undefined, "mac-1"]) {
+        const pending = observe({ capture_window_id: 12 }, target);
+        const sent = sentMessages.at(-1) as {
+          requestId: string;
+          targetClientId: string;
+        };
+        expect(sent.targetClientId).toBe("mac-1");
+        expect(sentOptions.at(-1)).toEqual({
+          targetClientId: "mac-1",
+        });
+        proxy.processObservation(sent.requestId, { axTree: "Window" });
+        expect((await pending).isError).toBe(false);
+      }
+    });
+    test("invalid targets and scoped actions are rejected before dispatch", async () => {
+      setup();
+      connect();
+      for (const id of [0, -1, 1.5, "12", null, NaN, Infinity, 4294967296]) {
+        expect((await observe({ capture_window_id: id })).isError).toBe(true);
+      }
+      expect(
+        (await observe({ capture_window_id: 12, captureDisplayId: 2 })).isError,
+      ).toBe(true);
+      expect(
+        (await observe({ capture_window_id: 12, captureWindowId: 2 })).isError,
+      ).toBe(true);
+      expect(
+        (
+          await proxy.request(
+            "computer_use_click",
+            { capture_window_id: 12 },
+            "session-1",
+            1,
+            undefined,
+            undefined,
+            "mac-1",
+            "user-1",
+          )
+        ).isError,
+      ).toBe(true);
+      expect(sentMessages).toHaveLength(0);
+    });
+    test("targeted snapshots reset history without no-effect warnings or cross-window diffs", async () => {
+      setup();
+      connect();
+      await finish({}, { axTree: "Private desktop" });
+      await finish({}, { axTree: "Private desktop" });
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+      for (const id of [12, 12, 13]) {
+        const result = await finish(
+          { capture_window_id: id },
+          {
+            axTree: "Chosen window",
+            axDiff: "Removed Private desktop",
+            secondaryWindows: "Private secondary window",
+          },
+        );
+        expect(result.content).not.toContain("NO VISIBLE EFFECT");
+        expect(result.content).not.toContain("Private");
+        expect(proxy.previousAXTree).toBeUndefined();
+        expect(proxy.consecutiveUnchangedSteps).toBe(0);
+      }
+      const desktop = await finish({}, { axTree: "Returned desktop" });
+      expect(desktop.content).not.toContain("NO VISIBLE EFFECT");
+      expect(proxy.previousAXTree).toBe("Returned desktop");
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+      await finish({}, { axTree: "Returned desktop" });
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+    });
+    test("failed targeted captures also break the desktop comparison baseline", async () => {
+      setup();
+      connect();
+      await finish({}, { axTree: "Desktop" });
+      expect(
+        (
+          await finish(
+            { capture_window_id: 99 },
+            { executionError: "Window not found" },
+          )
+        ).isError,
+      ).toBe(true);
+      expect(proxy.previousAXTree).toBeUndefined();
+      const result = await finish({}, { axTree: "Desktop" });
+      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+    });
+    test("legacy camel-case companion targets also reset observation history", async () => {
+      setup();
+      connect();
+      await finish({}, { axTree: "Desktop" });
+      const result = await finish(
+        { captureDisplayId: 1 },
+        { axTree: "Display" },
+      );
+      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+      expect(proxy.previousAXTree).toBeUndefined();
     });
   });
 });

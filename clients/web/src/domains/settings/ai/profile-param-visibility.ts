@@ -34,11 +34,14 @@ export const VISIBILITY_NONE: ProfileParamVisibility = {
   thinkingLevel: false,
 };
 
-function isOpenAIGPT5Family(modelId: string): boolean {
+function isOpenAIGptReasoningFamily(modelId: string): boolean {
   return (
     modelId === "gpt-5" ||
+    modelId === "gpt-6" ||
     modelId.startsWith("gpt-5.") ||
-    modelId.startsWith("gpt-5-")
+    modelId.startsWith("gpt-5-") ||
+    modelId.startsWith("gpt-6.") ||
+    modelId.startsWith("gpt-6-")
   );
 }
 
@@ -168,7 +171,7 @@ function supportsEffort(
     return !modelId.includes("haiku") && supportsThinking;
   }
   if (provider === "openai") {
-    return isOpenAIGPT5Family(modelId);
+    return isOpenAIGptReasoningFamily(modelId);
   }
   if (provider === "openrouter" || provider === "vercel-ai-gateway") {
     if (isVendorPrefixedAnthropicModel(modelId)) {
@@ -240,7 +243,7 @@ export function resolveProfileParamVisibility(
     contextWindow: true,
     effort: supportsEffort(providerId, modelId, supportsThinkingResult),
     speed: providerId === "anthropic" && modelId.includes("opus"),
-    verbosity: providerId === "openai" && isOpenAIGPT5Family(modelId),
+    verbosity: providerId === "openai" && isOpenAIGptReasoningFamily(modelId),
     temperature: usesAnthropicWire,
     topP: supportsTopP(providerId, usesAnthropicWire),
     // Gateway thinking is anthropic/*-only: the OpenAI-compat path has no

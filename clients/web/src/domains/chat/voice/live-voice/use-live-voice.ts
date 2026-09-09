@@ -86,6 +86,7 @@ import {
   LiveVoiceChannelClient,
   RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
+  type LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
   LiveVoiceAudioCapture,
@@ -97,6 +98,7 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import { describeBusyFailure } from "@/domains/chat/voice/live-voice/busy-failure";
+import type { LiveVoiceEntry } from "@/domains/chat/voice/live-voice/protocol";
 import { fixedT } from "@/i18n";
 import {
   isLiveVoiceSessionActive,
@@ -205,6 +207,12 @@ export interface LiveVoiceStartOptions {
    */
   handsFree?: boolean;
   /**
+   * Which control asked for the session, for the daemon's telemetry. Sent on
+   * every connect the session makes, reconnects included: a socket blip does
+   * not change where the user started from.
+   */
+  entry?: LiveVoiceEntry;
+  /**
    * A first turn to take on the session's behalf, sent once the microphone is
    * live, so the assistant speaks without waiting for the user.
    *
@@ -305,6 +313,8 @@ interface SessionContext {
    * to `listening` instead of tearing down.
    */
   handsFree: boolean;
+  /** Where the session was started from; reused verbatim on reconnect. */
+  entry: LiveVoiceEntry | undefined;
   /**
    * In-flight (or settled) mic acquisition — `capture.start()` kicked off at
    * connect time by {@link beginCaptureStartup} so getUserMedia + the worklet
@@ -716,9 +726,14 @@ export function useLiveVoice(
    * reconnect gap is right to drop, since the fresh session is the one that
    * would persist it and the moment it belonged to has passed.
    */
-  const sightFrame = useCallback((attachmentId: string): boolean => {
-    return sessionRef.current?.client.sightFrame(attachmentId) ?? false;
-  }, []);
+  const sightFrame = useCallback(
+    (attachmentId: string, timing?: LiveVoiceSightFrameTiming): boolean => {
+      return (
+        sessionRef.current?.client.sightFrame(attachmentId, timing) ?? false
+      );
+    },
+    [],
+  );
 
   const createPlayer = useCallback(
     () =>
@@ -855,6 +870,7 @@ export function useLiveVoice(
         unsubscribes: [],
         generation: 0,
         handsFree: startOptions.handsFree === true,
+        entry: startOptions.entry,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
@@ -880,14 +896,6 @@ export function useLiveVoice(
         onChunk: (buf) => handleChunk(session, buf),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
-        // Full-duplex capture runs without AGC. Barge-in is decided on the
-        // daemon by comparing mean absolute amplitude against a threshold on
-        // the absolute 16-bit scale, and AGC is a moving gain in front of that
-        // fixed number: it lifts a quiet room's noise floor toward the level
-        // speech reaches in a loud one, so ordinary room noise clears the gate
-        // and cancels the reply. Every other consumer of this capture pipeline
-        // is half-duplex and keeps the default (JARVIS-1694).
-        autoGainControl: false,
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -1428,6 +1436,7 @@ export function useLiveVoice(
                 reconnectTimerRef.current = null;
                 void connectSessionRef.current?.(assistantId, conversationId, {
                   handsFree: true,
+                  ...(session.entry ? { entry: session.entry } : {}),
                 });
               }, delayMs);
               return;
@@ -1497,6 +1506,7 @@ export function useLiveVoice(
               reconnectTimerRef.current = null;
               void connectSessionRef.current?.(assistantId, conversationId, {
                 handsFree: true,
+                ...(session.entry ? { entry: session.entry } : {}),
               });
             }, delayMs);
             return;
@@ -1520,6 +1530,7 @@ export function useLiveVoice(
       await client.connect({
         assistantId,
         conversationId,
+        ...(session.entry ? { entry: session.entry } : {}),
         ...(session.handsFree
           ? {
               turnDetection: "server_vad" as const,
