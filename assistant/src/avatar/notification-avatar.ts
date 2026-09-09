@@ -15,7 +15,9 @@
  * Best-effort throughout: a missing raster, an undecodable upload, a missing
  * native rasterizer, or a render too heavy to fit the cap yields null so
  * callers keep whatever the platform already holds rather than blanking it.
- * A WebP upload is transcoded to PNG first, since resvg has no decoder for it.
+ * A WebP upload is transcoded to PNG first, since resvg has no decoder for it,
+ * and that transcode needs sharp, whose native binary an install can be
+ * missing even though the package itself is a plain dependency.
  */
 
 import type { NotificationAvatarMediaType } from "@vellumai/avatar-manifest/notification-avatar";
@@ -24,6 +26,7 @@ import {
   NOTIFICATION_AVATAR_SIZE,
   notificationAvatarSvg,
 } from "@vellumai/avatar-manifest/notification-avatar";
+import type sharpDefault from "sharp";
 
 import { detectMediaType } from "../tools/shared/filesystem/image-read.js";
 import { getLogger } from "../util/logger.js";
@@ -54,30 +57,42 @@ export function resolveNotificationAccentHex(
   return null;
 }
 
-async function importSharp() {
-  const { default: sharp } = await import("sharp");
-  return sharp;
-}
+type SharpFactory = typeof sharpDefault;
 
-type SharpFactory = Awaited<ReturnType<typeof importSharp>>;
-
+/** Undefined until the first load; the codec or null afterwards. */
 let sharpFactory: SharpFactory | null | undefined;
 
 /**
- * The image codec, or null where the optional native dependency is missing.
+ * The image codec, or null when its native binary is missing on this platform.
  * Loaded lazily and remembered, so the availability check the sync's dedupe
  * key asks for costs one import at most.
  */
 async function getSharp(): Promise<SharpFactory | null> {
   if (sharpFactory === undefined) {
     try {
-      sharpFactory = await importSharp();
+      sharpFactory = (await import("sharp")).default ?? null;
     } catch (err) {
-      log.warn({ err }, "sharp is unavailable; avatar transcoding is off");
+      log.warn(
+        { err },
+        "sharp is unavailable; avatar transcoding and quantising are off",
+      );
       sharpFactory = null;
     }
   }
   return sharpFactory;
+}
+
+/** Test-only hook to reset the cached codec between test cases. */
+export function __resetSharpCacheForTests(): void {
+  sharpFactory = undefined;
+}
+
+/**
+ * Test-only hook to force the cached codec without exercising the real
+ * import, so the missing-codec path can be asserted on a machine that has it.
+ */
+export function __setSharpCacheForTests(factory: SharpFactory | null): void {
+  sharpFactory = factory;
 }
 
 /**
@@ -170,7 +185,11 @@ export async function canRenderNotificationAvatar(
   if (route.via === "href") {
     return true;
   }
-  return route.via === "transcode" && (await getSharp()) !== null;
+  if (route.via === "none") {
+    return false;
+  }
+  const sharp = await getSharp();
+  return !!sharp;
 }
 
 /**

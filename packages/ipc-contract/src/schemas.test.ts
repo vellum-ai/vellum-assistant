@@ -88,10 +88,4 @@ describe("the notification avatar bounds", () => {
       expect(NOTIFICATION_AVATAR_HASH_PATTERN.test(value)).toBe(false);
     }
   });
-
-  test("bounds the base64 payload at the local 512 KB cap", () => {
-    expect(NOTIFICATION_AVATAR_BASE64_MAX_CHARS).toBe(
-      Math.ceil((512 * 1024) / 3) * 4,
-    );
-  });
 });

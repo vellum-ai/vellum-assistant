@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
 import {
@@ -8,7 +8,11 @@ import {
 } from "@/runtime/notification-avatar";
 import { isPopoutWindowLifetime } from "@/runtime/popout-window";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type {
+  AvatarImageMeta,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
 import { rasterizeNotificationAvatar } from "@/utils/avatar-raster";
 import { resolveAvatarRender } from "@/utils/avatar-render";
 import {
@@ -41,32 +45,36 @@ import {
  * notification posted across the rasterize-and-hash gap with no avatar and no
  * sender name. The key is the arbiter of the gap in both directions: an equal
  * key does nothing at all, and a render whose key has since been replaced never
- * writes what it drew.
+ * writes what it drew. A custom image is keyed on the manifest's identity for
+ * it rather than on the blob URL the query mints fresh every time it refetches,
+ * which would be a new picture on every read of the same one.
+ *
+ * A run that fails transiently (nothing came back from the canvas, the
+ * rasterizer threw) drops the key too, so the next refetch draws again instead
+ * of inheriting a claim on a picture that never landed. A render past the byte
+ * cap keeps its claim: that outcome is the same every time it is redrawn.
  */
 export function useNotificationAvatarSync(
   assistantId: string | null,
   customImageUrl: string | null,
+  imageMeta: AvatarImageMeta | null,
   components: CharacterComponents | null,
   traits: CharacterTraits | null,
   accentHex: string | null,
 ): void {
   const enabled = useClientFeatureFlagStore.use.pushAvatarSender();
   const heldKey = useRef<string | null>(null);
+  const release = useCallback((): void => {
+    heldKey.current = null;
+    clearNotificationAvatar();
+  }, []);
+  // The manifest's identity for the uploaded image, which survives a refetch;
+  // null on the legacy sidecar path, which carries none.
+  const imageId = imageMeta ? `${imageMeta.updatedAt}|${imageMeta.etag}` : null;
 
-  useEffect(
-    () => () => {
-      heldKey.current = null;
-      clearNotificationAvatar();
-    },
-    [],
-  );
+  useEffect(() => release, [release]);
 
   useEffect(() => {
-    const release = (): void => {
-      heldKey.current = null;
-      clearNotificationAvatar();
-    };
-
     if (!isElectron() || isPopoutWindowLifetime() || !enabled || !assistantId) {
       release();
       return;
@@ -84,7 +92,8 @@ export function useNotificationAvatarSync(
     }
 
     const src = render.kind === "character" ? render.dataUri : render.url;
-    const key = `${assistantId}|${NOTIFICATION_AVATAR_SPEC_VERSION}|${accentHex ?? ""}|${src}`;
+    const picture = render.kind === "image" && imageId ? imageId : src;
+    const key = `${assistantId}|${NOTIFICATION_AVATAR_SPEC_VERSION}|${accentHex ?? ""}|${picture}`;
     if (key === heldKey.current) {
       return;
     }
@@ -93,10 +102,16 @@ export function useNotificationAvatarSync(
 
     void rasterizeNotificationAvatar(src, accentHex)
       .then(async (png) => {
-        if (heldKey.current !== key || !png) {
+        if (heldKey.current !== key) {
+          return;
+        }
+        if (!png) {
+          release();
           return;
         }
         if (png.byteLength > NOTIFICATION_AVATAR_MAX_LOCAL_BYTES) {
+          // Deterministic for this picture, so the key stays claimed and the
+          // canvas is not run for it again on the next refetch.
           warnOversized(png.byteLength);
           return;
         }
@@ -107,10 +122,19 @@ export function useNotificationAvatarSync(
       })
       .catch(() => {
         if (heldKey.current === key) {
-          clearNotificationAvatar();
+          release();
         }
       });
-  }, [enabled, assistantId, customImageUrl, components, traits, accentHex]);
+  }, [
+    enabled,
+    assistantId,
+    customImageUrl,
+    imageId,
+    components,
+    traits,
+    accentHex,
+    release,
+  ]);
 }
 
 let warnedOversized = false;

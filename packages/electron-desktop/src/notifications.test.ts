@@ -165,6 +165,12 @@ const showHandler = (): HandleRegistration => {
 const show = (payload: Record<string, unknown>): Promise<ShowResult> =>
   showHandler().fn([payload]) as Promise<ShowResult>;
 
+/** The same, through the boundary schema, for what the parse itself decides. */
+const showParsed = (payload: Record<string, unknown>): Promise<ShowResult> => {
+  const { schema, fn } = showHandler();
+  return fn(schema.parse([payload])) as Promise<ShowResult>;
+};
+
 /** What the boundary hands the handler, for asserting on what survived it. */
 const parseShowPayload = (
   payload: Record<string, unknown>,
@@ -464,7 +470,49 @@ describe("sender", () => {
       title: "t",
       body: "b",
       sender: undefined,
+      senderDropped: true,
     });
+  });
+
+  test("says nothing was dropped when the payload carried no sender", () => {
+    expect(
+      parseShowPayload({
+        category: "notificationIntent",
+        title: "t",
+        body: "b",
+      }).senderDropped,
+    ).toBe(false);
+  });
+
+  test("warns when the boundary drops a sender the renderer sent", async () => {
+    const warnings: string[] = [];
+    configureNotifications({
+      ipc,
+      ensureVisible: ensureVisibleMock,
+      logger: {
+        warn: (...args: unknown[]) => {
+          warnings.push(String(args[0]));
+        },
+      },
+    });
+
+    await showParsed({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "dropped-1",
+      sender: { id: "assistant-1", name: "Aria" },
+    });
+    await showParsed({
+      category: "notificationIntent",
+      title: "T",
+      body: "B",
+      deliveryId: "dropped-2",
+    });
+
+    expect(warnings).toEqual([
+      "[notifications] Dropped a malformed sender; posting with the app icon",
+    ]);
   });
 
   test("the captured schema drops a hash that is not a SHA-256", () => {

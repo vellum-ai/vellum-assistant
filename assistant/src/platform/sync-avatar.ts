@@ -30,6 +30,11 @@
  * changes the moment the cause clears, so the disc goes up on the next sync.
  * When the render is unavailable the key is omitted rather than nulled, so
  * the platform keeps the copy it holds.
+ * A render that fails inside the body, after the key promised a disc, hands
+ * the queue the disc-less key instead, so the next sync tries again rather
+ * than recording a disc that never went up. If the platform rejects the field
+ * outright with a 400, the queue re-sends the display avatar alone under that
+ * same key, so a disc it will not take cannot block the avatar it will.
  */
 
 import { createHash } from "node:crypto";
@@ -70,6 +75,9 @@ const log = getLogger("sync-avatar");
 const MAX_AVATAR_UPLOAD_BYTES = 256 * 1024;
 const DOWNSCALE_PX = 128;
 const NONE_KEY = "none";
+const DISC_KEY = "disc";
+/** The PATCH field carrying the disc, and what a 400 rejecting it names. */
+const NOTIFICATION_FIELD = "notification_avatar_base64";
 /** Only bytes that sniff as a raster image are ever uploaded. */
 const UPLOADABLE_TYPES: ReadonlySet<string> = new Set([
   ...RESVG_DECODABLE_TYPES,
@@ -156,9 +164,12 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
   // Keyed on content so a same-size, same-mtime rewrite still re-syncs.
   const digest = sha256(bytes);
   const accentHex = resolveNotificationAccentHex(state);
-  const disc = (await canRenderNotificationAvatar(bytes)) ? "disc" : NONE_KEY;
+  const keyFor = (disc: string): string =>
+    `${state.kind}:${digest}:${NOTIFICATION_AVATAR_SPEC_VERSION}:${accentHex ?? NONE_KEY}:${disc}`;
   return {
-    key: `${state.kind}:${digest}:${NOTIFICATION_AVATAR_SPEC_VERSION}:${accentHex ?? NONE_KEY}:${disc}`,
+    key: keyFor(
+      (await canRenderNotificationAvatar(bytes)) ? DISC_KEY : NONE_KEY,
+    ),
     body: async () => {
       const encoded = encodeForUpload(bytes);
       if (encoded === undefined) {
@@ -168,13 +179,21 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
         );
         return undefined;
       }
+      const withoutDisc = {
+        body: { avatar_base64: encoded },
+        key: keyFor(NONE_KEY),
+      };
       const notification = await renderNotificationAvatarPng(state, bytes);
       if (!notification) {
-        return { avatar_base64: encoded };
+        return withoutDisc;
       }
       return {
-        avatar_base64: encoded,
-        notification_avatar_base64: notification.toString("base64"),
+        body: {
+          avatar_base64: encoded,
+          notification_avatar_base64: notification.toString("base64"),
+        },
+        key: keyFor(DISC_KEY),
+        retryWithout: { field: NOTIFICATION_FIELD, ...withoutDisc },
       };
     },
   };

@@ -168,7 +168,24 @@ const CATEGORY_COOLDOWN_MS: Record<NotificationCategory, number> = {
 
 export type { ShowNotificationPayload };
 
-const showPayloadSchema = z.tuple([showNotificationPayloadSchema]);
+/**
+ * The parsed payload, plus whether the renderer sent a `sender` the schema had
+ * to drop. The schema degrades a malformed sender to none so the user still
+ * gets the banner, which leaves the degrade invisible; this carries it far
+ * enough to be logged once.
+ */
+type ShowPayload = ShowNotificationPayload & { senderDropped?: boolean };
+
+const showPayloadSchema = z.tuple([
+  z.unknown().transform((raw): ShowPayload => {
+    const parsed = showNotificationPayloadSchema.parse(raw);
+    const sentSender =
+      typeof raw === "object" &&
+      raw !== null &&
+      (raw as { sender?: unknown }).sender !== undefined;
+    return { ...parsed, senderDropped: sentSender && !parsed.sender };
+  }),
+]);
 
 // ---------------------------------------------------------------------------
 // Notification action event (main → renderer)
@@ -290,10 +307,13 @@ export const createElectronNotification = (
   return new Notification(constructorOptions);
 };
 
-const showNotification = (
-  payload: ShowNotificationPayload,
-): Promise<ShowResult> => {
+const showNotification = (payload: ShowPayload): Promise<ShowResult> => {
   const { ensureVisible, isSupported, create, logger } = requireRuntime();
+  if (payload.senderDropped) {
+    (logger ?? console).warn(
+      "[notifications] Dropped a malformed sender; posting with the app icon",
+    );
+  }
   if (!(isSupported ?? Notification.isSupported)()) {
     return Promise.resolve({
       success: false,
@@ -401,8 +421,10 @@ const showNotification = (
 let pruneTimer: NodeJS.Timeout | null = null;
 
 export const installNotifications = (): void => {
-  requireRuntime().ipc.handle(NOTIFICATIONS_SHOW, showPayloadSchema, ([payload]) =>
-    showNotification(payload),
+  requireRuntime().ipc.handle(
+    NOTIFICATIONS_SHOW,
+    showPayloadSchema,
+    ([payload]) => showNotification(payload),
   );
 
   pruneTimer = setInterval(pruneStaleEntries, PRUNE_INTERVAL_MS);

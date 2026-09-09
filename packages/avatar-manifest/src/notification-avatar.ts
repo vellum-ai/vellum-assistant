@@ -30,8 +30,9 @@ const ACCENT_MIX = 0.14;
 
 /**
  * Largest notification PNG the platform sync ships, in bytes. It bounds the
- * push transports: an APNs payload and an FCM message both carry the disc, and
- * a photographic avatar is quantised (or dropped) to fit.
+ * `notification_avatar_base64` field of the PATCH that uploads the disc, which
+ * is what APNs and FCM later hand their clients a URL and a hash for. A
+ * photographic avatar is quantised (or dropped) to fit.
  */
 export const NOTIFICATION_AVATAR_MAX_BYTES = 128 * 1024;
 
