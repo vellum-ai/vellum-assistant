@@ -194,6 +194,9 @@ interface SessionEntry {
    *  none. Both the id to write a model back through and the flag that says
    *  this session has a model to publish at all. */
   modelConfigId?: string;
+  /** Tail of this session's model-switch chain, so overlapping setModel calls
+   *  reach the adapter one at a time and the last choice wins. */
+  modelSwitchQueue: Promise<void>;
 }
 
 /**
@@ -576,6 +579,7 @@ export class AcpSessionManager {
       task: opts.task,
       command: basename(opts.agentConfig.command),
       credentialDigest: opts.agentConfig.credentialDigest,
+      modelSwitchQueue: Promise.resolve(),
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -631,6 +635,11 @@ export class AcpSessionManager {
    * The in-flight prompt is left alone: the adapter applies the new model to
    * the next turn, and cancelling a running turn to change a model would cost
    * the user the work in flight.
+   *
+   * Switches run one at a time per session. A picker changed twice in quick
+   * succession would otherwise have two round trips in flight at once, and a
+   * slow first one landing last would put the state, the preference, and the
+   * client back on the model the user already moved off.
    */
   async setModel(
     acpSessionId: string,
@@ -640,6 +649,27 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
+    const switched = entry.modelSwitchQueue.then(() =>
+      this.applyModelSwitch(acpSessionId, entry, model),
+    );
+    // A refusal belongs to its caller alone; the chain carries on either way.
+    entry.modelSwitchQueue = switched.then(
+      () => undefined,
+      () => undefined,
+    );
+    return switched;
+  }
+
+  /**
+   * One link of a session's model-switch chain: validates the value against
+   * the options the adapter advertised, asks for the switch, then records and
+   * publishes what came back.
+   */
+  private async applyModelSwitch(
+    acpSessionId: string,
+    entry: SessionEntry,
+    model: string,
+  ): Promise<AcpSessionState> {
     const { state, modelConfigId } = entry;
     if (!modelConfigId) {
       throw new AcpModelSelectionUnsupportedError(acpSessionId);
@@ -699,7 +729,23 @@ export class AcpSessionManager {
       return;
     }
     const previousModel = entry.state.model;
+    const hadSelector = entry.modelConfigId !== undefined;
     this.applyModelInfo(entry, configOptions);
+
+    // A selector that disappears mid-session takes the live snapshot with it.
+    // applyModelInfo keeps the recorded model for adapters that never had one,
+    // which here would leave the client on options setModel now rejects.
+    if (hadSelector && !entry.modelConfigId) {
+      entry.state.model = undefined;
+      entry.state.availableModels = [];
+      entry.sendToVellum({
+        type: "acp_session_model_update",
+        acpSessionId,
+        availableModels: [],
+      });
+      return;
+    }
+
     this.sendModelEvent(acpSessionId, entry);
 
     if (entry.state.model !== previousModel) {

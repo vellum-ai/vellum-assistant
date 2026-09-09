@@ -40,6 +40,10 @@ const setConfigOptionCalls: Array<{
 }> = [];
 /** What `setConfigOption` answers with; an Error is thrown instead. */
 let setConfigOptionResult: SessionConfigOption[] | Error = [];
+/** Answers per call when set, so one round trip can be slower than the next. */
+let setConfigOptionResponder:
+  | ((value: string | boolean) => Promise<SessionConfigOption[]>)
+  | null = null;
 
 // Stub the agent-process module so spawn() does not actually launch a child
 // process. Each fake instance records the cwd it was spawned in and resolves
@@ -69,6 +73,9 @@ mock.module("../agent-process.js", () => ({
       value: string | boolean,
     ): Promise<SessionConfigOption[]> {
       setConfigOptionCalls.push({ sessionId, configId, value });
+      if (setConfigOptionResponder) {
+        return setConfigOptionResponder(value);
+      }
       if (setConfigOptionResult instanceof Error) {
         throw setConfigOptionResult;
       }
@@ -112,6 +119,7 @@ beforeEach(() => {
   scriptedConfigOptions = [];
   setConfigOptionCalls.length = 0;
   setConfigOptionResult = [];
+  setConfigOptionResponder = null;
   config.setConfig({});
   getSqlite().run("DELETE FROM acp_conversation_model_preference");
 });
@@ -595,6 +603,58 @@ describe("AcpSessionManager: live model switching", () => {
     ).toBeUndefined();
   });
 
+  test("overlapping switches run in order and the later choice wins", async () => {
+    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-race");
+    const confirmed: string[] = [];
+    setConfigOptionResponder = async (value) => {
+      // The first switch answers last if the calls are allowed to overlap.
+      if (value === "opus") {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      confirmed.push(String(value));
+      return [modelOption(String(value))];
+    };
+
+    const first = manager.setModel(acpSessionId, "opus");
+    const second = manager.setModel(acpSessionId, "sonnet");
+    await Promise.all([first, second]);
+
+    expect(confirmed).toEqual(["opus", "sonnet"]);
+    expect(setConfigOptionCalls.map((call) => call.value)).toEqual([
+      "opus",
+      "sonnet",
+    ]);
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "sonnet",
+    );
+    expect(getAcpConversationModelPreference("conv-race", "agent-model")).toBe(
+      "sonnet",
+    );
+    expect(sent).toHaveLength(2);
+    expect(sent[sent.length - 1]).toMatchObject({
+      type: "acp_session_model_update",
+      model: "sonnet",
+    });
+  });
+
+  test("a refused switch leaves the next one free to run", async () => {
+    const { manager, acpSessionId } = await spawnSwitchable("conv-chain");
+    setConfigOptionResponder = async (value) => {
+      if (value === "opus") {
+        throw new Error("Invalid value for config option model: opus");
+      }
+      return [modelOption(String(value))];
+    };
+
+    const refused = manager.setModel(acpSessionId, "opus");
+    const next = manager.setModel(acpSessionId, "sonnet");
+
+    await expect(refused).rejects.toThrow(
+      "Invalid value for config option model: opus",
+    );
+    await expect(next).resolves.toMatchObject({ model: "sonnet" });
+  });
+
   test("an adapter refusal surfaces verbatim and leaves the session as it was", async () => {
     const { manager, acpSessionId, sent } =
       await spawnSwitchable("conv-refuse");
@@ -642,6 +702,42 @@ describe("AcpSessionManager: unsolicited model updates", () => {
       "opus",
     );
     // Reporting is not choosing: the adapter is never asked to set it back.
+    expect(setConfigOptionCalls).toEqual([]);
+  });
+
+  test("a selector that disappears clears the model, the options, and the picker", async () => {
+    const { manager, acpSessionId, sent } =
+      await spawnSwitchable("conv-dropped");
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [
+          {
+            type: "select",
+            id: "mode",
+            name: "Mode",
+            currentValue: "default",
+            options: [{ value: "default", name: "Default" }],
+          },
+        ],
+      },
+    });
+
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    expect(sent).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        availableModels: [],
+      },
+    ]);
+    await expect(manager.setModel(acpSessionId, "opus")).rejects.toBeInstanceOf(
+      AcpModelSelectionUnsupportedError,
+    );
     expect(setConfigOptionCalls).toEqual([]);
   });
 
