@@ -103,6 +103,26 @@ describe("user route request URL", () => {
     expect(body.tags).toEqual(["b"]);
   });
 
+  test("a forged rawUrl falls back to the rebuilt URL", async () => {
+    // An IPC caller controls every handler arg, and
+    // `new URL("//host/x", "http://localhost")` resolves to `http://host/x`,
+    // so a plain object claiming a two-slash pathname would defeat the origin
+    // this code exists to pin. Only a real URL is trusted.
+    const body = await echo({
+      pathParams: { path: ROUTE_PATH },
+      queryParams: { tag: "b" },
+      rawUrl: {
+        pathname: "//evil.example.com/v1/x/hello%20world",
+        search: "?tag=a",
+      } as unknown as URL,
+      headers: IDENTITY_HEADERS_IN,
+    });
+
+    expect(body.origin).toBe("http://localhost");
+    expect(body.pathname).toBe("/v1/x/hello%20world");
+    expect(body.tags).toEqual(["b"]);
+  });
+
   test("the origin is the same synthetic host on both transports", async () => {
     const overHttp = await echo({
       pathParams: { path: ROUTE_PATH },

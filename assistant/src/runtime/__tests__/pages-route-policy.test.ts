@@ -23,8 +23,13 @@ writeFileSync(
 );
 
 const appStore = await import("../../apps/app-store.js");
+// Captured before the mock replaces the namespace's own binding, which would
+// otherwise make the fall-through below call itself.
+const resolveRealAppSource = appStore.resolveAppSource;
 mock.module("../../apps/app-store.js", () => ({
   ...appStore,
+  // Only the app under test is stubbed onto a temp dir; every other id falls
+  // through to the real resolver, so what the router hands it is exercised.
   resolveAppSource: (id: string) =>
     id === APP_ID
       ? {
@@ -34,7 +39,7 @@ mock.module("../../apps/app-store.js", () => ({
           sourceDir: appDir,
           origin: { kind: "workspace" },
         }
-      : null,
+      : resolveRealAppSource(id),
 }));
 
 const { setDbReady } = await import("../../daemon/daemon-readiness.js");
@@ -112,6 +117,16 @@ describe("GET /pages/:appId enforces its route policy", () => {
     const response = await fetchPage(ACTOR_JWT, "no-such-app");
 
     expect(response.status).toBe(404);
+  });
+
+  test("an id that decodes to a traversal is a 404, not a 500", async () => {
+    // The router percent-decodes its path params, so the handler is asked to
+    // resolve "../foo". Traversal is refused either way; the caller reads it
+    // as an app that does not exist rather than a fault in the daemon.
+    const response = await fetchPage(ACTOR_JWT, "%2E%2E%2Ffoo");
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).not.toContain("..");
   });
 });
 
