@@ -407,6 +407,28 @@ describe("ToolDetailPanel", () => {
     expect(getByText("src/deep/module.ts")).toBeDefined();
   });
 
+  test("shows a written file as content, not as an escaped JSON string", () => {
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_write",
+          input: {
+            path: "src/a.ts",
+            content: 'const greeting = "hi";\nexport default greeting;\n',
+          },
+          result: "Wrote 2 lines to src/a.ts",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // The file reaches the panel inside the input bag, which is the one place
+    // the generic body prints a string with its quotes and newlines escaped.
+    expect(getByText("Content")).toBeDefined();
+    expect(getByText("src/a.ts")).toBeDefined();
+    expect(queryByText(/\\n/)).toBeNull();
+  });
+
   test("reads a bash command stored under the legacy cmd key", () => {
     const { getByText } = render(
       <ToolDetailPanel
