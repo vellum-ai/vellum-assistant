@@ -67,8 +67,9 @@ export function ResearchOnboardingScreen({
   const [role, setRole] = useState("");
   const [hobbies, setHobbies] = useState<string[]>([]);
 
-  // First name + role are the minimum signal worth researching on.
-  const canSubmit = firstName.trim().length > 0 && role.trim().length > 0;
+  // First name is the only required field; role and hobbies just sharpen the
+  // research when present.
+  const canSubmit = firstName.trim().length > 0;
 
   function handleSubmit() {
     if (!canSubmit) {
@@ -147,7 +148,6 @@ export function ResearchOnboardingScreen({
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 className={MOBILE_INPUT_NO_ZOOM}
-                required
                 fullWidth
               />
             </div>

@@ -13,9 +13,14 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  CompanionCoachmark,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
   CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
@@ -24,12 +29,15 @@ import type {
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
+  DictationOfferAnswer,
   DictationPartialsResult,
   DictationTranscribeResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
+  HotkeySelection,
+  ChordBinding,
+  ChordRegistrationResult,
   ModifierHold,
   ModifierHoldRegistrationResult,
   LocalAssistantStatusResult,
@@ -57,8 +65,15 @@ import {
   HELPER_DICTATION_PARTIAL_EVENT,
   HELPER_DICTATION_SET_PARTIALS,
   HELPER_DICTATION_TRANSCRIBE,
+  HELPER_APPS_FRONTMOST,
+  HELPER_APPS_QUIT,
+  HELPER_APPS_RUNNING,
   HELPER_DICTATION_TRANSCRIBED_EVENT,
+  HELPER_HOTKEY_READ_FRONT_SELECTION,
+  HELPER_HOTKEY_SET_CHORDS,
   HELPER_HOTKEY_SET_MODIFIER_HOLD,
+  HELPER_INPUT_ACTIVITY_EVENT,
+  HELPER_INPUT_SET_ACTIVITY_WATCH,
 } from "@vellumai/ipc-contract";
 import {
   createBundleConfirmBridge,
@@ -67,6 +82,7 @@ import {
   createHotkeysBridge,
   createLaunchAtLoginBridge,
   createUpdateBridge,
+  createWindowAttentionSubscriber,
 } from "@vellumai/electron-desktop/preload";
 
 export type {
@@ -79,7 +95,6 @@ export type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationPartialsResult,
-  FnPushToTalkResult,
   HelperRestartResult,
   HelperState,
   HotkeyEvent,
@@ -134,6 +149,10 @@ const bridge: VellumBridge = {
       ) as Promise<TextInsertionResult>,
     openAutomationSettings: (): Promise<void> =>
       ipcRenderer.invoke("vellum:text:openAutomationSettings") as Promise<void>,
+    undoInFrontApp: (): Promise<TextInsertionResult> =>
+      ipcRenderer.invoke(
+        "vellum:text:undoInFrontApp",
+      ) as Promise<TextInsertionResult>,
   },
   auth: {
     startOAuth: (options: {
@@ -180,11 +199,6 @@ const bridge: VellumBridge = {
       };
     },
     hotkey: {
-      fnPushToTalk: (enable: boolean): Promise<FnPushToTalkResult> =>
-        ipcRenderer.invoke(
-          "vellum:helper:hotkey:fnPushToTalk",
-          enable,
-        ) as Promise<FnPushToTalkResult>,
       setModifierHold: (
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult> =>
@@ -192,6 +206,15 @@ const bridge: VellumBridge = {
           HELPER_HOTKEY_SET_MODIFIER_HOLD,
           hold,
         ) as Promise<ModifierHoldRegistrationResult>,
+      setChords: (binding: ChordBinding): Promise<ChordRegistrationResult> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_SET_CHORDS,
+          binding,
+        ) as Promise<ChordRegistrationResult>,
+      readFrontSelection: (): Promise<HotkeySelection | null> =>
+        ipcRenderer.invoke(
+          HELPER_HOTKEY_READ_FRONT_SELECTION,
+        ) as Promise<HotkeySelection | null>,
       onEvent: (callback) => {
         const handler = (_event: IpcRendererEvent, payload: HotkeyEvent) => {
           callback(payload);
@@ -199,6 +222,32 @@ const bridge: VellumBridge = {
         ipcRenderer.on("vellum:helper:hotkey:event", handler);
         return () => {
           ipcRenderer.off("vellum:helper:hotkey:event", handler);
+        };
+      },
+    },
+    apps: {
+      running: (bundleIds: readonly string[]): Promise<string[]> =>
+        ipcRenderer.invoke(HELPER_APPS_RUNNING, [...bundleIds]) as Promise<
+          string[]
+        >,
+      quit: (bundleId: string): Promise<boolean> =>
+        ipcRenderer.invoke(HELPER_APPS_QUIT, bundleId) as Promise<boolean>,
+      frontmost: (): Promise<string | null> =>
+        ipcRenderer.invoke(HELPER_APPS_FRONTMOST) as Promise<string | null>,
+    },
+    input: {
+      setActivityWatch: (enable: boolean): Promise<boolean> =>
+        ipcRenderer.invoke(
+          HELPER_INPUT_SET_ACTIVITY_WATCH,
+          enable,
+        ) as Promise<boolean>,
+      onActivity: (callback: () => void): (() => void) => {
+        const handler = () => {
+          callback();
+        };
+        ipcRenderer.on(HELPER_INPUT_ACTIVITY_EVENT, handler);
+        return () => {
+          ipcRenderer.off(HELPER_INPUT_ACTIVITY_EVENT, handler);
         };
       },
     },
@@ -391,6 +440,7 @@ const bridge: VellumBridge = {
         ipcRenderer.off("vellum:notifications:action", handler);
       };
     },
+    onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
   },
   bundleConfirm: createBundleConfirmBridge(ipcRenderer),
   quickInput: {
@@ -514,8 +564,57 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:companion:listCaptureSources",
       ) as Promise<CompanionCaptureSources>,
+    setScreenShare: (pick?: CompanionCapturePick): void => {
+      // Two shapes rather than an optional element, the way `toggleWatch` is
+      // sent: a stop carries nothing at all.
+      if (pick === undefined) {
+        ipcRenderer.send("vellum:companion:setScreenShare");
+        return;
+      }
+      ipcRenderer.send("vellum:companion:setScreenShare", pick);
+    },
+    setAnnotating: (annotating: boolean): void => {
+      ipcRenderer.send("vellum:companion:setAnnotating", annotating);
+    },
+    toggleAnnotating: (): void => {
+      ipcRenderer.send("vellum:companion:toggleAnnotating");
+    },
+    annotateShare: (
+      phase: CompanionAnnotationPhase,
+      strokes: readonly CompanionAnnotationStroke[],
+      ink: string,
+    ): void => {
+      ipcRenderer.send("vellum:companion:annotateShare", phase, strokes, ink);
+    },
+    sharedFrame: (target: WatchCaptureTarget): void => {
+      ipcRenderer.send("vellum:companion:sharedFrame", target);
+    },
+    captureScreen: (
+      target: WatchCaptureTarget,
+    ): Promise<ScreenCaptureFrame | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:captureScreen",
+        target,
+      ) as Promise<ScreenCaptureFrame | null>,
+    captureSourceThumbnail: (
+      target: WatchCaptureTarget,
+    ): Promise<string | null> =>
+      ipcRenderer.invoke(
+        "vellum:companion:captureSourceThumbnail",
+        target,
+      ) as Promise<string | null>,
     answerWatchRetro: (open: boolean): void => {
       ipcRenderer.send("vellum:companion:answerWatchRetro", open);
+    },
+    answerDictationOffer: (
+      answer: DictationOfferAnswer,
+      offerId: string,
+    ): void => {
+      ipcRenderer.send(
+        "vellum:companion:answerDictationOffer",
+        answer,
+        offerId,
+      );
     },
     activate: (): void => {
       ipcRenderer.send("vellum:companion:activate");

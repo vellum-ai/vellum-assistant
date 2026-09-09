@@ -11,8 +11,14 @@
  *   - `TagAutocompleteInput` multi-select chips + suggestion dropdown (Hobbies)
  *
  * Keyboard: ↑/↓ move the highlight, Enter commits the highlighted suggestion
- * (or, for tags, the typed text), Esc closes. The tag field also commits on
- * comma and removes the last chip on Backspace when the input is empty.
+ * (or, for tags, the typed text), Esc closes. The tag field removes the last
+ * chip on Backspace when the input is empty.
+ *
+ * The tag field splits on commas from the input's *value*, not from a key
+ * handler, so a hardware keyboard, a soft keyboard that reports `Unidentified`
+ * keydowns, paste, and autofill all produce the same chips. During IME
+ * composition the provisional value is kept as the query; comma splitting
+ * runs on compositionend once the IME commits.
  *
  * Suggestions are selected on `mousedown` (not click) with `preventDefault` so
  * the input never blurs out from under the selection.
@@ -24,6 +30,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
 import { Plus, Search } from "lucide-react";
@@ -74,6 +81,31 @@ function filterSuggestions(
     }
   }
   return out;
+}
+
+/**
+ * Split a raw field value into the chips its commas complete and the text still
+ * being typed. Segments are trimmed; blank ones and case-insensitive duplicates
+ * (of `existing` or of each other) are dropped. The remainder carries no
+ * leading whitespace, so the space in "Reading, Painting" belongs to the
+ * separator rather than to the next tag.
+ */
+function splitSegments(
+  raw: string,
+  existing: readonly string[],
+): { additions: string[]; remainder: string } {
+  const lastComma = raw.lastIndexOf(",");
+  const seen = new Set(existing.map(normalize));
+  const additions: string[] = [];
+  for (const segment of raw.slice(0, Math.max(lastComma, 0)).split(",")) {
+    const next = segment.trim();
+    if (!next || seen.has(normalize(next))) {
+      continue;
+    }
+    seen.add(normalize(next));
+    additions.push(next);
+  }
+  return { additions, remainder: raw.slice(lastComma + 1).trimStart() };
 }
 
 /** One row in the dropdown: a predefined suggestion, or a free-text "add" row. */
@@ -234,6 +266,7 @@ export function TagAutocompleteInput({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(-1);
+  const isComposingRef = useRef(false);
 
   const items = useMemo(
     () => filterSuggestions(suggestions, query, values),
@@ -292,6 +325,34 @@ export function TagAutocompleteInput({
     onChange(values.filter((v) => v !== target));
   }
 
+  /**
+   * Apply a new input value: each comma-completed segment becomes a chip and
+   * the text after the last comma stays as the live query. All additions go out
+   * in one `onChange` because `values` only refreshes on the next render.
+   */
+  function applyInputValue(raw: string) {
+    const { additions, remainder } = splitSegments(raw, values);
+    if (additions.length > 0) {
+      onChange([...values, ...additions]);
+      setHighlighted(-1);
+    }
+    setQuery(remainder);
+  }
+
+  function handlePaste(e: ClipboardEvent<HTMLInputElement>) {
+    const pasted = e.clipboardData.getData("text");
+    if (!pasted.includes(",")) {
+      return;
+    }
+    e.preventDefault();
+    setOpen(true);
+    const start = e.currentTarget.selectionStart ?? query.length;
+    const end = e.currentTarget.selectionEnd ?? start;
+    // A pasted list is complete, so the trailing comma commits its last
+    // segment as a chip too instead of leaving it as a half-typed query.
+    applyInputValue(`${query.slice(0, start)}${pasted},${query.slice(end)}`);
+  }
+
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -311,9 +372,6 @@ export function TagAutocompleteInput({
         e.preventDefault();
         addChip(query);
       }
-    } else if (e.key === ",") {
-      e.preventDefault();
-      addChip(query);
     } else if (
       e.key === "Backspace" &&
       query.length === 0 &&
@@ -361,9 +419,25 @@ export function TagAutocompleteInput({
           placeholder={values.length === 0 ? placeholder : ""}
           value={query}
           onChange={(e) => {
-            setQuery(e.target.value);
             setOpen(true);
+            if (
+              isComposingRef.current ||
+              (e.nativeEvent as InputEvent).isComposing
+            ) {
+              setQuery(e.target.value);
+              return;
+            }
+            applyInputValue(e.target.value);
           }}
+          onCompositionStart={() => {
+            isComposingRef.current = true;
+          }}
+          onCompositionEnd={(e) => {
+            isComposingRef.current = false;
+            setOpen(true);
+            applyInputValue(e.currentTarget.value);
+          }}
+          onPaste={handlePaste}
           onFocus={() => setOpen(true)}
           onKeyDown={handleKeyDown}
         />

@@ -19,9 +19,22 @@
 /// `extraModifiersHeld`: it stays set for whole sessions and would permanently
 /// disqualify every hold.
 public struct ModifierHoldDetector {
-    public enum Edge: String, Equatable, Sendable {
+    /// Why a hold closed. A consumer reading the span as a gesture needs the
+    /// difference: a set that came back up on its own may have been a tap,
+    /// while a chord passing through the held state never was one.
+    public enum UpReason: String, Equatable, Sendable {
+        /// The set was released with nothing else involved.
+        case released
+        /// A key or a modifier outside the set joined, so the press is a
+        /// shortcut on its way somewhere else.
+        case chord
+        /// Closed by the caller, because the binding went away underneath it.
+        case cancelled
+    }
+
+    public enum Edge: Equatable, Sendable {
         case down
-        case up
+        case up(UpReason)
     }
 
     /// Whether a hold is open, which is what an `up` is owed to.
@@ -68,7 +81,7 @@ public struct ModifierHoldDetector {
             guard qualifies else {
                 open = false
                 spent = anyTargetHeld
-                return [.up]
+                return [.up(extraModifiersHeld ? .chord : .released)]
             }
             return []
         }
@@ -95,7 +108,7 @@ public struct ModifierHoldDetector {
         }
         open = false
         spent = true
-        return [.up]
+        return [.up(.chord)]
     }
 
     /// Close an open hold because the world changed underneath it: the helper
@@ -110,6 +123,6 @@ public struct ModifierHoldDetector {
         // has not gone away with it, so it takes a fresh press to start
         // another. Cancelling nothing changes nothing.
         spent = true
-        return [.up]
+        return [.up(.cancelled)]
     }
 }

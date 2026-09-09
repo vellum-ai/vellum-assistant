@@ -1,10 +1,17 @@
 /**
  * A tool call's risk level as a pill, with the tolerance sentence alongside it.
  *
- * Where the pointer can hover, the sentence is the pill's tooltip and the
- * trigger takes focus so a keyboard reaches it too. Where it cannot, the shared
+ * Where the device can hover, the sentence is the pill's tooltip and the trigger
+ * takes focus so a keyboard reaches it too. Where it cannot, the shared
  * `Tooltip` mounts nothing at all by design, so the sentence renders as text
- * instead: on a touch client it is the only way to read it.
+ * instead: there it is the only way to read it.
+ *
+ * The branch reads `useHoverCapable`, the same signal `Tooltip` gates itself on.
+ * Hover and pointer are independent media features, so asking about pointer
+ * coarseness instead would disagree with the tooltip on a stylus device, which
+ * reports `hover: none` with `pointer: fine`: this would pick the tooltip and
+ * the tooltip would render nothing, losing the sentence exactly where the
+ * fallback exists to keep it.
  *
  * Levels that map to no tolerance tier (`workspace`, anything unrecognised)
  * have no sentence to show.
@@ -14,11 +21,11 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import { RiskBadge } from "@/domains/chat/components/risk-badge";
 import { getRiskToleranceHint } from "@/domains/chat/utils/risk";
-import { usePointerCoarse } from "@/utils/pointer";
+import { useHoverCapable } from "@/hooks/use-hover-affordance";
 
 export function RiskChip({ level }: { level?: string }) {
   const hint = getRiskToleranceHint(level);
-  const coarsePointer = usePointerCoarse();
+  const hoverCapable = useHoverCapable();
 
   if (!level) {
     return null;
@@ -26,7 +33,7 @@ export function RiskChip({ level }: { level?: string }) {
   if (!hint) {
     return <RiskBadge level={level} />;
   }
-  if (coarsePointer) {
+  if (!hoverCapable) {
     return (
       <>
         <RiskBadge level={level} />

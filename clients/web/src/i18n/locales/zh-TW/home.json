@@ -12,17 +12,15 @@
     "clearAll": "全部清除"
   },
   "category": {
-    "security": "安全性",
-    "email": "電子郵件",
-    "scheduling": "排程",
-    "background": "背景",
-    "system": "系統",
-    "guardianAction": "需要監護人操作",
+    "guardianAction": "需要您的核准",
+    "guardianAnswer": "需要您的回答",
     "guardianQuestion": "監護人問題",
     "guardianRequest": "監護人請求"
   },
   "homeRecapRow": {
-    "actionsTitle": "更新動作"
+    "actionsTitle": "更新動作",
+    "approve": "核准",
+    "reject": "拒絕"
   },
   "homeToolPermissionCard": {
     "missingScopes": "缺少範圍",
@@ -40,7 +38,10 @@
     "ariaLabelUnread": "通知 (未讀)",
     "heading": "通知",
     "loadFailed": "無法載入通知。",
-    "actionFailed": "無法開始該對話。請再試一次。"
+    "actionFailed": "無法開始該對話。請再試一次。",
+    "decisionNotPermitted": "您無權決定此請求。",
+    "decisionNotApplied": "無法套用該決定。",
+    "decisionFollowThroughFailed": "您的決定已記錄，但後續步驟失敗。"
   },
   "notificationsBellDetail": {
     "back": "返回通知"

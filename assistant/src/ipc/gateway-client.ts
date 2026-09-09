@@ -14,6 +14,11 @@ import {
   type ClassifyRiskIpcParams,
   type ClassifyRiskIpcResponse,
   ClassifyRiskIpcResponseSchema,
+  ListWebhookRoutesIpcResponseSchema,
+  type RegisterWebhookRouteIpcParams,
+  RegisterWebhookRouteIpcResponseSchema,
+  UnregisterWebhookRouteIpcResponseSchema,
+  type WebhookIngressRoute,
 } from "@vellumai/gateway-client";
 import {
   ipcCall as packageIpcCall,
@@ -143,6 +148,92 @@ export async function ipcGetVelayStatus(): Promise<VelayTunnelStatus | null> {
     connected: obj.connected,
     publicUrl: typeof obj.publicUrl === "string" ? obj.publicUrl : null,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Webhook ingress route registry
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a webhook-route call failed.
+ *
+ * `no_response` means nothing came back. The one-shot IPC transport answers a
+ * missing gateway and a gateway-side refusal the same way, with no result, so
+ * both land here. `invalid_response` means the gateway answered but the answer
+ * does not match the shared contract, so the two sides have drifted.
+ */
+export type WebhookRouteIpcFailureReason = "no_response" | "invalid_response";
+
+export type IpcRegisterWebhookRouteResult =
+  | { ok: true; disabled: true }
+  | { ok: true; disabled: false; route: WebhookIngressRoute }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+export type IpcUnregisterWebhookRouteResult =
+  | { ok: true; removed: boolean }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+export type IpcListWebhookRoutesResult =
+  | { ok: true; routes: WebhookIngressRoute[] }
+  | { ok: false; reason: WebhookRouteIpcFailureReason };
+
+function webhookRouteFailure(
+  method: string,
+  result: unknown,
+  detail: Record<string, unknown> = {},
+): { ok: false; reason: WebhookRouteIpcFailureReason } {
+  const reason: WebhookRouteIpcFailureReason =
+    result === undefined ? "no_response" : "invalid_response";
+  log.warn({ ...detail, result, reason }, `${method}: gateway call failed`);
+  return { ok: false, reason };
+}
+
+/**
+ * Claim a webhook subpath on the gateway.
+ *
+ * A `disabled` result is a normal answer, not a failure: the gateway is not
+ * serving its own webhooks and the caller should fall back to platform
+ * callback registration. A failure carries the reason it failed so a caller
+ * that also falls back can log the two apart.
+ */
+export async function ipcRegisterWebhookRoute(
+  input: RegisterWebhookRouteIpcParams,
+): Promise<IpcRegisterWebhookRouteResult> {
+  const result = await ipcCall("register_webhook_route", { ...input });
+  const parsed = RegisterWebhookRouteIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcRegisterWebhookRoute", result, {
+      path: input.path,
+    });
+  }
+  return parsed.data.disabled
+    ? { ok: true, disabled: true }
+    : { ok: true, disabled: false, route: parsed.data.route };
+}
+
+/**
+ * Drop a webhook subpath from the gateway registry. A successful call reports
+ * whether a route was actually removed.
+ */
+export async function ipcUnregisterWebhookRoute(
+  path: string,
+): Promise<IpcUnregisterWebhookRouteResult> {
+  const result = await ipcCall("unregister_webhook_route", { path });
+  const parsed = UnregisterWebhookRouteIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcUnregisterWebhookRoute", result, { path });
+  }
+  return { ok: true, removed: parsed.data.removed };
+}
+
+/** List every webhook subpath the gateway currently answers. */
+export async function ipcListWebhookRoutes(): Promise<IpcListWebhookRoutesResult> {
+  const result = await ipcCall("list_webhook_routes");
+  const parsed = ListWebhookRoutesIpcResponseSchema.safeParse(result);
+  if (!parsed.success) {
+    return webhookRouteFailure("ipcListWebhookRoutes", result);
+  }
+  return { ok: true, routes: parsed.data.routes };
 }
 
 // classify_risk is an idempotent, side-effect-free read, so a transient gateway

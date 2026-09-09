@@ -1,5 +1,20 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../__tests__/feature-flag-test-helpers.js";
+
+const PRESENCE_FLAG = "activity-presence-suppression";
+
+let webFocused = false;
+const webPresenceArgs: unknown[][] = [];
+const realWebPresence = await import("../../runtime/web-presence.js");
+mock.module("../../runtime/web-presence.js", () => ({
+  ...realWebPresence,
+  isWebConversationFocused: (...args: unknown[]) => {
+    webPresenceArgs.push(args);
+    return webFocused;
+  },
+}));
+
 const emitCalls: Array<Record<string, unknown>> = [];
 mock.module("../emit-signal.js", () => ({
   emitNotificationSignal: (params: Record<string, unknown>) => {
@@ -103,5 +118,86 @@ describe("emitBackgroundFailureSignal", () => {
       jobName: "memory.v2.sweep",
       errorKind: "exception",
     });
+  });
+});
+
+describe("emitBackgroundFailureSignal source-active suppression", () => {
+  beforeEach(() => {
+    emitCalls.length = 0;
+    webFocused = false;
+    webPresenceArgs.length = 0;
+    setOverridesForTesting({ [PRESENCE_FLAG]: true });
+  });
+
+  function emitWithPresence(presenceConversationId: string): void {
+    emitBackgroundFailureSignal({
+      jobName: "watcher-a",
+      sourceChannel: "assistant_tool",
+      sourceContextId: "conv-3",
+      errorKind: "exception",
+      errorMessage: "boom",
+      presenceConversationId,
+    });
+  }
+
+  test("reports the source as visible when the carried conversation is focused", () => {
+    webFocused = true;
+
+    emitWithPresence("conv-3");
+
+    expect(emitCalls[0].attentionHints).toMatchObject({
+      visibleInSourceNow: true,
+    });
+    expect(webPresenceArgs).toEqual([["conv-3"]]);
+  });
+
+  test("reports the source as not visible when the conversation is unfocused", () => {
+    webFocused = false;
+
+    emitWithPresence("conv-3");
+
+    expect(emitCalls[0].attentionHints).toMatchObject({
+      visibleInSourceNow: false,
+    });
+    expect(webPresenceArgs).toEqual([["conv-3"]]);
+  });
+
+  test("the scheduler and sweep-job reports carry no presence conversation", () => {
+    webFocused = true;
+
+    emitBackgroundFailureSignal({
+      jobName: "schedule:job-1",
+      sourceChannel: "scheduler",
+      sourceContextId: "job-1",
+      errorKind: "exception",
+      errorMessage: "retries exhausted",
+    });
+    emitBackgroundFailureSignal({
+      jobName: "memory.v2.sweep",
+      sourceChannel: "scheduler",
+      sourceContextId: "job-9",
+      errorKind: "exception",
+      errorMessage: "boom",
+    });
+
+    expect(emitCalls).toHaveLength(2);
+    for (const emitted of emitCalls) {
+      expect(emitted.attentionHints).toMatchObject({
+        visibleInSourceNow: false,
+      });
+    }
+    expect(webPresenceArgs).toEqual([]);
+  });
+
+  test("the flag off keeps the hint false without reading presence", () => {
+    webFocused = true;
+    setOverridesForTesting({ [PRESENCE_FLAG]: false });
+
+    emitWithPresence("conv-3");
+
+    expect(emitCalls[0].attentionHints).toMatchObject({
+      visibleInSourceNow: false,
+    });
+    expect(webPresenceArgs).toEqual([]);
   });
 });

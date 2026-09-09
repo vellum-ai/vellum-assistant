@@ -89,6 +89,12 @@ marking the outcome a failure. Contacts pin the older
 `resolve_contact_prompt` name, so pass `resolveOperation` only if you have the
 same reason.
 
+Fields sent beside an `error` reach the parked caller too, so a failure can say
+what kind it was. A dismissal uses that: it reports `cancelled: true` alongside
+its error string, which lets a command tell "the guardian closed the form" from
+"the write failed" without matching on the message. The rail's own `ok` and
+`error` still win over anything the writer sends under those names.
+
 **3. Render the card.** Add the form event to the web client's pending
 interaction pipeline and give it a card. This is still per-form wiring; see
 `clients/web/src/domains/chat/components/contact-record-card.tsx`.
@@ -110,6 +116,13 @@ interaction pipeline and give it a card. This is still per-form wiring; see
   rail's safety comes from the write living in a different process that the
   client reaches directly. A form over something the daemon itself owns would
   need its own enforcement story; do not assume this one carries over.
+- **State a form's target in the parked `meta`, not only in the broadcast.** A
+  client that does not know the field echoes nothing back, and a writer reading
+  only the submission would then write somewhere else without saying so. The
+  address form parks its `contactId` and the gateway reads it back over
+  `contact_prompt_flags` before binding. A readable parked form is the only word
+  on the target: an echoed value is honored only when that form cannot be read,
+  and a form that cannot be read at all is refused rather than guessed at.
 - **`hasUnclaimedGuardianForm` takes the kinds to check.** Pass only the kinds
   whose cards actually collide. Sweeping the whole registry would let any
   pending form block every other one.

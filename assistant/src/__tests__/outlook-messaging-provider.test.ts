@@ -148,6 +148,15 @@ mock.module("../messaging/providers/outlook/client.js", () => ({
   getAutoReplySettings: mockGetAutoReplySettings,
   updateAutoReplySettings: mockUpdateAutoReplySettings,
   listMessagesDelta: mockListMessagesDelta,
+  toOutlookFileAttachments: (
+    attachments: Array<{ filename: string; mimeType: string; data: Buffer }>,
+  ) =>
+    attachments.map((att) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: att.filename,
+      contentType: att.mimeType,
+      contentBytes: att.data.toString("base64"),
+    })),
 }));
 
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";

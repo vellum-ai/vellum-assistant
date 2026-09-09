@@ -320,7 +320,7 @@ Public Velay HTTPS/WSS URL
   → Existing gateway route handlers
 ```
 
-The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. Velay-managed `ingress.publicBaseUrl` changes are tagged with `publicBaseUrlManagedBy` so gateway side effects can skip unrelated webhook reconciliation while still refreshing Twilio phone-number webhooks.
+The HTTP bridge can carry normal JSON requests and health checks, so it is useful for local bridge smoke tests. Velay-managed `ingress.publicBaseUrl` changes are tagged with `publicBaseUrlManagedBy` so gateway side effects can skip unrelated webhook reconciliation while still refreshing Twilio phone-number webhooks. While `velay-webhooks` is on, the Telegram reconcile runs on that change too, because the published URL is then the address Telegram is meant to point at; email callback re-registration stays suppressed either way.
 
 Local platform smoke-test flow:
 
@@ -331,6 +331,24 @@ Local platform smoke-test flow:
 5. Confirm gateway logs show `Velay tunnel connected` and `Velay tunnel registered`.
 6. Verify HTTP forwarding by requesting `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/healthz` and `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/schema`. When validating a JSON webhook route under active development, POST a small JSON body through the same Velay public URL and confirm it reaches the loopback gateway.
 7. Verify Twilio WebSocket forwarding with a synthetic local WebSocket client against `${VELAY_PUBLIC_BASE_URL}/<assistant-id>/webhooks/twilio/media-stream/<callSessionId>/<token>`, then with a real Twilio call after the gateway has registered with Velay.
+
+### Webhook Ingress Route Registry
+
+The whole `/webhooks/` namespace used to be reachable through the tunnel as one wildcard. The registry replaces that with a per-assistant allowlist: an assistant answers exactly the subpaths it has claimed, and nothing else. It is gated on the `velay-webhooks` feature flag; with the flag off every rule below is the pre-registry one.
+
+**Three admission layers**, outermost first. Each is narrower than the one in front of it, and none replaces the others:
+
+1. **Velay edge rules.** Every WebSocket upgrade to Velay carries the `X-Vellum-Velay-Allowed-Paths` header, a JSON array of Go RE2 patterns built in `gateway/src/velay/allowed-paths.ts`. Velay compiles them and drops any request matching none of them before it enters the tunnel. With the flag on, the array carries one exact-match rule per registered row in place of the `^/webhooks/` wildcard.
+2. **Bridge re-validation.** `isAllowedVelayHttpPath` (`gateway/src/velay/bridge-utils.ts`) consults the registry again as the frame arrives, so an edge rule that has gone stale still admits nothing the gateway has stopped claiming.
+3. **Route table and per-route authentication.** An admitted path must still match a registered gateway route, and each provider route runs its own check: Telegram's `secret_token`, Twilio's HMAC-SHA1 signature, a plugin webhook's token.
+
+**Where the registry lives.** One `webhook_ingress_routes` row per path in `gateway.sqlite`, which sits in `GATEWAY_SECURITY_DIR` (the PVC in a managed deployment), so claims survive a pod restart. A row holds the origin-relative path, the owning `type` (`telegram`, `twilio_voice`, `plugin`, and so on), an optional `source` naming the instance within that type, and `last_registered_at`, refreshed on every re-registration so a path nothing claims any more is visible as a stale row. Rows never expire on their own; `unregister_webhook_route` removes one.
+
+**Who claims what.** The daemon claims over IPC (`register_webhook_route`, `gateway/src/ipc/webhook-route-handlers.ts`) for plugin webhooks and its own callback registration. The gateway claims in-process for the channels it owns end to end: Telegram in `telegram/webhook-manager.ts`, Twilio in `twilio/webhook-sync.ts`. Registration is gated on the flag at every call site; revocation and listing are not, so an operator can always see and remove what was claimed while the flag was on. Where no claim is available, because the flag is off, no tunnel URL is published yet, or the write fails, the caller registers a Django-hosted callback route instead (`POST /v1/internal/gateway/callback-routes/register/`), which is the pre-registry behavior and stays the fallback.
+
+**Propagation and its window.** Registering a row that changes the advertised set fires `onWebhookIngressRoutesChanged`, which asks the tunnel client to reconnect so the new rules ride the next upgrade header. That reconnect is debounced 5s and deferred while the tunnel is carrying traffic, so for a short window Velay is still enforcing the previous rules and drops a just-claimed path at the edge. Nothing retries a request the edge dropped, so a path is claimed before its URL is handed to a provider, never after.
+
+**Twilio's static entries.** `^/webhooks/twilio/` stays a prefix rule at the edge and in the bridge, because the media-stream path carries call state in its segments (`/webhooks/twilio/media-stream/<callSessionId>/<token>`) that an exact-match row cannot express. The voice and status paths are exact, and the Twilio webhook sync claims them so the registry describes them. Those claims are bookkeeping toward narrowing the static prefix down to the media-stream subtree.
 
 ### URL Builders
 
@@ -669,11 +687,17 @@ The gateway reads Telegram credentials via its `credential-reader` module (`gate
 
 On startup, the gateway automatically reconciles the Telegram webhook registration:
 
-1. Reads the ingress public base URL via `ConfigFileCache.getString("ingress", "publicBaseUrl")` and Telegram credentials (bot token, webhook secret) from secure storage via the credential reader
+1. Reads Telegram credentials (bot token, webhook secret) from secure storage via the credential reader, and resolves the URL to register (see the tiers below)
 2. Calls `getWebhookInfo` to log the current registration state
 3. Unconditionally calls `setWebhook` with the expected URL, secret, and allowed updates (idempotent — Telegram does not expose the current secret via `getWebhookInfo`, so a compare-then-set approach would miss secret rotations)
 
-This also runs when the credential watcher detects changes to Telegram credentials. If the ingress URL changes (e.g., tunnel restart), the config file watcher detects the change, invalidates the `ConfigFileCache`, and triggers webhook reconciliation directly — no daemon involvement is needed. Manual webhook registration is no longer required.
+**Which URL Telegram is pointed at.** `resolveExpectedTelegramWebhookUrl` (`gateway/src/telegram/webhook-manager.ts`) resolves it, and has to agree tier for tier with `hasWebhookRoutingConfigured` in `assistant/src/config/webhook-routing.ts`, because that derivation is what the daemon reports to the user:
+
+- A **platform pod** with `velay-webhooks` off registers a Django-hosted callback route and never consults ingress. A pod's `ingress.publicBaseUrl` is written by the Velay tunnel client and cleared when the tunnel drops, while Telegram keeps delivering to whatever was last registered, so resolving through that address alone would leave the pod pointed at a dead one.
+- A **platform pod** with the flag on claims `/webhooks/telegram` in the webhook ingress route registry and points Telegram at `<published Velay URL>/webhooks/telegram`. The claim comes first because both admission layers in front of the route consult the registry. No published URL, or a claim that fails, falls back to the Django callback route.
+- **Everyone else** uses a configured `ingress.publicBaseUrl` when there is one (a self-hosted tunnel) and a Django callback route otherwise. An explicit `ingress.enabled: false` deregisters the webhook instead; platform pods are exempt from that flag, having no self-owned ingress to disable.
+
+Reconciliation re-runs when the credential watcher sees Telegram or `vellum` credentials change, when the config file watcher sees an ingress change, on system wake, and when `velay-webhooks` flips. The flag flip and the tunnel publishing its URL are what move a pod between the two addresses, in either direction, so a gradual flag rollout migrates assistants without a restart. Those triggers arrive in bursts, because a tunnel refresh clears `ingress.publicBaseUrl` and republishes it moments later, so `reconcileTelegramWebhook` serializes them: one reconciliation runs, everything that arrives during it collapses into a single rerun, and that rerun re-reads config so the last `setWebhook` is the one holding the settled address. No daemon involvement is needed for any of it, and manual webhook registration is not required.
 
 ### Routing
 
@@ -1055,7 +1079,7 @@ Signature validation is **fail-closed**: if the Twilio auth token is not configu
 
 - Twilio voice/status/media-stream URLs use `ingress.publicBaseUrl`.
 - Velay registration publishes its public assistant URL to `ingress.publicBaseUrl` with `ingress.publicBaseUrlManagedBy: "velay"`.
-- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs also use `ingress.publicBaseUrl`; Velay-managed URL changes are tagged so unrelated reconciliation can be skipped when appropriate.
+- Telegram webhooks, OAuth callbacks, email callbacks, and normal JSON webhook URLs also use `ingress.publicBaseUrl`; Velay-managed URL changes are tagged so unrelated reconciliation can be skipped when appropriate. With `velay-webhooks` on, the Telegram reconcile stops skipping them, because a pod's Velay URL is then the address it registers.
 - Module-level assistant state remains a fallback for legacy tunnel start/stop flows.
 
 All webhook paths (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/telegram`, `/webhooks/oauth/callback`, etc.) are appended automatically.

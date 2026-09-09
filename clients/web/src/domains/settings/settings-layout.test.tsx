@@ -16,6 +16,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
     settingsDeveloperNav: () => assistantFlags.settingsDeveloperNav ?? false,
+    vellumHostedInference: () => assistantFlags.vellumHostedInference ?? false,
   };
   return { useAssistantFeatureFlagStore: store };
 });
@@ -80,9 +81,15 @@ mock.module("@/components/sidebar-shell", () => ({
 }));
 
 mock.module("@/components/sidebar-tree", () => ({
-  SidebarTree: ({ items }: { items: SidebarItem[] }) => (
+  SidebarTree: ({
+    items,
+    bottomItems = [],
+  }: {
+    items: SidebarItem[];
+    bottomItems?: SidebarItem[];
+  }) => (
     <nav aria-label="Settings navigation">
-      {items.map((item) => (
+      {[...items, ...bottomItems].map((item) => (
         <a key={item.id} href={item.href}>
           {item.label}
         </a>
@@ -171,6 +178,36 @@ describe("SettingsLayout", () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole("link", { name: "Credentials" })).not.toBeNull();
+  });
+
+  test("renders Personality only when hosted inference is on", () => {
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("link", { name: "Personality" })).toBeNull();
+    cleanup();
+
+    assistantFlags.vellumHostedInference = true;
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Personality" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Developer" })).toBeNull();
+  });
+
+  test("renders Developer only when developer nav is on", () => {
+    assistantFlags.settingsDeveloperNav = true;
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Developer" })).not.toBeNull();
+    expect(screen.queryByRole("link", { name: "Personality" })).toBeNull();
   });
 
   test("renders Notifications only in the native Android app", () => {

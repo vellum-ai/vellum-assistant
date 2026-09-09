@@ -19,12 +19,28 @@ mock.module("./logger", () => ({
 mock.module("./appleScriptExecutor", () => ({
   runAppleScript: async () => "",
 }));
+/**
+ * What the helper answers when the module reaches it directly, which the
+ * preview path does: it takes no deps, since a picture of a window is the one
+ * thing on this side with nothing to decide.
+ */
+let helperCall: (
+  method: string,
+  params?: unknown,
+) => Promise<unknown> = async () => ({ windows: [] });
 mock.module("./sidecar/shared-cu-helper", () => ({
-  getSharedCuHelper: () => ({ call: async () => ({ windows: [] }) }),
+  getSharedCuHelper: () => ({
+    call: (method: string, params?: unknown) => helperCall(method, params),
+  }),
 }));
 
 const {
   CHROME_BUNDLE_ID,
+  THUMBNAIL_CONCURRENCY,
+  THUMBNAIL_MAX_HEIGHT,
+  THUMBNAIL_MAX_WIDTH,
+  bringForward,
+  captureSourceThumbnail,
   chromeWindowFor,
   listCaptureSources,
   parseChromeTabs,
@@ -56,19 +72,26 @@ const chrome = (over: Partial<HelperWindow>): HelperWindow =>
 /** Deps that answer with what a case hands in and record what was asked. */
 const deps = (
   over: Partial<CaptureSourceDeps> = {},
-): CaptureSourceDeps & { activated: [number, number][] } => {
+): CaptureSourceDeps & { activated: [number, number][]; raised: number[] } => {
   const activated: [number, number][] = [];
+  const raised: number[] = [];
   return {
     listWindows: async () => [],
     listDisplays: () => [],
+    pointerDisplayId: () => 0,
     listChromeTabs: async () => [],
     activateChromeTab: async (chromeWindowId, tabIndex) => {
       activated.push([chromeWindowId, tabIndex]);
       return null;
     },
+    raiseWindow: async (windowId) => {
+      raised.push(windowId);
+      return true;
+    },
     iconFor: async () => undefined,
     ...over,
     activated,
+    raised,
   };
 };
 
@@ -312,7 +335,7 @@ describe("the Chrome window for a tab", () => {
     expect(chromeWindowFor(windows, "Inbox - ")?.windowId).toBe(4);
   });
 
-  test("is the window at the bounds Chrome reports, whatever the titles", () => {
+  test("is the one window at the bounds Chrome reports with the tab's title", () => {
     const placed = {
       minimized: false,
       bounds: { x: 0, y: 0, width: 600, height: 400 },
@@ -321,6 +344,7 @@ describe("the Chrome window for a tab", () => {
       chromeWindowFor(
         [
           chrome({ windowId: 6, title: "Inbox" }),
+          chrome({ windowId: 7, title: "Docs" }),
           chrome({
             windowId: 3,
             title: "Inbox",
@@ -340,6 +364,59 @@ describe("the Chrome window for a tab", () => {
             bounds: { x: 100, y: 0, width: 600, height: 400 },
           }),
         ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+  });
+
+  /**
+   * Two maximized Chrome windows on the same page are one rectangle and one
+   * title. The picked one may be the one on another Space, which the helper
+   * lists as off screen, so neither is named.
+   */
+  test("is nothing when an exact and a decorated title share the rectangle", () => {
+    const placed = {
+      minimized: false,
+      bounds: { x: 0, y: 0, width: 600, height: 400 },
+    };
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 6, title: "Inbox" }),
+          chrome({ windowId: 9, title: "Inbox - Google Chrome" }),
+        ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 9, title: "Inbox - Google Chrome" })],
+        "Inbox",
+        placed,
+      )?.windowId,
+    ).toBe(9);
+  });
+
+  test("is nothing when a look-alike shares the rectangle and the title", () => {
+    const placed = {
+      minimized: false,
+      bounds: { x: 0, y: 0, width: 600, height: 400 },
+    };
+    expect(
+      chromeWindowFor(
+        [
+          chrome({ windowId: 6, title: "Inbox", onScreen: true }),
+          chrome({ windowId: 8, title: "Inbox", onScreen: false }),
+        ],
+        "Inbox",
+        placed,
+      ),
+    ).toBeUndefined();
+    expect(
+      chromeWindowFor(
+        [chrome({ windowId: 8, title: "Inbox", onScreen: false })],
         "Inbox",
         placed,
       ),
@@ -393,7 +470,7 @@ describe("the Chrome window for a tab", () => {
 });
 
 describe("resolving a pick", () => {
-  test("a display and a window are already targets", async () => {
+  test("a display is already a target, and nothing is brought forward", async () => {
     const d = deps();
     expect(
       await resolveCapturePick({ kind: "display", displayId: 5 }, d),
@@ -401,24 +478,89 @@ describe("resolving a pick", () => {
       kind: "display",
       displayId: 5,
     });
+    expect(d.activated).toEqual([]);
+    expect(d.raised).toEqual([]);
+  });
+
+  test("a window is already a target, and comes to the front", async () => {
+    const d = deps();
     expect(
       await resolveCapturePick({ kind: "window", windowId: 8 }, d),
     ).toEqual({
       kind: "window",
       windowId: 8,
     });
+    expect(d.raised).toEqual([8]);
     expect(d.activated).toEqual([]);
   });
 
+  test("a window the helper cannot raise is still the target", async () => {
+    for (const raiseWindow of [
+      async () => false,
+      async () => {
+        throw new Error("helper down");
+      },
+    ]) {
+      const d = deps({ raiseWindow });
+      expect(
+        await resolveCapturePick({ kind: "window", windowId: 8 }, d),
+      ).toEqual({ kind: "window", windowId: 8 });
+    }
+  });
+
+  test("a helper that is slow to raise does not hold the pick", async () => {
+    // A helper that never answers: the shared client would give up after a
+    // minute, and a pick cannot wait that long on a window that is going
+    // to be read where it is anyway.
+    let late: ((raised: boolean) => void) | undefined;
+    const d = deps({
+      raiseWindow: () =>
+        new Promise<boolean>((resolve) => {
+          late = resolve;
+        }),
+    });
+    const started = Date.now();
+    await bringForward(8, d, 20);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    // The answer arriving afterwards is taken quietly.
+    late?.(false);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  test("a helper that fails after the wait does not surface an unhandled rejection", async () => {
+    let fail: ((err: Error) => void) | undefined;
+    const d = deps({
+      raiseWindow: () =>
+        new Promise<boolean>((_, reject) => {
+          fail = reject;
+        }),
+    });
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      await bringForward(8, d, 20);
+      fail?.(new Error("helper down"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   test("a tab is shown, brought forward, and then is its window", async () => {
+    const asked: (boolean | undefined)[] = [];
     const d = deps({
       listChromeTabs: async () => [
         { chromeWindowId: 101, tabIndex: 2, active: false, title: "Docs" },
       ],
-      listWindows: async () => [
-        chrome({ windowId: 2, title: "Docs" }),
-        chrome({ windowId: 3, title: "Inbox" }),
-      ],
+      listWindows: async (includeOffscreen) => {
+        asked.push(includeOffscreen);
+        return [
+          chrome({ windowId: 2, title: "Docs" }),
+          chrome({ windowId: 3, title: "Inbox" }),
+        ];
+      },
     });
     expect(
       await resolveCapturePick(
@@ -427,6 +569,11 @@ describe("resolving a pick", () => {
       ),
     ).toEqual({ kind: "window", windowId: 2 });
     expect(d.activated).toEqual([[101, 2]]);
+    // Every window, so a look-alike on another Space is counted.
+    expect(asked).toEqual([true]);
+    // The window it resolved to, after Chrome's own activation, so the tab
+    // is in front of the user's work and not only in front of Chrome's.
+    expect(d.raised).toEqual([2]);
   });
 
   test("a tab Chrome no longer has resolves to nothing", async () => {
@@ -508,5 +655,81 @@ describe("where a window is", () => {
       height: 4,
     });
     expect(await windowBoundsFor(8, d)).toBeNull();
+  });
+});
+
+/**
+ * The picture a picker tile is drawn from: the same capture the share takes,
+ * asked for small and asked for many at once.
+ */
+describe("a picker preview", () => {
+  test("is the helper's frame, as the data URL an img takes", async () => {
+    const asked: unknown[] = [];
+    helperCall = async (method, params) => {
+      asked.push([method, params]);
+      return { jpegBase64: "/9j/4AA", width: 320, height: 200 };
+    };
+    expect(await captureSourceThumbnail({ kind: "window", windowId: 7 })).toBe(
+      "data:image/jpeg;base64,/9j/4AA",
+    );
+    expect(asked).toEqual([
+      [
+        "capture.frame",
+        {
+          windowId: 7,
+          maxWidth: THUMBNAIL_MAX_WIDTH,
+          maxHeight: THUMBNAIL_MAX_HEIGHT,
+        },
+      ],
+    ]);
+  });
+
+  test("is nothing when the helper would not take one", async () => {
+    helperCall = async () => {
+      throw new Error("window not found");
+    };
+    expect(
+      await captureSourceThumbnail({ kind: "display", displayId: 2 }),
+    ).toBeNull();
+  });
+
+  test("is nothing when the helper answers with something else", async () => {
+    helperCall = async () => ({ jpegBase64: "" });
+    expect(
+      await captureSourceThumbnail({ kind: "window", windowId: 7 }),
+    ).toBeNull();
+  });
+
+  /**
+   * The picker asks for one of these per window on the desktop, all at once,
+   * through the one helper the hotkeys and any computer-use action in
+   * progress also share.
+   */
+  test("reaches the helper a handful at a time, however many are asked for", async () => {
+    let live = 0;
+    let peak = 0;
+    const waiting: (() => void)[] = [];
+    helperCall = async () => {
+      live += 1;
+      peak = Math.max(peak, live);
+      await new Promise<void>((resolve) => waiting.push(resolve));
+      live -= 1;
+      return { jpegBase64: "/9j/", width: 2, height: 1 };
+    };
+    const asked = THUMBNAIL_CONCURRENCY * 3;
+    const all = Promise.all(
+      Array.from({ length: asked }, (_, index) =>
+        captureSourceThumbnail({ kind: "window", windowId: index }),
+      ),
+    );
+    await Bun.sleep(0);
+    expect(live).toBe(THUMBNAIL_CONCURRENCY);
+    for (let i = 0; i < asked; i += 1) {
+      waiting.shift()?.();
+      await Bun.sleep(0);
+      await Bun.sleep(0);
+    }
+    expect(await all).toHaveLength(asked);
+    expect(peak).toBe(THUMBNAIL_CONCURRENCY);
   });
 });

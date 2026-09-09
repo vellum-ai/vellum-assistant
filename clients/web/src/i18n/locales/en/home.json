@@ -12,17 +12,15 @@
     "clearAll": "Clear all"
   },
   "category": {
-    "security": "Security",
-    "email": "Email",
-    "scheduling": "Scheduling",
-    "background": "Background",
-    "system": "System",
-    "guardianAction": "Guardian action needed",
+    "guardianAction": "Needs your approval",
+    "guardianAnswer": "Needs your answer",
     "guardianQuestion": "Guardian question",
     "guardianRequest": "Guardian request"
   },
   "homeRecapRow": {
-    "actionsTitle": "Update Actions"
+    "actionsTitle": "Update Actions",
+    "approve": "Approve",
+    "reject": "Reject"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Missing scopes",
@@ -40,7 +38,10 @@
     "ariaLabelUnread": "Notifications (unread)",
     "heading": "Notifications",
     "loadFailed": "Couldn't load notifications.",
-    "actionFailed": "Couldn't start that conversation. Try again."
+    "actionFailed": "Couldn't start that conversation. Try again.",
+    "decisionNotPermitted": "You don't have permission to decide this request.",
+    "decisionNotApplied": "That decision couldn't be applied.",
+    "decisionFollowThroughFailed": "Your decision was recorded, but the step after it failed."
   },
   "notificationsBellDetail": {
     "back": "Back to notifications"

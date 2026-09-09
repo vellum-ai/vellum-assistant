@@ -172,6 +172,15 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.message, "A reminder has fired"),
   }),
 
+  // Unreachable on the happy path: the producer always carries
+  // `requestedMessage`, so `composeFallbackCopy`'s verbatim branch answers
+  // first. This is the floor for a signal whose body was lost, and it names
+  // the schedule so the user can still find the run.
+  "schedule.result": (payload) => ({
+    title: sanitizedPayloadField(payload.scheduleName, "Schedule"),
+    body: "A scheduled run finished with results.",
+  }),
+
   // The schedule.* fields below (names, cadence, error reason) originate in
   // plugin-authored declaration files, so they are sanitized like any other
   // untrusted actor-controlled string before interpolation.
@@ -311,7 +320,8 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     );
     const verb = parsed?.decision === "approved" ? "approved" : "denied";
     return {
-      title: "Trusted Contact Decision",
+      // The outcome is the headline; who decided it is the body's to say.
+      title: `Access request ${verb}`,
       body: `${requesterLabel}'s access request has been ${verb} by ${decidedByLabel}.`,
     };
   },
@@ -326,15 +336,27 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     body: str(payload.body, "A watcher event requires your attention"),
   }),
 
-  "tool_confirmation.required_action": (payload) => ({
-    title: "Tool Confirmation",
-    body: str(payload.toolName, "A tool") + " requires your confirmation",
-  }),
+  "tool_confirmation.required_action": (payload) => {
+    const toolName = str(payload.toolName, "A tool");
+    return {
+      title: `${toolName} needs your confirmation`,
+      body: `${toolName} requires your confirmation`,
+    };
+  },
 
-  "activity.complete": (payload) => ({
-    title: "Activity Complete",
-    body: str(payload.summary, "An activity has completed"),
-  }),
+  // Titled by what was done rather than by the kind of event: the summary's
+  // first sentence is the outcome ("Finished the fuel-system diagnostic app"),
+  // which is what a reader scanning the bell wants to see. A summary without
+  // one still gets a title that says something happened.
+  "activity.complete": (payload) => {
+    const summary = nonEmpty(
+      typeof payload.summary === "string" ? payload.summary : undefined,
+    );
+    return {
+      title: summary ? deriveTitle(summary) : "Activity complete",
+      body: summary ?? "An activity has completed",
+    };
+  },
 
   "activity.failed": (payload) => {
     const jobName = str(payload.jobName, "background job");
@@ -357,12 +379,12 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "quick_chat.response_ready": (payload) => ({
-    title: "Response Ready",
+    title: "Quick chat reply ready",
     body: str(payload.preview, "Your quick chat response is ready"),
   }),
 
   "voice.response_ready": (payload) => ({
-    title: "Voice Response",
+    title: "Voice reply ready",
     body: str(payload.preview, "A voice response is ready"),
   }),
 };

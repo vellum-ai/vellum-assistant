@@ -403,6 +403,42 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-6 Astra. cacheRead is the 90% cached-read discount; cacheWrite
+      // is the 1.25x-input rate GPT-5.6+ bills for prompt tokens written to
+      // the cache (reported as `cache_write_tokens` in usage, tracked as
+      // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
+      // / 1.5x output / 2x cache-read+write for the whole request. Effort
+      // accepts low through max and rejects `none`.
+      {
+        id: "gpt-6-astra",
+        displayName: "GPT-6 Astra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
       // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
       // discount; cacheWrite is the 1.25x-input rate GPT-5.6+ bills for
       // prompt tokens written to the cache (reported as `cache_write_tokens`
@@ -1309,6 +1345,72 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       // OpenAI
+      // GPT-6 Astra. The `*-pro` slug is the same underlying model served
+      // with `reasoning.mode: pro` at identical rates. cacheWrite is the
+      // 1.25x-input rate GPT-5.6+ bills for prompt tokens written to the
+      // cache. Long-context (>272K input) is 2x input / 1.5x output / 2x
+      // cache-read+write for the whole request. Effort accepts low through
+      // max and rejects `none`.
+      {
+        id: "openai/gpt-6-astra",
+        displayName: "GPT-6 Astra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-6-astra-pro",
+        displayName: "GPT-6 Astra Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
       // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
       // underlying models served with `reasoning.mode: pro` at identical
       // rates. cacheWrite is the 1.25x-input rate GPT-5.6+ bills for prompt
@@ -2419,7 +2521,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint:
       "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
-    featureFlag: "settings-developer-nav",
+    featureFlag: "vellum-hosted-inference",
     models: [
       {
         id: "qwen/qwen3-8b",
@@ -2431,7 +2533,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 0.3 },
-        featureFlag: "settings-developer-nav",
+        featureFlag: "vellum-hosted-inference",
       },
     ],
     defaultModel: "qwen/qwen3-8b",

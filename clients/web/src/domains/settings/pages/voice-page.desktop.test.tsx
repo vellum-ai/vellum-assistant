@@ -1,17 +1,16 @@
 import type { UseManagedVoiceSelection } from "@/components/speech/use-managed-voice-selection";
 import type { UseSttLanguageSelection } from "@/components/speech/use-stt-language-selection";
 /**
- * The desktop-host voice mode shortcut card.
+ * The voice key card, on the desktop host that has a helper to watch it.
  *
- * On the desktop app the card offers Fn (through the host helper), a recorded
- * Talk chord (through `settings.hotkeys`), and Off. Off is the answer
- * "nothing starts Talk by keyboard": it stores an explicit `off` activator
- * (which drops the helper's Fn registration) and clears the Talk chord.
+ * The card offers Fn, a modifier set of the user's own, and Off. It replaces
+ * the voice mode shortcut card there: one key carries every gesture, so the
+ * chord rail is not on offer.
  *
  * Drives the real card with the Electron host mocked at the runtime-wrapper
- * seam: `is-electron` reports a desktop host, `hotkey` reports Fn support,
- * and `hotkeys` is an in-memory Talk binding. Follows single-file `bun test`
- * isolation.
+ * seam: `is-electron` reports a desktop host, `hotkey` reports a helper that
+ * can watch a held set, and `system-permissions` an Input Monitoring grant.
+ * Follows single-file `bun test` isolation.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -49,33 +48,25 @@ mock.module("@/runtime/is-electron", () => ({
   isElectron: () => true,
 }));
 mock.module("@/runtime/hotkey", () => ({
-  supportsFnPushToTalk: () => true,
-  setFnPushToTalkEnabled: async () => true,
+  supportsModifierHold: () => true,
   subscribeToHotkeyEvents: () => () => {},
 }));
 
-// In-memory stand-in for the Electron Keyboard Shortcuts bridge, holding just
-// the Talk binding the card reads and writes.
-const hotkeyWrites: Array<{ key: string; accelerator: string | null }> = [];
-let talkAccelerator = "";
-mock.module("@/runtime/hotkeys", () => ({
-  getHotkeys: async () => [
-    {
-      key: "toggleVoice",
-      label: "Talk",
-      scope: "global",
-      defaultAccelerator: "",
-      override: talkAccelerator || null,
-      accelerator: talkAccelerator,
-      rebindable: true,
-    },
-  ],
-  setHotkey: async (key: string, accelerator: string | null) => {
-    hotkeyWrites.push({ key, accelerator });
-    if (key === "toggleVoice") {
-      talkAccelerator = accelerator ?? "";
-    }
+let inputMonitoringStatus = "granted";
+const permissionRequests: string[] = [];
+mock.module("@/runtime/system-permissions", () => ({
+  getSystemPermissionsState: async () => ({
+    inputMonitoring: { status: inputMonitoringStatus },
+  }),
+  requestSystemPermission: async (kind: string) => {
+    permissionRequests.push(kind);
+    return null;
   },
+}));
+
+mock.module("@/runtime/hotkeys", () => ({
+  getHotkeys: async () => [],
+  setHotkey: async () => {},
   onHotkeysChange: () => () => {},
 }));
 
@@ -96,55 +87,106 @@ function renderPage() {
   );
 }
 
-function storedBinding() {
-  return JSON.parse(
-    localStorage.getItem("vellum:voice:voiceModeActivation") ?? "null",
-  );
+function storedKey() {
+  return JSON.parse(localStorage.getItem("vellum:voice:voiceKey") ?? "null");
+}
+
+/** The chip row is the recording zone; key events go to it. */
+function recordingZone() {
+  const zone = screen.getByRole("button", { name: "Fn" }).parentElement;
+  if (!zone) {
+    throw new Error("recording zone not found");
+  }
+  return zone;
 }
 
 beforeEach(() => {
   localStorage.clear();
-  hotkeyWrites.length = 0;
-  talkAccelerator = "";
+  inputMonitoringStatus = "granted";
+  permissionRequests.length = 0;
 });
 
-describe("VoiceSections voice mode shortcut on the desktop host", () => {
-  test("offers Fn, a custom chord, and Off", () => {
+describe("VoiceSections voice key on the desktop host", () => {
+  test("offers Fn, a custom set, and Off, with Fn chosen out of the box", () => {
     renderPage();
 
-    expect(screen.getByRole("button", { name: /Fn/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fn" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Custom" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Off" })).toBeTruthy();
+    expect(screen.queryByText("Voice Mode Shortcut")).toBeNull();
   });
 
-  test("choosing Off stores an explicit off and clears the Talk chord", async () => {
+  test("choosing Off stores an explicit off, and Fn brings it back", () => {
     renderPage();
 
     fireEvent.click(screen.getByRole("button", { name: "Off" }));
+    expect(storedKey()).toEqual({ kind: "off" });
 
-    expect(storedBinding()).toEqual({ kind: "off" });
-    await waitFor(() =>
-      expect(hotkeyWrites).toContainEqual({
-        key: "toggleVoice",
-        accelerator: "",
-      }),
-    );
-  });
-
-  test("choosing Fn after Off restores the Fn binding", async () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Off" }));
-    fireEvent.click(screen.getByRole("button", { name: /Fn/ }));
-
-    expect(storedBinding()).toEqual({
+    fireEvent.click(screen.getByRole("button", { name: "Fn" }));
+    expect(storedKey()).toEqual({
       kind: "modifierOnly",
       modifiers: ["function"],
     });
+  });
+
+  test("records a modifier set of two or more as the custom key", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    const zone = recordingZone();
+
+    fireEvent.keyDown(zone, { key: "Control", ctrlKey: true });
+    fireEvent.keyDown(zone, { key: "Alt", ctrlKey: true, altKey: true });
+    fireEvent.keyUp(zone, { key: "Alt", ctrlKey: true });
+    fireEvent.keyUp(zone, { key: "Control" });
+
+    expect(storedKey()).toEqual({
+      kind: "modifierOnly",
+      modifiers: ["control", "option"],
+    });
+    expect(screen.getByRole("button", { name: "Ctrl+Alt" })).toBeTruthy();
+  });
+
+  /**
+   * One modifier alone is held on the way to every capital letter, so it is
+   * refused with a word about what is missing rather than bound.
+   */
+  test("refuses a single modifier and says what is missing", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    const zone = recordingZone();
+
+    fireEvent.keyDown(zone, { key: "Shift", shiftKey: true });
+    fireEvent.keyUp(zone, { key: "Shift" });
+
+    expect(
+      screen.getByText(
+        "Hold two or more of Cmd, Ctrl, Option, and Shift, then let go.",
+      ),
+    ).toBeTruthy();
+    expect(storedKey()).toBe(null);
+  });
+
+  test("choosing a key asks for Input Monitoring", async () => {
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fn" }));
+
     await waitFor(() =>
-      expect(
-        hotkeyWrites.filter((write) => write.key === "toggleVoice"),
-      ).toHaveLength(2),
+      expect(permissionRequests).toContain("inputMonitoring"),
+    );
+  });
+
+  test("offers the grant again while Input Monitoring is missing", async () => {
+    inputMonitoringStatus = "denied";
+    renderPage();
+
+    const allow = await screen.findByRole("button", {
+      name: "Allow Input Monitoring",
+    });
+    fireEvent.click(allow);
+
+    await waitFor(() =>
+      expect(permissionRequests).toContain("inputMonitoring"),
     );
   });
 });

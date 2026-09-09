@@ -195,6 +195,28 @@ async function buildLanes(): Promise<Lanes> {
   return { sectionIndex, needle, edgeGraph };
 }
 
+/** Lanes over an ad-hoc page map (bodies only, no `links:` frontmatter), for
+ *  tests whose fixture needs pages the shared corpus does not have. */
+async function customLanes(pages: Record<Slug, string>): Promise<Lanes> {
+  const slugs = Object.keys(pages);
+  const entries: PageIndexEntry[] = slugs.map((slug, i) => ({
+    id: i + 1,
+    slug,
+    summary: `summary of ${slug}`,
+    edges: [],
+    leaves: [],
+    modifiedAt: 0,
+    freshAt: null,
+  }));
+  const sectionIndex = await buildSectionIndex(slugs, async (s) => pages[s]!);
+  const needle = buildSectionNeedle(sectionIndex);
+  const edgeGraph = await buildEdgeGraph(
+    entries,
+    async (s) => `---\nedges: []\n---\n${pages[s]}`,
+  );
+  return { sectionIndex, needle, edgeGraph };
+}
+
 const config = {} as never;
 
 /**
@@ -224,6 +246,7 @@ function depsOf(
     hotSlugs,
     freshSlugs,
     prefixCards,
+    finderSectionsPerPage: 3,
     ...overrides,
   };
 }
@@ -304,14 +327,14 @@ function parsePool(messages: Message[]): {
 
 /**
  * Provider that selects the pool candidates whose slug is in `keep` (mapping
- * each back to its 1-based id), pinning those in `pin`. Captures the rendered
- * candidate list (slugs and raw lines) for pool assertions.
+ * each back to its 1-based id). Captures the rendered candidate list (slugs
+ * and raw lines) for pool assertions.
  */
 let lastPool: Slug[] = [];
 let lastPoolLines: string[] = [];
 let lastPrefixBlock: string | null = null;
 let selectCalls = 0;
-function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
+function selectProvider(keep: Slug[]): Provider {
   return {
     name: "stub",
     sendMessage: async (messages) => {
@@ -321,16 +344,12 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
       lastPoolLines = parsed.lines;
       lastPrefixBlock = parsed.prefixBlock;
       const ids: number[] = [];
-      const pinned_ids: number[] = [];
       parsed.slugs.forEach((slug, i) => {
         if (keep.includes(slug)) {
           ids.push(i + 1);
         }
-        if (pin.includes(slug)) {
-          pinned_ids.push(i + 1);
-        }
       });
-      return toolUseResponse({ ids, pinned_ids });
+      return toolUseResponse({ ids });
     },
   };
 }
@@ -402,7 +421,7 @@ describe("orchestrate — candidate pool composition", () => {
     expect(lastPool).toContain(CAP);
   });
 
-  test("always-candidate slugs are pinned into the stable prefix and are selectable", async () => {
+  test("always-candidate slugs are placed in the stable prefix and are selectable", async () => {
     const lanes = await buildLanes();
     const WF: Slug = "skills/workflows";
     // No retrieval lane surfaces WF for "apple" (hits topic-a/b/d) — it reaches
@@ -452,6 +471,9 @@ describe("orchestrate — candidate pool composition", () => {
       },
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider([]);
     await orchestrate(makeTurn(1, "x"), depsOf(lanes, { needle }));
@@ -498,6 +520,8 @@ describe("orchestrate — candidate pool composition", () => {
     expect(new Set(result.selections.map((s) => s.slug))).toEqual(
       new Set(["topic-a", "topic-b", "topic-d"]),
     );
+    // A passthrough is not a selector judgment.
+    expect(result.selectorRan).toBe(false);
   });
 
   test("selectorEnabled=false with zero candidate lanes returns no selections", async () => {
@@ -514,17 +538,28 @@ describe("orchestrate — candidate pool composition", () => {
 
     expect(selectCalls).toBe(0);
     expect(result.selections).toEqual([]);
-    expect(result.lanes).toEqual({ core: [], hot: [], fresh: [], finder: [] });
+    expect(result.lanes).toEqual({
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [],
+    });
   });
 
-  test("matchedSections is populated from matched lane sections", async () => {
+  test("a finder line carries its matched section and terms, and selecting it selects that section", async () => {
     const lanes = await buildLanes();
     denseHits = [];
     providerStub = selectProvider(["topic-a"]);
     const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
     // topic-a matched "apple" in its `## Details` section.
-    expect(result.matchedSections.get("topic-a")?.article).toBe("topic-a");
-    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+    const line = result.lanes.finder.find((c) => c.slug === "topic-a");
+    expect(line?.section?.article).toBe("topic-a");
+    expect(line?.section?.text).toContain("apple");
+    expect(line?.terms).toEqual(["apple"]);
+    expect(result.selections).toEqual([
+      { slug: "topic-a", sections: [line!.section!] },
+    ]);
   });
 });
 
@@ -600,11 +635,13 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
       ["topic-b", "reply"],
       ["topic-d", "edge"],
     ]);
-    // The reply-matched section is recorded for injection/spotlight.
-    expect(result.matchedSections.has("topic-b")).toBe(true);
+    // The reply-matched section rides its finder line.
+    expect(
+      result.lanes.finder.find((c) => c.slug === "topic-b")?.section?.text,
+    ).toContain("cherry date");
   });
 
-  test("a slug both queries surface keeps its primary-lane attribution", async () => {
+  test("a section both queries surface is pooled once, under the primary lane", async () => {
     const lanes = await buildLanes();
     denseHits = [];
     providerStub = selectProvider([]);
@@ -667,9 +704,11 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
       ["topic-d", "edge"],
       ["topic-c", "learned"],
     ]);
-    // Association, not lexical relevance, surfaced topic-c — no matched
-    // section is recorded (injection falls back to the full page).
-    expect(result.matchedSections.has("topic-c")).toBe(false);
+    // Association, not lexical relevance, surfaced topic-c: its line carries
+    // no section (a selection of it injects the lead).
+    expect(
+      result.lanes.finder.find((c) => c.slug === "topic-c")?.section,
+    ).toBeUndefined();
   });
 
   test("learnedCap = 0 disables the learned pass", async () => {
@@ -778,11 +817,13 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     expect(
       lastPoolLines.find((l) => /^\[2\] (?:\([^)]*\) )?topic-a — /.test(l)),
     ).toContain("apple");
-    // Selecting both ids still yields ONE selection (slug dedup), the finder
-    // lane records the hit, and the matched section survives downstream.
-    expect(result.selections).toEqual([{ slug: "topic-a", pinned: false }]);
-    expect(result.lanes.finder.map((c) => c.slug)).toContain("topic-a");
-    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
+    // Selecting both ids still yields ONE selection (merged per slug), which
+    // carries the finder line's matched section.
+    const line = result.lanes.finder.find((c) => c.slug === "topic-a");
+    expect(line?.section?.text).toContain("apple");
+    expect(result.selections).toEqual([
+      { slug: "topic-a", sections: [line!.section!] },
+    ]);
   });
 
   test("a hot slug duplicated into core is defensively dropped from hot", async () => {
@@ -818,13 +859,6 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
     const t2 = await orchestrate(makeTurn(2, "cherry"), deps);
     expect(t2.selections.map((s) => s.slug)).toEqual(["topic-b"]);
   });
-
-  test("pinned flags survive selection dedup", async () => {
-    const lanes = await buildLanes();
-    providerStub = selectProvider(["topic-a"], ["topic-a"]);
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
-    expect(result.selections).toEqual([{ slug: "topic-a", pinned: true }]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -836,7 +870,7 @@ describe("orchestrate — cache-ordered pool (core + hot + finders)", () => {
 // ---------------------------------------------------------------------------
 
 describe("orchestrate — edge-only injection", () => {
-  test("an edge-only page records NO matchedSections entry (→ full-page inject)", async () => {
+  test("an edge-only page carries NO section (its selection injects the lead)", async () => {
     const lanes = await buildLanes();
     // "apple" hits topic-a (needle); topic-a links to topic-d (edge-only — the
     // query never hits topic-d). Select topic-d so it is in the result.
@@ -844,18 +878,19 @@ describe("orchestrate — edge-only injection", () => {
     providerStub = selectProvider(["topic-d"]);
     const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
 
-    // topic-d was selected, but with NO matched section — so
-    // `renderV3SectionContent(slug, undefined)` falls back to the full page.
-    expect(result.selections.map((s) => s.slug)).toContain("topic-d");
-    expect(result.matchedSections.has("topic-d")).toBe(false);
+    // topic-d was selected with NO section, so the injector renders its lead.
+    expect(result.selections).toContainEqual({ slug: "topic-d", sections: [] });
+    expect(
+      result.lanes.finder.find((c) => c.slug === "topic-d")?.section,
+    ).toBeUndefined();
   });
 
   test("an edge-only page with no curated description falls back to bestSection text as the descriptor", async () => {
     // A bare `links:` entry (no ` — `) carries NO description, so the edge
     // candidate's descriptor falls back to the page's best section against the
     // query. The query never hits dst-page, so bestSection returns its lead;
-    // that lead text becomes the descriptor (and the page is still injected in
-    // full, with no matchedSections entry).
+    // that lead text becomes the descriptor (and the line still carries no
+    // section).
     const pages: Record<Slug, string> = {
       "src-page": "lead for src\n## Body\nalpha bravo about src",
       "dst-page": "lead content for dst page\n## Extra\nnothing relevant here",
@@ -888,10 +923,12 @@ describe("orchestrate — edge-only injection", () => {
       depsOf({ sectionIndex, needle, edgeGraph }),
     );
 
-    // Descriptor fell back to dst-page's lead text; still no matched section.
+    // Descriptor fell back to dst-page's lead text; still no section.
     const line = lastPoolLines.find((l) => / dst-page — /.test(l));
     expect(line).toContain("lead content for dst page");
-    expect(result.matchedSections.has("dst-page")).toBe(false);
+    expect(
+      result.lanes.finder.find((c) => c.slug === "dst-page")?.section,
+    ).toBeUndefined();
   });
 });
 
@@ -936,9 +973,11 @@ describe("orchestrate — dense liveness filter", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Lane provenance: each finder candidate records the lane that FIRST surfaced
-// it (needle → dense → edge precedence), exposed via `result.lanes.finder` so
-// the selection telemetry can attribute true sources.
+// Lane provenance: each finder line records the lane that surfaced it, exposed
+// via `result.lanes.finder` so the selection telemetry can attribute true
+// sources. A section two lanes both score is pooled once, under the first lane
+// (needle → dense → reply → span → entity order); a different section of the
+// same page is its own line under its own lane.
 // ---------------------------------------------------------------------------
 
 describe("orchestrate — finder lane provenance", () => {
@@ -959,17 +998,47 @@ describe("orchestrate — finder lane provenance", () => {
     expect(laneOf.get("topic-d")).toBe("edge");
   });
 
-  test("a slug surfaced by needle AND dense keeps the needle lane (first wins)", async () => {
+  test("the same section surfaced by needle AND dense is pooled once, under the needle lane", async () => {
     const lanes = await buildLanes();
-    // topic-a is surfaced by the needle on "apple"; dense ALSO returns topic-a.
-    // Needle runs first, so the recorded lane stays needle.
-    denseHits = [{ article: "topic-a", section: 0 }];
+    // topic-a is surfaced by the needle on "apple" (`## Details`, ordinal 1);
+    // dense ALSO returns that section. Needle runs first, so the one line
+    // reads needle.
+    denseHits = [{ article: "topic-a", section: 1 }];
     providerStub = selectProvider([]);
-    const result = await orchestrate(makeTurn(1, "apple"), depsOf(lanes));
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100 }),
+    );
 
     const entries = result.lanes.finder.filter((c) => c.slug === "topic-a");
     expect(entries).toHaveLength(1);
     expect(entries[0]!.lane).toBe("needle");
+  });
+
+  test("a different section of a needle-surfaced page reached by dense is its own dense line", async () => {
+    const lanes = await buildLanes();
+    // needle: topic-a `## Details` (ordinal 1); dense: topic-a's lead
+    // (ordinal 0). Two sections, two lines, needle first.
+    denseHits = [{ article: "topic-a", section: 0 }];
+    providerStub = selectProvider(["topic-a"]);
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100 }),
+    );
+
+    const entries = result.lanes.finder.filter((c) => c.slug === "topic-a");
+    expect(entries.map((c) => [c.lane, c.section?.ordinal])).toEqual([
+      ["needle", 1],
+      ["dense", 0],
+    ]);
+    // The pool shows both lines; keeping both selects both sections.
+    expect(lastPool.filter((s) => s === "topic-a")).toHaveLength(2);
+    expect(result.selections).toEqual([
+      {
+        slug: "topic-a",
+        sections: [entries[0]!.section!, entries[1]!.section!],
+      },
+    ]);
   });
 });
 
@@ -989,11 +1058,15 @@ describe("orchestrate — degradation", () => {
           queryScored: () => [],
           bestSection: () => -1,
           idf: () => 0,
+          topTerms: () => [],
+          df: () => 0,
+          scoreTerm: () => [],
         },
       }),
     );
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
+    expect(result.selectorRan).toBe(false);
   });
 
   test("omitted ids keeps ALL pooled candidates (recall-safe)", async () => {
@@ -1015,12 +1088,13 @@ describe("orchestrate — degradation", () => {
 
 // ---------------------------------------------------------------------------
 // Entity lane: the heading section is the identity the lane exists to surface,
-// so it overrides a bulk-theme section a prior lane already recorded for the
-// same page, and surfaces a heading-named page no other lane found.
+// so it joins the pool as its own line beside any bulk-theme section a prior
+// lane pooled for the same page, and surfaces a heading-named page no other
+// lane found.
 // ---------------------------------------------------------------------------
 
 describe("orchestrate — entity lane", () => {
-  test("overrides the matched section + descriptor to the heading when another lane already surfaced the page", async () => {
+  test("adds the heading section as its own line beside the bulk-theme section another lane pooled", async () => {
     const lanes = await buildLanes();
     const { sectionIndex } = lanes;
     // topic-a sections: [leadDoc] = lead (bulk), [headingDoc] = "## Details".
@@ -1035,6 +1109,9 @@ describe("orchestrate — entity lane", () => {
       queryScored: () => [{ article: "topic-a", section: leadDoc!, score: 1 }],
       bestSection: () => leadDoc!,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     const entityIndex = new Map<string, number[]>([["widget", [headingDoc!]]]);
 
@@ -1043,15 +1120,47 @@ describe("orchestrate — entity lane", () => {
       depsOf(lanes, { needle, entityIndex, selectorEnabled: false }),
     );
 
-    // The page is surfaced once and keeps the needle's first-lane attribution…
+    // Two lines for the page: the needle's bulk match keeps its line and
+    // attribution, and the heading joins under the entity lane with the
+    // heading text as its descriptor.
     const hits = result.lanes.finder.filter((c) => c.slug === "topic-a");
-    expect(hits).toHaveLength(1);
-    expect(hits[0]!.lane).toBe("needle");
-    // …but its matched section and pool descriptor are the HEADING, not the
-    // bulk lead the needle recorded.
-    expect(result.matchedSections.get("topic-a")).toBe(heading);
-    expect(result.matchedSections.get("topic-a")).not.toBe(lead);
-    expect(hits[0]!.descriptor).toBe(heading.text);
+    expect(hits.map((c) => [c.lane, c.section])).toEqual([
+      ["needle", lead],
+      ["entity", heading],
+    ]);
+    expect(hits[1]!.descriptor).toBe(heading.text);
+    // Both sections reach the selection (the passthrough keeps every line).
+    expect(result.selections).toContainEqual({
+      slug: "topic-a",
+      sections: [lead, heading],
+    });
+  });
+
+  test("an entity hit on the heading a prior lane already pooled is a no-op", async () => {
+    const lanes = await buildLanes();
+    const { sectionIndex } = lanes;
+    const [, headingDoc] = sectionIndex.byArticle.get("topic-a")!;
+    const heading = sectionIndex.sections[headingDoc!]!;
+    const needle = {
+      query: () => [{ article: "topic-a", section: headingDoc! }],
+      queryScored: () => [
+        { article: "topic-a", section: headingDoc!, score: 1 },
+      ],
+      bestSection: () => headingDoc!,
+      idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
+    };
+    const entityIndex = new Map<string, number[]>([["widget", [headingDoc!]]]);
+
+    const result = await orchestrate(
+      makeTurn(1, "tell me about the widget"),
+      depsOf(lanes, { needle, entityIndex, selectorEnabled: false }),
+    );
+
+    const hits = result.lanes.finder.filter((c) => c.slug === "topic-a");
+    expect(hits.map((c) => [c.lane, c.section])).toEqual([["needle", heading]]);
   });
 
   test("surfaces a heading-named page no other lane found, tagged `entity`", async () => {
@@ -1064,6 +1173,9 @@ describe("orchestrate — entity lane", () => {
       queryScored: () => [],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     const entityIndex = new Map<string, number[]>([["gadget", [headingDoc!]]]);
 
@@ -1075,8 +1187,11 @@ describe("orchestrate — entity lane", () => {
     const hits = result.lanes.finder.filter((c) => c.slug === "topic-c");
     expect(hits).toHaveLength(1);
     expect(hits[0]!.lane).toBe("entity");
-    expect(result.matchedSections.get("topic-c")).toBe(heading);
-    expect(result.selections.map((s) => s.slug)).toContain("topic-c");
+    expect(hits[0]!.section).toBe(heading);
+    expect(result.selections).toContainEqual({
+      slug: "topic-c",
+      sections: [heading],
+    });
   });
 });
 
@@ -1120,6 +1235,7 @@ describe("orchestrate — injection gate", () => {
 
     expect(selectCalls).toBe(1);
     expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+    expect(result.selectorRan).toBe(true);
   });
 
   test("gate fail → empty selections, selector never called", async () => {
@@ -1137,6 +1253,7 @@ describe("orchestrate — injection gate", () => {
     expect(selectCalls).toBe(0);
     expect(result.selections).toEqual([]);
     expect(result.lanes.finder).toEqual([]);
+    expect(result.selectorRan).toBe(false);
   });
 
   test("gate stays inert when the dense lane is off (denseK = 0 new-user profile)", async () => {
@@ -1151,6 +1268,9 @@ describe("orchestrate — injection gate", () => {
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1177,6 +1297,9 @@ describe("orchestrate — injection gate", () => {
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1224,7 +1347,9 @@ describe("orchestrate — injection gate", () => {
       true,
     );
     expect(result.lanes.finder).toEqual([]);
-    expect(result.matchedSections.size).toBe(0);
+    expect(result.selections.every((s) => s.sections.length === 0)).toBe(true);
+    // The selector judged the stable-only pool, so the result says it ran.
+    expect(result.selectorRan).toBe(true);
   });
 
   test("bypassForCore honors selectorEnabled: false — stable prefix passes through without the selector", async () => {
@@ -1255,7 +1380,8 @@ describe("orchestrate — injection gate", () => {
       "topic-d",
     ]);
     expect(result.lanes.finder).toEqual([]);
-    expect(result.matchedSections.size).toBe(0);
+    expect(result.selections.every((s) => s.sections.length === 0)).toBe(true);
+    expect(result.selectorRan).toBe(false);
   });
 
   test("gate disabled (omitted) → unchanged behavior (selector runs, selections produced)", async () => {
@@ -1338,6 +1464,9 @@ describe("orchestrate — injection gate", () => {
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1365,6 +1494,9 @@ describe("orchestrate — injection gate", () => {
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1410,6 +1542,9 @@ describe("orchestrate — injection gate", () => {
       queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     providerStub = selectProvider(["topic-a"]);
 
@@ -1580,7 +1715,7 @@ describe("orchestrate — injection gate", () => {
       makeTurn(1, "apple"),
       depsOf(lanes, {
         denseK: 100,
-        activeSlugs: new Set<Slug>(["topic-a"]),
+        isResident: (slug) => slug === "topic-a",
         gateConfig: gateConfigOf(),
       }),
     );
@@ -1591,7 +1726,7 @@ describe("orchestrate — injection gate", () => {
     });
   });
 
-  test("net_new_count is omitted when activeSlugs is not threaded", async () => {
+  test("net_new_count is omitted when isResident is not threaded", async () => {
     const lanes = await buildLanes();
     denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
     providerStub = selectProvider(["topic-a"]);
@@ -1617,11 +1752,14 @@ describe("orchestrate — injection gate", () => {
       queryScored: () => [],
       bestSection: () => -1,
       idf: () => 0,
+      topTerms: () => [],
+      df: () => 0,
+      scoreTerm: () => [],
     };
     denseHits = [];
     providerStub = selectProvider([]);
 
-    await orchestrate(
+    const result = await orchestrate(
       makeTurn(1, "apple"),
       depsOf(lanes, {
         needle,
@@ -1640,6 +1778,7 @@ describe("orchestrate — injection gate", () => {
       selected_count: 0,
       pool_size: 0,
     });
+    expect(result.selectorRan).toBe(false);
   });
 
   test("a hard-closed gate records a zero selection with selector_ran: false", async () => {
@@ -1649,9 +1788,13 @@ describe("orchestrate — injection gate", () => {
     denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
     providerStub = selectProvider([]);
 
-    await orchestrate(
+    const result = await orchestrate(
       makeTurn(1, "zzzz nomatch"),
-      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+      depsOf(lanes, {
+        coreSlugs: ["topic-c"],
+        denseK: 100,
+        gateConfig: gateConfigOf(),
+      }),
     );
 
     expect(recordedSelectionEvents).toHaveLength(1);
@@ -1662,6 +1805,12 @@ describe("orchestrate — injection gate", () => {
       selected_count: 0,
       pool_size: 0,
     });
+    // The result carries the same fact for the pool record: the stable prefix
+    // is still reported as a lane, as computed, but the
+    // selector never ran over it.
+    expect(result.selectorRan).toBe(false);
+    expect(result.selections).toEqual([]);
+    expect(result.lanes.core).toEqual(["topic-c"]);
   });
 
   test("gate_reason is null on a selection when the gate never ran", async () => {
@@ -1846,11 +1995,13 @@ describe("orchestrate — span-query pass", () => {
     expect(result.lanes.finder.filter((c) => c.slug === "topic-a").length).toBe(
       1,
     );
-    // The span hit's matched section is recorded for injection/spotlight.
-    expect(result.matchedSections.get("topic-d")?.article).toBe("topic-d");
-    expect(result.matchedSections.get("topic-d")?.text).toContain(
-      "lead for topic d",
-    );
+    // The span hit's matched section rides its line and its selection.
+    const spanLine = result.lanes.finder.find((c) => c.slug === "topic-d");
+    expect(spanLine?.section?.text).toContain("lead for topic d");
+    expect(result.selections).toContainEqual({
+      slug: "topic-d",
+      sections: [spanLine!.section!],
+    });
     // Additive: the span-only page joins the passthrough selections alongside
     // every other lane's candidates.
     expect(new Set(result.selections.map((s) => s.slug))).toEqual(
@@ -1858,11 +2009,11 @@ describe("orchestrate — span-query pass", () => {
     );
   });
 
-  test("an article hit by several chunks records its highest-scoring section", async () => {
+  test("an article hit by several chunks on different sections pools them strongest cosine first", async () => {
     const lanes = await buildLanes();
-    // Both chunks surface topic-d; the EARLIER chunk's hit is the weaker one.
-    // Chunk order must not decide the recorded section — the strong match
-    // (ordinal 1, `## Notes`) wins over the lead (ordinal 0).
+    // Both chunks surface topic-d on different sections; the EARLIER chunk's
+    // hit is the weaker one. Chunk order must not decide the line order: the
+    // strong match (ordinal 1, `## Notes`) is pooled before the lead.
     denseHits = [];
     denseHitsByQuery.set(CHUNK_1, [
       { article: "topic-d", section: 0, score: 0.2 },
@@ -1876,19 +2027,23 @@ describe("orchestrate — span-query pass", () => {
       depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
     );
 
-    expect(result.matchedSections.get("topic-d")?.ordinal).toBe(1);
-    expect(result.matchedSections.get("topic-d")?.text).toContain("grape");
-    expect(
-      result.lanes.finder.filter((c) => c.slug === "topic-d"),
-    ).toHaveLength(1);
+    const lines = result.lanes.finder.filter((c) => c.slug === "topic-d");
+    expect(lines.map((c) => [c.lane, c.section?.ordinal])).toEqual([
+      ["span", 1],
+      ["span", 0],
+    ]);
+    expect(lines[0]!.section?.text).toContain("grape");
+    expect(result.selections).toContainEqual({
+      slug: "topic-d",
+      sections: [lines[0]!.section!, lines[1]!.section!],
+    });
   });
 
-  test("a strictly stronger span cosine upgrades a dense-recorded section, keeping the lane", async () => {
+  test("a span hit on a different section of a dense-surfaced page joins as its own span line", async () => {
     const lanes = await buildLanes();
-    // Full-message dense records topic-b's lead (ordinal 0) at cosine 0.4;
-    // chunk 2 finds `## More` (ordinal 1) at 0.9 — same encoder and
-    // collection, strictly stronger, so the recorded section and finder
-    // descriptor upgrade while the lane attribution stays "dense".
+    // Full-message dense pools topic-b's lead (ordinal 0); chunk 2 finds
+    // `## More` (ordinal 1). Different sections, so the page carries both
+    // lines: the dense one keeps its place and the span one follows.
     denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
     denseHitsByQuery.set(CHUNK_2, [
       { article: "topic-b", section: 1, score: 0.9 },
@@ -1899,26 +2054,26 @@ describe("orchestrate — span-query pass", () => {
       depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
     );
 
-    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(1);
-    expect(result.matchedSections.get("topic-b")?.text).toContain(
-      "cherry date",
-    );
-    const entry = result.lanes.finder.find((c) => c.slug === "topic-b");
-    expect(entry?.lane).toBe("dense");
-    expect(entry?.descriptor).toContain("cherry date");
+    const lines = result.lanes.finder.filter((c) => c.slug === "topic-b");
+    expect(lines.map((c) => [c.lane, c.section?.ordinal])).toEqual([
+      ["dense", 0],
+      ["span", 1],
+    ]);
+    expect(lines[1]!.descriptor).toContain("cherry date");
   });
 
-  test("weaker span hits and needle-recorded sections are not overridden", async () => {
+  test("a span hit on a section already pooled is a no-op, whatever its cosine", async () => {
     const lanes = await buildLanes();
-    // topic-b: span cosine 0.3 < full-message 0.4 — the lead stays recorded.
-    // topic-a: needle recorded the `## Details` match; span scores are not
-    // comparable to BM25, so the span hit must not touch it.
+    // topic-a: the needle pooled `## Details` (ordinal 1); chunk 1 scores the
+    // same section higher than anything else this turn. topic-b: dense pooled
+    // the lead; chunk 2 scores the lead lower. Neither adds a line, and the
+    // attributions stay.
     denseHits = [{ article: "topic-b", section: 0, score: 0.4 }];
     denseHitsByQuery.set(CHUNK_1, [
-      { article: "topic-a", section: 0, score: 0.99 },
+      { article: "topic-a", section: 1, score: 0.99 },
     ]);
     denseHitsByQuery.set(CHUNK_2, [
-      { article: "topic-b", section: 1, score: 0.3 },
+      { article: "topic-b", section: 0, score: 0.3 },
     ]);
 
     const result = await orchestrate(
@@ -1926,10 +2081,439 @@ describe("orchestrate — span-query pass", () => {
       depsOf(lanes, { denseK: 100, spanQueryK: 7, selectorEnabled: false }),
     );
 
-    expect(result.matchedSections.get("topic-b")?.ordinal).toBe(0);
-    expect(result.matchedSections.get("topic-a")?.text).toContain("apple");
-    expect(result.lanes.finder.find((c) => c.slug === "topic-a")?.lane).toBe(
-      "needle",
+    const linesOf = (slug: Slug) =>
+      result.lanes.finder
+        .filter((c) => c.slug === slug)
+        .map((c) => [c.lane, c.section?.ordinal]);
+    expect(linesOf("topic-a")).toEqual([["needle", 1]]);
+    expect(linesOf("topic-b")).toEqual([["dense", 0]]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Multi-section finder lines: a page whose sections match different parts of
+// the message carries one line per matched section (capped per page), each
+// snippet showing the matched terms in context, and selecting the lines
+// selects those sections.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate: multi-section finder lines", () => {
+  // A page whose `## Parody` section matches the message's bulk and whose
+  // `## Inventory` section matches only its last clause, deep in its body.
+  // The slug shares no token with the queries: its last segment heads every
+  // section's text, so a query term in it would score every section.
+  const FILLER = "filler words to push the match deep into the section ";
+  const BULK_AND_CLAUSE_PAGES: Record<Slug, string> = {
+    "autumn-notes": [
+      "lead for the page",
+      "## Parody",
+      "the parody verse everyone laughed at, a hilarious skit",
+      "## Inventory",
+      `${FILLER.repeat(8)}the turnip crates are counted here`,
+    ].join("\n"),
+  };
+  const BULK = "the parody verse was hilarious and everyone laughed.";
+  const CLAUSE = "please remind me about the turnip.";
+
+  test("a page whose sections match the bulk and the last clause carries both lines, and keeping both selects both sections", async () => {
+    const lanes = await customLanes(BULK_AND_CLAUSE_PAGES);
+    const [, parodyDoc, inventoryDoc] =
+      lanes.sectionIndex.byArticle.get("autumn-notes")!;
+    const parody = lanes.sectionIndex.sections[parodyDoc!]!;
+    const inventory = lanes.sectionIndex.sections[inventoryDoc!]!;
+    // The needle scores the bulk theme (`## Parody`); the span pass over the
+    // last clause reaches `## Inventory`.
+    denseHits = [];
+    denseHitsByQuery.set(CLAUSE, [{ article: "autumn-notes", section: 2 }]);
+    providerStub = selectProvider(["autumn-notes"]);
+
+    const result = await orchestrate(
+      makeTurn(1, `${BULK} ${CLAUSE}`),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7 }),
     );
+
+    const lines = result.lanes.finder.filter((c) => c.slug === "autumn-notes");
+    expect(lines.map((c) => [c.lane, c.section])).toEqual([
+      ["needle", parody],
+      ["span", inventory],
+    ]);
+    // Two pool lines, each a keyword-in-context snippet of its own section.
+    const poolLines = lastPoolLines.filter((l) => l.includes(" autumn-notes "));
+    expect(poolLines).toHaveLength(2);
+    expect(poolLines[0]).toContain("§Parody: ");
+    expect(poolLines[0]).toContain("parody");
+    expect(poolLines[1]).toContain("§Inventory: ");
+    expect(poolLines[1]).toContain("turnip");
+    // Keeping both ids selects both sections.
+    expect(result.selections).toEqual([
+      { slug: "autumn-notes", sections: [parody, inventory] },
+    ]);
+  });
+
+  test("a needle line's snippet is a window around its top contributing term, not the section head", async () => {
+    const lanes = await customLanes(BULK_AND_CLAUSE_PAGES);
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(makeTurn(1, "turnip"), depsOf(lanes));
+
+    expect(result.lanes.finder[0]?.terms).toEqual(["turnip"]);
+    const line = lastPoolLines.find((l) => l.includes(" autumn-notes "))!;
+    // "turnip" sits past the first 300 characters of `## Inventory`, so a
+    // section-head snippet would not show it; the window is centered on it
+    // and the synthetic head line is not shown.
+    expect(line).toContain("§Inventory: … ");
+    expect(line).toContain("the turnip crates are counted here");
+    expect(line).not.toContain("autumn-notes - Inventory");
+  });
+
+  test("finderSectionsPerPage caps a page's lines in surfacing order", async () => {
+    const lanes = await customLanes({
+      "many-page": [
+        "lead for the many page",
+        "## Alpha",
+        "alpha text",
+        "## Bravo",
+        "bravo text",
+        "## Charlie",
+        "charlie text",
+      ].join("\n"),
+    });
+    // needle → `## Alpha` (ordinal 1); full-message dense → `## Bravo`
+    // (ordinal 2); the span pass over the second sentence → `## Charlie`
+    // (ordinal 3).
+    const first = "alpha is the subject of the first sentence.";
+    const second = "the second sentence is about something else.";
+    denseHits = [{ article: "many-page", section: 2 }];
+    denseHitsByQuery.set(second, [{ article: "many-page", section: 3 }]);
+    providerStub = selectProvider([]);
+
+    const capped = await orchestrate(
+      makeTurn(1, `${first} ${second}`),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7, finderSectionsPerPage: 2 }),
+    );
+    expect(
+      capped.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+    ]);
+
+    const uncapped = await orchestrate(
+      makeTurn(2, `${first} ${second}`),
+      depsOf(lanes, { denseK: 100, spanQueryK: 7 }),
+    );
+    expect(
+      uncapped.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["span", 3],
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Rare-term lane: a query word that occurs in at most `maxDf` sections
+// surfaces its top sections as their own lines tagged with the word, after
+// the entity lane; a section a prior lane pooled is a no-op, and rare hits
+// feed neither the injection gate nor the edge seeds.
+// ---------------------------------------------------------------------------
+
+describe("orchestrate: rare-term lane", () => {
+  // The message's bulk theme (the parody) matches `## Parody`; its last
+  // clause's one distinctive word, "turnip", sits twice each in two other
+  // sections of the page and once, in a longer body, on a second page. The
+  // common words recur in every section, so among the message's words only
+  // the parody words (which hit `## Parody` alone) and "turnip" are rare.
+  const RARE_TERM_PAGES: Record<Slug, string> = {
+    "sample-notes": [
+      "the weekly report lists the sample notes",
+      "## Parody",
+      "parody verse: everyone laughed, hilarious skit, roast, encore, standing ovation, crowd; the weekly report lists the rest",
+      "## Inventory",
+      "inventory: the weekly report lists the turnip crates and the turnip totals",
+      "## Harvest",
+      "harvest: the weekly report lists the turnip deliveries and the turnip receipts, with the dates of each",
+    ].join("\n"),
+    "autumn-recipes": [
+      "## Soup",
+      "turnip soup: the weekly report lists onions, celery, carrots, thyme, cream, salt, pepper, and a long simmer",
+    ].join("\n"),
+  };
+  const MESSAGE =
+    "parody verse hilarious, everyone laughed: skit, roast, encore, standing ovation, crowd. The weekly report lists the turnip";
+  const RARE = { maxDf: 3, maxDfFraction: 1, perTerm: 2, cap: 24 };
+
+  test("a rare word's top sections join as lines tagged with the word beside the bulk-theme line, and selecting them selects the sections", async () => {
+    const lanes = await customLanes(RARE_TERM_PAGES);
+    const [, parodyDoc, inventoryDoc, harvestDoc] =
+      lanes.sectionIndex.byArticle.get("sample-notes")!;
+    const parody = lanes.sectionIndex.sections[parodyDoc!]!;
+    const inventory = lanes.sectionIndex.sections[inventoryDoc!]!;
+    const harvest = lanes.sectionIndex.sections[harvestDoc!]!;
+    providerStub = selectProvider(["sample-notes"]);
+
+    const result = await orchestrate(
+      makeTurn(1, MESSAGE),
+      depsOf(lanes, { rareTerm: RARE }),
+    );
+
+    const lines = result.lanes.finder.filter((c) => c.slug === "sample-notes");
+    expect(lines.map((c) => [c.lane, c.section])).toEqual([
+      ["needle", parody],
+      ["rare", inventory],
+      ["rare", harvest],
+    ]);
+    expect(lines[1]!.terms).toEqual(["turnip"]);
+    expect(lines[2]!.terms).toEqual(["turnip"]);
+    // The second page's only "turnip" section is the needle's own line for
+    // it, and the third-ranked "turnip" section is past perTerm anyway.
+    expect(
+      result.lanes.finder
+        .filter((c) => c.slug === "autumn-recipes")
+        .map((c) => c.lane),
+    ).toEqual(["needle"]);
+    // Each rare line is tagged with the word and snippets the section
+    // around it.
+    const rareLines = lastPoolLines.filter((l) =>
+      l.includes("(rare: turnip) "),
+    );
+    expect(rareLines).toHaveLength(2);
+    expect(rareLines[0]).toContain("(rare: turnip) sample-notes ");
+    expect(rareLines[0]).toContain(
+      "§Inventory: inventory: the weekly report lists the turnip",
+    );
+    expect(rareLines[1]).toContain("§Harvest: ");
+    expect(rareLines[1]).toContain("turnip");
+    expect(result.selections).toContainEqual({
+      slug: "sample-notes",
+      sections: [parody, inventory, harvest],
+    });
+  });
+
+  test("a rare hit on a section the needle already pooled is a no-op", async () => {
+    const lanes = await customLanes(RARE_TERM_PAGES);
+    const [, , inventoryDoc, harvestDoc] =
+      lanes.sectionIndex.byArticle.get("sample-notes")!;
+    const inventory = lanes.sectionIndex.sections[inventoryDoc!]!;
+    const harvest = lanes.sectionIndex.sections[harvestDoc!]!;
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "turnip"),
+      depsOf(lanes, {
+        needle: {
+          ...lanes.needle,
+          queryScored: () => [
+            { article: "sample-notes", section: inventoryDoc!, score: 1 },
+          ],
+        },
+        rareTerm: RARE,
+      }),
+    );
+
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.section])).toEqual(
+      [
+        ["sample-notes", "needle", inventory],
+        ["sample-notes", "rare", harvest],
+      ],
+    );
+  });
+
+  // Deps for a page the bulk-theme lanes fill to a per-page cap of three
+  // before the rare lane runs: the needle pools `## Alpha` (ordinal 1), the
+  // full-message dense pass `## Bravo` (2), and the reply pass `## Charlie`
+  // (3). `alpha` is the Alpha section's text, `tail` the page's further
+  // sections. Of the message's words only "turnip" occurs in the corpus.
+  const CAPPED_MESSAGE = "any turnip news";
+  const REPLY = "the previous reply";
+  async function cappedPageDeps(
+    alpha: string,
+    tail: string[],
+    rareTerm = RARE,
+    entity?: { token: string; ordinal: number },
+  ): Promise<OrchestrateDeps> {
+    const lanes = await customLanes({
+      "many-page": [
+        "lead for the many page",
+        "## Alpha",
+        alpha,
+        "## Bravo",
+        "bravo text",
+        "## Charlie",
+        "charlie text",
+        ...tail,
+      ].join("\n"),
+    });
+    const docs = lanes.sectionIndex.byArticle.get("many-page")!;
+    const alphaDoc = docs[1]!;
+    denseHits = [{ article: "many-page", section: 2 }];
+    denseHitsByQuery.set(REPLY, [{ article: "many-page", section: 3 }]);
+    return depsOf(lanes, {
+      needle: {
+        ...lanes.needle,
+        queryScored: () => [
+          { article: "many-page", section: alphaDoc, score: 1 },
+        ],
+      },
+      denseK: 100,
+      replyQueryK: 5,
+      finderSectionsPerPage: 3,
+      rareTerm,
+      ...(entity
+        ? { entityIndex: new Map([[entity.token, [docs[entity.ordinal]!]]]) }
+        : {}),
+    });
+  }
+
+  test("an entity hit joins a page the prior lanes filled to the per-page cap", async () => {
+    // The message names the `## Delta` heading (ordinal 4) of a page whose
+    // first three sections the bulk-theme lanes already pooled. Of the
+    // message's words only "delta" occurs in the corpus, so the rare lane's
+    // hit on the same section is a no-op behind the entity line.
+    const tail = ["## Delta", "delta text"];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, `${CAPPED_MESSAGE} and delta`, REPLY),
+      await cappedPageDeps("alpha text", tail, RARE, {
+        token: "delta",
+        ordinal: 4,
+      }),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["entity", 4],
+    ]);
+  });
+
+  test("a rare hit joins a page the prior lanes filled to the per-page cap, bounded by the lane's own cap", async () => {
+    // "turnip" is held by `## Delta` (ordinal 4) and `## Echo` (5) alone.
+    const tail = [
+      "## Delta",
+      "delta text, and the turnip",
+      "## Echo",
+      "echo text, and the turnip",
+    ];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text", tail),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+      ["rare", 5],
+    ]);
+    expect(
+      result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
+    ).toEqual([["turnip"], ["turnip"]]);
+
+    // The lane's own cap is what bounds the lines past the page cap, so a
+    // page carries at most `finderSectionsPerPage + rareTerm.cap` lines.
+    const bounded = await orchestrate(
+      makeTurn(2, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text", tail, { ...RARE, cap: 1 }),
+    );
+    expect(
+      bounded.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+    ]);
+  });
+
+  test("a rare hit on a section a capped page already carries is still a no-op", async () => {
+    // "turnip" is held by `## Alpha`, which the needle pooled, and by
+    // `## Delta` (ordinal 4).
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, CAPPED_MESSAGE, REPLY),
+      await cappedPageDeps("alpha text, and the turnip", [
+        "## Delta",
+        "delta text, and the turnip",
+      ]),
+    );
+    expect(
+      result.lanes.finder.map((c) => [c.lane, c.section?.ordinal]),
+    ).toEqual([
+      ["needle", 1],
+      ["dense", 2],
+      ["reply", 3],
+      ["rare", 4],
+    ]);
+    expect(
+      result.lanes.finder.filter((c) => c.lane === "rare").map((c) => c.terms),
+    ).toEqual([["turnip"]]);
+  });
+
+  test("omitting the rare-term tuning disables the lane", async () => {
+    const lanes = await customLanes(RARE_TERM_PAGES);
+    providerStub = selectProvider([]);
+
+    const without = await orchestrate(makeTurn(1, "turnip"), depsOf(lanes));
+    expect(without.lanes.finder.some((c) => c.lane === "rare")).toBe(false);
+
+    const withLane = await orchestrate(
+      makeTurn(2, "turnip"),
+      depsOf(lanes, { rareTerm: RARE }),
+    );
+    expect(withLane.lanes.finder.some((c) => c.lane === "rare")).toBe(true);
+  });
+
+  test("rare hits seed no edge expansion", async () => {
+    // topic-a links to topic-d, and "apple" occurs only in topic-a's
+    // `## Details`. With the needle finding nothing for the message, the
+    // rare lane alone surfaces topic-a, and the edge lane has no seed.
+    const lanes = await buildLanes();
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle: { ...lanes.needle, queryScored: () => [] },
+        rareTerm: RARE,
+      }),
+    );
+
+    expect(result.lanes.finder.map((c) => [c.slug, c.lane, c.terms])).toEqual([
+      ["topic-a", "rare", ["apple"]],
+    ]);
+    expect(lastPool).not.toContain("topic-d");
+  });
+
+  test("rare hits do not open the injection gate", async () => {
+    // No sparse signal (the needle finds nothing) and a dense top-1 far
+    // below every threshold close the gate; the rare hit on topic-a neither
+    // opens it nor survives the closed gate.
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider([]);
+
+    const result = await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        needle: { ...lanes.needle, queryScored: () => [] },
+        denseK: 100,
+        gateConfig: gateConfigOf(),
+        rareTerm: RARE,
+      }),
+    );
+
+    expect(selectCalls).toBe(0);
+    expect(result.selections).toEqual([]);
+    expect(result.lanes.finder).toEqual([]);
   });
 });

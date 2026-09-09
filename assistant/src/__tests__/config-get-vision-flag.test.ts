@@ -89,6 +89,42 @@ describe("GET /v1/config profile vision enrichment", () => {
     expect(result?.llm?.profiles?.["test-unknown"]?.supportsVision).toBe(true);
   });
 
+  test("an image modality override of supported:true stamps supportsVision true", () => {
+    seedProfiles({
+      gateway: {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        inputModalities: { image: { enabled: true, supported: true } },
+      },
+    });
+
+    const result = configGetRoute.handler({}) as {
+      llm?: {
+        profiles?: Record<string, { supportsVision?: boolean }>;
+      };
+    };
+
+    expect(result?.llm?.profiles?.gateway?.supportsVision).toBe(true);
+  });
+
+  test("an image modality override of supported:false stamps supportsVision false", () => {
+    seedProfiles({
+      gateway: {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        inputModalities: { image: { enabled: true, supported: false } },
+      },
+    });
+
+    const result = configGetRoute.handler({}) as {
+      llm?: {
+        profiles?: Record<string, { supportsVision?: boolean }>;
+      };
+    };
+
+    expect(result?.llm?.profiles?.gateway?.supportsVision).toBe(false);
+  });
+
   test("profile without provider/model is left without supportsVision", () => {
     seedProfiles({
       "test-empty": {},

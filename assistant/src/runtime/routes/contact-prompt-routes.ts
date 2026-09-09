@@ -4,7 +4,7 @@
  * Two commands park on the guardian-form rail:
  *   - `contacts/prompt` collects a channel address and binds a channel.
  *   - `contacts/record-prompt` confirms a contact record write the assistant
- *     proposed (create, update, delete). No channel is touched.
+ *     proposed (create, update, delete, merge). No address is bound.
  *
  * Flow, identical for both:
  *   1. CLI calls the IPC route with what the assistant proposes.
@@ -53,7 +53,6 @@ export const CONTACT_ADDRESS_FORM_KIND = "contacts.address";
 export const CONTACT_RECORD_FORM_KIND = "contacts.record";
 const ADDRESS_FORM = CONTACT_ADDRESS_FORM_KIND;
 const RECORD_FORM = CONTACT_RECORD_FORM_KIND;
-const CONTACT_FORMS = [ADDRESS_FORM, RECORD_FORM] as const;
 
 const TimeoutMsParam = z
   .number()
@@ -82,6 +81,21 @@ export interface ContactPromptResult {
   notesSaved?: boolean;
   /** Whether nothing the submission asked for landed. */
   nothingWritten?: boolean;
+  /** Whether a merge committed. Absent on every other operation. */
+  merged?: boolean;
+  /**
+   * Whether the survivor took the name the guardian submitted. False when the
+   * merge committed but its rename could not land.
+   */
+  renamed?: boolean;
+  /**
+   * Whether a merge reached the assistant's copy of the contacts. False means
+   * the merge committed, but the donor is still there with its notes on it
+   * rather than combined onto the survivor.
+   */
+  mirrored?: boolean;
+  /** The guardian dismissed the form. Nothing was written. */
+  cancelled?: boolean;
 }
 
 /**
@@ -136,17 +150,41 @@ const ContactPromptParams = z.object({
     .describe(
       "Pre-check the form's 'mark verified' box. The guardian's answer on submit decides the attest, so an unchecked box leaves the channel unverified.",
     ),
+  contactId: z
+    .string()
+    .optional()
+    .describe(
+      "The contact this address binds to. Fixed by the command, not by the form.",
+    ),
+  contactDisplayName: z
+    .string()
+    .optional()
+    .describe(
+      "That contact's current name, so the form can say where the channel is going.",
+    ),
+  displayName: z
+    .string()
+    .optional()
+    .describe(
+      "Proposed name for a contact this form would create. Editable in the form.",
+    ),
+  notes: z
+    .string()
+    .optional()
+    .describe("Proposed notes for a contact this form would create."),
   timeoutMs: TimeoutMsParam,
 });
 
 const ContactRecordPromptParams = z.object({
   operation: z
-    .enum(["create", "update", "delete"])
+    .enum(["create", "update", "delete", "merge"])
     .describe("Which record write the guardian is being asked to confirm."),
   contactId: z
     .string()
     .optional()
-    .describe("Target contact. Required for update and delete."),
+    .describe(
+      "Target contact. Required for update, delete and merge (the survivor).",
+    ),
   currentDisplayName: z
     .string()
     .optional()
@@ -165,6 +203,21 @@ const ContactRecordPromptParams = z.object({
     .describe(
       "The target's channels, resolved by the caller, so a delete confirmation can identify the contact and show what access is about to be lost.",
     ),
+
+  donorContactId: z
+    .string()
+    .optional()
+    .describe("The contact being merged away. Present only on a merge."),
+  donorDisplayName: z
+    .string()
+    .optional()
+    .describe(
+      "That contact's name, so the confirmation can say who is being absorbed.",
+    ),
+  donorChannels: z
+    .array(z.object({ type: z.string(), address: z.string() }))
+    .optional()
+    .describe("The channels moving to the survivor."),
 
   displayName: z
     .string()
@@ -200,6 +253,27 @@ const ContactPromptFlagsParams = z.object({
 // Handlers
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether another contact form is already waiting on the guardian.
+ *
+ * Clients hold one contact card at a time, so a second broadcast replaces the
+ * first and leaves its command waiting on a form nobody can answer. Refusing
+ * fails the second command immediately instead, which is a caller that can
+ * retry rather than one that hangs. Scoped to one kind: the two contact cards live in
+ * separate client slots and render side by side, so only a second card of the
+ * same kind replaces one.
+ */
+function contactFormAlreadyOpen(kind: string): ContactPromptResult | null {
+  if (!hasUnclaimedGuardianForm([kind])) {
+    return null;
+  }
+  return {
+    ok: false,
+    error:
+      "Another contact form is already open. Wait for it to be answered, then try again.",
+  };
+}
+
 async function handleContactPrompt({
   body = {},
 }: RouteHandlerArgs): Promise<ContactPromptResult> {
@@ -211,16 +285,39 @@ async function handleContactPrompt({
     description,
     role,
     verify,
+    contactId,
+    contactDisplayName,
+    displayName,
+    notes,
     timeoutMs,
   } = ContactPromptParams.parse(body);
+
+  if (contactId && (displayName !== undefined || notes !== undefined)) {
+    return {
+      ok: false,
+      error:
+        "Pass either contactId (bind to an existing contact) or displayName and notes (create a new one), not both. A contact that already exists is edited with 'assistant contacts update'.",
+    };
+  }
+
+  const conflict = contactFormAlreadyOpen(ADDRESS_FORM);
+  if (conflict) {
+    return conflict;
+  }
 
   return openGuardianForm<ContactPromptResult>({
     kind: ADDRESS_FORM,
     timeoutMs,
-    // Read back by the gateway when a client too old for the checkbox submits
-    // no answer of its own.
-    meta: { verify: verify === true },
-    logContext: { channel, role, verify: verify === true },
+    // Read back by the gateway when a client too old for these fields submits
+    // no answer of its own. Parking the target here rather than leaving it to
+    // the client is what makes such a client still bind where the command said.
+    meta: {
+      verify: verify === true,
+      ...(contactId ? { contactId } : {}),
+      ...(displayName !== undefined ? { displayName } : {}),
+      ...(notes !== undefined ? { notes } : {}),
+    },
+    logContext: { channel, role, verify: verify === true, contactId },
     broadcast: {
       open: (requestId) =>
         broadcastMessage({
@@ -236,6 +333,10 @@ async function handleContactPrompt({
           // can show what submitting will do; the client's answer is what the
           // gateway acts on.
           verify: verify === true,
+          contactId,
+          contactDisplayName,
+          displayName,
+          notes,
         }),
       closed: announceContactFormClosed,
     },
@@ -258,6 +359,9 @@ async function handleContactRecordPrompt({
     currentDisplayName,
     currentNotes,
     channels,
+    donorContactId,
+    donorDisplayName,
+    donorChannels,
     displayName,
     notes,
     notesProposed,
@@ -270,22 +374,24 @@ async function handleContactRecordPrompt({
     return { ok: false, error: `contactId is required to ${operation}` };
   }
 
-  // Clients hold one contact card at a time, so a second broadcast replaces the
-  // first and leaves its command waiting on a form nobody can answer. Refusing
-  // here fails the second command immediately instead, which is a caller that
-  // can retry rather than one that hangs.
-  if (hasUnclaimedGuardianForm(CONTACT_FORMS)) {
-    return {
-      ok: false,
-      error:
-        "Another contact form is already open. Wait for it to be answered, then try again.",
-    };
+  if (operation === "merge") {
+    if (!donorContactId) {
+      return { ok: false, error: "donorContactId is required to merge" };
+    }
+    if (donorContactId === contactId) {
+      return { ok: false, error: "Cannot merge a contact with itself" };
+    }
+  }
+
+  const conflict = contactFormAlreadyOpen(RECORD_FORM);
+  if (conflict) {
+    return conflict;
   }
 
   return openGuardianForm<ContactPromptResult>({
     kind: RECORD_FORM,
     timeoutMs,
-    logContext: { operation, contactId },
+    logContext: { operation, contactId, donorContactId },
     broadcast: {
       open: (requestId) =>
         broadcastMessage({
@@ -296,6 +402,9 @@ async function handleContactRecordPrompt({
           currentDisplayName,
           currentNotes,
           channels,
+          donorContactId,
+          donorDisplayName,
+          donorChannels,
           displayName,
           notes,
           notesProposed,
@@ -307,16 +416,42 @@ async function handleContactRecordPrompt({
   });
 }
 
+/** What a parked address form said its submission is for. */
+interface ParkedPromptTarget {
+  contactId?: string;
+  displayName?: string;
+  notes?: string;
+}
+
+const PARKED_TARGET_KEYS = ["contactId", "displayName", "notes"] as const;
+
 /**
- * Read-only flags for a pending prompt. The gateway asks this after it writes
- * the channel so a `--verify` prompt can attest without the client having to
- * echo the flag on submit.
+ * Read-only state for a pending prompt. The gateway asks this before it writes,
+ * so the flag and the binding target come from the parked form rather than from
+ * whatever the submitting client knew to echo.
+ *
+ * `known` says whether a form is still parked under the id. A restart between
+ * the gateway's claim and this read leaves a form this process never saw, and
+ * without the flag it answers exactly like one that parked no target, which
+ * would leave the gateway resolving the address by itself.
  */
-function readContactPromptFlags({ body = {} }: RouteHandlerArgs): {
-  verify: boolean;
-} {
+function readContactPromptFlags({
+  body = {},
+}: RouteHandlerArgs): ParkedPromptTarget & { verify: boolean; known: boolean } {
   const { requestId } = ContactPromptFlagsParams.parse(body);
-  return { verify: getGuardianFormMeta(requestId)?.verify === true };
+  const meta = getGuardianFormMeta(requestId);
+  const target: ParkedPromptTarget = {};
+  for (const key of PARKED_TARGET_KEYS) {
+    const value = meta?.[key];
+    if (typeof value === "string") {
+      target[key] = value;
+    }
+  }
+  return {
+    known: meta !== undefined,
+    verify: meta?.verify === true,
+    ...target,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -346,6 +481,8 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       channelType: z.string().optional(),
       address: z.string().optional(),
       verified: z.boolean().optional(),
+      notesSaved: z.boolean().optional(),
+      cancelled: z.boolean().optional(),
     }),
   },
   {
@@ -368,6 +505,10 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       contactId: z.string().optional(),
       notesSaved: z.boolean().optional(),
       nothingWritten: z.boolean().optional(),
+      merged: z.boolean().optional(),
+      renamed: z.boolean().optional(),
+      mirrored: z.boolean().optional(),
+      cancelled: z.boolean().optional(),
     }),
   },
   {
@@ -418,13 +559,21 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     handler: readContactPromptFlags,
-    summary: "Read flags for a pending contact prompt",
+    summary: "Read a pending contact prompt's flags and binding target",
     description:
-      "Returns whether the pending prompt asked the gateway to mark the submitted channel verified.",
+      "Returns whether a form is still parked under this id, whether the pending prompt asked the gateway to mark the submitted channel verified, and the contact the parked form targets, or the name and notes it proposes for a contact to create. known=false means no such form is pending, so nothing it may have targeted can be read.",
     tags: ["contacts"],
     requestBody: ContactPromptFlagsParams,
     responseBody: z.object({
+      known: z
+        .boolean()
+        .describe(
+          "Whether a form is still parked under this requestId. False leaves the target unreadable rather than absent.",
+        ),
       verify: z.boolean(),
+      contactId: z.string().optional(),
+      displayName: z.string().optional(),
+      notes: z.string().optional(),
     }),
   },
 ];

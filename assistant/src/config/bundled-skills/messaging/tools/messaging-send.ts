@@ -10,6 +10,12 @@ import {
   getThread,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
+import {
+  createDraft as createOutlookDraft,
+  createReplyDraft as createOutlookReplyDraft,
+  toOutlookFileAttachments,
+} from "../../../../messaging/providers/outlook/client.js";
+import type { OutlookDraftMessage } from "../../../../messaging/providers/outlook/types.js";
 import { resolveProactiveHomeConversation } from "../../../../notifications/conversation-pairing.js";
 import { recordDeliveredChannelPost } from "../../../../notifications/delivered-post-record.js";
 import { getConversation } from "../../../../persistence/conversation-crud.js";
@@ -25,6 +31,7 @@ import {
   extractEmail,
   extractHeader,
   getProviderConnection,
+  isMailboxAddress,
   ok,
   parseAddressList,
   resolveProvider,
@@ -287,7 +294,66 @@ export async function run(
       );
     }
 
-    // Non-Gmail platforms
+    // Outlook: create a Graph draft instead of sending. Recipients are
+    // optional so a voice-composed email can land in Drafts before the user
+    // names a To address.
+    if (provider.id === "outlook") {
+      if (!conn) {
+        return err(
+          "Outlook requires an OAuth connection. Is the account connected?",
+        );
+      }
+
+      const attachments = attachmentPaths?.length
+        ? await readAttachments(attachmentPaths)
+        : undefined;
+      const graphAttachments = attachments?.length
+        ? toOutlookFileAttachments(attachments)
+        : undefined;
+      const toAddress = isMailboxAddress(conversationId)
+        ? extractEmail(conversationId)
+        : undefined;
+
+      if (inReplyTo) {
+        const draft = await createOutlookReplyDraft(
+          conn,
+          inReplyTo,
+          text,
+        );
+        const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
+        return ok(
+          formatOutlookDraftCreated({
+            draftId: draft.id,
+            webLink: draft.webLink,
+            recipientSummary,
+            attachmentCount: attachments?.length,
+            filenames: attachments?.map((a) => a.filename).join(", "),
+          }),
+        );
+      }
+
+      const draftBody: OutlookDraftMessage = {
+        subject: subject ?? "",
+        body: { contentType: "text", content: text },
+        ...(toAddress
+          ? { toRecipients: [{ emailAddress: { address: toAddress } }] }
+          : {}),
+        ...(graphAttachments ? { attachments: graphAttachments } : {}),
+      };
+      const draft = await createOutlookDraft(conn, draftBody);
+      const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
+      return ok(
+        formatOutlookDraftCreated({
+          draftId: draft.id,
+          webLink: draft.webLink,
+          recipientSummary,
+          attachmentCount: attachments?.length,
+          filenames: attachments?.map((a) => a.filename).join(", "),
+        }),
+      );
+    }
+
+    // Non-email platforms
     const attachments = attachmentPaths?.length
       ? await readAttachments(attachmentPaths)
       : undefined;
@@ -315,4 +381,22 @@ export async function run(
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
+}
+
+function formatOutlookDraftCreated(opts: {
+  draftId: string;
+  webLink?: string;
+  recipientSummary?: string;
+  attachmentCount?: number;
+  filenames?: string;
+}): string {
+  const attachmentBit =
+    opts.attachmentCount && opts.filenames
+      ? ` with ${opts.attachmentCount} attachment(s): ${opts.filenames}`
+      : "";
+  const recipientBit = opts.recipientSummary
+    ? ` ${opts.recipientSummary}.`
+    : " No recipient set. Open the draft in Outlook to add one.";
+  const linkBit = opts.webLink ? ` Open it: ${opts.webLink}` : "";
+  return `Outlook draft created${attachmentBit} (Draft ID: ${opts.draftId}).${recipientBit}${linkBit} Review it in your Outlook Drafts, then tell me to send it or send it yourself from Outlook.`;
 }

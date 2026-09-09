@@ -101,6 +101,15 @@
     "search": "Search",
     "searchShortcut": "Search ({shortcut})"
   },
+  "assistantSleepStage": {
+    "dismissLabel": "Hide the sleep screen",
+    "sleeping": "Your assistant is asleep",
+    "sleepingNamed": "{name} is asleep",
+    "waking": "Your assistant is waking up…",
+    "wakingNamed": "{name} is waking up…",
+    "woke": "Your assistant just woke up",
+    "wokeNamed": "{name} just woke up"
+  },
   "assistantSwitcher": {
     "collapse": "Hide assistants",
     "currentAssistant": "{name}, current assistant",
@@ -291,7 +300,8 @@
     "title": "Show"
   },
   "cardSurface": {
-    "tasksProgress": "{completed} / {total} tasks"
+    "tasksProgress": "{completed} / {total} tasks",
+    "viewDetails": "View details"
   },
   "channelReferenceChip": {
     "heading": "Referencing a {channel} message",
@@ -524,27 +534,37 @@
   },
   "contactPromptCard": {
     "addContact": "Add a contact",
+    "addingToContact": "Adding a channel to {name}",
     "cancel": "Cancel",
     "contactSaved": "Contact saved",
-    "dismiss": "Dismiss",
     "enterAddress": "Enter {channel} address",
     "markVerified": "Mark this address verified",
     "markVerifiedHelp": "A verified address is allowed to message your assistant.",
+    "namePlaceholder": "Name",
+    "notesLabel": "Notes",
     "save": "Save",
     "saving": "Saving…"
   },
   "contactRecordCard": {
     "cancel": "Cancel",
+    "channelType": "{channel}:",
     "contactDeleted": "Contact deleted",
+    "contactMerged": "Contacts merged",
     "contactSaved": "Contact saved",
     "createTitle": "Add a contact",
     "delete": "Delete",
     "deleteTitle": "Delete {name}?",
     "deleteWarning": "This also removes their channels, so they can no longer reach your assistant.",
-    "dismiss": "Dismiss",
+    "merge": "Merge",
+    "mergeDonorChannels": "Moving from {name}",
+    "mergeSurvivorChannels": "Already on {name}",
+    "mergeTitle": "Merge {donor} into {survivor}?",
+    "mergeWarning": "These channels move to {survivor}, and the {donor} record is deleted.",
+    "nameLabel": "Name",
     "namePlaceholder": "Name",
     "noChannels": "This contact has no channels.",
-    "notesPlaceholder": "Notes (optional)",
+    "notesLabel": "Notes",
+    "notesPlaceholder": "Add custom note",
     "save": "Save",
     "saving": "Saving…",
     "updateTitle": "Update {name}"
@@ -760,23 +780,24 @@
     "decisionOrder": "Decision order",
     "detailLabel": "Detail (luma SD)",
     "expand": "Show the frame gate readout",
+    "forcedNoveltyThresholdLabel": "Asked-for threshold",
     "keep": "Keep",
     "keptFrameAlt": "Kept frame",
     "maxIntervalLabel": "Heartbeat interval",
     "minDetailLabel": "Detail floor",
-    "minIntervalLabel": "Rate floor",
     "motionLabel": "Motion vs previous frame",
     "noKeeps": "No frames kept yet.",
     "noveltyLabel": "Novelty vs last kept",
     "noveltyThresholdLabel": "Novelty threshold",
     "overridden": "Moved off the default",
+    "reasonAnswered": "Asked for, but the last photo already shows this.",
     "reasonFeatureless": "Too little detail to compare.",
     "reasonFirst": "Nothing kept yet, and the view settled.",
     "reasonForced": "Kept for the question being asked right now.",
     "reasonHeartbeat": "Nothing changed, but the last photo is old.",
     "reasonMoving": "The view is still moving.",
     "reasonNovel": "Enough changed since the last photo.",
-    "reasonRateFloor": "Too soon after the last photo.",
+    "reasonSettling": "Stopped, but not held still long enough yet.",
     "reasonUnchanged": "Settled, recent, and much the same as the last photo.",
     "reasonWarmup": "Still inside the exposure warmup.",
     "recentFrames": "Recent frames",
@@ -784,16 +805,16 @@
     "reset": "Reset",
     "settleThresholdLabel": "Settle threshold",
     "skip": "Skip",
+    "stepAnswered": "Already shown",
     "stepFeatureless": "Detail floor",
     "stepFirst": "First keep",
     "stepForced": "Asked for",
     "stepHeartbeat": "Heartbeat",
     "stepMoving": "Settled",
     "stepNovel": "Novelty",
-    "stepRateFloor": "Rate floor",
+    "stepSettling": "Held still",
     "stepUnchanged": "Unchanged",
     "stepWarmup": "Warmup",
-    "surfaceComposer": "Composer camera",
     "surfaceVoice": "Voice room camera",
     "thresholds": "Thresholds",
     "valueAbsent": "n/a"
@@ -879,7 +900,8 @@
     "windows": "Voice is already active in the Windows app."
   },
   "liveVoiceButton": {
-    "startVoiceMode": "Start voice mode"
+    "startVoiceMode": "Start voice mode",
+    "tooltip": "Talk out loud with voice mode"
   },
   "liveVoiceStatus": {
     "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
@@ -1014,6 +1036,12 @@
     "breakdownSource": "source",
     "breakdownSpreadDelta": "spread Δ",
     "breakdownStatus": "status",
+    "candidatePoolChosenChip": "selected",
+    "candidatePoolNoneBody": "No candidate pool was recorded for this turn.",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, one {# candidate} other {# candidates}} passed through without a selector judgment · selector disabled",
+    "candidatePoolSelectorNotRunBody": "The selector did not run this turn.",
+    "candidatePoolSubtitle": "{poolSize, plural, one {# candidate} other {# candidates}} shown to the selector · {selectedCount, plural, one {# page selected} other {# pages selected}}",
+    "candidatePoolTitle": "Candidate pool",
     "candidateScores": "sem {semantic} · rec {recency}",
     "carriedPill": "Carried: {count}",
     "conceptActivationsSubtitle": "Sorted by final activation. Skill entries appear with the `skills/` slug prefix; expand a row for the activation breakdown.",
@@ -1062,8 +1090,6 @@
     "pillMemoryV2": "Memory V2",
     "pillMemoryV3": "Memory V3",
     "pillRecallV1": "Recall (v1)",
-    "pinnedChip": "pinned",
-    "pinnedPill": "Pinned: {count}",
     "providerLabel": "Provider",
     "queryContextSubtitle": "The text embedded as the search vector for semantic retrieval.",
     "queryContextTitle": "Query context",
@@ -1501,17 +1527,6 @@
   "sidebarListContextMenu": {
     "newGroup": "New group…"
   },
-  "sightTile": {
-    "close": "Close camera",
-    "interrupted": "The camera was disconnected.",
-    "permissionDenied": "Camera access is blocked. Allow it in your browser settings.",
-    "unavailable": "No camera is available."
-  },
-  "sightToggle": {
-    "busyInCall": "The voice call is using the camera",
-    "turnOff": "Turn off camera vision",
-    "turnOn": "Turn on camera vision"
-  },
   "singleActivity": {
     "webSearch": "Web Search"
   },
@@ -1748,6 +1763,8 @@
     "flashOff": "Flash off",
     "flashOn": "Flash on",
     "flipCamera": "Flip camera",
+    "lightOff": "Light off",
+    "lightOn": "Light on",
     "minimizeAria": "Minimize voice room",
     "minimizeTooltip": "Minimize (session keeps going)",
     "muteAssistant": "Mute assistant",
@@ -1771,6 +1788,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "Muted"
+  },
+  "wakeCard": {
+    "commandFinished": "Background command finished",
+    "incomingEvent": "Incoming event",
+    "memoryReview": "Memory review",
+    "ranOnItsOwn": "Ran on its own",
+    "resumed": "Resumed after an interruption",
+    "scheduledRun": "Scheduled run",
+    "watchReview": "Watch session review",
+    "workflowFinished": "Workflow finished"
+  },
+  "wakeDetailPanel": {
+    "close": "Close",
+    "details": "Details",
+    "result": "Result",
+    "runStatus": "Run status",
+    "title": "Conversation woke",
+    "workflow": "Workflow"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -1840,9 +1875,13 @@
   },
   "watchRetroSurface": {
     "back": "Back",
+    "doneDiscarded": "Not saved",
+    "doneNotRight": "Flagged as not right",
+    "doneSaved": "Skill saved",
     "dontSave": "Don't save",
     "looksRight": "Looks right",
     "next": "Next",
+    "recommended": "Recommended",
     "save": "Save skill",
     "skip": "Skip",
     "somethingOff": "Something's off",

@@ -1,10 +1,8 @@
 {
   "libraryEmptyState": {
     "heading": "Библиотека пуста",
-    "body": "Сборка через ассистента или импорт общего приложения",
-    "newConversation": "Новый диалог",
-    "separator": "или",
-    "importFile": "Импортировать файл .vellum"
+    "body": "Сборка чего-либо через ассистента",
+    "newConversation": "Новый диалог"
   },
   "libraryView": {
     "importFailed": "Не удалось импортировать приложение",

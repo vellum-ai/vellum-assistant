@@ -2,8 +2,6 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
 import type { Surface } from "@/domains/chat/types/types";
-import type { ManagedOAuthConnectClient } from "@/domains/chat/api/managed-oauth";
-import type { OAuthConnection } from "@/generated/api/types.gen";
 
 import { TranscriptColumn } from "@/domains/chat/transcript/transcript-column";
 
@@ -88,36 +86,28 @@ function makeOAuthConnectSurface(overrides: Partial<Surface> = {}): Surface {
   };
 }
 
-const storyOAuthClient: ManagedOAuthConnectClient = {
-  fetchProvider: async () => ({
-    provider_key: "google",
-    display_name: "Google",
-    description: "Gmail, Calendar, and Drive",
-    dashboard_url: null,
-    client_id_placeholder: null,
-    requires_client_secret: false,
-    logo_url: null,
-    supports_managed_mode: true,
-    managed_service_is_paid: false,
-    feature_flag: null,
-    acts_as: "user",
-  }),
-  connect: async () => {
-    await new Promise((resolve) => setTimeout(resolve, 650));
-    return {
-      status: "connected",
-      connection: {
-        id: "conn-story",
-        provider: "google",
-        status: "ACTIVE",
-        connected: true,
-        account_label: "user@example.com",
-        scopes_granted: ["gmail.readonly", "calendar.readonly"],
-        expires_at: null,
-      } as OAuthConnection,
-    };
-  },
-};
+const storyFetchProvider = async () => ({
+  provider_key: "google",
+  display_name: "Google",
+  description: "Gmail, Calendar, and Drive",
+  dashboard_url: null,
+  client_id_placeholder: null,
+  requires_client_secret: false,
+  logo_url: null,
+  supports_managed_mode: true,
+  managed_service_is_paid: false,
+  feature_flag: null,
+  acts_as: "user" as const,
+});
+
+/** Renders the card's resting state; the story does not run a real connect. */
+const useStoryConnect = () => ({
+  connect: () => {},
+  dismiss: () => {},
+  status: "idle" as const,
+  connection: null,
+  errorMessage: null,
+});
 
 function InteractiveSurfacePreview({
   initialSurface,
@@ -165,7 +155,8 @@ function OAuthSurfacePreview() {
       surface={surface}
       assistantId="assistant-story"
       assistantDisplayName="Assistant"
-      oauthClient={storyOAuthClient}
+      useConnect={useStoryConnect}
+      fetchProvider={storyFetchProvider}
       onAction={(_surfaceId, _actionId, data) => {
         const providerLabel =
           typeof data?.providerLabel === "string"

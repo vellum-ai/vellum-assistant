@@ -205,12 +205,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "Аккаунт {name} подключён.",
-    "authPopupClosed": "Не удалось подключить {name}: окно авторизации закрыто.",
     "authorizationError": "Ошибка {name}: {code}",
     "authorizationFailed": "Авторизация {name} не удалась",
     "popupBlocked": "Всплывающее окно заблокировано. Разрешите всплывающие окна и повторите попытку.",
-    "popupClosed": "Не удалось подключить {name}: всплывающее окно закрыто.",
-    "startFailed": "Не удалось начать авторизацию {name}."
+    "startFailed": "Не удалось начать авторизацию {name}.",
+    "startFailedWithReason": "Не удалось начать авторизацию {name}: {reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "Браузер заблокировал страницу, которую ассистент пытался открыть.",

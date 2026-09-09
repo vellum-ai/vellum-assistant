@@ -392,8 +392,7 @@ describe("ToolDetailPanel", () => {
           toolName: "file_edit",
           // The daemon's alias table rewrites `file_path` to `path` only for
           // aliased tool names, so a direct `file_edit` call still carries this
-          // spelling. The chip and the step label both read it; the panel that
-          // read only `path` showed a diff with no file attached to it.
+          // spelling, and every surface that shows a path accepts all three.
           input: {
             file_path: "src/deep/module.ts",
             old_string: "one",

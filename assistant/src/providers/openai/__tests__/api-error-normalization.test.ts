@@ -378,6 +378,56 @@ describe("deriveReason", () => {
     ).toBe("model_not_found");
   });
 
+  test("OpenCode 401 ModelError 'is not supported' → model_not_found", () => {
+    // OpenCode zen returns 401 with type=ModelError for an unknown model
+    // id. That must not fall through to the 401 → invalid_credentials branch.
+    expect(
+      deriveReason(
+        n({
+          message: "Model muse-spark-1.3-contributor is not supported",
+          apiErrorType: "ModelError",
+        }),
+        401,
+      ),
+    ).toBe("model_not_found");
+  });
+
+  test("401 with only apiErrorType=ModelError → model_not_found", () => {
+    expect(
+      deriveReason(
+        n({ message: "Request failed", apiErrorType: "ModelError" }),
+        401,
+      ),
+    ).toBe("model_not_found");
+  });
+
+  test("plain 401 without a model signal stays invalid_credentials", () => {
+    expect(deriveReason(n({ message: "Invalid API key provided" }), 401)).toBe(
+      "invalid_credentials",
+    );
+  });
+
+  test("500 with apiErrorType=ModelError stays server_error", () => {
+    expect(
+      deriveReason(
+        n({
+          message: "Internal server error",
+          apiErrorType: "ModelError",
+        }),
+        500,
+      ),
+    ).toBe("server_error");
+  });
+
+  test("500 with 'model is not supported' prose stays server_error", () => {
+    expect(
+      deriveReason(
+        n({ message: "Model muse-spark-1.3-contributor is not supported" }),
+        500,
+      ),
+    ).toBe("server_error");
+  });
+
   test("vision-not-supported prose → vision_unsupported", () => {
     expect(
       deriveReason(

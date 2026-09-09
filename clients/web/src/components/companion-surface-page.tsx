@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
+import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
 import {
   CompanionIntro,
   introPhase,
@@ -17,18 +18,23 @@ import {
 import { companionAccentHexFor } from "@/components/companion-accent";
 import {
   activateCompanionApp,
+  answerCompanionDictationOffer,
   answerCompanionWatchRetro,
   advanceCompanionIntro,
+  captureCompanionSourceThumbnail,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
+  setCompanionAnnotating,
   setCompanionInteractive,
+  setCompanionScreenShare,
   showCompanionContextMenu,
   startCompanionVoice,
   subscribeCompanionState,
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import { useTranslation } from "@/i18n";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
   CompanionCapturePick,
@@ -41,6 +47,8 @@ import type {
   CompanionWatchRetro,
   CompanionDictating,
   VoiceActivityState,
+  CompanionDictationOffer as CompanionDictationOfferWords,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -74,6 +82,7 @@ const DRAG_SLOP = 3;
  * That is what lets this window reload mid-call without the call noticing.
  */
 export function CompanionSurfacePage() {
+  const { t } = useTranslation();
   const [growth, setGrowth] = useState<CompanionGrowth>("right");
   // Which side of the avatar the canvas reserves the card's height on, and so
   // which canvas edge the avatar is anchored to. Main's call: it owns the
@@ -112,16 +121,37 @@ export function CompanionSurfacePage() {
   const [watchRetro, setWatchRetro] = useState<CompanionWatchRetro | undefined>(
     undefined,
   );
+  // Vellum's version of a dictation another app pasted, while the offer to
+  // use it stands. Its own state for the reason `watchRetro` is.
+  const [dictationOffer, setDictationOffer] = useState<
+    CompanionDictationOfferWords | undefined
+  >(undefined);
   // Whether Watch is offered at all, which is the flag as main last read it.
   const [watchEnabled, setWatchEnabled] = useState(false);
   // Whether a session started from the app's window can be told what to
   // read, which is that window's answer about its assistant's version. It
   // decides whether Teach asks first or starts at once.
   const [watchTargets, setWatchTargets] = useState(false);
+  // What the call is being shown, or undefined when nothing is. Main's, like
+  // the call: the press left this window as a pick, and this is what the
+  // window holding the session did with it.
+  const [screenShare, setScreenShare] = useState<
+    WatchCaptureTarget | undefined
+  >(undefined);
+  // Whether the call can be shown the screen at all, which is that window's
+  // answer about its session and its assistant's version.
+  const [shareEnabled, setShareEnabled] = useState(false);
+  // Whether the frame around the shared surface is taking the mouse. Main's,
+  // and the only one of these that is: the press asks main to make a window
+  // main opened interactive, and this is main's answer about whether it did.
+  const [annotating, setAnnotating] = useState(false);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
   const [picking, setPicking] = useState(false);
+  // Which control the open picker answers: Teach starts a session on the
+  // pick, Share shows the call it. Meaningless while `picking` is false.
+  const [pickingFor, setPickingFor] = useState<"teach" | "share">("teach");
   // What the host listed for it, or null while the host is still being asked.
   const [captureSources, setCaptureSources] =
     useState<CompanionCaptureSources | null>(null);
@@ -139,6 +169,7 @@ export function CompanionSurfacePage() {
   // send the same instruction on every mouse-move.
   const interactiveRef = useRef(false);
   const pillRef = useRef<HTMLDivElement | null>(null);
+  const restingPillRef = useRef<HTMLDivElement | null>(null);
   // The creature's own box, hit-tested beside the pill rather than inside it:
   // the two are siblings with a gap between them, and at rest the avatar is the
   // only part of the surface drawn at all.
@@ -150,6 +181,8 @@ export function CompanionSurfacePage() {
   // The picker's card, hit-tested for the reason the introduction's is: every
   // row on it is a press.
   const pickerRef = useRef<HTMLDivElement | null>(null);
+  // The offer's card, for the reason the picker's is.
+  const offerRef = useRef<HTMLDivElement | null>(null);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -190,6 +223,7 @@ export function CompanionSurfacePage() {
       setDictating(state.dictating);
       setDictationText(state.dictationText ?? "");
       setWatchRetro(state.watchRetro);
+      setDictationOffer(state.dictationOffer);
       // Off unless the answer is positively yes, which covers a shell that
       // predates the field and a window whose flags have not synced yet. The
       // control this decides starts reading the user's screen, so a state of
@@ -199,6 +233,14 @@ export function CompanionSurfacePage() {
       // from the user is a promise about what will be read, and a window that
       // has not said its assistant can keep it is one that cannot.
       setWatchTargets(state.watchTargets === true);
+      setScreenShare(state.screenShare);
+      // Off unless positively on, for the reason `watchTargets` is.
+      setShareEnabled(state.screenShareEnabled === true);
+      // Off unless positively on, for a sharper version of that reason: this
+      // one says a window out on the desktop is swallowing clicks, and a
+      // control drawn held down over a frame that is not doing that is a
+      // promise about where the user's next press lands.
+      setAnnotating(state.annotating === true);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -229,12 +271,29 @@ export function CompanionSurfacePage() {
    * bar that is gone would be asking a question nobody can act on.
    */
   const inCall = call !== null || dialing;
+  const sharing = screenShare !== undefined;
   useEffect(() => {
-    if (watching || !inCall) {
+    if (!inCall) {
       sourcesRequestRef.current += 1;
       setPicking(false);
     }
-  }, [watching, inCall]);
+  }, [inCall]);
+  // Each control's picker closes on its own answer: Teach's on a session
+  // starting, Share's on a share starting. Not the other's, since a share
+  // beginning while the user is choosing what to teach from is not an answer
+  // to that question.
+  useEffect(() => {
+    if (watching && pickingFor === "teach") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+    }
+  }, [watching, pickingFor]);
+  useEffect(() => {
+    if (sharing && pickingFor === "share") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+    }
+  }, [sharing, pickingFor]);
 
   /**
    * Teach, with no session running.
@@ -244,17 +303,16 @@ export function CompanionSurfacePage() {
    * cannot, or where the shell has no list to offer, the press starts the
    * whole-screen session it always started, so Teach never does nothing.
    */
-  const onTeach = () => {
-    if (!watchTargets) {
-      toggleCompanionWatch();
-      return;
-    }
-    if (picking) {
-      sourcesRequestRef.current += 1;
-      setPicking(false);
-      return;
-    }
+  /**
+   * Open the picker for `control`, asking the host what there is to pick,
+   * or hand the control its no-picker answer when the host has no list.
+   */
+  const openPicker = (
+    control: "teach" | "share",
+    withoutPicker: () => void,
+  ) => {
     setCaptureSources(null);
+    setPickingFor(control);
     setPicking(true);
     const request = ++sourcesRequestRef.current;
     void listCompanionCaptureSources().then((listed) => {
@@ -268,10 +326,41 @@ export function CompanionSurfacePage() {
         return;
       }
       // A shell that predates the picker. The question cannot be asked, so
-      // it is not left on screen; the session starts the old way instead.
+      // it is not left on screen.
       setPicking(false);
-      toggleCompanionWatch();
+      withoutPicker();
     });
+  };
+
+  const onTeach = () => {
+    if (!watchTargets) {
+      toggleCompanionWatch();
+      return;
+    }
+    // A second press closes it unanswered. A press while Share's picker is
+    // open replaces its question with this one.
+    if (picking && pickingFor === "teach") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+      return;
+    }
+    // The session starts the old way instead, reading the whole screen.
+    openPicker("teach", toggleCompanionWatch);
+  };
+
+  /**
+   * Share, with nothing being shared: open the picker. A second press closes
+   * it unanswered. Unlike Teach there is no whole-screen fallback, since a
+   * share is of something in particular; a shell with no list has nothing to
+   * offer and the press does nothing.
+   */
+  const onShare = () => {
+    if (picking && pickingFor === "share") {
+      sourcesRequestRef.current += 1;
+      setPicking(false);
+      return;
+    }
+    openPicker("share", () => undefined);
   };
 
   // A row pressed under a still pointer removes the card and nothing moves,
@@ -285,9 +374,23 @@ export function CompanionSurfacePage() {
     }
   }, [picking]);
 
+  // An answer or the offer's own expiry removes the card, and if the pointer
+  // is resting on it nothing moves, so no mouse-move arrives to hand the
+  // desktop back. Give it back here, the way the picker does.
+  useEffect(() => {
+    if (dictationOffer === undefined && interactiveRef.current) {
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, [dictationOffer]);
+
   const onPick = (pick: CompanionCapturePick) => {
     sourcesRequestRef.current += 1;
     setPicking(false);
+    if (pickingFor === "share") {
+      setCompanionScreenShare(pick);
+      return;
+    }
     toggleCompanionWatch(pick);
   };
 
@@ -359,11 +462,13 @@ export function CompanionSurfacePage() {
       ? "call"
       : dictating !== undefined
         ? "dictating"
-        : watching
-          ? "watching"
-          : watchRetro !== undefined
-            ? "summary"
-            : (introHeld ?? (hovered ? "hover" : "resting"));
+        : dictationOffer !== undefined
+          ? "offer"
+          : watching
+            ? "watching"
+            : watchRetro !== undefined
+              ? "summary"
+              : (introHeld ?? (hovered ? "hover" : "resting"));
 
   /**
    * Hit-test the pointer against the surface on every move.
@@ -435,11 +540,32 @@ export function CompanionSurfacePage() {
     // Reading a box forces layout, and this runs on every pixel of every
     // mouse-move the host forwards, so each is read exactly once.
     const pillRect = pillRef.current?.getBoundingClientRect() ?? null;
+    // The pill that carries content takes precedence, and it has no width
+    // until there is content, so the resting one answers for every state that
+    // draws no row.
+    //
+    // **The resting rect is the marker's footprint, not the lit line inside
+    // it.** The line draws in onto the creature and goes out the moment a hand
+    // arrives; the footprint does not, precisely so that hand is still on the
+    // surface afterwards. A reach that shrank with the drawing would drop the
+    // pointer onto the desktop and flicker the creature in and out under a
+    // stationary hand.
+    //
+    // The resting one is centred on the creature rather than beside it, so the
+    // creature's rect falls inside it and the bridge between them comes out
+    // degenerate, which is the right answer for two shapes with no gap.
+    const restingRect = restingPillRef.current?.getBoundingClientRect() ?? null;
+    const drawnPill =
+      pillRect !== null && pillRect.width > 0
+        ? pillRect
+        : restingRect !== null && restingRect.width > 0
+          ? restingRect
+          : null;
     const onSurface = onCompanionSurface(
       { x: event.clientX, y: event.clientY },
       {
         avatar: avatar.getBoundingClientRect(),
-        pill: pillRect !== null && pillRect.width > 0 ? pillRect : null,
+        pill: drawnPill,
       },
     );
     // The introduction's card is part of the surface for as long as it is
@@ -451,6 +577,15 @@ export function CompanionSurfacePage() {
       introCard !== null &&
       containsPoint(
         introCard.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
+    // The offer's card, for the same reason and for as long as it is drawn.
+    const offerCard = offerRef.current;
+    const onOffer =
+      offerCard !== null &&
+      containsPoint(
+        offerCard.getBoundingClientRect(),
         event.clientX,
         event.clientY,
       );
@@ -468,7 +603,7 @@ export function CompanionSurfacePage() {
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
     setHovered(onSurface);
-    setInteractive(onSurface || onIntro || onPicker);
+    setInteractive(onSurface || onIntro || onPicker || onOffer);
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
@@ -550,6 +685,27 @@ export function CompanionSurfacePage() {
         // router, and the answer has to reach the side holding the question
         // or the prompt comes back on the next push.
         onWatchRetro={answerCompanionWatchRetro}
+        // Out through main to the window that made the offer, for the reason
+        // the retro's answer goes: this page holds neither the words nor the
+        // application they went into. The answer names the offer it was drawn
+        // against, since this page can be a frame behind the window holding
+        // it.
+        dictationOffer={dictationOffer}
+        offer={
+          dictationOffer !== undefined ? (
+            <CompanionDictationOffer
+              offer={dictationOffer}
+              growth={growth}
+              cardGrowth={cardGrowth}
+              avatarBox={avatarBox}
+              optionsBox={optionsBox}
+              cardRef={offerRef}
+              onAnswer={(answer) => {
+                answerCompanionDictationOffer(answer, dictationOffer.id);
+              }}
+            />
+          ) : null
+        }
         // The reads that session has taken, which is what turns a running
         // session into something the user can see happening rather than
         // something they are told is on.
@@ -591,6 +747,7 @@ export function CompanionSurfacePage() {
           )
         }
         rootRef={pillRef}
+        restingPillRef={restingPillRef}
         avatarRef={avatarRef}
         onSurfacePointerDown={(event) => {
           // A right-click is a menu, not a grab. Left alone it would arm the
@@ -661,7 +818,24 @@ export function CompanionSurfacePage() {
         // The way in, when there is a choice to make first. The stop stays on
         // `onWatch`; this is only ever the press with no session running.
         onTeach={onTeach}
-        picking={picking}
+        picking={picking && pickingFor === "teach"}
+        // The share, from main, and the two presses that move it. The stop
+        // leaves this window the way a pick does, carrying nothing.
+        sharing={sharing}
+        shareEnabled={shareEnabled}
+        sharePicking={picking && pickingFor === "share"}
+        onShare={onShare}
+        onStopShare={() => {
+          setCompanionScreenShare();
+        }}
+        // Drawing on what is shared. Main's both ways: the press asks, and
+        // `annotating` above is what main did with the ask. Nothing is kept
+        // here, so a press main refuses (the share ended between the two)
+        // leaves the control drawn exactly as the desktop actually is.
+        annotating={annotating}
+        onAnnotate={(next) => {
+          setCompanionAnnotating(next);
+        }}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every
         // press does; the frame that answers it is main's.
@@ -669,10 +843,20 @@ export function CompanionSurfacePage() {
           picking ? (
             <CompanionCapturePicker
               sources={captureSources}
+              // The pictures the tiles are drawn from, asked for one tile at a
+              // time. Passed rather than fetched inside the card so the card
+              // stays a thing that draws what it is handed, and a story or a
+              // test can stand a desktop up without a shell.
+              captureThumbnail={captureCompanionSourceThumbnail}
               cardGrowth={cardGrowth}
               avatarBox={avatarBox}
               optionsBox={optionsBox}
               cardRef={pickerRef}
+              label={
+                pickingFor === "share"
+                  ? t("companionSurface.sharePicker")
+                  : undefined
+              }
               onPick={onPick}
             />
           ) : null

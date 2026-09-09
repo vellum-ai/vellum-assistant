@@ -69,7 +69,6 @@ mock.module(
 let mockSkillEntries: Array<{ id: string; content: string }> = [];
 
 mock.module("../substrate/skill-store.js", () => ({
-  SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => mockSkillEntries,
 }));
 
