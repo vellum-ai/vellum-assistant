@@ -37,13 +37,15 @@ If they name Claude Code or Codex without asking you to run it here (for example
 
 ACP is always available - default profiles for `claude` and `codex` ship out-of-box, so no config edit is needed to start. First-time setup is just making the adapter binary available, then spawning:
 
-1. Install the adapter binary if it's missing. This happens automatically: when `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and proceeds in the same call (see "Automatic adapter availability" below).
+1. Install the adapter binary if it's missing. This happens automatically: when `acp_spawn` finds the agent's binary missing from PATH, the assistant installs the pinned version via a sandboxed bun global install and proceeds in the same call (see "Automatic adapter availability" below).
 
 2. Call `acp_spawn`. Do NOT run `vellum sleep && vellum wake` - that kills the conversation.
 
 ## Automatic adapter availability
 
-When `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. After this one-time install, the adapter is a normal trusted binary on PATH and every later spawn (and resume) uses it directly.
+The assistant pins the adapter version it was built against and re-checks that pin on every spawn and resume. When the binary is missing from PATH, or the installed one is off the pin, the assistant installs the pinned version via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. Once the pin holds, the check is a cheap read and the spawn goes straight to the installed binary.
+
+An adapter installed by another package manager (npm, brew) is left alone: PATH would keep selecting it, so the pin is skipped rather than enforced.
 
 Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`); user-configured agents with custom commands are never installed automatically.
 
@@ -91,15 +93,9 @@ Do NOT put API keys (or any secret) in the workspace config file - secrets never
 
 ## Updating an adapter
 
-Adapters are installed automatically when missing. To update an installed adapter, ask the user first and use its owning package manager. For bun installations:
+The adapter version is pinned by the Assistant, which re-verifies it on every spawn. A manual `bun add -g <adapter>@latest` is therefore reverted to the pin on the next spawn: do not run one, and do not tell the user to. Adapter upgrades ship with Assistant releases.
 
-```bash
-bun add -g @agentclientprotocol/claude-agent-acp@latest
-# or
-bun add -g @agentclientprotocol/codex-acp@latest
-```
-
-Codex uses the adapter's bundled dependency by default, within the version range declared by the adapter. If `CODEX_PATH` selects a separate CLI, update that installation separately. Verify the required model with a fresh `acp_spawn` call after updating.
+Codex uses the adapter's bundled dependency by default, within the version range declared by the adapter. If `CODEX_PATH` selects a separate CLI, update that installation separately.
 
 ## When to use acp_steer vs acp_spawn
 
