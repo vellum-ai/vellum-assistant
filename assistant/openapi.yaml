@@ -24317,6 +24317,79 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/oauth/proxy-grant:
+    post:
+      operationId: oauth_proxygrant_post
+      summary: Mint an OAuth proxy grant
+      description:
+        Returns a short-lived token and base URL a third-party CLI uses to call the provider's API through the
+        passthrough proxy.
+      tags:
+        - oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  minLength: 1
+                account:
+                  type: string
+                  minLength: 1
+                ttlSeconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 3600
+              required:
+                - provider
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  provider:
+                    type: string
+                  account:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  baseUrl:
+                    type: string
+                  path:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: string
+                  ttlSeconds:
+                    type: number
+                required:
+                  - ok
+                  - provider
+                  - account
+                  - baseUrl
+                  - path
+                  - token
+                  - expiresAt
+                  - ttlSeconds
+                additionalProperties: false
+        "400":
+          description: Malformed request or provider key
+        "404":
+          description: Unknown provider
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
   /v1/oauth/proxy/{provider}/{path}:
     delete:
       operationId: oauth_proxy_by_provider_by_path_delete
