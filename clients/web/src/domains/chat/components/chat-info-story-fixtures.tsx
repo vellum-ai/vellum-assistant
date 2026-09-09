@@ -221,16 +221,20 @@ function seedChatInfoQueries(
   }
 }
 
-/** Installs `messages` as the rendered transcript, under its owner. */
-function seedChatInfoTranscript(messages: DisplayMessage[]): void {
-  useChatSessionStore.getState().seedSnapshot(CHAT_INFO_CONVERSATION_ID, {
-    messages,
+/** Installs the story's attachments as the rendered transcript, under its owner. */
+function seedChatInfoTranscript({
+  assistantId,
+  conversationId,
+  attachments,
+}: ChatInfoStoryConversation): void {
+  useChatSessionStore.getState().seedSnapshot(conversationId, {
+    messages: chatInfoMessages(attachments),
     hasMore: false,
     oldestTimestamp: null,
     oldestMessageId: null,
     seq: 1,
   });
-  seedTranscriptOwner(CHAT_INFO_ASSISTANT_ID, CHAT_INFO_CONVERSATION_ID);
+  seedTranscriptOwner(assistantId, conversationId);
 }
 
 /** Drops the seeded transcript, so a story cannot leak into the next one. */
@@ -261,7 +265,7 @@ export const inChatInfoConversation: Decorator =
         defaultOptions: { queries: { retry: false, staleTime: Infinity } },
       });
       seedChatInfoQueries(created, conversation);
-      seedChatInfoTranscript(chatInfoMessages(conversation.attachments));
+      seedChatInfoTranscript(conversation);
       return created;
     });
     useEffect(() => resetChatInfoTranscript, []);

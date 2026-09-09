@@ -1,4 +1,3 @@
-import { useTranslation } from "@/i18n";
 /**
  * Side-drawer panel listing every attachment on one transcript message.
  * Opened by the overflow tile on a truncated attachment strip (see
@@ -22,6 +21,7 @@ import {
 } from "@/components/detail-shell";
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 import { useLiveMessageAttachments } from "@/domains/chat/hooks/use-live-message-attachments";
+import { useTranslation } from "@/i18n";
 import type { MessageFilesPayload } from "@/stores/viewer-store";
 
 interface MessageFilesPanelProps {
