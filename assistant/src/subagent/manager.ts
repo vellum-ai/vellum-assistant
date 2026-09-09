@@ -401,6 +401,15 @@ interface ManagedSubagent {
    */
   synchronous?: boolean;
   /**
+   * True from the moment `runSubagent` commits to running this child until its
+   * `finally` completes. A budget stop marks the child terminal while the loop
+   * is still unwinding, so status alone stops protecting the parent from idle
+   * eviction partway through the teardown that still injects into it and
+   * releases its conversation. {@link SubagentManager.hasActiveChildren} reads
+   * this so the parent stays protected for the whole run.
+   */
+  runInFlight?: boolean;
+  /**
    * Tool calls this child has started, counted off its own event stream when
    * `config.maxToolCalls` is set. Lives here rather than on the state because
    * it is run bookkeeping, not something a client or a durable row reads.
@@ -977,6 +986,11 @@ export class SubagentManager {
       return finalText;
     }
 
+    // The run is committed: hold the parent against idle eviction until the
+    // teardown below finishes, even if a budget stop makes the child terminal
+    // first. Cleared in the same `finally` as the budget timer.
+    managed.runInFlight = true;
+
     // Wall-clock budget, armed here so it measures the run rather than the
     // spawn setup that preceded it. Cleared in the `finally` below.
     this.armRuntimeBudget(managed);
@@ -1120,6 +1134,7 @@ export class SubagentManager {
         throw err;
       }
     } finally {
+      managed.runInFlight = false;
       this.clearRuntimeBudget(managed);
       // A run already terminal by the time the loop unwound had its record
       // written and its terminal event sent from inside `abort`, which fires
@@ -1402,6 +1417,15 @@ export class SubagentManager {
   abortAllForParent(
     parentConversationId: string,
     parentSendToClient?: (msg: AssistantEvent) => void,
+    opts?: {
+      /**
+       * The user stopped this parent, as opposed to it being evicted, rebuilt,
+       * or torn down for a config reload. Only a stop means "nobody wants to
+       * hear about this any more"; the other callers keep the conversation id
+       * alive and its next turn still wants its children's outcomes.
+       */
+      userCancelled?: boolean;
+    },
   ): number {
     const children = this.parentToChildren.get(parentConversationId);
     if (!children) {
@@ -1411,14 +1435,16 @@ export class SubagentManager {
     let count = 0;
     for (const childId of children) {
       // A child stopped at its budget defers its parent notification to the
-      // run's teardown, which can land after this sweep. The parent is going
-      // away, so drop that pending notification rather than injecting into a
-      // conversation the user just stopped. `abort` cannot do this for us: it
-      // returns early on an already-terminal child, which is exactly the child
-      // whose notification is still pending.
-      const managed = this.subagents.get(childId);
-      if (managed) {
-        managed.budgetStopReason = undefined;
+      // run's teardown, which can land after this sweep. On a user stop, drop
+      // that pending notification rather than injecting into a conversation the
+      // user just cancelled. `abort` cannot do this for us: it returns early on
+      // an already-terminal child, which is exactly the child whose
+      // notification is still pending.
+      if (opts?.userCancelled) {
+        const managed = this.subagents.get(childId);
+        if (managed) {
+          managed.budgetStopReason = undefined;
+        }
       }
       if (this.abort(childId, parentSendToClient)) {
         count++;
@@ -1716,14 +1742,30 @@ export class SubagentManager {
 
   /**
    * True when this parent still has a child that is not terminal (`pending`,
-   * `running`, or `awaiting_input`). Idle-eviction and config-reload rebuild
-   * skip those parents so an otherwise-idle conversation does not abort
-   * mid-task children.
+   * `running`, or `awaiting_input`), or one whose run is still unwinding.
+   * Idle-eviction and config-reload rebuild skip those parents so an otherwise-
+   * idle conversation does not abort mid-task children.
+   *
+   * Status alone is not enough: a budget stop marks a child terminal from a
+   * timer while its loop is still awaited, and the teardown that follows still
+   * injects into the parent and releases the child's conversation. Evicting the
+   * parent in that window would race its own teardown.
    */
   hasActiveChildren(parentConversationId: string): boolean {
-    return this.getChildrenOf(parentConversationId).some(
-      (child) => !TERMINAL_STATUSES.has(child.status),
-    );
+    const children = this.parentToChildren.get(parentConversationId);
+    if (!children) {
+      return false;
+    }
+    for (const childId of children) {
+      const managed = this.subagents.get(childId);
+      if (!managed) {
+        continue;
+      }
+      if (managed.runInFlight || !TERMINAL_STATUSES.has(managed.state.status)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Total number of active (non-terminal) subagents. */

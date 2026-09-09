@@ -966,12 +966,61 @@ describe("SubagentManager run budgets", () => {
     expect(manager.getState(subagentId)?.status).toBe("aborted");
 
     // The user presses Stop on the parent.
-    manager.abortAllForParent(cfg.parentConversationId, () => {});
+    manager.abortAllForParent(cfg.parentConversationId, () => {}, {
+      userCancelled: true,
+    });
 
     // Let the child's run finish unwinding and reach its teardown.
     await new Promise((resolve) => setTimeout(resolve, 120));
 
     expect(parent.messages().join("\n")).not.toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("an evicted parent still gets its deferred budget notification", async () => {
+    // Eviction, stale rebuild, and config-reload teardown all sweep the same
+    // way, but none of them means the user stopped anything: the conversation
+    // id lives on and its next turn still wants to know its child hit a
+    // ceiling. Only a stop suppresses.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 60 };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+
+    // The evictor's sweep: same call, no user cancel.
+    manager.abortAllForParent(cfg.parentConversationId, () => {});
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect(parent.messages().join("\n")).toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("a budget-stopped child holds its parent against eviction until it unwinds", async () => {
+    // `hasActiveChildren` is what the evictor's `shouldProtect` reads. The
+    // budget stop makes the child terminal while its loop is still unwinding,
+    // and that teardown still injects into the parent and releases the child's
+    // conversation, so dropping protection there would let eviction race it.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 60 };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    // Terminal by status, but the run has not finished unwinding.
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    expect(manager.hasActiveChildren(cfg.parentConversationId)).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    // Teardown done: the parent is evictable again.
+    expect(manager.hasActiveChildren(cfg.parentConversationId)).toBe(false);
     clearConversations();
   });
 
