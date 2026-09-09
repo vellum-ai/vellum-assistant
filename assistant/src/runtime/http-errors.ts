@@ -19,8 +19,10 @@ export type HttpErrorCode =
   | "BAD_REQUEST"
   | "CREDENTIAL_IN_USE"
   | "UNAUTHORIZED"
+  | "PAYMENT_REQUIRED"
   | "FORBIDDEN"
   | "NOT_FOUND"
+  | "METHOD_NOT_ALLOWED"
   | "CONFLICT"
   | "GONE"
   | "RATE_LIMITED"
@@ -28,6 +30,7 @@ export type HttpErrorCode =
   | "FAILED_DEPENDENCY"
   | "INTERNAL_ERROR"
   | "NOT_IMPLEMENTED"
+  | "BAD_GATEWAY"
   | "SERVICE_UNAVAILABLE";
 
 // ── Response type ────────────────────────────────────────────────────────────
