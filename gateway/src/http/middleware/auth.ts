@@ -2,10 +2,13 @@ import type { Server } from "bun";
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
-import { resolveScopeProfile } from "../../auth/scopes.js";
+import {
+  isNarrowScopeProfile,
+  resolveScopeProfile,
+} from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
-import type { Scope, ScopeProfile, TokenClaims } from "../../auth/types.js";
+import type { Scope, TokenClaims } from "../../auth/types.js";
 import { AuthFallbackCountTracker } from "../../auth-fallback-count-tracker.js";
 import { AuthFallbackLogThrottle } from "../../auth-fallback-log-throttle.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
@@ -588,30 +591,17 @@ export function wrapWithAuthFailureTracking(
 // Internals
 // ---------------------------------------------------------------------------
 
-/**
- * Scope profiles broad enough to stand for their caller on any edge route.
- * A profile outside this set is minted for a single route, which validates the
- * grant itself, so edge auth refuses it. New profiles land outside the set and
- * therefore fail closed.
- */
-const EDGE_AUTH_PROFILES: ReadonlySet<ScopeProfile> = new Set<ScopeProfile>([
-  "actor_client_v1",
-  "gateway_ingress_v1",
-  "gateway_service_v1",
-  "local_v1",
-  "ui_page_v1",
-]);
-
 /** Conversation component of an OAuth passthrough grant's subject. */
 const OAUTH_PROXY_SUBJECT_PREFIX = "oauth-proxy.";
 
 /**
  * True when the claims name a grant minted for a single route rather than an
- * edge credential. The scope profile is the gate; the subject shape is a
- * second signal, catching a proxy grant that carries some other profile.
+ * edge credential. A narrow scope profile is the gate, since edge auth speaks
+ * for its caller on every route it guards; the subject shape is a second
+ * signal, catching a proxy grant that carries some other profile.
  */
 function isSingleRouteGrant(claims: TokenClaims): boolean {
-  if (!EDGE_AUTH_PROFILES.has(claims.scope_profile)) return true;
+  if (isNarrowScopeProfile(claims.scope_profile)) return true;
   const parsed = parseSub(claims.sub);
   return (
     parsed.ok &&

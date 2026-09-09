@@ -9,6 +9,7 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import "../../__tests__/test-preload.js";
 
+import { isNarrowScopeProfile } from "../../auth/scopes.js";
 import type { ScopeProfile } from "../../auth/types.js";
 
 // ---------------------------------------------------------------------------
@@ -109,11 +110,9 @@ mock.module("../../ipc/assistant-client.js", () => ({
   ipcCallAssistant: ipcCallAssistantMock,
 }));
 
-// Stub validateEdgeToken; by default auth passes. The rest of the module
-// (notably toDaemonSubject, which the proxy uses to derive the forwarded
-// subject header) keeps its real implementation.
+// Stub validateEdgeToken; by default auth passes. The rest of the module keeps
+// its real implementation.
 const actualTokenExchange = await import("../../auth/token-exchange.js");
-const { toDaemonSubject } = actualTokenExchange;
 
 const validateEdgeTokenMock = mock(
   (
@@ -203,24 +202,24 @@ function makeRequest(
 
 describe("matchRoute", () => {
   test("matches static endpoint", () => {
-    const m = matchRoute("GET", "health");
-    expect(m).toBeDefined();
-    expect(m!.operationId).toBe("health");
-    expect(m!.pathParams).toEqual({});
+    expect(matchRoute("GET", "health")).toEqual({
+      operationId: "health",
+      pathParams: {},
+    });
   });
 
   test("matches parameterized endpoint and extracts params", () => {
-    const m = matchRoute("POST", "acp/abc123/steer");
-    expect(m).toBeDefined();
-    expect(m!.operationId).toBe("acp_steer");
-    expect(m!.pathParams).toEqual({ id: "abc123" });
+    expect(matchRoute("POST", "acp/abc123/steer")).toEqual({
+      operationId: "acp_steer",
+      pathParams: { id: "abc123" },
+    });
   });
 
   test("matches multi-param endpoint", () => {
-    const m = matchRoute("GET", "apps/myapp/dist/bundle.js");
-    expect(m).toBeDefined();
-    expect(m!.operationId).toBe("apps_dist_file");
-    expect(m!.pathParams).toEqual({ appId: "myapp", filename: "bundle.js" });
+    expect(matchRoute("GET", "apps/myapp/dist/bundle.js")).toEqual({
+      operationId: "apps_dist_file",
+      pathParams: { appId: "myapp", filename: "bundle.js" },
+    });
   });
 
   test("returns undefined for method mismatch", () => {
@@ -236,9 +235,16 @@ describe("matchRoute", () => {
   });
 
   test("decodes percent-encoded path params", () => {
-    const m = matchRoute("POST", "acp/hello%20world/steer");
-    expect(m).toBeDefined();
-    expect(m!.pathParams).toEqual({ id: "hello world" });
+    expect(matchRoute("POST", "acp/hello%20world/steer")).toEqual({
+      operationId: "acp_steer",
+      pathParams: { id: "hello world" },
+    });
+  });
+
+  test("reports a matched route whose param cannot be decoded", () => {
+    expect(matchRoute("POST", "acp/a%zz/steer")).toEqual({
+      malformedPath: true,
+    });
   });
 });
 
@@ -275,6 +281,24 @@ describe("tryIpcProxy", () => {
     const result = await tryIpcProxy(req, makeConfig());
     expect(result).not.toBeNull();
     expect(result!.status).toBe(404);
+  });
+
+  test("returns 400 for malformed percent-encoding in the path", async () => {
+    // The passthrough forwards caller-authored paths, so an undecodable one
+    // is a typo away. It must not surface as an unhandled 500.
+    const req = makeRequest("/v1/oauth/proxy/gh/a%zz");
+    const result = await tryIpcProxy(req, makeConfig());
+    expect(result!.status).toBe(400);
+
+    const body = (await result!.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("the malformed path does not escape the proxy handler as a 500", async () => {
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const response = await handler(makeRequest("/v1/oauth/proxy/gh/a%zz"));
+    expect(response.status).toBe(400);
   });
 
   test("calls IPC with correct operationId and params", async () => {
@@ -447,7 +471,9 @@ describe("tryIpcProxy", () => {
     expect(result!.status).toBe(502);
   });
 
-  test("replaces a spoofed x-vellum-subject with the verified subject", async () => {
+  test("strips a spoofed x-vellum-subject from an authenticated request", async () => {
+    // Nothing downstream consumes the header: the daemon's IPC adapter
+    // (`injectLocalActorHeader`) deletes it on every dispatch.
     validateEdgeTokenMock.mockImplementation(() => ({
       ok: true,
       claims: {
@@ -474,9 +500,27 @@ describe("tryIpcProxy", () => {
       Record<string, unknown>,
     ];
     const headers = params.headers as Record<string, string>;
-    expect(headers["x-vellum-subject"]).toBe(
-      "local:self:oauth-proxy.stripe_link",
-    );
+    expect(headers["x-vellum-subject"]).toBeUndefined();
+  });
+
+  test("derives the principal headers from the verified claims", async () => {
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/health", {
+      headers: {
+        authorization: "Bearer valid",
+        "x-vellum-actor-principal-id": "attacker",
+        "x-vellum-principal-type": "svc_gateway",
+      },
+    });
+    await tryIpcProxy(req, config);
+
+    const [, params] = ipcCallAssistantMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    const headers = params.headers as Record<string, string>;
+    expect(headers["x-vellum-principal-type"]).toBe("actor");
+    expect(headers["x-vellum-actor-principal-id"]).toBe("user_1");
   });
 
   test("strips x-vellum-subject when the request is unauthenticated", async () => {
@@ -698,19 +742,14 @@ const SUB_BY_PROFILE: Record<ScopeProfile, string> = {
 };
 
 /**
- * Which profiles may reach a route that names no scope. Exhaustive over
- * ScopeProfile so a new profile has to be classified here rather than
- * inheriting whichever answer the compiler happens to allow.
+ * Every profile, paired with whether it may reach a route that names no scope.
+ * The classification is the source's own (`isNarrowScopeProfile`); these cases
+ * assert the fast path consults it. `SUB_BY_PROFILE` is exhaustive over
+ * ScopeProfile, so a new profile joins the sweep by declaring its subject.
  */
-const REACHES_UNSCOPED_ROUTES: Record<ScopeProfile, boolean> = {
-  actor_client_v1: true,
-  gateway_ingress_v1: true,
-  gateway_service_v1: true,
-  local_v1: true,
-  oauth_proxy_v1: false,
-  speech_relay_v1: false,
-  ui_page_v1: true,
-};
+const REACHES_UNSCOPED_ROUTES = (
+  Object.keys(SUB_BY_PROFILE) as ScopeProfile[]
+).map((profile) => [profile, !isNarrowScopeProfile(profile)] as const);
 
 function mockClaims(profile: ScopeProfile) {
   validateEdgeTokenMock.mockImplementation(() => ({
@@ -735,10 +774,10 @@ describe("single-route grants on the IPC fast path", () => {
     validateEdgeTokenMock.mockReset();
   });
 
-  test.each(Object.entries(REACHES_UNSCOPED_ROUTES))(
+  test.each(REACHES_UNSCOPED_ROUTES)(
     "%s on a null-policy route",
     async (profile, allowed) => {
-      mockClaims(profile as ScopeProfile);
+      mockClaims(profile);
       const req = makeRequest("/v1/health", {
         headers: { authorization: "Bearer valid" },
       });
@@ -747,10 +786,10 @@ describe("single-route grants on the IPC fast path", () => {
     },
   );
 
-  test.each(Object.entries(REACHES_UNSCOPED_ROUTES))(
+  test.each(REACHES_UNSCOPED_ROUTES)(
     "%s on a route whose policy names no scope",
     async (profile, allowed) => {
-      mockClaims(profile as ScopeProfile);
+      mockClaims(profile);
       const req = makeRequest("/v1/debug/ping", {
         headers: { authorization: "Bearer valid" },
       });
@@ -811,22 +850,5 @@ describe("single-route grants on the IPC fast path", () => {
     });
     const result = await tryIpcProxy(req, AUTHED_CONFIG());
     expect(result!.status).toBe(403);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Tests: toDaemonSubject
-// ---------------------------------------------------------------------------
-
-describe("toDaemonSubject", () => {
-  test("rewrites the assistant segment to self", () => {
-    expect(toDaemonSubject("actor:asst_1:user_1")).toBe("actor:self:user_1");
-    expect(toDaemonSubject("svc:gateway:asst_1")).toBe("svc:gateway:self");
-    expect(toDaemonSubject("local:asst_1:conv_1")).toBe("local:self:conv_1");
-  });
-
-  test("falls back to the gateway service sub for unparseable subs", () => {
-    expect(toDaemonSubject("garbage")).toBe("svc:gateway:self");
-    expect(toDaemonSubject("")).toBe("svc:gateway:self");
   });
 });
