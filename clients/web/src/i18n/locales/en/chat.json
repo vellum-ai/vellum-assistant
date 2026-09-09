@@ -481,6 +481,12 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Trigger"
   },
+  "composerAttachments": {
+    "fileTooLarge": "{name} is larger than {limit} and can't be attached.",
+    "filesTooLarge": "{count, plural, one {# file is too large and can't be attached.} other {# files are too large and can't be attached.}}",
+    "noActiveAssistant": "No active assistant. Please try again.",
+    "uploadFailed": "Upload failed"
+  },
   "composerDraftNotices": {
     "draftRestored": "Draft restored from your previous session.",
     "waitingUpload": "{count, plural, one {Waiting for the attachment to finish uploading before sending.} other {Waiting for # attachments to finish uploading before sending.}}"

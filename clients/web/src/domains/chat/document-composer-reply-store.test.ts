@@ -10,8 +10,25 @@
  */
 import { beforeEach, describe, expect, test } from "bun:test";
 
-import type { PendingDocumentReply } from "@/domains/chat/document-composer-reply-store";
+import type {
+  PendingDocumentReply,
+  PendingDocumentReplyPayload,
+} from "@/domains/chat/document-composer-reply-store";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
+
+/** A draft and its one uploaded attachment, as a send hands them over. */
+const SENT_PAYLOAD: PendingDocumentReplyPayload = {
+  content: "a note on the draft",
+  attachments: [
+    {
+      id: "srv-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      previewUrl: null,
+    },
+  ],
+};
 
 function getState() {
   return useDocumentComposerReplyStore.getState();
@@ -74,6 +91,21 @@ describe("startAwaitingReply", () => {
 
     expect(noncesFor("conv-1")).toEqual(["cm-1"]);
     expect(noncesFor("conv-2")).toEqual(["cm-2"]);
+  });
+
+  test("keeps the message the send carried", () => {
+    // GIVEN a send listed with the draft and attachments it went out with
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+
+    // THEN the message is there to hand back when the daemon reports the
+    // send failed after the composer was cleared
+    expect(pendingFor("conv-1")[0].payload).toEqual(SENT_PAYLOAD);
+  });
+
+  test("a send listed without a message carries none", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+
+    expect(pendingFor("conv-1")[0].payload).toBeUndefined();
   });
 });
 
@@ -518,6 +550,14 @@ describe("rekeyReplyByNonce", () => {
     // THEN the wait moves onto the row, and the key it left is reported
     expect(previous).toBe("draft-key");
     expect(noncesFor("conv-server")).toEqual(["cm-1"]);
+  });
+
+  test("carries the message the send went out with across", () => {
+    getState().startAwaitingReply("draft-key", "cm-1", SENT_PAYLOAD);
+
+    getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    expect(pendingFor("conv-server")[0].payload).toEqual(SENT_PAYLOAD);
   });
 
   test("carries the acknowledged and queued flags across", () => {

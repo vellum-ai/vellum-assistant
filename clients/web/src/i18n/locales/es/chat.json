@@ -477,6 +477,12 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Disparador"
   },
+  "composerAttachments": {
+    "fileTooLarge": "{name} supera {limit} y no se puede adjuntar.",
+    "filesTooLarge": "{count, plural, one {# archivo es demasiado grande y no se puede adjuntar.} other {# archivos son demasiado grandes y no se pueden adjuntar.}}",
+    "noActiveAssistant": "No hay ningún asistente activo. Inténtalo de nuevo.",
+    "uploadFailed": "Error al subir"
+  },
   "composerDraftNotices": {
     "draftRestored": "Borrador restaurado de tu sesión anterior.",
     "waitingUpload": "{count, plural, one {Esperando a que termine de subirse el adjunto antes de enviar.} other {Esperando a que terminen de subirse # adjuntos antes de enviar.}}"

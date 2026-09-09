@@ -1,8 +1,19 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type Mock,
+} from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { ChatError } from "@/domains/chat/types";
+import type {
+  DisplayAttachment,
+  DisplayMessage,
+} from "@/domains/chat/types/types";
 import {
   handleStreamError,
   handleConversationErrorEvent,
@@ -19,6 +30,17 @@ describe("handleStreamError", () => {
     isOptimistic: true,
     role: "user",
     contentBlocks: [{ type: "text", text: "the batched send" }],
+  };
+  const failedAttachment: DisplayAttachment = {
+    id: "att-1",
+    filename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+    previewUrl: null,
+  };
+  const optimisticSendWithAttachment: DisplayMessage = {
+    ...optimisticSend,
+    attachments: [failedAttachment],
   };
 
   // The message-scoped branch reads the real chat-session store to find the
@@ -79,8 +101,11 @@ describe("handleStreamError", () => {
   });
 
   it("marks only the named send failed and leaves the running turn alone", () => {
-    // GIVEN a queued batch member this tab still renders as an optimistic row
-    useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
+    // GIVEN a queued batch member this tab still renders as an optimistic row,
+    // holding the only client-side copy of what it was sent with
+    useChatSessionStore.setState({
+      optimisticSends: [optimisticSendWithAttachment],
+    });
     const ctx = makeCtx();
     ctx.queryClient.setQueryData(
       conversationListQueryKey("ast-1"),
@@ -98,18 +123,20 @@ describe("handleStreamError", () => {
       ctx,
     );
 
-    // THEN the row comes out of the transcript with its text offered back
+    // THEN the row comes out of the transcript with its text and attachments
+    // offered back
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
     const updater = (
       ctx.setOptimisticSends as unknown as ReturnType<typeof Object>
     ).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
-    expect(updater([optimisticSend])).toEqual([]);
+    expect(updater([optimisticSendWithAttachment])).toEqual([]);
     expect(ctx.setError).toHaveBeenCalledWith({
       message: "Failed to persist message.",
       code: undefined,
       errorCategory: undefined,
       displayAs: "modal",
       restoreContent: "the batched send",
+      restoreAttachments: [failedAttachment],
     });
 
     // AND the reply the batch is still generating keeps streaming
@@ -118,6 +145,27 @@ describe("handleStreamError", () => {
     expect(
       findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
     ).toBe(true);
+  });
+
+  it("offers no attachments back for a send that carried none", () => {
+    useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+
+    const setErrorArg = (
+      ctx.setError as unknown as Mock<(error: ChatError) => void>
+    ).mock.calls[0][0];
+    expect(setErrorArg.restoreContent).toBe("the batched send");
+    expect(setErrorArg).not.toHaveProperty("restoreAttachments");
   });
 
   it("treats a nonce with no scope as the message's, not the turn's", () => {

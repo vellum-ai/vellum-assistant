@@ -7,8 +7,8 @@
  * these tests pin the watcher's own filtering (which stream events it treats
  * as terminal for a send) independently of `useDocumentComposerSubmit`,
  * whose hand-off to the store is covered by its own test file. The event bus,
- * the store, and `useConversationStore` are real; only navigation and the
- * toast surface are mocked.
+ * the store, `useComposerStore`, and `useConversationStore` are real; only
+ * navigation and the toast surface are mocked.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
@@ -25,14 +25,16 @@ mock.module("@/utils/conversation-navigation", () => ({
 }));
 
 const toastSuccessMock = mock((..._args: unknown[]) => {});
+const toastErrorMock = mock((..._args: unknown[]) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: {
     info: (..._args: unknown[]) => {},
     success: (...args: unknown[]) => toastSuccessMock(...args),
-    error: (..._args: unknown[]) => {},
+    error: (...args: unknown[]) => toastErrorMock(...args),
   },
 }));
 
+const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useDocumentComposerReplyStore } = await import(
   "@/domains/chat/document-composer-reply-store"
@@ -281,6 +283,28 @@ function processing(conversationId: string): boolean {
     .processingConversationIds.has(conversationId);
 }
 
+/** The draft and the uploaded attachment a document send carried. */
+const FAILED_SEND_PAYLOAD = {
+  content: "a note on the draft",
+  attachments: [
+    {
+      id: "srv-1",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 12,
+      previewUrl: null,
+    },
+  ],
+};
+
+function documentInput(): string {
+  return useComposerStore.getState().documentInput;
+}
+
+function documentAttachments() {
+  return useComposerStore.getState().documentAttachments;
+}
+
 beforeEach(() => {
   useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
   useConversationStore.setState({
@@ -288,10 +312,16 @@ beforeEach(() => {
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
   });
+  useComposerStore.setState({
+    documentInput: "",
+    documentAttachments: [],
+    documentAttachmentLastError: null,
+  });
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   navigateSpy.mockClear();
   navigateToConversationMock.mockClear();
   toastSuccessMock.mockClear();
+  toastErrorMock.mockClear();
 });
 
 afterEach(() => {
@@ -1199,6 +1229,115 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastSuccessMock).not.toHaveBeenCalled();
       expect(nonces("conv-1")).toEqual(["cm-1"]);
       expect(processing("conv-1")).toBe(true);
+    });
+  });
+
+  describe("a document send the daemon could not persist", () => {
+    test("reports the failure and hands the message back", () => {
+      // GIVEN a send running in the conversation, listed with the message it
+      // carried, on a composer its own success path already cleared
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      acknowledgeRunning("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // WHEN the daemon reports it could not persist that message
+      publishStreamError("conv-1", "cm-1", "message");
+
+      // THEN the wait and its marker are down, the user is told the send
+      // failed, and the message is back in the composer to send again
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
+        "Couldn't send your message. Try again.",
+      );
+      expect(documentInput()).toBe("a note on the draft");
+      expect(documentAttachments()).toHaveLength(1);
+      expect(documentAttachments()[0]).toMatchObject({
+        kind: "uploaded",
+        id: "srv-1",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        sizeBytes: 12,
+        previewUrl: null,
+      });
+    });
+
+    test("leaves a draft the user has typed since alone", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      acknowledgeRunning("conv-1", "cm-1");
+      useComposerStore.getState().setInput("the next message", "document");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-1", "message");
+
+      // The failure is still worth reporting, but the newer draft is the one
+      // the user is writing.
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(documentInput()).toBe("the next message");
+    });
+
+    test("leaves attachments the user has staged since alone", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      acknowledgeRunning("conv-1", "cm-1");
+      useComposerStore.setState({
+        documentAttachments: [
+          {
+            kind: "uploaded",
+            localId: "a-newer",
+            id: "srv-newer",
+            filename: "newer.txt",
+            mimeType: "text/plain",
+            sizeBytes: 3,
+            previewUrl: null,
+          },
+        ],
+      });
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-1", "message");
+
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(documentAttachments()).toHaveLength(1);
+      expect(documentAttachments()[0]).toMatchObject({ id: "srv-newer" });
+    });
+
+    test("reports a send listed without its message, restoring nothing", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      acknowledgeRunning("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-1", "message");
+
+      expect(awaiting("conv-1")).toBe(false);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+      expect(documentInput()).toBe("");
+      expect(documentAttachments()).toHaveLength(0);
+    });
+
+    test("says nothing about another client's failed message", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      acknowledgeRunning("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-someone-else", "message");
+
+      expect(nonces("conv-1")).toEqual(["cm-1"]);
+      expect(toastErrorMock).not.toHaveBeenCalled();
+      expect(documentInput()).toBe("");
+      expect(documentAttachments()).toHaveLength(0);
     });
   });
 

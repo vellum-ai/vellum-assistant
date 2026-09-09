@@ -963,6 +963,10 @@ export function ChatMainPanel({
           ) {
             composer.setInput(error.restoreContent);
           }
+          if (error.restoreAttachments) {
+            // The store action stages these only into an empty slot.
+            composer.restoreAttachmentsIfEmpty(error.restoreAttachments);
+          }
           useChatSessionStore.getState().setError(null);
         }}
       />

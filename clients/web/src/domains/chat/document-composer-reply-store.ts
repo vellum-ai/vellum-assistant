@@ -18,7 +18,15 @@
 
 import { create } from "zustand";
 
+import type { DisplayAttachment } from "@/types/attachment-types";
 import { createSelectors } from "@/utils/create-selectors";
+
+/** What a send carried, kept so a failure the daemon reports after the
+ *  composer was cleared can hand the message back. */
+export interface PendingDocumentReplyPayload {
+  content: string;
+  attachments: DisplayAttachment[];
+}
 
 export interface PendingDocumentReply {
   /**
@@ -39,6 +47,12 @@ export interface PendingDocumentReply {
    * it waits for the dequeue that starts its own turn.
    */
   queued: boolean;
+  /**
+   * What the send carried, when it was listed with one. The daemon can report
+   * a message-scoped failure after the send's own response has already
+   * cleared the composer, so the message it took is kept here to hand back.
+   */
+  payload?: PendingDocumentReplyPayload;
 }
 
 export interface DocumentComposerReplyState {
@@ -54,11 +68,13 @@ export interface DocumentComposerReplyActions {
    * Record that a just-sent document composer message is awaiting a reply.
    * `clientMessageId` is the nonce the send carries, when known; a nonce
    * already listed for the conversation is the same message sent again, and
-   * is not listed twice.
+   * is not listed twice. `payload` is what the send carried, kept for a
+   * failure the daemon reports once the composer has moved on.
    */
   startAwaitingReply: (
     conversationId: string,
     clientMessageId?: string,
+    payload?: PendingDocumentReplyPayload,
   ) => void;
   /**
    * Drop the send carrying `clientMessageId` from `conversationId`, for a
@@ -186,7 +202,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set, get) => ({
     pendingReplies: new Map(),
 
-    startAwaitingReply: (conversationId, clientMessageId) => {
+    startAwaitingReply: (conversationId, clientMessageId, payload) => {
       set((s) => {
         const pending = s.pendingReplies.get(conversationId) ?? [];
         if (pending.some((p) => carriesNonce(p, clientMessageId))) {
@@ -195,7 +211,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, [
             ...pending,
-            { clientMessageId, acknowledged: false, queued: false },
+            { clientMessageId, acknowledged: false, queued: false, payload },
           ]),
         };
       });

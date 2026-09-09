@@ -18,6 +18,7 @@
 
 import { create } from "zustand";
 
+import { t } from "@/i18n";
 import { createSelectors } from "@/utils/create-selectors";
 import type {
   AttachmentMetadata,
@@ -328,6 +329,15 @@ export interface ComposerActions {
   /** Clear all attachments (e.g. after successful send). Does NOT revoke
    * preview URLs, since sent message bubbles still need them. */
   resetAttachments: (slot?: ComposerSlot) => void;
+  /**
+   * Stage already-uploaded attachments again, for a send the daemon reported
+   * failed after the composer was cleared. Acts only while the slot holds no
+   * attachments, so a newer set the user has staged since is never replaced.
+   */
+  restoreAttachmentsIfEmpty: (
+    attachments: DisplayAttachment[],
+    slot?: ComposerSlot,
+  ) => void;
   /** Clear `slot`'s attachments AND revoke every preview URL that slot
    * created (e.g. on assistant switch), including the ones whose
    * attachments a previous `resetAttachments` already cleared into sent
@@ -488,7 +498,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       return;
     }
     if (!assistantId) {
-      setAttachmentError(set, slot, "No active assistant. Please try again.");
+      // The store runs outside React, so it reads the catalog through the
+      // non-hook translator.
+      setAttachmentError(
+        set,
+        slot,
+        t("chat:composerAttachments.noActiveAssistant"),
+      );
       return;
     }
 
@@ -508,8 +524,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
         set,
         slot,
         oversized.length === 1
-          ? `${firstOversized.name} is larger than ${uploadLimitLabel(firstOversized)} and can't be attached.`
-          : `${oversized.length} files are too large and can't be attached.`,
+          ? t("chat:composerAttachments.fileTooLarge", {
+              name: firstOversized.name,
+              limit: uploadLimitLabel(firstOversized),
+            })
+          : t("chat:composerAttachments.filesTooLarge", {
+              count: oversized.length,
+            }),
       );
     } else {
       setAttachmentError(set, slot, null);
@@ -595,7 +616,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
               set,
               slot,
               pending.localId,
-              result.error.detail ?? "Upload failed",
+              result.error.detail ?? t("chat:composerAttachments.uploadFailed"),
             );
             return;
           }
@@ -653,7 +674,12 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
             cancelledUploads.delete(pending.localId);
             return;
           }
-          markFailed(set, slot, pending.localId, "Upload failed");
+          markFailed(
+            set,
+            slot,
+            pending.localId,
+            t("chat:composerAttachments.uploadFailed"),
+          );
         }
       })();
     }
@@ -723,6 +749,21 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
         : { attachments: [], attachmentLastError: null };
     });
     revokeSlotPreviews(slot);
+  },
+
+  restoreAttachmentsIfEmpty: (attachments, slot = "main") => {
+    if (attachments.length === 0) {
+      return;
+    }
+    updateAttachments(set, slot, (atts) =>
+      atts.length > 0
+        ? atts
+        : attachments.map((att) => ({
+            ...att,
+            kind: "uploaded" as const,
+            localId: createLocalId(),
+          })),
+    );
   },
 
   dismissAttachmentError: (slot = "main") => {

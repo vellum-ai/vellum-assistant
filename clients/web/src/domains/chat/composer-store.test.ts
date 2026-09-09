@@ -14,6 +14,9 @@ import {
   spyOn,
   test,
 } from "bun:test";
+import IntlMessageFormat from "intl-messageformat";
+
+import chatEn from "@/i18n/locales/en/chat.json";
 
 // Mock local-settings so we can observe localStorage reads/writes without
 // touching the real localStorage (happy-dom doesn't persist across tests).
@@ -65,6 +68,7 @@ mock.module(
 );
 
 import type { UploadedAttachment } from "@/domains/chat/composer-store";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
 const { MAX_ATTACHMENT_BYTES, useComposerStore } =
   await import("@/domains/chat/composer-store");
@@ -112,6 +116,28 @@ function fileWithHeader(
   type: string,
 ): File {
   return new File([header, "trailing-bytes"], name, { type });
+}
+
+/**
+ * The English catalog message for `key`, rendered the way the app renders it,
+ * so an assertion reads the shipped copy rather than a second copy of it.
+ */
+function attachmentCopy(
+  key: keyof typeof chatEn.composerAttachments,
+  values: Record<string, string | number> = {},
+): string {
+  return String(
+    new IntlMessageFormat(chatEn.composerAttachments[key], "en").format(values),
+  );
+}
+
+/** A file too big to queue, described without allocating its bytes. */
+function oversizedFile(name: string): File {
+  return {
+    name,
+    type: "application/octet-stream",
+    size: MAX_ATTACHMENT_BYTES + 1,
+  } as unknown as File;
 }
 
 /** Poll until no attachment is in the transient "uploading" state. */
@@ -687,6 +713,151 @@ describe("addFiles image byte validation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Attachment error copy: the store runs outside React and reads the catalog
+// ---------------------------------------------------------------------------
+
+describe("addFiles attachment error copy", () => {
+  test("a missing assistant surfaces the catalog's no-active-assistant message", () => {
+    getStore().addFiles(
+      [new File(["plain text"], "notes.txt", { type: "text/plain" })],
+      null,
+    );
+
+    expect(getStore().attachmentLastError).toBe(
+      attachmentCopy("noActiveAssistant"),
+    );
+    expect(getStore().attachments).toHaveLength(0);
+  });
+
+  test("one oversized file names the file and the limit from the catalog", () => {
+    getStore().addFiles([oversizedFile("huge.bin")], "assistant-1");
+
+    expect(getStore().attachmentLastError).toBe(
+      attachmentCopy("fileTooLarge", { name: "huge.bin", limit: "50 MB" }),
+    );
+  });
+
+  test("several oversized files take the catalog's plural form", () => {
+    getStore().addFiles(
+      [oversizedFile("huge-1.bin"), oversizedFile("huge-2.bin")],
+      "assistant-1",
+    );
+
+    expect(getStore().attachmentLastError).toBe(
+      attachmentCopy("filesTooLarge", { count: 2 }),
+    );
+  });
+
+  test("a failed upload with no detail marks the chip with the catalog message", async () => {
+    uploadChatAttachmentMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 500,
+      error: {},
+    }));
+
+    getStore().addFiles(
+      [new File(["plain text"], "notes.txt", { type: "text/plain" })],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    if (att.kind !== "failed") {
+      throw new Error(`expected failed attachment, got ${att.kind}`);
+    }
+    expect(att.error).toBe(attachmentCopy("uploadFailed"));
+  });
+
+  test("a detail from the assistant wins over the catalog message", async () => {
+    uploadChatAttachmentMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 413,
+      error: { detail: "Attachment storage is full" },
+    }));
+
+    getStore().addFiles(
+      [new File(["plain text"], "notes.txt", { type: "text/plain" })],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    if (att.kind !== "failed") {
+      throw new Error(`expected failed attachment, got ${att.kind}`);
+    }
+    expect(att.error).toBe("Attachment storage is full");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// restoreAttachmentsIfEmpty: staging a failed send's attachments again
+// ---------------------------------------------------------------------------
+
+describe("restoreAttachmentsIfEmpty", () => {
+  const sent: DisplayAttachment[] = [
+    {
+      id: "srv-1",
+      filename: "one.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      previewUrl: null,
+    },
+    {
+      id: "srv-2",
+      filename: "two.txt",
+      mimeType: "text/plain",
+      sizeBytes: 2,
+      previewUrl: null,
+    },
+  ];
+
+  test("stages the attachments as uploaded entries with fresh local ids", () => {
+    getStore().restoreAttachmentsIfEmpty(sent);
+
+    const atts = getStore().attachments;
+    expect(atts.map((att) => att.kind)).toEqual(["uploaded", "uploaded"]);
+    expect(
+      atts.map((att) => (att.kind === "uploaded" ? att.id : null)),
+    ).toEqual(["srv-1", "srv-2"]);
+    const localIds = atts.map((att) => att.localId);
+    expect(new Set(localIds).size).toBe(2);
+    for (const localId of localIds) {
+      expect(localId).toStartWith("att-");
+    }
+  });
+
+  test("leaves a slot the user has already staged something into alone", () => {
+    const staged: UploadedAttachment = {
+      kind: "uploaded",
+      localId: "newer-att",
+      id: "srv-newer",
+      filename: "newer.txt",
+      mimeType: "text/plain",
+      sizeBytes: 3,
+      previewUrl: null,
+    };
+    useComposerStore.setState({ attachments: [staged] });
+
+    getStore().restoreAttachmentsIfEmpty(sent);
+
+    expect(getStore().attachments).toEqual([staged]);
+  });
+
+  test("no-ops on an empty list", () => {
+    getStore().restoreAttachmentsIfEmpty([]);
+
+    expect(getStore().attachments).toHaveLength(0);
+  });
+
+  test("stages into the document slot without touching the main one", () => {
+    getStore().restoreAttachmentsIfEmpty(sent, "document");
+
+    expect(getStore().documentAttachments).toHaveLength(2);
+    expect(getStore().attachments).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // restoreFailedDraft: parking a failed send's text for its own thread
 // ---------------------------------------------------------------------------
 
@@ -804,15 +975,11 @@ describe("ComposerSlot isolation", () => {
   });
 
   test("an oversized file sets documentAttachmentLastError, not attachmentLastError", () => {
-    const hugeFile = {
-      name: "huge.bin",
-      type: "application/octet-stream",
-      size: MAX_ATTACHMENT_BYTES + 1,
-    } as unknown as File;
+    getStore().addFiles([oversizedFile("huge.bin")], "assistant-1", "document");
 
-    getStore().addFiles([hugeFile], "assistant-1", "document");
-
-    expect(getStore().documentAttachmentLastError).toContain("larger than");
+    expect(getStore().documentAttachmentLastError).toBe(
+      attachmentCopy("fileTooLarge", { name: "huge.bin", limit: "50 MB" }),
+    );
     expect(getStore().attachmentLastError).toBeNull();
   });
 

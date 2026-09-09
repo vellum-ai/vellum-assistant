@@ -36,6 +36,7 @@ import {
   type ChatAttachment,
   selectUploadedIds,
   selectUploadingCount,
+  type UploadedAttachment,
   useComposerStore,
 } from "@/domains/chat/composer-store";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
@@ -448,6 +449,17 @@ export function useDocumentComposerSubmit({
         }
       };
 
+      // The message this send is carrying rides along with its entry: the
+      // daemon can report the send failed after the composer has been cleared
+      // and told the user it went out, and nothing else holds the message by
+      // then.
+      const sentPayload = {
+        content,
+        attachments: documentAttachments.filter(
+          (attachment): attachment is UploadedAttachment =>
+            attachment.kind === "uploaded",
+        ),
+      };
       // List this send among `conversationId`'s pending sends, under the nonce
       // it is carrying, so the watcher can tell stream events that echo it
       // apart from events about any other message in the conversation. A send
@@ -456,7 +468,7 @@ export function useDocumentComposerSubmit({
       const raiseReplyWait = (conversationId: string) => {
         useDocumentComposerReplyStore
           .getState()
-          .startAwaitingReply(conversationId, clientMessageId);
+          .startAwaitingReply(conversationId, clientMessageId, sentPayload);
       };
       // Whether one of `conversationId`'s pending sends is this message's:
       // listed under its nonce, by this attempt or an earlier one. Every other

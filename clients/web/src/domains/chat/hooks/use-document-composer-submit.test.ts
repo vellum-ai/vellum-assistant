@@ -334,6 +334,17 @@ function awaitingNonce(conversationId: string): string | undefined {
 }
 
 /**
+ * The message the oldest send still awaiting a reply in `conversationId`
+ * carried, kept for a failure the daemon reports after the composer has been
+ * cleared. `undefined` when nothing is awaiting a reply there.
+ */
+function awaitingPayload(conversationId: string) {
+  return useDocumentComposerReplyStore
+    .getState()
+    .pendingReplies.get(conversationId)?.[0]?.payload;
+}
+
+/**
  * How the oldest send still awaiting a reply in `conversationId` stands:
  * whether the daemon has taken it in, and whether it is queued rather than
  * running. `undefined` when nothing is awaiting a reply there.
@@ -1355,6 +1366,71 @@ describe("when the reply wait goes up", () => {
     });
 
     expect(awaitingNonce("conv-existing")).toBe(sentNonce);
+  });
+
+  test("the entry carries the message the send went out with", async () => {
+    useComposerStore.setState({
+      documentInput: "hello",
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "a1",
+          id: "srv-1",
+          filename: "f.txt",
+          mimeType: "text/plain",
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+        {
+          kind: "failed",
+          localId: "a2",
+          filename: "g.txt",
+          mimeType: "text/plain",
+          sizeBytes: 2,
+          error: "the upload failed",
+        },
+      ],
+    });
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The daemon can report the send failed once this success path has
+    // cleared the composer, so the entry holds what went out: the draft, and
+    // the attachments that reached the server.
+    const payload = awaitingPayload("conv-existing");
+    expect(payload?.content).toBe("hello");
+    expect(payload?.attachments).toHaveLength(1);
+    expect(payload?.attachments[0]).toMatchObject({
+      id: "srv-1",
+      filename: "f.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      previewUrl: null,
+    });
+  });
+
+  test("a wait moved onto the row the daemon answered with keeps the message", async () => {
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> =>
+        sentResult("conv-minted"),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The legacy `conversationKey` path relists the send under the row the
+    // daemon answered with, and the message it carried moves with it.
+    expect(awaitingPayload("conv-key")).toBeUndefined();
+    expect(awaitingPayload("conv-minted")).toEqual({
+      content: "hello",
+      attachments: [],
+    });
   });
 
   test("a wait moved onto the row the daemon answered with keeps the nonce", async () => {
@@ -2779,7 +2855,12 @@ describe("an attempt nothing can retry", () => {
     const secondNonce = sentOptions(1).clientMessageId as string;
     expect(secondNonce).not.toBe(firstNonce);
     expect(awaitingSends("conv-existing")).toEqual([
-      { clientMessageId: secondNonce, acknowledged: true, queued: false },
+      {
+        clientMessageId: secondNonce,
+        acknowledged: true,
+        queued: false,
+        payload: { content: "hello, edited", attachments: [] },
+      },
     ]);
     expect(isProcessing("conv-existing")).toBe(true);
   });

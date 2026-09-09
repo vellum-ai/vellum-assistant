@@ -269,6 +269,12 @@
     "tokenRangeWithReduction": "{before} → {after}  ({reduction})",
     "trigger": "Триггер"
   },
+  "composerAttachments": {
+    "fileTooLarge": "{name} превышает {limit}, прикрепить нельзя.",
+    "filesTooLarge": "{count, plural, one {# файл слишком большой, прикрепить нельзя.} few {# файла слишком большие, прикрепить нельзя.} many {# файлов слишком большие, прикрепить нельзя.} other {# файла слишком большие, прикрепить нельзя.}}",
+    "noActiveAssistant": "Нет активного ассистента. Повторите попытку.",
+    "uploadFailed": "Не удалось загрузить"
+  },
   "composerSettingsMenu": {
     "profileSwitchFailed": "Профиль создан, но переключиться на него не удалось",
     "profileSwitchFallback": "Не удалось сменить профиль. Повторите попытку."

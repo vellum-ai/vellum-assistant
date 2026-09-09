@@ -477,6 +477,12 @@
     "tokenRangeWithReduction": "{before} → {after} ({reduction})",
     "trigger": "觸發器"
   },
+  "composerAttachments": {
+    "fileTooLarge": "{name} 超過 {limit}，無法附加。",
+    "filesTooLarge": "{count, plural, other {# 個檔案過大，無法附加。}}",
+    "noActiveAssistant": "沒有作用中的助理。請再試一次。",
+    "uploadFailed": "上傳失敗"
+  },
   "composerDraftNotices": {
     "draftRestored": "草稿已從您先前的會話中還原。",
     "waitingUpload": "{count, plural, other {正在等待 # 個附件上傳完成後再傳送。}}"

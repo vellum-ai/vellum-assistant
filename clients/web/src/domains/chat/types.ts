@@ -7,6 +7,7 @@
  */
 
 import type { AssistantState } from "@/assistant/types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
@@ -43,6 +44,12 @@ export interface ChatError {
    * lose their message after a failed send rollback.
    */
   restoreContent?: string;
+  /**
+   * The already-uploaded attachments of the failed send, staged into the
+   * composer again when the error is acknowledged. Applied only while the
+   * composer holds none, so a newer set the user has staged since is kept.
+   */
+  restoreAttachments?: DisplayAttachment[];
   /**
    * URL the banner offers to open via an action button. Set when an
    * automatic `window.open` was blocked (no user activation on SSE-driven
