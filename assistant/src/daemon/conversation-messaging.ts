@@ -229,6 +229,8 @@ export interface MessagingConversationContext {
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
+  /** See {@link Conversation.currentTurnClientMessageId}. */
+  currentTurnClientMessageId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
   authContext?: AuthContext;
@@ -816,6 +818,19 @@ export interface EnqueueMessageOptions {
    * set to this sender.
    */
   trustContext?: TrustContext;
+  /**
+   * Queue the message even when the conversation reads idle, instead of taking
+   * the idle fast path that stores nothing.
+   *
+   * The fast path exists so a caller that races a turn ending can notice and
+   * run the message itself. The interrupt fallback cannot: it reaches here
+   * precisely because the turn it stopped left the conversation in a state this
+   * send must not run against (a turn-boundary commit still staging the working
+   * tree, a `tool_use` repair that could not be persisted), so the message has
+   * to wait for a drain rather than be run now or dropped. Callers passing this
+   * own kicking the drain, since there is no running turn whose `finally` will.
+   */
+  queueWhenIdle?: boolean;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -848,7 +863,7 @@ export function enqueueMessage(
   // in-flight turn's actor, which is precisely who this message is not from.
   const queuedTrustContext = options.trustContext ?? ctx.trustContext;
 
-  if (!ctx.isProcessing()) {
+  if (!ctx.isProcessing() && options.queueWhenIdle !== true) {
     return { queued: false, requestId };
   }
 
@@ -1066,6 +1081,10 @@ export async function persistUserMessage(
 
   const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
+  // Recorded in the same synchronous step as the abort controller and the lock
+  // below, so a retransmission of this very send can never find the turn armed
+  // but unattributed and abort it.
+  ctx.currentTurnClientMessageId = options.clientMessageId;
   ctx.abortController = new AbortController();
 
   let owner: number | null = null;
@@ -1097,6 +1116,7 @@ export async function persistUserMessage(
       ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
+      ctx.currentTurnClientMessageId = undefined;
     }
     return result;
   } catch (err) {
@@ -1116,6 +1136,7 @@ export async function persistUserMessage(
     }
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
+    ctx.currentTurnClientMessageId = undefined;
     throw err;
   }
 }

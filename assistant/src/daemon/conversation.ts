@@ -30,6 +30,7 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
@@ -485,6 +486,35 @@ export class Conversation {
   enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
+   * The `clientMessageId` the running turn was started by, recorded in the same
+   * synchronous step that takes the processing lock.
+   *
+   * A retransmitted send is normally recognised by finding the row its original
+   * already wrote, but a turn takes the lock and arms its abort controller
+   * before it inserts that row. In that window a retry finds a busy
+   * conversation and no row, and would abort the very turn its own original
+   * request just started, then deduplicate against the row that lands a moment
+   * later and start nothing. This is what lets such a retry recognise the turn
+   * as its own.
+   * @internal
+   */
+  currentTurnClientMessageId?: string;
+  /**
+   * `clientMessageId` to `requestId` for sends this conversation has accepted
+   * but not yet persisted.
+   *
+   * {@link currentTurnClientMessageId} covers a retry that races a turn already
+   * starting. This covers the window the interrupt opens ahead of that: a send
+   * is answered `202` and its abort, waits, repair and persist all run
+   * afterwards, so a retransmission arriving in between finds no running turn
+   * of its own to recognise and no row yet either, and both copies would race
+   * the unique `clientMessageId` insert with one losing. Reserved
+   * synchronously before the handover is detached, so the second copy is
+   * recognised and answered with the first's id.
+   * @internal
+   */
+  readonly inFlightSendRequestIds = new Map<string, string>();
+  /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
    * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
    * the main reply apart from background agent-loop work (compaction,
@@ -683,6 +713,24 @@ export class Conversation {
    * @internal
    */
   pendingInterruptRepair = false;
+  /**
+   * Set by `interruptRunningTurn` once it has handed the conversation over, and
+   * consumed by the agent loop at the head of the very next turn, which emits
+   * the `thinking` / `message_interrupted` transition.
+   *
+   * The transition bridges a gap the interrupt opens: the stopped turn's
+   * `generation_cancelled` idles every client's turn state, and the ordinary
+   * send path emits no `thinking` of its own, so without it the composer sits
+   * idle until the replacement turn's first delta. It is deferred to the loop
+   * rather than emitted by the interrupt because the send can still fail
+   * between the two (slash resolution, a `/compact` claim, the user-row
+   * persist), and an activity state is cached and replayed to reconnecting
+   * clients: emitted early, a failed send leaves every client showing a busy
+   * conversation that is not running anything. A flag nobody consumes emits
+   * nothing.
+   * @internal
+   */
+  pendingInterruptActivityBridge = false;
   /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
@@ -2396,7 +2444,21 @@ export class Conversation {
     return this.queue.removeByRequestId(requestId);
   }
 
+  /**
+   * Whether the agent loop may yield at a turn-boundary checkpoint to let a
+   * queued message take over.
+   *
+   * Under `interrupt-on-send` a message sent while this conversation is busy
+   * never queues, so the handoff has nothing to hand off to. Answering `false`
+   * outright keeps the loop from taking the branch on a queue that only holds
+   * entries the interrupt path deliberately left there (another actor's send
+   * falling back to the queue, a daemon-internal enqueue): those run on the
+   * ordinary end-of-turn drain rather than by cutting a turn short.
+   */
   canHandoffAtCheckpoint(): boolean {
+    if (isInterruptOnSendEnabled()) {
+      return false;
+    }
     return this._processing && this.hasQueuedMessages();
   }
 

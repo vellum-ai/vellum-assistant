@@ -44,7 +44,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -75,10 +75,12 @@ import {
   newTurnId,
   resolvePostError,
   shouldCleanupSupersededInteractions,
+  shouldQueueSend,
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
+import { getInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
@@ -574,6 +576,15 @@ export function useSendMessage({
           resolvedConversationId: postResult.conversationId,
         };
       }
+      // Not queued, so no `message_queued` will register this. Recorded anyway
+      // because a send the daemon accepted can still fail afterwards (an
+      // `interrupt-on-send` handover whose queue fallback is refused), and the
+      // only handle that failure event carries is the request id.
+      if (clientMessageId && postResult.requestId) {
+        useChatSessionStore
+          .getState()
+          .setRequestIdMapping(postResult.requestId, clientMessageId);
+      }
       if (hasMatchingActiveStream) {
         return {
           status: "ok",
@@ -851,7 +862,10 @@ export function useSendMessage({
         }
       }
 
-      const willQueue = isSending(useTurnStore.getState().phase);
+      const willQueue = shouldQueueSend(
+        useTurnStore.getState().phase,
+        getInterruptOnSend(),
+      );
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
