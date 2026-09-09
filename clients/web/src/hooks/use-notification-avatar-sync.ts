@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isElectron } from "@/runtime/is-electron";
 import {
@@ -51,8 +51,13 @@ import {
  *
  * A run that fails transiently (nothing came back from the canvas, the
  * rasterizer threw) drops the key too, so the next refetch draws again instead
- * of inheriting a claim on a picture that never landed. A render past the byte
- * cap keeps its claim: that outcome is the same every time it is redrawn.
+ * of inheriting a claim on a picture that never landed, and schedules one
+ * redraw rather than waiting for a refetch that may never come: the run that
+ * failed may have been drawing from a blob URL a refetch has already revoked,
+ * and the effect run that would have redrawn from the fresh one matched the
+ * stable key and returned. One redraw per key, so a picture the canvas cannot
+ * draw at all is not attempted forever. A render past the byte cap keeps its
+ * claim: that outcome is the same every time it is redrawn.
  */
 export function useNotificationAvatarSync(
   assistantId: string | null,
@@ -64,6 +69,8 @@ export function useNotificationAvatarSync(
 ): void {
   const enabled = useClientFeatureFlagStore.use.pushAvatarSender();
   const heldKey = useRef<string | null>(null);
+  const redrawnKey = useRef<string | null>(null);
+  const [redraws, setRedraws] = useState(0);
   const release = useCallback((): void => {
     heldKey.current = null;
     clearNotificationAvatar();
@@ -100,13 +107,22 @@ export function useNotificationAvatarSync(
     heldKey.current = key;
     clearNotificationAvatar();
 
+    const giveUp = (): void => {
+      release();
+      if (redrawnKey.current === key) {
+        return;
+      }
+      redrawnKey.current = key;
+      setRedraws((count) => count + 1);
+    };
+
     void rasterizeNotificationAvatar(src, accentHex)
       .then(async (png) => {
         if (heldKey.current !== key) {
           return;
         }
         if (!png) {
-          release();
+          giveUp();
           return;
         }
         if (png.byteLength > NOTIFICATION_AVATAR_MAX_LOCAL_BYTES) {
@@ -122,7 +138,7 @@ export function useNotificationAvatarSync(
       })
       .catch(() => {
         if (heldKey.current === key) {
-          release();
+          giveUp();
         }
       });
   }, [
@@ -133,6 +149,7 @@ export function useNotificationAvatarSync(
     components,
     traits,
     accentHex,
+    redraws,
     release,
   ]);
 }

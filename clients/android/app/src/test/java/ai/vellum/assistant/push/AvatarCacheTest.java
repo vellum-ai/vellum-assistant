@@ -63,6 +63,22 @@ public class AvatarCacheTest {
         assertEquals(5, read.length);
     }
 
+    /**
+     * The budget spans the response head, so what reaches the body is whatever
+     * the head left of it. A read bounded by a fixed budget of its own would
+     * read the same amount either way.
+     */
+    @Test
+    public void boundsTheBodyByTheBudgetItIsHanded() throws IOException {
+        TricklingStream brief = tricklingStream(10);
+        TricklingStream longer = tricklingStream(10);
+
+        assertNull(AvatarCache.readCapped(brief, 50));
+        assertNull(AvatarCache.readCapped(longer, 250));
+
+        assertTrue("a larger budget reads more", longer.served > brief.served);
+    }
+
     @Test
     public void acceptsLowercaseSha256HexAndNothingElseAsAFilename() {
         assertEquals(VELLUM_SHA256, AvatarCache.validated(VELLUM_SHA256));
@@ -167,34 +183,43 @@ public class AvatarCacheTest {
     }
 
     /** A host answering one byte per call, slowly enough to burn the budget. */
-    private static InputStream tricklingStream(long millisPerRead) {
+    private static TricklingStream tricklingStream(long millisPerRead) {
         return tricklingStream(millisPerRead, Integer.MAX_VALUE);
     }
 
-    private static InputStream tricklingStream(long millisPerRead, int bytes) {
-        return new InputStream() {
-            private int served;
+    private static TricklingStream tricklingStream(long millisPerRead, int bytes) {
+        return new TricklingStream(millisPerRead, bytes);
+    }
 
-            @Override
-            public int read() {
-                return 0;
-            }
+    private static final class TricklingStream extends InputStream {
+        private final long millisPerRead;
+        private final int limit;
+        private int served;
 
-            @Override
-            public int read(byte[] buffer, int offset, int length) throws IOException {
-                try {
-                    Thread.sleep(millisPerRead);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    throw new IOException(exception);
-                }
-                if (served == bytes) {
-                    return -1;
-                }
-                served++;
-                buffer[offset] = 1;
-                return 1;
+        TricklingStream(long millisPerRead, int limit) {
+            this.millisPerRead = millisPerRead;
+            this.limit = limit;
+        }
+
+        @Override
+        public int read() {
+            return 0;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            try {
+                Thread.sleep(millisPerRead);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IOException(exception);
             }
-        };
+            if (served == limit) {
+                return -1;
+            }
+            served++;
+            buffer[offset] = 1;
+            return 1;
+        }
     }
 }

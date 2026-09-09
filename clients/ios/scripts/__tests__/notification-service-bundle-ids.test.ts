@@ -113,6 +113,24 @@ describe("NSE bundle ids agree with release-ios.yaml", () => {
   });
 });
 
+describe("App Group ids agree with release-ios.yaml", () => {
+  // The workflow asserts each installed profile grants this environment's group
+  // by name, so a drift between it and the xcconfigs would either reject a
+  // correct profile or accept one issued against another environment's App ID.
+  const workflowGroups = workflowOutputs("app_group");
+
+  test("the workflow names one App Group per environment", () => {
+    expect(workflowGroups).toHaveLength(PAIRS.length);
+  });
+
+  test("every xcconfig App Group appears in the workflow", () => {
+    const configGroups = PAIRS.map(({ app }) =>
+      readSetting(app, "APP_GROUP_ID"),
+    ).sort();
+    expect(configGroups).toEqual(workflowGroups);
+  });
+});
+
 describe("every avatar failure token is documented", () => {
   // The README's `reason=` table is the only place a `nse.avatar_unavailable`
   // line can be decoded, so a token that reaches Console without a row there

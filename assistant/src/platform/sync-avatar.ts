@@ -33,8 +33,11 @@
  * A render that fails inside the body, after the key promised a disc, hands
  * the queue the disc-less key instead, so the next sync tries again rather
  * than recording a disc that never went up. If the platform rejects the field
- * outright with a 400, the queue re-sends the display avatar alone under that
- * same key, so a disc it will not take cannot block the avatar it will.
+ * outright with a 400, the queue re-sends the display avatar alone, and under
+ * the disc key: the 400 is a verdict on this render, so re-drawing it would
+ * only take the same 400 on every later enqueue. The key still moves when the
+ * raster, the accent or the spec does, which is when there is a different
+ * render to offer.
  */
 
 import { createHash } from "node:crypto";
@@ -179,21 +182,28 @@ async function buildPayload(): Promise<PatchPayload | undefined> {
         );
         return undefined;
       }
-      const withoutDisc = {
-        body: { avatar_base64: encoded },
-        key: keyFor(NONE_KEY),
-      };
+      const rasterOnly = { avatar_base64: encoded };
       const notification = await renderNotificationAvatarPng(state, bytes);
       if (!notification) {
-        return withoutDisc;
+        // Nothing was drawn, so the disc-less key goes up and the next sync
+        // draws again.
+        return { body: rasterOnly, key: keyFor(NONE_KEY) };
       }
+      const discKey = keyFor(DISC_KEY);
       return {
         body: {
           avatar_base64: encoded,
           notification_avatar_base64: notification.toString("base64"),
         },
-        key: keyFor(DISC_KEY),
-        retryWithout: { field: NOTIFICATION_FIELD, ...withoutDisc },
+        key: discKey,
+        // A 400 is the platform refusing this render rather than missing it,
+        // so the reduced send records the disc key: re-drawing would take the
+        // same 400 on every later enqueue.
+        retryWithout: {
+          field: NOTIFICATION_FIELD,
+          body: rasterOnly,
+          key: discKey,
+        },
       };
     },
   };

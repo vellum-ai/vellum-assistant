@@ -182,15 +182,34 @@ final class AvatarCacheTests: XCTestCase {
             _ = try await AvatarCache.readAtMost(
                 AvatarCache.maxBytes,
                 from: feed.stream(),
-                before: .distantPast
+                within: .zero
             )
             XCTFail("expected the read to give up on the deadline")
         } catch let reason as AvatarCache.UnavailableReason {
             XCTAssertEqual(reason, .timedOut)
         }
-        // The deadline is checked once per stride rather than per byte, so the
-        // read stops at the first check instead of the first byte.
-        XCTAssertEqual(feed.produced, AvatarCache.deadlineCheckStride)
+        // The clock is read per byte, so a spent budget stops the read at the
+        // first one rather than at some multiple of it.
+        XCTAssertEqual(feed.produced, 1)
+    }
+
+    /// A host answering one byte at a time is what the budget exists for, and
+    /// what any amortized checking interval lets through: the whole body can be
+    /// shorter than the interval and still take longer than the budget.
+    func testGivesUpOnAHostTricklingOneByteAtATime() async throws {
+        let feed = ByteFeed(millisecondsPerByte: 20)
+        do {
+            _ = try await AvatarCache.readAtMost(
+                AvatarCache.maxBytes,
+                from: feed.stream(),
+                within: .milliseconds(100)
+            )
+            XCTFail("expected the read to give up on the deadline")
+        } catch let reason as AvatarCache.UnavailableReason {
+            XCTAssertEqual(reason, .timedOut)
+        }
+        // At this pace 50 bytes take a full second, ten times the budget.
+        XCTAssertLessThan(feed.produced, 50)
     }
 
     func testFetchRefusesANonHttpsURL() async throws {
@@ -369,20 +388,33 @@ private final class LoadCounter: @unchecked Sendable {
 }
 
 /// A byte sequence that hands out one byte at a time and counts how many it was
-/// asked for, so a test can assert that a reader stopped early.
+/// asked for, so a test can assert that a reader stopped early. The default
+/// `count` never runs out, and a `millisecondsPerByte` above zero paces the
+/// bytes, so a feed with both stops only when its reader gives up.
 private final class ByteFeed: @unchecked Sendable {
     private(set) var produced = 0
     private var remaining: Int
+    private let millisecondsPerByte: Int
 
-    init(count: Int) {
+    init(count: Int = .max, millisecondsPerByte: Int = 0) {
         remaining = count
+        self.millisecondsPerByte = millisecondsPerByte
     }
 
     func stream() -> AsyncStream<UInt8> {
-        AsyncStream(unfolding: { self.next() })
+        AsyncStream(unfolding: { await self.next() })
     }
 
-    private func next() -> UInt8? {
+    private func next() async -> UInt8? {
+        if millisecondsPerByte > 0 {
+            guard
+                (try? await Task.sleep(
+                    nanoseconds: UInt64(millisecondsPerByte) * 1_000_000
+                )) != nil
+            else {
+                return nil
+            }
+        }
         guard remaining > 0 else {
             return nil
         }
