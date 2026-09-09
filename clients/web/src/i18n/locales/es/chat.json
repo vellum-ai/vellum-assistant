@@ -632,8 +632,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
+    "ariaLabelUnavailable": "Recursos de la conversación, no se pudieron cargar",
     "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)",
-    "label": "{count, plural, one {# recurso} other {# recursos}}"
+    "label": "{count, plural, one {# recurso} other {# recursos}}",
+    "labelUnavailable": "No se pudieron cargar los recursos"
   },
   "conversationRow": {
     "untitled": "Sin título"

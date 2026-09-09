@@ -614,8 +614,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
+    "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
-    "label": "{count, plural, one {# 个资产} other {# 个资产}}"
+    "label": "{count, plural, one {# 个资产} other {# 个资产}}",
+    "labelUnavailable": "无法加载资产"
   },
   "conversationRow": {
     "untitled": "无标题"
