@@ -20,7 +20,10 @@ import { isAssistantFeatureFlagEnabled } from "./assistant-feature-flags.js";
 import { getConfig } from "./loader.js";
 import type { AssistantConfig } from "./schema.js";
 import type { LLMCallSite } from "./schemas/llm.js";
-import { SEND_USER_MESSAGE_FLAG } from "./send-user-message-constants.js";
+import {
+  SEND_USER_MESSAGE_FLAG,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "./send-user-message-constants.js";
 
 export {
   SEND_USER_MESSAGE_FLAG,
@@ -40,6 +43,24 @@ export function isSendUserMessageEnabled(config?: AssistantConfig): boolean {
 export function isSendUserMessageFlagOn(): boolean {
   try {
     return isSendUserMessageEnabled(getConfig());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the workspace has excluded the tool outright.
+ *
+ * `tools.exclude` drops the name from the definitions the model is given, so a
+ * turn that is otherwise gated would be told its plain text is invisible and
+ * handed no way to speak: suppression on, prompt section rendered, tool
+ * absent. Reading the same exclusion the resolver reads keeps the gate honest
+ * about a surface the user has turned off. Never throws: an unreadable config
+ * reads as "not excluded", and the flag check beside it already fails closed.
+ */
+function isSendUserMessageExcluded(): boolean {
+  try {
+    return getConfig().tools.exclude.includes(SEND_USER_MESSAGE_TOOL_NAME);
   } catch {
     return false;
   }
@@ -86,11 +107,19 @@ export function isSendUserMessageTurnScope(
   );
 }
 
-/** {@link isSendUserMessageTurnScope} with the flag read folded in. */
+/**
+ * {@link isSendUserMessageTurnScope} with the flag read and the workspace
+ * exclusion folded in: the turn is gated only when the tool will actually be
+ * on its surface.
+ */
 export function isSendUserMessageActiveForTurn(
   scope: SendUserMessageTurnScope,
 ): boolean {
-  return isSendUserMessageTurnScope(scope) && isSendUserMessageFlagOn();
+  return (
+    isSendUserMessageTurnScope(scope) &&
+    isSendUserMessageFlagOn() &&
+    !isSendUserMessageExcluded()
+  );
 }
 
 /**

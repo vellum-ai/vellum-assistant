@@ -169,3 +169,44 @@ describe("send_user_message on a tool-disabled turn", () => {
     ).toBe(false);
   });
 });
+
+describe("send_user_message excluded by workspace config", () => {
+  test("the gate is off, so nothing is suppressed and no section renders", async () => {
+    // `tools.exclude` drops the name from the definitions the model is given.
+    // Gating the turn anyway would tell it its plain text is invisible and
+    // hand it no way to speak.
+    setFlag(true);
+    const configLoader = await import("../../config/loader.js");
+    const { isSendUserMessageActiveForTurn } =
+      await import("../../config/send-user-message-gate.js");
+    const configSpy = spyOn(configLoader, "getConfig").mockReturnValue({
+      tools: { exclude: [SEND_USER_MESSAGE_TOOL_NAME] },
+    } as never);
+
+    try {
+      expect(
+        isSendUserMessageActiveForTurn({ currentCallSite: "mainAgent" }),
+      ).toBe(false);
+    } finally {
+      configSpy.mockRestore();
+    }
+  });
+
+  test("an unrelated exclusion leaves the gate alone", async () => {
+    setFlag(true);
+    const configLoader = await import("../../config/loader.js");
+    const { isSendUserMessageActiveForTurn } =
+      await import("../../config/send-user-message-gate.js");
+    const configSpy = spyOn(configLoader, "getConfig").mockReturnValue({
+      tools: { exclude: ["bash"] },
+    } as never);
+
+    try {
+      expect(
+        isSendUserMessageActiveForTurn({ currentCallSite: "mainAgent" }),
+      ).toBe(true);
+    } finally {
+      configSpy.mockRestore();
+    }
+  });
+});
