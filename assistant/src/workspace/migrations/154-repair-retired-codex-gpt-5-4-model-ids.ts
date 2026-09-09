@@ -36,14 +36,16 @@ import type { WorkspaceMigration } from "./types.js";
  * pin is repaired only when the winner is provably subscription-routed: a
  * standard profile bound to the subscription, or a mix whose every arm is.
  * A winner on an API-key or managed route still serves the model, and a mix
- * with any other arm is ambiguous and left alone.
+ * with any other arm is ambiguous and left alone. The chain skips the rungs
+ * the resolver skips: a profile whose provider names no connection row, and
+ * user-owned shadows of code-owned names, which resolution ignores.
  *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
  * on the subscription every model bills the same).
  */
 export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
-  id: "153-repair-retired-codex-gpt-5-4-model-ids",
+  id: "154-repair-retired-codex-gpt-5-4-model-ids",
   description:
     "Repair gpt-5.4 and gpt-5.4-mini pins on ChatGPT-subscription LLM fragments in workspace config",
   run(workspaceDir: string): void {
@@ -76,24 +78,32 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
     // Entry rows load lazily: only a stale fragment bound to an entry name
     // needs them. An unreadable DB then fails the run (retried next boot)
     // rather than checkpointing a pass that skips entry-bound profiles.
-    let subscriptionEntries: Set<string> | null | undefined;
-    const isSubscriptionProvider = (provider: unknown): boolean => {
-      if (provider === CHATGPT_IDENTITY) {
-        return true;
+    let rows: Map<string, boolean> | null | undefined;
+    const entryRows = (): Map<string, boolean> => {
+      if (rows === undefined) {
+        rows = readConnectionRows(workspaceDir);
       }
-      if (typeof provider !== "string" || provider.length === 0) {
-        return false;
-      }
-      if (subscriptionEntries === undefined) {
-        subscriptionEntries = readSubscriptionEntryNames(workspaceDir);
-      }
-      if (subscriptionEntries === null) {
+      if (rows === null) {
         throw new Error(
           "provider_connections is not readable; retrying the model-ID repair on the next run",
         );
       }
-      return subscriptionEntries.has(provider);
+      return rows;
     };
+    const lookup: ProviderLookup = {
+      isSubscription: (provider) => {
+        if (provider === CHATGPT_IDENTITY) {
+          return true;
+        }
+        if (typeof provider !== "string" || provider.length === 0) {
+          return false;
+        }
+        return entryRows().get(provider) === true;
+      },
+      isResolvable: (provider) =>
+        KNOWN_PROVIDERS.has(provider) || entryRows().has(provider),
+    };
+    const isSubscriptionProvider = lookup.isSubscription;
 
     const isBound = (fragment: Record<string, unknown>): boolean =>
       fragmentIsSubscriptionBound(fragment, isSubscriptionProvider);
@@ -108,7 +118,7 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
         const isRouted = (fragment: Record<string, unknown>): boolean =>
           isBound(fragment) ||
           (fragment.provider === undefined &&
-            winnerIsSubscriptionRouted(site, llm, isSubscriptionProvider));
+            winnerIsSubscriptionRouted(site, llm, lookup));
         changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
     }
@@ -128,7 +138,7 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
     // truncated: a torn in-place write would parse as invalid JSON on the
     // retry, which the catch above treats as "nothing to do", letting the
     // runner checkpoint the migration as completed against a corrupt file.
-    const tmpPath = `${configPath}.migration-153.tmp`;
+    const tmpPath = `${configPath}.migration-154.tmp`;
     writeFileSync(tmpPath, JSON.stringify(config, null, 2) + "\n");
     renameSync(tmpPath, configPath);
   },
@@ -146,6 +156,40 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
 // ---------------------------------------------------------------------------
 
 const CHATGPT_IDENTITY = "chatgpt";
+
+/**
+ * Row-backed provider predicates. `isSubscription` answers whether a
+ * provider value dispatches to the subscription; `isResolvable` mirrors
+ * the resolver's `isResolvableProvider` gate (a known vendor or identity,
+ * or an existing entry row), which skips a rung whose provider names no
+ * row. Both throw on an unreadable DB so the run retries.
+ */
+interface ProviderLookup {
+  isSubscription: (provider: unknown) => boolean;
+  isResolvable: (provider: string) => boolean;
+}
+
+// Frozen snapshot of `KNOWN_LLM_PROVIDERS`: the vendor and identity values
+// that dispatch without a connection row.
+const KNOWN_PROVIDERS = new Set([
+  "anthropic",
+  "openai",
+  "gemini",
+  "ollama",
+  "fireworks",
+  "openrouter",
+  "vercel-ai-gateway",
+  "openai-compatible",
+  "minimax",
+  "atlascloud",
+  "together",
+  "litellm",
+  "opencode",
+  "baseten",
+  "poolside",
+  "vellum",
+  "chatgpt",
+]);
 
 const REPLACEMENTS: ReadonlyMap<string, string> = new Map([
   ["gpt-5.4", "gpt-5.5"],
@@ -199,6 +243,16 @@ const DEFAULT_PROFILE_KEYS = new Set([
   "quality-optimized",
   "cost-optimized",
   "latency-optimized",
+]);
+
+// Frozen snapshot of `CODE_OWNED_PROFILE_NAMES`: resolution ignores a
+// workspace shadow of these names and always serves the code-owned body.
+const CODE_OWNED_PROFILE_NAMES = new Set([
+  "latency-optimized",
+  "balanced-backup",
+  "quality-optimized-backup",
+  "cost-optimized-backup",
+  "latency-optimized-backup",
 ]);
 
 // Frozen snapshot of `CALL_SITE_DEFAULTS[site].profile`: the intent a site
@@ -258,7 +312,7 @@ const CALL_SITE_INTENTS: Record<string, string> = {
 function winnerIsSubscriptionRouted(
   site: string,
   llm: Record<string, unknown>,
-  isSubscriptionProvider: (provider: unknown) => boolean,
+  lookup: ProviderLookup,
 ): boolean {
   const siteConfig = readObject(readObject(llm.callSites)?.[site]);
   const rungs =
@@ -266,16 +320,12 @@ function winnerIsSubscriptionRouted(
       ? [llm.activeProfile, siteConfig?.profile]
       : [siteConfig?.profile];
   for (const name of rungs) {
-    const route = namedProfileRoute(name, llm, isSubscriptionProvider, true);
+    const route = namedProfileRoute(name, llm, lookup, true);
     if (route !== "skipped") {
       return route;
     }
   }
-  return defaultIntentRoute(
-    CALL_SITE_INTENTS[site] ?? "balanced",
-    llm,
-    isSubscriptionProvider,
-  );
+  return defaultIntentRoute(CALL_SITE_INTENTS[site] ?? "balanced", llm, lookup);
 }
 
 /**
@@ -286,7 +336,7 @@ function winnerIsSubscriptionRouted(
 function namedProfileRoute(
   name: unknown,
   llm: Record<string, unknown>,
-  isSubscriptionProvider: (provider: unknown) => boolean,
+  lookup: ProviderLookup,
   allowMix: boolean,
 ): boolean | "skipped" {
   if (typeof name !== "string" || name.length === 0) {
@@ -295,13 +345,10 @@ function namedProfileRoute(
   const shadow = userShadow(name, llm);
   if (shadow === null) {
     return DEFAULT_PROFILE_KEYS.has(name)
-      ? defaultProviderIsSubscription(llm, isSubscriptionProvider)
+      ? defaultProviderIsSubscription(llm, lookup.isSubscription)
       : "skipped";
   }
-  return (
-    usableShadowRoute(shadow, llm, isSubscriptionProvider, allowMix) ??
-    "skipped"
-  );
+  return usableShadowRoute(shadow, llm, lookup, allowMix) ?? "skipped";
 }
 
 /**
@@ -312,35 +359,41 @@ function namedProfileRoute(
 function defaultIntentRoute(
   intent: string,
   llm: Record<string, unknown>,
-  isSubscriptionProvider: (provider: unknown) => boolean,
+  lookup: ProviderLookup,
 ): boolean {
   const shadow = userShadow(intent, llm);
   const route =
-    shadow === null
-      ? undefined
-      : usableShadowRoute(shadow, llm, isSubscriptionProvider, true);
-  return route ?? defaultProviderIsSubscription(llm, isSubscriptionProvider);
+    shadow === null ? undefined : usableShadowRoute(shadow, llm, lookup, true);
+  return route ?? defaultProviderIsSubscription(llm, lookup.isSubscription);
 }
 
-/** A user-owned `llm.profiles` entry; a managed stub is not a shadow. */
+/**
+ * A user-owned `llm.profiles` entry that resolution honors. A managed stub
+ * is not a shadow, and a shadow of a code-owned name is ignored in favor of
+ * the code-owned body.
+ */
 function userShadow(
   name: string,
   llm: Record<string, unknown>,
 ): Record<string, unknown> | null {
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    return null;
+  }
   const shadow = readObject(readObject(llm.profiles)?.[name]);
   return shadow === null || shadow.source === "managed" ? null : shadow;
 }
 
 /**
  * Route of a user-owned shadow, or undefined when the resolver treats it as
- * unusable (disabled or incomplete). A mix (top level only; arms cannot
- * nest) is subscription-routed only when every arm provably is: the arm is
- * a seeded pick, so any other arm makes the route ambiguous.
+ * unusable (disabled, incomplete, or a provider that names no connection
+ * row). A mix (top level only; arms cannot nest) is subscription-routed
+ * only when every arm provably is: the arm is a seeded pick, so any other
+ * arm makes the route ambiguous.
  */
 function usableShadowRoute(
   shadow: Record<string, unknown>,
   llm: Record<string, unknown>,
-  isSubscriptionProvider: (provider: unknown) => boolean,
+  lookup: ProviderLookup,
   allowMix: boolean,
 ): boolean | undefined {
   if (shadow.status === "disabled") {
@@ -352,19 +405,18 @@ function usableShadowRoute(
       shadow.mix.length > 0 &&
       shadow.mix.every(
         (arm) =>
-          namedProfileRoute(
-            readObject(arm)?.profile,
-            llm,
-            isSubscriptionProvider,
-            false,
-          ) === true,
+          namedProfileRoute(readObject(arm)?.profile, llm, lookup, false) ===
+          true,
       )
     );
   }
   if (typeof shadow.provider !== "string" || typeof shadow.model !== "string") {
     return undefined;
   }
-  return fragmentIsSubscriptionBound(shadow, isSubscriptionProvider);
+  if (!lookup.isResolvable(shadow.provider)) {
+    return undefined;
+  }
+  return fragmentIsSubscriptionBound(shadow, lookup.isSubscription);
 }
 
 /**
@@ -390,16 +442,16 @@ function defaultProviderIsSubscription(
 }
 
 /**
- * Names of `provider_connections` rows that dispatch to the ChatGPT
- * subscription, or null when the DB or table is not readable. The caller
- * fails the run on null: entry-name providers must be judged against real
- * rows, never guessed. An absent DB file is a real state (no rows, so every
- * entry name is dangling and stays untouched).
+ * `provider_connections` row name to whether the row dispatches to the
+ * ChatGPT subscription, or null when the DB or table is not readable. The
+ * caller fails the run on null: entry-name providers must be judged against
+ * real rows, never guessed. An absent DB file is a real state (no rows, so
+ * every entry name is dangling).
  */
-function readSubscriptionEntryNames(workspaceDir: string): Set<string> | null {
+function readConnectionRows(workspaceDir: string): Map<string, boolean> | null {
   const dbPath = join(workspaceDir, "data", "db", "assistant.db");
   if (!existsSync(dbPath)) {
-    return new Set();
+    return new Map();
   }
   let db: Database;
   try {
@@ -411,13 +463,12 @@ function readSubscriptionEntryNames(workspaceDir: string): Set<string> | null {
     const rows = db
       .query(`SELECT name, provider, auth FROM provider_connections`)
       .all() as Array<{ name: string; provider: string; auth: string }>;
-    const names = new Set<string>();
-    for (const row of rows) {
-      if (row.provider === CHATGPT_IDENTITY || isSubscriptionAuth(row.auth)) {
-        names.add(row.name);
-      }
-    }
-    return names;
+    return new Map(
+      rows.map((row) => [
+        row.name,
+        row.provider === CHATGPT_IDENTITY || isSubscriptionAuth(row.auth),
+      ]),
+    );
   } catch {
     return null;
   } finally {

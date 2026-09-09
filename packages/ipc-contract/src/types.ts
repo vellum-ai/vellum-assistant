@@ -16,6 +16,8 @@
  *     etc.); those are retired by this package.
  */
 
+import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -713,6 +715,48 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
+/**
+ * What a notification avatar's SHA-256 has to look like: 64 lowercase hex
+ * characters. The hash names the file a host writes the avatar to, so anything
+ * else could escape the cache directory. Shared by the IPC boundary that
+ * accepts it and the cache that writes it.
+ */
+export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/**
+ * The longest base64 payload the notification-avatar channel carries: base64
+ * of {@link NOTIFICATION_AVATAR_MAX_LOCAL_BYTES}, the cap the renderer drops a
+ * heavier render at. A payload past this is malformed rather than merely
+ * large, and the host has to cache it on disk, so the boundary refuses it
+ * instead of writing it. Derived from the byte cap rather than restated, so
+ * the two cannot drift.
+ */
+export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
+  Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4;
+
+/**
+ * The assistant a notification is from, for the platforms that render a sender
+ * rather than the app: its name goes on the first line and its notification
+ * avatar becomes the icon.
+ */
+export interface NotificationSender {
+  id: string;
+  name: string;
+  /**
+   * The notification avatar as a base64 PNG with no data prefix, the same
+   * shape {@link VoiceActivityStart.avatarBase64} travels in. The renderer
+   * composites it (avatar on an accent-tinted disc) because main has no
+   * canvas.
+   */
+  avatarBase64: string;
+  /**
+   * SHA-256 of the PNG, 64 lowercase hex characters, so a host can name a
+   * cache file by it. The schema enforces the shape, because the file name is
+   * what it becomes.
+   */
+  avatarHash: string;
+}
+
 /** Renderer → main payload for posting a native notification. */
 export interface ShowNotificationPayload {
   category: NotificationCategory;
@@ -722,6 +766,11 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * Absent unless the renderer has a notification avatar to send, which leaves
+   * the notification with the app icon and the title on line one.
+   */
+  sender?: NotificationSender;
 }
 
 export type TextInsertionResult =

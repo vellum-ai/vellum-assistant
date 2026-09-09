@@ -296,6 +296,7 @@ const emDashEnforcedPaths = [
   "src/domains/chat/components/chat-info*.{ts,tsx}",
   "src/domains/chat/components/mobile-chat-info-overlay*.tsx",
   "src/domains/chat/components/conversation-asset*.{ts,tsx}",
+  "src/domains/chat/hooks/daemon-source-state.ts",
   "src/domains/chat/hooks/use-conversation-assets*.{ts,tsx}",
   "src/domains/chat/hooks/use-conversation-attachments*.{ts,tsx}",
   "src/domains/chat/chat-layout-header.stories.tsx",

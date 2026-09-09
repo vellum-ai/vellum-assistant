@@ -75,10 +75,25 @@ describe("AssistantIpcServer DB migration readiness gate", () => {
   test("exempt methods stay answerable while migrating", () => {
     setDbMigrating();
     // health/healthz let the gateway observe readiness; $cancel/ps never read
-    // the DB. All must bypass the gate even mid-migration.
-    for (const method of ["health", "healthz", "ps", "$cancel"]) {
+    // the DB; debug_database is the in-memory failed-migration report. All must
+    // bypass the gate even mid-migration.
+    for (const method of [
+      "health",
+      "healthz",
+      "ps",
+      "$cancel",
+      "debug_database",
+    ]) {
       expect(gate(method)).toBeNull();
     }
+  });
+
+  test("debug_database stays answerable when migrations have failed", () => {
+    setDbMigrationFailed(new Error("boom"), {
+      failedMigrations: [{ name: "flakyStep", error: "transient failure" }],
+    });
+    expect(gate("debug_database")).toBeNull();
+    expect(gate("get_conversations")?.statusCode).toBe(503);
   });
 
   test("migration-repair surface is allowed only in the failed state", () => {

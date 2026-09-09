@@ -1,11 +1,12 @@
 /**
  * Tests for `useConversationAssets`.
  *
- * Apps and documents come from two TanStack queries and the attachments from
- * the chat-session store, so the suite seeds all three rather than mocking
- * anything: nothing refetches on mount, no request leaves the process, and the
- * derived lists are exactly what a test asks for. All three are sources the
- * reported status answers for.
+ * Apps and documents come from two TanStack queries, and the attachments from
+ * the daemon's two list queries where the connected version serves them and
+ * from the chat-session store otherwise, so the suite seeds each source rather
+ * than mocking anything: nothing refetches on mount, no request leaves the
+ * process, and the derived lists are exactly what a test asks for. Every one of
+ * them is a source the reported status answers for.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -21,9 +22,12 @@ import {
   clearTranscriptMessages,
   holdOrgHeaderUnresolved,
   makeAppSummary,
+  makeAttachmentSummary,
   makeChatInfoQueryClient,
   makeDocumentSummary,
   makePendingChatInfoQueryClient,
+  reportAssistantVersion,
+  seedAttachmentList,
   seedChatInfoConversation,
   seedQueryFailure,
   seedTranscriptMessages,
@@ -33,8 +37,10 @@ import {
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { conversationAttachmentListArgs } from "@/domains/chat/hooks/use-conversation-attachments";
 import {
   appsGetQueryKey,
+  attachmentsGetInfiniteQueryKey,
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
@@ -138,6 +144,19 @@ function ownWithoutSnapshot(loading: boolean): void {
 }
 
 let releaseOrgHeader = () => {};
+let restoreAssistantVersion = () => {};
+
+/** Reports a version the attachment-listing gate opens on, restored after. */
+function openAttachmentListGate(): void {
+  restoreAssistantVersion = reportAssistantVersion();
+}
+
+/** The two list keys the attachments hook reads, files first. */
+const LIST_KEYS = (["exclude", "only"] as const).map((sightFrames) =>
+  attachmentsGetInfiniteQueryKey(
+    conversationAttachmentListArgs(ASSISTANT_ID, CONVERSATION_ID, sightFrames),
+  ),
+);
 
 beforeEach(() => {
   // Both daemon queries gate on the org header, so holding it unresolved is
@@ -151,6 +170,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   releaseOrgHeader();
+  restoreAssistantVersion();
+  restoreAssistantVersion = () => {};
   clearTranscriptMessages();
   // The store is a module singleton, so its loading flag goes back to the
   // value a fresh chat session starts on, and so does TanStack's online
@@ -453,6 +474,103 @@ describe("useConversationAssets status", () => {
     const { result } = renderAssets({ client });
 
     expect(result.current.status).toBe("error");
+  });
+});
+
+describe("useConversationAssets on the daemon attachment lists", () => {
+  const PHOTO = makeAttachmentSummary({ id: "photo-1" });
+  const FRAME = makeAttachmentSummary({
+    id: "frame-1",
+    filename: "frame-1.jpg",
+    mimeType: "image/jpeg",
+    createdAt: 4_000,
+    sightFrame: true,
+  });
+
+  /** Apps and documents answered, so only the attachments are left to settle. */
+  function seedWithDocuments(documents: DocumentSummary[] = []): QueryClient {
+    return seedClient({
+      documents,
+      client: makePendingChatInfoQueryClient(),
+    });
+  }
+
+  test("counts the daemon's totals alongside the documents", () => {
+    openAttachmentListGate();
+    const client = seedWithDocuments([makeDocument("doc-1", 1_000)]);
+    seedAttachmentList(client, {
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+      sightFrames: "exclude",
+      attachments: [PHOTO],
+      total: 4,
+    });
+    seedAttachmentList(client, {
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+      sightFrames: "only",
+      attachments: [FRAME],
+      total: 12,
+    });
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.counts).toEqual({ apps: 0, files: 5, frames: 12 });
+    expect(result.current.frames.map((frame) => frame.id)).toEqual([
+      "frame-frame-1",
+    ]);
+    expect(result.current.status).toBe("ready");
+  });
+
+  // An empty category means "nothing here" only once every source has said so,
+  // and a list still on its way is a source that has not.
+  test("is pending while a list is unresolved", () => {
+    openAttachmentListGate();
+    const client = seedWithDocuments();
+    seedAttachmentList(client, {
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+      sightFrames: "exclude",
+      attachments: [PHOTO],
+    });
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  test("is error when a list settled with nothing cached", () => {
+    openAttachmentListGate();
+    const client = seedWithDocuments();
+    seedAttachmentList(client, {
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+      sightFrames: "exclude",
+      attachments: [PHOTO],
+    });
+    seedQueryFailure(client, LIST_KEYS[1]!);
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("error");
+  });
+
+  test("is ready once both lists have answered", () => {
+    openAttachmentListGate();
+    const client = seedWithDocuments();
+    for (const sightFrames of ["exclude", "only"] as const) {
+      seedAttachmentList(client, {
+        assistantId: ASSISTANT_ID,
+        conversationId: CONVERSATION_ID,
+        sightFrames,
+        attachments: [],
+      });
+    }
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.count).toBe(0);
   });
 });
 

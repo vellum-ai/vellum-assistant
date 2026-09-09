@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { repairRetiredCodexGpt54ModelIdsMigration } from "../workspace/migrations/153-repair-retired-codex-gpt-5-4-model-ids.js";
+import { repairRetiredCodexGpt54ModelIdsMigration } from "../workspace/migrations/154-repair-retired-codex-gpt-5-4-model-ids.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { assertNotLiveDb } from "./assert-not-live-db.js";
 
@@ -28,7 +28,7 @@ let workspaceDir: string;
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-153-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-154-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   mkdirSync(workspaceDir, { recursive: true });
 }
@@ -75,13 +75,13 @@ afterEach(() => {
   }
 });
 
-describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
+describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
   test("has correct migration id and is registered", () => {
     expect(repairRetiredCodexGpt54ModelIdsMigration.id).toBe(
-      "153-repair-retired-codex-gpt-5-4-model-ids",
+      "154-repair-retired-codex-gpt-5-4-model-ids",
     );
     expect(WORKSPACE_MIGRATIONS.map((m) => m.id)).toContain(
-      "153-repair-retired-codex-gpt-5-4-model-ids",
+      "154-repair-retired-codex-gpt-5-4-model-ids",
     );
   });
 
@@ -339,6 +339,80 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     llm = readConfig().llm as Record<string, any>;
     expect(llm.callSites.recall.model).toBe(STALE);
     expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
+  });
+
+  test("ignores user-owned shadows of code-owned profile names", () => {
+    // Resolution serves the code-owned body for these names, so a
+    // subscription shadow does not make the vellum column's winner
+    // subscription-routed, and an API-key shadow does not hide the chatgpt
+    // column's winner.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum" },
+        callSites: { voiceFrontDoor: { model: STALE } },
+        profiles: {
+          "latency-optimized": { provider: "chatgpt", model: "gpt-5.5" },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    let llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.voiceFrontDoor.model).toBe(STALE);
+
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          voiceFrontDoor: { model: STALE },
+          recall: { profile: "balanced-backup", model: STALE_MINI },
+        },
+        profiles: {
+          "latency-optimized": { provider: "openai", model: "gpt-5.5" },
+          "balanced-backup": { provider: "openai", model: "gpt-5.5" },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.voiceFrontDoor.model).toBe(REPLACEMENT);
+    // A backup shadow is ignored too, and the backup does not exist on the
+    // chatgpt column, so the rung is skipped in favor of the shipped intent.
+    expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
+  });
+
+  test("skips a named rung whose provider names no connection row", () => {
+    seedRows([
+      {
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        auth: SUBSCRIPTION_AUTH,
+      },
+    ]);
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: { recall: { profile: "gone", model: STALE } },
+        profiles: { gone: { provider: "ghost", model: "gpt-5.5" } },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    let llm = readConfig().llm as Record<string, any>;
+    // The dangling rung is skipped, so the chatgpt default column wins.
+    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
+
+    // With the row present the profile is usable and its API-key route
+    // keeps the model.
+    seedRows([{ name: "ghost", provider: "openai", auth: API_KEY_AUTH }]);
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: { recall: { profile: "gone", model: STALE } },
+        profiles: { gone: { provider: "ghost", model: "gpt-5.5" } },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.recall.model).toBe(STALE);
   });
 
   test("leaves providerless call-site pins alone when the winner is not subscription-routed", () => {

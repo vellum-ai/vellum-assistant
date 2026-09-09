@@ -9,11 +9,9 @@
  * conversation instead, and the agent loop drains the queue at the turn
  * boundary, after the turn's rows are settled.
  *
- * Slack rows write the `slackMeta` envelope (the Slack transcript context
- * builds provider history from rows and reads only that shape); every other
- * channel writes the neutral `providerMeta` that `readProviderMetadata`
- * serves to channel-agnostic readers, `Conversation.loadFromDb`'s renderer
- * included.
+ * Every channel's rows write the neutral `providerMeta` envelope, which
+ * `readProviderMetadata` serves to channel-agnostic readers and the Slack
+ * transcript reads through its Slack view.
  */
 import type { ChannelId } from "../channels/types.js";
 import { buildNeutralReactionMeta } from "../messaging/reaction-envelopes.js";

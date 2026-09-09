@@ -200,6 +200,16 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 - Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
 - `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).
 
+### In-app links (Vellum chat)
+
+When you mention a schedule or a conversation it owns in Vellum chat, write a markdown link so the name is clickable:
+
+- `[Weekly digest](/assistant/schedules/<id>)`
+- `[Digest ready](/assistant/conversations/<id>)`
+
+Use these paths only in Vellum chat. Do not use them in Slack, Telegram, Discord, email, or notifications. Those surfaces cannot navigate `/assistant/...` routes.
+
+
 ### Anchored & Ambiguous Relative Time
 
 Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "20 minutes in" are **clock-position or anchored relative time** expressions. Do NOT treat them as offsets from now.
@@ -250,9 +260,9 @@ There is a safety net, and it is not a substitute for the above. When an execute
 
 Choose the right delivery tool based on the content:
 
-- **Rich content** (digests, summaries, reports): For Gmail, use `messaging_send` with the target platform and conversation ID. For Slack, use the Slack Web API directly via CLI (`chat.postMessage`). This preserves the full content and posts directly.
+- **Rich content** (digests, summaries, reports): For Gmail, use `messaging_send` with the target platform and conversation ID. For Slack, call `chat.postMessage` through `assistant oauth request`, with the provider the **slack** skill says to pass for posting on this workspace (`slack_channel` when the bot is set up; where only the `slack` integration exists, the skill says to tell the user before posting as them), never through `curl` or a revealed token. This preserves the full content and posts directly.
 - **Short alerts** (status updates, completion notices): Use `assistant notifications send` via `bash` to let the notification router pick the best channel. Note: the router's decision engine rewrites content into short alerts, so it is not suitable for rich content.
 
 Example schedule message for a Slack digest:
 
-> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to the channel the user named."
+> "Scan my Slack channels for the last 24 hours using `assistant oauth request` for every Slack Web API call, with the provider the slack skill names for this workspace, then post the summary with `chat.postMessage` through the same command to the channel the user named."

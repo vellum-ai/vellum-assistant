@@ -20,6 +20,8 @@ import {
   COMPANION_ANNOTATION_MAX_POINTS,
   COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
+  NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
+  NOTIFICATION_AVATAR_HASH_PATTERN,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
@@ -38,6 +40,19 @@ export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
 
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 
+/**
+ * The hash names the file a host writes the avatar to, so the boundary that
+ * accepts it is where "64 lowercase hex characters" has to be true: anything
+ * else could escape the cache directory. The picture is bounded too, since
+ * main decodes it and writes it to disk.
+ */
+const notificationSenderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  avatarBase64: z.string().max(NOTIFICATION_AVATAR_BASE64_MAX_CHARS),
+  avatarHash: z.string().regex(NOTIFICATION_AVATAR_HASH_PATTERN),
+});
+
 export const showNotificationPayloadSchema = z.object({
   category: notificationCategorySchema,
   title: z.string(),
@@ -46,6 +61,12 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * A malformed decoration degrades to no decoration. `handle()` parses this
+   * payload and a throw rejects the renderer's `invoke`, so a strict field
+   * here would cost the user the banner itself rather than its avatar.
+   */
+  sender: notificationSenderSchema.optional().catch(undefined),
 });
 
 // ---------------------------------------------------------------------------

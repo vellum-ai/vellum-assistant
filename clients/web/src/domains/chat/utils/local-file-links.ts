@@ -3,7 +3,8 @@
  *
  * `![chart](/workspace/reports/q3.png)` and `[the deck](/workspace/deck.pdf)`
  * point at files the assistant just worked with, so the renderer needs to tell
- * those apart from web URLs, `vellum://` attachment links, and anchors.
+ * those apart from web URLs, in-app client routes (`/assistant/...`),
+ * `vellum://` attachment links, and anchors.
  *
  * A link destination is explicit author intent, unlike the heuristic code-span
  * recognition in `workspace-path-links.ts`: spaces, unicode, and parentheses in
@@ -11,6 +12,7 @@
  * routes could never serve are rejected.
  */
 
+import { toAppPathFromHref } from "@/domains/chat/utils/app-path-links";
 import {
   isWorkspaceRelativePath,
   MAX_WORKSPACE_PATH_LENGTH,
@@ -21,6 +23,7 @@ import {
 export type MarkdownHrefTarget =
   | { kind: "web" }
   | { kind: "vellum" }
+  | { kind: "app"; appPath: string }
   | { kind: "local-file"; workspacePath: string | null; filename: string }
   | { kind: "other" };
 
@@ -90,10 +93,11 @@ function filenameFromHref(href: string): string {
 }
 
 /**
- * Bucket a markdown href by how the renderer should treat it. `local-file`
- * carries a `workspacePath` of `null` when the destination is a real filesystem
- * path outside the workspace: the reference is still a file reference, but the
- * daemon has no route to its bytes.
+ * Bucket a markdown href by how the renderer should treat it. `app` is a
+ * client route (`/assistant/conversations/...`, `/assistant/schedules/...`).
+ * `local-file` carries a `workspacePath` of `null` when the destination is a
+ * real filesystem path outside the workspace: the reference is still a file
+ * reference, but the daemon has no route to its bytes.
  */
 export function classifyMarkdownHref(
   href: string | undefined,
@@ -117,9 +121,18 @@ export function classifyMarkdownHref(
       return { kind: "vellum" };
     }
     if (name === "http" || name === "https") {
+      const appPath = toAppPathFromHref(text);
+      if (appPath !== null) {
+        return { kind: "app", appPath };
+      }
       return { kind: "web" };
     }
     return { kind: "other" };
+  }
+
+  const appPath = toAppPathFromHref(text);
+  if (appPath !== null) {
+    return { kind: "app", appPath };
   }
 
   const looksLikePath =

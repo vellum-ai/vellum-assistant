@@ -28,6 +28,7 @@ import {
   type LocalNotificationSchema,
 } from "@capacitor/local-notifications";
 import type { PushNotificationSchema } from "@capacitor/push-notifications";
+import type { NotificationSender } from "@vellumai/ipc-contract";
 
 import { notificationintentresultPost } from "@/generated/daemon/sdk.gen";
 import type { NotificationintentresultPostData } from "@/generated/daemon/types.gen";
@@ -38,11 +39,14 @@ import {
 } from "@/runtime/android-notification-channels";
 import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { getNotificationAvatar } from "@/runtime/notification-avatar";
 import { isNativeAndroid } from "@/runtime/platform-detection";
 import {
   extractPushConversationId,
   hasSessionConfirmedRemotePushRegistration,
 } from "@/runtime/push-registration";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 /**
  * Payload stored alongside each native notification so the tap handler can
@@ -447,6 +451,46 @@ export async function sendNotificationIntentAck(
 }
 
 /**
+ * The assistant to post the Electron notification as, when there is one to
+ * post as: `useNotificationAvatarSync` holds an avatar only on Electron with
+ * `push-avatar-sender` on, so an empty holder is what keeps the payload
+ * unchanged everywhere else. The flag is read again here because the holder
+ * outlives the moment it is turned off.
+ *
+ * `assistantId` is the assistant this notification is for, and it is the only
+ * id the payload carries. The name and the face are attached only when the
+ * hydrated identity and the held avatar both say they belong to that
+ * assistant: the identity store and the avatar holder are written at
+ * different moments during a switch, so anything looser lets the sender wear
+ * one assistant's name over another's face.
+ */
+function senderPayload(assistantId: string | undefined): {
+  sender?: NotificationSender;
+} {
+  if (!assistantId || !useClientFeatureFlagStore.getState().pushAvatarSender) {
+    return {};
+  }
+  const avatar = getNotificationAvatar();
+  const identity = useAssistantIdentityStore.getState();
+  if (
+    !avatar ||
+    !identity.name ||
+    avatar.assistantId !== assistantId ||
+    identity.assistantId !== assistantId
+  ) {
+    return {};
+  }
+  return {
+    sender: {
+      id: assistantId,
+      name: identity.name,
+      avatarBase64: avatar.avatarBase64,
+      avatarHash: avatar.avatarHash,
+    },
+  };
+}
+
+/**
  * Display a native notification. On Capacitor iOS this schedules via
  * `UNUserNotificationCenter`; on desktop browsers it calls the Web
  * Notification API. No-ops silently when notifications are unsupported or
@@ -482,6 +526,7 @@ export async function postLocalNotification(
         deliveryId: args.deliveryId,
         conversationId: extractConversationId(args.deepLinkMetadata),
         deepLinkMetadata: args.deepLinkMetadata,
+        ...senderPayload(args.assistantId),
       });
       success = result.success;
       errorMessage = result.errorMessage;
@@ -633,17 +678,22 @@ export function postForegroundRemotePush(
     typeof notification.data === "object" && notification.data !== null
       ? (notification.data as Record<string, unknown>)
       : {};
-  const deliveryId =
-    typeof data.delivery_id === "string" ? data.delivery_id : notification.id;
-  const sourceEventName =
-    typeof data.source_event_name === "string"
-      ? data.source_event_name
-      : "remote_push";
+  // Trimmed, and blank read as absent, because the Android shell trims every
+  // field it hashes into a notification id (PushDataMessage.trimmed): padded
+  // copy that seeded two different ids would show the same delivery twice.
+  const text = (value: unknown): string | undefined => {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed === "" ? undefined : trimmed;
+  };
+  const deliveryId = text(data.delivery_id) ?? text(notification.id);
+  const sourceEventName = text(data.source_event_name) ?? "remote_push";
   const conversationId = extractPushConversationId(data);
 
   void postLocalNotification({
-    title: notification.title ?? "Vellum",
-    body: notification.body ?? "",
+    // A data-only push carries no notification block, so the copy the OS
+    // would have rendered lives in `data`.
+    title: text(notification.title) ?? text(data.title) ?? "Vellum",
+    body: text(notification.body) ?? text(data.body) ?? "",
     sourceEventName,
     deliveryId,
     correlationId: deliveryId,
