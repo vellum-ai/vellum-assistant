@@ -426,18 +426,18 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
   return (
     <>
       <div className="flex w-full flex-wrap gap-2">
-        {attachments.map((att) => (
+        {attachments.map((att, index) => (
           <div
-            key={att.id}
+            key={`${index}:${att.id}`}
             role="button"
             aria-label={att.filename}
             title={att.filename}
             tabIndex={0}
-            onClick={() => openPreview(att)}
+            onClick={() => openPreview(att, index)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                openPreview(att);
+                openPreview(att, index);
               }
             }}
             data-reveal-row=""

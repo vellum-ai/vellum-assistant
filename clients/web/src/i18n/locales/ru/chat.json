@@ -55,6 +55,8 @@
     "unnamedAssistant": "Безымянный ассистент"
   },
   "attachmentPreviewModal": {
+    "legacyUnavailable": "Предпросмотр недоступен. Содержимое файла не сохранилось в истории чата.",
+    "loadFailed": "Не удалось загрузить предпросмотр.",
     "pdfLoadFailed": "Не удалось показать этот PDF"
   },
   "attachmentTile": {

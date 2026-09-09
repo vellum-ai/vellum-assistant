@@ -45,8 +45,10 @@ interface UseAttachmentSquaresResult {
    *  {@link displayAttachments}. */
   renderSquare: (attachment: DisplayAttachment, index: number) => ReactNode;
   /** Opens the preview modal, for call sites that render their own affordance
-   *  alongside the squares (the bubble's large inline images). */
-  openPreview: (attachment: DisplayAttachment) => void;
+   *  alongside the squares (the bubble's large inline images). Pass the
+   *  attachment's position in {@link displayAttachments}, which resolves a list
+   *  holding two attachments with the same id. */
+  openPreview: (attachment: DisplayAttachment, index?: number) => void;
   /** Records an attachment id whose preview the browser could not decode. */
   markImageFailed: (id: string) => void;
   /** The rendered preview modal, or `null`. Render it somewhere stable. */
@@ -77,9 +79,9 @@ export function useAttachmentSquares({
   const renderSquare = useCallback(
     (attachment: DisplayAttachment, index: number) => (
       <MessageAttachmentSquare
-        key={attachment.id}
+        key={`${index}:${attachment.id}`}
         attachment={attachment}
-        onPreview={() => openPreview(attachment)}
+        onPreview={() => openPreview(attachment, index)}
         // Download falls back to previewUrl when the daemon content fetch is
         // unavailable, so it takes the UNSANITIZED attachment - a blob that
         // can't be rendered is still valid bytes to save.

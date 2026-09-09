@@ -50,18 +50,18 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
           if (isInlineImage) {
             return (
               <img
-                key={att.id}
+                key={`${index}:${att.id}`}
                 src={att.previewUrl ?? undefined}
                 alt={att.filename}
                 role="button"
                 aria-label={att.filename}
                 title={att.filename}
                 tabIndex={0}
-                onClick={() => openPreview(att)}
+                onClick={() => openPreview(att, index)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    openPreview(att);
+                    openPreview(att, index);
                   }
                 }}
                 onError={() => markImageFailed(att.id)}
