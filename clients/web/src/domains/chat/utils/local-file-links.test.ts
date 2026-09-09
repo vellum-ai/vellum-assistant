@@ -196,6 +196,37 @@ describe("classifyMarkdownHref", () => {
     });
   });
 
+  test("in-app client routes are not file references", () => {
+    expect(classifyMarkdownHref("/assistant/conversations/conv-xyz")).toEqual({
+      kind: "app",
+      appPath: "/assistant/conversations/conv-xyz",
+    });
+    expect(classifyMarkdownHref("/assistant/schedules/schedule-1")).toEqual({
+      kind: "app",
+      appPath: "/assistant/schedules/schedule-1",
+    });
+    expect(classifyMarkdownHref("/account/login")).toEqual({
+      kind: "app",
+      appPath: "/account/login",
+    });
+    expect(
+      classifyMarkdownHref(
+        "https://www.vellum.ai/assistant/conversations/conv-xyz",
+      ),
+    ).toEqual({
+      kind: "app",
+      appPath: "/assistant/conversations/conv-xyz",
+    });
+  });
+
+  test("a foreign host's /assistant path stays a web link", () => {
+    expect(
+      classifyMarkdownHref(
+        "https://example.com/assistant/conversations/conv-xyz",
+      ),
+    ).toEqual({ kind: "web" });
+  });
+
   test("traversal resolves to an unservable file reference", () => {
     expect(classifyMarkdownHref("/workspace/../etc/passwd")).toEqual({
       kind: "local-file",

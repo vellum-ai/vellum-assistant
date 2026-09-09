@@ -33,6 +33,7 @@ import { Card, toast } from "@vellumai/design-library";
 
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { MidlineDot } from "@/components/midline-dot";
 import { PageShell } from "@/components/page-shell";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useElementSize } from "@/hooks/use-element-size";
@@ -42,6 +43,7 @@ import { useIsNativeMobile } from "@/runtime/platform-detection";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { contrastForeground } from "@/utils/avatar-tone";
+import { formatCompactLocalDate } from "@/utils/format-date";
 
 import { applyRename } from "../identity-actions/apply-rename";
 import {
@@ -154,15 +156,13 @@ const SCHEDULE_GHOSTS = [
 
 /** "14 Jul, 9:00 am" — compact next-fire time for the schedules preview. */
 function formatNextRun(nextRunAt: number): string {
-  if (!Number.isFinite(nextRunAt) || nextRunAt <= 0) {
+  const date = new Date(nextRunAt);
+  // A non-positive timestamp means no next run, and one outside Date's range
+  // would make `toISOString()` throw mid-render.
+  if (nextRunAt <= 0 || Number.isNaN(date.getTime())) {
     return "—";
   }
-  return new Date(nextRunAt).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return formatCompactLocalDate(date.toISOString());
 }
 
 const AVATAR_MAX_SIZE = 280;
@@ -1122,10 +1122,7 @@ function OverviewBento({
                   </span>
                   {scheduleCount !== undefined && (
                     <>
-                      <span
-                        className="h-[3px] w-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-                        aria-hidden
-                      />
+                      <MidlineDot />
                       <span className="text-title-small leading-normal text-[var(--content-tertiary)]">
                         {scheduleCount}
                       </span>

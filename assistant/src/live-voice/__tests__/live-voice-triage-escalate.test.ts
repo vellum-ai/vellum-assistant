@@ -194,8 +194,9 @@ describe("live-voice triage-and-escalate routing", () => {
     const escalated = starter.mock.calls[1]?.[0];
     expect(frontDoor?.overrideProfile).toBeUndefined();
     expect(frontDoor?.routingLeg).toBe("front-door");
-    // The escalated leg runs on the ordinary call-agent resolution: no
-    // override either.
+    // The session passes no override either: the bridge itself pins the
+    // escalated leg to the conversation's own profile (covered in
+    // calls/__tests__/voice-session-bridge.test.ts).
     expect(escalated?.overrideProfile).toBeUndefined();
     expect(escalated?.routingLeg).toBe("escalated");
     expect(escalated?.content).toBe(ESCALATION_CONTINUATION_CONTENT);

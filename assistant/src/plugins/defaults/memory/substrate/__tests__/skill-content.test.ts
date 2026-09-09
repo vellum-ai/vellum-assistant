@@ -89,20 +89,14 @@ describe("augmentMcpSetupDescription", () => {
     expect(augmentMcpSetupDescription(input)).toBe(input);
   });
 
-  test("appends 'Configured: <names>' for mcp-setup with enabled servers", async () => {
+  test("appends 'Configured: <names>' for mcp-setup with configured servers", async () => {
     setConfig("mcp", {
       servers: {
         "example-server": {
           transport: { type: "stdio", command: "example-cmd" },
-          enabled: true,
         },
         "another-server": {
           transport: { type: "stdio", command: "another-cmd" },
-          enabled: true,
-        },
-        "disabled-server": {
-          transport: { type: "stdio", command: "disabled-cmd" },
-          enabled: false,
         },
       },
     });
@@ -122,9 +116,8 @@ describe("augmentMcpSetupDescription", () => {
 
 describe("SKILLS_INJECTION_CATALOG_HINT", () => {
   test("points a missing product at plugin and skill search", async () => {
-    const { SKILLS_INJECTION_CATALOG_HINT } = await import(
-      "../skill-content.js"
-    );
+    const { SKILLS_INJECTION_CATALOG_HINT } =
+      await import("../skill-content.js");
     expect(SKILLS_INJECTION_CATALOG_HINT).toContain(
       "assistant plugins search <name>",
     );
@@ -133,6 +126,53 @@ describe("SKILLS_INJECTION_CATALOG_HINT", () => {
     );
     expect(SKILLS_INJECTION_CATALOG_HINT.toLowerCase()).toContain(
       "currently in the workspace",
+    );
+  });
+});
+
+describe("renderSkillCard", () => {
+  test("keeps the hints the budget would cut", async () => {
+    const { buildSkillContent, renderSkillCard } =
+      await import("../skill-content.js");
+    const input: SkillCapabilityInput = {
+      id: "verbose",
+      displayName: "Verbose",
+      description: "x".repeat(480),
+      activationHints: ["the user asks for the verbose thing"],
+      avoidWhen: ["anything else"],
+    };
+    const budgeted = buildSkillContent(input, 500);
+    const full = renderSkillCard(input, 500);
+
+    expect(budgeted.length).toBe(500);
+    expect(full.length).toBeGreaterThan(500);
+    expect(full.startsWith(budgeted)).toBe(true);
+    expect(full).toContain("Use when: the user asks for the verbose thing.");
+    expect(full).toContain("Avoid when: anything else.");
+  });
+
+  test("matches buildSkillContent when the card fits the budget", async () => {
+    const { buildSkillContent, renderSkillCard } =
+      await import("../skill-content.js");
+    const input: SkillCapabilityInput = {
+      id: "short",
+      displayName: "Short",
+      description: "Does one small thing",
+      activationHints: ["the user asks for it"],
+    };
+    expect(renderSkillCard(input, 500)).toBe(buildSkillContent(input, 500));
+  });
+
+  test("uses the bulleted layout at the always-candidate budget", async () => {
+    const { renderSkillCard } = await import("../skill-content.js");
+    const input: SkillCapabilityInput = {
+      id: "pinned",
+      displayName: "Pinned",
+      description: "Always in the pool",
+      activationHints: ["first mode", "second mode"],
+    };
+    expect(renderSkillCard(input, 900)).toContain(
+      "Use when:\n- first mode\n- second mode",
     );
   });
 });

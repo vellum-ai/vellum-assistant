@@ -43,7 +43,7 @@ export interface UnseenDocumentChangesActions {
    * the one the edit was recorded against.
    */
   clearDocumentEverywhere: (surfaceId: string) => void;
-  /** Clear a whole conversation, for "the user opened the assets sheet". */
+  /** Clear a whole conversation, for "the user opened the Chat Info panel". */
   clearConversation: (conversationId: string) => void;
 }
 

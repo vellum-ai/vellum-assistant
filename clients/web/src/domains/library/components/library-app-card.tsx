@@ -21,9 +21,9 @@ import { type AppSummary, isReadOnlyApp } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { formatFriendlyDate } from "@/utils/format-date";
 import { cn } from "@/utils/misc";
-import { shareApp } from "@/utils/share-app";
+import { useShareApp } from "@/hooks/use-share-app";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import { ActionMenu, Button, toast } from "@vellumai/design-library";
+import { ActionMenu, Button } from "@vellumai/design-library";
 
 interface LibraryAppCardProps {
   app: AppSummary;
@@ -49,7 +49,6 @@ export function LibraryAppCard({
   onAnimationEnd,
 }: LibraryAppCardProps) {
   const { t } = useTranslation("library");
-  const [isSharing, setIsSharing] = useState(false);
   // Plugin-bundled apps are read-only: the daemon rejects delete/share/deploy
   // against them, so drop those actions here rather than render buttons that
   // error. Pin/Open stay — pinning is a client-only preference and opening is
@@ -61,24 +60,10 @@ export function LibraryAppCard({
     () => getCachedAppHtml(assistantId, app.id),
     [assistantId, app.id],
   );
-  const handleShare = useCallback(async () => {
-    if (isSharing) {
-      return;
-    }
-    setIsSharing(true);
-    try {
-      await shareApp(assistantId, app.id, app.name);
-      toast.success(t("libraryAppCard.exported"), {
-        description: `${app.name}.vellum`,
-      });
-    } catch (err) {
-      toast.error(t("libraryAppCard.shareFailed"), {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [assistantId, app.id, app.name, isSharing, t]);
+  const share = useShareApp(assistantId, app, {
+    exported: t("libraryAppCard.exported"),
+    failed: t("libraryAppCard.shareFailed"),
+  });
 
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -166,7 +151,7 @@ export function LibraryAppCard({
             }}
             onPin={() => onPin(app)}
             onDelete={deleteAction ? () => deleteAction(app) : undefined}
-            onShare={readOnly ? undefined : handleShare}
+            onShare={readOnly ? undefined : share}
             onDeploy={deployAction}
             deployedUrl={deployedUrl}
             onCopyDeployedLink={handleCopyDeployedLink}

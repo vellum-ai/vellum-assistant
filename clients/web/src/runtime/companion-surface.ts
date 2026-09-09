@@ -177,6 +177,20 @@ export function annotateCompanionShare(
 }
 
 /**
+ * Tell main the user is scrolling the app under the frame, or has moved the
+ * pointer since, from the frame's own window while drawing is on.
+ *
+ * The frame takes the wheel along with the presses and cannot forward it, so
+ * main answers a scroll by making the frame click-through until the pointer
+ * moves: the rest of the scroll reaches the app underneath, and the first
+ * forwarded move is the frame's cue to take the mouse back. Main holds the
+ * state; this only reports the two events it cannot see.
+ */
+export function setCompanionFrameScrolling(scrolling: boolean): void {
+  bridge()?.setFrameScrolling?.(scrolling);
+}
+
+/**
  * One frame of what the user is sharing, as the helper takes it.
  *
  * The one call in this module made from the app's own window on a cadence

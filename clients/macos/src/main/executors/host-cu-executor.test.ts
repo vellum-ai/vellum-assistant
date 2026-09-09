@@ -33,23 +33,38 @@ mock.module("../sidecar/shared-cu-helper", () => ({
 // real one. Only the answer matters here: why the marks did not stand, or
 // null for marks that did.
 let refusal: CoachmarkRefusal | null = null;
+/**
+ * Stands in for the window layer, and tags the marks the way it does: bounds
+ * given outright keep their ring, a named control resolves to a place.
+ */
 const showCoachmarks = mock(
   async (
-    marks: readonly unknown[],
+    requests: readonly CoachmarkRequest[],
     _conversationId?: string,
   ): Promise<CoachmarkResult> =>
     refusal === null
       ? {
           kind: "placed",
-          marks: marks as CoachmarkResult extends { marks: infer M }
-            ? M
-            : never,
+          marks: requests.map((request) =>
+            "target" in request
+              ? {
+                  kind: "point" as const,
+                  x: 0.5,
+                  y: 0.5,
+                  matched: request.target,
+                }
+              : { kind: "region" as const, ...request },
+          ),
         }
       : { kind: "refused", refusal },
 );
 
 import { createHostCuExecutor, POINT_AT_TOOL } from "./host-cu-executor";
-import type { CoachmarkRefusal, CoachmarkResult } from "@vellumai/ipc-contract";
+import type {
+  CoachmarkRefusal,
+  CoachmarkRequest,
+  CoachmarkResult,
+} from "@vellumai/ipc-contract";
 import type { HostProxyPoster } from "@vellumai/electron-desktop/host-proxy/poster";
 import type { HostProxySseMessage } from "@vellumai/electron-desktop/host-proxy/sse";
 
@@ -289,22 +304,40 @@ describe("pointing at the shared surface", () => {
   });
 
   /**
+   * A lookup held open, so a case can decide what else happens while a name
+   * is still being resolved.
+   */
+  const paintHeldBy = (): (() => void) => {
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    showCoachmarks.mockImplementationOnce(async (requests) => {
+      await held;
+      return {
+        kind: "placed",
+        marks: requests.map((request) =>
+          "target" in request
+            ? {
+                kind: "point" as const,
+                x: 0.5,
+                y: 0.5,
+                matched: request.target,
+              }
+            : { kind: "region" as const, ...request },
+        ),
+      };
+    });
+    return letGo;
+  };
+
+  /**
    * Resolving a name is a round trip, which is long enough for a cancel to
    * land inside one. By the time it answers the turn that asked is gone: a
    * result posted for it answers nobody.
    */
   test("posts nothing for a pointing that was cancelled mid-lookup", async () => {
-    let letGo!: () => void;
-    const held = new Promise<void>((resolve) => {
-      letGo = resolve;
-    });
-    showCoachmarks.mockImplementationOnce(async (marks) => {
-      await held;
-      return {
-        kind: "placed",
-        marks: marks as never,
-      } as CoachmarkResult;
-    });
+    const letGo = paintHeldBy();
     const executor = createHostCuExecutor({
       helper: helperReturning({}),
       showCoachmarks,
@@ -326,17 +359,7 @@ describe("pointing at the shared surface", () => {
    * to whichever request painted last.
    */
   test("a cancelled pointing takes nothing down", async () => {
-    let letGo!: () => void;
-    const held = new Promise<void>((resolve) => {
-      letGo = resolve;
-    });
-    showCoachmarks.mockImplementationOnce(async (marks) => {
-      await held;
-      return {
-        kind: "placed",
-        marks: marks as never,
-      } as CoachmarkResult;
-    });
+    const letGo = paintHeldBy();
     const executor = createHostCuExecutor({
       helper: helperReturning({}),
       showCoachmarks,

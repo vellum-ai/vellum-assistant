@@ -757,6 +757,7 @@ describe("AssistantConfigSchema", () => {
       maxFileSizeBytes: 256000,
       historyCompaction: { enabled: true },
       interactiveGitTimeoutMs: 10000,
+      stageBatchSize: 1000,
       enrichmentQueueSize: 50,
       enrichmentConcurrency: 1,
       enrichmentJobTimeoutMs: 30000,
@@ -809,6 +810,31 @@ describe("AssistantConfigSchema", () => {
       workspaceGit: { interactiveGitTimeoutMs: "fast" },
     });
     expect(result.success).toBe(false);
+  });
+
+  test("applies workspaceGit.stageBatchSize default", () => {
+    expect(AssistantConfigSchema.parse({}).workspaceGit.stageBatchSize).toBe(
+      1000,
+    );
+  });
+
+  test("accepts custom workspaceGit.stageBatchSize", () => {
+    const result = AssistantConfigSchema.parse({
+      workspaceGit: { stageBatchSize: 250 },
+    });
+    expect(result.workspaceGit.stageBatchSize).toBe(250);
+  });
+
+  test("rejects non-positive workspaceGit.stageBatchSize", () => {
+    const zeroResult = AssistantConfigSchema.safeParse({
+      workspaceGit: { stageBatchSize: 0 },
+    });
+    expect(zeroResult.success).toBe(false);
+
+    const negativeResult = AssistantConfigSchema.safeParse({
+      workspaceGit: { stageBatchSize: -1 },
+    });
+    expect(negativeResult.success).toBe(false);
   });
 
   test("applies sight defaults", () => {

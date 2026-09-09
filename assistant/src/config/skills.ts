@@ -250,7 +250,7 @@ export function getBundledSkillsDir(): string {
 
 // ─── Frontmatter parsing ─────────────────────────────────────────────────────
 
-interface ParsedFrontmatter {
+export interface ParsedFrontmatter {
   name: string;
   displayName: string;
   description: string;
@@ -278,7 +278,7 @@ function normalizeStringArray(raw: unknown): string[] | undefined {
   return result.length > 0 ? result : undefined;
 }
 
-function parseFrontmatter(
+export function parseFrontmatter(
   content: string,
   skillFilePath: string,
 ): ParsedFrontmatter | null {

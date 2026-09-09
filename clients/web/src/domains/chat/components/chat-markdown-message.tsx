@@ -10,19 +10,17 @@ import {
   memo,
   type ReactNode,
   useCallback,
-  useEffect,
   useMemo,
   useState,
 } from "react";
 
-import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
-import { captureError } from "@/lib/sentry/capture-error";
 import {
   type MarkdownImageComponent,
   MarkdownMessage,
   type MarkdownMessageProps,
 } from "@vellumai/design-library";
 import type { DisplayAttachment } from "@/types/attachment-types";
+import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { defaultUrlTransform } from "react-markdown";
 import {
@@ -46,12 +44,13 @@ import {
 } from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
+import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import {
   toVellumWorkspaceHref,
   WORKSPACE_PATH_TAG,
 } from "@/domains/chat/utils/workspace-path-links";
+import { AppPathLink } from "@/domains/chat/components/app-path-link";
 import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
-import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
@@ -209,58 +208,17 @@ function WorkspaceInlineImage({
   onOpenPreview?: (attachment: DisplayAttachment) => void;
 }) {
   const { t } = useTranslation("chat");
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  const { url, isError } = useAttachmentObjectUrl(
+    assistantId,
+    attachment,
+    true,
+  );
 
-  useEffect(() => {
-    if (!assistantId || attachment.id.startsWith("rehydrated:")) {
-      return;
-    }
-
-    let revoked = false;
-    (async () => {
-      try {
-        const { data, error } = await attachmentsByIdContentGet({
-          path: { assistant_id: assistantId, id: attachment.id },
-          parseAs: "blob",
-          throwOnError: false,
-        });
-        if (revoked) {
-          return;
-        }
-        if (error || !(data instanceof Blob)) {
-          setFailed(true);
-          return;
-        }
-        const url = URL.createObjectURL(data);
-        setObjectUrl(url);
-      } catch (err) {
-        if (!revoked) {
-          setFailed(true);
-          captureError(err, {
-            context: "WorkspaceInlineImage",
-            bestEffort: true,
-          });
-        }
-      }
-    })();
-
-    return () => {
-      revoked = true;
-      setObjectUrl((prev) => {
-        if (prev) {
-          URL.revokeObjectURL(prev);
-        }
-        return null;
-      });
-    };
-  }, [attachment, assistantId]);
-
-  if (failed) {
+  if (isError) {
     return <ImageErrorFallback alt={alt || attachment.filename} />;
   }
 
-  if (!objectUrl) {
+  if (!url) {
     return (
       <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-sunken)] px-1.5 py-0.5 text-body-small-default text-[var(--content-tertiary)]">
         {alt
@@ -270,7 +228,7 @@ function WorkspaceInlineImage({
     );
   }
 
-  const image = <img src={objectUrl} alt={alt} className={IMAGE_CLASSES} />;
+  const image = <img src={url} alt={alt} className={IMAGE_CLASSES} />;
 
   if (!onOpenPreview) {
     return image;
@@ -282,10 +240,10 @@ function WorkspaceInlineImage({
       onClick={() => onOpenPreview(attachment)}
       className="cursor-zoom-in appearance-none border-0 bg-transparent p-0"
       aria-label={
-              alt
-                ? t("chatMarkdownMessage.expandImageAriaWithAlt", { alt })
-                : t("chatMarkdownMessage.expandImageAria")
-            }
+        alt
+          ? t("chatMarkdownMessage.expandImageAriaWithAlt", { alt })
+          : t("chatMarkdownMessage.expandImageAria")
+      }
     >
       {image}
     </button>
@@ -411,6 +369,9 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       }
 
       const target = classifyMarkdownHref(href);
+      if (href != null && target.kind === "app") {
+        return <AppPathLink href={target.appPath}>{children}</AppPathLink>;
+      }
       if (href != null && target.kind === "local-file") {
         const { workspacePath } = target;
         return (
@@ -547,7 +508,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [assistantId, onVellumLinkClick, handleWorkspacePathOpen],
   );
 
-  // Both tags are registered together: each is only ever emitted by its own
+  // Tags are registered together: each is only ever emitted by its own
   // rehype plugin, so a tag whose plugin didn't run never appears in the tree.
   const hasExtraComponents =
     redactedCredentialChips || (workspacePathLinks && onVellumLinkClick);

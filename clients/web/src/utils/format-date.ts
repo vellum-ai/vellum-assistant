@@ -1,12 +1,20 @@
+import { formatLocale } from "@/i18n";
+
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
+ *
+ * Every formatter in this file formats in {@link formatLocale}, so one label
+ * never pairs an app-locale date with a browser-locale time and a user whose
+ * region differs from their language keeps their own date order. This
+ * formatter and {@link formatCaptureTime} take a `locale` to pin the
+ * formatting; the rest have no caller that needs one.
  */
 export function formatFriendlyDate(
   date: Date,
-  opts?: { alwaysShowYear?: boolean },
+  opts?: { alwaysShowYear?: boolean; locale?: string },
 ): string {
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(opts?.locale ?? formatLocale(), {
     day: "numeric",
     month: "short",
     year:
@@ -14,6 +22,34 @@ export function formatFriendlyDate(
         ? "numeric"
         : undefined,
   });
+}
+
+/** Hour and minute, the shape every inline timestamp here shows. */
+function formatTimeOfDay(date: Date, locale: string = formatLocale()): string {
+  return date.toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Label for when something was captured: the time of day for a capture made
+ * today, the friendly date for an older one. A run of captures from a single
+ * session all fall on one date, so the date alone would label them identically.
+ */
+export function formatCaptureTime(
+  ms: number,
+  locale: string = formatLocale(),
+): string {
+  const date = new Date(ms);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return isToday
+    ? formatTimeOfDay(date, locale)
+    : formatFriendlyDate(date, { locale });
 }
 
 /**
@@ -65,7 +101,7 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
     const weeks = Math.floor(diffDays / 7);
     return `${weeks}w ago`;
   }
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(formatLocale());
 }
 
 /**
@@ -80,11 +116,7 @@ export function formatCompactLocalDate(
     return "";
   }
   const date = new Date(dateStr);
-  const time = date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${formatFriendlyDate(date)}, ${time}`;
+  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date)}`;
 }
 
 /**
@@ -97,7 +129,7 @@ export function formatFullLocalDate(
   if (!dateStr) {
     return "";
   }
-  return new Date(dateStr).toLocaleString(undefined, {
+  return new Date(dateStr).toLocaleString(formatLocale(), {
     month: "long",
     day: "numeric",
     year: "numeric",

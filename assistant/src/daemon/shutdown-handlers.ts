@@ -98,6 +98,8 @@ async function shutdown(): Promise<void> {
   }, 30_000);
   forceTimer.unref();
 
+  // Workspace git heartbeat timer lives in the monitor process. This
+  // in-process stop is a no-op unless the singleton was started here.
   await stopWorkspaceHeartbeatService();
   await stopHeartbeatService();
 

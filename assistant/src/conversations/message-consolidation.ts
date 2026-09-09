@@ -71,6 +71,10 @@ function isSystemNoticeText(block: ContentBlock): boolean {
  * tool_use ↔ tool_result pairing requirement but are never displayed
  * to the user. Any write-path that walks DB rows in display order
  * must treat them as part of the surrounding assistant turn.
+ *
+ * `excludesToolResultRows()` in `persistence/conversation-crud.ts` mirrors
+ * this predicate in SQL for the attachment listing; the two must change
+ * together.
  */
 export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
   if (msg.role !== "user") {
