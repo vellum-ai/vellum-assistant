@@ -17,7 +17,6 @@ describe("stillFrameGrid", () => {
         drawn += 1;
         return new Uint8Array(FRAME_GRID_CELLS);
       },
-      tintOfLastGrid: () => null,
     };
     const grid = await stillFrameGrid(
       new TextEncoder().encode("not a jpeg"),

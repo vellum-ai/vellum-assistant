@@ -30,7 +30,6 @@ import {
   FRAME_GRID_CELLS,
   type FrameGrid,
 } from "@/lib/camera/frame-gate";
-import type { Tint } from "@/lib/camera/frame-sampler";
 import type {
   ScreenCaptureFrame,
   WatchCaptureTarget,
@@ -53,25 +52,10 @@ function frameOf(view: string): ScreenCaptureFrame {
  * other (past the ambient bar), and a name with a `+` on it is that view with
  * a small change in it: past the bar a question lowers the gate to, and short
  * of the ambient one. The same name is the same picture, byte for byte, which
- * is what a screen capture of an unchanged screen is. `light`, `dark`,
- * `red` and `green` are blank pages: no structure at all, so the gate cannot
- * tell any of them apart, and the last two are one brightness in two
- * colours, so nor could their luma.
+ * is what a screen capture of an unchanged screen is.
  */
-const FLAT_VIEWS: Record<string, { luma: number; tint: Tint }> = {
-  light: { luma: 235, tint: [235, 235, 235] },
-  dark: { luma: 30, tint: [30, 30, 30] },
-  red: { luma: 80, tint: [200, 30, 30] },
-  green: { luma: 80, tint: [30, 200, 30] },
-};
-
 function gridFor(view: string): FrameGrid {
   const grid = new Uint8Array(FRAME_GRID_CELLS);
-  const flat = FLAT_VIEWS[view];
-  if (flat !== undefined) {
-    grid.fill(flat.luma);
-    return grid;
-  }
   const name = view.replace("+", "");
   for (let i = 0; i < FRAME_GRID_CELLS; i++) {
     const lit =
@@ -130,13 +114,8 @@ mock.module("@/domains/chat/voice/live-voice/annotate-shared-frame", () => ({
 }));
 
 mock.module("@/lib/camera/still-frame-grid", () => ({
-  stillFrameGrid: async (bytes: Uint8Array) => {
-    const view = new TextDecoder().decode(bytes);
-    return {
-      grid: gridFor(view),
-      tint: FLAT_VIEWS[view]?.tint ?? [128, 128, 128],
-    };
-  },
+  stillFrameGrid: async (bytes: Uint8Array) =>
+    gridFor(new TextDecoder().decode(bytes)),
 }));
 
 mock.module(
@@ -164,11 +143,8 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const {
-  useLiveVoiceScreenShare,
-  SCREEN_SHARE_PICTURE_WAIT_MS,
-  SCREEN_SHARE_SETTLE_WITHIN_MS,
-} = await import("./use-live-voice-screen-share");
+const { useLiveVoiceScreenShare } =
+  await import("./use-live-voice-screen-share");
 const { useLiveVoiceStore } = await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
   await import("./live-voice-fakes.test-helper");
@@ -469,54 +445,6 @@ describe("useLiveVoiceScreenShare: cadence", () => {
   });
 
   /**
-   * The gate normalizes away everything but shape, and a blank page has no
-   * shape: a light one and a dark one are the same nothing to it. A screen
-   * keeps such frames, so the share tells them apart by their light.
-   */
-  test("a blank page turning dark is a new view", async () => {
-    show("light");
-    renderShare();
-    share(WINDOW);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
-
-    // The same blank page again is not news.
-    speak(true);
-    speak(false);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
-
-    show("dark");
-    speak(true);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-2",
-      expect.objectContaining({ reason: "forced" }),
-    );
-    // And it is now the view the call has.
-    speak(false);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
-  });
-
-  /** The gate reads luma alone, and these two are one luma in two colours. */
-  test("two blank pages of one brightness in two colours are two views", async () => {
-    show("red");
-    renderShare();
-    share(WINDOW);
-    await flush();
-    show("green");
-    speak(true);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-2",
-      expect.objectContaining({ reason: "forced" }),
-    );
-  });
-
-  /**
    * The picture the gate judges is the one the helper took for the edge, and
    * the picture it sends is the same bytes: a keep is not a second capture.
    */
@@ -793,83 +721,6 @@ describe("useLiveVoiceScreenShare: a mark drawn on the shared surface", () => {
     expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
   });
 
-  /**
-   * The helper has stopped answering, so the cadence stops asking. A mark
-   * is the one frame the user asked for by hand, and it is not dropped with
-   * the occasion: it is taken the moment the helper answers again.
-   */
-  test("a mark made while the helper is stalled is taken when it answers again", async () => {
-    renderShare();
-    share(WINDOW);
-    await flush();
-    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
-    const ordinary = answerFrame;
-    answerFrame = () => {
-      answerFrame = ordinary;
-      return new Promise<ScreenCaptureFrame>((resolve) => {
-        releaseFrame = resolve;
-      });
-    };
-    speak(true);
-    now += SCREEN_SHARE_PICTURE_WAIT_MS + 1;
-    draw();
-    release();
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
-    expect(annotated).toEqual([]);
-
-    releaseFrame(frameOf("a"));
-    await flush();
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
-    expect(annotated).toEqual([1]);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-2",
-      expect.objectContaining({ reason: "drawing" }),
-    );
-  });
-
-  /**
-   * The request that stalled was made before a reconnect, and the mark
-   * after it. The stall held the resumed run back all the same, and its end
-   * releases the mark all the same.
-   */
-  test("a mark held back by a request from before a reconnect is taken when that request settles", async () => {
-    renderShare();
-    share(WINDOW);
-    await flush();
-    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
-    const ordinary = answerFrame;
-    answerFrame = () => {
-      answerFrame = ordinary;
-      return new Promise<ScreenCaptureFrame>((resolve) => {
-        releaseFrame = resolve;
-      });
-    };
-    speak(true);
-    act(() => {
-      useLiveVoiceStore.getState().setReconnecting(true);
-    });
-    act(() => {
-      useLiveVoiceStore.getState().setReconnecting(false);
-    });
-    now += SCREEN_SHARE_PICTURE_WAIT_MS + 1;
-    draw();
-    release();
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
-
-    releaseFrame(frameOf("a"));
-    await flush();
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
-    expect(annotated).toEqual([1]);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-2",
-      expect.objectContaining({ reason: "drawing" }),
-    );
-  });
-
   /** A share that ends takes the drawing on it with it. */
   test("a stop clears the hand as well as the target", async () => {
     renderShare();
@@ -931,29 +782,27 @@ describe("useLiveVoiceScreenShare: stopping", () => {
   });
 
   /**
-   * The edge came while the helper was still answering for the share
-   * start, and its picture is taken then, of the screen at that moment. By
-   * the time its turn to be judged comes the share is off, and a frame of a
-   * surface the user has stopped showing goes nowhere.
+   * The edge was queued while the helper was still answering for the share
+   * start. By the time its turn comes the share is off, and a frame of a
+   * surface the user has stopped showing is not taken even to be thrown
+   * away.
    */
-  test("an edge that waits behind a slow capture is pictured at once, and dropped by a stop before it is judged", async () => {
-    const frames: ((frame: ScreenCaptureFrame) => void)[] = [];
+  test("an edge queued behind a slow capture never asks the helper once the share is off", async () => {
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
     answerFrame = () =>
       new Promise<ScreenCaptureFrame>((resolve) => {
-        frames.push(resolve);
+        releaseFrame = resolve;
       });
     renderShare();
     share(WINDOW);
+    await Promise.resolve();
     speak(true);
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
     share(null);
-    for (const release of frames) {
-      release(frameOf("a"));
-    }
+    releaseFrame(frameOf("a"));
     await flush();
 
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
     expect(uploadChatAttachment).not.toHaveBeenCalled();
-    expect(controls.sightFrame).not.toHaveBeenCalled();
   });
 
   test("takes nothing more once the share is off", async () => {
@@ -1066,245 +915,12 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
   });
 
   /**
-   * The occasion after a keep is judged against it at once, since neither
-   * a question's picture nor its send can wait on an earlier upload. If
-   * the keep's upload then fails, the picture turned away for it is judged
-   * again against what the call has. Here the question's own frame is
-   * lost, and the frame of the view the user left behind still reaches the
-   * call.
+   * The gate was put back to the last delivered frame when a newer one was
+   * lost, and a frame older than the lost one was still waiting its turn.
+   * When that one lands it is the newest view the call has, and the gate
+   * has to come up to it rather than stay on the older view.
    */
-  test("a picture turned away for a keep that is lost is judged again", async () => {
-    renderShare();
-    share(WINDOW);
-    await flush();
-    const question = holdNextUpload();
-    show("a+");
-    speak(true);
-    await flush();
-    // The stop edge is pictured and judged at once, against the question's
-    // frame, which it matches, while that frame is still on its way up.
-    speak(false);
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
-    expect(uploadChatAttachment).toHaveBeenCalledTimes(2);
-
-    question.fail();
-    await flush();
-    expect(uploadChatAttachment).toHaveBeenCalledTimes(3);
-    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
-      "att-1",
-      "att-3",
-    ]);
-    // Judged against the view the call has, at the question's bar, since
-    // the ask the lost frame had spent is put back with the gate.
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-3",
-      expect.objectContaining({ reason: "forced" }),
-    );
-  });
-});
-
-/**
- * The upload has no bound of its own, and a keep whose upload hangs would
- * hold the gate on a view the call never gets, and every later send behind
- * it, for the rest of the call. Past the bound the frame is written off.
- */
-let timers: ReturnType<typeof spyOn> | null = null;
-/** The named bound runs out at once; every other timer is left alone. */
-function shortenTheBound(boundMs: number): void {
-  const realSetTimeout = globalThis.setTimeout;
-  timers = spyOn(globalThis, "setTimeout").mockImplementation(((
-    handler: TimerHandler,
-    timeout?: number,
-    ...args: unknown[]
-  ) =>
-    realSetTimeout(
-      handler,
-      timeout === boundMs ? 0 : timeout,
-      ...args,
-    )) as typeof setTimeout);
-}
-
-/**
- * The helper's own client gives up on a stalled call only after the better
- * part of a minute, and pictures are judged one at a time, so one stalled
- * answer would hold every later picture back for that long.
- */
-describe("useLiveVoiceScreenShare: a helper that stalls", () => {
-  afterEach(() => {
-    timers?.mockRestore();
-    timers = null;
-  });
-
-  test("a stalled picture is skipped at the bound, and the occasions behind it go on", async () => {
-    shortenTheBound(SCREEN_SHARE_PICTURE_WAIT_MS);
-    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
-    answerFrame = () =>
-      new Promise<ScreenCaptureFrame>((resolve) => {
-        releaseFrame = resolve;
-      });
-    renderShare();
-    share(WINDOW);
-    await Promise.resolve();
-    // The helper answers the question's picture as usual.
-    show("b");
-    speak(true);
-    await flush();
-    await flush();
-
-    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-1",
-      expect.objectContaining({ reason: "forced" }),
-    );
-    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual(WINDOW);
-
-    // The stalled answer, when it comes, is not read.
-    releaseFrame(frameOf("a"));
-    await flush();
-    expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
-  });
-
-  /**
-   * The helper's answer, arriving after the occasion gave up on it, is
-   * still its answer: nothing means the target cannot be captured, and the
-   * share comes down as it would for a prompt nothing.
-   */
-  test("a late nothing from the helper lowers the share", async () => {
-    shortenTheBound(SCREEN_SHARE_PICTURE_WAIT_MS);
-    let releaseFrame!: (frame: ScreenCaptureFrame | null) => void;
-    answerFrame = () =>
-      new Promise<ScreenCaptureFrame | null>((resolve) => {
-        releaseFrame = resolve;
-      });
-    renderShare();
-    share(WINDOW);
-    await flush();
-    await flush();
-    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual(WINDOW);
-
-    releaseFrame(null);
-    await flush();
-    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(2);
-  });
-
-  /**
-   * The question is still open when its own picture fails to come, so its
-   * ask goes to the next picture that does: the stop edge is judged at the
-   * question's bar rather than the ambient one.
-   */
-  test("a question whose picture never came keeps its ask for the next picture", async () => {
-    shortenTheBound(SCREEN_SHARE_PICTURE_WAIT_MS);
-    renderShare();
-    share(WINDOW);
-    await flush();
-    // The helper stalls on the question's picture and answers the next.
-    const ordinary = answerFrame;
-    answerFrame = () => {
-      answerFrame = ordinary;
-      return new Promise<ScreenCaptureFrame>(() => {});
-    };
-    speak(true);
-    show("a+");
-    speak(false);
-    await flush();
-    await flush();
-
-    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-2",
-      expect.objectContaining({ reason: "forced" }),
-    );
-  });
-
-  /**
-   * The bridge cannot call a request back, so a helper that has stopped
-   * answering is not asked again until it has: every further ask would be
-   * another request, and another picture nobody reads, for the better part
-   * of a minute.
-   */
-  test("a helper that has not answered is not asked again until it has", async () => {
-    renderShare();
-    share(WINDOW);
-    await flush();
-    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
-    const ordinary = answerFrame;
-    answerFrame = () => {
-      answerFrame = ordinary;
-      return new Promise<ScreenCaptureFrame>((resolve) => {
-        releaseFrame = resolve;
-      });
-    };
-    speak(true);
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
-    now += SCREEN_SHARE_PICTURE_WAIT_MS + 1;
-    show("b");
-    speak(false);
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
-
-    // Once it answers, the next occasion is asked for, and the ask the
-    // stalled occasion carried goes with it.
-    releaseFrame(frameOf("a"));
-    await flush();
-    speak(true);
-    await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-2",
-      expect.objectContaining({ reason: "forced" }),
-    );
-  });
-});
-
-describe("useLiveVoiceScreenShare: an upload that hangs", () => {
-  afterEach(() => {
-    timers?.mockRestore();
-    timers = null;
-  });
-
-  test("a hung question frame is written off, and the picture turned away for it goes instead", async () => {
-    shortenTheBound(SCREEN_SHARE_SETTLE_WITHIN_MS);
-    renderShare();
-    share(WINDOW);
-    await flush();
-    const question = holdNextUpload();
-    show("a+");
-    speak(true);
-    // The bound is longer than the ask's own window. The ask the lost frame
-    // spent is put back all the same, for the pictures of the question.
-    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
-    await flush();
-    speak(false);
-    await flush();
-    // The bound has run out: the question's frame is dropped, the stop
-    // edge's picture is judged again at the question's bar and sent, and
-    // it is not held behind the hung upload.
-    await flush();
-    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
-      "att-1",
-      "att-3",
-    ]);
-    expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-3",
-      expect.objectContaining({ reason: "forced" }),
-    );
-
-    // The hung upload is ended, so the request does not outlive the
-    // decision, and one that finishes after all is given back, not sent.
-    const hungUpload = uploadChatAttachment.mock.calls[1] as unknown[];
-    expect((hungUpload[2] as { signal: AbortSignal }).signal.aborted).toBe(
-      true,
-    );
-    question.finish();
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
-  });
-
-  test("a hung earlier frame no longer holds the sends behind it", async () => {
-    shortenTheBound(SCREEN_SHARE_SETTLE_WITHIN_MS);
+  test("a parked frame that lands after a newer one was lost becomes the baseline", async () => {
     const first = holdNextUpload();
     renderShare();
     share(WINDOW);
@@ -1312,20 +928,38 @@ describe("useLiveVoiceScreenShare: an upload that hangs", () => {
     show("b");
     speak(true);
     await flush();
-    await flush();
-    // The share-start frame is written off at the bound and the question's
-    // frame, parked behind it, goes out.
-    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual(["att-2"]);
-    // And the call has that view: a question about it is answered already.
+    // A third view, lost, while the first two are still on their way.
+    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
+    const third = holdNextUpload();
+    show("c");
     speak(false);
-    speak(true);
     await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    third.fail();
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
 
     first.finish();
     await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
-    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+
+    // The second view is what the call has, so a question about it is
+    // answered already, and one about the lost third view is not.
+    show("b");
+    speak(true);
+    speak(false);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    show("c");
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(3);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-4",
+      expect.objectContaining({ reason: "forced" }),
+    );
   });
 });
 
@@ -1336,23 +970,27 @@ describe("useLiveVoiceScreenShare: an upload that hangs", () => {
  */
 describe("useLiveVoiceScreenShare: two questions in the queue", () => {
   test("each question's frame is judged at its own ask", async () => {
-    const first = holdNextUpload();
+    let releaseFirst!: (frame: ScreenCaptureFrame) => void;
+    answerFrame = () =>
+      new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFirst = resolve;
+      });
     renderShare();
     share(WINDOW);
-    await flush();
-    // The first question starts on a modest change, and its picture waits
-    // behind the share-start frame. Then the user stops, and a second
-    // question starts on a new view, all while that frame is still up.
-    show("a+");
+    await Promise.resolve();
+    // The pictures are taken in turn, so the helper answers each occasion
+    // in order: the first question starts on a modest change, the user
+    // stops on the same view, and a second question starts on a new one,
+    // all while the share-start picture is still coming.
+    const answers = ["a+", "a+", "b"];
+    answerFrame = async () => frameOf(answers.shift() ?? "b");
     speak(true);
     speak(false);
-    show("b");
     speak(true);
     await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(4);
     expect(controls.sightFrame).not.toHaveBeenCalled();
 
-    first.finish();
+    releaseFirst(frameOf("a"));
     await flush();
     // The first question's frame is kept at the question's bar, its stop
     // edge is the same view, and the second question's frame is new.
@@ -1360,11 +998,6 @@ describe("useLiveVoiceScreenShare: two questions in the queue", () => {
       uploadChatAttachment.mock.calls.map(([, file]) => file.text()),
     );
     expect(uploaded).toEqual(["a", "a+", "b"]);
-    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
-      "att-1",
-      "att-2",
-      "att-3",
-    ]);
   });
 });
 

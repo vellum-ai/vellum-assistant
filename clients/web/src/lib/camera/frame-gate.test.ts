@@ -987,31 +987,6 @@ describe("frame gate forced keep", () => {
     expect(gate.offer(scene({ seed: 9 }), 200, 50).reason).toBe("forced");
   });
 
-  test("an ask put back runs again from now, for pictures that date from the question", () => {
-    // The heartbeat is out of the way: it would keep the frame on its own.
-    const gate = createFrameGate({ ...TEST_OPTIONS, maxIntervalMs: 60_000 });
-    gate.reset(0);
-    gate.offer(scene({ seed: 40 }), 0);
-    // The question was asked at 1000 and its keep was lost; the ask is put
-    // back well after the window it would have had from 1000 ran out.
-    const askedAtMs = 1_000;
-    const nowMs = askedAtMs + FRAME_GATE_FORCED_KEEP_TTL_MS + 5_000;
-    gate.armForcedKeep(nowMs, askedAtMs);
-    // A picture asked for at the question, judged now: the ask keeps it,
-    // where an ask that had run out would leave it to the ambient rules.
-    const decision = gate.offer(scene({ seed: 41 }), nowMs, askedAtMs + 10);
-    expect(decision.reason).toBe("forced");
-  });
-
-  test("an ask put back still refuses a picture from before the question", () => {
-    const gate = createFrameGate({ ...TEST_OPTIONS, maxIntervalMs: 60_000 });
-    gate.reset(0);
-    gate.offer(scene({ seed: 42 }), 0);
-    gate.armForcedKeep(5_000, 1_000);
-    const decision = gate.offer(scene({ seed: 43 }), 5_000, 500);
-    expect(decision.reason).toBe("novel");
-  });
-
   test("a reset drops an unspent arm", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);

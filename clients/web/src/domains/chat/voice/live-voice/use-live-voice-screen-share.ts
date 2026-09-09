@@ -35,8 +35,7 @@
  * that are about a lens are turned off; see
  * {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}. What the gate judges against is
  * the last frame the call was actually given: a keep whose upload fails is
- * put back, and a picture turned away for it is judged again, so the view
- * it was of is not turned away as one the call has.
+ * put back, so the view it was of is not turned away as one the call has.
  *
  * ## What the control reads
  *
@@ -82,7 +81,7 @@ import {
   DEFAULT_FRAME_GATE_OPTIONS,
   type FrameGateOptions,
 } from "@/lib/camera/frame-gate";
-import { createFrameGridProducer, type Tint } from "@/lib/camera/frame-sampler";
+import { createFrameGridProducer } from "@/lib/camera/frame-sampler";
 import { stillFrameGrid } from "@/lib/camera/still-frame-grid";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
@@ -90,10 +89,7 @@ import {
   reportCompanionSharedFrame,
 } from "@/runtime/companion-surface";
 import { decodeBase64Payload } from "@/utils/base64";
-import type {
-  CompanionAnnotationStroke,
-  ScreenCaptureFrame,
-} from "@vellumai/ipc-contract";
+import type { CompanionAnnotationStroke } from "@vellumai/ipc-contract";
 
 /** Where a failure is filed, so the tag says which source it came from. */
 const ERROR_CONTEXT = "live-voice screen share: capture/upload frame";
@@ -132,63 +128,6 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
   minDetail: 0,
 };
 
-/**
- * How long a kept frame may stay neither delivered nor dropped before the
- * share takes it for lost.
- *
- * A keep is the gate's baseline from the moment it is judged, and the
- * pictures behind it are judged against it, so its fate has to be known
- * within a bound: the upload has none of its own, and one that hangs would
- * otherwise turn every later picture of the same view away for the rest of
- * the call, and hold every later send behind it. An upload of one screen
- * frame takes well under a second. Past this, `sight-capture.ts` writes the
- * frame off: it is reported dropped, the gate goes back to what the call
- * has, the picture turned away for it is judged again, and the sends behind
- * it go on.
- */
-export const SCREEN_SHARE_SETTLE_WITHIN_MS = 5_000;
-
-/**
- * How long an occasion waits for the helper's picture before going without.
- *
- * The helper answers in a fraction of a second, and its own client gives up
- * on a call only after the better part of a minute. Pictures are judged one
- * at a time, so one stalled answer would hold every later occasion's
- * picture, already in hand, back from being judged and sent for that long.
- * Past this the occasion is skipped, and the answer, if it ever comes, is
- * not read: its moment has passed, and what it says about the surface is
- * the next occasion's to find out.
- */
-export const SCREEN_SHARE_PICTURE_WAIT_MS = 3_000;
-
-/**
- * Below this much structure a screen is flat, and flat screens are compared
- * by their colour rather than by their shape.
- *
- * The gate reads luma alone and normalizes every grid before comparing,
- * which is what makes it blind to a camera's exposure and is exactly wrong
- * for a blank page: a blank light page and a blank dark page normalize to
- * the same nothing, and a red page and a green page of one brightness were
- * the same before that, so the gate reads no change where the user sees a
- * whole new view. The camera refuses such frames outright; a screen keeps
- * them (see {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}), so it has to tell
- * them apart some other way, and what is left to compare is their mean
- * colour. The floor is the camera's own featureless floor, and the shift,
- * on any one channel, is well past anything a screen's own rendering drifts
- * by.
- */
-export const SCREEN_SHARE_FLAT_DETAIL = DEFAULT_FRAME_GATE_OPTIONS.minDetail;
-export const SCREEN_SHARE_FLAT_TINT_SHIFT = 32;
-
-/** The largest difference between two tints on any one channel. */
-function tintShift(a: Tint, b: Tint): number {
-  return Math.max(
-    Math.abs(a[0] - b[0]),
-    Math.abs(a[1] - b[1]),
-    Math.abs(a[2] - b[2]),
-  );
-}
-
 export function useLiveVoiceScreenShare(): void {
   const target = useLiveVoiceStore.use.screenShareTarget();
   const state = useLiveVoiceStore.use.state();
@@ -224,39 +163,10 @@ export function useLiveVoiceScreenShare(): void {
     // When the gate was last asked for a frame of the question's view, for
     // the timing a forced keep reports. Null once a keep has answered it.
     let armedAtMs: number | null = null;
-    // An ask whose own occasion produced nothing to judge: the helper did
-    // not answer in time, or answered with something that was not a
-    // picture. The question is still open, so the ask goes to the next
-    // picture the cadence takes rather than out with the occasion. A newer
-    // question's ask replaces it.
-    let carriedAskMs: number | null = null;
-    // The helper's answers still outstanding, by when they were asked for.
-    // A helper that has not answered one inside the picture bound is
-    // stalled, and is not asked again until it has: the bridge has no way
-    // to call a request back, so asking again would only pile up requests
-    // and the pictures they eventually carry, none of which will be read.
-    type HelperRequest = {
-      readonly requestedAtMs: number;
-      /** Whether the occasion read the answer, or gave up waiting for it. */
-      read: boolean;
-    };
-    const outstanding = new Set<HelperRequest>();
-    // A drawing the helper could not be asked for, or did not answer for in
-    // time: the one frame here the user asked for by hand, so it is not
-    // dropped with its occasion but taken the moment the helper answers
-    // again. The newest, since the marks it carries are the ones the user
-    // made last.
-    let carriedDrawing: SharedDrawing | null = null;
-    // Occasions are judged one at a time, in the order they came, so the
-    // gate sees pictures in the order they were taken: the two edges of a
-    // short utterance could otherwise resolve out of order, and the older
-    // picture be judged as the newer view. The picture itself is taken the
-    // moment the occasion comes, ahead of the queue, and nothing in the
-    // queue waits on an upload: the start of a question is the frame the
-    // turn reads, and the daemon snapshots the turn when the utterance
-    // closes, so neither the picture nor its send can wait on an earlier
-    // frame's fate. What a fate still undecided costs is handled by keeping
-    // the picture that lost to it; see `skipped`.
+    // Occasions are taken one at a time, in the order they came, so the gate
+    // judges pictures in the order they were taken: the two edges of a short
+    // utterance could otherwise resolve out of order, and the older picture
+    // be judged as the newer view.
     let queue: Promise<void> = Promise.resolve();
     // A frame as the gate saw it, when, and in what order. A copy, since the
     // producer reuses its one grid. The order is the judge's, not the
@@ -265,42 +175,11 @@ export function useLiveVoiceScreenShare(): void {
       readonly grid: Uint8Array;
       readonly atMs: number;
       readonly seq: number;
-      /** Structure and colour, for telling two flat screens apart. */
-      readonly detail: number;
-      readonly tint: Tint;
-      /**
-       * The ask this frame answered, when it was a forced keep: the arm it
-       * spent, to be given back if the frame is lost. The ask still stands
-       * only inside its own window; the gate drops one that has run out.
-       */
-      readonly spentArmMs: number | null;
     };
     let judgedSeq = 0;
-    // A picture in hand: the helper's bytes, the grid the gate reads, when
-    // it was asked for (its lower bound; see `take`), and the generation it
-    // was taken under.
-    type Picture = {
-      readonly bytes: Uint8Array<ArrayBuffer>;
-      readonly grid: Uint8Array;
-      readonly tint: Tint;
-      readonly requestedAtMs: number;
-      readonly run: number;
-    };
     // The last frame the call was given. What the gate is put back to when a
     // keep fails to arrive; null until something has.
     let delivered: JudgedFrame | null = null;
-    // The newest picture the gate turned away, and the keep it was judged
-    // against, kept until that keep's fate is known. A keep moves the
-    // baseline when it is judged, ahead of its upload, so a picture judged
-    // against it was judged against a view the call may never get; if the
-    // keep is lost, this picture is judged again against what the call
-    // does have. Only the newest, since the newest is the view the call
-    // would want, and dropped once the keep arrives, since the judgement
-    // was right, or once a newer keep supersedes both.
-    let skipped: {
-      readonly picture: Picture;
-      readonly against: number;
-    } | null = null;
     // The frame the gate is judging against right now, as this run last set
     // it: the newest keep, or what a failure put back. Null after a reset.
     // Kept here because the gate does not say, and two questions need it:
@@ -330,20 +209,17 @@ export function useLiveVoiceScreenShare(): void {
     /**
      * Make `frame` what the gate judges against, or nothing when there is
      * no frame to give it. Both ways drop a standing arm, so the question
-     * still open gets its ask again: its window runs again from now, since
-     * the ask may be put back well after it was made, and the pictures that
-     * may answer it still date from the question.
+     * still open gets its ask again.
      */
     const moveGateTo = (frame: JudgedFrame | null): void => {
-      const nowMs = performance.now();
       if (frame === null) {
-        gate.reset(nowMs);
+        gate.reset(performance.now());
       } else {
         gate.adopt(frame.grid, frame.atMs);
       }
       baseline = frame;
       if (armedAtMs !== null) {
-        gate.armForcedKeep(nowMs, armedAtMs);
+        gate.armForcedKeep(armedAtMs);
       }
     };
 
@@ -357,15 +233,9 @@ export function useLiveVoiceScreenShare(): void {
      * is the newest view the call has, and the gate is brought up to it.
      */
     const arrived = (frame: JudgedFrame): void => {
-      if (delivered === null || delivered.seq < frame.seq) {
-        delivered = frame;
-      }
+      delivered = frame;
       if (baseline === null || baseline.seq < frame.seq) {
         moveGateTo(frame);
-      }
-      // The picture turned away for this frame was rightly turned away.
-      if (skipped !== null && skipped.against === frame.seq) {
-        skipped = null;
       }
     };
 
@@ -385,25 +255,11 @@ export function useLiveVoiceScreenShare(): void {
       if (baseline !== frame) {
         return;
       }
-      // The question this frame was for is still unanswered, so the ask
-      // goes back with the gate, unless a newer question has since been
-      // asked.
-      if (frame.spentArmMs !== null && armedAtMs === null) {
-        armedAtMs = frame.spentArmMs;
-      }
       moveGateTo(delivered);
-      // The picture turned away for this frame is judged again, against
-      // what the call has. It is the newest picture there is, since a newer
-      // keep would have moved the baseline off this frame.
-      if (skipped !== null && skipped.against === frame.seq) {
-        const again = skipped.picture;
-        skipped = null;
-        judge(again, null, null);
-      }
     };
 
     /**
-     * Judge one picture, and send it if it is worth sending.
+     * Take one frame, judge it, and send it if it is worth sending.
      *
      * `drawing` is what the user drew on the surface, and is null for every
      * frame the cadence takes on its own. A drawing is not judged: it is the
@@ -412,100 +268,102 @@ export function useLiveVoiceScreenShare(): void {
      * frame the cadence takes is judged against the view the call was given
      * rather than against the keep before it.
      *
-     * `askedAtMs` is when the question this occasion opens started, for the
-     * start of one, and null for every other occasion; the gate is armed
-     * with it here, in queue order, so a later question's ask cannot
-     * overwrite this one's before this one's picture is judged.
+     * `run` is the generation the occasion was queued under. An occasion
+     * queued behind a slow capture is asked for again here before it asks
+     * the helper, since the share it was queued for may have stopped or
+     * moved in the meantime: a frame of a surface the user has stopped
+     * showing is not taken, even to be thrown away.
      *
-     * Nothing here waits: the send goes out the moment the gate says yes,
-     * and what it costs the pictures behind it if it never arrives is paid
-     * back by `lost`.
+     * `askedAtMs` is when the question this occasion opens started, for the
+     * start of one, and null for every other occasion. The gate is armed
+     * with it here, in queue order and just before this occasion's own
+     * picture is judged, so a later question's ask cannot overwrite this
+     * one's while this one's picture still waits its turn.
      */
-    const judge = (
-      picture: Picture,
+    const take = async (
       drawing: SharedDrawing | null,
+      run: number,
       askedAtMs: number | null,
-    ): void => {
-      const { bytes, grid, tint, requestedAtMs, run } = picture;
+    ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
+      if (stale()) {
+        return;
+      }
+      // The picture's lower bound. The gate must not spend a question's arm
+      // on a picture taken before the question, and the helper's answer time
+      // is only an upper bound on when its picture was taken.
+      const requestedAtMs = performance.now();
+      const frame = await captureCompanionScreen(target);
+      if (stale()) {
+        return;
+      }
+      if (frame === null) {
+        lowerShare();
+        return;
+      }
+      const bytes = decodeBase64Payload(frame.jpegBase64);
+      if (bytes === null) {
+        console.warn(
+          "[live-voice screen share] the helper's frame is not a picture; skipped",
+        );
+        return;
+      }
+      const grid = await stillFrameGrid(bytes, grids);
+      if (stale()) {
+        return;
+      }
       const nowMs = performance.now();
+      // What this occasion is about to make the gate's baseline, copied out
+      // of the producer's reused grid: on delivery it is what the call has,
+      // and until then it is what a failure has to undo.
       judgedSeq += 1;
-      let spentArmMs: number | null = null;
-      // A drawing is not judged, so its structure is not measured; it is
-      // never mistaken for a flat screen.
-      let detail = Number.POSITIVE_INFINITY;
+      const judged: JudgedFrame | null =
+        grid === null
+          ? null
+          : { grid: new Uint8Array(grid), atMs: nowMs, seq: judgedSeq };
       let keep: SightKeepOrigin;
       if (drawing !== null) {
+        if (grid !== null) {
+          gate.adopt(grid, nowMs);
+          baseline = judged;
+        }
         keep = { reason: "drawing" };
       } else {
-        // This occasion's own ask, or one carried from an occasion that
-        // produced nothing to judge.
-        const ask = askedAtMs ?? carriedAskMs;
-        carriedAskMs = null;
-        if (ask !== null) {
-          // The ask is placed just before its own picture is judged, with
-          // its window running from now, since the queue may have held the
-          // picture, and its bound at the question: the picture was asked
-          // for at that moment, so it can spend the ask.
-          armedAtMs = ask;
-          gate.armForcedKeep(nowMs, ask);
+        // A frame the gate cannot read is not sent unjudged: that is the
+        // second frame of one view this file exists to stop, and a share
+        // that visibly sends nothing is the honest shape of a broken decode.
+        if (grid === null) {
+          console.warn(
+            "[live-voice screen share] frame could not be judged; skipped",
+          );
+          return;
+        }
+        if (askedAtMs !== null) {
+          // The ask stands from when the question started: the picture was
+          // asked for after that, so it can spend the ask.
+          armedAtMs = askedAtMs;
+          gate.armForcedKeep(askedAtMs);
         }
         const decision = gate.offer(grid, nowMs, requestedAtMs);
-        // A flat screen whose colour changed is a new view the gate cannot
-        // see; see `SCREEN_SHARE_FLAT_DETAIL`. Adopted, so the gate's
-        // history is what it would be for a keep, and taken as the answer
-        // to an open question, since the ask stands for a change and this
-        // is one.
-        const flatChange =
-          !decision.keep &&
-          baseline !== null &&
-          (decision.detail < SCREEN_SHARE_FLAT_DETAIL ||
-            baseline.detail < SCREEN_SHARE_FLAT_DETAIL) &&
-          tintShift(tint, baseline.tint) >= SCREEN_SHARE_FLAT_TINT_SHIFT;
-        if (!decision.keep && !flatChange) {
+        if (!decision.keep) {
           console.debug("[live-voice screen share] frame skipped:", {
             reason: decision.reason,
             novelty: decision.novelty,
           });
-          // Kept only while the keep it lost to is still on its way: one
-          // the call has already is a judgement that stands.
-          skipped =
-            baseline !== null && baseline !== delivered
-              ? { picture, against: baseline.seq }
-              : null;
           return;
         }
-        let reason: string = decision.reason;
-        if (flatChange) {
-          gate.adopt(grid, nowMs);
-          reason = armedAtMs !== null ? "forced" : "novel";
-        }
         keep =
-          reason === "forced" && armedAtMs !== null
-            ? { reason, armedAtMs }
-            : { reason };
-        if (reason === "forced") {
-          spentArmMs = armedAtMs;
+          decision.reason === "forced" && armedAtMs !== null
+            ? { reason: decision.reason, armedAtMs }
+            : { reason: decision.reason };
+        if (decision.reason === "forced") {
           armedAtMs = null;
         }
-        detail = decision.detail;
+        baseline = judged;
       }
-      // What this occasion has just made the gate's baseline: on delivery
-      // it is what the call has, and until then it is what a failure has to
-      // undo. A newer keep supersedes whatever was turned away before it.
-      const judged: JudgedFrame = {
-        grid: picture.grid,
-        atMs: nowMs,
-        seq: judgedSeq,
-        detail,
-        tint,
-        spentArmMs,
-      };
-      if (drawing !== null) {
-        gate.adopt(judged.grid, nowMs);
-      }
-      baseline = judged;
-      skipped = null;
+      // Not awaited: the queue orders the pictures, and the upload behind
+      // each keep is ordered by the capture itself, so the next occasion need
+      // not wait for this one to reach the daemon.
       void sight.capture({
         assistantId,
         keep,
@@ -526,138 +384,19 @@ export function useLiveVoiceScreenShare(): void {
         // rather than at the capture because only this edge means the frame
         // arrived: everything before it can still fail or be voided.
         onShared: () => {
-          if (!stale()) {
+          if (judged !== null && !stale()) {
             arrived(judged);
           }
           reportCompanionSharedFrame(target);
         },
-        // A run that has since ended has nothing to put back.
+        // A run that has since ended has nothing to put back, and a drawing
+        // the gate could not read never moved it.
         onDropped: () => {
-          if (!stale()) {
+          if (judged !== null && !stale()) {
             lost(judged);
           }
         },
-        settleWithinMs: SCREEN_SHARE_SETTLE_WITHIN_MS,
       });
-    };
-
-    /**
-     * Take one occasion's picture in hand and judge it.
-     *
-     * `picture` is the helper's answer for the occasion, asked for when the
-     * occasion came, and `requestedAtMs` is when: the picture's lower bound,
-     * since the gate must not spend a question's arm on a picture taken
-     * before the question, and the helper's answer time is only an upper
-     * bound on when its picture was taken. `run` is the generation the
-     * occasion was queued under, read again here since the share it was
-     * queued for may have stopped or moved while it waited.
-     */
-    const take = async (
-      drawing: SharedDrawing | null,
-      run: number,
-      picture: Promise<ScreenCaptureFrame | null>,
-      request: HelperRequest,
-      askedAtMs: number | null,
-    ): Promise<void> => {
-      const { requestedAtMs } = request;
-      const stale = (): boolean => cancelled || generation !== run;
-      // An occasion that produces nothing to judge keeps its ask for the
-      // next one; see `carriedAskMs`.
-      const carryAsk = (): void => {
-        if (askedAtMs !== null) {
-          carriedAskMs = askedAtMs;
-        }
-      };
-      if (stale()) {
-        return;
-      }
-      // The bound runs from when the picture was asked for, not from when
-      // its turn came: time spent queued behind a stalled answer is time
-      // this answer has already had, and a picture already in hand wins
-      // the race whatever is left.
-      const remainingMs = Math.max(
-        0,
-        SCREEN_SHARE_PICTURE_WAIT_MS - (performance.now() - requestedAtMs),
-      );
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const frame = await Promise.race([
-        picture,
-        new Promise<"late">((resolve) => {
-          timer = setTimeout(() => resolve("late"), remainingMs);
-        }),
-      ]);
-      if (timer !== null) {
-        clearTimeout(timer);
-      }
-      if (stale()) {
-        return;
-      }
-      if (frame === "late") {
-        console.warn(
-          "[live-voice screen share] no picture from the helper in time; skipped",
-        );
-        carryAsk();
-        if (drawing !== null) {
-          carriedDrawing = drawing;
-        }
-        return;
-      }
-      request.read = true;
-      if (frame === null) {
-        lowerShare();
-        return;
-      }
-      const bytes = decodeBase64Payload(frame.jpegBase64);
-      if (bytes === null) {
-        console.warn(
-          "[live-voice screen share] the helper's frame is not a picture; skipped",
-        );
-        carryAsk();
-        return;
-      }
-      const still = await stillFrameGrid(bytes, grids);
-      if (stale()) {
-        return;
-      }
-      // A drawing the gate cannot read still goes, since the user asked for
-      // it by hand, but the gate is left where it is. A cadence frame the
-      // gate cannot read is not sent unjudged: that is the second frame of
-      // one view this file exists to stop, and a share that visibly sends
-      // nothing is the honest shape of a broken decode.
-      if (still === null) {
-        if (drawing === null) {
-          console.warn(
-            "[live-voice screen share] frame could not be judged; skipped",
-          );
-          carryAsk();
-          return;
-        }
-        void sight.capture({
-          assistantId,
-          keep: { reason: "drawing" },
-          produceFrame: async (filename) =>
-            annotateSharedFrame(
-              new File([bytes], filename, { type: "image/jpeg" }),
-              drawing.strokes,
-              drawing.ink,
-            ),
-          onShared: () => reportCompanionSharedFrame(target),
-        });
-        return;
-      }
-      // Copied out of the producer's reused grid, which the next picture
-      // draws over.
-      judge(
-        {
-          bytes,
-          grid: new Uint8Array(still.grid),
-          tint: still.tint,
-          requestedAtMs,
-          run,
-        },
-        drawing,
-        askedAtMs,
-      );
     };
 
     const share = (
@@ -667,61 +406,8 @@ export function useLiveVoiceScreenShare(): void {
       // Stamped now rather than when the occasion is dequeued, so a stop or
       // a reconnect that lands while it waits is one it cannot outlive.
       const run = generation;
-      // Taken now, of the screen as it is at this moment, whatever the queue
-      // is still waiting on. The helper's own failure is its answer, read
-      // when the picture is judged.
-      const requestedAtMs = performance.now();
-      for (const request of outstanding) {
-        if (
-          requestedAtMs - request.requestedAtMs >
-          SCREEN_SHARE_PICTURE_WAIT_MS
-        ) {
-          // Stalled. The occasion is skipped rather than asked for. Its
-          // ask, if it has one, goes to the next picture the helper does
-          // answer, and a drawing is taken then.
-          console.warn(
-            "[live-voice screen share] the helper has not answered; not asked again",
-          );
-          if (askedAtMs !== null) {
-            carriedAskMs = askedAtMs;
-          }
-          if (drawing !== null) {
-            carriedDrawing = drawing;
-          }
-          return;
-        }
-      }
-      const request: HelperRequest = { requestedAtMs, read: false };
-      outstanding.add(request);
-      const settled = (frame: ScreenCaptureFrame | null): void => {
-        outstanding.delete(request);
-        if (cancelled) {
-          return;
-        }
-        // An answer the occasion gave up waiting for is still the helper's
-        // answer, on the run that asked: nothing, arriving late, means what
-        // it means arriving in time, that the target cannot be captured,
-        // and the share comes down rather than asking again and again for
-        // what it will not get. A run since ended by a reconnect is not
-        // spoken for by an answer from before it.
-        if (run === generation && !request.read && frame === null) {
-          lowerShare();
-          return;
-        }
-        // The helper is answering again, whichever run asked it: a request
-        // from before a reconnect was holding the resumed run back all the
-        // same. A drawing held back while the helper was not answering is
-        // taken now, on the run it was made in, which `share` stamps.
-        if (carriedDrawing !== null) {
-          const held = carriedDrawing;
-          carriedDrawing = null;
-          share(held);
-        }
-      };
-      const picture = captureCompanionScreen(target);
-      picture.then(settled, () => settled(null));
       queue = queue
-        .then(() => take(drawing, run, picture, request, askedAtMs))
+        .then(() => take(drawing, run, askedAtMs))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
@@ -769,8 +455,6 @@ export function useLiveVoiceScreenShare(): void {
           delivered = null;
           baseline = null;
           armedAtMs = null;
-          carriedAskMs = null;
-          carriedDrawing = null;
         }
         return;
       }

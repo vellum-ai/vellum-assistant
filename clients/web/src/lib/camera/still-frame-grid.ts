@@ -6,33 +6,23 @@
  * reduced to. The bytes are decoded by `createImageBitmap` and drawn through
  * the producer the caller holds, so the grid is byte for byte what the
  * browser sampler would have made of the same picture, and one canvas pair
- * serves the whole share. The still's mean colour comes with it, since a
- * screen keeps the flat views a camera refuses and has only colour left to
- * tell two of them apart.
+ * serves the whole share.
  */
 
 import type { FrameGrid } from "./frame-gate";
-import type { FrameGridProducer, Tint } from "./frame-sampler";
-
-/** A still as the gate reads it, and as a flat-view comparison does. */
-export interface StillFrame {
-  /**
-   * The producer's one reused buffer, so it is only good until the next
-   * call on the same producer: offer it, or copy it, before taking another.
-   */
-  readonly grid: FrameGrid;
-  readonly tint: Tint;
-}
+import type { FrameGridProducer } from "./frame-sampler";
 
 /**
- * Reduce a JPEG to the gate's grid and its mean colour, or null for a
- * picture that could not be decoded or a document with no 2D context to
- * draw it through.
+ * Reduce a JPEG to the gate's grid, or null for a picture that could not be
+ * decoded or a document with no 2D context to draw it through.
+ *
+ * The grid is the producer's one reused buffer, so it is only good until the
+ * next call on the same producer: offer it to the gate before taking another.
  */
 export async function stillFrameGrid(
   bytes: Uint8Array<ArrayBuffer>,
   grids: FrameGridProducer,
-): Promise<StillFrame | null> {
+): Promise<FrameGrid | null> {
   let bitmap: ImageBitmap;
   try {
     bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
@@ -40,9 +30,7 @@ export async function stillFrameGrid(
     return null;
   }
   try {
-    const grid = grids.gridFrom(bitmap);
-    const tint = grids.tintOfLastGrid();
-    return grid === null || tint === null ? null : { grid, tint };
+    return grids.gridFrom(bitmap);
   } finally {
     bitmap.close();
   }
