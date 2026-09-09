@@ -296,7 +296,8 @@
     "title": "顯示"
   },
   "cardSurface": {
-    "tasksProgress": "已完成 {completed} / 共 {total} 個任務"
+    "tasksProgress": "已完成 {completed} / 共 {total} 個任務",
+    "viewDetails": "查看詳細資料"
   },
   "channelReferenceChip": {
     "heading": "正在參照 {channel} 訊息",
@@ -890,7 +891,8 @@
     "windows": "語音已在 Windows 應用程式中啟用。"
   },
   "liveVoiceButton": {
-    "startVoiceMode": "啟動語音模式"
+    "startVoiceMode": "啟動語音模式",
+    "tooltip": "用語音模式開口交談"
   },
   "liveVoiceStatus": {
     "connecting": "正在連線…",
@@ -1774,6 +1776,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "已靜音"
+  },
+  "wakeCard": {
+    "commandFinished": "背景指令已完成",
+    "incomingEvent": "收到事件",
+    "memoryReview": "記憶回顧",
+    "ranOnItsOwn": "自動執行",
+    "resumed": "中斷後已恢復",
+    "scheduledRun": "排程執行",
+    "watchReview": "觀察工作階段回顧",
+    "workflowFinished": "工作流程已完成"
+  },
+  "wakeDetailPanel": {
+    "close": "關閉",
+    "details": "詳細資料",
+    "result": "結果",
+    "runStatus": "執行狀態",
+    "title": "對話已喚醒",
+    "workflow": "工作流程"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
