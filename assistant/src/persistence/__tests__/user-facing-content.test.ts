@@ -233,3 +233,83 @@ describe("the redaction rider on a projected message", () => {
     expect(projected).toEqual({ type: "text", text: "Hi." });
   });
 });
+
+/**
+ * `/messages` consolidates a turn's assistant rows into one content array and
+ * then projects it, so the fold has to respect where one model response ended
+ * and the next began. Tool activity between two messages is exactly that
+ * boundary: fold across it and reload shows the result above the work it came
+ * from.
+ */
+describe("response boundaries inside a consolidated turn", () => {
+  const toolCall = (name: string, id = "tu_work"): ContentBlock =>
+    ({ type: "tool_use", id, name, input: {} }) as ContentBlock;
+
+  test("a tool call between two messages keeps them separate, in order", () => {
+    // The shape a turn leaves after consolidation: progress, the work, result.
+    const projected = projectUserFacingContent(
+      [
+        sendCall("Checking your calendar.", "tu_1"),
+        toolCall("bash"),
+        sendCall("Two meetings today.", "tu_2"),
+      ] as ContentBlock[],
+      { toolGated: true },
+    ) as unknown as Array<Record<string, unknown>>;
+
+    expect(projected.map((block) => block.type)).toEqual([
+      "text",
+      "tool_use",
+      "text",
+    ]);
+    expect(projected[0].text).toBe("Checking your calendar.");
+    expect(projected[2].text).toBe("Two meetings today.");
+  });
+
+  test("two calls with no work between them still fold into one segment", () => {
+    const projected = projectUserFacingContent(
+      [
+        sendCall("First.", "tu_1"),
+        sendCall("Second.", "tu_2"),
+      ] as ContentBlock[],
+      { toolGated: true },
+    ) as unknown as Array<Record<string, unknown>>;
+
+    expect(projected.map((block) => block.type)).toEqual(["text"]);
+    expect(projected[0].text).toBe("First. Second.");
+  });
+
+  test("the demoted scratchpad does not break a run", () => {
+    // A text block renders no text of its own once demoted, so nothing of it
+    // appears between the two messages.
+    const projected = projectUserFacingContent(
+      [
+        sendCall("First.", "tu_1"),
+        { type: "text", text: "notes" },
+        sendCall("Second.", "tu_2"),
+      ] as ContentBlock[],
+      { toolGated: true },
+    ) as unknown as Array<Record<string, unknown>>;
+
+    expect(projected.map((block) => block.type)).toEqual(["text", "thinking"]);
+    expect(projected[0].text).toBe("First. Second.");
+  });
+
+  test("three responses worth of messages keep all three boundaries", () => {
+    const projected = projectUserFacingContent(
+      [
+        sendCall("One.", "tu_1"),
+        toolCall("bash", "w1"),
+        sendCall("Two.", "tu_2"),
+        toolCall("file_read", "w2"),
+        sendCall("Three.", "tu_3"),
+      ] as ContentBlock[],
+      { toolGated: true },
+    ) as unknown as Array<Record<string, unknown>>;
+
+    expect(
+      projected
+        .filter((block) => block.type === "text")
+        .map((block) => block.text),
+    ).toEqual(["One.", "Two.", "Three."]);
+  });
+});

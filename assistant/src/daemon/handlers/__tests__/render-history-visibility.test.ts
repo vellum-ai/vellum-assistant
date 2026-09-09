@@ -189,3 +189,48 @@ describe("a response that called the tool more than once", () => {
     ]);
   });
 });
+
+describe("a consolidated gated turn on reload", () => {
+  test("the result renders after the work it came from, not before it", () => {
+    // What `/messages` hands the renderer after folding a turn's rows: the
+    // progress message, the tool call, then the result. The contentOrder is
+    // what the client lays out, so a fold across the tool call would show the
+    // answer above the activity that produced it.
+    setFlag(true);
+    const rendered = renderHistoryContent(
+      [
+        { type: "text", text: "checking the calendar" },
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "send_user_message",
+          input: { message: "Checking your calendar." },
+        },
+        { type: "tool_use", id: "tu_work", name: "bash", input: {} },
+        {
+          type: "tool_use",
+          id: "tu_2",
+          name: "send_user_message",
+          input: { message: "Two meetings today." },
+        },
+      ],
+      undefined,
+      "m1",
+      PRIVATE,
+    );
+
+    expect(rendered.textSegments).toEqual([
+      "Checking your calendar.",
+      "Two meetings today.",
+    ]);
+    // The work sits between the two messages in the rendered order.
+    const order = rendered.contentOrder;
+    expect(order.indexOf("text:0")).toBeLessThan(
+      order.findIndex((ref) => ref.startsWith("tool:")),
+    );
+    expect(order.findIndex((ref) => ref.startsWith("tool:"))).toBeLessThan(
+      order.indexOf("text:1"),
+    );
+    expect(rendered.toolCalls.map((c) => c.name)).toEqual(["bash"]);
+  });
+});
