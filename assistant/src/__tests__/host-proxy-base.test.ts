@@ -9,6 +9,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
     getMostRecentClientByCapability: (cap: string) =>
       cap === "host_cu" && mockHasClient ? { id: "mock-client" } : null,
+    getActorPrincipalIdForClient: () => undefined,
   },
 }));
 

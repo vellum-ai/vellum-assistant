@@ -152,6 +152,7 @@ export class HostBashProxy extends HostProxyBase<
         extraFields,
         resolvedTargetClientId,
         proxyTimeoutMs,
+        sourceActorPrincipalId,
       );
       return formatShellOutput(
         payload.stdout,
