@@ -1566,17 +1566,29 @@ function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
 }
 
 /**
- * Clearing the default coding-agent model is a PATCH of
- * `{ acp: { defaultModel: null } }`, and the deep-merge assigns that literal
- * `null` because the stored value is a scalar. `AcpConfigSchema.defaultModel`
- * is an optional string, so a persisted `null` makes every later
- * `loadConfig()` warn and take its salvage path. Clearing means removing the
- * key, so drop it here.
+ * Clearing a coding-agent model is a write of `null` - a PATCH of
+ * `{ acp: { defaultModel: null } }`, a `config set acp.defaultModel null`, or
+ * either shape aimed at `acp.agents.<id>.model`. The deep-merge assigns that
+ * literal `null` because the stored value is a scalar, and a SET writes it
+ * verbatim by design. Both model fields are optional strings in
+ * `AcpConfigSchema`, so a persisted `null` makes every later `loadConfig()`
+ * warn and take its salvage path, dropping the whole `acp` section with the
+ * agents defined in it. Clearing means removing the key, so drop it here on
+ * every write path.
  */
-function scrubNulledAcpDefaultModel(raw: Record<string, unknown>): void {
+function scrubNulledAcpModels(raw: Record<string, unknown>): void {
   const acp = readPlainObject(raw.acp);
-  if (acp && acp.defaultModel === null) {
+  if (!acp) {
+    return;
+  }
+  if (acp.defaultModel === null) {
     delete acp.defaultModel;
+  }
+  for (const entry of Object.values(readPlainObject(acp.agents) ?? {})) {
+    const agent = readPlainObject(entry);
+    if (agent && agent.model === null) {
+      delete agent.model;
+    }
   }
 }
 
@@ -1630,7 +1642,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   }
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
-  scrubNulledAcpDefaultModel(raw);
+  scrubNulledAcpModels(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
@@ -1736,10 +1748,14 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       written.source = "managed";
     }
   }
-  // A SET can create `services.stt` with a leaf like `language` and no
+  // A SET writes `null` verbatim, which is right for the keys that document
+  // it and wrong for the acp model fields, whose schema takes only a string;
+  // the same scrub that guards PATCH keeps this write loadable. A SET can
+  // also create `services.stt` with a leaf like `language` and no
   // `provider`, which SttServiceSchema requires whenever the block exists;
   // the same seeding that guards PATCH keeps this write's persisted block
   // schema-valid.
+  scrubNulledAcpModels(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "set");

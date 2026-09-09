@@ -884,6 +884,16 @@ describe("POST /v1/acp/:id/set-model", () => {
     expect(getSetModelRoute().policy?.requiredScopes).toEqual(["chat.write"]);
   });
 
+  test("declares the error statuses the handler throws", () => {
+    // The generated spec is the contract clients code against; without these
+    // it advertises only a 200 for a route with three failure modes.
+    const declared = getSetModelRoute().additionalResponses ?? {};
+    expect(Object.keys(declared).sort()).toEqual(["400", "404", "409"]);
+    for (const response of Object.values(declared)) {
+      expect(response.description.length).toBeGreaterThan(0);
+    }
+  });
+
   test("a missing or non-string model is a bad request", async () => {
     const { handler } = getSetModelRoute();
 

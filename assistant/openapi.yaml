@@ -245,6 +245,12 @@ paths:
                   - acpSessionId
                   - availableModels
                 additionalProperties: false
+        "400":
+          description: Missing model, or a model the session does not offer (its availableModels list names the ones it does)
+        "404":
+          description: Unknown ACP session
+        "409":
+          description: The session is alive but its adapter advertises no model selector
   /v1/acp/{id}/steer:
     post:
       operationId: acp_by_id_steer_post
