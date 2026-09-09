@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -35,6 +36,14 @@ const avatarDir = (): string => path.join(userDataDir, "notification-avatars");
 
 const age = (file: string, offset = 0): void => {
   utimesSync(file, AGED_SECONDS + offset, AGED_SECONDS + offset);
+};
+
+/** A cache entry as an earlier run of the app left it, unknown to this one. */
+const seedCacheEntry = (bytes: Buffer): string => {
+  mkdirSync(avatarDir(), { recursive: true });
+  const file = path.join(avatarDir(), `${HASH}.png`);
+  writeFileSync(file, bytes);
+  return file;
 };
 
 beforeEach(() => {
@@ -77,6 +86,47 @@ describe("ensureNotificationAvatarFile", () => {
   test("rewrites a cache entry a partial write left behind", () => {
     const file = ensureNotificationAvatarFile(userDataDir, PNG, HASH);
     writeFileSync(file, Buffer.alloc(0));
+
+    expect(ensureNotificationAvatarFile(userDataDir, PNG, HASH)).toBe(file);
+    expect(readFileSync(file)).toEqual(PNG);
+  });
+
+  test("rewrites a cache entry whose bytes hash to something else", () => {
+    const impostor = pngFor("b");
+    expect(impostor.length).toBe(PNG.length);
+    const file = seedCacheEntry(impostor);
+
+    expect(ensureNotificationAvatarFile(userDataDir, PNG, HASH)).toBe(file);
+    expect(readFileSync(file)).toEqual(PNG);
+  });
+
+  test("reads a cache entry for its digest once per process", () => {
+    const file = seedCacheEntry(PNG);
+    ensureNotificationAvatarFile(userDataDir, PNG, HASH);
+
+    // The digest guards a file this process found on disk, not one changed
+    // under it, so a verified entry is served without being read again.
+    const impostor = pngFor("b");
+    writeFileSync(file, impostor);
+    ensureNotificationAvatarFile(userDataDir, PNG, HASH);
+
+    expect(readFileSync(file)).toEqual(impostor);
+  });
+
+  test("re-reads an avatar the prune removed before serving it again", () => {
+    const file = seedCacheEntry(PNG);
+    ensureNotificationAvatarFile(userDataDir, PNG, HASH);
+    age(file);
+    for (let index = 0; index < 16; index++) {
+      const bytes = pngFor(`avatar-${index}`);
+      age(
+        ensureNotificationAvatarFile(userDataDir, bytes, hashOf(bytes)),
+        index + 1,
+      );
+    }
+    expect(existsSync(file)).toBe(false);
+
+    seedCacheEntry(pngFor("b"));
 
     expect(ensureNotificationAvatarFile(userDataDir, PNG, HASH)).toBe(file);
     expect(readFileSync(file)).toEqual(PNG);
