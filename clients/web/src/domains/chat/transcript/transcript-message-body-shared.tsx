@@ -566,19 +566,34 @@ export function SlackMessageAttribution({
  * character (or `:shortcode:` fallback) plus the actor name and verb.
  */
 /**
- * Display form of a reaction emoji, shared by every reaction line. A unicode
- * emoji renders as itself; a Slack name, skin tone suffix included, resolves
- * through the catalog with the ":shortcode:" fallback while it lazy-loads
- * and for a workspace's custom emoji. A custom-emoji mention form
- * (Discord's `<:name:id>`) renders as its bare ":name:" and never consults
- * the catalog: custom names are arbitrary guild identities, and a name that
- * collides with a catalog shortcode must not swap into the unrelated
- * standard emoji.
+ * Display form of a reaction emoji, shared by every reaction line. The
+ * channel's adapter says what the emoji is: a `unicode` reaction renders its
+ * character, and a `custom` or `shortcode` one renders its bare ":name:",
+ * since its image belongs to the channel and a name must never swap into an
+ * unrelated standard emoji.
+ *
+ * Rows stored before adapters resolved names carry only a spelling, or a
+ * Slack name typed `shortcode`; those go through the composer's catalog with
+ * the ":name:" fallback. Transitional: delete once no supported assistant
+ * serves such rows (`docs/BACKWARDS_COMPAT.md`, "Related compatibility
+ * seams").
  */
 export function displayReactionEmoji(
-  raw: string,
+  reaction: { emoji: string; emojiKind?: string; emojiName?: string },
   lookup: (shortcode: string) => string | undefined,
 ): string {
+  const name = reaction.emojiName;
+  if (name !== undefined) {
+    switch (reaction.emojiKind) {
+      case "unicode":
+        return name;
+      case "custom":
+        return `:${name}:`;
+      case "shortcode":
+        return lookup(name) ?? `:${name}:`;
+    }
+  }
+  const raw = reaction.emoji;
   const customMention = /^<a?:([^:>]+):\d+>$/.exec(raw);
   if (customMention) {
     return `:${customMention[1]!}:`;
@@ -596,7 +611,12 @@ export function SlackReactionLine({ message }: { message: DisplayMessage }) {
     return null;
   }
 
-  const emojiDisplay = displayReactionEmoji(reaction.emoji, lookupEmoji);
+  // The neutral reaction fact on the same row carries the adapter's typed
+  // fields; Slack's own envelope carries only the spelling.
+  const emojiDisplay = displayReactionEmoji(
+    message.reaction ?? { emoji: reaction.emoji },
+    lookupEmoji,
+  );
   const actor =
     reaction.actorDisplayName ??
     message.slackMessage?.sender?.displayName ??

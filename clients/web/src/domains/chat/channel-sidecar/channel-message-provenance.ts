@@ -78,6 +78,8 @@ export interface ChannelMessageProvenance {
   /** Present only when `kind` is `"reaction"`. */
   reaction?: {
     emoji: string;
+    emojiKind?: string;
+    emojiName?: string;
     op: "added" | "removed";
     actorName?: string;
   };
@@ -144,6 +146,12 @@ const readSlackProvenance: ChannelMessageProvenanceReader = (
   if (envelope.reaction) {
     provenance.reaction = {
       emoji: envelope.reaction.emoji,
+      ...(envelope.reaction.emojiKind !== undefined
+        ? { emojiKind: envelope.reaction.emojiKind }
+        : {}),
+      ...(envelope.reaction.emojiName !== undefined
+        ? { emojiName: envelope.reaction.emojiName }
+        : {}),
       op: envelope.reaction.op,
       actorName: firstNonEmpty(envelope.reaction.actorDisplayName),
     };

@@ -23,7 +23,7 @@ export function ReactionLineRow({ message }: { message: DisplayMessage }) {
       className="text-body-small-default text-[var(--content-tertiary)] italic"
     >
       {t(key, {
-        emoji: displayReactionEmoji(reaction.emoji, lookupEmoji),
+        emoji: displayReactionEmoji(reaction, lookupEmoji),
         name: reaction.actorDisplayName ?? t("transcript.reactionSomeone"),
       })}
     </div>

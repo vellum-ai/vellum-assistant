@@ -126,7 +126,7 @@ export function ChannelTranscriptEntryRow({
             reaction.op === "added"
               ? "channelTranscriptPanel.reactionAdded"
               : "channelTranscriptPanel.reactionRemoved",
-            { emoji: displayReactionEmoji(reaction.emoji, lookupEmoji) },
+            { emoji: displayReactionEmoji(reaction, lookupEmoji) },
           )}
         </Typography>
       ) : (

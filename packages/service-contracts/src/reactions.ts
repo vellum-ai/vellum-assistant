@@ -7,11 +7,13 @@
  * is spelled. Modelled on Zulip's `reaction_type`, the one surveyed system
  * that separates the namespace from the name.
  *
- * `shortcode` is a name in a channel's own namespace whose kind the channel
- * does not disclose: Slack sends `+1` for the standard emoji and `blob_wave`
- * for a workspace upload with nothing to tell them apart, and only the
- * workspace token can resolve the second. It is a distinct kind from
- * `unicode`, not a stand-in for an unknown one.
+ * `shortcode` is a name in a channel's own namespace that the channel's
+ * adapter could not place among the standard emoji. Slack sends `+1` and
+ * `blob_wave` alike, as names; its normalizer resolves the standard ones to
+ * `unicode` from Slack's own list, and what remains is a workspace upload
+ * only the workspace can render. It is a distinct kind from `unicode`, not
+ * a stand-in for an unknown one, and nothing past an adapter needs a
+ * channel's naming to read it.
  */
 import { z } from "zod";
 

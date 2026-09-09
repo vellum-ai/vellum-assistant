@@ -1,13 +1,17 @@
 /**
- * The emoji catalog, built at load time from emojibase with Slack's names.
+ * The emoji catalog behind the composer's `:shortcode` autocomplete, built at
+ * load time from emojibase with Slack's names.
  *
- * Slack reports a reaction by its short name (`tada`, `+1`,
- * `thumbsup::skin-tone-3`) rather than by character, and its names are its
- * own list, not Unicode's. emojibase ships that list as the `iamcal`
- * shortcode preset, so a name Slack sends resolves to the character Slack
- * shows, flags and skin tones included. The composer's `:shortcode`
- * autocomplete searches the same names, so what a person types here is what
- * Slack accepts back.
+ * Colon-codes like `:tada:` are a chat convention rather than a standard, and
+ * every platform keeps its own spelling list. This catalog uses Slack's
+ * (emojibase's `iamcal` preset), since that is the list the Slack channel
+ * accepts back and the only one already in play here. Search terms come from
+ * the dataset's tags and labels, which derive from Unicode's own names.
+ *
+ * Reaction rendering does not depend on this: a channel's adapter says what
+ * a reaction's emoji is, and the web renders that. `lookupEmoji` serves the
+ * composer and the transitional fallback for rows stored before adapters
+ * resolved names (see `displayReactionEmoji`).
  *
  * Loaded lazily by `emoji-catalog.ts`, which keeps the dataset out of the
  * initial bundle.

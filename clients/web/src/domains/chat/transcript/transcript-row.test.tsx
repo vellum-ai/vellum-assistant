@@ -96,18 +96,39 @@ describe("TranscriptRow reaction dispatch", () => {
     // A Discord custom emoji named like a catalog shortcode is a distinct
     // guild emoji; the display must stay ":name:" and never swap into the
     // unrelated standard emoji once the catalog loads.
-    expect(displayReactionEmoji("<:heart:99>", () => "❤️")).toBe(":heart:");
-    expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
-    expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
-    expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
+    const none = () => undefined;
+    // What the adapter said wins, and never consults the catalog for a
+    // unicode or custom emoji.
     expect(
-      displayReactionEmoji("thumbsup::skin-tone-3", (name) =>
-        name === "thumbsup::skin-tone-3" ? "👍🏼" : undefined,
+      displayReactionEmoji(
+        { emoji: "tada", emojiKind: "unicode", emojiName: "🎉" },
+        none,
+      ),
+    ).toBe("🎉");
+    expect(
+      displayReactionEmoji(
+        { emoji: "<:heart:99>", emojiKind: "custom", emojiName: "heart" },
+        () => "❤️",
+      ),
+    ).toBe(":heart:");
+    expect(
+      displayReactionEmoji(
+        { emoji: "blob_wave", emojiKind: "shortcode", emojiName: "blob_wave" },
+        none,
+      ),
+    ).toBe(":blob_wave:");
+    // A spelling-only row from before adapters resolved names.
+    expect(displayReactionEmoji({ emoji: "<:heart:99>" }, () => "❤️")).toBe(
+      ":heart:",
+    );
+    expect(displayReactionEmoji({ emoji: "heart" }, () => "❤️")).toBe("❤️");
+    expect(displayReactionEmoji({ emoji: "heart" }, none)).toBe(":heart:");
+    expect(displayReactionEmoji({ emoji: "🎉" }, none)).toBe("🎉");
+    expect(
+      displayReactionEmoji({ emoji: "thumbsup::skin-tone-3" }, (n) =>
+        n === "thumbsup::skin-tone-3" ? "👍🏼" : undefined,
       ),
     ).toBe("👍🏼");
-    expect(displayReactionEmoji("thumbsup::skin-tone-3", () => undefined)).toBe(
-      ":thumbsup::skin-tone-3:",
-    );
   });
 });
 
