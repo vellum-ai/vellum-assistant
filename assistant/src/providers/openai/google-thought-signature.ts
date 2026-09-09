@@ -1,7 +1,4 @@
-import {
-  GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE,
-  isGemini3Model,
-} from "../gemini-thought-signature.js";
+import { unsignedThoughtSignatureFallback } from "../gemini-thought-signature.js";
 
 export type GoogleToolCallExtraContent = {
   extra_content?: {
@@ -58,6 +55,27 @@ export function attachGoogleThoughtSignature<T extends object>(
   };
 }
 
+function stampUnsignedGoogleThoughtSignature(
+  toolCalls: GoogleToolCallExtraContent[],
+  options?: { model?: string },
+): boolean {
+  const fallback = unsignedThoughtSignatureFallback(
+    toolCalls.map((tc) => googleThoughtSignatureFromUnknown(tc)),
+    options,
+  );
+  if (!fallback) {
+    return false;
+  }
+  const target = toolCalls[fallback.index];
+  if (!target) {
+    return false;
+  }
+  target.extra_content = {
+    google: { thought_signature: fallback.signature },
+  };
+  return true;
+}
+
 /**
  * Gemini 3.x validates the first function call of each step. When none of the
  * serialized tool_calls carry a captured signature, attach the documented dummy
@@ -67,21 +85,7 @@ export function applyGemini3UnsignedToolCallFallback(
   toolCalls: GoogleToolCallExtraContent[],
   model: string,
 ): void {
-  if (!isGemini3Model(model) || toolCalls.length === 0) {
-    return;
-  }
-  if (toolCalls.some((tc) => googleThoughtSignatureFromUnknown(tc))) {
-    return;
-  }
-  const first = toolCalls[0];
-  if (!first) {
-    return;
-  }
-  first.extra_content = {
-    google: {
-      thought_signature: GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE,
-    },
-  };
+  stampUnsignedGoogleThoughtSignature(toolCalls, { model });
 }
 
 function paramsMessages(params: unknown): unknown[] | undefined {
@@ -163,19 +167,9 @@ export function backfillUnsignedGoogleThoughtSignatures(
     if (!toolCalls || toolCalls.length === 0) {
       continue;
     }
-    if (toolCalls.some((tc) => googleThoughtSignatureFromUnknown(tc))) {
-      continue;
+    if (stampUnsignedGoogleThoughtSignature(toolCalls)) {
+      added = true;
     }
-    const first = toolCalls[0];
-    if (!first) {
-      continue;
-    }
-    first.extra_content = {
-      google: {
-        thought_signature: GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE,
-      },
-    };
-    added = true;
   }
   return added;
 }

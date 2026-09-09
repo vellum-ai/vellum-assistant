@@ -15,10 +15,7 @@ import {
   keepFileAsWorkspaceRef,
 } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
-import {
-  GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE,
-  isGemini3Model,
-} from "../gemini-thought-signature.js";
+import { unsignedThoughtSignatureFallback } from "../gemini-thought-signature.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
@@ -900,28 +897,19 @@ export class GeminiProvider implements Provider {
     parts: genai.Part[],
     model: string,
   ): void {
-    if (!isGemini3Model(model)) {
-      return;
-    }
-
     const functionCallParts = parts.filter((part) => part.functionCall);
-    if (functionCallParts.length === 0) {
-      return;
-    }
-
-    const hasRealThoughtSignature = functionCallParts.some((part) =>
-      Boolean(part.thoughtSignature),
+    const fallback = unsignedThoughtSignatureFallback(
+      functionCallParts.map((part) => part.thoughtSignature),
+      { model },
     );
-    if (hasRealThoughtSignature) {
+    if (!fallback) {
       return;
     }
-
-    const firstFunctionCallPart = functionCallParts[0];
+    const firstFunctionCallPart = functionCallParts[fallback.index];
     if (!firstFunctionCallPart) {
       return;
     }
-    firstFunctionCallPart.thoughtSignature =
-      GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE;
+    firstFunctionCallPart.thoughtSignature = fallback.signature;
   }
 
   private supportsGeminiInlineFile(mimeType: string): boolean {

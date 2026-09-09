@@ -694,6 +694,92 @@ function flattenContentPartsToStrings(params: unknown): boolean {
   return flattened;
 }
 
+type OpenAICompatRetryKind =
+  | "reasoning-opt-out"
+  | "thinking-tool-choice"
+  | "missing-reasoning-content"
+  | "unknown-reasoning-field"
+  | "missing-thought-signature"
+  | "unknown-extra-content"
+  | "chat-template";
+
+function classifyOpenAICompatRetry(
+  error: unknown,
+  params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+): { kind: OpenAICompatRetryKind; message: string; apply: () => void } | null {
+  if (isReasoningOptOutRejection(error, params)) {
+    return {
+      kind: "reasoning-opt-out",
+      message:
+        "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+      apply: () => {
+        delete params.reasoning_effort;
+        delete (params as unknown as Record<string, unknown>).reasoning;
+      },
+    };
+  }
+  if (isThinkingModeToolChoiceRejection(error, params)) {
+    return {
+      kind: "thinking-tool-choice",
+      message:
+        "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
+      apply: () => {
+        delete params.tool_choice;
+      },
+    };
+  }
+  if (isMissingReasoningContentRejection(error, params)) {
+    return {
+      kind: "missing-reasoning-content",
+      message:
+        "Upstream requires reasoning_content round-trip; retrying with empty field on assistant messages",
+      apply: () => {
+        backfillEmptyReasoningContent(params);
+      },
+    };
+  }
+  if (isUnknownAssistantReasoningFieldRejection(error, params)) {
+    return {
+      kind: "unknown-reasoning-field",
+      message:
+        "Upstream rejected assistant reasoning field; retrying without it",
+      apply: () => {
+        stripAssistantReasoningFields(params);
+      },
+    };
+  }
+  if (isMissingThoughtSignatureRejection(error, params)) {
+    return {
+      kind: "missing-thought-signature",
+      message:
+        "Upstream requires thought signature round-trip; retrying with dummy signature on unsigned tool_calls",
+      apply: () => {
+        backfillUnsignedGoogleThoughtSignatures(params);
+      },
+    };
+  }
+  if (isUnknownExtraContentRejection(error, params)) {
+    return {
+      kind: "unknown-extra-content",
+      message: "Upstream rejected tool_call extra_content; retrying without it",
+      apply: () => {
+        stripGoogleThoughtSignatures(params);
+      },
+    };
+  }
+  if (isChatTemplateRejection(error, params)) {
+    return {
+      kind: "chat-template",
+      message:
+        "Upstream chat template rejected structured message content; retrying with flattened plain-text content",
+      apply: () => {
+        flattenContentPartsToStrings(params);
+      },
+    };
+  }
+  return null;
+}
+
 /**
  * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
  * config into the OpenAI chat-completions wire format. Callers express
@@ -1062,90 +1148,27 @@ export class OpenAIChatCompletionsProvider implements Provider {
               ? { headers: requestHeaders }
               : {}),
           });
+        const attemptedCompatRetries = new Set<OpenAICompatRetryKind>();
         let stream: Awaited<ReturnType<typeof createStream>>;
-        try {
-          stream = await createStream();
-        } catch (error) {
-          if (isReasoningOptOutRejection(error, params)) {
+        for (;;) {
+          try {
+            stream = await createStream();
+            break;
+          } catch (error) {
+            const retry = classifyOpenAICompatRetry(error, params);
+            if (!retry || attemptedCompatRetries.has(retry.kind)) {
+              throw error;
+            }
+            attemptedCompatRetries.add(retry.kind);
             log.warn(
               {
                 provider: this.name,
                 model: modelOverride ?? this.model,
                 error: error instanceof Error ? error.message : String(error),
               },
-              "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+              retry.message,
             );
-            delete params.reasoning_effort;
-            delete (params as unknown as Record<string, unknown>).reasoning;
-            stream = await createStream();
-          } else if (isThinkingModeToolChoiceRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
-            );
-            delete params.tool_choice;
-            stream = await createStream();
-          } else if (isMissingReasoningContentRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream requires reasoning_content round-trip; retrying with empty field on assistant messages",
-            );
-            backfillEmptyReasoningContent(params);
-            stream = await createStream();
-          } else if (isUnknownAssistantReasoningFieldRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream rejected assistant reasoning field; retrying without it",
-            );
-            stripAssistantReasoningFields(params);
-            stream = await createStream();
-          } else if (isMissingThoughtSignatureRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream requires thought signature round-trip; retrying with dummy signature on unsigned tool_calls",
-            );
-            backfillUnsignedGoogleThoughtSignatures(params);
-            stream = await createStream();
-          } else if (isUnknownExtraContentRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream rejected tool_call extra_content; retrying without it",
-            );
-            stripGoogleThoughtSignatures(params);
-            stream = await createStream();
-          } else if (isChatTemplateRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream chat template rejected structured message content; retrying with flattened plain-text content",
-            );
-            flattenContentPartsToStrings(params);
-            stream = await createStream();
-          } else {
-            throw error;
+            retry.apply();
           }
         }
 

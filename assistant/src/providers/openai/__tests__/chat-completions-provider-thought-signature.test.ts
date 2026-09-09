@@ -551,3 +551,47 @@ describe("unknown extra_content rejection fallback", () => {
     });
   });
 });
+
+describe("stacked openai-compatible fallback retries", () => {
+  test("applies thought-signature backfill then extra_content strip when both 4xx", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [
+        rejection("Invalid thought signature"),
+        rejection(
+          "Additional properties are not allowed ('extra_content' was unexpected)",
+        ),
+      ],
+      OK_CHUNKS,
+    );
+
+    const response = await provider.sendMessage(unsignedToolHistory);
+
+    expect(requests).toHaveLength(3);
+    const first = requests[0] as {
+      messages: Array<{
+        tool_calls?: Array<{ extra_content?: unknown }>;
+      }>;
+    };
+    const second = requests[1] as {
+      messages: Array<{
+        tool_calls?: Array<{ extra_content?: unknown }>;
+      }>;
+    };
+    const third = requests[2] as {
+      messages: Array<{
+        tool_calls?: Array<{ extra_content?: unknown }>;
+      }>;
+    };
+    expect(first.messages[0].tool_calls?.[0].extra_content).toBeUndefined();
+    expect(second.messages[0].tool_calls?.[0].extra_content).toEqual({
+      google: {
+        thought_signature: GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE,
+      },
+    });
+    expect(third.messages[0].tool_calls?.[0].extra_content).toBeUndefined();
+    expect(response.content.find((b) => b.type === "text")).toEqual({
+      type: "text",
+      text: "ok",
+    });
+  });
+});

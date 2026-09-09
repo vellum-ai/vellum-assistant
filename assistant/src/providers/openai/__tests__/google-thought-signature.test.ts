@@ -7,9 +7,9 @@ import {
   attachGoogleThoughtSignature,
   backfillUnsignedGoogleThoughtSignatures,
   googleThoughtSignatureFromUnknown,
+  type GoogleToolCallExtraContent,
   messagesCarryGoogleThoughtSignature,
   stripGoogleThoughtSignatures,
-  type GoogleToolCallExtraContent,
 } from "../google-thought-signature.js";
 
 describe("googleThoughtSignatureFromUnknown", () => {
