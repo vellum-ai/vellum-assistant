@@ -6,6 +6,10 @@ import {
   AVATAR_TRAITS_FILENAME,
   normalizeAvatarAccentHex,
 } from "@vellumai/avatar-manifest";
+import {
+  CLIENT_METADATA_HEADERS,
+  sanitizeClientMetadataValue,
+} from "@vellumai/service-contracts/client-metadata";
 import { z } from "zod";
 
 import { backfillAccent } from "../../avatar/accent-backfill.js";
@@ -17,6 +21,7 @@ import {
   writeManifest,
 } from "../../avatar/avatar-manifest.js";
 import {
+  type AvatarChangeOptions,
   clearAvatar,
   setAccent,
   setCharacter,
@@ -51,6 +56,18 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("avatar-routes");
+
+/** What every mutation hands the store: who made the change, from which OS. */
+function changeOptions(
+  headers: RouteHandlerArgs["headers"],
+): AvatarChangeOptions {
+  return {
+    originClientId: getOriginClientId(headers),
+    clientOs: sanitizeClientMetadataValue(
+      headers?.[CLIENT_METADATA_HEADERS.os],
+    ),
+  };
+}
 
 function handleGetCharacterComponents() {
   return getCharacterComponents();
@@ -117,9 +134,7 @@ async function handleSetAvatarAccent({ body, headers }: RouteHandlerArgs) {
     }
   }
 
-  const state = await setAccent(hex, {
-    originClientId: getOriginClientId(headers),
-  });
+  const state = await setAccent(hex, changeOptions(headers));
   if (!state) {
     throw new BadRequestError("No avatar to set an accent on");
   }
@@ -141,9 +156,7 @@ function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  const result = setCharacter(traits, {
-    originClientId: getOriginClientId(headers),
-  });
+  const result = setCharacter(traits, changeOptions(headers));
 
   if (!result.ok) {
     switch (result.reason) {
@@ -182,7 +195,7 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
   }
 
   await setImage(result.pngBuffer, "ai", {
-    originClientId: getOriginClientId(headers),
+    ...changeOptions(headers),
     imageDescription: description,
   });
   return { ok: true, message: result.content };
@@ -228,9 +241,7 @@ async function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  await setImage(buffer, "upload", {
-    originClientId: getOriginClientId(headers),
-  });
+  await setImage(buffer, "upload", changeOptions(headers));
   return { ok: true };
 }
 
@@ -258,9 +269,7 @@ async function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError(`Image file not found: ${normalized}`);
   }
 
-  await setImage(readFileSync(normalized), "upload", {
-    originClientId: getOriginClientId(headers),
-  });
+  await setImage(readFileSync(normalized), "upload", changeOptions(headers));
   return { ok: true };
 }
 
@@ -277,7 +286,7 @@ function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
   // nothing to revert to — the legacy "re-render character from traits" branch
   // has been removed. avatar/remove is now a plain clear, reachable only via
   // CLI/host.
-  clearAvatar({ originClientId: getOriginClientId(headers) });
+  clearAvatar(changeOptions(headers));
   return { ok: true, hadAvatar };
 }
 
