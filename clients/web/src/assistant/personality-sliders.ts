@@ -12,17 +12,22 @@
  */
 
 import {
+  PERSONALITY_AXIS_IDS,
+  PERSONALITY_SLIDER_DEFAULT,
+  PERSONALITY_SLIDERS_PATH,
+} from "@vellumai/assistant-api";
+
+import {
   workspaceFileGet,
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
-import { PERSONALITY_AXIS_IDS } from "./personality-rewrite";
-
-export const PERSONALITY_SLIDERS_PATH = "data/personality-sliders.json";
-
-/** Sliders start centered — no axis is nudged either way until the user acts. */
-export const PERSONALITY_SLIDER_DEFAULT = 50;
+export {
+  PERSONALITY_AXIS_IDS,
+  PERSONALITY_SLIDER_DEFAULT,
+  PERSONALITY_SLIDERS_PATH,
+} from "@vellumai/assistant-api";
 
 export type PersonalitySliderValues = Record<string, number>;
 

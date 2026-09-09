@@ -19,7 +19,7 @@ function makeConfig(): AssistantConfig {
 }
 
 describe("getVisibleProviderCatalog", () => {
-  test("hides Vellum-hosted GPU models unless developer mode is on", () => {
+  test("hides Vellum-hosted GPU models unless hosted inference is on", () => {
     setOverridesForTesting({});
     const hidden = getVisibleProviderCatalog(makeConfig());
     expect(hidden.find((p) => p.id === "vellum")).toBeUndefined();
@@ -29,7 +29,7 @@ describe("getVisibleProviderCatalog", () => {
         .some((m) => m.id === "qwen/qwen3-8b"),
     ).toBe(false);
 
-    setOverridesForTesting({ "settings-developer-nav": true });
+    setOverridesForTesting({ "vellum-hosted-inference": true });
     const visible = getVisibleProviderCatalog(makeConfig());
     const vellum = visible.find((p) => p.id === "vellum");
     expect(vellum).toBeDefined();

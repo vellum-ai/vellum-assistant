@@ -9,6 +9,8 @@ metadata:
     category: "commerce"
     display-name: "Stripe App Setup"
     user-invocable: true
+    activation-hints:
+      - "the user wants the assistant to read or manage their Stripe merchant account: customers, subscriptions, refunds, invoices, payouts"
 ---
 
 ## Overview

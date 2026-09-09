@@ -31,18 +31,46 @@ Marks are drawn on the frame around the surface the user is sharing with the
 call. With nothing shared there is nowhere to draw, and `screen_point_at`
 fails saying so. Ask them to share their screen from the call, then point.
 
-## Coordinates
+## Say what to point at
+
+**Name the thing.** `{"target": "color balance", "caption": "Click this"}`.
+The name is looked up on the surface itself, which knows where its controls
+actually are, so the ring lands on the thing rather than near it.
+
+**The label, not a description of it.** What is matched is the control's own
+name. Casing, spacing and punctuation are forgiven, so `Color Balance` finds
+`color balance`; nothing beyond that is, so "the stabilization button" finds
+nothing, because no control is called that. Give the label on its own:
+`stabilization`, `Send`, `Search`.
+
+You are answered with what was drawn and the name it resolved to, which is not
+always the name you asked for. Say the resolved one out loud: it is the word
+the user can see.
+
+A name the surface does not carry draws nothing and comes back with the names
+it does carry. That is the answer, not a setback: the thing is nearly always
+one of those, so read the list and point again. Do not fall back to guessing
+coordinates for something that simply is not there. What the user calls
+something and what the surface calls it often differ, which is what the list
+is for: they may say "white balance" where the control reads `color balance`,
+or "the stabilization button" where it reads `stabilization`.
+
+## Coordinates, for what has no name
+
+Only for something the surface cannot name: a region of an image, a spot on a
+canvas, a control a plugin draws itself. You will know, because naming it
+comes back saying so.
 
 Fractions of the shared surface, `0` to `1`, measured against **the picture of
 that surface you were last shown**. `x` and `y` are the top-left corner,
-`width` and `height` the size.
+`width` and `height` the size. Give the bounds of the thing itself: the ring is
+drawn around them, so a box tight on a button reads as a ring around that
+button, and a box drawn where you think the ring should go puts the ring
+outside that instead.
 
-Give the bounds of the thing itself. The ring is drawn around them, so a box
-tight on a button reads as a ring around that button; a box drawn where you
-think the ring should go puts the ring outside that instead.
-
-Your picture is only as fresh as the last frame you were sent. If the user has
-scrolled or moved a window since, say what you are pointing at as well as
+These are a guess measured off a picture that has been scaled on its way to
+you, and they are only as fresh as the last frame you were sent. If the user
+has scrolled or moved a window since, say what you are pointing at as well as
 drawing it, so a mark that has drifted is still recoverable in words.
 
 Moving the share is the one kind of drift that is caught for you. A mark

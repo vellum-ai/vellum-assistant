@@ -37,6 +37,8 @@ import type {
   DictationOverlayState,
   DictationPartialEvent,
   DictationOfferAnswer,
+  ChordBinding,
+  ChordRegistrationResult,
   DictationPartialsResult,
   DictationTranscribeResult,
   DownloadDoneEvent,
@@ -183,6 +185,7 @@ declare global {
           setModifierHold?(
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
+          setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
           readFrontSelection?(): Promise<HotkeySelection | null>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
@@ -406,6 +409,7 @@ declare global {
         listCaptureSources?(): Promise<CompanionCaptureSources>;
         setScreenShare?(pick?: CompanionCapturePick): void;
         setAnnotating?(annotating: boolean): void;
+        toggleAnnotating?(): void;
         annotateShare?(
           phase: CompanionAnnotationPhase,
           strokes: readonly CompanionAnnotationStroke[],

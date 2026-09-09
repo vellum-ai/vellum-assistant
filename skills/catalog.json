@@ -715,7 +715,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T18:19:51.000Z"
+      "updatedAt": "2026-09-08T18:39:32.000Z"
     },
     {
       "id": "outlook-calendar",
@@ -765,7 +765,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T18:19:51.000Z"
+      "updatedAt": "2026-09-08T18:29:56.000Z"
     },
     {
       "id": "public-ingress",
@@ -943,26 +943,34 @@
         "vellum": {
           "category": "commerce",
           "display-name": "Stripe App Setup",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "the user wants the assistant to read or manage their Stripe merchant account: customers, subscriptions, refunds, invoices, payouts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-28T21:17:09.000Z"
+      "updatedAt": "2026-09-08T19:30:15.000Z"
     },
     {
       "id": "stripe-link-wallet",
       "name": "stripe-link-wallet",
-      "description": "Use the Stripe Link CLI as an agent wallet to create spend requests, generate one-time-use payment credentials, and complete 402 / Machine Payment Protocol (MPP) payment flows on the user's behalf. Triggers on intents like \"buy\", \"purchase\", \"pay for\", \"spend up to <amount>\", \"complete this 402\", or any flow involving link-cli, spend-request, mpp pay, shared payment tokens, or @stripe/link-sdk. Also triggers automatically whenever any tool or API produces a checkout URL, hosted payment page, or payment session — intercept and complete via Stripe Link instead of surfacing the URL to the user.",
+      "description": "Agent wallet on the Stripe Link CLI (link-cli). Connect the wallet, then buy, purchase and pay for things on the user's behalf via approved spend requests, one-time-use cards, and 402 / Machine Payment Protocol (MPP) payments",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "💳",
         "vellum": {
           "category": "commerce",
-          "display-name": "Stripe Link Wallet"
+          "display-name": "Stripe Link Wallet",
+          "activation-hints": [
+            "the user wants to set up, connect, or log in to Stripe Link",
+            "the user asks to buy, purchase, pay for, or spend up to an amount",
+            "a tool returns a checkout URL or payment session"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T20:01:47.000Z"
+      "updatedAt": "2026-09-08T19:30:15.000Z"
     },
     {
       "id": "telegram-setup",
@@ -1047,7 +1055,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T20:33:02.000Z"
+      "updatedAt": "2026-09-08T14:23:25.000Z"
     },
     {
       "id": "vellum-client-capabilities",
@@ -1060,7 +1068,9 @@
           "display-name": "Vellum Client Capabilities",
           "activation-hints": [
             "asked to use the user's current location, GPS, or device position",
-            "whether the app can access a device sensor, permission, or hardware feature"
+            "whether the app can access a device sensor, permission, or hardware feature",
+            "browsing failed, timed out, or could not reach a page that needs a login",
+            "whether to install the desktop app or Chrome extension"
           ],
           "avoid-when": [
             "the user already gave a location as text (just use it)"
@@ -1068,7 +1078,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-08-27T13:36:21.000Z"
+      "updatedAt": "2026-09-08T14:23:25.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1119,7 +1129,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-21T15:06:32.000Z"
+      "updatedAt": "2026-09-08T13:22:55.000Z"
     },
     {
       "id": "vellum-memory-v2-migration",
@@ -1196,7 +1206,7 @@
             "its current config or settings",
             "what it can do or which skills/tools exist",
             "whether a service is connected, and in which sense",
-            "its credit balance, plan, spend, or daily limit",
+            "its credits, plan allowance, spend, or daily limit",
             "how to self-host or use your own model API key"
           ],
           "avoid-when": [
@@ -1205,7 +1215,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-03T18:19:51.000Z"
+      "updatedAt": "2026-09-03T14:44:21.000Z"
     },
     {
       "id": "vellum-skills-catalog",

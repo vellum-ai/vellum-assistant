@@ -134,9 +134,6 @@
   "stepIndicator": {
     "ariaLabel": "第 {current} 步，共 {total} 步"
   },
-  "googleCalendar": {
-    "authorizationFailed": "無法啟動 Google 日曆授權。"
-  },
   "introductionScreen": {
     "greetingNamed": "嗨，{name}！",
     "greeting": "嗨！",

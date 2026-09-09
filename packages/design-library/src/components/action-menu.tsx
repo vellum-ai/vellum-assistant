@@ -1,4 +1,4 @@
-import { type LucideIcon } from "lucide-react";
+import { X, type LucideIcon } from "lucide-react";
 import {
   createContext,
   useCallback,
@@ -173,6 +173,13 @@ interface ActionMenuContentProps {
   title: string;
   /** Render {@link title} as a visible heading. Sheets only. */
   showTitle?: boolean;
+  /**
+   * Accessible name for the sheet's close button, which is drawn beside a
+   * visible title. Defaults to the untranslated "Close": fine for surfaces
+   * outside a locale catalog, but a caller whose path enforces translated copy
+   * passes its own `t()`'d string.
+   */
+  closeLabel?: string;
   children: ReactNode;
   className?: string;
   /** Anchored positioning. Ignored by the sheet, which spans the bottom edge. */
@@ -184,6 +191,7 @@ interface ActionMenuContentProps {
 function Content({
   title,
   showTitle = false,
+  closeLabel = "Close",
   children,
   className,
   side,
@@ -194,11 +202,39 @@ function Content({
 
   if (presentation === "sheet") {
     return (
-      <BottomSheet.Content aria-describedby={undefined} className={className}>
-        <BottomSheet.Header className={showTitle ? undefined : "sr-only"}>
-          <BottomSheet.Title>{title}</BottomSheet.Title>
-        </BottomSheet.Header>
-        <BottomSheet.Body className={showTitle ? undefined : "pt-0"}>
+      /* `padded={false}`: the bands carry different insets, the header sitting
+         tighter to the grabber than the rows sit to each other, which one
+         uniform padding cannot express. An unpadded sheet owns its own
+         safe-area allowance, hence the bottom padding here. */
+      <BottomSheet.Content
+        aria-describedby={undefined}
+        padded={false}
+        className={cn(
+          "pt-2 pb-[calc(24px+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))]",
+          className,
+        )}
+      >
+        <BottomSheet.Grabber />
+        {showTitle ? (
+          <BottomSheet.Header className="flex-row items-center justify-between px-4 pt-3 pb-2">
+            <BottomSheet.Title className="text-body-large-default text-[var(--content-tertiary)]">
+              {title}
+            </BottomSheet.Title>
+            {/* `-m-2 p-2` grows the tap target to 32px without moving the
+                glyph or changing the header's height. */}
+            <BottomSheet.Close
+              aria-label={closeLabel}
+              className="-m-2 flex shrink-0 items-center justify-center p-2 text-[var(--content-tertiary)] outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]"
+            >
+              <X size={16} aria-hidden />
+            </BottomSheet.Close>
+          </BottomSheet.Header>
+        ) : (
+          <BottomSheet.Header className="sr-only">
+            <BottomSheet.Title>{title}</BottomSheet.Title>
+          </BottomSheet.Header>
+        )}
+        <BottomSheet.Body className="px-4 pt-3 [--panel-item-gap:12px]">
           {children}
         </BottomSheet.Body>
       </BottomSheet.Content>
@@ -272,6 +308,33 @@ export const actionMenuDestructiveClasses: Record<
     "text-[var(--system-negative-strong)] [--panel-item-icon-fg:var(--system-negative-strong)]",
 };
 
+/**
+ * The circular ground a sheet row's glyph sits on.
+ *
+ * Sheet rows are thumb targets, and the chip is what makes one: it sizes the
+ * row, so the row's own vertical padding becomes the gap between rows and each
+ * target stays comfortably larger than the 16px glyph inside it. Anchored menu
+ * rows keep the bare glyph, where the pointer needs no such target and the
+ * chips would crowd a dropdown.
+ *
+ * The glyph reads its colour from `--panel-item-icon-fg`, which is how a
+ * destructive row moves its label and its icon together.
+ */
+function ActionChip({ Icon }: { Icon: LucideIcon }) {
+  return (
+    <span
+      aria-hidden
+      data-slot="action-menu-chip"
+      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--border-hover)]"
+    >
+      <Icon
+        size={16}
+        className="text-[color:var(--panel-item-icon-fg,var(--content-secondary))]"
+      />
+    </span>
+  );
+}
+
 function Item({
   icon: Icon,
   label,
@@ -289,7 +352,7 @@ function Item({
   if (presentation === "sheet") {
     return (
       <PanelItem
-        icon={Icon}
+        leadingSlot={Icon ? <ActionChip Icon={Icon} /> : undefined}
         label={
           description ? (
             <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
@@ -307,6 +370,11 @@ function Item({
         aria-label={typeof label === "string" ? label : undefined}
         disabled={disabled}
         className={cn(
+          // The chip is the row's height, so the row's padding is the gap
+          // between rows: 8px here reads as the 16px rhythm the sheets share,
+          // while leaving a 56px target. The body already insets the column,
+          // hence no horizontal padding of its own.
+          "px-0 py-2 max-md:py-2",
           isDestructive && actionMenuDestructiveClasses.sheet,
           className,
         )}

@@ -134,9 +134,6 @@
   "stepIndicator": {
     "ariaLabel": "Шаг {current} из {total}"
   },
-  "googleCalendar": {
-    "authorizationFailed": "Не удалось начать авторизацию Google Calendar."
-  },
   "introductionScreen": {
     "greetingNamed": "Привет, {name}!",
     "greeting": "Привет!",

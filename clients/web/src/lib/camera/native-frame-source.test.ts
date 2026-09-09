@@ -939,10 +939,10 @@ describe("native frame source motion pairing", () => {
   function panTuning() {
     return {
       ...DEFAULT_FRAME_GATE_OPTIONS,
-      // A camera that just opened, and a rate floor that has already elapsed.
-      // Both would otherwise reject before the settle check is reached.
+      // A camera that just opened, and no dwell to wait out. Both would
+      // otherwise reject before the settle check is reached.
       warmupMs: 0,
-      minIntervalMs: 0,
+      settleDwellMs: 0,
     };
   }
 
@@ -1095,7 +1095,7 @@ describe("native frame source pair timing", () => {
     return {
       ...DEFAULT_FRAME_GATE_OPTIONS,
       warmupMs: 0,
-      minIntervalMs: 0,
+      settleDwellMs: 0,
     };
   }
 
@@ -1751,6 +1751,11 @@ describe("native frame source out-of-cycle sample", () => {
     const gate = createFrameGate({
       ...DEFAULT_FRAME_GATE_OPTIONS,
       warmupMs: 0,
+      settleDwellMs: 0,
+      // Every stub sample is the same picture, and what is under test is the
+      // arm's time bound rather than its novelty bar: with the bar at zero a
+      // fresh frame spends the arm whatever it shows.
+      forcedNoveltyThreshold: 0,
     });
     gate.reset(0);
     const decisions: FrameGateDecision[] = [];
@@ -1802,6 +1807,9 @@ describe("native frame source out-of-cycle sample", () => {
     const gate = createFrameGate({
       ...DEFAULT_FRAME_GATE_OPTIONS,
       warmupMs: 0,
+      settleDwellMs: 0,
+      // As above: the time bound is the subject, not the novelty bar.
+      forcedNoveltyThreshold: 0,
     });
     gate.reset(0);
     const decisions: FrameGateDecision[] = [];

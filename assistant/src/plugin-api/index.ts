@@ -164,7 +164,8 @@ export { publishEvent } from "./publish-event.js";
 // model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
 // as a model id first and then as a profile key. Profile resolution merges over
 // the workspace default and infers the provider for model-only profiles, then
-// looks up the model catalog's `supportsVision` flag (mix profiles are
+// looks up the model catalog's `supportsVision` flag, with a profile
+// `inputModalities.image` override winning when set (mix profiles are
 // vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
 // Resolve a stored credential to its plaintext value — the same value
