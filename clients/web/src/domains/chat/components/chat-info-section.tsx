@@ -67,11 +67,8 @@ export function ChatInfoSection<T>({
   const titleId = useId();
   const { ref, size } = useElementSize();
   const isMobile = useIsMobile();
-  // The strip runs through the body's right inset, so that width counts too.
-  const fit = fitTileCount(
-    isMobile ? size.w + DETAIL_SHELL_BODY_INSET_PX : size.w,
-    tileWidth,
-  );
+  // The strip's bleed is padding, not extra room, so one fit serves both layouts.
+  const fit = fitTileCount(size.w, tileWidth);
   const showSeeAll = count > fit;
 
   return (

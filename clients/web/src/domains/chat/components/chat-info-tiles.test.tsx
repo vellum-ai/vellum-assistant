@@ -23,6 +23,7 @@ import type { ReactElement } from "react";
 
 import {
   CHAT_INFO_OBJECT_URL,
+  CHAT_INFO_TEST_LOCALE,
   chatInfoAppHtmlCacheMock,
   installChatInfoDomStubs,
   makeAppSummary,
@@ -36,7 +37,7 @@ import {
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 
-installChatInfoDomStubs();
+const restoreDomStubs = installChatInfoDomStubs();
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.
 mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
@@ -108,6 +109,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  restoreDomStubs();
   mock.restore();
 });
 
@@ -292,9 +294,6 @@ describe("ChatInfoFileTile attachments", () => {
 });
 
 describe("ChatInfoFileTile camera frames", () => {
-  // The suite pins i18next to English, which is the locale the tile formats in.
-  const LOCALE = "en";
-
   function frameAsset(capturedAt: number): ConversationFileAsset {
     return makeFrameAsset(
       makeDisplayAttachment({
@@ -321,7 +320,7 @@ describe("ChatInfoFileTile camera frames", () => {
 
     expect(screen.getByLabelText("Preview camera frame")).toBeDefined();
     expect(
-      screen.getByText(formatCaptureTime(capturedAt, LOCALE)),
+      screen.getByText(formatCaptureTime(capturedAt, CHAT_INFO_TEST_LOCALE)),
     ).toBeDefined();
   });
 
@@ -336,7 +335,7 @@ describe("ChatInfoFileTile camera frames", () => {
     );
 
     expect(
-      screen.getByText(formatCaptureTime(capturedAt, LOCALE)),
+      screen.getByText(formatCaptureTime(capturedAt, CHAT_INFO_TEST_LOCALE)),
     ).toBeDefined();
     expect(screen.getByText(/2001/)).toBeDefined();
   });

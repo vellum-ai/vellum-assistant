@@ -171,24 +171,18 @@ describe("ChatInfoSection", () => {
     expect(seeAll()).not.toBeNull();
   });
 
-  test("counts the strip's reclaimed right inset toward the narrow-window fit", () => {
-    // The strip shows the column plus the inset it reclaims on the right.
+  test("offers See All for two app tiles on the narrowest phone", () => {
+    // Two app tiles and their gap are wider than the column, so the pair
+    // scrolls and the drill-in is the only way to the second one.
     viewport.set({ narrow: true, coarsePointer: false });
     widthRef.value = NARROW_COLUMN_WIDTH;
 
-    const fitted = renderSection({
+    renderSection({
       items: makeItems(2),
       count: 2,
       tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
     });
-    expect(seeAll()).toBeNull();
-    fitted.unmount();
 
-    renderSection({
-      items: makeItems(3),
-      count: 3,
-      tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
-    });
     expect(seeAll()).not.toBeNull();
   });
 
