@@ -33,8 +33,8 @@ export function SkillsReferenceACPContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            The protocol adapter is installed automatically and kept at the version your Assistant
-            pins. For Claude Code that is everything: sign-in runs through an in-app Connect card,
+            The protocol adapter is installed automatically at the version your Assistant pins.
+            For Claude Code that is everything: sign-in runs through an in-app Connect card,
             so there is nothing to install yourself. The Codex adapter,
             @agentclientprotocol/codex-acp, includes Codex and reuses your existing Codex login. Say
             &ldquo;Set up ACP&rdquo; to walk through authentication. Naming Claude Code or Codex is
@@ -92,6 +92,14 @@ export function SkillsReferenceACPContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
+                    &ldquo;Always run Claude Code on opus&rdquo;
+                  </td>
+                  <td className="px-3 py-2">
+                    Saves the default model for new Claude Code sessions
+                  </td>
+                </tr>
+                <tr>
+                  <td className="px-3 py-2">
                     &ldquo;Check on my coding agent&rdquo;
                   </td>
                   <td className="px-3 py-2">Gets agent status</td>
@@ -146,9 +154,12 @@ export function SkillsReferenceACPContent() {
             </li>
             <li>
               <strong>Ask for a model.</strong> Say which model a coding-agent session should run on,
-              for example &ldquo;use opus&rdquo;, and that choice is remembered for the rest of the
-              conversation with that agent. Set <code>acp.defaultModel</code> in your Assistant
-              config to choose the default for all sessions.
+              for example &ldquo;use opus&rdquo;, and it starts there. &ldquo;Always use opus for
+              Claude Code&rdquo; saves that as the standing default for new sessions, and
+              &ldquo;switch this to sonnet&rdquo; moves a session that is already running onto
+              another model from its next turn. Standing defaults live in your Assistant config as{" "}
+              <code>acp.defaultModel</code>, or <code>acp.agents.&lt;id&gt;.model</code> for a single
+              agent.
             </li>
           </ul>
         </section>

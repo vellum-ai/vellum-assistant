@@ -165,18 +165,44 @@ export function lookupAcpAgentConfig(id: string): AcpAgentConfig | undefined {
   return lookupAgent(getConfig().acp.agents, id)?.agent;
 }
 
+/**
+ * The canonical config key for an agent id, plus the command the agent would
+ * run, resolved through the same aliases a spawn accepts. Config-only, unlike
+ * `resolveAcpAgent`: the binary is never consulted, so a caller that only
+ * writes settings for an agent (`acp_set_default_model`) works before the
+ * adapter is installed.
+ */
+export function resolveAcpAgentId(
+  id: string,
+):
+  | { ok: true; id: string; command: string }
+  | Extract<ResolveAcpAgentFailure, { reason: "unknown_agent" }> {
+  const userAgents = getConfig().acp.agents;
+  const found = lookupAgent(userAgents, id);
+  if (!found) {
+    return {
+      ok: false,
+      reason: "unknown_agent",
+      available: mergedAgentIds(userAgents),
+    };
+  }
+  return { ok: true, id: found.id, command: found.agent.command };
+}
+
 function lookupAgent(
   userAgents: Record<string, AcpAgentConfig>,
   id: string,
-): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
+): { agent: AcpAgentConfig; source: AcpAgentSource; id: string } | undefined {
   const direct = directLookup(userAgents, id);
   if (direct) {
-    return direct;
+    return { ...direct, id };
   }
   const canonicalId = AGENT_ID_ALIASES[normalizeAgentId(id)];
-  return canonicalId !== undefined
-    ? directLookup(userAgents, canonicalId)
-    : undefined;
+  if (canonicalId === undefined) {
+    return undefined;
+  }
+  const aliased = directLookup(userAgents, canonicalId);
+  return aliased ? { ...aliased, id: canonicalId } : undefined;
 }
 
 function directLookup(

@@ -23,7 +23,7 @@
           },
           "model": {
             "type": "string",
-            "description": "Optional model id or alias for the agent to use (e.g. 'opus' for Claude). Defaults to the configured default model. Pass this ONLY when the user asked for a specific model: a choice made here is persisted as the conversation's model preference."
+            "description": "Optional model id or alias for the agent to use (e.g. 'opus' for Claude), passed ONLY when the user asked for a specific model. Otherwise the session starts on the configured default (`acp.agents.<id>.model`, then `acp.defaultModel`) or the agent's own. If the agent refuses the value, or advertises no model selector, the result says so and the session runs on its own model."
           }
         },
         "required": ["task"]
@@ -87,6 +87,50 @@
         "required": ["acp_session_id", "instruction"]
       },
       "executor": "tools/acp-steer.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "acp_set_model",
+      "description": "Switch a running ACP session onto a different model. The agent applies it from the next turn, so a prompt already in flight finishes on the model it started on. Use this when the user asks to change a session that is already going (\"switch this to opus\"); to change what future sessions start on, use `acp_set_default_model`. When the agent advertises no model selector, or refuses the value, the result says so: relay it in one sentence and carry on.",
+      "category": "orchestration",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "acp_session_id": {
+            "type": "string",
+            "description": "The ID of the ACP session to switch."
+          },
+          "model": {
+            "type": "string",
+            "description": "The model the session should run on: an adapter alias such as 'default', 'sonnet', 'opus', 'haiku', or 'opusplan' for Claude, or a full model id. The agent resolves it."
+          }
+        },
+        "required": ["acp_session_id", "model"]
+      },
+      "executor": "tools/acp-set-model.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "acp_set_default_model",
+      "description": "Set the model new coding-agent sessions start on, saved in the assistant's config. Use it when the user says \"from now on\" or \"always\" (\"always run Claude Code on opus\"). With `agent`, this sets that agent's own default (`acp.agents.<id>.model`); without one, the default for every agent (`acp.defaultModel`). Pass `model: null` to clear the setting. Sessions already running are unaffected: switch one with `acp_set_model`.",
+      "category": "system",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": ["string", "null"],
+            "description": "The model new sessions start on: an adapter alias such as 'default', 'sonnet', 'opus', 'haiku', or 'opusplan' for Claude, or a full model id. The agent resolves it. Pass null to clear the setting."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Optional agent id to scope the default to (e.g. 'claude', 'codex'). Natural names like 'claude code' resolve too. Omit to set the default for every agent."
+          }
+        },
+        "required": ["model"]
+      },
+      "executor": "tools/acp-set-default-model.ts",
       "execution_target": "host"
     },
     {
