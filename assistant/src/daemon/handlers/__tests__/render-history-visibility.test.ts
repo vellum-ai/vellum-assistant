@@ -10,6 +10,9 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import * as featureFlags from "../../../config/assistant-feature-flags.js";
+import { mergeConsecutiveAssistantMessages } from "../../../conversations/message-consolidation.js";
+import type { MessageRow } from "../../../persistence/conversation-crud.js";
+import type { ContentBlock } from "../../../providers/types.js";
 import { renderHistoryContent } from "../shared.js";
 
 let flagSpy: ReturnType<typeof spyOn> | undefined;
@@ -92,5 +95,51 @@ describe("renderHistoryContent user-facing projection", () => {
       undefined,
     );
     expect(unmarkedOff.text).toBe("The user wants their calendar.");
+  });
+});
+
+function assistantRow(
+  id: string,
+  content: unknown[],
+  metadata: string,
+): MessageRow {
+  return {
+    id,
+    conversationId: "conv-1",
+    role: "assistant",
+    content: content as ContentBlock[],
+    createdAt: Date.now(),
+    displayOrder: 0,
+    seen: 1,
+    metadata,
+    clientMessageId: null,
+    finalized: 1,
+  } as MessageRow;
+}
+
+describe("history reload across a visibility change", () => {
+  test("a private row and the fallback row after it both keep their answer", () => {
+    setFlag(true);
+    // The shape a tool-gated turn writes when the model narrates progress
+    // through the tool and then ends a later turn on raw text.
+    const rows = [
+      assistantRow("private", CONTENT, PRIVATE),
+      assistantRow(
+        "fallback",
+        [{ type: "text", text: "Two meetings today." }],
+        VISIBLE,
+      ),
+    ];
+
+    const { messages } = mergeConsecutiveAssistantMessages(rows);
+    expect(messages).toHaveLength(2);
+
+    const rendered = messages.map((m) =>
+      renderHistoryContent(m.content, undefined, m.id, m.metadata),
+    );
+    expect(rendered.map((r) => r.text)).toEqual([
+      "You have two meetings today.",
+      "Two meetings today.",
+    ]);
   });
 });
