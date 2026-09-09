@@ -70,7 +70,8 @@ import {
 } from "@/utils/activation-telemetry";
 import { extractErrorMessage } from "@/utils/api-errors";
 
-import { readRawActivationTask } from "../catalog";
+import { readActivationAssistantName } from "../activation-assistant-name";
+import { resolveActivationTask } from "../catalog";
 
 import {
   activationProgressQueryKey,
@@ -322,8 +323,13 @@ export function useLaunchActivationTask(
       const override = promptOverride?.trim();
       // Read at click time rather than from a resolved list: the catalog is
       // data and this is an event handler, so the non-reactive binding is the
-      // right one (see `@/i18n`).
-      const task = readRawActivationTask(taskId);
+      // right one (see `@/i18n`). The name is snapshotted here too, so a
+      // switch mid-launch cannot retitle the thread.
+      const task = resolveActivationTask(
+        taskId,
+        undefined,
+        readActivationAssistantName(assistantId) ?? undefined,
+      );
       const prompt = override || task?.prompt;
       if (!prompt) {
         return { ok: false, error: t("launch.unknownTask") };

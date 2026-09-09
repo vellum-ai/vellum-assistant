@@ -25,6 +25,12 @@ const { starters, items } = getActivationList("smb");
 const TASK = starters[0]!;
 const LINKED_TASK = items.find((task) => task.id === "try-computer-use")!;
 
+function openCustom(utils: {
+  getByRole: (role: string, options: { name: string }) => HTMLElement;
+}): void {
+  fireEvent.click(utils.getByRole("button", { name: "Write your own" }));
+}
+
 afterEach(() => {
   cleanup();
 });
@@ -58,54 +64,76 @@ describe("ActivationTaskRow", () => {
     expect(launched).toEqual([undefined]);
   });
 
+  test("an expanded todo shows the chip and hides Custom until asked", () => {
+    const { getByRole, getByText, queryByLabelText, queryByRole } = render(
+      <ActivationTaskRow task={TASK} expanded />,
+    );
+    expect(getByText(TASK.chip)).not.toBeNull();
+    expect(getByRole("button", { name: "Write your own" })).not.toBeNull();
+    expect(queryByLabelText("Custom:")).toBeNull();
+    expect(queryByRole("button", { name: "Send" })).toBeNull();
+  });
+
   test("the Custom field launches with what was typed", () => {
     const launched: (string | undefined)[] = [];
-    const { getByRole, getByLabelText } = render(
+    const view = render(
       <ActivationTaskRow
         task={TASK}
         expanded
         onLaunch={(override) => launched.push(override)}
       />,
     );
-    const field = getByLabelText("Custom:") as HTMLInputElement;
+    openCustom(view);
+    const field = view.getByLabelText("Custom:") as HTMLInputElement;
     fireEvent.change(field, { target: { value: "  quote for Acme  " } });
-    fireEvent.click(getByRole("button", { name: "Send" }));
+    fireEvent.click(view.getByRole("button", { name: "Send" }));
     expect(launched).toEqual(["quote for Acme"]);
   });
 
   test("Enter in the Custom field submits it", () => {
     const launched: (string | undefined)[] = [];
-    const { getByLabelText } = render(
+    const view = render(
       <ActivationTaskRow
         task={TASK}
         expanded
         onLaunch={(override) => launched.push(override)}
       />,
     );
-    const field = getByLabelText("Custom:");
+    openCustom(view);
+    const field = view.getByLabelText("Custom:");
     fireEvent.change(field, { target: { value: "quote for Acme" } });
     fireEvent.keyDown(field, { key: "Enter" });
     expect(launched).toEqual(["quote for Acme"]);
   });
 
   test("the send button stays disabled until something is typed", () => {
-    const { getByRole, getByLabelText } = render(
-      <ActivationTaskRow task={TASK} expanded />,
-    );
-    const send = getByRole("button", { name: "Send" }) as HTMLButtonElement;
+    const view = render(<ActivationTaskRow task={TASK} expanded />);
+    openCustom(view);
+    const send = view.getByRole("button", { name: "Send" }) as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-    fireEvent.change(getByLabelText("Custom:"), { target: { value: "x" } });
+    fireEvent.change(view.getByLabelText("Custom:"), { target: { value: "x" } });
     expect(send.disabled).toBe(false);
   });
 
   test("whitespace alone does not enable the send button", () => {
-    const { getByRole, getByLabelText } = render(
-      <ActivationTaskRow task={TASK} expanded />,
-    );
-    fireEvent.change(getByLabelText("Custom:"), { target: { value: "   " } });
+    const view = render(<ActivationTaskRow task={TASK} expanded />);
+    openCustom(view);
+    fireEvent.change(view.getByLabelText("Custom:"), { target: { value: "   " } });
     expect(
-      (getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled,
+      (view.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  test("collapsing the row hides Custom again", () => {
+    const view = render(<ActivationTaskRow task={TASK} expanded />);
+    openCustom(view);
+    fireEvent.change(view.getByLabelText("Custom:"), {
+      target: { value: "quote for Acme" },
+    });
+    view.rerender(<ActivationTaskRow task={TASK} expanded={false} />);
+    view.rerender(<ActivationTaskRow task={TASK} expanded />);
+    expect(view.getByRole("button", { name: "Write your own" })).not.toBeNull();
+    expect(view.queryByLabelText("Custom:")).toBeNull();
   });
 
   test("a working row shows its step count and cannot be opened", () => {
@@ -231,15 +259,17 @@ describe("ActivationTaskRow", () => {
   });
 
   test("a pending row locks its own controls", () => {
-    const { getByRole } = render(
+    const { getByRole, queryByLabelText } = render(
       <ActivationTaskRow task={TASK} expanded pending onLaunch={() => {}} />,
     );
     expect(
       (getByRole("button", { name: TASK.chip }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(
-      (getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled,
+      (getByRole("button", { name: "Write your own" }) as HTMLButtonElement)
+        .disabled,
     ).toBe(true);
+    expect(queryByLabelText("Custom:")).toBeNull();
   });
 
   test("the desktop app drops the call to action: it already is the download", async () => {
@@ -309,10 +339,11 @@ describe("ActivationTaskRow on the list surface", () => {
   });
 
   test("neither the chip nor the Custom field belongs here", () => {
-    const { queryByLabelText, queryByText } = render(
+    const { queryByLabelText, queryByRole, queryByText } = render(
       <ActivationTaskRow task={TASK} surface="list" expanded />,
     );
     expect(queryByLabelText("Custom:")).toBeNull();
+    expect(queryByRole("button", { name: "Write your own" })).toBeNull();
     expect(queryByText(TASK.chip)).toBeNull();
   });
 });

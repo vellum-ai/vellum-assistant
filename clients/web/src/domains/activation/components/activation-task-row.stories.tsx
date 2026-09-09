@@ -60,7 +60,7 @@ type Story = StoryObj<typeof ActivationTaskRow>;
 /** An untouched task, closed. Clicking the row opens it. */
 export const TodoCollapsed: Story = {};
 
-/** The same task open: the suggested chip, then a field for anything else. */
+/** The same task open: the suggested chip, then a quiet Write your own control. */
 export const TodoExpanded: Story = {
   args: { expanded: true },
 };

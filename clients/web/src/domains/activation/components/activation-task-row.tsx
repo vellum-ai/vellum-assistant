@@ -24,7 +24,7 @@
  * without either owning the other's wiring.
  */
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ArrowUp } from "lucide-react";
 
 import {
@@ -57,7 +57,8 @@ import { ActivationTaskIcon } from "./activation-task-icon";
  * Which surface the row draws for.
  *
  * `modal` is the checklist's accordion: a click on an unstarted row opens a
- * body holding the task's chip and a field for a prompt of the user's own.
+ * body holding the task's chip. A quieter control reveals a field for a
+ * prompt of the user's own.
  *
  * `list` is the Inspiration List, which has no accordion. A click launches the
  * task outright, the call to action shows without being asked for, and a
@@ -111,6 +112,7 @@ export function ActivationTaskRow({
 }: ActivationTaskRowProps): ReactNode {
   const { t } = useTranslation("activation");
   const [custom, setCustom] = useState("");
+  const [customOpen, setCustomOpen] = useState(false);
   const list = surface === "list";
   const status = activationRowStatus(progress);
   const done = status === "done";
@@ -121,6 +123,13 @@ export function ActivationTaskRow({
   // presenting itself as something to click.
   const conversationId = progress?.conversationId || undefined;
   const customId = `activation-custom-${task.id}`;
+
+  useEffect(() => {
+    if (!expanded) {
+      setCustomOpen(false);
+      setCustom("");
+    }
+  }, [expanded]);
 
   // A count of zero is a turn that called no tools, which the pill has nothing
   // to report, so the state stands on its own rather than reading "0 steps".
@@ -214,44 +223,56 @@ export function ActivationTaskRow({
           onSelect={() => onLaunch?.()}
           className="bg-[var(--feed-digest-weak)] [--vbtn-fg:var(--feed-digest-strong)]"
         />
-        <div className="flex w-full flex-col gap-1">
-          <Typography
-            as="label"
-            variant="label-medium-default"
-            htmlFor={customId}
-            className="text-[var(--content-secondary)]"
-          >
-            {t("row.customLabel")}
-          </Typography>
-          <div className="relative flex w-full items-center">
-            <Input
-              id={customId}
-              fullWidth
-              value={custom}
-              placeholder={t("row.customPlaceholder")}
-              disabled={pending}
-              onChange={(event) => setCustom(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  submitCustom();
-                }
-              }}
-              className="pr-11"
-            />
-            {/* Floats over the field's right edge, as in the mock: the field
-                runs full width underneath it. */}
-            <Button
-              variant="primary"
-              size="compact"
-              iconOnly={<ArrowUp />}
-              aria-label={t("row.send")}
-              disabled={pending || custom.trim().length === 0}
-              onClick={submitCustom}
-              className="absolute right-1.5 h-7 w-7 rounded-[7px]"
-            />
+        {customOpen ? (
+          <div className="flex w-full flex-col gap-1">
+            <Typography
+              as="label"
+              variant="label-medium-default"
+              htmlFor={customId}
+              className="text-[var(--content-secondary)]"
+            >
+              {t("row.customLabel")}
+            </Typography>
+            <div className="relative flex w-full items-center">
+              <Input
+                id={customId}
+                fullWidth
+                autoFocus
+                value={custom}
+                placeholder={t("row.customPlaceholder")}
+                disabled={pending}
+                onChange={(event) => setCustom(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    submitCustom();
+                  }
+                }}
+                className="pr-11"
+              />
+              {/* Floats over the field's right edge, as in the mock: the
+                  field runs full width underneath it. */}
+              <Button
+                variant="primary"
+                size="compact"
+                iconOnly={<ArrowUp />}
+                aria-label={t("row.send")}
+                disabled={pending || custom.trim().length === 0}
+                onClick={submitCustom}
+                className="absolute right-1.5 h-7 w-7 rounded-[7px]"
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <Button
+            variant="link"
+            disabled={pending}
+            className="text-body-medium-default [--vbtn-fg:var(--content-tertiary)]"
+            onClick={() => setCustomOpen(true)}
+          >
+            {t("row.writeYourOwn")}
+          </Button>
+        )}
       </div>
     );
   }

@@ -430,8 +430,8 @@
       "category": "setup",
       "icon": "Brain",
       "color": "yellow",
-      "title": "Teach it about you",
-      "description": "Names, routines, pet peeves. It remembers.",
+      "title": "Teach {name} about you",
+      "description": "Names, routines, pet peeves. {name} remembers.",
       "chip": "Here's what you should know about me",
       "prompt": "Ask me ten quick questions about my life and work so you can remember what matters. Save what you learn."
     },

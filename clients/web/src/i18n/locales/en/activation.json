@@ -11,6 +11,7 @@
   },
   "row": {
     "customLabel": "Custom:",
+    "writeYourOwn": "Write your own",
     "customPlaceholder": "Type whatever you want",
     "working": "Working",
     "open": "Open",
@@ -37,5 +38,8 @@
   "page": {
     "title": "Get started",
     "loading": "Loading suggestions"
+  },
+  "catalog": {
+    "assistantFallback": "your assistant"
   }
 }

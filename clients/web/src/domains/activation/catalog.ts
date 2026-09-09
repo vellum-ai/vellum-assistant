@@ -23,6 +23,10 @@ import type { LucideIcon } from "lucide-react";
 import { fixedT, useTranslation, type TFunction } from "@/i18n";
 
 import {
+  resolveActivationAssistantName,
+  useActivationAssistantNameOrFallback,
+} from "./activation-assistant-name";
+import {
   ACTIVATION_FALLBACK_ICON,
   resolveActivationIcon,
 } from "./catalog-icons";
@@ -117,7 +121,19 @@ export function readRawActivationTask(
   return entry as RawActivationTask;
 }
 
-function toTask(id: string, raw: RawActivationTask): ActivationTask {
+function assistantDisplayName(name: string | undefined): string {
+  return resolveActivationAssistantName(
+    name,
+    fixedT("activation")("catalog.assistantFallback"),
+  );
+}
+
+function toTask(
+  id: string,
+  raw: RawActivationTask,
+  t: TFunction<"activation-tasks">,
+  name: string,
+): ActivationTask {
   return {
     id,
     category: raw.category,
@@ -127,10 +143,13 @@ function toTask(id: string, raw: RawActivationTask): ActivationTask {
     color: (ACTIVATION_COLORS as readonly string[]).includes(raw.color)
       ? (raw.color as ActivationColor)
       : FALLBACK_COLOR,
-    title: raw.title,
-    description: raw.description,
-    chip: raw.chip,
-    prompt: raw.prompt,
+    // Title and description may name the assistant (`{name}`). Chip and
+    // prompt take the same interpolation so a later `{name}` there just
+    // works; unused placeholders stay literal-free.
+    title: t(`tasks.${id}.title` as never, { name }),
+    description: t(`tasks.${id}.description` as never, { name }),
+    chip: t(`tasks.${id}.chip` as never, { name }),
+    prompt: t(`tasks.${id}.prompt` as never, { name }),
     ...(raw.requires ? { requires: raw.requires } : {}),
     // Link URLs are content. The one address the app owns elsewhere, the
     // downloads page, is pinned to `VELLUM_DOWNLOADS_URL` by `catalog.test.ts`
@@ -142,13 +161,14 @@ function toTask(id: string, raw: RawActivationTask): ActivationTask {
 function resolveIds(
   ids: string[],
   t: TFunction<"activation-tasks">,
+  name: string,
 ): ActivationTask[] {
   const tasks: ActivationTask[] = [];
   for (const id of ids) {
     const raw = readRawActivationTask(id, t);
     // An id with no entry is skipped rather than rendered as a blank row.
     if (raw) {
-      tasks.push(toTask(id, raw));
+      tasks.push(toTask(id, raw, t, name));
     }
   }
   return tasks;
@@ -163,21 +183,40 @@ function resolveIds(
 export function getActivationList(
   listId: string,
   t: TFunction<"activation-tasks"> = fixedT("activation-tasks"),
+  name?: string,
 ): ActivationList {
   const ids = LISTS[listId];
   if (!ids) {
     return { starters: [], items: [] };
   }
+  const resolvedName = assistantDisplayName(name);
   return {
-    starters: resolveIds(ids.starters, t),
-    items: resolveIds(ids.items, t),
+    starters: resolveIds(ids.starters, t, resolvedName),
+    items: resolveIds(ids.items, t, resolvedName),
   };
+}
+
+/**
+ * One task with `{name}` already filled in. Used by the launch path, which
+ * is an event handler and so reads a non-reactive binding (see `@/i18n`).
+ */
+export function resolveActivationTask(
+  id: string,
+  t: TFunction<"activation-tasks"> = fixedT("activation-tasks"),
+  name?: string,
+): ActivationTask | null {
+  const raw = readRawActivationTask(id, t);
+  if (!raw) {
+    return null;
+  }
+  return toTask(id, raw, t, assistantDisplayName(name));
 }
 
 /** Reactive {@link getActivationList} for render paths. */
 export function useActivationList(listId: string): ActivationList {
   const { t } = useTranslation("activation-tasks");
-  return useMemo(() => getActivationList(listId, t), [listId, t]);
+  const name = useActivationAssistantNameOrFallback();
+  return useMemo(() => getActivationList(listId, t, name), [listId, t, name]);
 }
 
 /**

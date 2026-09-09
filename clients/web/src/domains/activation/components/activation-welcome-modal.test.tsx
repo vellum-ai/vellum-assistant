@@ -140,22 +140,26 @@ afterEach(() => {
 
 describe("ActivationWelcomeModal", () => {
   test("opens the first unstarted starter and only that one", () => {
-    const { queryAllByLabelText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
+    const { queryAllByRole, queryAllByLabelText } = renderModal(
+      ACTIVATION_PROGRESS_EMPTY,
+    );
     expect(useActivationUiStore.getState().expandedTaskId).toBe(
       FIXTURE_STARTER_IDS[0],
     );
-    expect(queryAllByLabelText("Custom:")).toHaveLength(1);
+    expect(queryAllByRole("button", { name: "Write your own" })).toHaveLength(1);
+    expect(queryAllByLabelText("Custom:")).toHaveLength(0);
   });
 
   test("opening another row closes the one that was open", () => {
-    const { getByText, queryAllByLabelText } = renderModal(
+    const { getByText, queryAllByRole, queryAllByLabelText } = renderModal(
       ACTIVATION_PROGRESS_EMPTY,
     );
     fireEvent.click(getByText(starters[1]!.title));
     expect(useActivationUiStore.getState().expandedTaskId).toBe(
       FIXTURE_STARTER_IDS[1],
     );
-    expect(queryAllByLabelText("Custom:")).toHaveLength(1);
+    expect(queryAllByRole("button", { name: "Write your own" })).toHaveLength(1);
+    expect(queryAllByLabelText("Custom:")).toHaveLength(0);
   });
 
   test("skips a started task when it seeds the open row", () => {
@@ -188,6 +192,7 @@ describe("ActivationWelcomeModal", () => {
     const { getByLabelText, getByRole } = renderModal(
       ACTIVATION_PROGRESS_EMPTY,
     );
+    fireEvent.click(getByRole("button", { name: "Write your own" }));
     fireEvent.change(getByLabelText("Custom:"), {
       target: { value: "quote for Acme" },
     });

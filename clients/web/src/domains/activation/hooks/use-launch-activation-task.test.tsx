@@ -276,6 +276,17 @@ describe("useLaunchActivationTask", () => {
     });
   });
 
+  test("titles a teach-memory conversation with the interpolated name", async () => {
+    const result = launcher("general");
+    await act(async () => {
+      await result.current.launch("teach-memory");
+    });
+
+    expect(requestFor("create").body).toEqual({
+      title: "Teach Vel about you",
+    });
+  });
+
   // The regression: the daemon looks a `conversationId` up strictly, so the id
   // on the wire has to be one it minted, carried in that field.
   test("sends against the daemon-created conversation, in the strict wire field", async () => {

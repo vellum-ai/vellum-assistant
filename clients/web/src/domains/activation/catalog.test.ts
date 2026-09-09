@@ -22,6 +22,7 @@ import {
   getActivationList,
   getActivationListIds,
   readRawActivationTask,
+  resolveActivationTask,
   type RawActivationTask,
 } from "@/domains/activation/catalog";
 import { ACTIVATION_ICONS } from "@/domains/activation/catalog-icons";
@@ -181,5 +182,33 @@ describe("activation task pool", () => {
         );
       }
     }
+  });
+});
+
+describe("activation name interpolation", () => {
+  test("teach-memory falls back to your assistant", () => {
+    const task = getActivationList("general").starters.find(
+      (entry) => entry.id === "teach-memory",
+    );
+    expect(task?.title).toBe("Teach your assistant about you");
+    expect(task?.description).toBe(
+      "Names, routines, pet peeves. your assistant remembers.",
+    );
+  });
+
+  test("teach-memory interpolates a supplied name", () => {
+    const task = getActivationList("general", undefined, "Luna").starters.find(
+      (entry) => entry.id === "teach-memory",
+    );
+    expect(task?.title).toBe("Teach Luna about you");
+    expect(task?.description).toBe(
+      "Names, routines, pet peeves. Luna remembers.",
+    );
+  });
+
+  test("whitespace-only names use the fallback", () => {
+    expect(resolveActivationTask("teach-memory", undefined, "   ")?.title).toBe(
+      "Teach your assistant about you",
+    );
   });
 });
