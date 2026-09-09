@@ -13,9 +13,10 @@
  *
  * The avatar directory is controlled per-test via VELLUM_WORKSPACE_DIR, which
  * `getAvatarDir()` resolves live. Per the test-isolation rule in
- * assistant/AGENTS.md, this file imports ONLY the module under test
- * (`avatar-store`); state is asserted by reading `avatar.json`, the artifact
- * files, and IDENTITY.md directly off the per-test workspace dir via `node:fs`.
+ * assistant/AGENTS.md, this file imports ONLY the modules under test
+ * (`avatar-store` and the accent repair it shares with the read routes); state
+ * is asserted by reading `avatar.json`, the artifact files, and IDENTITY.md
+ * directly off the per-test workspace dir via `node:fs`.
  *
  * `setCharacter` routes through the native @resvg/resvg-js renderer. Rather than
  * stub that native path (which would require importing production machinery), we
@@ -45,8 +46,8 @@ mock.module("../../runtime/sync/resource-sync-events.js", () => ({
   },
 }));
 
+import { backfillAccent } from "../accent-backfill.js";
 import {
-  backfillAccent,
   clearAvatar,
   setAccent,
   setCharacter,
