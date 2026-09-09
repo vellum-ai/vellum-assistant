@@ -952,6 +952,35 @@ describe("seedFromHistory", () => {
     expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
   });
 
+  it("stamps a freshly inserted snapshot row so an older response cannot replace it", () => {
+    // Empty store: the newer request (opus) inserts the row, then the older
+    // request (haiku) answers. Insertion must carry the fetch time as well.
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt: 200 },
+    );
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "haiku",
+          availableModels: [{ value: "haiku", label: "Haiku" }],
+        }),
+      ],
+      { fetchedAt: 100 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.modelUpdatedAt).toBe(200);
+  });
+
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {
     const entry = historyEntry({ acpSessionId: "acp-h1" });
     getState().seedFromHistory([entry]);

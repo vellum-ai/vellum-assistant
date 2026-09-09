@@ -734,14 +734,21 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     // usage metadata from history so a live entry can't stay stale. The shared
     // helper owns the byId/orderedIds insertion; the seq high-water mark and the
     // tool-use index are acp-specific and folded in from the merged result.
+    // A row inserted fresh carries the fetch time too, so an older overlapping
+    // response cannot roll it back through the merge path afterwards.
+    const fetchedAt = options?.fetchedAt;
+    const stamped =
+      fetchedAt === undefined
+        ? entries
+        : entries.map((entry) => ({ ...entry, modelUpdatedAt: fetchedAt }));
     const { byId: nextById, orderedIds: nextOrderedIds } =
       seedEntriesFromHistory({
-        entries,
+        entries: stamped,
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
         merge: (existing, incoming) =>
-          mergeHistoryEntry(existing, incoming, options?.fetchedAt),
+          mergeHistoryEntry(existing, incoming, fetchedAt),
       });
 
     let nextByToolUseId = byToolUseId;
