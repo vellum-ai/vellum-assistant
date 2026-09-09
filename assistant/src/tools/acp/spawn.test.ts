@@ -469,6 +469,62 @@ describe("executeAcpSpawn — per-agent resume hint", () => {
   });
 });
 
+describe("executeAcpSpawn - model selection", () => {
+  test("threads the requested model into manager.spawn's options", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "opus" },
+      { ...makeContext(), toolUseId: "toolu_model" },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock.mock.calls[0][6]).toEqual({
+      parentToolUseId: "toolu_model",
+      model: "opus",
+    });
+  });
+
+  test("a null model is treated as omitted", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: null },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const options = spawnMock.mock.calls[0][6] as { model?: string };
+    expect(options.model).toBeUndefined();
+  });
+
+  test("a modelWarning from the spawn is relayed in the result message", async () => {
+    spawnMock.mockImplementationOnce(async () => ({
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      modelWarning: "Unknown model: nope",
+    }));
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "nope" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    expect(payload.message).toContain(
+      "The agent refused the requested model and is running on its own default: Unknown model: nope",
+    );
+  });
+
+  test("no model note when the spawn reports no warning", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "opus" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    expect(payload.message).not.toContain("refused the requested model");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // executeAcpSpawn — CLAUDE_CODE_OAUTH_TOKEN env injection + preflight
 //
