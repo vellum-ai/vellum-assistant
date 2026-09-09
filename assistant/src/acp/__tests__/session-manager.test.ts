@@ -16,6 +16,7 @@ import { initializeDb } from "../../persistence/db-init.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
 import { installAcpConfigStub } from "./helpers/acp-config-stub.js";
+import { readHistoryRow } from "./helpers/acp-history-db.js";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
@@ -438,6 +439,52 @@ describe("AcpSessionManager: model selection at spawn", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+  });
+
+  test("a pin answered without the selector warns and leaves no model", async () => {
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    // The adapter takes the call, then answers with a set that advertises no
+    // model selection at all.
+    setConfigOptionResult = [nonModelOption()];
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const result = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-dropped",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+
+    expect(result.modelWarning).toBe(
+      'Agent "agent-model" does not support model selection, so the ' +
+        "session is running on the agent's own model.",
+    );
+    const state = manager.getStatus(result.acpSessionId) as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    // Nothing was announced before the pin ran, so the empty picker is the
+    // silence a selector-less adapter already gets.
+    expect(sent.map((e) => e.type)).toEqual(["acp_session_spawned"]);
+
+    manager.close(result.acpSessionId);
+    expect(readHistoryRow(result.acpSessionId)?.model).toBeNull();
+  });
+
+  test("an inherited model whose pin loses the selector warns nobody", async () => {
+    config.setConfig({ defaultModel: "opus" });
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    setConfigOptionResult = [nonModelOption()];
+
+    const { modelWarning, state } = await spawnWithModel({
+      conversationId: "conv-pin-dropped-inherited",
+    });
+
+    expect(modelWarning).toBeUndefined();
+    expect(state.model).toBeUndefined();
   });
 });
 
