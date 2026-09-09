@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
-import { currentLocale } from "@/i18n";
+import { formatLocale } from "@/i18n";
+import { stubHostLanguage } from "@/i18n/host-language.test-helper";
 import {
   formatCaptureTime,
   formatCompactLocalDate,
@@ -13,7 +14,7 @@ import {
  * hardcoded "Aug 5, 11:42 AM", so they hold wherever the suite runs. What they
  * pin is the composition: the friendly date, a comma, and the local time.
  */
-function localTime(date: Date, locale: string = currentLocale()): string {
+function localTime(date: Date, locale: string = formatLocale()): string {
   return date.toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "2-digit",
@@ -134,5 +135,35 @@ describe("formatCaptureTime", () => {
     expect(formatCaptureTime(capturedAt, "ru")).not.toBe(
       formatCaptureTime(capturedAt, "en"),
     );
+  });
+});
+
+describe("the default locale", () => {
+  test("keeps the host's region while the app language stays English", () => {
+    const restore = stubHostLanguage("en-GB");
+    try {
+      const date = new Date(2001, 0, 15, 13, 42);
+
+      // en-GB is day-first and 24-hour, so both halves move away from the
+      // bare `en` the app runs its copy in.
+      expect(formatCompactLocalDate(date.toISOString())).toBe(
+        `${formatFriendlyDate(date, { locale: "en-GB" })}, ${localTime(date, "en-GB")}`,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  test("falls back to the app language when the host speaks another", () => {
+    const restore = stubHostLanguage("de-DE");
+    try {
+      const date = new Date(2001, 0, 15, 13, 42);
+
+      expect(formatCompactLocalDate(date.toISOString())).toBe(
+        `${formatFriendlyDate(date, { locale: "en" })}, ${localTime(date, "en")}`,
+      );
+    } finally {
+      restore();
+    }
   });
 });

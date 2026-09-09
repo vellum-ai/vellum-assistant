@@ -13,6 +13,7 @@
 
 import { toast } from "@vellumai/design-library";
 
+import { captureError } from "@/lib/sentry/capture-error";
 import type { AppSummary } from "@/types/app-types";
 import { shareApp } from "@/utils/share-app";
 
@@ -32,6 +33,7 @@ export async function shareAppWithToast(
     await shareApp(assistantId, app.id, app.name);
     toast.success(exported, { description: `${app.name}.vellum` });
   } catch (err) {
+    captureError(err, { context: "shareAppWithToast" });
     toast.error(failed, {
       description: err instanceof Error ? err.message : undefined,
     });

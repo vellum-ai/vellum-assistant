@@ -1,12 +1,20 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { stubHostLanguage } from "@/i18n/host-language.test-helper";
+import type { SupportedLocale } from "@/i18n/supported-locales";
+
 let preferred: string[] = [];
 mock.module("@/i18n/system-locale", () => ({
   systemLocales: () => preferred,
 }));
 
-const { changeLocale, currentLocale, initI18n, resolveInitialLocale } =
-  await import("@/i18n/i18n");
+const {
+  changeLocale,
+  currentLocale,
+  formatLocale,
+  initI18n,
+  resolveInitialLocale,
+} = await import("@/i18n/i18n");
 const { t } = await import("i18next");
 const { deviceKey } = await import("@/utils/device-settings");
 
@@ -127,5 +135,35 @@ describe("ICU message formatting", () => {
     expect(t("notFound.body")).toBe(
       "The page you're looking for doesn't exist or may have moved.",
     );
+  });
+});
+
+describe("formatLocale", () => {
+  async function hostLanguageUnder(
+    host: string,
+    app: SupportedLocale,
+  ): Promise<string> {
+    await initI18n();
+    await changeLocale(app);
+    const restore = stubHostLanguage(host);
+    try {
+      return formatLocale();
+    } finally {
+      restore();
+      await changeLocale("en");
+    }
+  }
+
+  test("keeps the host's region when it speaks the app's language", async () => {
+    expect(await hostLanguageUnder("en-GB", "en")).toBe("en-GB");
+    expect(await hostLanguageUnder("es-MX", "es")).toBe("es-MX");
+  });
+
+  test("keeps a Chinese host tag under either Chinese catalog", async () => {
+    expect(await hostLanguageUnder("zh-TW", "zh")).toBe("zh-TW");
+  });
+
+  test("falls back to the app locale when the host speaks another language", async () => {
+    expect(await hostLanguageUnder("de-DE", "en")).toBe("en");
   });
 });

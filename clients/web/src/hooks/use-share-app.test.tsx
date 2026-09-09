@@ -17,6 +17,7 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 import * as toastModule from "@vellumai/design-library/components/toast";
 
+import * as captureErrorModule from "@/lib/sentry/capture-error";
 import type { AppSummary } from "@/types/app-types";
 
 interface RaisedToast {
@@ -24,8 +25,14 @@ interface RaisedToast {
   description?: string;
 }
 
+interface CapturedError {
+  err: unknown;
+  context?: string;
+}
+
 let successes: RaisedToast[] = [];
 let errors: RaisedToast[] = [];
+let captured: CapturedError[] = [];
 let shareCalls: Array<[string, string, string]> = [];
 let shareResult: Promise<void> = Promise.resolve();
 
@@ -38,6 +45,13 @@ mock.module("@vellumai/design-library/components/toast", () => ({
     error: (title: string, options?: { description?: string }) => {
       errors.push({ title, description: options?.description });
     },
+  },
+}));
+
+mock.module("@/lib/sentry/capture-error", () => ({
+  ...captureErrorModule,
+  captureError: (err: unknown, options?: { context?: string }) => {
+    captured.push({ err, context: options?.context });
   },
 }));
 
@@ -61,6 +75,7 @@ function renderShare() {
 beforeEach(() => {
   successes = [];
   errors = [];
+  captured = [];
   shareCalls = [];
   shareResult = Promise.resolve();
 });
@@ -78,7 +93,7 @@ describe("useShareApp", () => {
     const { result } = renderShare();
 
     await act(async () => {
-      await result.current.share();
+      await result.current();
     });
 
     expect(shareCalls).toEqual([[ASSISTANT_ID, "app-1", "Trip Planner"]]);
@@ -93,13 +108,25 @@ describe("useShareApp", () => {
     const { result } = renderShare();
 
     await act(async () => {
-      await result.current.share();
+      await result.current();
     });
 
     expect(errors).toEqual([
       { title: "Export failed", description: "no bundle" },
     ]);
     expect(successes).toHaveLength(0);
+  });
+
+  test("reports the failure to Sentry as well as the toast", async () => {
+    const failure = new Error("no bundle");
+    shareResult = Promise.reject(failure);
+    const { result } = renderShare();
+
+    await act(async () => {
+      await result.current();
+    });
+
+    expect(captured).toEqual([{ err: failure, context: "shareAppWithToast" }]);
   });
 
   test("ignores a second request while one is still in flight", async () => {
@@ -111,11 +138,11 @@ describe("useShareApp", () => {
 
     let firstShare: Promise<void> = Promise.resolve();
     act(() => {
-      firstShare = result.current.share();
+      firstShare = result.current();
     });
 
     await act(async () => {
-      await result.current.share();
+      await result.current();
     });
     expect(shareCalls).toHaveLength(1);
 
@@ -130,10 +157,10 @@ describe("useShareApp", () => {
     const { result } = renderShare();
 
     await act(async () => {
-      await result.current.share();
+      await result.current();
     });
     await act(async () => {
-      await result.current.share();
+      await result.current();
     });
 
     expect(shareCalls).toHaveLength(2);
@@ -145,17 +172,17 @@ describe("useShareApp", () => {
       release = resolve;
     });
     const { result } = renderShare();
-    const before = result.current.share;
+    const before = result.current;
 
     let firstShare: Promise<void> = Promise.resolve();
     act(() => {
-      firstShare = result.current.share();
+      firstShare = result.current();
     });
     await act(async () => {
       release();
       await firstShare;
     });
 
-    expect(result.current.share).toBe(before);
+    expect(result.current).toBe(before);
   });
 });

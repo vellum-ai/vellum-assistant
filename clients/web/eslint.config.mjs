@@ -299,6 +299,13 @@ const emDashEnforcedPaths = [
   "src/domains/chat/hooks/use-conversation-assets*.{ts,tsx}",
   "src/domains/chat/hooks/use-conversation-attachments*.{ts,tsx}",
   "src/domains/chat/chat-layout-header.stories.tsx",
+  // The attachment preview a tile opens into, and the shared pieces the
+  // panel and its menus draw from.
+  "src/domains/chat/components/chat-attachments/attachment-preview-box.tsx",
+  "src/domains/chat/components/chat-attachments/use-attachment-object-url.ts",
+  "src/components/midline-dot.tsx",
+  "src/hooks/use-share-app.ts",
+  "src/utils/share-app-with-toast.ts",
 ];
 
 const eslintConfig = defineConfig([

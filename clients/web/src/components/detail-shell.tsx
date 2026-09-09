@@ -21,7 +21,6 @@ import type { ReactNode } from "react";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { MidlineDot } from "@/components/midline-dot";
-import { cn } from "@/utils/misc";
 
 /**
  * Horizontal inset of `DetailShell`'s header, body, and footer, in px. A host
@@ -30,21 +29,12 @@ import { cn } from "@/utils/misc";
 export const DETAIL_SHELL_BODY_INSET_PX = 20;
 
 /** The quiet centred line a body renders when it is empty or failed to load. */
-export function DetailShellNotice({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
+export function DetailShellNotice({ children }: { children: ReactNode }) {
   return (
     <Typography
       as="p"
       variant="body-small-default"
-      className={cn(
-        "py-4 text-center text-[var(--content-tertiary)]",
-        className,
-      )}
+      className="py-4 text-center text-[var(--content-tertiary)]"
     >
       {children}
     </Typography>

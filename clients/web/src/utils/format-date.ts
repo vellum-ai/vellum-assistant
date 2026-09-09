@@ -1,18 +1,19 @@
-import { currentLocale } from "@/i18n";
+import { formatLocale } from "@/i18n";
 
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
  *
- * Every formatter in this file defaults to the app's active locale, so one
- * label never pairs an app-locale date with a browser-locale time. Pass
+ * Every formatter in this file defaults to {@link formatLocale}, so one label
+ * never pairs an app-locale date with a browser-locale time and a user whose
+ * region differs from their language keeps their own date order. Pass
  * `locale` to pin the formatting.
  */
 export function formatFriendlyDate(
   date: Date,
   opts?: { alwaysShowYear?: boolean; locale?: string },
 ): string {
-  return date.toLocaleDateString(opts?.locale ?? currentLocale(), {
+  return date.toLocaleDateString(opts?.locale ?? formatLocale(), {
     day: "numeric",
     month: "short",
     year:
@@ -23,7 +24,7 @@ export function formatFriendlyDate(
 }
 
 /** Hour and minute, the shape every inline timestamp here shows. */
-function formatTimeOfDay(date: Date, locale: string = currentLocale()): string {
+function formatTimeOfDay(date: Date, locale: string = formatLocale()): string {
   return date.toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "2-digit",
@@ -37,7 +38,7 @@ function formatTimeOfDay(date: Date, locale: string = currentLocale()): string {
  */
 export function formatCaptureTime(
   ms: number,
-  locale: string = currentLocale(),
+  locale: string = formatLocale(),
 ): string {
   const date = new Date(ms);
   const now = new Date();
@@ -54,10 +55,7 @@ export function formatCaptureTime(
  * Compact relative-time label for inline metadata ("just now", "2h ago").
  * Mirrors the macOS client's `Date.relativeShortString()`.
  */
-export function formatRelativeDate(
-  dateStr: string | null | undefined,
-  locale: string = currentLocale(),
-): string {
+export function formatRelativeDate(dateStr: string | null | undefined): string {
   if (!dateStr) {
     return "—";
   }
@@ -102,7 +100,7 @@ export function formatRelativeDate(
     const weeks = Math.floor(diffDays / 7);
     return `${weeks}w ago`;
   }
-  return date.toLocaleDateString(locale);
+  return date.toLocaleDateString(formatLocale());
 }
 
 /**
@@ -112,7 +110,7 @@ export function formatRelativeDate(
  */
 export function formatCompactLocalDate(
   dateStr: string | null | undefined,
-  locale: string = currentLocale(),
+  locale: string = formatLocale(),
 ): string {
   if (!dateStr) {
     return "";
@@ -127,7 +125,7 @@ export function formatCompactLocalDate(
  */
 export function formatFullLocalDate(
   dateStr: string | null | undefined,
-  locale: string = currentLocale(),
+  locale: string = formatLocale(),
 ): string {
   if (!dateStr) {
     return "";

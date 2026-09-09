@@ -92,7 +92,7 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
   const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isPinned = pinnedAppIds.has(app.id);
 
-  const { share } = useShareApp(assistantId, app, {
+  const share = useShareApp(assistantId, app, {
     exported: t("chat:appAssetActions.appExported"),
     failed: t("chat:appAssetActions.shareFailed"),
   });
