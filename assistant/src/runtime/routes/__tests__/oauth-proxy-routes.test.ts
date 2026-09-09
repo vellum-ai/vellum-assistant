@@ -23,6 +23,7 @@ import {
   PlatformOAuthConnection,
   ProviderUnreachableError,
 } from "../../../oauth/platform-connection.js";
+import type { VellumPlatformClient } from "../../../platform/client.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { AuthContext } from "../../auth/types.js";
 import { routeDefinitionsToHTTPRoutes } from "../http-adapter.js";
@@ -67,6 +68,26 @@ const byoConnection: OAuthConnection = {
     throw new Error("the proxy never unwraps the raw token");
   },
 };
+
+/**
+ * A real managed connection over a stub platform, for the paths whose behavior
+ * lives inside `PlatformOAuthConnection` rather than in the route.
+ */
+function realManagedConnection(
+  fetchImpl: () => Promise<Response>,
+): PlatformOAuthConnection {
+  return new PlatformOAuthConnection({
+    id: "conn-managed",
+    provider: "stripe_link",
+    externalId: "ext-1",
+    accountInfo: null,
+    connectionId: "platform-conn-1",
+    client: {
+      platformAssistantId: "asst-1",
+      fetch: fetchImpl,
+    } as unknown as VellumPlatformClient,
+  });
+}
 
 /** Satisfies the route's `instanceof PlatformOAuthConnection` check. */
 function managedConnection(): OAuthConnection {
@@ -267,7 +288,19 @@ describe("path and query fidelity", () => {
 
   test("omits query entirely when the caller sent none", async () => {
     await callProxy({});
-    expect(requireCaptured().query).toBeUndefined();
+    const req = requireCaptured();
+    expect(req.query).toBeUndefined();
+    expect(req.rawQuery).toBe("");
+  });
+
+  test("hands the connection the query bytes alongside the parsed form", async () => {
+    await callProxy({ search: "?a=1&b=2&a=3&q=x%20y&flag" });
+
+    const req = requireCaptured();
+    // Byte-exact for a provider that signs the query it receives.
+    expect(req.rawQuery).toBe("?a=1&b=2&a=3&q=x%20y&flag");
+    // The parsed form is all a managed connection can send.
+    expect(req.query).toEqual({ a: ["1", "3"], b: "2", q: "x y", flag: "" });
   });
 
   test("normalizes an inner dot segment", async () => {
@@ -315,6 +348,42 @@ describe("method passthrough", () => {
 
     expect(response.status).toBe(405);
     expect(captured).toBeUndefined();
+  });
+});
+
+// ── Write safety ────────────────────────────────────────────────────────────
+
+describe("write safety", () => {
+  for (const method of ["POST", "PATCH"]) {
+    test(`a proxied ${method} asks for a single attempt`, async () => {
+      await callProxy({ method, body: "{}" });
+      expect(requireCaptured().singleAttempt).toBe(true);
+    });
+  }
+
+  for (const method of ["GET", "PUT", "DELETE"]) {
+    test(`a proxied ${method} keeps its retries`, async () => {
+      await callProxy({ method });
+      expect(requireCaptured().singleAttempt).toBe(false);
+    });
+  }
+
+  test("a managed write is not replayed after a 502", async () => {
+    let attempts = 0;
+    resolution = {
+      ...resolution,
+      connection: realManagedConnection(async () => {
+        attempts++;
+        return new Response("", { status: 502 });
+      }),
+    };
+
+    const response = await callProxy({ method: "POST", body: "{}" });
+
+    // The platform answers 502 only after calling the provider, so a replay
+    // could land the write twice.
+    expect(attempts).toBe(1);
+    expect(response.status).toBe(502);
   });
 });
 
@@ -583,6 +652,25 @@ describe("failure mapping", () => {
     requestError = new ProviderUnreachableError();
     expect((await callProxy({})).status).toBe(502);
   });
+
+  test("an unusable managed status is a mapped 502, not an opaque 500", async () => {
+    resolution = {
+      ...resolution,
+      connection: realManagedConnection(async () => {
+        return new Response(
+          JSON.stringify({ status: 700, headers: {}, body: null }),
+          { status: 200 },
+        );
+      }),
+    };
+
+    // Handing 700 to `new Response` would throw a RangeError, which is not a
+    // RouteError and reaches the caller as a bare 500.
+    const response = await callProxy({});
+
+    expect(response.status).toBe(502);
+    expect((await envelope(response)).error.code).toBe("BAD_GATEWAY");
+  });
 });
 
 // ── Grant binding and path safety ───────────────────────────────────────────
@@ -702,6 +790,12 @@ describe("path safety", () => {
     });
     expect(resolverCalls).toHaveLength(0);
     expect(captured).toBeUndefined();
+  });
+
+  test("every proxy route declares the 421 it can throw", () => {
+    for (const route of ROUTES) {
+      expect(route.additionalResponses?.["421"]).toBeDefined();
+    }
   });
 });
 

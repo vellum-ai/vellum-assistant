@@ -58,18 +58,9 @@ export class BYOOAuthConnection implements OAuthConnection {
           : req.path;
         let fullUrl = `${effectiveBaseUrl}${requestPath}`;
 
-        if (req.query && Object.keys(req.query).length > 0) {
-          const params = new URLSearchParams();
-          for (const [key, value] of Object.entries(req.query)) {
-            if (Array.isArray(value)) {
-              for (const v of value) {
-                params.append(key, v);
-              }
-            } else {
-              params.append(key, value);
-            }
-          }
-          fullUrl += `?${params.toString()}`;
+        const search = resolveQueryString(req);
+        if (search) {
+          fullUrl += `?${search}`;
         }
 
         const logUrl = isTelegram
@@ -143,6 +134,34 @@ export class BYOOAuthConnection implements OAuthConnection {
       connectionId: this.id,
     });
   }
+}
+
+/**
+ * Query string to append, without its `?`.
+ *
+ * `rawQuery` is the caller's own bytes and is returned untouched, so a query a
+ * provider signs keeps its key order, its `%20`, and its valueless flags. An
+ * empty one falls through to `query`, which `URLSearchParams` rebuilds.
+ */
+function resolveQueryString(req: OAuthConnectionRequest): string {
+  const raw = req.rawQuery?.replace(/^\?/, "") ?? "";
+  if (raw) {
+    return raw;
+  }
+  if (!req.query) {
+    return "";
+  }
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query)) {
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        params.append(key, v);
+      }
+    } else {
+      params.append(key, value);
+    }
+  }
+  return params.toString();
 }
 
 function buildTelegramBotApiPath(path: string, token: string): string {

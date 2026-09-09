@@ -24436,6 +24436,8 @@ paths:
           description: The resolved connection rejects this method
         "409":
           description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
         "424":
           description: No usable connection; reconnect the provider
         "502":
@@ -24478,6 +24480,8 @@ paths:
           description: The resolved connection rejects this method
         "409":
           description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
         "424":
           description: No usable connection; reconnect the provider
         "502":
@@ -24520,6 +24524,8 @@ paths:
           description: The resolved connection rejects this method
         "409":
           description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
         "424":
           description: No usable connection; reconnect the provider
         "502":
@@ -24567,6 +24573,8 @@ paths:
           description: The resolved connection rejects this method
         "409":
           description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
         "424":
           description: No usable connection; reconnect the provider
         "502":
@@ -24614,6 +24622,8 @@ paths:
           description: The resolved connection rejects this method
         "409":
           description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
         "424":
           description: No usable connection; reconnect the provider
         "502":
@@ -24661,6 +24671,8 @@ paths:
           description: The resolved connection rejects this method
         "409":
           description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
         "424":
           description: No usable connection; reconnect the provider
         "502":

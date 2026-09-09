@@ -96,6 +96,22 @@ export type RouteResponseBody =
       schema: z.ZodType | Record<string, unknown>;
     };
 
+/**
+ * Identity headers the adapters own. The HTTP adapter deletes all three off
+ * the inbound request and rewrites them from the verified `AuthContext`; the
+ * IPC adapter resolves the first two and deletes the third (see
+ * {@link RouteHandlerArgs.headers}).
+ *
+ * A consumer that forwards `RouteHandlerArgs.headers` anywhere less trusted
+ * (a user-authored `/x/*` handler) filters against this list, so adding a
+ * fourth header does not widen that audience by default.
+ */
+export const IDENTITY_HEADERS = [
+  "x-vellum-principal-type",
+  "x-vellum-actor-principal-id",
+  "x-vellum-subject",
+] as const;
+
 export interface RouteHandlerArgs {
   pathParams?: Record<string, string>;
   queryParams?: Record<string, string>;
@@ -103,18 +119,26 @@ export interface RouteHandlerArgs {
   rawBody?: Uint8Array;
   /**
    * The request URL exactly as received: percent-encoding intact in
-   * `pathname`, repeated keys intact in `search`. Set only by the HTTP
-   * adapter, so a handler that needs wire-exact input treats `undefined` as
-   * "not served over HTTP".
+   * `pathname`, repeated keys intact in `search`. Set by the HTTP adapter
+   * alone (the IPC adapter drops any inbound value), so a handler that needs
+   * wire-exact input treats `undefined` as "not served over HTTP".
    */
   rawUrl?: URL;
   /**
-   * Caller identity headers, including `x-vellum-principal-type` (the verified
-   * principal type), `x-vellum-actor-principal-id`, and `x-vellum-subject`
-   * (the verified `AuthContext.subject`). Both adapters derive these from a
-   * trusted source (HTTP from the verified `AuthContext`, IPC from
-   * `injectLocalActorHeader`), never from caller-supplied values, so handlers
-   * that elevate trust can gate on the header (e.g. `"local"`).
+   * Caller identity ({@link IDENTITY_HEADERS}) alongside the transport's own
+   * headers.
+   *
+   * The HTTP adapter derives all three from the verified `AuthContext`, so a
+   * handler that elevates trust can gate on `x-vellum-principal-type` (e.g.
+   * `"local"`) and on the `x-vellum-subject` a capability grant names.
+   *
+   * The IPC adapter (`injectLocalActorHeader`) has no verified context to
+   * derive from: it resolves the principal type from the gateway-forwarded
+   * header, else the gateway proxy marker, else `local`; fills the local
+   * guardian's `x-vellum-actor-principal-id` when the caller sent none; and
+   * drops `x-vellum-subject` outright, since nothing on that transport
+   * verifies a subject. A subject therefore reaches a handler over HTTP only,
+   * and a subject check fails closed over IPC.
    */
   headers?: Record<string, string>;
   /**
