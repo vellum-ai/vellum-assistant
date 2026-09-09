@@ -333,11 +333,10 @@ export async function run(
         : undefined;
 
       if (inReplyTo) {
-        const draft = await createOutlookReplyDraft(
-          conn,
-          inReplyTo,
-          text,
-        );
+        // Recheck: the attachment reads above are awaits, and this creates a
+        // real mailbox draft.
+        throwIfCancelled(context);
+        const draft = await createOutlookReplyDraft(conn, inReplyTo, text);
         const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
         return ok(
           formatOutlookDraftCreated({
@@ -358,6 +357,9 @@ export async function run(
           : {}),
         ...(graphAttachments ? { attachments: graphAttachments } : {}),
       };
+      // Recheck: the attachment reads above are awaits, and this creates a
+      // real mailbox draft.
+      throwIfCancelled(context);
       const draft = await createOutlookDraft(conn, draftBody);
       const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
       return ok(

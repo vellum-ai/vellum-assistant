@@ -254,32 +254,38 @@ export async function executeScheduleCreate(
     }
 
     try {
-      const job = await createSchedule({
-        name,
-        description,
-        cronExpression: null,
-        timezone,
-        message,
-        script,
-        enabled,
-        syntax: "cron",
-        expression: null,
-        nextRunAt: fireAtMs,
-        mode,
-        routingIntent: routingIntent as RoutingIntent | undefined,
-        routingHints,
-        quiet,
-        reuseConversation,
-        maxRetries,
-        retryBackoffMs,
-        timeoutMs,
-        workflowName,
-        workflowArgs,
-        capabilities,
-        inferenceProfile,
-        groupId,
-        createdFromConversationId: context.conversationId,
-      });
+      const job = await createSchedule(
+        {
+          name,
+          description,
+          cronExpression: null,
+          timezone,
+          message,
+          script,
+          enabled,
+          syntax: "cron",
+          expression: null,
+          nextRunAt: fireAtMs,
+          mode,
+          routingIntent: routingIntent as RoutingIntent | undefined,
+          routingHints,
+          quiet,
+          reuseConversation,
+          maxRetries,
+          retryBackoffMs,
+          timeoutMs,
+          workflowName,
+          workflowArgs,
+          capabilities,
+          inferenceProfile,
+          groupId,
+          createdFromConversationId: context.conversationId,
+        },
+        // The write retries with backoff on SQLite contention, so a cancel
+        // landing mid-retry must stop rather than sleep and then persist a
+        // schedule that would go on to run on its own.
+        context.signal ? { signal: context.signal } : undefined,
+      );
 
       const fireDate = formatLocalDate(job.nextRunAt);
       const integrations = await formatIntegrationSummary();
@@ -353,31 +359,37 @@ export async function executeScheduleCreate(
   }
 
   try {
-    const job = await createSchedule({
-      name,
-      description,
-      cronExpression: resolved.expression,
-      timezone,
-      message,
-      script,
-      enabled,
-      syntax: resolved.syntax,
-      expression: resolved.expression,
-      mode,
-      routingIntent: routingIntent as RoutingIntent | undefined,
-      routingHints,
-      quiet,
-      reuseConversation,
-      maxRetries,
-      retryBackoffMs,
-      timeoutMs,
-      workflowName,
-      workflowArgs,
-      capabilities,
-      inferenceProfile,
-      groupId,
-      createdFromConversationId: context.conversationId,
-    });
+    const job = await createSchedule(
+      {
+        name,
+        description,
+        cronExpression: resolved.expression,
+        timezone,
+        message,
+        script,
+        enabled,
+        syntax: resolved.syntax,
+        expression: resolved.expression,
+        mode,
+        routingIntent: routingIntent as RoutingIntent | undefined,
+        routingHints,
+        quiet,
+        reuseConversation,
+        maxRetries,
+        retryBackoffMs,
+        timeoutMs,
+        workflowName,
+        workflowArgs,
+        capabilities,
+        inferenceProfile,
+        groupId,
+        createdFromConversationId: context.conversationId,
+      },
+      // The write retries with backoff on SQLite contention, so a cancel landing
+      // mid-retry must stop rather than sleep and then persist a schedule that
+      // would go on to run on its own.
+      context.signal ? { signal: context.signal } : undefined,
+    );
 
     const scheduleDescription =
       job.expression == null

@@ -214,6 +214,16 @@ export type OrdinaryScheduleCreator =
   | typeof LEGACY_DEFER_CREATED_BY;
 
 /**
+ * Cancellation for a schedule write, carried alongside the row rather than in
+ * it. The retry wrapper reads it between attempts, so a caller whose turn was
+ * stopped does not sleep through a backoff and then persist a schedule that
+ * would go on to run on its own.
+ */
+export interface ScheduleWriteOptions {
+  signal?: AbortSignal;
+}
+
+/**
  * Parameters for ordinary schedule creation. `sourceKey` and `definitionHash`
  * are excluded for the same structural reason `createdBy` is constrained:
  * plugin-declaration provenance is minted only by
@@ -245,6 +255,7 @@ function resolveStoredTimezone(
 
 async function insertSchedule(
   params: InsertScheduleParams,
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -364,6 +375,7 @@ async function insertSchedule(
   await withSqliteRetry(() => db.insert(scheduleJobs).values(row).run(), {
     op: "createSchedule",
     context: { scheduleId: id },
+    ...(opts?.signal ? { signal: opts.signal } : {}),
   });
   notifySchedulesChanged();
   return parseJobRow(row);
@@ -381,13 +393,14 @@ async function insertSchedule(
  */
 export async function createSchedule(
   params: CreateScheduleParams,
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob> {
   if (params.createdBy && hasOwnerDeferProvenance(params.createdBy)) {
     throw new Error(
       "Owner-defer provenance is issued only by createOwnerDeferredWake()",
     );
   }
-  return insertSchedule(params);
+  return insertSchedule(params, opts);
 }
 
 /**

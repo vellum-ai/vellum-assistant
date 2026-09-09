@@ -113,10 +113,16 @@ export async function analyzeVideoDirectly(
   let uploadedFileName: string | undefined;
 
   try {
-    // Upload the video file
+    // Upload the video file. The signal reaches the SDK, which stops pushing
+    // bytes on abort; the size check and the pipeline mkdir above are awaits,
+    // so it is also checked here before a multi-gigabyte upload starts.
+    options.signal?.throwIfAborted();
     const uploadResult = await client.files.upload({
       file: filePath,
-      config: { mimeType },
+      config: {
+        mimeType,
+        ...(options.signal ? { abortSignal: options.signal } : {}),
+      },
     });
 
     if (!uploadResult.name || !uploadResult.uri) {
