@@ -28,7 +28,8 @@ import type { WorkspaceMigration } from "./types.js";
  * `llm.profiles.*`.
  *
  * A providerless call-site pin overlays the profile that wins that site
- * (`llm.activeProfile` for mainAgent, then the site's `profile`, then the
+ * (a persisted per-conversation or schedule override, then
+ * `llm.activeProfile` for mainAgent, then the site's `profile`, then the
  * site's shipped intent resolved through `llm.defaultProvider`). With the model outside the
  * allowlist a `chatgpt` winner no longer serves it, so the resolver implies
  * provider `openai` and a subscription-only workspace has no connection for
@@ -40,7 +41,10 @@ import type { WorkspaceMigration } from "./types.js";
  * the resolver skips: a profile whose provider names no connection row, and
  * user-owned shadows of code-owned names, which resolution ignores. An
  * unusable mix arm skips the rung for the seeds that pick it, so such a mix
- * is subscription-routed only when the rest of the chain is too.
+ * is subscription-routed only when the rest of the chain is too. Every
+ * persisted override (an unexpired `inference_profile` on an interactive
+ * conversation, or a schedule's) is the top rung for the turns it pins, so
+ * the pin is repaired when any of them makes the chain subscription-routed.
  *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
@@ -92,12 +96,28 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       }
       return rows;
     };
+    let overrides: string[] | null | undefined;
     const lookup: ProviderLookup = {
+      overrides: () => {
+        if (overrides === undefined) {
+          overrides = readOverrideProfiles(workspaceDir);
+        }
+        if (overrides === null) {
+          throw new Error(
+            "conversations is not readable; retrying the model-ID repair on the next run",
+          );
+        }
+        return overrides;
+      },
       isSubscription: (provider) => {
         if (provider === CHATGPT_IDENTITY) {
           return true;
         }
-        if (typeof provider !== "string" || provider.length === 0) {
+        if (
+          typeof provider !== "string" ||
+          provider.length === 0 ||
+          KNOWN_PROVIDERS.has(provider)
+        ) {
           return false;
         }
         return entryRows().get(provider) === true;
@@ -160,15 +180,17 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
 const CHATGPT_IDENTITY = "chatgpt";
 
 /**
- * Row-backed provider predicates. `isSubscription` answers whether a
- * provider value dispatches to the subscription; `isResolvable` mirrors
- * the resolver's `isResolvableProvider` gate (a known vendor or identity,
- * or an existing entry row), which skips a rung whose provider names no
- * row. Both throw on an unreadable DB so the run retries.
+ * Row-backed lookups. `isSubscription` answers whether a provider value
+ * dispatches to the subscription; `isResolvable` mirrors the resolver's
+ * `isResolvableProvider` gate (a known vendor or identity, or an existing
+ * entry row), which skips a rung whose provider names no row; `overrides`
+ * lists the persisted override profiles that top the chain for the turns
+ * they pin. All throw on an unreadable DB so the run retries.
  */
 interface ProviderLookup {
   isSubscription: (provider: unknown) => boolean;
   isResolvable: (provider: string) => boolean;
+  overrides: () => string[];
 }
 
 // Frozen snapshot of `KNOWN_LLM_PROVIDERS`: the vendor and identity values
@@ -326,28 +348,38 @@ const CALL_SITE_INTENTS: Record<string, string> = {
 
 /**
  * Whether the profile that wins `site` dispatches through the subscription.
- * Mirrors the resolver's single-winner chain: `llm.activeProfile` (mainAgent
- * only), then `llm.callSites[site].profile`, then the site's shipped intent
- * through `llm.defaultProvider`. A named rung the resolver would skip
- * (missing, disabled, incomplete) falls through to the next one. A site
- * this snapshot does not know (written by a newer assistant) has no known
- * chain, so its pin is left alone.
+ * Mirrors the resolver's single-winner chain: the turn's override profile,
+ * then `llm.activeProfile` (mainAgent only), then
+ * `llm.callSites[site].profile`, then the site's shipped intent through
+ * `llm.defaultProvider`. A named rung the resolver would skip (missing,
+ * disabled, incomplete) falls through to the next one. Each persisted
+ * override is the top rung for the turns it pins, so the chain is checked
+ * once per override and once without one. A site this snapshot does not
+ * know (written by a newer assistant) has no known chain, so its pin is
+ * left alone.
  */
 function winnerIsSubscriptionRouted(
   site: string,
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
 ): boolean {
-  const intent = CALL_SITE_INTENTS[site];
-  if (intent === undefined && !PROFILELESS_CALL_SITES.has(site)) {
+  const intent = CALL_SITE_INTENTS[site] ?? "balanced";
+  if (!(site in CALL_SITE_INTENTS) && !PROFILELESS_CALL_SITES.has(site)) {
     return false;
   }
   const siteConfig = readObject(readObject(llm.callSites)?.[site]);
-  const rungs =
+  const configured =
     site === "mainAgent"
       ? [llm.activeProfile, siteConfig?.profile]
       : [siteConfig?.profile];
-  return chainRoute(rungs, 0, intent ?? "balanced", llm, lookup);
+  if (chainRoute(configured, 0, intent, llm, lookup)) {
+    return true;
+  }
+  return lookup
+    .overrides()
+    .some((override) =>
+      chainRoute([override, ...configured], 0, intent, llm, lookup),
+    );
 }
 
 /** Route of the chain from rung `start` on, anchored by the shipped intent. */
@@ -509,6 +541,70 @@ function defaultProviderIsSubscription(
     defaultProvider.provider === "openai" &&
     isSubscriptionProvider(defaultProvider.connectionName)
   );
+}
+
+/**
+ * Distinct persisted override profile names: an unexpired `inference_profile`
+ * on an interactive conversation (background and scheduled conversations
+ * ignore theirs) and every schedule's `inference_profile`. Null when the DB
+ * is not readable; a missing table or column is an older schema with no
+ * overrides of that kind.
+ */
+function readOverrideProfiles(workspaceDir: string): string[] | null {
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
+  if (!existsSync(dbPath)) {
+    return [];
+  }
+  let db: Database;
+  try {
+    db = new Database(dbPath, { readonly: true });
+  } catch {
+    return null;
+  }
+  try {
+    const names = new Set<string>();
+    const columns = (table: string): Set<string> =>
+      new Set(
+        (
+          db.query(`PRAGMA table_info(${table})`).all() as Array<{
+            name: string;
+          }>
+        ).map((column) => column.name),
+      );
+    const conversationColumns = columns("conversations");
+    if (
+      conversationColumns.has("inference_profile") &&
+      conversationColumns.has("conversation_type") &&
+      conversationColumns.has("inference_profile_expires_at")
+    ) {
+      const rows = db
+        .query(
+          `SELECT DISTINCT inference_profile AS profile FROM conversations
+           WHERE inference_profile IS NOT NULL
+             AND conversation_type NOT IN ('background', 'scheduled')
+             AND (inference_profile_expires_at IS NULL OR inference_profile_expires_at > ?)`,
+        )
+        .all(Date.now()) as Array<{ profile: string }>;
+      for (const row of rows) {
+        names.add(row.profile);
+      }
+    }
+    if (columns("cron_jobs").has("inference_profile")) {
+      const rows = db
+        .query(
+          `SELECT DISTINCT inference_profile AS profile FROM cron_jobs WHERE inference_profile IS NOT NULL`,
+        )
+        .all() as Array<{ profile: string }>;
+      for (const row of rows) {
+        names.add(row.profile);
+      }
+    }
+    return [...names];
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
 }
 
 /**

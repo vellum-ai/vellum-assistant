@@ -64,6 +64,36 @@ function seedRows(
   db.close();
 }
 
+function seedOverrides(args: {
+  conversations?: Array<{ type: string; profile: string; expiresAt?: number }>;
+  cronJobs?: string[];
+}): void {
+  mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
+  const db = new Database(join(workspaceDir, "data", "db", "assistant.db"));
+  db.run(`CREATE TABLE IF NOT EXISTS conversations (
+    id TEXT PRIMARY KEY,
+    conversation_type TEXT NOT NULL DEFAULT 'standard',
+    inference_profile TEXT,
+    inference_profile_expires_at INTEGER
+  )`);
+  db.run(`CREATE TABLE IF NOT EXISTS cron_jobs (
+    id TEXT PRIMARY KEY,
+    inference_profile TEXT
+  )`);
+  for (const [i, row] of (args.conversations ?? []).entries()) {
+    db.query(
+      `INSERT INTO conversations (id, conversation_type, inference_profile, inference_profile_expires_at) VALUES (?, ?, ?, ?)`,
+    ).run(`conv-${i}`, row.type, row.profile, row.expiresAt ?? null);
+  }
+  for (const [i, profile] of (args.cronJobs ?? []).entries()) {
+    db.query(`INSERT INTO cron_jobs (id, inference_profile) VALUES (?, ?)`).run(
+      `job-${i}`,
+      profile,
+    );
+  }
+  db.close();
+}
+
 beforeEach(() => {
   freshWorkspace();
 });
@@ -549,6 +579,59 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     expect(llm.callSites.futureSite.model).toBe(STALE);
     expect(llm.callSites.futureIdentitySite.model).toBe(REPLACEMENT_MINI);
     expect(llm.callSites.vision.model).toBe(REPLACEMENT);
+  });
+
+  test("repairs providerless pins that a persisted subscription override would break", () => {
+    const config = {
+      llm: {
+        activeProfile: "byok",
+        defaultProvider: { provider: "vellum" },
+        callSites: {
+          mainAgent: { model: STALE },
+          recall: { model: STALE_MINI },
+        },
+        profiles: {
+          byok: { provider: "openai", model: "gpt-5.5" },
+          codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
+        },
+      },
+    };
+
+    // An interactive conversation pinned to the subscription profile tops
+    // the chain for its turns on every site the loop resolves.
+    seedOverrides({ conversations: [{ type: "standard", profile: "codex" }] });
+    writeConfig(config);
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    let llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
+    expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
+
+    // A schedule's pin counts the same way.
+    rmSync(join(workspaceDir, "data"), { recursive: true, force: true });
+    seedOverrides({ cronJobs: ["codex"] });
+    writeConfig(config);
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
+
+    // Expired, background, scheduled, API-backed, and dangling pins do not.
+    rmSync(join(workspaceDir, "data"), { recursive: true, force: true });
+    seedOverrides({
+      conversations: [
+        { type: "standard", profile: "codex", expiresAt: 1 },
+        { type: "background", profile: "codex" },
+        { type: "scheduled", profile: "codex" },
+        { type: "standard", profile: "byok" },
+        { type: "standard", profile: "ghost" },
+      ],
+      cronJobs: ["byok"],
+    });
+    writeConfig(config);
+    const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    expect(readFileSync(join(workspaceDir, "config.json"), "utf-8")).toBe(
+      before,
+    );
   });
 
   test("leaves providerless call-site pins alone when the winner is not subscription-routed", () => {
