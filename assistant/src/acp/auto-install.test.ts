@@ -58,8 +58,6 @@ function warnings(): string[] {
     .map((record) => record.message);
 }
 
-const { formatResolveFailure } = await import("./resolve-agent.js");
-
 const {
   ensureAdapterInstalled,
   getInstalledAdapterVersion,
@@ -89,6 +87,24 @@ function aliasLinked(command: string): string {
 
 /** Manifest reads the probe performed since the last reset. */
 let manifestReads = 0;
+
+/** An `fs` rejection meaning the path is not there: a real probe verdict. */
+function enoent(path: string): NodeJS.ErrnoException {
+  const err: NodeJS.ErrnoException = new Error(
+    `ENOENT: no such file or directory, ${path}`,
+  );
+  err.code = "ENOENT";
+  return err;
+}
+
+/** An `fs` rejection meaning the call did not answer: no verdict at all. */
+function emfile(path: string): NodeJS.ErrnoException {
+  const err: NodeJS.ErrnoException = new Error(
+    `EMFILE: too many open files, ${path}`,
+  );
+  err.code = "EMFILE";
+  return err;
+}
 
 /** Package the pin names for each adapter binary. */
 const PINNED_PACKAGE: Record<string, string> = {
@@ -129,10 +145,21 @@ function fakeRealpath(
     }
     const owner = owners[path.slice(binPrefix.length)];
     if (owner === undefined) {
-      return Promise.reject(new Error("ENOENT"));
+      return Promise.reject(enoent(path));
     }
     return Promise.resolve(`${GLOBAL_MODULES}/${owner}/dist/cli.js`);
   };
+}
+
+/** Attempts a pin scope gets, and the pause it earns, per the module. */
+const MAX_INSTALL_ATTEMPTS = 3;
+const INSTALL_COOLDOWN_MS = 30 * 60_000;
+
+/** Test clock behind the install cooldown. */
+let clockMs = 1_000_000;
+
+function advanceClock(ms: number): void {
+  clockMs += ms;
 }
 
 /**
@@ -147,6 +174,7 @@ function stubGlobalTree(
   _setAdapterVersionProbeDepsForTests({
     bunInstallDir: () => BUN_ROOT,
     realpath: fakeRealpath(owners),
+    now: () => clockMs,
     readFile: (path: string) => {
       manifestReads += 1;
       const name = path.slice(
@@ -155,7 +183,7 @@ function stubGlobalTree(
       );
       const version = versions[name];
       if (version === undefined) {
-        return Promise.reject(new Error("ENOENT"));
+        return Promise.reject(enoent(path));
       }
       return Promise.resolve(JSON.stringify({ name, version }));
     },
@@ -173,6 +201,7 @@ beforeEach(() => {
   _resetAdapterInstallCacheForTests();
   logRecords.length = 0;
   manifestReads = 0;
+  clockMs = 1_000_000;
   config.setConfig({ agents: {} });
   // Default: bun on PATH, nothing else.
   which.setWhich({ bun: BUN_BIN });
@@ -627,6 +656,237 @@ describe("ensureAdapterInstalled - version pinning", () => {
   });
 });
 
+describe("ensureAdapterInstalled - bounded retries", () => {
+  test("repeated install failures pause the pin instead of retrying forever", async () => {
+    _setAdapterVersionProbeDepsForTests({ now: () => clockMs });
+    execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
+
+    for (let call = 0; call < MAX_INSTALL_ATTEMPTS; call += 1) {
+      const result = await ensureAdapterInstalled("codex-acp");
+      expect(result.installed).toBe(false);
+      expect(result.error).toContain("network is down");
+    }
+    // Paused: the install is skipped outright, so there is no error to report.
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: false,
+    });
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: false,
+    });
+
+    expect(execFileMock).toHaveBeenCalledTimes(MAX_INSTALL_ATTEMPTS);
+    expect(
+      warnings().filter((message) => message.includes("cooldown window")),
+    ).toHaveLength(1);
+  });
+
+  test("the cooldown expires and the install is attempted again", async () => {
+    _setAdapterVersionProbeDepsForTests({ now: () => clockMs });
+    execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
+    for (let call = 0; call < MAX_INSTALL_ATTEMPTS + 1; call += 1) {
+      await ensureAdapterInstalled("codex-acp");
+    }
+    expect(execFileMock).toHaveBeenCalledTimes(MAX_INSTALL_ATTEMPTS);
+
+    advanceClock(INSTALL_COOLDOWN_MS + 1);
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: true,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(MAX_INSTALL_ATTEMPTS + 1);
+  });
+
+  test("a verified install clears the attempt budget", async () => {
+    let installedVersion = "0.4.0";
+    which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
+    _setAdapterVersionProbeDepsForTests({
+      bunInstallDir: () => BUN_ROOT,
+      realpath: fakeRealpath({ "codex-acp": "@agentclientprotocol/codex-acp" }),
+      readFile: () =>
+        Promise.resolve(JSON.stringify({ version: installedVersion })),
+      now: () => clockMs,
+    });
+
+    execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
+    await ensureAdapterInstalled("codex-acp");
+    await ensureAdapterInstalled("codex-acp");
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installedVersion = "1.10.0";
+      },
+    });
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: true,
+    });
+
+    // Off the pin again, offline again: a spent budget would have paused the
+    // pin on the very first of these, so both still reach `bun add`.
+    installedVersion = "0.4.0";
+    execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
+    await ensureAdapterInstalled("codex-acp");
+    await ensureAdapterInstalled("codex-acp");
+
+    expect(execFileMock).toHaveBeenCalledTimes(5);
+  });
+
+  test("a give-up on one PATH leaves another PATH still pinned", async () => {
+    const AGENT_PATH = "/opt/agent/bin";
+    const BUN_BIN_DIR = `${BUN_ROOT}/bin`;
+    let installedVersion = "0.4.0";
+    which.setWhich((cmd, options) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd !== "codex-acp") {
+        return null;
+      }
+      // The agent's PATH cannot reach bun's global bin dir, so no install
+      // ever shows up there; the daemon's PATH sees every one of them.
+      return options?.PATH === AGENT_PATH ? null : bunLinked("codex-acp");
+    });
+    _setAdapterVersionProbeDepsForTests({
+      bunInstallDir: () => BUN_ROOT,
+      realpath: fakeRealpath({ "codex-acp": "@agentclientprotocol/codex-acp" }),
+      readFile: () =>
+        Promise.resolve(JSON.stringify({ version: installedVersion })),
+      now: () => clockMs,
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installedVersion = "1.10.0";
+      },
+    });
+
+    // The agent's PATH can never verify the pin, so it gives up after one
+    // install.
+    expect(await ensureAdapterInstalled("codex-acp", AGENT_PATH)).toEqual({
+      installed: true,
+    });
+    expect(await ensureAdapterInstalled("codex-acp", AGENT_PATH)).toEqual({
+      installed: false,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+
+    // A PATH that CAN see the install is still pinned when it drifts.
+    installedVersion = "0.4.0";
+    expect(await ensureAdapterInstalled("codex-acp", BUN_BIN_DIR)).toEqual({
+      installed: true,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("ensureAdapterInstalled - unreadable probes", () => {
+  /**
+   * A bun-linked adapter behind a `realpath` the test can make fail. The
+   * binary is named through the alias dir so the probe has to resolve it
+   * rather than matching the link path lexically.
+   */
+  function stubFlakyTree(state: {
+    version: string;
+    realpathFails: boolean;
+  }): void {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": aliasLinked("codex-acp") });
+    const resolveOwner = fakeRealpath({
+      "codex-acp": "@agentclientprotocol/codex-acp",
+    });
+    _setAdapterVersionProbeDepsForTests({
+      bunInstallDir: () => BUN_ROOT,
+      realpath: (path: string) =>
+        state.realpathFails ? Promise.reject(emfile(path)) : resolveOwner(path),
+      readFile: () =>
+        Promise.resolve(JSON.stringify({ version: state.version })),
+      now: () => clockMs,
+    });
+  }
+
+  test("a probe the filesystem refuses skips the install and re-probes", async () => {
+    const state = { version: "0.4.0", realpathFails: true };
+    stubFlakyTree(state);
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        state.version = "1.10.0";
+      },
+    });
+
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: false,
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(warnings().join(" ")).toContain(
+      "Could not read the installed ACP adapter",
+    );
+
+    state.realpathFails = false;
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: true,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an unverifiable post-install probe does not abandon the pin", async () => {
+    const state = { version: "0.4.0", realpathFails: false };
+    stubFlakyTree(state);
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        // The install lands, but the verification cannot read the tree.
+        state.version = "1.10.0";
+        state.realpathFails = true;
+      },
+    });
+
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: true,
+    });
+    expect(
+      warnings().filter((message) =>
+        message.includes("does not select the pinned version"),
+      ),
+    ).toEqual([]);
+
+    // Once the filesystem answers again, the pin reads as satisfied.
+    state.realpathFails = false;
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: false,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("unreadable probes spend the same budget and pause the pin", async () => {
+    const state = { version: "0.4.0", realpathFails: true };
+    stubFlakyTree(state);
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        state.version = "1.10.0";
+      },
+    });
+
+    for (let call = 0; call < MAX_INSTALL_ATTEMPTS; call += 1) {
+      await ensureAdapterInstalled("codex-acp");
+    }
+
+    // The filesystem recovers with the tree still off the pin, but the scope
+    // is paused, so nothing installs until the cooldown elapses.
+    state.realpathFails = false;
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: false,
+    });
+    expect(execFileMock).not.toHaveBeenCalled();
+
+    advanceClock(INSTALL_COOLDOWN_MS + 1);
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: true,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("resolveAgentWithAutoInstall - resolution order", () => {
   test("binary missing + bun present: installs then resolves to the real binary", async () => {
     let installed = false;
@@ -949,7 +1209,7 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     );
   });
 
-  test("post-install resolution failure surfaces the resolver's hint", async () => {
+  test("post-install resolution failure keeps the agent resolved before it", async () => {
     let onPath = true;
     which.setWhich((cmd) => {
       if (cmd === "bun") {
@@ -961,8 +1221,8 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
       return null;
     });
     stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.47.0" });
-    // The reinstall unlinks the bin instead of repointing it, so the adapter
-    // the caller was about to spawn is gone.
+    // The reinstall unlinks the bin instead of repointing it, so the
+    // re-resolve fails on an agent the caller already had in hand.
     execScripts.set(BUN_ADD_KEY, {
       stdout: "",
       onCall: () => {
@@ -972,14 +1232,32 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
 
     const result = await resolveAgentWithAutoInstall("claude");
 
-    expect(result.resolved.ok).toBe(false);
-    if (result.resolved.ok) {
+    expect(result.resolved.ok).toBe(true);
+    if (!result.resolved.ok) {
       return;
     }
-    expect(result.resolved.reason).toBe("binary_not_found");
-    expect(formatResolveFailure("claude", result.resolved)).toContain(
-      `bun add -g ${CLAUDE_SPEC}`,
-    );
+    expect(result.resolved.agent.command).toBe("claude-agent-acp");
+    expect(result.autoInstalledPackage).toBeUndefined();
+    expect(result.failureMessage).toBeUndefined();
+    expect(warnings().join(" ")).toContain("no longer resolves");
+  });
+
+  test("a reinstall that keeps failing warns once, not once per spawn", async () => {
+    which.setWhich({
+      bun: BUN_BIN,
+      "claude-agent-acp": bunLinked("claude-agent-acp"),
+    });
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.47.0" });
+    execScripts.set(BUN_ADD_KEY, { error: new Error("network is down") });
+
+    await resolveAgentWithAutoInstall("claude");
+    await resolveAgentWithAutoInstall("claude");
+
+    expect(
+      warnings().filter((message) =>
+        message.includes("Could not reinstall the ACP adapter"),
+      ),
+    ).toHaveLength(1);
   });
 
   test("agent whose command maps to no package: never touches the installer", async () => {

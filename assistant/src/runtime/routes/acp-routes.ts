@@ -744,6 +744,18 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("A value from the session's availableModels list."),
     }),
+    additionalResponses: {
+      "400": {
+        description:
+          "Missing model, or a model the session does not offer (its " +
+          "availableModels list names the ones it does)",
+      },
+      "404": { description: "Unknown ACP session" },
+      "409": {
+        description:
+          "The session is alive but its adapter advertises no model selector",
+      },
+    },
     responseBody: z.object({
       acpSessionId: z.string(),
       model: z.string().optional(),

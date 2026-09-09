@@ -49,11 +49,11 @@ An adapter installed by another package manager (npm, brew) is left alone: PATH 
 
 Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`); user-configured agents with custom commands are never installed automatically.
 
-Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
+Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result). Install the pinned version the tool result names, never `@latest`: an unpinned install is reverted to the pin on the next spawn.
 
 ```bash
-bun add -g @agentclientprotocol/claude-agent-acp   # claude
-bun add -g @agentclientprotocol/codex-acp          # codex
+bun add -g @agentclientprotocol/claude-agent-acp@0.75.1   # claude
+bun add -g @agentclientprotocol/codex-acp@1.10.0          # codex
 ```
 
 ## Claude setup

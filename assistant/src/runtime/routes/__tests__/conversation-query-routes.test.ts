@@ -1337,15 +1337,56 @@ describe("PATCH /v1/config fallbackProfile write protection", () => {
 
 describe("PATCH /v1/config clearing acp.defaultModel", () => {
   const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+  const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
 
   beforeEach(() => {
     rawConfigFixture = {
       acp: {
         defaultModel: "opus",
-        agents: { claude: { command: "claude-agent-acp", args: [] } },
+        agents: {
+          claude: { command: "claude-agent-acp", args: [], model: "opus" },
+        },
       },
     };
     seedRawConfig();
+  });
+
+  function agentEntry(raw: Record<string, unknown>): Record<string, unknown> {
+    const acp = raw.acp as Record<string, unknown>;
+    const agents = acp.agents as Record<string, Record<string, unknown>>;
+    return agents.claude!;
+  }
+
+  test("a config_set of null removes the key too", async () => {
+    // `set` writes `null` verbatim by design, which the acp schema rejects.
+    await setRoute.handler({
+      body: { path: "acp.defaultModel", value: null },
+    });
+
+    const acp = loadRawConfig().acp as Record<string, unknown>;
+    expect("defaultModel" in acp).toBe(false);
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    expect(Object.keys(loadConfig().acp.agents)).toEqual(["claude"]);
+  });
+
+  test("a nulled per-agent model is dropped on both write paths", async () => {
+    await patchRoute.handler({
+      body: { acp: { agents: { claude: { model: null } } } },
+    });
+
+    const patched = agentEntry(loadRawConfig());
+    expect("model" in patched).toBe(false);
+    expect(patched.command).toBe("claude-agent-acp");
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+
+    seedRawConfig();
+    await setRoute.handler({
+      body: { path: "acp.agents.claude.model", value: null },
+    });
+
+    expect("model" in agentEntry(loadRawConfig())).toBe(false);
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    expect(loadConfig().acp.agents.claude?.model).toBeUndefined();
   });
 
   test("removes the key rather than persisting a schema-invalid null", async () => {
@@ -1354,7 +1395,7 @@ describe("PATCH /v1/config clearing acp.defaultModel", () => {
     const acp = loadRawConfig().acp as Record<string, unknown>;
     expect("defaultModel" in acp).toBe(false);
     expect(acp.agents).toEqual({
-      claude: { command: "claude-agent-acp", args: [] },
+      claude: { command: "claude-agent-acp", args: [], model: "opus" },
     });
   });
 

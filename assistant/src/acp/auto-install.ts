@@ -24,6 +24,18 @@
  * so a state the probe can never satisfy costs one install, not one per
  * spawn, resume, and tool call.
  *
+ * Both the give-up and the retry budget are keyed by the search path the
+ * verdict was proven on, never by command alone: verification asks what a
+ * spawn on THAT path selects, so an agent whose `env.PATH` cannot reach bun's
+ * global bin dir must not take the pin away from an agent whose path can. An
+ * install that simply fails (offline host, read-only prefix, timeout) is
+ * retried, but only `MAX_INSTALL_ATTEMPTS` times before that triple goes on a
+ * cooldown, so a permanently failing host costs a bounded number of install
+ * timeouts rather than one per spawn, resume, and steer. A filesystem call the
+ * probe cannot complete is a third outcome, distinct from a verified mismatch:
+ * it skips the install and re-probes next spawn instead of abandoning the pin
+ * on a transient `EMFILE`.
+ *
  * Security boundaries (this is the ATL-808 fix):
  *  - Only commands present in `DEFAULT_AGENT_NPM_PACKAGES` are ever
  *    installed. The package names are vendored constants, NOT user input.
@@ -64,6 +76,12 @@ const log = getLogger("acp:auto-install");
 /** Per-install timeout for the global install. Generous: cold caches are slow. */
 const BUN_INSTALL_TIMEOUT_MS = 120_000;
 
+/** Failed installs a single pin scope gets before it goes on cooldown. */
+const MAX_INSTALL_ATTEMPTS = 3;
+
+/** How long a pin scope that spent its attempts stays skipped. */
+const INSTALL_COOLDOWN_MS = 30 * 60_000;
+
 /**
  * The trusted public npm registry. Forced via `BUN_CONFIG_REGISTRY` on the
  * installer env so a stray `.npmrc`/`bunfig.toml` in the ambient environment
@@ -90,9 +108,24 @@ const pinChecks = new Map<string, Promise<AdapterInstallResult>>();
 /** In-flight global installs, keyed by command alone. */
 const installRuns = new Map<string, Promise<AdapterInstallResult>>();
 
-/** Composite map key over two fields that may contain any character. */
-function joinKey(first: string, second: string): string {
-  return `${first}\u0000${second}`;
+/** Composite map key over fields that may contain any character. */
+function joinKey(...parts: string[]): string {
+  return parts.join("\u0000");
+}
+
+/**
+ * The scope a pin verdict is proven on. Verification asks what a spawn on
+ * this search path selects, so a give-up or a spent retry budget belongs to
+ * the triple, not to the command: an agent whose `env.PATH` cannot reach
+ * bun's global bin dir never satisfies the pin, and must not unpin the agents
+ * whose path can.
+ */
+function pinScope(
+  command: string,
+  packageSpec: string,
+  searchPath: string | undefined,
+): string {
+  return joinKey(command, packageSpec, searchPath ?? "");
 }
 
 /**
@@ -126,12 +159,22 @@ const warnedOutsideBun = new Set<string>();
 const warnedMissingBun = new Set<string>();
 
 /**
- * `command`/`packageSpec` pairs whose install reported success and left the
- * pin unsatisfied. Nothing the daemon can do reaches the pinned state, so
- * reinstalling would block every later spawn for the install timeout with no
- * chance of succeeding. The pair is abandoned for the life of the process.
+ * Pin scopes whose install reported success and left the pin verifiably
+ * unsatisfied. Nothing the daemon can do reaches the pinned state on that
+ * search path, so reinstalling would block every later spawn for the install
+ * timeout with no chance of succeeding. The scope is abandoned for the life
+ * of the process.
  */
 const abandonedPins = new Set<string>();
+
+/** Pin scopes already reported as unverifiable, at most one warning each. */
+const warnedUnverifiablePins = new Set<string>();
+
+/** Commands already reported as spawning despite a failed reinstall. */
+const warnedInstallFailure = new Set<string>();
+
+/** Commands already reported as unresolvable after a landed reinstall. */
+const warnedReresolveFailure = new Set<string>();
 
 /** Emit `message` once per key: the pin check runs on every resolution. */
 function warnOnce(
@@ -145,6 +188,62 @@ function warnOnce(
   }
   seen.add(key);
   log.warn(fields, message);
+}
+
+/** Installs a pin scope has burned, and the cooldown they bought it. */
+interface InstallAttempts {
+  failures: number;
+  /** Epoch ms the scope reopens for installs; 0 while it is still trying. */
+  cooldownUntil: number;
+}
+
+/**
+ * Attempts spent per pin scope. An install that fails outright leaves the
+ * disk exactly as the probe found it, so the very next spawn would try again
+ * and pay the install timeout again. The budget bounds that; a verified pin
+ * clears it.
+ */
+const installAttempts = new Map<string, InstallAttempts>();
+
+/** Whether `scope` is inside a cooldown window. Elapsed windows are cleared. */
+function isCoolingDown(scope: string): boolean {
+  const attempts = installAttempts.get(scope);
+  if (!attempts || attempts.cooldownUntil === 0) {
+    return false;
+  }
+  if (probeDeps.now() < attempts.cooldownUntil) {
+    return true;
+  }
+  installAttempts.delete(scope);
+  return false;
+}
+
+/**
+ * Charge one attempt to `scope`, opening a cooldown once the budget is spent.
+ * Callers check `isCoolingDown` first, so the cooldown is logged exactly once
+ * per window.
+ */
+function recordInstallAttempt(
+  scope: string,
+  fields: Record<string, unknown>,
+): void {
+  const attempts = installAttempts.get(scope) ?? {
+    failures: 0,
+    cooldownUntil: 0,
+  };
+  attempts.failures += 1;
+  if (attempts.failures >= MAX_INSTALL_ATTEMPTS) {
+    attempts.cooldownUntil = probeDeps.now() + INSTALL_COOLDOWN_MS;
+    log.warn(
+      {
+        ...fields,
+        failures: attempts.failures,
+        cooldownMs: INSTALL_COOLDOWN_MS,
+      },
+      "ACP adapter version pin keeps failing on this PATH; pausing it for a cooldown window",
+    );
+  }
+  installAttempts.set(scope, attempts);
 }
 
 /**
@@ -210,6 +309,8 @@ interface AdapterVersionProbeDeps {
    * is only ever compared against a binary the same install produced.
    */
   bunInstallDir: () => string;
+  /** Clock behind the install cooldown. */
+  now: () => number;
 }
 
 const REAL_PROBE_DEPS: AdapterVersionProbeDeps = {
@@ -218,6 +319,7 @@ const REAL_PROBE_DEPS: AdapterVersionProbeDeps = {
   // `bun add --global` honours BUN_INSTALL, and the installer env is a copy of
   // `process.env`, so the probe has to read the same override.
   bunInstallDir: () => process.env.BUN_INSTALL ?? join(homedir(), ".bun"),
+  now: () => Date.now(),
 };
 
 let probeDeps: AdapterVersionProbeDeps = REAL_PROBE_DEPS;
@@ -233,34 +335,51 @@ function bunLinkPath(command: string): string {
 }
 
 /**
+ * A probe answer that may be missing. `unknown` means the filesystem refused
+ * to answer (`EMFILE`, `EACCES`, a timeout), which is emphatically not the
+ * same as a verified `no`: acting on it would abandon a pin the daemon could
+ * satisfy the moment the pressure passes.
+ */
+type Verdict = "yes" | "no" | "unknown";
+
+/**
+ * Whether an `fs` rejection is the path simply not being there. Only those
+ * carry a verdict; every other errno is the call failing to answer.
+ */
+function isMissingPathError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | undefined)?.code;
+  return code === "ENOENT" || code === "ENOTDIR";
+}
+
+/**
  * Whether `binaryPath` is the link `bun add --global` writes for `command`.
  * Only then can a reinstall change what PATH selects: an adapter installed by
  * npm or brew keeps its place in PATH no matter what bun writes. A lexical
  * comparison is not enough, since a PATH entry reaching bun's global bin dir
  * through a symlinked directory makes `Bun.which` report an aliased pathname
  * for the very binary bun linked, so both sides go through realpath. A
- * selected binary that cannot be resolved is left to the ownership check
- * rather than exempted; a bun link that cannot be resolved means bun linked
- * nothing here, so the selection really is external.
+ * selected binary that is not there is left to the ownership check rather
+ * than exempted; a bun link that is not there means bun linked nothing here,
+ * so the selection really is external.
  */
 async function isBunManagedBinary(
   command: string,
   binaryPath: string,
-): Promise<boolean> {
+): Promise<Verdict> {
   const linkPath = bunLinkPath(command);
   if (resolvePath(binaryPath) === resolvePath(linkPath)) {
-    return true;
+    return "yes";
   }
   let selected: string;
   try {
     selected = await probeDeps.realpath(binaryPath);
-  } catch {
-    return true;
+  } catch (err) {
+    return isMissingPathError(err) ? "yes" : "unknown";
   }
   try {
-    return selected === (await probeDeps.realpath(linkPath));
-  } catch {
-    return false;
+    return selected === (await probeDeps.realpath(linkPath)) ? "yes" : "no";
+  } catch (err) {
+    return isMissingPathError(err) ? "no" : "unknown";
   }
 }
 
@@ -272,22 +391,24 @@ async function isBunManagedBinary(
  * `@zed-industries/codex-acp`) both keep a manifest while only one owns the
  * link. Reading the pinned manifest alone would then report a version nothing
  * spawns. Both sides go through realpath so a symlinked bun root cancels out
- * instead of reinstalling forever. Anything that fails to resolve counts as
- * not owned, so the caller reinstalls and bun re-links the bin.
+ * instead of reinstalling forever. A path that is not there counts as not
+ * owned, so the caller reinstalls and bun re-links the bin.
  */
 async function bunLinkOwnedBy(
   command: string,
   packageName: string,
-): Promise<boolean> {
+): Promise<Verdict> {
+  let target: string;
+  let owner: string;
   try {
-    const target = await probeDeps.realpath(bunLinkPath(command));
-    const owner = await probeDeps.realpath(
+    target = await probeDeps.realpath(bunLinkPath(command));
+    owner = await probeDeps.realpath(
       join(globalModulesDir(), ...packageName.split("/")),
     );
-    return target === owner || target.startsWith(owner + sep);
-  } catch {
-    return false;
+  } catch (err) {
+    return isMissingPathError(err) ? "no" : "unknown";
   }
+  return target === owner || target.startsWith(owner + sep) ? "yes" : "no";
 }
 
 /**
@@ -302,21 +423,40 @@ async function bunLinkOwnedBy(
 export async function getInstalledAdapterVersion(
   command: string,
 ): Promise<string | undefined> {
+  const read = await readInstalledAdapterVersion(command);
+  return read === "unknown" ? undefined : read.version;
+}
+
+/**
+ * The manifest read behind `getInstalledAdapterVersion`, keeping the
+ * distinction that function's return type erases: a manifest that is absent
+ * or malformed describes an install the pin does not accept, while a manifest
+ * the daemon could not read describes nothing at all.
+ */
+async function readInstalledAdapterVersion(
+  command: string,
+): Promise<{ version?: string } | "unknown"> {
   const spec = DEFAULT_AGENT_NPM_PACKAGES[command];
   if (!spec) {
-    return undefined;
+    return {};
   }
   const manifest = join(
     globalModulesDir(),
     ...splitPackageSpec(spec).name.split("/"),
     "package.json",
   );
+  let contents: string;
   try {
-    const parsed: unknown = JSON.parse(await probeDeps.readFile(manifest));
+    contents = await probeDeps.readFile(manifest);
+  } catch (err) {
+    return isMissingPathError(err) ? {} : "unknown";
+  }
+  try {
+    const parsed: unknown = JSON.parse(contents);
     const version = (parsed as { version?: unknown }).version;
-    return typeof version === "string" ? version : undefined;
+    return { version: typeof version === "string" ? version : undefined };
   } catch {
-    return undefined;
+    return {};
   }
 }
 
@@ -364,8 +504,10 @@ interface PinProbe {
    * `external`: PATH selects an adapter bun did not link, so an install would
    * rewrite the disk without changing which binary spawns.
    * `satisfied`: the binary a spawn selects is the pin.
+   * `unknown`: a filesystem call the probe needs did not answer, so there is
+   * no verdict to act on this time.
    */
-  action: "install" | "satisfied" | "external";
+  action: "install" | "satisfied" | "external" | "unknown";
   /** The executable a spawn on this search path would select. */
   binaryPath?: string;
 }
@@ -384,17 +526,22 @@ async function probePin(
   if (version === undefined) {
     return { action: "satisfied", binaryPath };
   }
-  if (!(await isBunManagedBinary(command, binaryPath))) {
-    return { action: "external", binaryPath };
+  const managed = await isBunManagedBinary(command, binaryPath);
+  if (managed !== "yes") {
+    return { action: managed === "no" ? "external" : "unknown", binaryPath };
   }
-  if (!(await bunLinkOwnedBy(command, name))) {
-    return { action: "install", binaryPath };
+  const owned = await bunLinkOwnedBy(command, name);
+  if (owned !== "yes") {
+    return { action: owned === "no" ? "install" : "unknown", binaryPath };
   }
-  const action =
-    (await getInstalledAdapterVersion(command)) === version
-      ? "satisfied"
-      : "install";
-  return { action, binaryPath };
+  const read = await readInstalledAdapterVersion(command);
+  if (read === "unknown") {
+    return { action: "unknown", binaryPath };
+  }
+  return {
+    action: read.version === version ? "satisfied" : "install",
+    binaryPath,
+  };
 }
 
 /**
@@ -402,7 +549,9 @@ async function probePin(
  * install is verified by re-probing, since `bun add` exiting 0 does not prove
  * the pinned binary is what a spawn now runs: a bin link left pointing
  * elsewhere, or a realpath the daemon may not read, would otherwise reinstall
- * on every spawn forever.
+ * on every spawn forever. Only a verified mismatch abandons the pin; an
+ * install that failed, and a probe that could not answer, each spend one of
+ * the scope's attempts and are retried until the budget opens a cooldown.
  */
 async function installToPin(
   bunPath: string,
@@ -410,21 +559,28 @@ async function installToPin(
   packageSpec: string,
   searchPath?: string,
 ): Promise<AdapterInstallResult> {
+  const scope = pinScope(command, packageSpec, searchPath);
+  const fields = { command, packageSpec, searchPath };
   const probe = await probePin(command, packageSpec, searchPath);
   if (probe.action === "external") {
     warnOnce(
       warnedOutsideBun,
       command,
-      { command, binaryPath: probe.binaryPath, packageSpec },
+      { ...fields, binaryPath: probe.binaryPath },
       "ACP adapter is managed outside bun; leaving it in place and skipping the version pin",
     );
     return { installed: false };
   }
   if (probe.action === "satisfied") {
+    installAttempts.delete(scope);
     return { installed: false };
   }
-  const pinKey = joinKey(command, packageSpec);
-  if (abandonedPins.has(pinKey)) {
+  if (abandonedPins.has(scope) || isCoolingDown(scope)) {
+    return { installed: false };
+  }
+  if (probe.action === "unknown") {
+    warnUnverifiable(scope, { ...fields, binaryPath: probe.binaryPath });
+    recordInstallAttempt(scope, fields);
     return { installed: false };
   }
   // Probes stay per PATH, but two PATHs spelling the same bun tree reach one
@@ -433,18 +589,36 @@ async function installToPin(
     runInstall(bunPath, command, packageSpec),
   );
   if (!result.installed) {
+    recordInstallAttempt(scope, fields);
     return result;
   }
   const verified = await probePin(command, packageSpec, searchPath);
   if (verified.action === "install") {
     warnOnce(
       abandonedPins,
-      pinKey,
-      { command, packageSpec, binaryPath: verified.binaryPath },
+      scope,
+      { ...fields, binaryPath: verified.binaryPath },
       "ACP adapter install reported success but PATH still does not select the pinned version; leaving it alone for the rest of this process",
     );
+  } else if (verified.action === "unknown") {
+    warnUnverifiable(scope, { ...fields, binaryPath: verified.binaryPath });
+    recordInstallAttempt(scope, fields);
+  } else {
+    installAttempts.delete(scope);
   }
   return result;
+}
+
+function warnUnverifiable(
+  scope: string,
+  fields: Record<string, unknown>,
+): void {
+  warnOnce(
+    warnedUnverifiablePins,
+    scope,
+    fields,
+    "Could not read the installed ACP adapter to check its version pin; leaving it in place and re-checking on the next spawn",
+  );
 }
 
 /**
@@ -559,10 +733,11 @@ export async function resolveAgentWithAutoInstall(
  * A resolution that succeeded still has to satisfy the pin: the adapter on
  * PATH may be an older bun-managed install, or one linked by a different
  * package that owns the same binary name. Reinstall and re-resolve when it
- * does not match, returning the re-resolution even when it failed so the
- * caller surfaces its actionable hint instead of a bare spawn ENOENT. When
- * the reinstall fails, keep the original resolution and warn: a stale adapter
- * still beats no adapter.
+ * does not match. Every path here keeps an agent the caller can spawn: the
+ * resolution that came in was already good, so a reinstall that fails, or one
+ * that lands but leaves the re-resolve failing, warns and hands back that
+ * original agent rather than turning a working spawn into a hard failure.
+ * `autoInstalledPackage` is only claimed when the re-resolve confirmed it.
  */
 async function enforcePin(
   agentId: string,
@@ -577,14 +752,21 @@ async function enforcePin(
         { agentId, command },
         "Reinstalled the ACP adapter at its pinned version",
       );
+      return {
+        resolved: retried,
+        autoInstalledPackage: DEFAULT_AGENT_NPM_PACKAGES[command],
+      };
     }
-    return {
-      resolved: retried,
-      autoInstalledPackage: DEFAULT_AGENT_NPM_PACKAGES[command],
-    };
-  }
-  if (install.error) {
-    log.warn(
+    warnOnce(
+      warnedReresolveFailure,
+      command,
+      { agentId, command, reason: retried.reason },
+      "ACP adapter reinstall landed but the adapter no longer resolves; spawning the one resolved before it",
+    );
+  } else if (install.error) {
+    warnOnce(
+      warnedInstallFailure,
+      command,
       { agentId, command, error: install.error },
       "Could not reinstall the ACP adapter at its pinned version; spawning the installed one",
     );
@@ -596,8 +778,12 @@ async function enforcePin(
 export function _resetAdapterInstallCacheForTests(): void {
   pinChecks.clear();
   installRuns.clear();
+  installAttempts.clear();
   warnedOutsideBun.clear();
   warnedMissingBun.clear();
+  warnedUnverifiablePins.clear();
+  warnedInstallFailure.clear();
+  warnedReresolveFailure.clear();
   abandonedPins.clear();
   probeDeps = REAL_PROBE_DEPS;
 }
