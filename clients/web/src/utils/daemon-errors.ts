@@ -12,6 +12,7 @@
  */
 
 import { ApiError } from "@/utils/api-errors";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 const MAX_DAEMON_RETRIES = 3;
 
@@ -76,4 +77,24 @@ export function shouldRetryDaemonError(
     return false;
   }
   return isExpectedDaemonTransientError(error);
+}
+
+/**
+ * TanStack Query retry predicate for daemon queries that cannot be left waiting
+ * on a failure: it retries what {@link shouldRetryDaemonError} retries plus the
+ * browser's own network failures, under the same bound.
+ *
+ * A local assistant that restarts refuses the connection instead of answering a
+ * status, and TanStack's online manager only refetches across an
+ * offline-to-online transition, so a query without these retries settles on the
+ * first refusal.
+ */
+export function shouldRetryDaemonOrNetworkError(
+  failureCount: number,
+  error: Error,
+): boolean {
+  if (shouldRetryDaemonError(failureCount, error)) {
+    return true;
+  }
+  return failureCount < MAX_DAEMON_RETRIES && isTransientNetworkError(error);
 }

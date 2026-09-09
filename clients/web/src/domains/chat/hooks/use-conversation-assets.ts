@@ -4,13 +4,13 @@
  * frames), and camera frames. Frames stay empty while attachments come from
  * the transcript, which cannot see the camera-frame tag.
  *
- * The two daemon queries wait for the org header and retry the statuses a
- * restarting assistant answers with, so anything that settles failed here is a
- * failure the panel can name, and it is named only once every source has
- * settled.
+ * The two daemon queries wait for the org header and retry both the statuses a
+ * restarting assistant answers with and a refused connection, so anything that
+ * settles failed here is a failure the panel can name, and it is named only
+ * once every source has settled.
  */
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { onlineManager, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 
 import {
@@ -27,7 +27,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
-import { shouldRetryDaemonError } from "@/utils/daemon-errors";
+import { shouldRetryDaemonOrNetworkError } from "@/utils/daemon-errors";
 import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 export type ConversationFileAsset =
@@ -87,10 +87,19 @@ const NO_DOCUMENTS: DocumentSummary[] = [];
 type DaemonSourceState = "ready" | "unresolved" | "failed";
 
 /**
+ * A network error thrown while the browser is offline is the one failure still
+ * on its way: TanStack refetches every query on reconnect. The same error while
+ * the browser is online is a refused connection that has already spent its
+ * retries, and it settles like any other answer.
+ */
+function waitsForReconnect(error: Error | null): boolean {
+  return isTransientNetworkError(error) && !onlineManager.isOnline();
+}
+
+/**
  * A failed background refetch keeps the last data, so a source is failed or
- * unresolved only while it has nothing to show. A dropped connection is not a
- * failure either: TanStack refetches on reconnect, so that source is still on
- * its way, unlike a status the daemon answered with.
+ * unresolved only while it has nothing to show. Of the errors that leave it
+ * with nothing, only the one {@link waitsForReconnect} names is still coming.
  */
 function daemonSourceState(query: {
   data: unknown;
@@ -100,7 +109,7 @@ function daemonSourceState(query: {
   if (query.data !== undefined) {
     return "ready";
   }
-  if (query.isError && !isTransientNetworkError(query.error)) {
+  if (query.isError && !waitsForReconnect(query.error)) {
     return "failed";
   }
   return "unresolved";
@@ -154,7 +163,8 @@ export function useConversationAssets({
   const queryClient = useQueryClient();
   // A request sent before the org header can be produced, or through a daemon
   // restart, fails for a reason the conversation has nothing to do with. The
-  // gate and the retries keep both out of the settled failures below.
+  // gate and the retries keep both out of the settled failures below, whether
+  // the restart answers a status or refuses the connection.
   const isOrgReady = useIsOrgReady();
   const appsQuery = useQuery({
     ...appsGetOptions({
@@ -162,7 +172,7 @@ export function useConversationAssets({
       query: { conversationId },
     }),
     enabled: isOrgReady,
-    retry: shouldRetryDaemonError,
+    retry: shouldRetryDaemonOrNetworkError,
     select: (data) => data.apps,
   });
   const documentsQuery = useQuery({
@@ -171,7 +181,7 @@ export function useConversationAssets({
       query: { conversationId },
     }),
     enabled: isOrgReady,
-    retry: shouldRetryDaemonError,
+    retry: shouldRetryDaemonOrNetworkError,
     select: (data) => data.documents,
   });
 

@@ -9,7 +9,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  onlineManager,
+  type QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { cleanup, renderHook } from "@testing-library/react";
 
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
@@ -149,8 +153,10 @@ afterEach(() => {
   releaseOrgHeader();
   clearTranscriptMessages();
   // The store is a module singleton, so its loading flag goes back to the
-  // value a fresh chat session starts on.
+  // value a fresh chat session starts on, and so does TanStack's online
+  // manager, which an offline test would otherwise leave offline.
   useChatSessionStore.setState({ isLoadingHistory: true });
+  onlineManager.setOnline(true);
 });
 
 describe("useConversationAssets", () => {
@@ -259,6 +265,16 @@ describe("useConversationAssets status", () => {
       .getQueryCache()
       .find({ queryKey })!
       .setState({ error: new ApiError(status, `HTTP ${status}`) });
+  }
+
+  /** Re-stamps a seeded failure with the error a browser throws for itself. */
+  function failWithNetworkError(client: QueryClient): void {
+    client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+    client
+      .getQueryCache()
+      .find({ queryKey: documentsGetQueryKey(QUERY_ARGS) })!
+      .setState({ error: new TypeError("Failed to fetch") });
   }
 
   // An empty category means "nothing here" only once this reads "ready", so
@@ -416,21 +432,27 @@ describe("useConversationAssets status", () => {
     expect(result.current.status).toBe("pending");
   });
 
-  // TanStack refetches on reconnect, so a browser that dropped its connection
-  // gets its answer back on its own: that source is still on its way, unlike
-  // one the daemon answered with a status.
-  test("is pending when a source failed the way a dropped connection does", () => {
+  // TanStack refetches every query on reconnect, so a browser that lost the
+  // network gets its answer back on its own: that source is still on its way.
+  test("is pending when a source failed while the browser is offline", () => {
     const client = seededQueries();
-    client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
-    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
-    client
-      .getQueryCache()
-      .find({ queryKey: documentsGetQueryKey(QUERY_ARGS) })!
-      .setState({ error: new TypeError("Failed to fetch") });
+    failWithNetworkError(client);
+    onlineManager.setOnline(false);
 
     const { result } = renderAssets({ client });
 
     expect(result.current.status).toBe("pending");
+  });
+
+  // Nothing reconnects an online browser, and the retries are already spent, so
+  // a source left pending here would hide the trigger for the whole session.
+  test("is error when a source failed a refused connection while online", () => {
+    const client = seededQueries();
+    failWithNetworkError(client);
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("error");
   });
 });
 
