@@ -197,6 +197,14 @@ interface SessionEntry {
   /** Tail of this session's model-switch chain, so overlapping setModel calls
    *  reach the adapter one at a time and the last choice wins. */
   modelSwitchQueue: Promise<void>;
+  /** Count of this manager's own `setConfigOption` calls in flight, so a
+   *  `config_option_update` the adapter sends as their side effect is not
+   *  read as a user choice. */
+  managerPinsInFlight: number;
+  /** Last model value this manager asked the adapter for, kept because the
+   *  echoing notification can land after the call resolved. Cleared once a
+   *  genuinely different model arrives. */
+  lastManagerPinnedModel?: string;
 }
 
 /**
@@ -461,7 +469,7 @@ export class AcpSessionManager {
     configOptions: SessionConfigOption[],
     resolvedModel: string | undefined,
   ): Promise<string | undefined> {
-    const { state, process: agentProcess } = entry;
+    const { state } = entry;
     const info = this.applyModelInfo(entry, configOptions);
     if (!resolvedModel || resolvedModel === info.model) {
       return undefined;
@@ -475,8 +483,8 @@ export class AcpSessionManager {
     }
 
     try {
-      const refreshed = await agentProcess.setConfigOption(
-        state.acpSessionId,
+      const refreshed = await this.setConfigOptionAsManager(
+        entry,
         info.modelConfigId,
         resolvedModel,
       );
@@ -488,6 +496,31 @@ export class AcpSessionManager {
         "ACP agent refused the requested model; running on its own model",
       );
       return err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  /**
+   * Runs one of the manager's own `setConfigOption` calls, marked for the
+   * duration so the unsolicited path does not mistake the adapter's echo of
+   * it for a model the user chose. Spawn, resume, and `setModel` each decide
+   * their own preference write, and a second one from the notification would
+   * freeze an inherited default into the conversation.
+   */
+  private async setConfigOptionAsManager(
+    entry: SessionEntry,
+    configId: string,
+    value: string,
+  ): Promise<SessionConfigOption[]> {
+    entry.managerPinsInFlight += 1;
+    entry.lastManagerPinnedModel = value;
+    try {
+      return await entry.process.setConfigOption(
+        entry.state.acpSessionId,
+        configId,
+        value,
+      );
+    } finally {
+      entry.managerPinsInFlight -= 1;
     }
   }
 
@@ -580,6 +613,7 @@ export class AcpSessionManager {
       command: basename(opts.agentConfig.command),
       credentialDigest: opts.agentConfig.credentialDigest,
       modelSwitchQueue: Promise.resolve(),
+      managerPinsInFlight: 0,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -690,8 +724,8 @@ export class AcpSessionManager {
       );
     }
 
-    const refreshed = await entry.process.setConfigOption(
-      state.acpSessionId,
+    const refreshed = await this.setConfigOptionAsManager(
+      entry,
       modelConfigId,
       model,
     );
@@ -769,7 +803,9 @@ export class AcpSessionManager {
    * daemon. Only a value that actually moved becomes the conversation's
    * preference: adapters re-report the full option set for unrelated changes,
    * and re-recording an unchanged model would freeze an inherited default
-   * into the conversation.
+   * into the conversation. A move this manager itself asked for is published
+   * like any other but writes no preference, whether the notification lands
+   * while the request is in flight or just after it resolved.
    */
   private applyUnsolicitedConfigOptions(
     acpSessionId: string,
@@ -789,9 +825,17 @@ export class AcpSessionManager {
 
     this.sendModelEvent(acpSessionId, entry);
 
-    if (entry.state.model !== previousModel) {
-      this.rememberModelChoice(entry);
+    if (entry.state.model === previousModel) {
+      return;
     }
+    if (
+      entry.managerPinsInFlight > 0 ||
+      entry.state.model === entry.lastManagerPinnedModel
+    ) {
+      return;
+    }
+    entry.lastManagerPinnedModel = undefined;
+    this.rememberModelChoice(entry);
   }
 
   /**

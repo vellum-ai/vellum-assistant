@@ -855,4 +855,126 @@ describe("AcpSessionManager: unsolicited model updates", () => {
       getAcpConversationModelPreference("conv-unchanged", "agent-model"),
     ).toBeUndefined();
   });
+
+  test("an update landing while the spawn pin is in flight records no preference", async () => {
+    config.setConfig({ defaultModel: "sonnet" });
+    scriptedConfigOptions = [[modelOption("default")]];
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setConfigOptionResponder = async (value) => {
+      await held;
+      return [modelOption(String(value))];
+    };
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawning = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-race",
+      (msg: AssistantEvent) => sent.push(msg),
+    );
+    await waitForConfigOptionCalls(1);
+    const acpSessionId = (manager.getStatus() as AcpSessionState[])[0].id;
+
+    // The adapter reports the pin it is still answering.
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("sonnet")],
+      },
+    });
+    release();
+    await spawning;
+
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "sonnet",
+    );
+    expect(sent.map((e) => e.type)).toEqual([
+      "acp_session_model_update",
+      "acp_session_spawned",
+      "acp_session_model_update",
+    ]);
+    expect(
+      getAcpConversationModelPreference("conv-pin-race", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("an update echoing the spawn pin after it resolved records no preference", async () => {
+    // The adapter answers the pin with the snapshot it had, then reports the
+    // value it moved to through a notification of its own.
+    setConfigOptionResponder = async () => [modelOption("default")];
+    const { manager, acpSessionId, sent } =
+      await spawnPinnedToDefault("conv-pin-echo");
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("sonnet")],
+      },
+    });
+
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "sonnet",
+    );
+    expect(sent.map((e) => e.type)).toEqual(["acp_session_model_update"]);
+    expect(
+      getAcpConversationModelPreference("conv-pin-echo", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("a different model after the spawn pin is still remembered", async () => {
+    setConfigOptionResult = [modelOption("sonnet")];
+    const { manager, acpSessionId, sent } = await spawnPinnedToDefault(
+      "conv-pin-then-typed",
+    );
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("opus")],
+      },
+    });
+
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "opus",
+    );
+    expect(sent.map((e) => e.type)).toEqual(["acp_session_model_update"]);
+    expect(
+      getAcpConversationModelPreference("conv-pin-then-typed", "agent-model"),
+    ).toBe("opus");
+  });
 });
+
+/**
+ * A running session the manager pinned to the global default on its own, with
+ * the spawn events drained. Nothing about the model was an explicit request,
+ * so the spawn wrote no preference. Callers set the adapter's answer to the
+ * pin before calling.
+ */
+async function spawnPinnedToDefault(conversationId: string): Promise<{
+  manager: Manager;
+  acpSessionId: string;
+  sent: AssistantEvent[];
+}> {
+  config.setConfig({ defaultModel: "sonnet" });
+  scriptedConfigOptions = [[modelOption("default")]];
+  const manager = new AcpSessionManager(5);
+  const sent: AssistantEvent[] = [];
+  const { acpSessionId } = await manager.spawn(
+    "agent-model",
+    { command: "echo", args: ["hi"] },
+    "task",
+    "/tmp",
+    conversationId,
+    (msg) => sent.push(msg),
+  );
+  sent.length = 0;
+  return { manager, acpSessionId, sent };
+}
