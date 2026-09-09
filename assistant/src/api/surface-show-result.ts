@@ -23,7 +23,7 @@ export interface SurfaceShowResult {
  *
  * Trailing prose after the JSON object is tolerated: guidance belongs in a
  * `note` field, but a caller that appends it instead must not silently cost
- * the reader its `surfaceId` — losing the id makes a live progress surface
+ * the reader its `surfaceId`: losing the id makes a live progress surface
  * invisible to the completion nudge, and the user watches it spin forever.
  */
 export function parseSurfaceShowResultId(content: string): string | undefined {
