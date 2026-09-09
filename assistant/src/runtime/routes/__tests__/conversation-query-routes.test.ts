@@ -2,6 +2,8 @@ import { utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { z } from "zod";
+
 import {
   sampleConcepts as sharedSampleConcepts,
   sampleConfig,
@@ -1938,5 +1940,39 @@ describe("ingress URL writes through the generic config routes", () => {
     const ingress = savedIngress();
     expect(ingress.assistantId).toBe("assistant-1");
     expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+});
+
+describe("acp config wire schemas", () => {
+  const getSchema = ROUTES.find((r) => r.operationId === "config_get")!
+    .responseBody as z.ZodTypeAny;
+  const patchSchema = ROUTES.find((r) => r.operationId === "config_patch")!
+    .requestBody as z.ZodTypeAny;
+
+  test("the GET response carries acp.defaultModel", () => {
+    expect(getSchema.parse({ acp: { defaultModel: "opus" } })).toEqual({
+      acp: { defaultModel: "opus" },
+    });
+  });
+
+  test("the PATCH body carries acp.defaultModel", () => {
+    expect(patchSchema.parse({ acp: { defaultModel: "sonnet" } })).toEqual({
+      acp: { defaultModel: "sonnet" },
+    });
+  });
+
+  test("the PATCH body accepts a null defaultModel so the key can be deleted", () => {
+    expect(patchSchema.parse({ acp: { defaultModel: null } })).toEqual({
+      acp: { defaultModel: null },
+    });
+  });
+
+  test("both schemas reject a non-string defaultModel", () => {
+    expect(getSchema.safeParse({ acp: { defaultModel: 3 } }).success).toBe(
+      false,
+    );
+    expect(patchSchema.safeParse({ acp: { defaultModel: 3 } }).success).toBe(
+      false,
+    );
   });
 });
