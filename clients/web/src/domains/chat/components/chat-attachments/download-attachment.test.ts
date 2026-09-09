@@ -39,6 +39,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   attachmentsByIdContentGet,
 }));
 
+const saveFile = mock(
+  async (_source: Blob | string, _filename: string): Promise<void> => undefined,
+);
+mock.module("@/runtime/native-file", () => ({ saveFile }));
+
 mock.module("@/lib/sentry/capture-error", () => ({
   ...captureErrorModule,
   captureError: (
@@ -53,16 +58,23 @@ mock.module("@/lib/sentry/capture-error", () => ({
   },
 }));
 
-const { fetchAttachmentContentBlob } =
+const { downloadAttachment, fetchAttachmentContentBlob } =
   await import("@/domains/chat/components/chat-attachments/download-attachment");
+const { subscribe } = await import("@/lib/event-bus");
+
+/** Terminal download reports the bus carried during the current test. */
+let downloads: { filename: string; state: string }[] = [];
+subscribe("download.done", (payload) => downloads.push(payload));
 
 beforeEach(() => {
   captured = [];
+  downloads = [];
   contentResponse = async () => ({ data: new Blob(["bytes"]), error: null });
 });
 
 afterEach(() => {
   attachmentsByIdContentGet.mockClear();
+  saveFile.mockClear();
 });
 
 afterAll(() => {
@@ -138,5 +150,46 @@ describe("fetchAttachmentContentBlob", () => {
     ).toBeNull();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
     expect(captured).toEqual([]);
+  });
+});
+
+describe("downloadAttachment", () => {
+  test("reports an interrupted download when there are no bytes to save", async () => {
+    // A deleted attachment answers 404, which the fetch reports as null rather
+    // than an error, and it carries no inline preview to fall back to.
+    contentResponse = async () => ({
+      data: undefined,
+      error: { message: "Attachment not found" },
+      response: new Response(null, { status: 404 }),
+    });
+
+    await downloadAttachment(
+      { id: "att-gone", filename: "gone.png", previewUrl: null },
+      "asst-1",
+    );
+
+    expect(saveFile).not.toHaveBeenCalled();
+    expect(downloads).toEqual([{ filename: "gone.png", state: "interrupted" }]);
+  });
+
+  test("stays quiet when the fetched bytes were saved", async () => {
+    await downloadAttachment(
+      { id: "att-1", filename: "photo.png", previewUrl: null },
+      "asst-1",
+    );
+
+    expect(saveFile).toHaveBeenCalledTimes(1);
+    expect(downloads).toEqual([]);
+  });
+
+  test("stays quiet when the inline preview was saved", async () => {
+    await downloadAttachment({
+      id: "rehydrated:0",
+      filename: "legacy.png",
+      previewUrl: "data:image/png;base64,AAAA",
+    });
+
+    expect(saveFile).toHaveBeenCalledTimes(1);
+    expect(downloads).toEqual([]);
   });
 });

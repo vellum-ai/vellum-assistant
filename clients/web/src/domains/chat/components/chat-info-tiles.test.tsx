@@ -36,8 +36,12 @@ import {
   seedQueryFailure,
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
+import { stubHostLanguage } from "@/i18n/host-language.test-helper";
 
 const restoreDomStubs = installChatInfoDomStubs();
+// The capture-time label formats in the host language when it shares a primary
+// language with the app's, so both axes are pinned to read the same strings.
+const restoreHostLanguage = stubHostLanguage(CHAT_INFO_TEST_LOCALE);
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.
 mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
@@ -110,6 +114,7 @@ afterEach(() => {
 
 afterAll(() => {
   restoreDomStubs();
+  restoreHostLanguage();
   mock.restore();
 });
 

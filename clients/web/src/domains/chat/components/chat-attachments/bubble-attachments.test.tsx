@@ -165,6 +165,29 @@ describe("BubbleAttachments", () => {
     expect(modal.getAttribute("data-preview-url")).toBe("null");
   });
 
+  test("keeps the good twin's preview when one of two rows under a shared id fails", () => {
+    // The history fallback rehydrates every row it recovers as `rehydrated:0`,
+    // so a set keyed by id alone would blank both on one dead decode.
+    const rehydrated = (filename: string): DisplayAttachment => ({
+      id: "rehydrated:0",
+      filename,
+      mimeType: "image/png",
+      sizeBytes: 1_024,
+      previewUrl: `https://example.com/${filename}`,
+    });
+    const { getByRole } = render(
+      <BubbleAttachments
+        attachments={[rehydrated("first.png"), rehydrated("second.png")]}
+      />,
+    );
+
+    fireEvent.error(getByRole("button", { name: "first.png" }));
+
+    const twin = getByRole("button", { name: "second.png" });
+    expect(twin.tagName).toBe("IMG");
+    expect(twin.getAttribute("src")).toBe("https://example.com/second.png");
+  });
+
   test("strips a failed sibling's previewUrl in the gallery array so arrow navigation refetches stored bytes", () => {
     const undecodable: DisplayAttachment = {
       id: "img-5",

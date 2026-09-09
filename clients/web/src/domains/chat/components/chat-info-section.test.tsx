@@ -172,8 +172,9 @@ describe("ChatInfoSection", () => {
   });
 
   test("offers See All for two app tiles on the narrowest phone", () => {
-    // Two app tiles and their gap are wider than the column, so the pair
-    // scrolls and the drill-in is the only way to the second one.
+    // Two app tiles and their gap are wider than the column, so the row
+    // scrolls and offers See All even though the bleed leaves the second tile
+    // on screen.
     viewport.set({ narrow: true, coarsePointer: false });
     widthRef.value = NARROW_COLUMN_WIDTH;
 
@@ -184,6 +185,20 @@ describe("ChatInfoSection", () => {
     });
 
     expect(seeAll()).not.toBeNull();
+  });
+
+  test("shows both file tiles and no See All when the phone column holds them", () => {
+    viewport.set({ narrow: true, coarsePointer: false });
+    widthRef.value = NARROW_COLUMN_WIDTH;
+
+    renderSection({
+      items: makeItems(2),
+      count: 2,
+      tileWidth: CHAT_INFO_FILE_TILE_WIDTH_PX,
+    });
+
+    expect(tiles()).toHaveLength(2);
+    expect(seeAll()).toBeNull();
   });
 
   test("pays the reclaimed inset back on both edges of the strip", () => {

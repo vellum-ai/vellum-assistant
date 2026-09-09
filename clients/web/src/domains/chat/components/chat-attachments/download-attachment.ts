@@ -1,4 +1,5 @@
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { publish } from "@/lib/event-bus";
 import { captureError } from "@/lib/sentry/capture-error";
 import { toApiError } from "@/utils/api-errors";
 
@@ -61,6 +62,10 @@ export async function fetchAttachmentContentBlob(
  * rather than the actual file (e.g. video attachments with `thumbnailData`
  * only). Falls back to `previewUrl` when the daemon endpoint is unavailable
  * (no assistantId, synthetic rehydrated IDs, or fetch failure).
+ *
+ * With neither source `saveFile` never runs, so this publishes the terminal
+ * `download.done` itself. Nothing else would: a deleted attachment answers
+ * 404, which the fetch reports as absence rather than a fault.
  */
 export async function downloadAttachment(
   attachment: {
@@ -82,5 +87,11 @@ export async function downloadAttachment(
 
   if (attachment.previewUrl) {
     await saveFile(attachment.previewUrl, attachment.filename);
+    return;
   }
+
+  publish("download.done", {
+    filename: attachment.filename,
+    state: "interrupted",
+  });
 }

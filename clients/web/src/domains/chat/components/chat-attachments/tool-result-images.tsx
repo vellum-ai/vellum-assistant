@@ -3,6 +3,7 @@ import type { FC, MouseEvent } from "react";
 import { useCallback, useMemo } from "react";
 
 import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
+import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
 import { downloadAttachment } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { estimateBase64Bytes } from "@/domains/chat/components/chat-attachments/utils";
 import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
@@ -168,6 +169,20 @@ function toolResultImageInputs(toolCall: ChatMessageToolCall): {
 }
 
 /**
+ * One tool-result image, plus the identity the strip lists it under.
+ *
+ * `id` cannot serve: a referenced image carries the workspace attachment id it
+ * fetches by, and two tool calls in one turn can name the same one. The strip
+ * also drops entries from the middle as a turn settles, so a positional key
+ * would shift under a surviving image and remount it, throwing away the object
+ * URL it had already fetched.
+ */
+export interface ToolResultImage extends DisplayAttachment {
+  /** Stable across a mid-turn removal and unique within the strip. */
+  stripKey: string;
+}
+
+/**
  * Project a message's tool-result images into {@link DisplayAttachment}
  * objects.
  *
@@ -190,8 +205,8 @@ function toolResultImageInputs(toolCall: ChatMessageToolCall): {
 function buildToolResultAttachments(
   toolCalls: ChatMessageToolCall[],
   embeddedImageNames: ReadonlySet<string>,
-): DisplayAttachment[] {
-  const attachments: DisplayAttachment[] = [];
+): ToolResultImage[] {
+  const attachments: ToolResultImage[] = [];
   let globalIndex = 0;
   for (const tc of toolCalls) {
     const { refIds, base64Images } = toolResultImageInputs(tc);
@@ -223,6 +238,7 @@ function buildToolResultAttachments(
       }
       attachments.push({
         id: attachmentId,
+        stripKey: `tool-ref:${tc.id}:${localIndex}`,
         filename: nameFor("png"),
         mimeType: "image/png",
         sizeBytes: 0,
@@ -238,8 +254,10 @@ function buildToolResultAttachments(
       }
       const { mimeType, base64, src } = normalizeToolResultImage(imageData);
       const ext = mimeType.split("/")[1] ?? "png";
+      const syntheticId = `tool-image:${tc.id}:${localIndex}`;
       attachments.push({
-        id: `tool-image:${tc.id}:${localIndex}`,
+        id: syntheticId,
+        stripKey: syntheticId,
         filename: nameFor(ext),
         mimeType,
         sizeBytes: estimateBase64Bytes(base64),
@@ -277,7 +295,7 @@ export function resolveToolResultImages(
   toolCalls: ChatMessageToolCall[],
   messageAttachments: readonly DisplayAttachment[] | undefined,
   embeddedImageNames: ReadonlySet<string> = EMPTY_NAMES,
-): DisplayAttachment[] {
+): ToolResultImage[] {
   const shown = buildToolResultAttachments(toolCalls, embeddedImageNames);
   if (!messageAttachments?.length) {
     return shown;
@@ -330,10 +348,10 @@ const ToolResultImageThumb: FC<{
 /**
  * Renders a workspace-referenced tool-result image from the object URL
  * {@link useAttachmentObjectUrl} fetches for it, which shares its cache entry
- * with the preview modal. A spinner placeholder holds the slot while that
- * resolves; with nothing to fetch with (no assistant id, or an id that can
- * never resolve) the placeholder box stays empty, because there is nothing
- * left to wait for.
+ * with the preview modal. A spinner holds the slot while that resolves; bytes
+ * that failed, or can never be fetched at all (no assistant id, an id that can
+ * never resolve), fall back to the image glyph, so the box names a file whose
+ * picture is missing rather than sitting empty.
  */
 const ReferencedToolResultImage: FC<{
   attachment: DisplayAttachment;
@@ -349,11 +367,18 @@ const ReferencedToolResultImage: FC<{
     return (
       <div
         data-testid="tool-result-image-placeholder"
-        className={`flex h-40 w-40 items-center justify-center ${IMAGE_CLASS}`}
+        className={`h-40 w-40 ${IMAGE_CLASS}`}
       >
-        {!isError && (
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
-        )}
+        <AttachmentPreviewBox
+          className="h-full w-full"
+          kind="image"
+          glyphClassName="h-6 w-6"
+          placeholder={
+            isError ? null : (
+              <Loader2 className="h-6 w-6 animate-spin text-[var(--content-tertiary)]" />
+            )
+          }
+        />
       </div>
     );
   }
@@ -419,8 +444,11 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
     [assistantId],
   );
 
+  // The modal outlives the strip: an image the end-of-turn attachments take
+  // over mid-preview empties this list, and unmounting the modal with it would
+  // close a preview the user still has open.
   if (attachments.length === 0) {
-    return null;
+    return previewModal;
   }
 
   return (
@@ -428,7 +456,7 @@ export const ToolResultImages: FC<ToolResultImagesProps> = ({
       <div className="flex w-full flex-wrap gap-2">
         {attachments.map((att, index) => (
           <div
-            key={`${index}:${att.id}`}
+            key={att.stripKey}
             role="button"
             aria-label={att.filename}
             title={att.filename}
