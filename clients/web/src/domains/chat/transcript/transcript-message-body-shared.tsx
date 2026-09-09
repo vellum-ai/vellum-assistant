@@ -574,8 +574,8 @@ export function SlackMessageAttribution({
  * character, and a `custom` or `shortcode` one renders its bare ":name:",
  * since its image belongs to the channel and a name must never swap into an
  * unrelated standard emoji. A row carrying only a spelling has its kind
- * recovered by the contract's classifier and renders the same way, so a
- * Slack name stored before its adapter resolved names reads as ":name:".
+ * recovered by the contract's classifier and renders the same way; a bare
+ * name is never resolved here.
  */
 export function displayReactionEmoji(
   reaction: { emoji: string } & ReactionEmojiFields,
