@@ -148,8 +148,11 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare, SCREEN_SHARE_SETTLE_WITHIN_MS } =
-  await import("./use-live-voice-screen-share");
+const {
+  useLiveVoiceScreenShare,
+  SCREEN_SHARE_PICTURE_WAIT_MS,
+  SCREEN_SHARE_SETTLE_WITHIN_MS,
+} = await import("./use-live-voice-screen-share");
 const { useLiveVoiceStore } = await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
   await import("./live-voice-fakes.test-helper");
@@ -997,29 +1000,71 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
  * hold the gate on a view the call never gets, and every later send behind
  * it, for the rest of the call. Past the bound the frame is written off.
  */
+let timers: ReturnType<typeof spyOn> | null = null;
+/** The named bound runs out at once; every other timer is left alone. */
+function shortenTheBound(boundMs: number): void {
+  const realSetTimeout = globalThis.setTimeout;
+  timers = spyOn(globalThis, "setTimeout").mockImplementation(((
+    handler: TimerHandler,
+    timeout?: number,
+    ...args: unknown[]
+  ) =>
+    realSetTimeout(
+      handler,
+      timeout === boundMs ? 0 : timeout,
+      ...args,
+    )) as typeof setTimeout);
+}
+
+/**
+ * The helper's own client gives up on a stalled call only after the better
+ * part of a minute, and pictures are judged one at a time, so one stalled
+ * answer would hold every later picture back for that long.
+ */
+describe("useLiveVoiceScreenShare: a helper that stalls", () => {
+  afterEach(() => {
+    timers?.mockRestore();
+    timers = null;
+  });
+
+  test("a stalled picture is skipped at the bound, and the occasions behind it go on", async () => {
+    shortenTheBound(SCREEN_SHARE_PICTURE_WAIT_MS);
+    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+    answerFrame = () =>
+      new Promise<ScreenCaptureFrame>((resolve) => {
+        releaseFrame = resolve;
+      });
+    renderShare();
+    share(WINDOW);
+    await Promise.resolve();
+    // The helper answers the question's picture as usual.
+    show("b");
+    speak(true);
+    await flush();
+    await flush();
+
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-1",
+      expect.objectContaining({ reason: "forced" }),
+    );
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual(WINDOW);
+
+    // The stalled answer, when it comes, is not read.
+    releaseFrame(frameOf("a"));
+    await flush();
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("useLiveVoiceScreenShare: an upload that hangs", () => {
-  let timers: ReturnType<typeof spyOn> | null = null;
-  /** The bound runs out at once; every other timer is left alone. */
-  const shortenTheBound = (): void => {
-    const realSetTimeout = globalThis.setTimeout;
-    timers = spyOn(globalThis, "setTimeout").mockImplementation(((
-      handler: TimerHandler,
-      timeout?: number,
-      ...args: unknown[]
-    ) =>
-      realSetTimeout(
-        handler,
-        timeout === SCREEN_SHARE_SETTLE_WITHIN_MS ? 0 : timeout,
-        ...args,
-      )) as typeof setTimeout);
-  };
   afterEach(() => {
     timers?.mockRestore();
     timers = null;
   });
 
   test("a hung question frame is written off, and the picture turned away for it goes instead", async () => {
-    shortenTheBound();
+    shortenTheBound(SCREEN_SHARE_SETTLE_WITHIN_MS);
     renderShare();
     share(WINDOW);
     await flush();
@@ -1055,7 +1100,7 @@ describe("useLiveVoiceScreenShare: an upload that hangs", () => {
   });
 
   test("a hung earlier frame no longer holds the sends behind it", async () => {
-    shortenTheBound();
+    shortenTheBound(SCREEN_SHARE_SETTLE_WITHIN_MS);
     const first = holdNextUpload();
     renderShare();
     share(WINDOW);

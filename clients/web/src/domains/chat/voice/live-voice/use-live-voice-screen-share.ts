@@ -149,6 +149,19 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
 export const SCREEN_SHARE_SETTLE_WITHIN_MS = 5_000;
 
 /**
+ * How long an occasion waits for the helper's picture before going without.
+ *
+ * The helper answers in a fraction of a second, and its own client gives up
+ * on a call only after the better part of a minute. Pictures are judged one
+ * at a time, so one stalled answer would hold every later occasion's
+ * picture, already in hand, back from being judged and sent for that long.
+ * Past this the occasion is skipped, and the answer, if it ever comes, is
+ * not read: its moment has passed, and what it says about the surface is
+ * the next occasion's to find out.
+ */
+export const SCREEN_SHARE_PICTURE_WAIT_MS = 3_000;
+
+/**
  * Below this much structure a screen is flat, and flat screens are compared
  * by their light rather than by their shape.
  *
@@ -518,8 +531,26 @@ export function useLiveVoiceScreenShare(): void {
       if (stale()) {
         return;
       }
-      const frame = await picture;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const frame = await Promise.race([
+        picture,
+        new Promise<"late">((resolve) => {
+          timer = setTimeout(
+            () => resolve("late"),
+            SCREEN_SHARE_PICTURE_WAIT_MS,
+          );
+        }),
+      ]);
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
       if (stale()) {
+        return;
+      }
+      if (frame === "late") {
+        console.warn(
+          "[live-voice screen share] no picture from the helper in time; skipped",
+        );
         return;
       }
       if (frame === null) {
