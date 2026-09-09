@@ -743,6 +743,74 @@ describe("failure path", () => {
     expect(result.current.status).toBe("sent");
     expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
   });
+
+  test("a retry that reuses the minted row still holds the send back until the link lands", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("link refused");
+    });
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("link refused again");
+    });
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("error");
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+
+    // The first attempt cached the minted id and dropped the draft mark, so
+    // this one resolves a row it never minted: the link is required because
+    // the assistant has the route, not because this attempt minted anything.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(conversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(2);
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("error");
+    expect(toastErrorMock).toHaveBeenCalledTimes(2);
+    expect(toastErrorMock.mock.calls[1]?.[0]).toBe(
+      "Couldn't send your message. Try again.",
+    );
+    expect(useComposerStore.getState().documentInput).toBe("hello");
+    expect(isAwaitingReply(MINTED_CONVERSATION_ID)).toBe(false);
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+
+    // The link finally lands, so the message goes out against the row the
+    // first attempt minted.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(3);
+    expect(result.current.status).toBe("sent");
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+  });
+
+  test("a refused link on an assistant without server minting still sends", async () => {
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("no such route");
+    });
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The route may not exist at all on this assistant, so the link stays
+    // best-effort: the message goes out rather than being held back forever.
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(result.current.status).toBe("sent");
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("queued sends", () => {

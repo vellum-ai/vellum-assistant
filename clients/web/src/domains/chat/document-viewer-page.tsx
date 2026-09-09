@@ -50,6 +50,7 @@ export function DocumentViewerPage() {
   const swipeContainerRef = useRef<HTMLDivElement>(null);
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
+  const [docAssistantId, setDocAssistantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +79,7 @@ export function DocumentViewerPage() {
           return;
         }
         setDoc(result);
+        setDocAssistantId(assistantId);
         // This route is a second way into a document, separate from the
         // in-chat viewer, so it clears the unseen record itself.
         useUnseenDocumentChangesStore
@@ -219,13 +221,14 @@ export function DocumentViewerPage() {
     />
   );
 
-  // The composer targets a document only while it is the one the route names.
-  // This route reuses a single page instance across `surfaceId` changes, and
-  // the loaded document trails the param until the next fetch resolves, so a
-  // composer handed the trailing document would send into the conversation of
-  // a document the URL has already left.
+  // The composer targets a document only while it is the one the route names
+  // and it came from the assistant that is active now. This route reuses a
+  // single page instance across both changes, and the loaded document trails
+  // them until the next fetch resolves, so a composer handed the trailing
+  // document would send into a conversation that neither the URL nor the
+  // active assistant still points at.
   const composerDoc =
-    doc.surfaceId === surfaceId
+    doc.surfaceId === surfaceId && docAssistantId === assistantId
       ? { surfaceId: doc.surfaceId, conversationId: doc.conversationId }
       : null;
 

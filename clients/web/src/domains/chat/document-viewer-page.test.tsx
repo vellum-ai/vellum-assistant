@@ -7,10 +7,17 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 
 import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
@@ -23,10 +30,6 @@ let documentResult: () => Promise<DocumentResult> = () =>
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...daemonSdk,
   documentsByIdGet: () => documentResult(),
-}));
-
-mock.module("@/stores/resolved-assistants-store", () => ({
-  useResolvedAssistantsStore: { use: { activeAssistantId: () => "asst-1" } },
 }));
 
 // The editor is a heavy Tiptap tree with nothing to say about the record.
@@ -97,6 +100,7 @@ function unseenFor(conversationId: string): string[] {
 }
 
 beforeEach(() => {
+  useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   mockIsMobile = false;
   composerPanelProps = null;
@@ -216,6 +220,44 @@ describe("DocumentViewerPage: mobile composer", () => {
 
     await waitFor(() => {
       expect(composerPanelProps?.doc).toBeNull();
+    });
+  });
+
+  test("drops the composer's document while the assistant moves ahead of the load", async () => {
+    // The route param holds still when the active assistant changes, so the
+    // surface half of the gate keeps passing while the document fetched for
+    // the outgoing assistant is still the one on screen.
+    mockIsMobile = true;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("doc-composer-panel");
+    expect(composerPanelProps?.doc).toEqual({
+      surfaceId: "surf-1",
+      conversationId: "conv-1",
+    });
+
+    let resolveReload: (result: DocumentResult) => void = () => {};
+    documentResult = () =>
+      new Promise<DocumentResult>((resolve) => {
+        resolveReload = resolve;
+      });
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "asst-2" });
+    });
+
+    await waitFor(() => {
+      expect(composerPanelProps?.assistantId).toBe("asst-2");
+      expect(composerPanelProps?.doc).toBeNull();
+    });
+
+    resolveReload({ data: documentSurface({ conversationId: "conv-2" }) });
+
+    await waitFor(() => {
+      expect(composerPanelProps?.doc).toEqual({
+        surfaceId: "surf-1",
+        conversationId: "conv-2",
+      });
     });
   });
 

@@ -210,7 +210,10 @@ export function useDocumentComposerSubmit({
       // support.
       const isFreshDraft =
         useConversationStore.getState().draftConversationIds.has(resolvedId);
-      const useServerMint = isFreshDraft && supportsServerMintedConversation();
+      // Read before the first await, so both gates below are framed against
+      // the assistant this attempt started under.
+      const requireLink = supportsServerMintedConversation();
+      const useServerMint = isFreshDraft && requireLink;
 
       // The daemon starts the turn inside the send and prompt assembly reads
       // the document's conversation link, so the row is minted and linked
@@ -257,12 +260,14 @@ export function useDocumentComposerSubmit({
       if (assistantChanged()) {
         return;
       }
-      if (useServerMint && !linked) {
-        // The assistant that just minted the row is new enough to have the
-        // link route, so a failure is the daemon refusing rather than a route
-        // that isn't there: sending now would run the first turn without the
-        // document. The minted id is cached and no longer marked a draft, so
-        // a retry reuses the row and tries the link again.
+      if (requireLink && !linked) {
+        // An assistant that mints conversations also has the link route, so a
+        // failure there is the daemon refusing rather than a route that isn't
+        // there: sending now would run the turn without the document. The
+        // rule holds for every attempt, not just the one that minted, since a
+        // retry resolves the cached row and is no longer a fresh draft. On an
+        // assistant without minting the route may not exist at all, so the
+        // link stays best-effort and the send goes out either way.
         if (ownsSlotNow()) {
           setStatus("error");
         }
