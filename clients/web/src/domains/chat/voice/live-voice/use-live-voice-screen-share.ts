@@ -140,8 +140,10 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
  * fails, the occasion the failure cost is gone. So an occasion waits for the
  * frame before it to be shared or dropped, and the gate is put right before
  * anything else is judged. An upload of one screen frame takes well under a
- * second; this is the bound for one that hangs, past which the share goes on
- * as if the frame had arrived, and puts the gate right whenever it does not.
+ * second; this is the bound for one that hangs, past which the frame is
+ * taken for lost: the gate goes back to the last frame that did arrive, so
+ * nothing is turned away for a view the call may never get, and a frame
+ * that lands late is adopted only if nothing newer has been judged since.
  */
 export const SCREEN_SHARE_OUTCOME_WAIT_MS = 5_000;
 
@@ -259,7 +261,9 @@ export function useLiveVoiceScreenShare(): void {
      * is the newest view the call has, and the gate is brought up to it.
      */
     const arrived = (frame: JudgedFrame): void => {
-      delivered = frame;
+      if (delivered === null || delivered.seq < frame.seq) {
+        delivered = frame;
+      }
       if (baseline === null || baseline.seq < frame.seq) {
         moveGateTo(frame);
       }
@@ -448,14 +452,25 @@ export function useLiveVoiceScreenShare(): void {
       // behind an older one resolves it early, and it is the send that
       // settles this.
       let timer: ReturnType<typeof setTimeout> | null = null;
-      await Promise.race([
-        outcome,
-        new Promise<void>((resolve) => {
-          timer = setTimeout(resolve, SCREEN_SHARE_OUTCOME_WAIT_MS);
+      const inTime = await Promise.race([
+        outcome.then(() => true),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(
+            () => resolve(false),
+            SCREEN_SHARE_OUTCOME_WAIT_MS,
+          );
         }),
       ]);
       if (timer !== null) {
         clearTimeout(timer);
+      }
+      // Past the bound the frame is taken for lost, so the occasions behind
+      // it are judged against what the call has rather than against a view
+      // it may never get. Its fate, when it comes, is handled above: a late
+      // arrival is adopted only while nothing newer has been judged, and a
+      // late drop finds the gate already moved on.
+      if (!inTime && judged !== null && !stale()) {
+        lost(judged);
       }
     };
 

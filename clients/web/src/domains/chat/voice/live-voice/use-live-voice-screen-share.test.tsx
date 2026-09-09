@@ -143,7 +143,7 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare } =
+const { useLiveVoiceScreenShare, SCREEN_SHARE_OUTCOME_WAIT_MS } =
   await import("./use-live-voice-screen-share");
 const { useLiveVoiceStore } = await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
@@ -952,6 +952,66 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
       "att-3",
       expect.objectContaining({ reason: "forced" }),
     );
+  });
+});
+
+/**
+ * An upload that hangs past the bound holds the frame's fate open, and the
+ * occasions behind it cannot wait forever. The frame is taken for lost: the
+ * gate goes back to what the call has, so a question asked in the meantime
+ * still gets its frame, and if the hung upload lands after all it is not
+ * allowed to overwrite what has been judged since.
+ */
+describe("useLiveVoiceScreenShare: an upload past the bound", () => {
+  let timers: ReturnType<typeof spyOn> | null = null;
+  /** The bound runs out at once; every other timer is left alone. */
+  const shortenTheBound = (): void => {
+    const realSetTimeout = globalThis.setTimeout;
+    timers = spyOn(globalThis, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) =>
+      realSetTimeout(
+        handler,
+        timeout === SCREEN_SHARE_OUTCOME_WAIT_MS ? 0 : timeout,
+        ...args,
+      )) as typeof setTimeout);
+  };
+  afterEach(() => {
+    timers?.mockRestore();
+    timers = null;
+  });
+
+  test("a frame past the bound is taken for lost, and a late landing does not undo what was judged since", async () => {
+    shortenTheBound();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    const question = holdNextUpload();
+    show("a+");
+    speak(true);
+    await flush();
+    // The stop edge is judged once the bound runs out, against the view the
+    // call has, at the question's bar: the hung frame's ask is given back.
+    speak(false);
+    await flush();
+    await flush();
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(3);
+
+    // The hung upload lands after all. Both frames reach the call, in the
+    // order they were taken, and the gate stays on the newest judged view.
+    question.finish();
+    await flush();
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
+      "att-1",
+      "att-2",
+      "att-3",
+    ]);
+    speak(true);
+    await flush();
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(3);
   });
 });
 
