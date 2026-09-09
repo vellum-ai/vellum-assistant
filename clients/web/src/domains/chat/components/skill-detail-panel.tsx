@@ -25,7 +25,7 @@ import { useTranslation } from "@/i18n";
 import { FileMarkdown } from "@/components/file-markdown";
 import { SkillLineageLink } from "@/components/skill-lineage-link";
 import { SkillRemovalDialog } from "@/components/skill-removal-dialog";
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
   skillsByIdGetOptions,
   useSkillsByIdDeleteMutation,
@@ -165,13 +165,9 @@ export function SkillDetailPanel({ skillId, onClose }: SkillDetailPanelProps) {
             degrades to the cached render, while an error with nothing to
             show surfaces the failure (matching `skill-detail-page`). */}
         {skillQuery.isError && !skill ? (
-          <Typography
-            variant="body-medium-lighter"
-            as="p"
-            className="py-8 text-center text-[var(--content-tertiary)]"
-          >
+          <DetailShellNotice>
             {t("skillDetailPanel.loadError")}
-          </Typography>
+          </DetailShellNotice>
         ) : isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-5 w-5 animate-spin text-[var(--content-tertiary)]" />

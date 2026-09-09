@@ -1,6 +1,7 @@
 import { Trash2 } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { MidlineDot } from "@/components/midline-dot";
 import { useTranslation } from "@/i18n";
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -56,10 +57,7 @@ export function NotificationsBellPanel({
         </Typography>
         {count > 0 ? (
           <>
-            <span
-              aria-hidden="true"
-              className="h-[3px] w-[3px] rounded-full bg-[var(--content-tertiary)]"
-            />
+            <MidlineDot />
             <Typography
               variant="title-small"
               data-testid="notifications-bell-count"

@@ -9,9 +9,9 @@
  * alone, exported for hosts whose body/footer can't fit the default
  * scrollable-body wrapper (e.g. `AcpRunChatView`, which owns its own inner
  * scroll container and a sticky composer) but still need a pixel-identical
- * header. `DetailShellTitleWithCount` is the "title · N" header cluster,
- * exported with its midline dot and the shell's inset so every panel draws
- * them from one place.
+ * header. `DetailShellTitleWithCount` is the "title · N" header cluster and
+ * `DetailShellNotice` the quiet centred line an empty or failed body renders,
+ * both exported so every panel draws them from one place.
  */
 
 import type { LucideIcon } from "lucide-react";
@@ -20,21 +20,34 @@ import type { ReactNode } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
+import { MidlineDot } from "@/components/midline-dot";
 import { cn } from "@/utils/misc";
 
-/** Horizontal inset of the shell's header, body, and footer, in px. */
+/**
+ * Horizontal inset of `DetailShell`'s header, body, and footer, in px. A host
+ * that mounts `DetailShellHeader` on its own insets its own body.
+ */
 export const DETAIL_SHELL_BODY_INSET_PX = 20;
 
-/** The 3px midline dot between a title and the count beside it. */
-export function DetailShellMidlineDot({ className }: { className?: string }) {
+/** The quiet centred line a body renders when it is empty or failed to load. */
+export function DetailShellNotice({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return (
-    <span
-      aria-hidden
+    <Typography
+      as="p"
+      variant="body-small-default"
       className={cn(
-        "size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]",
+        "py-4 text-center text-[var(--content-tertiary)]",
         className,
       )}
-    />
+    >
+      {children}
+    </Typography>
   );
 }
 
@@ -54,7 +67,7 @@ export function DetailShellTitleWithCount({
       >
         {title}
       </Typography>
-      <DetailShellMidlineDot />
+      <MidlineDot />
       <Typography
         variant="title-medium"
         className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"

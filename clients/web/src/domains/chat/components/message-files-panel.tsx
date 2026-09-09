@@ -13,10 +13,9 @@
 
 import { Paperclip } from "lucide-react";
 
-import { Typography } from "@vellumai/design-library";
-
 import {
   DetailShell,
+  DetailShellNotice,
   DetailShellTitleWithCount,
 } from "@/components/detail-shell";
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
@@ -55,12 +54,7 @@ export function MessageFilesPanel({
       onClose={onClose}
     >
       {displayAttachments.length === 0 ? (
-        <Typography
-          variant="body-small-default"
-          className="py-4 text-center text-[var(--content-tertiary)]"
-        >
-          {t("messageFilesPanel.empty")}
-        </Typography>
+        <DetailShellNotice>{t("messageFilesPanel.empty")}</DetailShellNotice>
       ) : (
         // Wraps rather than sitting on a fixed column count: the drawer is
         // drag-resizable and the mobile overlay renders this same panel at

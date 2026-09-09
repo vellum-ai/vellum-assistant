@@ -12,10 +12,8 @@ import type { CSSProperties, ReactNode } from "react";
 
 import { Button, ScrollShadow, Typography } from "@vellumai/design-library";
 
-import {
-  DETAIL_SHELL_BODY_INSET_PX,
-  DetailShellMidlineDot,
-} from "@/components/detail-shell";
+import { DETAIL_SHELL_BODY_INSET_PX } from "@/components/detail-shell";
+import { MidlineDot } from "@/components/midline-dot";
 import { useElementSize } from "@/hooks/use-element-size";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
@@ -91,7 +89,7 @@ export function ChatInfoSection<T>({
           >
             {title}
           </Typography>
-          <DetailShellMidlineDot className="bg-[var(--content-disabled)]" />
+          <MidlineDot className="bg-[var(--content-disabled)]" />
           <Typography
             variant="title-small"
             className="shrink-0 text-[var(--content-disabled)]"
