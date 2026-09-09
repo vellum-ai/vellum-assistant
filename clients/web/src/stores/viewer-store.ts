@@ -485,6 +485,22 @@ export function chatInfoTargetKey(
   return `${target.assistantId}:${target.conversationId}`;
 }
 
+/**
+ * Whether the chat-info panel is on screen showing `target`. Single source of
+ * truth for the header trigger's selected state, the trigger's own teardown,
+ * and the store's toggle.
+ */
+export function sameChatInfoTarget(
+  state: Pick<ViewerState, "mainView" | "activeChatInfo">,
+  target: Pick<ChatInfoPayload, "assistantId" | "conversationId">,
+): boolean {
+  return (
+    state.mainView === "chat-info" &&
+    state.activeChatInfo !== null &&
+    chatInfoTargetKey(state.activeChatInfo) === chatInfoTargetKey(target)
+  );
+}
+
 /** The identity fields a thinking drawer target is matched on. */
 type ThinkingTarget = Pick<
   ToolDetailPayload,
@@ -1291,12 +1307,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   toggleChatInfo: (target) => {
-    const state = get();
-    const isSameTarget =
-      state.mainView === "chat-info" &&
-      state.activeChatInfo !== null &&
-      chatInfoTargetKey(state.activeChatInfo) === chatInfoTargetKey(target);
-    if (isSameTarget) {
+    if (sameChatInfoTarget(get(), target)) {
       get().closeChatInfo();
     } else {
       get().openChatInfo(target);

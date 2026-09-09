@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import {
   makeDisplayAttachment,
   makeImageAttachments,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import {
   mockAttachmentPreviewModal,
   squareLabels,
 } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";

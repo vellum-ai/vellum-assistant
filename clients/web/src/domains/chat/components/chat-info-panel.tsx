@@ -51,7 +51,7 @@ import {
 } from "@/stores/viewer-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
-export interface ChatInfoPanelProps {
+interface ChatInfoPanelProps {
   payload: ChatInfoPayload;
   onClose: () => void;
   /** See All drills in with a category; the back control passes `null`. */
@@ -215,6 +215,7 @@ export function ChatInfoPanel({
       <ChatInfoFileGrid
         items={categoryLists[level]}
         assistantId={assistantId}
+        status={status}
         hasMore={level === "files" ? hasMoreFiles : hasMoreFrames}
         onLoadMore={level === "files" ? loadMoreFiles : loadMoreFrames}
         onOpen={handleOpenFile}

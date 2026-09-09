@@ -76,7 +76,7 @@ const { ChatInfoPanel } =
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useUnseenDocumentChangesStore } =
   await import("@/domains/chat/unseen-document-changes-store");
-const { documentsGetQueryKey } =
+const { appsGetQueryKey, documentsGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
 const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
@@ -108,15 +108,20 @@ const PACKING_LIST = makeDocumentSummary({
 });
 const DOCUMENTS = [TRIP_NOTES, PACKING_LIST];
 
-const IMAGE_ROWS: DisplayMessage[] = attachmentRows(
-  [0, 1].map((index) =>
-    makeDisplayAttachment({
-      id: `img-${index}`,
-      filename: `photo-${index}.png`,
-      previewUrl: SAMPLE_PREVIEWS[index]!,
-    }),
-  ),
-);
+/** One image per row, oldest first, each with a preview of its own. */
+function imageRows(count: number): DisplayMessage[] {
+  return attachmentRows(
+    Array.from({ length: count }, (_, index) =>
+      makeDisplayAttachment({
+        id: `img-${index}`,
+        filename: `photo-${index}.png`,
+        previewUrl: SAMPLE_PREVIEWS[index]!,
+      }),
+    ),
+  );
+}
+
+const IMAGE_ROWS: DisplayMessage[] = imageRows(2);
 
 /** Two legacy rows whose attachments carry the same synthetic id. */
 const LEGACY_ROWS: DisplayMessage[] = [
@@ -288,6 +293,17 @@ describe("ChatInfoPanel top level", () => {
     expect(onSelectCategory).toHaveBeenCalledWith("apps");
   });
 
+  // The files row is the panel's own composition of `ChatInfoFileRow`: two
+  // documents and three attachments are one more than the four tiles the
+  // drawer's width fits, so the row offers the drill-in.
+  test("drills into the files category once its row overflows", async () => {
+    await renderChatInfo(null, { messages: imageRows(3) });
+
+    fireEvent.click(screen.getByLabelText("See all documents and images"));
+
+    expect(onSelectCategory).toHaveBeenCalledWith("files");
+  });
+
   test("closes from the header control", async () => {
     await renderChatInfo();
 
@@ -404,6 +420,10 @@ describe("ChatInfoPanel See All level", () => {
 });
 
 describe("ChatInfoPanel unsettled sources", () => {
+  const APPS_KEY = appsGetQueryKey({
+    path: { assistant_id: ASSISTANT_ID },
+    query: { conversationId: CONVERSATION_ID },
+  });
   const DOCUMENTS_KEY = documentsGetQueryKey({
     path: { assistant_id: ASSISTANT_ID },
     query: { conversationId: CONVERSATION_ID },
@@ -415,11 +435,30 @@ describe("ChatInfoPanel unsettled sources", () => {
     seedQueryFailure(client, DOCUMENTS_KEY);
   }
 
-  test("says nothing at all while the sources are loading", async () => {
-    await renderChatInfo(null, {
+  /**
+   * Takes both daemon sources back out of the client the seed filled, so a
+   * pending client really is pending: `setQueryData` answers a disabled query
+   * as readily as an enabled one.
+   */
+  function unresolveSources(client: QueryClient): void {
+    client.removeQueries({ queryKey: APPS_KEY });
+    client.removeQueries({ queryKey: DOCUMENTS_KEY });
+  }
+
+  /** The panel against sources that have answered nothing yet. */
+  function renderLoading(
+    category: ChatInfoCategory | null = null,
+    seed: Seed = {},
+  ): Promise<void> {
+    return renderChatInfo(category, {
+      ...seed,
       client: makePendingChatInfoQueryClient(),
-      messages: [],
+      afterSeed: unresolveSources,
     });
+  }
+
+  test("says nothing at all while the sources are loading", async () => {
+    await renderLoading(null, { messages: [] });
 
     expect(screen.getByText("Chat Info")).toBeDefined();
     expect(screen.queryByText("No assets in this chat yet")).toBeNull();
@@ -427,15 +466,17 @@ describe("ChatInfoPanel unsettled sources", () => {
   });
 
   test("lists the transcript's files while the sources are loading", async () => {
-    await renderChatInfo(null, { client: makePendingChatInfoQueryClient() });
+    await renderLoading();
 
     expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
     expect(screen.queryByText("No assets in this chat yet")).toBeNull();
     expect(screen.queryByText("Assets could not be loaded")).toBeNull();
   });
 
+  // Seeded with no apps at all, so the fallback to the top level is what this
+  // would catch: a category that reads empty before its source has answered.
   test("keeps the payload's category while the sources are loading", async () => {
-    await renderChatInfo("apps", { client: makePendingChatInfoQueryClient() });
+    await renderLoading("apps", { apps: [] });
 
     expect(screen.getByLabelText("Back to chat info")).toBeDefined();
     expect(onSelectCategory).not.toHaveBeenCalled();
@@ -475,5 +516,18 @@ describe("ChatInfoPanel unsettled sources", () => {
 
     expect(screen.getByText("Assets could not be loaded")).toBeDefined();
     expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
+  });
+
+  // A category left empty by the failure above says why, once. Calling it an
+  // empty category as well would answer a question the source never got to.
+  test("does not call a drilled-in category empty when its source failed", async () => {
+    await renderChatInfo("files", {
+      apps: [],
+      messages: [],
+      afterSeed: failDocuments,
+    });
+
+    expect(screen.getByText("Assets could not be loaded")).toBeDefined();
+    expect(screen.queryByText("Nothing in this category yet")).toBeNull();
   });
 });

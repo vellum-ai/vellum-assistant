@@ -13,19 +13,22 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import {
+  makeDisplayAttachment,
+  SAMPLE_PREVIEWS,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { ChatInfoFileGrid } from "@/domains/chat/components/chat-info-file-grid";
+import {
   installChatInfoDomStubs,
   makeChatInfoQueryClient,
   makeFileAsset,
   makeFrameAsset,
 } from "@/domains/chat/components/chat-info.test-helper";
-import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
+import type {
+  ConversationAssetsStatus,
+  ConversationFileAsset,
+} from "@/domains/chat/hooks/use-conversation-assets";
 
 const restoreDomStubs = installChatInfoDomStubs();
-
-const { ChatInfoFileGrid } =
-  await import("@/domains/chat/components/chat-info-file-grid");
-const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
-  await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
 
 const ASSISTANT_ID = "asst-1";
 
@@ -49,11 +52,13 @@ const FILE = makeFileAsset(
 
 function renderGrid({
   items = [FRAME],
+  status = "ready",
   hasMore = false,
   onLoadMore = () => {},
   onOpen = () => {},
 }: {
   items?: ConversationFileAsset[];
+  status?: ConversationAssetsStatus;
   hasMore?: boolean;
   onLoadMore?: () => void;
   onOpen?: (file: ConversationFileAsset) => void;
@@ -63,6 +68,7 @@ function renderGrid({
       <ChatInfoFileGrid
         items={items}
         assistantId={ASSISTANT_ID}
+        status={status}
         hasMore={hasMore}
         onLoadMore={onLoadMore}
         onOpen={onOpen}
@@ -79,9 +85,10 @@ afterEach(() => {
   cleanup();
 });
 
+// The stubbed browser APIs are put back before the next file loads; the suite
+// installs no module mock of its own.
 afterAll(() => {
   restoreDomStubs();
-  mock.restore();
 });
 
 describe("ChatInfoFileGrid", () => {
@@ -117,9 +124,18 @@ describe("ChatInfoFileGrid", () => {
     expect(loadMore()).toBeNull();
   });
 
-  test("says so for a category with nothing in it", () => {
+  test("names the empty category, not the whole chat", () => {
     renderGrid({ items: [] });
 
-    expect(screen.getByText("No assets in this chat yet")).toBeDefined();
+    expect(screen.getByText("Nothing in this category yet")).toBeDefined();
+  });
+
+  // An empty grid means "nothing here" only once the category's sources have
+  // answered: a notice under a drill-in that is still loading reads as an
+  // answer the loaded grid then replaces.
+  test("says nothing about a category whose sources have not answered", () => {
+    renderGrid({ items: [], status: "pending" });
+
+    expect(screen.queryByText("Nothing in this category yet")).toBeNull();
   });
 });

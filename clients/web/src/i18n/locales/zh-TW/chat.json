@@ -380,6 +380,7 @@
     "appsTitle": "應用程式",
     "backAria": "返回聊天資訊",
     "backTooltip": "聊天資訊",
+    "categoryEmpty": "此類別中還沒有內容",
     "closeAria": "關閉聊天資訊",
     "empty": "此聊天中還沒有內容",
     "filesTitle": "文件與圖片",

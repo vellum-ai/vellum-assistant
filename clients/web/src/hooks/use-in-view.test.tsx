@@ -22,7 +22,6 @@ import type { RefObject } from "react";
 import { useInView } from "@/hooks/use-in-view";
 
 interface ObserverRecord {
-  options: IntersectionObserverInit | undefined;
   callback: IntersectionObserverCallback;
   observed: Element[];
   disconnects: number;
@@ -33,11 +32,8 @@ let observers: ObserverRecord[] = [];
 class StubIntersectionObserver {
   private readonly record: ObserverRecord;
 
-  constructor(
-    callback: IntersectionObserverCallback,
-    options?: IntersectionObserverInit,
-  ) {
-    this.record = { options, callback, observed: [], disconnects: 0 };
+  constructor(callback: IntersectionObserverCallback) {
+    this.record = { callback, observed: [], disconnects: 0 };
     observers.push(this.record);
   }
 
@@ -68,14 +64,14 @@ function report(index: number, isIntersecting: boolean): void {
   });
 }
 
-function renderInView(threshold = 0) {
-  const ref: RefObject<Element | null> = {
-    current: document.createElement("div"),
-  };
+function elementRef(): RefObject<Element | null> {
+  return { current: document.createElement("div") };
+}
+
+function renderInView(ref: RefObject<Element | null> = elementRef()) {
   return renderHook(
-    ({ fraction }: { fraction: number }) =>
-      useInView(ref, { threshold: fraction }),
-    { initialProps: { fraction: threshold } },
+    ({ target }: { target: RefObject<Element | null> }) => useInView(target),
+    { initialProps: { target: ref } },
   );
 }
 
@@ -94,11 +90,10 @@ afterAll(() => {
 });
 
 describe("useInView", () => {
-  test("observes the element against the threshold it was given", () => {
-    renderInView(0.5);
+  test("observes the element it was handed", () => {
+    renderInView();
 
     expect(observers).toHaveLength(1);
-    expect(observers[0]!.options?.threshold).toBe(0.5);
     expect(observers[0]!.observed).toHaveLength(1);
   });
 
@@ -115,13 +110,13 @@ describe("useInView", () => {
   });
 
   test("forgets its last answer when the observation ends", () => {
-    const { result, rerender } = renderInView(0);
+    const { result, rerender } = renderInView();
     report(0, true);
     expect(result.current).toBe(true);
 
-    // A changed option tears the observer down and builds another, which is
-    // the same cleanup an unmount runs.
-    rerender({ fraction: 0.5 });
+    // A new element tears the observer down and builds another, which is the
+    // same cleanup an unmount runs.
+    rerender({ target: elementRef() });
 
     expect(observers[0]!.disconnects).toBe(1);
     expect(observers).toHaveLength(2);

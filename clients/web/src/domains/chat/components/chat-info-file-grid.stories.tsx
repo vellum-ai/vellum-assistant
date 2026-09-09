@@ -7,7 +7,7 @@
  * it. The tile's fetched and unavailable states are the file tile's own story.
  */
 
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
 import {
@@ -15,25 +15,22 @@ import {
   CHAT_INFO_STORY_CLIENT,
   CHAT_INFO_STORY_FILES,
   chatInfoStoryFrames,
+  inChatInfoDrawerColumn,
+  inChatInfoPhonePage,
   withChatInfoStoryClient,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 
 import { ChatInfoFileGrid } from "./chat-info-file-grid";
 
-const inPanelBody: Decorator = (Story) => (
-  <div className="max-w-[560px] p-5">
-    <Story />
-  </div>
-);
-
 const meta: Meta<typeof ChatInfoFileGrid> = {
   title: "Chat/ChatInfoFileGrid",
   component: ChatInfoFileGrid,
   parameters: { layout: "fullscreen" },
-  decorators: [inPanelBody, withChatInfoStoryClient(CHAT_INFO_STORY_CLIENT)],
+  decorators: [withChatInfoStoryClient(CHAT_INFO_STORY_CLIENT)],
   args: {
     items: chatInfoStoryFrames(6),
     assistantId: CHAT_INFO_ASSISTANT_ID,
+    status: "ready",
     hasMore: false,
     onLoadMore: fn(),
     onOpen: fn(),
@@ -48,6 +45,7 @@ type Story = StoryObj<typeof ChatInfoFileGrid>;
  * the control under the grid fetches the next page.
  */
 export const Frames: Story = {
+  decorators: [inChatInfoDrawerColumn],
   args: { hasMore: true },
 };
 
@@ -56,10 +54,19 @@ export const Frames: Story = {
  * side by side, and no paging control.
  */
 export const Files: Story = {
+  decorators: [inChatInfoDrawerColumn],
+  args: { items: Object.values(CHAT_INFO_STORY_FILES) },
+};
+
+/** The same category on a phone, where the grid wraps into a narrower column. */
+export const FilesOnAPhone: Story = {
+  decorators: [inChatInfoPhonePage],
+  globals: { viewport: { value: "sbCompactPhone", isRotated: false } },
   args: { items: Object.values(CHAT_INFO_STORY_FILES) },
 };
 
 /** A category drilled into with nothing in it says so where the tiles were. */
 export const Empty: Story = {
+  decorators: [inChatInfoDrawerColumn],
   args: { items: [] },
 };

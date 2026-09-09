@@ -7,7 +7,7 @@ import type {
 } from "@/stores/viewer-store";
 import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
 import { ApiError } from "@/utils/api-errors";
-import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
+import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
 // The store opens documents through the daemon SDK. Spread the real module so
@@ -26,7 +26,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   documentsByIdGet: () => documentResult(),
 }));
 
-const { isAppNotFoundError, useViewerStore } =
+const { isAppNotFoundError, sameChatInfoTarget, useViewerStore } =
   await import("@/stores/viewer-store");
 
 // ---------------------------------------------------------------------------
@@ -1000,6 +1000,45 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
     const state = getState();
     expect(state.mainView).toBe("chat");
     expect(state.activeChatInfo).toBeNull();
+  });
+});
+
+describe("sameChatInfoTarget", () => {
+  it("matches the open panel's own target at either level", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(true);
+
+    getState().setChatInfoCategory("files");
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(true);
+  });
+
+  it("rejects another conversation, another assistant, and a closed panel", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+
+    expect(
+      sameChatInfoTarget(getState(), {
+        ...SAMPLE_CHAT_INFO,
+        conversationId: "c2",
+      }),
+    ).toBe(false);
+    expect(
+      sameChatInfoTarget(getState(), {
+        ...SAMPLE_CHAT_INFO,
+        assistantId: "a2",
+      }),
+    ).toBe(false);
+
+    getState().closeChatInfo();
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(false);
+  });
+
+  // The payload outlives the view when another panel takes over, so the view
+  // is half the question.
+  it("rejects a payload left behind by another view", () => {
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    useViewerStore.setState({ mainView: "app" });
+
+    expect(sameChatInfoTarget(getState(), SAMPLE_CHAT_INFO)).toBe(false);
   });
 });
 

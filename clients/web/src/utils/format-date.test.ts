@@ -7,6 +7,7 @@ import {
   formatCompactLocalDate,
   formatFriendlyDate,
   formatFullLocalDate,
+  formatRelativeDate,
 } from "@/utils/format-date";
 
 /**
@@ -19,6 +20,26 @@ function localTime(date: Date, locale: string = formatLocale()): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+/** The options {@link formatFullLocalDate} formats its timestamp with. */
+const FULL_DATE_OPTIONS: Intl.DateTimeFormatOptions = {
+  month: "long",
+  day: "numeric",
+  year: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  timeZoneName: "short",
+};
+
+/** Runs `assert` with the host reporting `tag`, then puts the host back. */
+function underHostLanguage(tag: string, assert: () => void): void {
+  const restore = stubHostLanguage(tag);
+  try {
+    assert();
+  } finally {
+    restore();
+  }
 }
 
 describe("formatCompactLocalDate", () => {
@@ -58,41 +79,9 @@ describe("formatCompactLocalDate", () => {
     expect(formatCompactLocalDate(undefined)).toBe("");
     expect(formatCompactLocalDate("")).toBe("");
   });
-
-  test("formats date and time together in the locale it is given", () => {
-    const date = new Date(2001, 0, 15, 13, 42);
-    const iso = date.toISOString();
-
-    // Both halves move, so the label cannot carry an app-locale date beside a
-    // browser-locale time.
-    expect(formatCompactLocalDate(iso, "ru")).toBe(
-      `${formatFriendlyDate(date, { locale: "ru" })}, ${localTime(date, "ru")}`,
-    );
-    expect(formatCompactLocalDate(iso, "ru")).not.toBe(
-      formatCompactLocalDate(iso, "en"),
-    );
-  });
 });
 
 describe("formatFullLocalDate", () => {
-  test("formats in the locale it is given", () => {
-    const iso = new Date(2001, 0, 15, 13, 42).toISOString();
-
-    expect(formatFullLocalDate(iso, "ru")).toBe(
-      new Date(iso).toLocaleString("ru", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        timeZoneName: "short",
-      }),
-    );
-    expect(formatFullLocalDate(iso, "ru")).not.toBe(
-      formatFullLocalDate(iso, "en"),
-    );
-  });
-
   test("renders nothing for a missing timestamp", () => {
     expect(formatFullLocalDate(null)).toBe("");
     expect(formatFullLocalDate(undefined)).toBe("");
@@ -138,32 +127,108 @@ describe("formatCaptureTime", () => {
   });
 });
 
+/**
+ * Every formatter reads {@link formatLocale} when it is not handed a locale,
+ * so each one is checked against the host's region: en-GB is day-first and
+ * 24-hour, which moves it away from the bare `en` the app runs its copy in.
+ */
 describe("the default locale", () => {
-  test("keeps the host's region while the app language stays English", () => {
-    const restore = stubHostLanguage("en-GB");
-    try {
+  test("formatCaptureTime tells the time in the host's region", () => {
+    underHostLanguage("en-GB", () => {
+      const capturedAt = new Date().setHours(13, 42, 0, 0);
+
+      expect(formatCaptureTime(capturedAt)).toBe(
+        formatCaptureTime(capturedAt, "en-GB"),
+      );
+      expect(formatCaptureTime(capturedAt)).not.toBe(
+        formatCaptureTime(capturedAt, "en"),
+      );
+    });
+  });
+
+  test("formatFriendlyDate orders the date the host's region does", () => {
+    underHostLanguage("en-GB", () => {
+      const date = new Date(2001, 0, 15);
+
+      expect(formatFriendlyDate(date)).toBe(
+        formatFriendlyDate(date, { locale: "en-GB" }),
+      );
+      expect(formatFriendlyDate(date)).not.toBe(
+        formatFriendlyDate(date, { locale: "en" }),
+      );
+    });
+  });
+
+  test("formatRelativeDate falls back to a date in the host's region", () => {
+    underHostLanguage("en-GB", () => {
+      const date = new Date(2001, 0, 15, 9, 14);
+
+      expect(formatRelativeDate(date.toISOString())).toBe(
+        date.toLocaleDateString("en-GB"),
+      );
+      expect(formatRelativeDate(date.toISOString())).not.toBe(
+        date.toLocaleDateString("en"),
+      );
+    });
+  });
+
+  test("formatCompactLocalDate moves both of its halves together", () => {
+    underHostLanguage("en-GB", () => {
       const date = new Date(2001, 0, 15, 13, 42);
 
-      // en-GB is day-first and 24-hour, so both halves move away from the
-      // bare `en` the app runs its copy in.
+      // One label cannot carry an app-locale date beside a host-locale time.
       expect(formatCompactLocalDate(date.toISOString())).toBe(
         `${formatFriendlyDate(date, { locale: "en-GB" })}, ${localTime(date, "en-GB")}`,
       );
-    } finally {
-      restore();
-    }
+      expect(formatCompactLocalDate(date.toISOString())).not.toBe(
+        `${formatFriendlyDate(date, { locale: "en" })}, ${localTime(date, "en")}`,
+      );
+    });
+  });
+
+  test("formatFullLocalDate spells the month and names the zone", () => {
+    underHostLanguage("en-GB", () => {
+      const iso = new Date(2001, 0, 15, 13, 42).toISOString();
+
+      expect(formatFullLocalDate(iso)).toBe(
+        new Date(iso).toLocaleString("en-GB", FULL_DATE_OPTIONS),
+      );
+      expect(formatFullLocalDate(iso)).not.toBe(
+        new Date(iso).toLocaleString("en", FULL_DATE_OPTIONS),
+      );
+    });
   });
 
   test("falls back to the app language when the host speaks another", () => {
-    const restore = stubHostLanguage("de-DE");
-    try {
+    underHostLanguage("de-DE", () => {
       const date = new Date(2001, 0, 15, 13, 42);
 
       expect(formatCompactLocalDate(date.toISOString())).toBe(
         `${formatFriendlyDate(date, { locale: "en" })}, ${localTime(date, "en")}`,
       );
+    });
+  });
+
+  test("falls back to the app language when the host reports none", () => {
+    underHostLanguage("", () => {
+      expect(formatLocale()).toBe("en");
+    });
+  });
+
+  test("falls back to the app language where there is no navigator", () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      value: undefined,
+      configurable: true,
+    });
+    try {
+      expect(formatLocale()).toBe("en");
     } finally {
-      restore();
+      if (original) {
+        Object.defineProperty(globalThis, "navigator", original);
+      } else {
+        delete (globalThis as { navigator?: Navigator }).navigator;
+      }
     }
   });
 });

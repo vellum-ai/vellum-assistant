@@ -27,7 +27,7 @@ export function attachmentContentQueryKey(
   return ["attachmentContent", assistantId, attachmentId] as const;
 }
 
-export interface AttachmentObjectUrl {
+interface AttachmentObjectUrl {
   /** The inline preview URL, the fetched object URL, or null until one exists. */
   url: string | null;
   /** The bytes failed to load, or can never be fetched (no assistant, no resolvable id). */
