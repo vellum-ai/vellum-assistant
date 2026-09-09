@@ -8,19 +8,7 @@
  */
 
 import {
-  Archive,
-  Code2,
-  FileAudio,
-  File as FileIcon,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileType2,
-  FileVideo,
-  type LucideIcon,
-} from "lucide-react";
-
-import {
+  ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
@@ -28,19 +16,6 @@ import {
   type LocalFileKind,
   resolveLocalFileType,
 } from "@/domains/chat/utils/mime-sniff";
-
-const ICON_BY_KIND: Record<AttachmentIconKind, LucideIcon> = {
-  image: FileImage,
-  video: FileVideo,
-  audio: FileAudio,
-  pdf: FileType2,
-  code: Code2,
-  archive: Archive,
-  spreadsheet: FileSpreadsheet,
-  document: FileText,
-  text: FileText,
-  file: FileIcon,
-};
 
 /** Icon bucket for a classified local file. */
 export function localFileIconKind(
@@ -76,6 +51,6 @@ export function LocalFileIcon({
   filename,
   className,
 }: LocalFileIconProps) {
-  const Icon = ICON_BY_KIND[localFileIconKind(kind, filename)];
+  const Icon = ATTACHMENT_ICON_BY_KIND[localFileIconKind(kind, filename)];
   return <Icon className={className} aria-hidden />;
 }

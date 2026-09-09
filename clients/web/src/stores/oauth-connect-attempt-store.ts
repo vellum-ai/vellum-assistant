@@ -40,6 +40,13 @@ export interface OAuthConnectAttempt {
    * for the same reason as `platformAssistantId`.
    */
   baselineSignatures?: ReadonlyMap<string, string>;
+  /**
+   * When the provider's callback reported success. The connections list is
+   * still the place the granted account comes from, but the callback is a
+   * request-scoped answer from our own page, so the flow stops waiting on the
+   * list once it has one.
+   */
+  confirmedAt?: number;
 }
 
 /** Attempts keyed by `${assistantId}::${providerKey}`. */
@@ -61,6 +68,8 @@ interface OAuthConnectAttemptActions {
       Pick<OAuthConnectAttempt, "platformAssistantId" | "baselineSignatures">
     >,
   ) => void;
+  /** Record that the provider's callback reported success for `requestId`. */
+  confirmAttempt: (key: string, requestId: string) => void;
   clearAttempt: (key: string) => void;
 }
 
@@ -87,6 +96,20 @@ const useOAuthConnectAttemptStoreBase = create<
       }
       return {
         attempts: { ...state.attempts, [key]: { ...current, ...resolved } },
+      };
+    }),
+
+  confirmAttempt: (key, requestId) =>
+    set((state) => {
+      const current = state.attempts[key];
+      if (!current || current.requestId !== requestId || current.confirmedAt) {
+        return state;
+      }
+      return {
+        attempts: {
+          ...state.attempts,
+          [key]: { ...current, confirmedAt: Date.now() },
+        },
       };
     }),
 

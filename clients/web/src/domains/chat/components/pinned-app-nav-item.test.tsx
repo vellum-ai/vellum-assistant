@@ -186,10 +186,28 @@ describe("PinnedAppNavItem", () => {
   });
 
   /* The row's one command stays a named, focusable control where the device
-     cannot hover: the swipe button behind the row is out of the accessibility
-     tree until a swipe reveals it, and a long press is not something a screen
-     reader or switch control can announce. */
+     cannot hover, because a long press is not something a screen reader or a
+     switch control can announce. */
   test("expanded: keeps the trailing unpin button where the device cannot hover", () => {
+    viewport.set({ narrow: true, coarsePointer: true });
+
+    render(
+      <PinnedAppNavItem
+        app={APP}
+        active={false}
+        collapsed={false}
+        {...actions()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
+    expect(onUnpin).toHaveBeenCalledWith("app-1");
+  });
+
+  /* A pill is its own swipe box. The wrapper takes the pill's shape, so the
+     action behind it is a capsule the pill's size and the gesture arms on the
+     pill rather than across the rail beside it. */
+  test("expanded: swipes in its own shape", () => {
     viewport.set({ narrow: true, coarsePointer: true });
 
     const { container } = render(
@@ -201,50 +219,16 @@ describe("PinnedAppNavItem", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
-    expect(onUnpin).toHaveBeenCalledWith("app-1");
-
-    // Behind the row until a swipe slides it away, hence found by attribute:
-    // it is `aria-hidden` and out of the tab path while it is back there.
-    expect(
-      container.querySelector('button[aria-label="Unpin"][aria-hidden="true"]'),
-    ).not.toBeNull();
-  });
-
-  /* The swipe layer under the pill is opaque so the Unpin button stays
-     hidden until a swipe slides the pill off it, and it takes the wrapper's
-     shape and surface. Left at the defaults it was a full-width square slab
-     behind a capsule, which is what made a pinned app look unrounded on
-     touch: so the wrapper hugs the pill, clips to its capsule, and names the
-     pill's own surface for the layer to paint. */
-  test("expanded: shapes the swipe layer as the pill on touch", () => {
-    viewport.set({ narrow: true, coarsePointer: true });
-
-    const { container } = render(
-      <PinnedAppNavItem
-        app={TEAL_APP}
-        active={false}
-        collapsed={false}
-        onOpen={() => {}}
-        {...actions()}
-      />,
-    );
-
-    const swipeRow = container.querySelector<HTMLElement>(
-      '[data-slot="swipe-action-row"]',
-    );
-    expect(swipeRow).not.toBeNull();
-    expect(swipeRow?.className).toContain("rounded-full");
-    expect(swipeRow?.className).toContain("w-fit");
-    expect(swipeRow?.className).toContain("--swipe-reveal-bg");
-    // The pill's tint, restated on the wrapper so the layer reads it. The
-    // pill is the wrapper's outermost `role="button"`, found by structure:
-    // on touch its accessible name is not "My App", since the trailing
-    // unpin button standing inside it contributes to the name.
-    const pill = swipeRow!.querySelector<HTMLElement>('[role="button"]')!;
-    const pillTint = tintOf(pill).bg;
-    expect(pillTint).toContain(TEAL_HEX);
-    expect(swipeRow!.style.getPropertyValue("--panel-item-bg")).toBe(pillTint);
+    const row = container.querySelector<HTMLElement>("[data-swipe-action-row]");
+    expect(row).not.toBeNull();
+    expect(row!.className).toContain("w-fit");
+    expect(row!.className).toContain("rounded-full");
+    // Behind the pill until a swipe uncovers it: hidden, so nothing of it
+    // shows at the pill's rounded edge.
+    const layer = container.querySelector(
+      'button[aria-label="Unpin"]',
+    )!.parentElement!;
+    expect(layer.style.visibility).toBe("hidden");
   });
 
   /* The tile is the shape with the most riding on the menu: no hover button,

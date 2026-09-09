@@ -194,15 +194,6 @@ export function SidebarSectionItem({
          deeper slab; still short of reading as selected, so the rows on
          top read as ordinary rows.
 
-         `--swipe-reveal-bg` restates that same wash. On touch, every row
-         is a swipe-to-reveal layer that paints an opaque copy of the
-         surface it sits on (the card publishes `--surface-lift` for the
-         untinted cards); on this card that copy was a white band with
-         square corners across the tint, so the row read as a different
-         object from the one it does on a fine pointer, where the layer
-         is a passthrough. Naming the tint here makes the layer vanish
-         into the card the way it does everywhere else.
-
          `mt-auto` is the anchor half of the section's bottom pin. The order
          pin (`pinAssistantSectionLast`) makes it the last card, but only the
          last *space-claiming* section grows to fill the rail, and when that
@@ -214,7 +205,7 @@ export function SidebarSectionItem({
          margin is inert. */
       cardClassName={
         isAssistantSection
-          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))] [--swipe-reveal-bg:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]"
+          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]"
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from

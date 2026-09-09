@@ -17,6 +17,11 @@ import {
   type ManagedOAuthError,
 } from "@/lib/auth/managed-oauth";
 import { managedOAuthErrorMessage } from "@/lib/auth/managed-oauth-copy";
+import {
+  CONNECTION_CONFIRM_WINDOW_MS,
+  CONNECTION_POLL_INTERVAL_MS,
+  CONNECTION_POLL_WINDOW_MS,
+} from "@/lib/auth/oauth-connect-timing";
 import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isNativePlatform } from "@/runtime/native-auth";
@@ -72,16 +77,6 @@ function clearStoredCompletion(requestId: string): void {
   }
 }
 
-/** Backstop poll while an authorization is open. */
-const CONNECTION_POLL_INTERVAL_MS = 3000;
-
-/**
- * How long that poll runs. An attempt the user walked away from would
- * otherwise poll for the life of the tab. A refetch on window focus stays
- * armed past this, which is the signal that actually matters.
- */
-const CONNECTION_POLL_WINDOW_MS = 5 * 60_000;
-
 export type ManagedOAuthConnectStatus = "idle" | "attempting" | "connected";
 
 export interface UseManagedOAuthConnectOptions {
@@ -119,9 +114,13 @@ export function useManagedOAuthConnect({
   const attempt = useOAuthConnectAttemptStore.use.attempts()[key];
   const startAttempt = useOAuthConnectAttemptStore.use.startAttempt();
   const readyAttempt = useOAuthConnectAttemptStore.use.readyAttempt();
+  const confirmAttempt = useOAuthConnectAttemptStore.use.confirmAttempt();
   const clearAttempt = useOAuthConnectAttemptStore.use.clearAttempt();
 
   const [connection, setConnection] = useState<OAuthConnection | null>(null);
+  /** A callback-confirmed success whose account the list never reported. */
+  const [confirmedWithoutConnection, setConfirmedWithoutConnection] =
+    useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const platformAssistantId = attempt?.platformAssistantId;
@@ -173,6 +172,27 @@ export function useManagedOAuthConnect({
     setConnection(granted);
   }, [attempt, clearAttempt, connections, key, providerKey]);
 
+  // The callback answered for this request, so the authorization succeeded
+  // whether or not the list ever shows the account. Report it rather than
+  // waiting on a row that may not be coming, and leave `connection` null so
+  // callers do not invent details the platform never gave.
+  const confirmedAt = attempt?.confirmedAt;
+  useEffect(() => {
+    if (!confirmedAt) {
+      return;
+    }
+    const remaining = confirmedAt + CONNECTION_CONFIRM_WINDOW_MS - Date.now();
+    const timer = setTimeout(
+      () => {
+        clearAttempt(key);
+        setConnection(null);
+        setConfirmedWithoutConnection(true);
+      },
+      Math.max(remaining, 0),
+    );
+    return () => clearTimeout(timer);
+  }, [clearAttempt, confirmedAt, key]);
+
   const failAttempt = useCallback(
     (error: ManagedOAuthError) => {
       clearAttempt(key);
@@ -189,6 +209,7 @@ export function useManagedOAuthConnect({
         return;
       }
       if (oauthStatus === "connected") {
+        confirmAttempt(key, attempt.requestId);
         void invalidateConnections(attempt.platformAssistantId);
         return;
       }
@@ -197,7 +218,7 @@ export function useManagedOAuthConnect({
         code: oauthCode ?? undefined,
       });
     },
-    [attempt, failAttempt, invalidateConnections],
+    [attempt, confirmAttempt, failAttempt, invalidateConnections, key],
   );
 
   // Two transports for the same payload. On the web the completion page mirrors
@@ -273,6 +294,7 @@ export function useManagedOAuthConnect({
       }
       setErrorMessage(null);
       setConnection(null);
+      setConfirmedWithoutConnection(false);
 
       const requestId = crypto.randomUUID();
       const native = isNativePlatform();
@@ -373,7 +395,12 @@ export function useManagedOAuthConnect({
   return {
     connect,
     dismiss,
-    status: connection ? "connected" : attempt ? "attempting" : "idle",
+    status:
+      connection || confirmedWithoutConnection
+        ? "connected"
+        : attempt
+          ? "attempting"
+          : "idle",
     connection,
     errorMessage,
   };

@@ -415,6 +415,7 @@ declare global {
           strokes: readonly CompanionAnnotationStroke[],
           ink: string,
         ): void;
+        setFrameScrolling?(scrolling: boolean): void;
         sharedFrame?(target: WatchCaptureTarget): void;
         captureScreen?(
           target: WatchCaptureTarget,

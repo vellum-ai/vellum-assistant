@@ -155,6 +155,31 @@ describe("navigateToConversation", () => {
     expect(useViewerStore.getState().activeMessageFiles).toBeNull();
   });
 
+  test("chat-info settles back to the app it was opened over, which then keeps the conversation beside it", () => {
+    useConversationStore.getState().setActiveConversationId("conv-1");
+    useViewerStore.setState({
+      mainView: "chat-info",
+      viewBeforeChatInfo: "app",
+      activeAppId: SAMPLE_APP.appId,
+      openedAppState: SAMPLE_APP,
+      activeChatInfo: {
+        assistantId: "asst-1",
+        conversationId: "conv-1",
+        category: null,
+      },
+    });
+    const navigate = mock((_to: string) => {});
+    navigateToConversation(navigate as unknown as NavigateFunction, "conv-2");
+
+    // The payload clear runs before the reveal, so the reveal sees the app
+    // the panel was opened over rather than the panel itself.
+    expect(useViewerStore.getState().activeChatInfo).toBeNull();
+    expect(useViewerStore.getState().mainView).toBe("app-editing");
+    expect(useConversationStore.getState().editingConversationId).toBe(
+      "conv-2",
+    );
+  });
+
   test("keeps an open app in the side-by-side layout on a wide viewport", () => {
     openAppViewer();
     const navigate = mock((_to: string) => {});

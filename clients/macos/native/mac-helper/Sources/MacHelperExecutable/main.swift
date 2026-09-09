@@ -78,6 +78,19 @@ final class MacHelper: @unchecked Sendable {
     /// key.
     private var activityWatch = false
     private var lastActivityReport = Date.distantPast
+    /// The global scroll-wheel monitor, up only while main is waiting to hear
+    /// a scroll end, and the debounce that decides when one has. A scroll is
+    /// many events, from a trackpad's phases through its momentum to a mouse
+    /// wheel's plain ticks, and the one thing they share is that they stop:
+    /// the end is a quiet gap after the last of them.
+    ///
+    /// An `NSEvent` monitor rather than a second event tap because it reads
+    /// mouse and scroll events without Input Monitoring, which only the
+    /// keyboard side of a global monitor needs, so the frame's scroll
+    /// stepping does not depend on the grant the voice key needs.
+    private var scrollMonitor: Any?
+    private var scrollEndReport: DispatchWorkItem?
+    private static let scrollEndGap: TimeInterval = 0.12
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -231,6 +244,23 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setActivityWatch(enable: enable)
+        }
+        // Whether a scroll is still going anywhere on the desktop, reported
+        // as the moment it stops and nothing else, for a window that stepped
+        // aside for one and has to know when to take the mouse back.
+        router.register("input.setScrollWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setScrollWatch requires enable"
+                )
+            }
+            return try self.setScrollWatch(enable: enable)
         }
         // Where a paste would land, asked when there are words to paste rather
         // than when a hold opens. No hold guard: the hold is over by then, and
@@ -528,6 +558,56 @@ final class MacHelper: @unchecked Sendable {
             releaseMonitorIfUnused()
         }
         return ["enabled": enable]
+    }
+
+    /// Watch every scroll on the desktop for the moment it stops, or stop
+    /// watching. Idempotent: a second enable keeps the monitor it has, and
+    /// a disable with none up is nothing to take down.
+    ///
+    /// The watch is asked for by a scroll already under way: the caller saw
+    /// the first wheel event itself, and that one is over before the monitor
+    /// is up. A single tick is a whole scroll, so the end is scheduled on
+    /// enable and only pushed out by whatever the monitor sees after.
+    private func setScrollWatch(enable: Bool) throws -> [String: Any] {
+        if !enable {
+            removeScrollMonitor()
+            return ["enabled": false]
+        }
+        if scrollMonitor == nil {
+            guard
+                let monitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] _ in
+                    self?.pushScrollEnd()
+                })
+            else {
+                throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.scrollWheel)")
+            }
+            scrollMonitor = monitor
+        }
+        pushScrollEnd()
+        return ["enabled": true]
+    }
+
+    /// The scroll is not over yet: the watch just went up for one, or a
+    /// wheel event went by. Where it went, and how far, is never read. The
+    /// report of its end is pushed out by the gap again.
+    private func pushScrollEnd() {
+        scrollEndReport?.cancel()
+        let report = DispatchWorkItem { [weak self] in
+            guard let self, self.scrollMonitor != nil else { return }
+            self.scrollEndReport = nil
+            self.writeNotification(method: "input.scrollEnded")
+        }
+        scrollEndReport = report
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollEndGap, execute: report)
+    }
+
+    private func removeScrollMonitor() {
+        scrollEndReport?.cancel()
+        scrollEndReport = nil
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
+        }
+        scrollMonitor = nil
     }
 
     private func readCommands() {
@@ -1472,6 +1552,7 @@ final class MacHelper: @unchecked Sendable {
         chordKeys = ChordKeySet()
         activityWatch = false
         releaseMonitorIfUnused()
+        removeScrollMonitor()
     }
 
     private func writeNotification(method: String, params: Any? = nil) {
@@ -1499,6 +1580,7 @@ final class MacHelper: @unchecked Sendable {
 private enum HelperError: LocalizedError {
     case carbon(String, OSStatus)
     case eventTap(String)
+    case eventMonitor(String)
 
     var errorDescription: String? {
         switch self {
@@ -1506,6 +1588,8 @@ private enum HelperError: LocalizedError {
             return "\(operation) failed with status \(status)"
         case let .eventTap(operation):
             return "\(operation) failed; Input Monitoring may not be granted"
+        case let .eventMonitor(operation):
+            return "\(operation) returned no monitor"
         }
     }
 }
