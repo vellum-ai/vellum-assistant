@@ -484,6 +484,8 @@
   "composerAttachments": {
     "fileTooLarge": "{name} is larger than {limit} and can't be attached.",
     "filesTooLarge": "{count, plural, one {# file is too large and can't be attached.} other {# files are too large and can't be attached.}}",
+    "imageGateResolving": "Still checking whether this conversation's model accepts images. Try again in a moment.",
+    "imageNotSupported": "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
     "imageResizeFailed": "Couldn't resize this image for upload. Try a smaller image.",
     "imageStillTooLargeAfterResize": "This attachment is still larger than {limit} after resizing. Try a smaller image.",
     "imageTooLargeToProcess": "This image is too large to process safely. Please choose a smaller image.",
@@ -715,8 +717,6 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "Assistant replied",
-    "imageGateResolving": "Still checking whether this conversation's model accepts images. Try again in a moment.",
-    "imageNotSupported": "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
     "messageSentToast": "Message sent",
     "placeholder": "What would you like to do?",
     "sendFailed": "Couldn't send your message. Try again.",

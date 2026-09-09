@@ -887,6 +887,67 @@ describe("restoreAttachmentsIfEmpty", () => {
     expect(getStore().documentAttachments).toHaveLength(2);
     expect(getStore().attachments).toHaveLength(0);
   });
+
+  /** What a send carries away with it: the display metadata, minus the slot. */
+  function sentPayload(att: UploadedAttachment): DisplayAttachment {
+    return {
+      id: att.id,
+      filename: att.filename,
+      mimeType: att.mimeType,
+      sizeBytes: att.sizeBytes,
+      previewUrl: att.previewUrl,
+    };
+  }
+
+  test("hands back an attachment whose preview the slot's reset revoked as a chip", async () => {
+    const { docAtt } = await uploadOneImagePerSlot();
+    const payload = [sentPayload(docAtt)];
+
+    getStore().fullReset("document");
+    getStore().restoreAttachmentsIfEmpty(payload, "document");
+
+    const restored = getStore().documentAttachments[0];
+    expect(restored?.kind).toBe("uploaded");
+    if (restored?.kind !== "uploaded") {
+      throw new Error("expected the restored attachment to be uploaded");
+    }
+    expect(restored.previewUrl).toBeNull();
+    expect(restored.localId).not.toBe(docAtt.localId);
+    expect(restored.localId).toStartWith("att-");
+    expect(restored.id).toBe(docAtt.id);
+    expect(restored.filename).toBe(docAtt.filename);
+    expect(restored.mimeType).toBe(docAtt.mimeType);
+  });
+
+  test("keeps a preview the store still holds alive, and revokes it once on the next full reset", async () => {
+    const revokeSpy = spyOn(URL, "revokeObjectURL");
+    try {
+      const { mainAtt, docAtt } = await uploadOneImagePerSlot();
+      const payload = [sentPayload(mainAtt)];
+
+      // A successful send empties the composer but keeps the URL alive for the
+      // sent message bubble.
+      getStore().resetAttachments();
+      getStore().restoreAttachmentsIfEmpty(payload);
+
+      const restored = getStore().attachments[0];
+      if (restored?.kind !== "uploaded") {
+        throw new Error("expected the restored attachment to be uploaded");
+      }
+      expect(restored.previewUrl).toBe(mainAtt.previewUrl);
+      expect(revokeSpy).not.toHaveBeenCalledWith(mainAtt.previewUrl);
+
+      getStore().fullReset();
+
+      const revocations = revokeSpy.mock.calls.filter(
+        (call) => call[0] === mainAtt.previewUrl,
+      );
+      expect(revocations).toHaveLength(1);
+      expect(revokeSpy).not.toHaveBeenCalledWith(docAtt.previewUrl);
+    } finally {
+      revokeSpy.mockRestore();
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

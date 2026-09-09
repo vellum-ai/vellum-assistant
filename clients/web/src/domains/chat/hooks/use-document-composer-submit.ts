@@ -251,8 +251,8 @@ export function useDocumentComposerSubmit({
       useComposerStore.setState({
         documentAttachmentLastError: t(
           imageAttachmentsAllowed === false
-            ? "documentComposer.imageNotSupported"
-            : "documentComposer.imageGateResolving",
+            ? "composerAttachments.imageNotSupported"
+            : "composerAttachments.imageGateResolving",
         ),
       });
       return;

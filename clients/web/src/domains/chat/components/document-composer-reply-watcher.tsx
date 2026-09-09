@@ -234,7 +234,14 @@ export function DocumentComposerReplyWatcher() {
     if (settled === 0) {
       return;
     }
-    clearProcessingWhenSettled(conversationId);
+    // A handoff means more messages are queued in this conversation, so it is
+    // not idle: the marker stays up for the queued work, and the terminal of
+    // the turn that runs next takes it down, through this watcher when that
+    // turn is a document send's and through the chat stream's turn end
+    // otherwise.
+    if (event.type !== "generation_handoff") {
+      clearProcessingWhenSettled(conversationId);
+    }
     // The daemon emits a handoff in place of `message_complete` when the turn
     // finishes with more messages queued behind it, so the reply is done. The
     // three failure terminals answer the sends with nothing to announce.

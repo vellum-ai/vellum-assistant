@@ -247,7 +247,7 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
         .documentAttachments.map((att) => att.filename),
     ).toEqual(["note.txt"]);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
-      chatEn.documentComposer.imageNotSupported,
+      chatEn.composerAttachments.imageNotSupported,
     );
   });
 
@@ -266,7 +266,7 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
         .documentAttachments.map((att) => att.filename),
     ).toEqual(["note.txt"]);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
-      chatEn.documentComposer.imageGateResolving,
+      chatEn.composerAttachments.imageGateResolving,
     );
   });
 
@@ -287,7 +287,7 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
 
     expect(useComposerStore.getState().documentAttachments).toEqual([]);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
-      chatEn.documentComposer.imageNotSupported,
+      chatEn.composerAttachments.imageNotSupported,
     );
   });
 });

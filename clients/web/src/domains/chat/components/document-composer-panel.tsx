@@ -145,8 +145,8 @@ export function DocumentComposerPanel({
             useComposerStore.setState({
               documentAttachmentLastError:
                 imageAttachmentsAllowed === null
-                  ? t("documentComposer.imageGateResolving")
-                  : t("documentComposer.imageNotSupported"),
+                  ? t("composerAttachments.imageGateResolving")
+                  : t("composerAttachments.imageNotSupported"),
             });
           }
         }}

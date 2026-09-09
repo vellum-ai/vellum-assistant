@@ -761,7 +761,7 @@ describe("images against the target model", () => {
     expect(useComposerStore.getState().documentInput).toBe("have a look");
     expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
-      chatEn.documentComposer.imageNotSupported,
+      chatEn.composerAttachments.imageNotSupported,
     );
     expect(result.current.status).toBe("idle");
   });
@@ -782,7 +782,7 @@ describe("images against the target model", () => {
     expect(postChatMessageMock).not.toHaveBeenCalled();
     expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
-      chatEn.documentComposer.imageGateResolving,
+      chatEn.composerAttachments.imageGateResolving,
     );
   });
 

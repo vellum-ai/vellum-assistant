@@ -529,6 +529,59 @@ describe("DocumentComposerReplyWatcher", () => {
     // finishes with more messages queued behind it, so the reply is done.
     expect(toastSuccessMock).toHaveBeenCalledTimes(1);
     expect(awaiting("conv-1")).toBe(false);
+    // The queued message the handoff announced is about to run, whether or
+    // not this composer sent it, so the conversation is still busy.
+    expect(processing("conv-1")).toBe(true);
+  });
+
+  test("a handoff leaves the activity up for a message this composer never sent", () => {
+    // GIVEN the only document send in the conversation, running, with an
+    // ordinary chat message queued behind it
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    acknowledgeRunning("conv-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishGenerationHandoff("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(awaiting("conv-1")).toBe(false);
+    expect(processing("conv-1")).toBe(true);
+
+    // The queued message's own turn ends. Nothing of this composer's is
+    // running in it, so the chat stream's turn end owns the activity.
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(processing("conv-1")).toBe(true);
+  });
+
+  test("a handoff keeps the activity up for a document send still queued", () => {
+    // GIVEN a running send and a second one parked behind it
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-1", "cm-1");
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-1", "cm-2");
+    acknowledgeRunning("conv-1", "cm-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishMessageQueued("conv-1", "cm-2");
+    publishGenerationHandoff("conv-1");
+
+    // The handoff answered the running send; the queued one is still owed a
+    // reply and holds the activity.
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(oldestNonce("conv-1")).toBe("cm-2");
+    expect(processing("conv-1")).toBe(true);
+
+    publishMessageDequeued("conv-1", "cm-2");
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(2);
+    expect(awaiting("conv-1")).toBe(false);
     expect(processing("conv-1")).toBe(false);
   });
 

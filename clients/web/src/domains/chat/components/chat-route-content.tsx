@@ -955,17 +955,21 @@ export function ChatMainPanel({
         onClose={() => {
           // The modal can be acknowledged long after the send it reports (a
           // queued message can fail while its batch runs on), by which time
-          // the composer may hold a newer draft that must not be replaced.
+          // the composer may hold a newer draft. A draft typed or staged
+          // since is never replaced, and never receives half of the failed
+          // message, so the failed payload goes back only into a composer
+          // whose text and attachments are both empty.
           const composer = useComposerStore.getState();
           if (
-            typeof error.restoreContent === "string" &&
-            !composer.input.trim()
+            composer.input.trim() === "" &&
+            composer.attachments.length === 0
           ) {
-            composer.setInput(error.restoreContent);
-          }
-          if (error.restoreAttachments) {
-            // The store action stages these only into an empty slot.
-            composer.restoreAttachmentsIfEmpty(error.restoreAttachments);
+            if (typeof error.restoreContent === "string") {
+              composer.setInput(error.restoreContent);
+            }
+            if (error.restoreAttachments) {
+              composer.restoreAttachmentsIfEmpty(error.restoreAttachments);
+            }
           }
           useChatSessionStore.getState().setError(null);
         }}
@@ -1008,27 +1012,32 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const handleDroppedFiles = useCallback(
     (files: FileList | File[]): File[] => {
-      // The route's composer keeps accepting images while the profile is
-      // still loading, so an unresolved gate reads as allowed here.
+      // Nothing revalidates a staged image before the main send, so an image
+      // is held while the gate is unresolved and refused while the model
+      // lacks vision, rather than staged against a profile the provider then
+      // rejects once the whole turn is already on its way.
       const { allowed, droppedImages } = partitionAttachableFiles(
         files,
-        imageAttachmentsAllowed !== false,
+        imageAttachmentsAllowed === true,
       );
-      if (droppedImages > 0) {
-        useComposerStore.setState({
-          attachmentLastError:
-            "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
-        });
-      }
       if (allowed.length > 0) {
         addChatAttachmentFiles(allowed);
       }
-      // What a caller reading one file at a time needs to know: an image
-      // dropped here is never held, so it should not count against whatever
-      // budget that caller is keeping.
+      // Set after `addFiles`, which clears the slot's error on a clean queue.
+      if (droppedImages > 0) {
+        useComposerStore.setState({
+          attachmentLastError:
+            imageAttachmentsAllowed === null
+              ? t("composerAttachments.imageGateResolving")
+              : t("composerAttachments.imageNotSupported"),
+        });
+      }
+      // What a caller reading one file at a time needs to know: the returned
+      // list is what was actually staged, so an image held or refused here
+      // takes nothing from whatever budget that caller is keeping.
       return allowed;
     },
-    [addChatAttachmentFiles, imageAttachmentsAllowed],
+    [addChatAttachmentFiles, imageAttachmentsAllowed, t],
   );
   const handleDroppedDirectories = useCallback((directories: File[]) => {
     const { resolvedPaths, unresolvedCount } =

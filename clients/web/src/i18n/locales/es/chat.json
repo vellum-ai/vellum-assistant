@@ -480,6 +480,8 @@
   "composerAttachments": {
     "fileTooLarge": "{name} supera {limit} y no se puede adjuntar.",
     "filesTooLarge": "{count, plural, one {# archivo es demasiado grande y no se puede adjuntar.} other {# archivos son demasiado grandes y no se pueden adjuntar.}}",
+    "imageGateResolving": "Todavía se está comprobando si el modelo de esta conversación admite imágenes. Inténtalo de nuevo en un momento.",
+    "imageNotSupported": "El modelo actual no admite entrada de imágenes. Cambia a un modelo con visión para adjuntar imágenes.",
     "imageResizeFailed": "No se pudo redimensionar esta imagen para subirla. Prueba con una imagen más pequeña.",
     "imageStillTooLargeAfterResize": "Este archivo adjunto sigue superando {limit} después de redimensionarlo. Prueba con una imagen más pequeña.",
     "imageTooLargeToProcess": "Esta imagen es demasiado grande para procesarla de forma segura. Elige una imagen más pequeña.",
@@ -711,8 +713,6 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "El asistente respondió",
-    "imageGateResolving": "Todavía se está comprobando si el modelo de esta conversación admite imágenes. Inténtalo de nuevo en un momento.",
-    "imageNotSupported": "El modelo actual no admite entrada de imágenes. Cambia a un modelo con visión para adjuntar imágenes.",
     "messageSentToast": "Mensaje enviado",
     "placeholder": "¿Qué te gustaría hacer?",
     "sendFailed": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",

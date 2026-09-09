@@ -332,6 +332,10 @@ export interface ComposerActions {
    * Stage already-uploaded attachments again, for a send the daemon reported
    * failed after the composer was cleared. Acts only while the slot holds no
    * attachments, so a newer set the user has staged since is never replaced.
+   *
+   * A restored attachment keeps its preview only while the store still holds
+   * that preview alive, and otherwise comes back as a chip: a preview revoked
+   * when its slot was cleared cannot be shown again.
    */
   restoreAttachmentsIfEmpty: (
     attachments: DisplayAttachment[],
@@ -761,15 +765,20 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     if (attachments.length === 0) {
       return;
     }
-    updateAttachments(set, slot, (atts) =>
-      atts.length > 0
-        ? atts
-        : attachments.map((att) => ({
-            ...att,
-            kind: "uploaded" as const,
-            localId: createLocalId(),
-          })),
-    );
+    updateAttachments(set, slot, (atts) => {
+      if (atts.length > 0) {
+        return atts;
+      }
+      return attachments.map((att) => {
+        const localId = createLocalId();
+        return {
+          ...att,
+          kind: "uploaded" as const,
+          localId,
+          previewUrl: previewUrlIfAlive(att.previewUrl, localId, slot),
+        };
+      });
+    });
   },
 
   dismissAttachmentError: (slot = "main") => {
@@ -840,6 +849,31 @@ function revokePreview(localId: string) {
     URL.revokeObjectURL(entry.url);
     previewUrls.delete(localId);
   }
+}
+
+/**
+ * The preview URL an attachment being staged again under `newLocalId` can still
+ * render, or `null` when the store no longer holds that URL alive and it is
+ * therefore already revoked. A URL that survives is re-registered under
+ * `newLocalId` for `slot`, so the slot's next full reset revokes it once.
+ */
+function previewUrlIfAlive(
+  previewUrl: string | null | undefined,
+  newLocalId: string,
+  slot: ComposerSlot,
+): string | null {
+  if (!previewUrl) {
+    return null;
+  }
+  for (const [localId, entry] of previewUrls) {
+    if (entry.url !== previewUrl) {
+      continue;
+    }
+    previewUrls.delete(localId);
+    previewUrls.set(newLocalId, { url: previewUrl, slot });
+    return previewUrl;
+  }
+  return null;
 }
 
 /**
