@@ -14,11 +14,6 @@ metadata:
       - "what it can do or which skills/tools exist"
       - "whether a service is connected, and in which sense"
       - "its credits, plan allowance, spend, or daily limit"
-      - "pricing, plans, or whether Vellum is free"
-      - "how to install the desktop, iOS, or Android app"
-      - "how do I install you"
-      - "whether there is a Windows or Linux desktop app"
-      - "do you run on my PC"
       - "how to self-host or use your own model API key"
     avoid-when:
       - "changing configuration"

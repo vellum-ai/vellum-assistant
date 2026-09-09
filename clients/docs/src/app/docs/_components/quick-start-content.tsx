@@ -120,12 +120,22 @@ export function QuickStartContent() {
               local files and control your Mac when you ask it to.
             </li>
             <li>
-              <strong>Windows or Linux</strong>: use the web app, or the{" "}
+              <strong>Windows</strong>: install the{" "}
+              <Link href={routes.downloads} className={linkClass}>
+                desktop app
+              </Link>
+              , or use the{" "}
               <a href={routes.chromeWebStore} className={linkClass}>
                 Chrome extension
               </a>
-              . There is no shipped desktop client for those operating
-              systems.
+              .
+            </li>
+            <li>
+              <strong>Linux</strong>: use the web app, or the{" "}
+              <a href={routes.chromeWebStore} className={linkClass}>
+                Chrome extension
+              </a>
+              . There is no shipped Linux desktop client.
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">

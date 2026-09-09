@@ -191,7 +191,7 @@ export function KeyConceptsChannelsContent() {
             The Android app is the same kind of pocket client as iOS: it signs
             into your Vellum Cloud account and carries the same assistant,
             memory, and conversations. Host file access, shell commands,
-            computer use, and screen watch stay on the Mac desktop app.
+            computer use, and screen watch stay on the desktop app.
           </p>
           <p className="mb-0 text-zinc-600">
             Available on{" "}

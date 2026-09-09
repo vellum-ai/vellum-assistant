@@ -1,7 +1,7 @@
 /**
  * `/docs/getting-started/installation` lists the shipped clients. These
- * tests lock the public install matrix: iOS, Android, macOS, web, and
- * self-host, with no shipped Windows or Linux desktop client.
+ * tests lock the public install matrix: iOS, Android, macOS, Windows, web,
+ * and self-host, with no shipped Linux desktop client.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -27,22 +27,22 @@ describe("GettingStartedContent", () => {
     expect(html).toContain("apps.apple.com/us/app/vellum-assistant/id6759934423");
   });
 
-  test("points macOS install at the public downloads page", () => {
+  test("points desktop install at the public downloads page", () => {
     expect(html).toContain("vellum.ai/downloads");
     expect(html).toContain("/downloads");
-    expect(html).toContain("Desktop app (macOS)");
+    expect(html).toContain("Desktop app (macOS and Windows)");
   });
 
-  test("states there is no shipped Windows or Linux desktop client", () => {
-    expect(html).toContain("no shipped Windows or Linux desktop client");
-    expect(html).toContain("Windows and Linux");
-    expect(html).toContain("self-host the assistant runtime");
+  test("states there is no shipped Linux desktop client", () => {
+    expect(html).toContain("no shipped Linux desktop client");
+    expect(html).toContain("Self-host the assistant runtime");
+    expect(html).not.toContain("no shipped Windows");
   });
 
   test("carries no contents entry for a section that is not on the page", () => {
     const targets = tocTargets(html);
     expect(targets).toContain("android-app");
-    expect(targets).toContain("windows-and-linux");
+    expect(targets).toContain("linux");
     for (const target of targets) {
       expect(html).toContain(`id="${target}"`);
     }

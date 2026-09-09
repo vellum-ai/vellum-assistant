@@ -19,11 +19,12 @@ describe("HelpFaqContent", () => {
   });
 
   test("is honest about Windows and Linux desktop clients", () => {
-    expect(html).toContain("no shipped Windows or Linux desktop client");
     expect(html).toContain("Is there a Windows app?");
+    expect(html).toContain("Yes. Download the Windows desktop app");
     expect(html).toContain("Does it run on Linux?");
+    expect(html).toContain("no shipped Linux desktop client");
     expect(html).toContain("self-host the assistant runtime on a Linux");
-    expect(html).not.toContain("download the Windows");
+    expect(html).not.toContain("no shipped Windows");
   });
 
   test("describes Base as the free plan and points at Pricing", () => {
