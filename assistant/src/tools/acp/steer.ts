@@ -47,7 +47,9 @@ export async function executeAcpSteer(
       // Without a connected client there is no one to receive a resumed
       // session's events, so skip the transparent resume fallback and
       // steer the in-memory session only.
-      await manager.steer(acpSessionId, instruction);
+      await manager.steer(acpSessionId, instruction, {
+        ...(context.signal ? { signal: context.signal } : {}),
+      });
       return steeredResult(acpSessionId, { resumed: false });
     }
     // Sessions no longer in memory (completed, or lost to a daemon
@@ -59,6 +61,7 @@ export async function executeAcpSteer(
       acpSessionId,
       instruction,
       sendToClient,
+      { ...(context.signal ? { signal: context.signal } : {}) },
     );
     return steeredResult(acpSessionId, { resumed });
   } catch (err) {

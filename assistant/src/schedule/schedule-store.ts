@@ -576,6 +576,7 @@ export async function updateSchedule(
     // owner-defer provenance they are immutable, enforced at the top of the
     // function body rather than in the type, since the distinction is per-row.
   },
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob | null> {
   const db = getDb();
   const existing = db
@@ -759,7 +760,11 @@ export async function updateSchedule(
 
   await withSqliteRetry(
     () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
-    { op: "updateSchedule", context: { scheduleId: id } },
+    {
+      op: "updateSchedule",
+      context: { scheduleId: id },
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    },
   );
   notifySchedulesChanged();
 
@@ -776,7 +781,10 @@ function getRowSourceKey(id: string): string | null {
   return row?.sourceKey ?? null;
 }
 
-export async function deleteSchedule(id: string): Promise<boolean> {
+export async function deleteSchedule(
+  id: string,
+  opts?: ScheduleWriteOptions,
+): Promise<boolean> {
   const db = getDb();
   // Plugin-sourced rows keep their identity and run history: deleting one
   // would just have the reconciler recreate it from the declaration on its
@@ -794,7 +802,11 @@ export async function deleteSchedule(id: string): Promise<boolean> {
       db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run();
       return rawChanges() > 0;
     },
-    { op: "deleteSchedule", context: { scheduleId: id } },
+    {
+      op: "deleteSchedule",
+      context: { scheduleId: id },
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    },
   );
   if (deleted) {
     notifySchedulesChanged();
@@ -1039,6 +1051,7 @@ export async function disarmDeclaredSchedule(id: string): Promise<boolean> {
 export async function setUserEnabled(
   id: string,
   value: boolean,
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob | null> {
   const db = getDb();
   const existing = db
@@ -1090,7 +1103,11 @@ export async function setUserEnabled(
 
   await withSqliteRetry(
     () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
-    { op: "setUserEnabled", context: { scheduleId: id } },
+    {
+      op: "setUserEnabled",
+      context: { scheduleId: id },
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    },
   );
   notifySchedulesChanged();
   return getSchedule(id);

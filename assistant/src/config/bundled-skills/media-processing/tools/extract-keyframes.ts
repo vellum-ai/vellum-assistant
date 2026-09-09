@@ -50,6 +50,9 @@ export async function run(
       assetId,
       options,
       context.onOutput,
+      // Segmentation spawns ffmpeg per segment and can transcribe each one, so
+      // the run is long enough that a stopped turn must not carry it on.
+      context.signal ? { signal: context.signal } : undefined,
     );
 
     const asset = getMediaAssetById(assetId);

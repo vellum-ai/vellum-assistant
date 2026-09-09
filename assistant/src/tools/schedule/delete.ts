@@ -40,7 +40,12 @@ export async function executeScheduleDelete(
 
   let deleted: boolean;
   try {
-    deleted = await deleteSchedule(jobId);
+    // The delete retries with backoff on SQLite contention, so a cancel
+    // landing mid-retry must stop rather than sleep and then remove the row.
+    deleted = await deleteSchedule(
+      jobId,
+      context.signal ? { signal: context.signal } : undefined,
+    );
   } catch (err) {
     // The store refuses to delete plugin-sourced rows with a UserError. That
     // refusal is an expected outcome for the model to relay, not a daemon

@@ -541,11 +541,22 @@ export async function executeAppGenerateIcon(
     renameSync(iconPath, tempPath);
   }
 
-  await generateAppIcon(
-    input.app_id,
-    app.name,
-    input.description ?? app.description,
-  );
+  try {
+    await generateAppIcon(
+      input.app_id,
+      app.name,
+      input.description ?? app.description,
+      signal ? { signal } : undefined,
+    );
+  } catch (err) {
+    // The existing icon is sitting at the temp path. Put it back before the
+    // cancellation leaves, or a stopped turn costs the user the icon it was
+    // only meant to replace.
+    if (existsSync(tempPath) && !existsSync(iconPath)) {
+      renameSync(tempPath, iconPath);
+    }
+    throw err;
+  }
 
   if (existsSync(iconPath)) {
     // Success - clean up the old icon backup

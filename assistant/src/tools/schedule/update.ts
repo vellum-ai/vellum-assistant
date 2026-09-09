@@ -347,9 +347,13 @@ export async function executeScheduleUpdate(
     }
   }
 
+  // The store's writes retry with backoff on SQLite contention, so a cancel
+  // landing mid-retry must stop rather than sleep and then persist the edit.
+  const writeOpts = context.signal ? { signal: context.signal } : undefined;
+
   try {
     const job = isPluginSourced
-      ? await setUserEnabled(jobId, updates.enabled as boolean)
+      ? await setUserEnabled(jobId, updates.enabled as boolean, writeOpts)
       : await updateSchedule(
           jobId,
           updates as {
@@ -374,6 +378,7 @@ export async function executeScheduleUpdate(
             workflowArgs?: unknown;
             inferenceProfile?: string | null;
           },
+          writeOpts,
         );
 
     if (!job) {

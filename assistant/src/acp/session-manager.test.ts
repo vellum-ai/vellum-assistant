@@ -38,6 +38,7 @@ mock.module("./prepare-agent-env.js", () => ({
   },
 }));
 
+import { createAbortReason } from "../util/abort-reasons.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
 
@@ -610,5 +611,52 @@ describe("AcpSessionManager.spawn: a credential Claude refused at startup", () =
     }
 
     expect(refusedDigests).toContain("digest-refused-at-startup");
+  });
+});
+
+describe("AcpSessionManager.steer: a stopped turn hands the agent nothing", () => {
+  function abortedSignal(): AbortSignal {
+    const controller = new AbortController();
+    controller.abort(createAbortReason("user_cancel", "session-manager.test"));
+    return controller.signal;
+  }
+
+  test("an already-cancelled turn never fires the prompt", async () => {
+    const manager = new AcpSessionManager(1);
+    const prompt = mock(() => Promise.resolve({}));
+    injectSession(manager, "sess-abort-1", "conv-1", fakeProcess(prompt));
+
+    await expect(
+      manager.steer("sess-abort-1", "do it", { signal: abortedSignal() }),
+    ).rejects.toThrow();
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Cancelling the in-flight prompt is an await, so a stop landing inside it
+   * still reaches the new prompt unless the signal is read again afterwards.
+   */
+  test("a cancel during the in-flight cancel never fires the prompt", async () => {
+    const manager = new AcpSessionManager(1);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    const entry = injectSession(
+      manager,
+      "sess-abort-2",
+      "conv-1",
+      fakeProcess(prompt),
+    );
+    entry.currentPrompt = Promise.resolve();
+    (entry.process as unknown as { cancel: () => Promise<void> }).cancel =
+      async () => {
+        controller.abort(
+          createAbortReason("user_cancel", "session-manager.test"),
+        );
+      };
+
+    await expect(
+      manager.steer("sess-abort-2", "do it", { signal: controller.signal }),
+    ).rejects.toThrow();
+    expect(prompt).not.toHaveBeenCalled();
   });
 });
