@@ -39,8 +39,8 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
-import { ProviderError } from "../../../../../util/errors.js";
 import { OpenAIChatCompletionsProvider } from "../../../../../providers/openai/chat-completions-provider.js";
+import { ProviderError } from "../../../../../util/errors.js";
 import { sectionHeadLine } from "../sections.js";
 import type { MemoryRoutingTurn, Section } from "../types.js";
 
