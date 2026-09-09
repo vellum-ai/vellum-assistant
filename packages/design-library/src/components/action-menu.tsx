@@ -324,6 +324,7 @@ function ActionChip({ Icon }: { Icon: LucideIcon }) {
   return (
     <span
       aria-hidden
+      data-slot="action-menu-chip"
       className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--border-hover)]"
     >
       <Icon

@@ -99,6 +99,18 @@ export const Authenticated: Story = {
   },
 };
 
+/**
+ * Stale credentials: tokens are still on disk, so `hasOAuth` is true, but the
+ * health check says they no longer authenticate. The row has to offer the way
+ * back in rather than claiming to be authenticated, or the only route out is
+ * revoking first.
+ */
+export const StaleGrant: Story = {
+  args: {
+    server: server({ status: "needs-auth", hasOAuth: true }),
+  },
+};
+
 /** Switched off, and reading as neither working nor broken. */
 export const Disabled: Story = {
   args: { server: server({ status: "disabled", enabled: false }) },

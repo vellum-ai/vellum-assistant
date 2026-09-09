@@ -83,17 +83,18 @@ export function McpServerCard({
   const { t } = useTranslation("settings");
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const statusTone = STATUS_TONES[server.status] ?? DEFAULT_STATUS_TONE;
-  // Holding an OAuth grant is what "authenticated" means here: a static
-  // bearer or api-key is configuration the user typed, never a flow this row
-  // can start or finish.
-  const isAuthenticated = server.hasOAuth;
-  // Offered only while there is something to authenticate. A server already
-  // holding a grant says so with a chip instead, and `stdio` runs locally with
-  // nothing to sign in to.
+  // A stored OAuth grant is not the same as a working one: the list route
+  // reports `hasOAuth` from the tokens on disk, while the health check reports
+  // whether they still authenticate. Expired or server-side-revoked tokens
+  // arrive as both at once, so the status is what decides, and the grant only
+  // decides which of the two flows the row offers.
+  const hasOAuthGrant = server.hasOAuth;
+  const isAuthenticated = hasOAuthGrant && server.status !== "needs-auth";
+  // A static bearer or api-key is configuration the user typed, never a flow
+  // this row can start or finish, and `stdio` runs locally with nothing to
+  // sign in to.
   const needsAuth =
-    !isAuthenticated &&
-    server.status === "needs-auth" &&
-    server.transport.type !== "stdio";
+    server.status === "needs-auth" && server.transport.type !== "stdio";
 
   const handleToggle = useCallback(
     (next: boolean) => onToggleEnabled(server.id, next),
@@ -190,14 +191,16 @@ export function McpServerCard({
                 label={
                   isAuthenticating
                     ? t("mcpServerCard.authenticating")
-                    : t("mcpServerCard.authenticate")
+                    : hasOAuthGrant
+                      ? t("mcpServerCard.reAuth")
+                      : t("mcpServerCard.authenticate")
                 }
                 onClick={handleAuthenticate}
                 disabled={isAuthenticating}
               />
             ) : null}
 
-            {isAuthenticated ? (
+            {hasOAuthGrant ? (
               <Button
                 variant="dangerOutline"
                 iconOnly={isRevoking ? <Loader2 className="animate-spin" /> : <LogOut />}
