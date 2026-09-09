@@ -117,6 +117,68 @@ describe("stopAwaitingReply", () => {
   });
 });
 
+describe("dropUnacknowledgedReply", () => {
+  test("drops a send the daemon has not spoken for", () => {
+    // GIVEN a send listed but not yet acknowledged
+    getState().startAwaitingReply("conv-1", "cm-1");
+
+    // WHEN the attempt behind it is abandoned
+    const dropped = getState().dropUnacknowledgedReply("conv-1", "cm-1");
+
+    // THEN it is off the list, and reports as dropped
+    expect(dropped).toBe(true);
+    expect(getState().pendingReplies.has("conv-1")).toBe(false);
+  });
+
+  test("keeps a send the daemon echoed as running", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyRunning("conv-1", "cm-1");
+
+    const dropped = getState().dropUnacknowledgedReply("conv-1", "cm-1");
+
+    expect(dropped).toBe(false);
+    expect(noncesFor("conv-1")).toEqual(["cm-1"]);
+  });
+
+  test("keeps a send the daemon acked as queued", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1", "cm-1");
+
+    const dropped = getState().dropUnacknowledgedReply("conv-1", "cm-1");
+
+    expect(dropped).toBe(false);
+    expect(queuedFlags("conv-1")).toEqual([true]);
+  });
+
+  test("drops only the send carrying the nonce", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().startAwaitingReply("conv-1", "cm-2");
+
+    getState().dropUnacknowledgedReply("conv-1", "cm-1");
+
+    expect(noncesFor("conv-1")).toEqual(["cm-2"]);
+  });
+
+  test("is a no-op for a nonce none of the sends carry", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    const before = getState().pendingReplies;
+
+    const dropped = getState().dropUnacknowledgedReply("conv-1", "cm-other");
+
+    expect(dropped).toBe(false);
+    expect(getState().pendingReplies).toBe(before);
+  });
+
+  test("is a no-op for a conversation with nothing pending", () => {
+    const before = getState().pendingReplies;
+
+    const dropped = getState().dropUnacknowledgedReply("conv-none", "cm-1");
+
+    expect(dropped).toBe(false);
+    expect(getState().pendingReplies).toBe(before);
+  });
+});
+
 describe("settleRunningReplies", () => {
   test("settles nothing in a conversation with nothing pending", () => {
     expect(getState().settleRunningReplies("conv-1")).toBe(0);

@@ -73,6 +73,49 @@ export interface DocumentComposerSubmitResult {
  *  the autosave "saved" pattern in `document-viewer-container.tsx`. */
 const SENT_STATUS_MS = 1500;
 
+/**
+ * A send that has listed itself among a conversation's pending sends: the
+ * nonce it carries, the payload that nonce is valid for, the conversation it
+ * went toward, and whether its POST is still out.
+ */
+interface DocumentComposerAttempt {
+  clientMessageId: string;
+  snapshot: string;
+  targetConversationId: string;
+  inFlight: boolean;
+}
+
+/**
+ * Take `attempt`'s entry off the pending list, and the conversation's
+ * processing mark with it when nothing else is pending there. Nothing can
+ * settle an entry the daemon never spoke for once no attempt can retry it,
+ * and its mark would stand until an assistant switch. An acknowledged entry
+ * stays, because its reply is still coming.
+ */
+function abandonAttempt(
+  attempt: Pick<
+    DocumentComposerAttempt,
+    "clientMessageId" | "targetConversationId"
+  >,
+): void {
+  const dropped = useDocumentComposerReplyStore
+    .getState()
+    .dropUnacknowledgedReply(
+      attempt.targetConversationId,
+      attempt.clientMessageId,
+    );
+  if (
+    dropped &&
+    !useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.has(attempt.targetConversationId)
+  ) {
+    useConversationStore
+      .getState()
+      .removeProcessingConversationId(attempt.targetConversationId);
+  }
+}
+
 export function useDocumentComposerSubmit({
   assistantId,
   doc,
@@ -112,23 +155,26 @@ export function useDocumentComposerSubmit({
   const surfaceId = doc?.surfaceId ?? null;
   const ownerGenerationRef = useRef(0);
   const currentAssistantIdRef = useRef(assistantId);
-  const pendingClientMessageRef = useRef<{
-    clientMessageId: string;
-    snapshot: string;
-    targetConversationId: string;
-  } | null>(null);
+  const pendingClientMessageRef = useRef<DocumentComposerAttempt | null>(null);
   useEffect(() => {
     currentAssistantIdRef.current = assistantId;
     ownerGenerationRef.current += 1;
-    // The draft is cleared when either half of the owner changes, so the next
-    // send is a different message with a nonce of its own. An entry an earlier
-    // attempt listed stays listed, since that message may still be on its way
-    // to a reply.
-    pendingClientMessageRef.current = null;
     // The composer on screen belongs to the incoming owner and has sent
     // nothing, so it starts enabled instead of inheriting the outgoing
     // attempt's "sending".
     setStatus("idle");
+    // The outgoing owner takes its draft with it, and an unmounted hook has no
+    // draft at all, so the next send is a different message with a nonce of
+    // its own. An entry an earlier attempt listed stays listed while its POST
+    // is out, or once the daemon has taken the message in; one the daemon
+    // never took in and no attempt can retry comes off.
+    return () => {
+      const previous = pendingClientMessageRef.current;
+      if (previous && !previous.inFlight) {
+        abandonAttempt(previous);
+      }
+      pendingClientMessageRef.current = null;
+    };
   }, [assistantId, surfaceId]);
 
   // Auto-fade the "Sent" micro-state.
@@ -169,6 +215,11 @@ export function useDocumentComposerSubmit({
     if (selectUploadingCount(documentAttachments) > 0) {
       return;
     }
+
+    // This attempt's own handle, set once it lists itself before the POST.
+    // The ref may have been nulled or replaced by then, so a throw reads the
+    // attempt it has to answer for from here.
+    let attempt: DocumentComposerAttempt | null = null;
 
     setStatus("sending");
     try {
@@ -324,11 +375,18 @@ export function useDocumentComposerSubmit({
       // and the next unrelated completion would fire the reply toast.
       const retryOfSameTarget =
         sameMessage?.targetConversationId === targetConversationId;
-      pendingClientMessageRef.current = {
+      // The attempt whose nonce is replaced here threw, and the fresh nonce
+      // is the only handle a retry could have carried back to it.
+      if (pendingClientMessageRef.current && !sameMessage) {
+        abandonAttempt(pendingClientMessageRef.current);
+      }
+      attempt = {
         clientMessageId,
         snapshot: payloadSnapshot,
         targetConversationId,
+        inFlight: true,
       };
+      pendingClientMessageRef.current = attempt;
 
       /** Give the nonce back, unless the slot has moved on to another one. */
       const releaseClientMessageId = () => {
@@ -525,9 +583,18 @@ export function useDocumentComposerSubmit({
       });
     } catch {
       // Ambiguous, unlike an answered rejection: the daemon may have accepted
-      // the message and only the response was lost. The nonce and the wait
-      // both stay put, so the retry is a duplicate the daemon can dedupe and
-      // the reply it may already be generating still raises the toast.
+      // the message and only the response was lost. The nonce and the entry
+      // both stay put while a retry is possible, so the retry is a duplicate
+      // the daemon can dedupe and the reply it may already be generating
+      // still raises the toast. An attempt the slot has moved past, or that
+      // outlived the hook, cannot be retried, so its entry goes unless the
+      // daemon has taken the message in.
+      if (attempt) {
+        attempt.inFlight = false;
+        if (!(isMountedRef.current && ownsSlotNow())) {
+          abandonAttempt(attempt);
+        }
+      }
       if (ownsSlotNow()) {
         setStatus("error");
       }

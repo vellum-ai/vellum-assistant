@@ -66,6 +66,16 @@ export interface DocumentComposerReplyActions {
    */
   stopAwaitingReply: (conversationId: string, clientMessageId: string) => void;
   /**
+   * Drop the send carrying `clientMessageId` from `conversationId` if the
+   * daemon has not acknowledged it, for an attempt nothing can retry any
+   * more. Reports whether it was dropped. A send the daemon has spoken for
+   * stays, since its reply is still coming.
+   */
+  dropUnacknowledgedReply: (
+    conversationId: string,
+    clientMessageId: string,
+  ) => boolean;
+  /**
    * A terminal stream event arrived for `conversationId`: settle every send
    * running there, since one turn answers all of them, and report how many
    * that was. Queued sends stay, as do sends the daemon has not acknowledged
@@ -197,6 +207,22 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           ]),
         };
       });
+    },
+
+    dropUnacknowledgedReply: (conversationId, clientMessageId) => {
+      const pending = get().pendingReplies.get(conversationId);
+      const index =
+        pending?.findIndex((p) => carriesNonce(p, clientMessageId)) ?? -1;
+      if (!pending || index === -1 || pending[index].acknowledged) {
+        return false;
+      }
+      set((s) => ({
+        pendingReplies: withPending(s.pendingReplies, conversationId, [
+          ...pending.slice(0, index),
+          ...pending.slice(index + 1),
+        ]),
+      }));
+      return true;
     },
 
     settleRunningReplies: (conversationId) => {

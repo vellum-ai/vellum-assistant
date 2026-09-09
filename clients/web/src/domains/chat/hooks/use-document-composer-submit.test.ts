@@ -235,6 +235,20 @@ function failPostChatMessage(): () => void {
   return fail;
 }
 
+/** Throws the first POST, and answers `conversationId` for the ones after. */
+function throwFirstPostChatMessage(conversationId: string): void {
+  let calls = 0;
+  postChatMessageMock = mock(
+    async (..._args: unknown[]): Promise<PostMessageResult> => {
+      calls += 1;
+      if (calls === 1) {
+        throw new Error("network dropped");
+      }
+      return sentResult(conversationId);
+    },
+  );
+}
+
 /** Points the conversation mint at a promise the test resolves by hand. */
 function deferConversationsPost(): () => void {
   let settle: () => void = () => {};
@@ -289,6 +303,15 @@ function isQueuedReply(conversationId: string): boolean {
     .getState()
     .pendingReplies.get(conversationId);
   return pending?.some((p) => p.queued) ?? false;
+}
+
+/** Every send still awaiting a reply in `conversationId`, oldest first. */
+function awaitingSends(conversationId: string) {
+  return (
+    useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get(conversationId) ?? []
+  );
 }
 
 /** The nonce of the oldest send still awaiting a reply in `conversationId`. */
@@ -2441,5 +2464,255 @@ describe("a send that outlives its owner", () => {
       settleSecond(sentResult("conv-b"));
       await submittedSecond;
     });
+  });
+});
+
+describe("an attempt nothing can retry", () => {
+  test("an edited retry takes the abandoned attempt's entry off the list", async () => {
+    // GIVEN a send that threw, listed for a retry that would carry its nonce.
+    throwFirstPostChatMessage("conv-existing");
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    const firstNonce = sentOptions(0).clientMessageId as string;
+    expect(firstNonce).toBeTruthy();
+    expect(awaitingSends("conv-existing").length).toBe(1);
+
+    // WHEN the user edits the draft, so the retry mints a nonce of its own
+    // and nothing is left holding the first attempt's.
+    useComposerStore.getState().setInput("hello, edited", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN only the send the daemon actually took in is still listed.
+    const secondNonce = sentOptions(1).clientMessageId as string;
+    expect(secondNonce).not.toBe(firstNonce);
+    expect(awaitingSends("conv-existing")).toEqual([
+      { clientMessageId: secondNonce, acknowledged: true, queued: false },
+    ]);
+    expect(isProcessing("conv-existing")).toBe(true);
+  });
+
+  test("an edited retry leaves an acknowledged attempt's entry listed", async () => {
+    // GIVEN a send that threw, and a daemon that took it in anyway: the
+    // stream echoed it back before the user retried.
+    throwFirstPostChatMessage("conv-existing");
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    const firstNonce = sentOptions(0).clientMessageId as string;
+    act(() => {
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyRunning("conv-existing", firstNonce);
+    });
+
+    // WHEN the user edits the draft, so the retry is a message of its own.
+    useComposerStore.getState().setInput("hello, edited", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN both sends stay listed, oldest first: a reply is coming for each.
+    const secondNonce = sentOptions(1).clientMessageId as string;
+    expect(
+      awaitingSends("conv-existing").map((p) => p.clientMessageId),
+    ).toEqual([firstNonce, secondNonce]);
+  });
+
+  test("a document switch after a thrown send takes the entry and the mark down", async () => {
+    // GIVEN a send that threw, still listed for a retry.
+    throwFirstPostChatMessage("conv-a");
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("error");
+    expect(isAwaitingReply("conv-a")).toBe(true);
+
+    // WHEN the composer moves to another document, which takes the draft with
+    // it, so no retry can reach the daemon under that nonce.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+
+    // THEN nothing is left owing a reply on the row the send went toward.
+    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isProcessing("conv-a")).toBe(false);
+  });
+
+  test("a document switch while the POST is out leaves the entry listed", async () => {
+    // GIVEN a send still in flight for the first document.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the composer moves to another document before the POST answers.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    expect(isAwaitingReply("conv-a")).toBe(true);
+
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    // THEN the send the daemon took in is still listed: the reply toast is
+    // meant to outlive closing the document.
+    expect(awaitingState("conv-a")).toEqual({
+      acknowledged: true,
+      queued: false,
+    });
+    expect(isProcessing("conv-a")).toBe(true);
+  });
+
+  test("an unmount after a thrown send takes the entry and the mark down", async () => {
+    // GIVEN a send that threw, still listed for a retry.
+    throwFirstPostChatMessage("conv-a");
+    useComposerStore.getState().setInput("about the doc", "document");
+    const { result, unmount } = renderSubmit("conv-a");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(isAwaitingReply("conv-a")).toBe(true);
+
+    // WHEN the host closes the document, unmounting the composer.
+    unmount();
+
+    // THEN the attempt has no composer left to retry it from.
+    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isProcessing("conv-a")).toBe(false);
+  });
+
+  test("an unmount while the POST is out leaves the entry listed", async () => {
+    // GIVEN a send still in flight.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the doc", "document");
+    const { result, unmount } = renderSubmit("conv-a");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the composer unmounts before the POST answers.
+    unmount();
+
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    // THEN the daemon holds the message, and the watcher still owes its toast.
+    expect(awaitingState("conv-a")).toEqual({
+      acknowledged: true,
+      queued: false,
+    });
+  });
+
+  test("a send that throws after a document switch takes its entry down", async () => {
+    // GIVEN a send in flight for the first document.
+    const fail = failPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the composer moves to another document and only then does the POST
+    // throw, so the attempt lands with no composer to retry it from.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    await act(async () => {
+      fail();
+      await submitted;
+    });
+
+    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isProcessing("conv-a")).toBe(false);
+  });
+
+  test("a send that throws under its own owner keeps its entry for the retry", async () => {
+    // GIVEN a send that threw with the composer it started on still on screen.
+    throwFirstPostChatMessage("conv-existing");
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the entry stands: the daemon may hold the message already, and the
+    // unchanged draft retries under the same nonce for it to dedupe.
+    expect(result.current.status).toBe("error");
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+    expect(isProcessing("conv-existing")).toBe(true);
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(sentOptions(1).clientMessageId).toBe(
+      sentOptions(0).clientMessageId as string,
+    );
+    expect(awaitingSends("conv-existing").length).toBe(1);
+  });
+
+  test("an abandoned attempt leaves the conversation's other pending send marked", async () => {
+    // GIVEN a send that threw, and another send the daemon is running on the
+    // same conversation.
+    throwFirstPostChatMessage("conv-a");
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(sentOptions(0).clientMessageId).not.toBe("other-nonce");
+    act(() => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-a", "other-nonce");
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyRunning("conv-a", "other-nonce");
+    });
+
+    // WHEN the composer moves on, so nothing can retry the thrown send.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+
+    // THEN only that attempt's entry goes, and the mark stands for the send
+    // still running there.
+    expect(awaitingSends("conv-a").map((p) => p.clientMessageId)).toEqual([
+      "other-nonce",
+    ]);
+    expect(isProcessing("conv-a")).toBe(true);
   });
 });
