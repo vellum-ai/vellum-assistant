@@ -10,10 +10,17 @@
 
 import { isElectron } from "@/runtime/is-electron";
 import type {
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
+  CompanionCapturePick,
+  CompanionCaptureSources,
   CompanionContext,
   CompanionDictating,
   CompanionIntroAction,
   CompanionSurfaceState,
+  DictationOfferAnswer,
+  ScreenCaptureFrame,
+  WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
 type CompanionBridge = NonNullable<NonNullable<Window["vellum"]>["companion"]>;
@@ -88,9 +95,152 @@ export function startCompanionVoice(): void {
  * press leaves this renderer immediately and nothing is awaited: what comes
  * back is `watching` on the pushed state, once the window that owns the session
  * has one to report.
+ *
+ * `pick` is the row of the picker a start came from, when it came from one.
+ * Main turns it into the session's target, so what comes back beside
+ * `watching` is `captureTarget`, and the frame main draws around it.
  */
-export function toggleCompanionWatch(): void {
-  bridge()?.toggleWatch?.();
+export function toggleCompanionWatch(pick?: CompanionCapturePick): void {
+  bridge()?.toggleWatch?.(pick);
+}
+
+/**
+ * What a session could read right now, for the picker Teach opens.
+ *
+ * Resolves to nothing at all off Electron and on a shell that predates the
+ * picker, rather than to an empty list: an empty list is a desktop with no
+ * windows on it, which is a different fact, and the surface reads nothing as
+ * having no picker to draw.
+ */
+export function listCompanionCaptureSources(): Promise<CompanionCaptureSources | null> {
+  const companion = bridge();
+  if (!companion?.listCaptureSources) {
+    return Promise.resolve(null);
+  }
+  return companion.listCaptureSources().catch(() => null);
+}
+
+/**
+ * Show the running call what the user is looking at, or stop, which is what
+ * the share control does.
+ *
+ * `pick` is the row of the picker the press came from; a press with none is
+ * the stop. Like {@link toggleCompanionWatch} the press leaves this renderer
+ * at once: main resolves a tab to the window showing it and hands the target
+ * to the window holding the session, and what comes back is `screenShare` on
+ * the pushed state once that window has frames flowing.
+ */
+export function setCompanionScreenShare(pick?: CompanionCapturePick): void {
+  bridge()?.setScreenShare?.(pick);
+}
+
+/**
+ * Let the user draw on the surface they are sharing, or give the mouse back
+ * to the desktop.
+ *
+ * Unlike every other press here the answer does not come from the window
+ * holding the session: the mode is main's, since it is main that decides
+ * whether the frame around the shared surface is click-through. What comes
+ * back is `annotating` on the pushed state.
+ */
+export function setCompanionAnnotating(annotating: boolean): void {
+  bridge()?.setAnnotating?.(annotating);
+}
+
+/**
+ * The same mode, turned over.
+ *
+ * For the keyboard, which has one gesture for both directions and no view of
+ * the mode to work out which one it is asking for. Main holds it, so main is
+ * the side that can flip it; a caller comparing against the last pushed state
+ * would be a press behind whenever the two crossed.
+ */
+export function toggleCompanionAnnotating(): void {
+  bridge()?.toggleAnnotating?.();
+}
+
+/**
+ * A mark the user is drawing on the shared surface, from the frame's own
+ * window: the hand still on it, or off it with the strokes it left.
+ *
+ * The only call in this module made from the frame's window. Strokes are
+ * fractions of that window, which is the shared surface exactly, so the side
+ * that draws them onto a captured frame needs nothing else to place them
+ * beyond `ink`, the colour they were drawn in.
+ */
+export function annotateCompanionShare(
+  phase: CompanionAnnotationPhase,
+  strokes: readonly CompanionAnnotationStroke[],
+  ink: string,
+): void {
+  bridge()?.annotateShare?.(phase, strokes, ink);
+}
+
+/**
+ * Tell main the user is scrolling the app under the frame, or has moved the
+ * pointer since, from the frame's own window while drawing is on.
+ *
+ * The frame takes the wheel along with the presses and cannot forward it, so
+ * main answers a scroll by making the frame click-through until the pointer
+ * moves: the rest of the scroll reaches the app underneath, and the first
+ * forwarded move is the frame's cue to take the mouse back. Main holds the
+ * state; this only reports the two events it cannot see.
+ */
+export function setCompanionFrameScrolling(scrolling: boolean): void {
+  bridge()?.setFrameScrolling?.(scrolling);
+}
+
+/**
+ * One frame of what the user is sharing, as the helper takes it.
+ *
+ * The one call in this module made from the app's own window on a cadence
+ * rather than on a press: the session lives there, and each frame becomes a
+ * `sight_frame` on it. Resolves to nothing off Electron, on a shell that
+ * predates the share, and whenever the helper could not take one, and the
+ * caller reads every one of those as a frame to skip.
+ */
+/**
+ * Tell the shell a frame of `target` reached the call.
+ *
+ * Sent on the acknowledgement rather than on the capture, because those are
+ * different moments: a frame is taken here, then uploaded and sent, and a
+ * reconnect or a failed upload can void it in between. Main gates the
+ * assistant's own marks on having shown the current surface, so counting a
+ * capture as a showing would open that gate for a picture the call never got.
+ *
+ * A no-op off the desktop shell, the bargain every call in this module makes.
+ */
+export function reportCompanionSharedFrame(target: WatchCaptureTarget): void {
+  bridge()?.sharedFrame?.(target);
+}
+
+export function captureCompanionScreen(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  const companion = bridge();
+  if (!companion?.captureScreen) {
+    return Promise.resolve(null);
+  }
+  return companion.captureScreen(target).catch(() => null);
+}
+
+/**
+ * A preview of one row of the picker, as a JPEG data URL.
+ *
+ * Resolves to nothing off Electron, on a shell that has no previews to give,
+ * and whenever the helper would not take one, which the picker reads the same
+ * way every time: the tile falls back to the owning app's icon. Nothing here
+ * is awaited before the tiles are drawn, so the grid is pressable while the
+ * pictures are still landing.
+ */
+export function captureCompanionSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  const companion = bridge();
+  if (!companion?.captureSourceThumbnail) {
+    return Promise.resolve(null);
+  }
+  return companion.captureSourceThumbnail(target).catch(() => null);
 }
 
 /**
@@ -104,6 +254,22 @@ export function toggleCompanionWatch(): void {
  */
 export function answerCompanionWatchRetro(open: boolean): void {
   bridge()?.answerWatchRetro?.(open);
+}
+
+/**
+ * Answer the offer a dictation's words are standing on: use them in place of
+ * what another app pasted, get that app off the key, take them to the
+ * clipboard, or leave them. Every answer leaves this renderer, for the reason
+ * the retro's does: the window that made the offer is the one holding it.
+ *
+ * The offer is named rather than assumed, since this window can be a frame
+ * behind the one holding it. See {@link CompanionDictationOffer.id}.
+ */
+export function answerCompanionDictationOffer(
+  answer: DictationOfferAnswer,
+  offerId: string,
+): void {
+  bridge()?.answerDictationOffer?.(answer, offerId);
 }
 
 /**

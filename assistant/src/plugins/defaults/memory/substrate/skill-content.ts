@@ -30,6 +30,13 @@ export const ALWAYS_CANDIDATE_CARD_CHARS = 900;
 export const DEFAULT_CARD_CHARS = 500;
 
 /**
+ * One-shot line under injected skill cards. The cards list workspace skills
+ * only, so a missing product is not evidence it is unsupported.
+ */
+export const SKILLS_INJECTION_CATALOG_HINT =
+  "Injected skills are only ones currently in the workspace. Run `assistant plugins search <name>` and `assistant skills search <name>` before concluding a given integration or skill is unsupported";
+
+/**
  * Render the prose-style capability statement embedded into the unified
  * `memory_v2_concept_pages` Qdrant collection (under the `skills/<id>` slug
  * prefix) and rendered in `### Skills You Can Use` / the memory-v3 selector
@@ -38,6 +45,24 @@ export const DEFAULT_CARD_CHARS = 500;
  * always-candidate skills can carry a fuller, multi-mode description.
  */
 export function buildSkillContent(
+  input: SkillCapabilityInput,
+  maxChars: number = DEFAULT_CARD_CHARS,
+): string {
+  const content = renderSkillCard(input, maxChars);
+  if (content.length > maxChars) {
+    return content.slice(0, maxChars);
+  }
+  return content;
+}
+
+/**
+ * The capability statement a skill would carry if the budget were unlimited,
+ * rendered in the layout `maxChars` selects. Tooling compares this against
+ * {@link buildSkillContent} to report how much of a card the budget cuts. The
+ * budgeted render cannot express that on its own, since raising `maxChars`
+ * past 500 also switches the hint layout.
+ */
+export function renderSkillCard(
   input: SkillCapabilityInput,
   maxChars: number = DEFAULT_CARD_CHARS,
 ): string {
@@ -52,9 +77,6 @@ export function buildSkillContent(
     content += list
       ? `\nAvoid when:\n${input.avoidWhen.map((a) => `- ${a}`).join("\n")}`
       : ` Avoid when: ${input.avoidWhen.join("; ")}.`;
-  }
-  if (content.length > maxChars) {
-    content = content.slice(0, maxChars);
   }
   return content;
 }

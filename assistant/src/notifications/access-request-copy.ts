@@ -401,12 +401,12 @@ export function stripAccessRequestReplyMechanicsFromCopy(
   payload: Record<string, unknown>,
 ): RenderedChannelCopy {
   const requestCode = nonEmpty(parseAccessRequestPayload(payload).requestCode);
-  return stripReplyMechanicsFromCopy(
-    copy,
-    (text) =>
+  return stripReplyMechanicsFromCopy(copy, {
+    strip: (text) =>
       requestCode ? stripRequestCodeDirectives(text, requestCode) : text,
-    buildAccessRequestContextText(payload),
-  );
+    ask: buildAccessRequestContextText(payload),
+    headline: accessRequestCardTitle(isAdmittedIntroduction(payload)),
+  });
 }
 
 // ── Card view model ─────────────────────────────────────────────────────────

@@ -318,28 +318,29 @@ describe("watch retrospective", () => {
     );
   });
 
-  test("makes every skip land on a safe answer", async () => {
+  test("puts the recommended answer first and makes the fill's skip safe", async () => {
     const summary = recordSession(["archiving the thread"]);
     const { calls, dispatch } = recordingDispatch();
 
     await runWatchRetro(summary, { dispatch });
 
     const { prompt } = calls[0]!;
-    // Every page is skippable, so every page's default is what the model
-    // actually gets from a user who taps through. A `fill` keeps its
-    // suggestion; a `pick` keeps the reading the recording supports.
+    // The fill is the one skippable page, so its suggestion is what the model
+    // actually gets from a user who taps past it.
     expect(prompt).toContain(
       "Put your best guess in `suggestion` so skipping keeps a working phrase",
     );
+    // A pick's first option is drawn as the recommendation, so it has to be
+    // the reading the recording supports rather than an arbitrary one.
     expect(prompt).toContain(
-      "The first option is the default and must be the reading the recording supports",
+      "The first option is shown as the recommended one and must be the reading the recording supports",
     );
-    // The gate is the one place the default is deliberately not the guess.
-    // Watching someone do a destructive thing once says nothing about whether
-    // they want it repeated with nobody looking, so a skipped gate must land
-    // on the cautious answer rather than on what was recorded.
+    // The gate is the one place the recommendation is deliberately not the
+    // guess. Watching someone do a destructive thing once says nothing about
+    // whether they want it repeated with nobody looking, so the option the
+    // card points at must be the cautious one rather than what was recorded.
     expect(prompt).toContain(
-      'The first option must be the cautious one ("Ask me first"), because a skipped question takes it.',
+      'The first option must be the cautious one ("Ask me first"), because it is the one shown as recommended.',
     );
   });
 

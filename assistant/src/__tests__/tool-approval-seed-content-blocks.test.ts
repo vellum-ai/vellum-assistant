@@ -307,22 +307,13 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.actions).toBeUndefined();
   });
 
-  test("text fallback block contains questionText and request-code instruction", () => {
+  test("text fallback block is the text-only rendering: the ask and the typed instruction", () => {
     const fallback = fallbackBlock(
       buildToolApprovalSeedContentBlocks(toolApprovalPayload)!,
     );
     expect(fallback.text).toContain("Approve tool: bash");
-    expect(fallback.text).toContain("XYZ789");
-    expect(fallback.text).toContain("approve");
-  });
-
-  test("text fallback block omits request-code instruction when no requestCode", () => {
-    const payload = { ...toolApprovalPayload, requestCode: undefined };
-    const fallback = fallbackBlock(
-      buildToolApprovalSeedContentBlocks(payload)!,
-    );
-    expect(fallback.text).toContain("Approve tool: bash");
-    expect(fallback.text).not.toContain("XYZ789");
+    // A client that cannot draw the card's buttons still gets the directive.
+    expect(fallback.text).toContain('"XYZ789 approve"');
   });
 
   test("text fallback block uses tool-framed generic text when no questionText", () => {
@@ -381,7 +372,7 @@ describe("ask_question card", () => {
     expect(fallback.text).toContain("What should I dig into?");
     expect(fallback.text).toContain("1. This Slack thread");
     expect(fallback.text).toContain("3. The Linear ticket");
-    expect(fallback.text).toContain("08B619");
+    expect(fallback.text).toContain('"08B619 <your answer>"');
   });
 
   test("a question with no options still offers no buttons", () => {

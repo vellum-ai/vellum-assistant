@@ -13,6 +13,7 @@ import {
   ambiguousSameUserError,
   enforceSameActorOrErrorResult,
   pickSameUserAutoResolve,
+  snapshotHostProxyActorPrincipalId,
 } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -259,24 +260,22 @@ export class HostTransferProxy {
             sha256,
             fileBuffer,
             targetClientId: resolvedTargetClientId,
-            targetActorPrincipalId:
-              resolvedTargetClientId != null
-                ? assistantEventHub.getActorPrincipalIdForClient(
-                    resolvedTargetClientId,
-                  )
-                : undefined,
+            targetActorPrincipalId: snapshotHostProxyActorPrincipalId({
+              hub: assistantEventHub,
+              targetClientId: resolvedTargetClientId,
+              sourceActorPrincipalId,
+            }),
           });
 
           pendingInteractions.register(requestId, {
             conversationId: input.conversationId,
             kind: "host_transfer",
             targetClientId: resolvedTargetClientId,
-            targetActorPrincipalId:
-              resolvedTargetClientId != null
-                ? assistantEventHub.getActorPrincipalIdForClient(
-                    resolvedTargetClientId,
-                  )
-                : undefined,
+            targetActorPrincipalId: snapshotHostProxyActorPrincipalId({
+              hub: assistantEventHub,
+              targetClientId: resolvedTargetClientId,
+              sourceActorPrincipalId,
+            }),
             rpcResolve: resolve as (v: unknown) => void,
             rpcReject: reject,
             timer,
@@ -450,24 +449,22 @@ export class HostTransferProxy {
         filePath: input.destPath,
         overwrite: input.overwrite,
         targetClientId: resolvedTargetClientId,
-        targetActorPrincipalId:
-          resolvedTargetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(
-                resolvedTargetClientId,
-              )
-            : undefined,
+        targetActorPrincipalId: snapshotHostProxyActorPrincipalId({
+          hub: assistantEventHub,
+          targetClientId: resolvedTargetClientId,
+          sourceActorPrincipalId,
+        }),
       });
 
       pendingInteractions.register(requestId, {
         conversationId: input.conversationId,
         kind: "host_transfer",
         targetClientId: resolvedTargetClientId,
-        targetActorPrincipalId:
-          resolvedTargetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(
-                resolvedTargetClientId,
-              )
-            : undefined,
+        targetActorPrincipalId: snapshotHostProxyActorPrincipalId({
+          hub: assistantEventHub,
+          targetClientId: resolvedTargetClientId,
+          sourceActorPrincipalId,
+        }),
         rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,

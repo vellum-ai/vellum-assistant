@@ -233,15 +233,24 @@
     "adjust": "Изменить",
     "capProgress": " / {cap} в этом месяце",
     "connectCardBanner": "Для автопополнения нужно привязать карту.",
+    "dailyLimitLookupError": "Не удалось проверить дневной лимит кредитов, который нужен для автопополнения. Повторите попытку, чтобы продолжить.",
     "declinedCutoffNotice": "Автопополнение приостановлено после нескольких отклонённых платежей. Добавление нового способа оплаты снова его включит.",
     "disableError": "Не удалось выключить автопополнение. Повторите попытку.",
     "dismiss": "Скрыть",
     "loadError": "Не удалось загрузить настройки автопополнения.",
     "loading": "Загрузка…",
+    "retry": "Повторить",
     "summary": "Добавлять {amount}, когда баланс опускается ниже {threshold}",
     "toggleHelper": "Автопополнение срабатывает только после исчерпания лимита использования по плану",
     "toggleLabel": "Включить автопополнение",
     "updateError": "Не удалось сохранить настройки автопополнения. Повторите попытку."
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "Выключить автопополнение",
+    "message": "Для автопополнения нужен дневной лимит кредитов. Задайте его, чтобы сохранить настройки автопополнения, или выключите автопополнение.",
+    "save": "Сохранить",
+    "saving": "Сохранение…",
+    "title": "Задайте дневной лимит кредитов"
   },
   "autoTopUpDisableConfirm": {
     "disable": "Выключить",
@@ -430,12 +439,12 @@
     "urlPlaceholder": "Callback URL..."
   },
   "checkoutBonusModal": {
-    "body": "Разовый кредит {amount}: сразу зачислим его на баланс. Платить не нужно.",
-    "claim": "Забрать {amount} кредитами",
+    "body": "Разовое дополнительное использование на {amount}: сразу зачислим его на баланс использования. Платить не нужно.",
+    "claim": "Забрать {amount} дополнительного использования",
     "decline": "Нет, спасибо",
-    "errorToast": "Не удалось добавить кредиты. Повторите попытку.",
-    "grantedToast": "На аккаунт добавлено {amount} кредитами.",
-    "title": "Держи {amount} от нас",
+    "errorToast": "Не удалось добавить дополнительное использование. Повторите попытку.",
+    "grantedToast": "На баланс использования добавлено {amount} дополнительного использования.",
+    "title": "Держи {amount} дополнительного использования от нас",
     "unavailableToast": "Это предложение больше недоступно."
   },
   "checkoutPage": {
@@ -973,6 +982,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "Аккаунт {name}",
+    "cancel": "Отмена",
     "connectAccount": "Подключить аккаунт",
     "connectAccountLower": "Подключить аккаунт",
     "connectToContinue": "Подключение аккаунта для продолжения",
@@ -1017,8 +1027,7 @@
     "emptyTitle": "Нет MCP-серверов",
     "loadError": "Не удалось загрузить MCP-серверы. Проверь, что ассистент запущен.",
     "loading": "Загрузка MCP-серверов...",
-    "reloadAriaLabel": "Перезагрузить MCP-серверы",
-    "reloadTooltip": "Перезагрузить все серверы",
+    "reloadButton": "Обновить",
     "removeDialogConfirm": "Удалить",
     "removeDialogMessage": "Точно удалить \"{serverId}\"? Это отключит все инструменты этого сервера.",
     "removeDialogTitle": "Удалить MCP-сервер",
@@ -1047,20 +1056,18 @@
     "totalTools": "{count, plural, one {всего # инструмент} few {всего # инструмента} many {всего # инструментов} other {всего # инструмента}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "Закрыть",
     "authenticate": "Аутентифицировать",
+    "authenticatedBadge": "Аутентифицировано",
     "authenticating": "Аутентификация...",
     "configure": "Настроить",
-    "configureTooltip": "Настроить",
     "estimatedTokens": "~{count} токенов",
-    "oauthBadge": "OAuth",
+    "moreActions": "Другие действия для {serverId}",
     "reAuth": "Повторная аутентификация",
-    "reAuthTooltip": "Повторно аутентифицировать OAuth",
     "registeredTools": "{count, plural, one {# зарегистрированный инструмент} few {# зарегистрированных инструмента} many {# зарегистрированных инструментов} other {# зарегистрированных инструмента}}",
-    "removeServerAriaLabel": "Удалить {serverId}",
-    "removeServerTooltip": "Удалить сервер",
+    "removeServer": "Удалить сервер",
     "revoke": "Отозвать",
     "revokeOAuthTooltip": "Отозвать учётные данные OAuth",
-    "revoking": "Отзыв...",
     "statusConnected": "Подключён",
     "statusDisabled": "Выключен",
     "statusError": "Ошибка",
@@ -1451,8 +1458,9 @@
     "modelNoMatches": "Подходящих моделей нет",
     "modelPlaceholder": "Поиск моделей…",
     "modelResultsAnnouncement": "{count, plural, one {# модель доступна} few {# модели доступны} many {# моделей доступно} other {# модели доступно}}. Стрелки вверх и вниз для перехода, Enter для выбора.",
-    "providerCountMeta": "{count, plural, one {# провайдер} few {# провайдера} many {# провайдеров} other {# провайдера}}",
     "providerLabel": "Провайдер",
+    "recommendedMeta": "Рекомендуется",
+    "seeLess": "Свернуть",
     "seeMore": "Показать ещё",
     "setUpTag": "Настроить",
     "signInTag": "Войти",
@@ -1524,6 +1532,18 @@
     "selectModelError": "Выбор модели.",
     "selectModelPlaceholder": "Выбор модели",
     "selectProviderPlaceholder": "Выбор провайдера…"
+  },
+  "profileModalitiesSection": {
+    "audio": "Аудио",
+    "enableAria": "Включить {modality}",
+    "enabledColumn": "Включено",
+    "helper": "Модель получает модальность, только если она включена и отмечена как поддерживаемая. Изображения, которые не отправляются так, подписываются текстом.",
+    "image": "Изображение",
+    "resolvedOff": "Не отправляется модели",
+    "resolvedOn": "Отправляется модели",
+    "supportedAria": "Модель поддерживает {modality}",
+    "supportedColumn": "Модель поддерживает",
+    "title": "Модальности"
   },
   "profileRow": {
     "actionsAriaLabel": "Действия для {displayName}",
@@ -2169,8 +2189,6 @@
     "customKey": "Своя",
     "defaultBadge": "По умолчанию",
     "enableVoiceShortcut": "Включить сочетание клавиш",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Для Fn нужен мониторинг ввода. Разрешение в Системных настройках или своё сочетание.",
     "focusedTabNote": "«Нажми и говори» работает только пока эта вкладка в фокусе, и браузеры могут перехватывать некоторые сочетания (например, Ctrl+T) раньше страницы. Для постоянного режима «Нажми и говори»: приложение Vellum, а не веб-версия.",
     "grantMicrophoneAccessHint": "Разрешение доступа к микрофону показывает доступные устройства ввода.",
     "interruptSensitivityAriaLabel": "Чувствительность к перебиванию",
@@ -2187,7 +2205,6 @@
     "pauseBeforeReplyDescription": "Как долго ассистент ждёт после паузы в речи, прежде чем ответить. Более длинная пауза даёт собраться с мыслями посреди фразы без обрыва.",
     "pauseBeforeReplyLabel": "Пауза перед ответом",
     "pressShortcut": "Нажатие сочетания…",
-    "recommendedBadge": "Рекомендуем",
     "recordingPrompt": "Нажатие аккорда или клавиши…",
     "resetToDefaults": "Сбросить к значениям по умолчанию",
     "savedMicrophone": "Сохранённый микрофон",
@@ -2211,6 +2228,20 @@
     "voiceShortcutSubtitle": "Нажатие сочетания начинает или заканчивает разговор голосом из любого места в приложении.",
     "voiceShortcutSubtitleDesktop": "Глобальное сочетание для начала и окончания разговора голосом.",
     "voiceShortcutTitle": "Сочетание клавиш"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "Разрешить мониторинг ввода",
+    "customHint": "Удерживайте две или более из клавиш Cmd, Ctrl, Option и Shift, затем отпустите.",
+    "customLabel": "Своя",
+    "fnDictationNote": "Если диктовка macOS запускается двойным нажатием Fn, отключите это в разделе «Клавиатура» Системных настроек.",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "Клавишу нельзя отслеживать, пока не разрешён мониторинг ввода.",
+    "offLabel": "Выкл.",
+    "recordingPrompt": "Удерживайте клавиши-модификаторы…",
+    "refusedNote": "Не удалось отслеживать клавишу. Перезапустите приложение, чтобы попробовать снова.",
+    "subtitle": "Удерживайте, чтобы диктовать в позицию курсора или спросить о выделенном. Нажмите дважды, чтобы начать или завершить звонок.",
+    "title": "Голосовая клавиша",
+    "voiceOverNote": "Control и Option — модификатор VoiceOver. Если вы используете VoiceOver, его команды получат эти клавиши первыми."
   },
   "voicePickerCard": {
     "changeButton": "Сменить",
@@ -2283,5 +2314,37 @@
     "redirectHint": "Этот URL: в настройки перенаправления OAuth-приложения.",
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Ожидание авторизации..."
+  },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Компаньон",
+        "right": "Коллега"
+      },
+      "executeCollaborate": {
+        "left": "Самостоятельный",
+        "right": "Совместный"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Игривый",
+        "right": "Серьёзный"
+      },
+      "politeUnfiltered": {
+        "left": "Вежливый",
+        "right": "Без фильтра"
+      }
+    },
+    "loadError": "Не удалось загрузить ползунки личности.",
+    "rangeAriaLabel": "{left} до {right}",
+    "save": "Сохранить",
+    "saveErrorToast": "Не удалось сохранить ползунки личности. Повторите попытку.",
+    "saveSuccessToast": "Ползунки личности сохранены.",
+    "saving": "Сохранение…",
+    "subtitle": "Сохраняет значения ползунков у этого ассистента. Файлы идентичности не переписываются.",
+    "title": "Личность"
   }
 }

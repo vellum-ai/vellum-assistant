@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 
+import { isChannelId } from "../../../../channels/types.js";
 import type { OutboundAttachment } from "../../../../messaging/provider-types.js";
 import {
   createDraft,
@@ -10,11 +11,15 @@ import {
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
 import {
-  addMessage,
-  getConversation,
-} from "../../../../persistence/conversation-crud.js";
+  createDraft as createOutlookDraft,
+  createReplyDraft as createOutlookReplyDraft,
+  toOutlookFileAttachments,
+} from "../../../../messaging/providers/outlook/client.js";
+import type { OutlookDraftMessage } from "../../../../messaging/providers/outlook/types.js";
+import { resolveProactiveHomeConversation } from "../../../../notifications/conversation-pairing.js";
+import { recordDeliveredChannelPost } from "../../../../notifications/delivered-post-record.js";
+import { getConversation } from "../../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../../persistence/conversation-disk-view.js";
-import { getBindingByChannelChat } from "../../../../persistence/external-conversation-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -26,6 +31,7 @@ import {
   extractEmail,
   extractHeader,
   getProviderConnection,
+  isMailboxAddress,
   ok,
   parseAddressList,
   resolveProvider,
@@ -46,6 +52,71 @@ async function readAttachments(paths: string[]): Promise<OutboundAttachment[]> {
 
 /** Email providers that accept file attachments on outbound sends. */
 const ATTACHMENT_CAPABLE_PLATFORMS = new Set(["gmail", "outlook"]);
+
+/**
+ * Record a message the provider just accepted where the chat's proactive
+ * posts live, so the chat's own conversation and `recall` can see what was
+ * sent from elsewhere (a scheduled run, another conversation).
+ *
+ * Only channel providers have such a home; an email send is tool-mediated
+ * and has no chat conversation. The row is written after the provider
+ * returned the message id, never before, and carries that id on its
+ * envelope and in `channel_outbound_posts` like every other post the daemon
+ * makes.
+ *
+ * A send made from inside the home conversation itself writes no row: its
+ * tool call and result already sit in that conversation's history, and a
+ * second assistant row beside the tool pair would break history repair. The
+ * post is then in the outbound index only through no path, which is the
+ * same class as a raw API send and is deferred with it.
+ *
+ * Failures here never fail the send: the message is already out.
+ */
+async function recordSentChannelPost(params: {
+  providerId: string;
+  externalChatId: string;
+  text: string;
+  providerMessageId: string;
+  senderConversationId: string;
+}): Promise<void> {
+  const { providerId, externalChatId } = params;
+  if (!isChannelId(providerId) || !params.providerMessageId) {
+    return;
+  }
+  try {
+    const home = await resolveProactiveHomeConversation({
+      sourceChannel: providerId,
+      externalChatId,
+      source: "notification",
+      conversationType: "background",
+      title: `Messages to ${externalChatId}`,
+    });
+    if (home.conversationId === params.senderConversationId) {
+      return;
+    }
+    const recorded = await recordDeliveredChannelPost({
+      conversationId: home.conversationId,
+      channel: providerId,
+      externalChatId,
+      text: params.text,
+      providerMessageId: params.providerMessageId,
+      crossPostedFrom: params.senderConversationId,
+    });
+    const homeConversation = getConversation(home.conversationId);
+    if (homeConversation) {
+      syncMessageToDisk(
+        home.conversationId,
+        recorded.messageId,
+        homeConversation.createdAt,
+      );
+    }
+  } catch (e) {
+    log.warn(
+      { err: e, provider: providerId, externalChatId },
+      "Failed to record the sent message in the chat's conversation",
+    );
+  }
+}
 
 export async function run(
   input: Record<string, unknown>,
@@ -223,7 +294,66 @@ export async function run(
       );
     }
 
-    // Non-Gmail platforms
+    // Outlook: create a Graph draft instead of sending. Recipients are
+    // optional so a voice-composed email can land in Drafts before the user
+    // names a To address.
+    if (provider.id === "outlook") {
+      if (!conn) {
+        return err(
+          "Outlook requires an OAuth connection. Is the account connected?",
+        );
+      }
+
+      const attachments = attachmentPaths?.length
+        ? await readAttachments(attachmentPaths)
+        : undefined;
+      const graphAttachments = attachments?.length
+        ? toOutlookFileAttachments(attachments)
+        : undefined;
+      const toAddress = isMailboxAddress(conversationId)
+        ? extractEmail(conversationId)
+        : undefined;
+
+      if (inReplyTo) {
+        const draft = await createOutlookReplyDraft(
+          conn,
+          inReplyTo,
+          text,
+        );
+        const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
+        return ok(
+          formatOutlookDraftCreated({
+            draftId: draft.id,
+            webLink: draft.webLink,
+            recipientSummary,
+            attachmentCount: attachments?.length,
+            filenames: attachments?.map((a) => a.filename).join(", "),
+          }),
+        );
+      }
+
+      const draftBody: OutlookDraftMessage = {
+        subject: subject ?? "",
+        body: { contentType: "text", content: text },
+        ...(toAddress
+          ? { toRecipients: [{ emailAddress: { address: toAddress } }] }
+          : {}),
+        ...(graphAttachments ? { attachments: graphAttachments } : {}),
+      };
+      const draft = await createOutlookDraft(conn, draftBody);
+      const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
+      return ok(
+        formatOutlookDraftCreated({
+          draftId: draft.id,
+          webLink: draft.webLink,
+          recipientSummary,
+          attachmentCount: attachments?.length,
+          filenames: attachments?.map((a) => a.filename).join(", "),
+        }),
+      );
+    }
+
+    // Non-email platforms
     const attachments = attachmentPaths?.length
       ? await readAttachments(attachmentPaths)
       : undefined;
@@ -239,40 +369,34 @@ export async function run(
       ? `, "thread_id": "${result.threadId}"`
       : "";
 
-    // Cross-post to the conversation bound to this channel so replies have context.
-    try {
-      const binding = getBindingByChannelChat(provider.id, conversationId);
-      if (binding && binding.conversationId !== context.conversationId) {
-        const boundConv = getConversation(binding.conversationId);
-        if (boundConv) {
-          const crossPosted = await addMessage(
-            binding.conversationId,
-            "assistant",
-            JSON.stringify([{ type: "text", text }]),
-            {
-              metadata: {
-                automated: true,
-                crossPostedFrom: context.conversationId,
-              },
-              skipIndexing: true,
-            },
-          );
-          syncMessageToDisk(
-            binding.conversationId,
-            crossPosted.id,
-            boundConv.createdAt,
-          );
-        }
-      }
-    } catch (e) {
-      log.warn(
-        { err: e, provider: provider.id, externalChatId: conversationId },
-        "Failed to cross-post outbound message to bound conversation",
-      );
-    }
+    await recordSentChannelPost({
+      providerId: provider.id,
+      externalChatId: conversationId,
+      text,
+      providerMessageId: result.id,
+      senderConversationId: context.conversationId,
+    });
 
     return ok(`Message sent (ID: ${result.id}${threadSuffix}).`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
   }
+}
+
+function formatOutlookDraftCreated(opts: {
+  draftId: string;
+  webLink?: string;
+  recipientSummary?: string;
+  attachmentCount?: number;
+  filenames?: string;
+}): string {
+  const attachmentBit =
+    opts.attachmentCount && opts.filenames
+      ? ` with ${opts.attachmentCount} attachment(s): ${opts.filenames}`
+      : "";
+  const recipientBit = opts.recipientSummary
+    ? ` ${opts.recipientSummary}.`
+    : " No recipient set. Open the draft in Outlook to add one.";
+  const linkBit = opts.webLink ? ` Open it: ${opts.webLink}` : "";
+  return `Outlook draft created${attachmentBit} (Draft ID: ${opts.draftId}).${recipientBit}${linkBit} Review it in your Outlook Drafts, then tell me to send it or send it yourself from Outlook.`;
 }

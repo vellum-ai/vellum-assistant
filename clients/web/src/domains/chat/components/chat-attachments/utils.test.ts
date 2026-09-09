@@ -10,6 +10,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   isImageAttachment,
 } from "@/domains/chat/components/chat-attachments/utils";
@@ -110,5 +111,29 @@ describe("classifyAttachment", () => {
         "photo.jpg",
       ),
     ).toBe("image");
+  });
+});
+
+describe("ATTACHMENT_ICON_BY_KIND", () => {
+  test("carries a glyph for every kind the classifier returns", () => {
+    const samples: Array<[string, string]> = [
+      ["image/png", "shot.png"],
+      ["video/mp4", "clip.mp4"],
+      ["audio/mpeg", "song.mp3"],
+      ["application/pdf", "report.pdf"],
+      ["text/plain", "main.ts"],
+      ["application/zip", "bundle.zip"],
+      ["text/csv", "rows.csv"],
+      ["application/msword", "letter.doc"],
+      ["text/plain", "notes.txt"],
+      ["application/octet-stream", "blob"],
+    ];
+    const seen = new Set<string>();
+    for (const [mimeType, filename] of samples) {
+      const kind = classifyAttachment(mimeType, filename);
+      seen.add(kind);
+      expect(ATTACHMENT_ICON_BY_KIND[kind]).toBeDefined();
+    }
+    expect(seen.size).toBe(Object.keys(ATTACHMENT_ICON_BY_KIND).length);
   });
 });

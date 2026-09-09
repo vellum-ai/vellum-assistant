@@ -10,6 +10,7 @@
  */
 
 import { WATCH_FLAG } from "@vellumai/ipc-contract";
+import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
 
 import {
   isWatchSessionActive,
@@ -59,14 +60,18 @@ export function isWatchEnabled(): boolean {
  * visible. That control presses this command, so a running session has to be
  * allowed through no matter what the flag says.
  *
+ * `target` is what the session should read, when the press chose: it rides
+ * the command from the companion's picker and is only ever read on the start
+ * edge, since a stop has nothing to aim.
+ *
  * Nothing is navigated and the app is deliberately not raised, unlike
  * `startVoice`. The session reads the user's screen, so the work in front of
  * them is its subject: bringing Vellum forward would cover the very thing the
  * session exists to watch.
  */
-export function handleToggleWatchCommand(): void {
+export function handleToggleWatchCommand(target?: WatchCaptureTarget): void {
   if (!isWatchSessionActive() && !isWatchEnabled()) {
     return;
   }
-  void toggleWatch();
+  void toggleWatch(target === undefined ? {} : { target });
 }

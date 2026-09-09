@@ -2,17 +2,11 @@ name: Release Windows
 
 # Reusable Windows desktop release: build, sign, verify, and publish the NSIS
 # installers and electron-updater feed for one environment. Called by
-# dev-release.yaml and release.yml behind the WINDOWS_<ENV>_RELEASE_ENABLED
-# variables; never dispatched on its own.
+# dev-release.yaml and release.yml for dev, staging, and production.
+# Never dispatched on its own.
 #
-# External gates (per GitHub environment):
-#   vars.WINDOWS_SIGNING_PROVIDER   pfx | azure-trusted-signing | command
-#   pfx:     secrets.WINDOWS_SIGNING_PFX_BASE64, secrets.WINDOWS_SIGNING_PFX_PASSWORD
-#   azure:   secrets.AZURE_TENANT_ID, secrets.AZURE_CLIENT_ID, secrets.AZURE_CLIENT_SECRET,
-#            vars.AZURE_TRUSTED_SIGNING_ENDPOINT, vars.AZURE_TRUSTED_SIGNING_ACCOUNT,
-#            vars.AZURE_TRUSTED_SIGNING_PROFILE, vars.WINDOWS_SIGNING_PUBLISHER_NAME
-#   command: secrets.WINDOWS_SIGN_COMMAND (a signing CLI invocation with a {file} placeholder),
-#            vars.WINDOWS_SIGNING_PUBLISHER_NAME
+# External gates (repository secrets can be shared across environments):
+#   signing: secrets.AZURE_TENANT_ID, secrets.AZURE_CLIENT_ID, secrets.AZURE_CLIENT_SECRET
 #   production observability: secrets.SENTRY_DSN_WINDOWS (main process and
 #             the renderer's VITE_SENTRY_DSN_WINDOWS), secrets.SENTRY_AUTH_TOKEN,
 #             vars.SENTRY_PROJECT_WINDOWS
@@ -48,10 +42,7 @@ jobs:
         env:
           ENVIRONMENT: ${{ inputs.environment }}
           VERSION: ${{ inputs.version }}
-          SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
-          HAS_PFX: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 != '' && secrets.WINDOWS_SIGNING_PFX_PASSWORD != '' }}
-          HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && vars.AZURE_TRUSTED_SIGNING_ACCOUNT != '' && vars.AZURE_TRUSTED_SIGNING_PROFILE != '' && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
-          HAS_COMMAND: ${{ contains(secrets.WINDOWS_SIGN_COMMAND, '{file}') && vars.WINDOWS_SIGNING_PUBLISHER_NAME != '' }}
+          HAS_AZURE: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' }}
           HAS_SENTRY: ${{ secrets.SENTRY_DSN_WINDOWS != '' && secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_PROJECT_WINDOWS != '' }}
         run: |
           case "$ENVIRONMENT" in
@@ -61,18 +52,10 @@ jobs:
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::version '$VERSION' is not a release version"; exit 1
           fi
-          case "$SIGNING_PROVIDER" in
-            pfx)
-              [ "$HAS_PFX" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=pfx needs secrets WINDOWS_SIGNING_PFX_BASE64 and WINDOWS_SIGNING_PFX_PASSWORD on the $ENVIRONMENT environment"; exit 1; } ;;
-            azure-trusted-signing)
-              [ "$HAS_AZURE" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=azure-trusted-signing needs AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET secrets and AZURE_TRUSTED_SIGNING_ENDPOINT, AZURE_TRUSTED_SIGNING_ACCOUNT, AZURE_TRUSTED_SIGNING_PROFILE, WINDOWS_SIGNING_PUBLISHER_NAME variables on the $ENVIRONMENT environment"; exit 1; } ;;
-            command)
-              [ "$HAS_COMMAND" = "true" ] || { echo "::error::WINDOWS_SIGNING_PROVIDER=command needs the WINDOWS_SIGN_COMMAND secret (containing a {file} placeholder) and the WINDOWS_SIGNING_PUBLISHER_NAME variable on the $ENVIRONMENT environment"; exit 1; } ;;
-            "")
-              echo "::error::Set the WINDOWS_SIGNING_PROVIDER variable (pfx, azure-trusted-signing, or command) on the $ENVIRONMENT environment. Unsigned Windows releases are never published."; exit 1 ;;
-            *)
-              echo "::error::Unknown WINDOWS_SIGNING_PROVIDER '$SIGNING_PROVIDER'"; exit 1 ;;
-          esac
+          if [ "$HAS_AZURE" != "true" ]; then
+            echo "::error::Windows signing needs AZURE_TENANT_ID, AZURE_CLIENT_ID, and AZURE_CLIENT_SECRET secrets at repository scope or on the $ENVIRONMENT environment. Unsigned Windows releases are never published."
+            exit 1
+          fi
           if [ "$ENVIRONMENT" = "production" ] && [ "$HAS_SENTRY" != "true" ]; then
             echo "::error::Production Windows releases need SENTRY_DSN_WINDOWS and SENTRY_AUTH_TOKEN secrets plus the SENTRY_PROJECT_WINDOWS variable"
             exit 1
@@ -82,8 +65,8 @@ jobs:
           fi
           echo "sentry_upload=$HAS_SENTRY" >> "$GITHUB_OUTPUT"
 
-  build-and-sign:
-    name: Build and sign (Windows ${{ matrix.arch }})
+  build:
+    name: Build native payload (Windows ${{ matrix.arch }})
     needs: [preflight]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -173,44 +156,82 @@ jobs:
           SENTRY_ALLOW_UPLOAD_FAILURE: "true"
         run: bun run build:runtime
 
+      - name: Archive native payload
+        shell: bash
+        run: |
+          tar -cf native-build.tar \
+            package.json \
+            resources/cli-runtime \
+            "resources/native-helper/$ELECTRON_TARGET_ARCH" \
+            native/Vellum.PreviewHandler/build/*/Release/Vellum.PreviewHandler.dll \
+            native/Vellum.PreviewHandler/build/*/Release/registration.json
+
+      - name: Upload native payload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-native-${{ matrix.arch }}
+          path: clients/windows/native-build.tar
+          if-no-files-found: error
+          compression-level: 1
+          retention-days: 1
+
+  package-and-sign:
+    name: Package and sign (Windows ${{ matrix.arch }})
+    needs: [build]
+    # Azure Artifact Signing does not support Windows ARM runners.
+    runs-on: windows-2025
+    timeout-minutes: 90
+    environment: ${{ inputs.environment }}
+    continue-on-error: ${{ matrix.arch == 'arm64' && inputs.environment == 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    defaults:
+      run:
+        working-directory: clients/windows
+    env:
+      ELECTRON_TARGET_ARCH: ${{ matrix.arch }}
+      VELLUM_ENVIRONMENT: ${{ inputs.environment }}
+      WINDOWS_SIGNING_PUBLISHER_NAME: Vocify Inc.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Download native payload
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-native-${{ matrix.arch }}
+          path: clients/windows
+
+      - name: Restore native payload and release version
+        shell: bash
+        run: tar -xf native-build.tar
+
       - name: Package and sign NSIS installer
         env:
           SENTRY_DSN_WINDOWS: ${{ secrets.SENTRY_DSN_WINDOWS }}
-          WINDOWS_SIGNING_PROVIDER: ${{ vars.WINDOWS_SIGNING_PROVIDER }}
+          WINDOWS_SIGNING_PROVIDER: azure-trusted-signing
           WINDOWS_SIGNING_TIMESTAMP_URL: ${{ vars.WINDOWS_SIGNING_TIMESTAMP_URL }}
-          WINDOWS_SIGNING_PUBLISHER_NAME: ${{ vars.WINDOWS_SIGNING_PUBLISHER_NAME }}
-          WIN_CSC_LINK: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-          AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
-          AZURE_TRUSTED_SIGNING_ACCOUNT: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT }}
-          AZURE_TRUSTED_SIGNING_PROFILE: ${{ vars.AZURE_TRUSTED_SIGNING_PROFILE }}
-          WINDOWS_SIGN_COMMAND: ${{ secrets.WINDOWS_SIGN_COMMAND }}
+          AZURE_TRUSTED_SIGNING_ENDPOINT: https://cus.codesigning.azure.net/
+          AZURE_TRUSTED_SIGNING_ACCOUNT: vellum-assistant
+          AZURE_TRUSTED_SIGNING_PROFILE: vellum-assistant
         run: bunx electron-builder --win --config electron-builder.config.cjs --publish never
 
-      # Every binary in the signing manifest (app executable, CLI runtime,
-      # helper, preview-handler DLL) plus the installer must carry a valid
-      # Authenticode signature from one certificate.
       - name: Verify signatures
         shell: pwsh
-        run: |
-          $arch = "${{ matrix.arch }}"
-          $manifest = Get-Content "dist/signing-manifest-$arch.json" | ConvertFrom-Json
-          $appOutDir = if ($arch -eq "x64") { "dist/win-unpacked" } else { "dist/win-$arch-unpacked" }
-          $targets = @($manifest.files | ForEach-Object { Join-Path $appOutDir $_.path }) + @($manifest.installers | ForEach-Object { Join-Path "dist" $_.path })
-          if ($manifest.installers.Count -lt 1) { throw "signing manifest lists no installer" }
-          $bad = @(); $thumbprints = @{}
-          foreach ($file in $targets) {
-            $sig = Get-AuthenticodeSignature -FilePath $file
-            if ($sig.Status -ne "Valid") { $bad += "$file ($($sig.Status))"; continue }
-            $thumbprints[$sig.SignerCertificate.Thumbprint] = $true
-          }
-          if ($bad.Count -gt 0) { throw "Unsigned or invalid signatures:`n$($bad -join "`n")" }
-          if ($thumbprints.Count -ne 1) { throw "Expected one signing certificate, found $($thumbprints.Count)" }
-          Write-Host "Verified $($targets.Count) signatures (certificate $($thumbprints.Keys -join ','))"
-          if (-not (Test-Path "dist/latest.yml")) { throw "electron-builder did not write dist/latest.yml" }
+        run: ./scripts/verify-release.ps1 -Arch $env:ELECTRON_TARGET_ARCH -PublisherName $env:WINDOWS_SIGNING_PUBLISHER_NAME
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -226,7 +247,7 @@ jobs:
 
   publish:
     name: Publish update feed
-    needs: [preflight, build-and-sign]
+    needs: [preflight, package-and-sign]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: ${{ inputs.environment }}
@@ -281,5 +302,8 @@ jobs:
             fi
             gcloud storage cp "$INSTALLER" "gs://${BUCKET}/${PREFIX}/$(basename "$INSTALLER")"
             gcloud storage cp "$BLOCKMAP" "gs://${BUCKET}/${PREFIX}/$(basename "$BLOCKMAP")"
+            if [ "$ENVIRONMENT" = "dev" ]; then
+              gcloud storage cp "$INSTALLER" "gs://${BUCKET}/${PREFIX}/vellum-assistant-dev-${ARCH}.exe"
+            fi
             gcloud storage cp "$YML" "gs://${BUCKET}/${PREFIX}/${ENVIRONMENT}.yml"
           done

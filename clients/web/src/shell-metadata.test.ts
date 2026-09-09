@@ -115,7 +115,10 @@ describe("SPA shell: Open Graph metadata", () => {
  */
 const CATALOGS: Record<string, LocaleCatalogs> = Object.fromEntries(
   await Promise.all(
-    SUPPORTED_LOCALES.map(async (locale) => [locale, await loadCatalogs(locale)]),
+    SUPPORTED_LOCALES.map(async (locale) => [
+      locale,
+      await loadCatalogs(locale),
+    ]),
   ),
 );
 
@@ -145,6 +148,26 @@ describe("SPA shell: boot splash", () => {
     expect(doc.querySelector('script[src*="theme-init"]')).toBeNull();
   });
 
+  /**
+   * The desktop shell floats a few routes over the desktop in transparent
+   * windows sized well past what they draw. A splash there is a dark panel
+   * the size of the window, held until the route's chunk lands, so the shell
+   * init stamps those windows before first paint and the splash's own
+   * stylesheet keeps it off them.
+   */
+  test("keeps the splash off the floating windows", () => {
+    expect(SHELL_INIT).toContain('"/floating/"');
+    // The legacy overlay path a shell mid-update still opens (`routes.tsx`).
+    expect(SHELL_INIT).toContain("/dictation-overlay$/");
+    expect(SHELL_INIT).toContain('"data-floating"');
+    const styles = [...doc.querySelectorAll("style")]
+      .map((style) => style.textContent ?? "")
+      .join("\n");
+    expect(styles).toMatch(
+      /:root\[data-floating\] #boot-splash \{\s*display: none;\s*\}/,
+    );
+  });
+
   test("its static label is the same string the app's own spinner uses", () => {
     expect(splash?.getAttribute("aria-label")).toBe(
       loadingLabel(DEFAULT_LOCALE),
@@ -160,7 +183,9 @@ describe("SPA shell: boot splash", () => {
       if (label === undefined) {
         continue;
       }
-      const pattern = locale.includes("-") ? `"${locale}": ${JSON.stringify(label)}` : `${locale}: ${JSON.stringify(label)}`;
+      const pattern = locale.includes("-")
+        ? `"${locale}": ${JSON.stringify(label)}`
+        : `${locale}: ${JSON.stringify(label)}`;
       expect(SHELL_INIT).toContain(pattern);
     }
   });

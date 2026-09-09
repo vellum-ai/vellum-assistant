@@ -231,8 +231,32 @@ export const CreateModelFirstListOpenShort: Story = {
 };
 
 /**
- * A section with the rest of its models revealed: the block the unfold row
- * opened is set off by a hairline, and the list stays where the user left it.
+ * A model id typed by hand, which every route there is can serve. The cards
+ * scroll inside the dialog rather than growing it, so what the dialog asks of
+ * the window stays a fraction of it and the footer keeps clear of its edge.
+ */
+export const CreateModelFirstCustomId: Story = {
+  args: { mode: "create" },
+  beforeEach: withModelFirstCreate,
+  play: async () => {
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Model" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Enter a custom model ID…" }),
+    );
+    await waitFor(() =>
+      expect(screen.getAllByTestId("provider-candidate").length).toBeGreaterThan(
+        5,
+      ),
+    );
+  },
+};
+
+/**
+ * A section with the rest of its models revealed: the block its heading's own
+ * disclosure opened is set off by a hairline, and the list stays where the
+ * user left it.
  */
 export const CreateModelFirstSeeMore: Story = {
   args: { mode: "create" },

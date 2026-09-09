@@ -70,6 +70,10 @@
     "updateFailed": "無法更新「{label}」。您的變更已還原。"
   },
   "avatarManagementModal": {
+    "accent": "強調色",
+    "accentAutomatic": "自動",
+    "accentPickerLabel": "強調色",
+    "accentReset": "重設",
     "body": "身體",
     "color": "顏色",
     "eyes": "眼睛",
@@ -152,18 +156,48 @@
   },
   "companionSurface": {
     "allow": "允許",
+    "calling": "正在呼叫…",
+    "callingNamed": "正在呼叫 {name}…",
+    "captureKind": "來源類型",
+    "captureNothing": "沒有可顯示的內容",
+    "capturePicker": "教學來源",
+    "captureScreen": "螢幕 {n}",
+    "captureScreens": "螢幕",
+    "captureTabs": "Chrome 分頁",
+    "captureWindows": "視窗",
     "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
+    "offerCopy": "複製",
+    "offerDiscard": "捨棄",
+    "offerHeard": "{app} 已貼上那段",
+    "offerNowhere": "沒有地方可以放",
+    "offerQuit": "結束 {app}",
+    "offerUse": "使用 Vellum 的版本",
+    "offerVersion": "Vellum 聽到的是",
+    "openVellum": "開啟 Vellum",
+    "share": "共享",
+    "sharePicker": "共享來源",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
-    "unmuteMicrophone": "解除麥克風靜音"
+    "unmuteMicrophone": "解除麥克風靜音",
+    "dictating": "正在聆聽",
+    "dictatingTranscribing": "正在思考",
+    "draw": "繪製"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的螢幕",
+    "sharingScreenNamed": "正在與 {name} 分享你的螢幕",
+    "sharingWindow": "正在分享一個視窗",
+    "sharingWindowNamed": "正在與 {name} 分享一個視窗",
+    "teaching": "正在教學",
+    "teachingNamed": "正在教 {name}"
   },
   "contentActionBar": {
     "copiedAria": "已複製",
@@ -758,12 +792,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 帳號已連線。",
-    "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
     "authorizationError": "{name} 錯誤：{code}",
     "authorizationFailed": "{name} 授權失敗",
     "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
-    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
-    "startFailed": "無法啟動 {name} 授權。"
+    "startFailed": "無法啟動 {name} 授權。",
+    "startFailedWithReason": "無法啟動 {name} 授權：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",
@@ -862,5 +895,10 @@
       "label": "完全存取",
       "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小時",
+    "everyMinutes": "每 {count} 分鐘",
+    "retrospectiveSubtitle": "在對話活動後觸發"
   }
 }

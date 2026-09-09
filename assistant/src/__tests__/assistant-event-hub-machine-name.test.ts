@@ -124,3 +124,43 @@ describe("AssistantEventHub — machineName", () => {
     expect(entry?.machineName).toBeUndefined();
   });
 });
+
+describe("window capture negotiation", () => {
+  test.each([
+    ["macos", undefined, false],
+    ["macos", "0", false],
+    ["macos", "unknown", false],
+    ["macos", "1", true],
+    ["windows", "1", false],
+    ["linux", "1", false],
+    ["chrome-extension", "1", false],
+  ] as const)(
+    "%s advertising %s negotiates support=%s",
+    (interfaceId, advertised, supported) => {
+      const ac = new AbortController();
+      const hub = new AssistantEventHub();
+      try {
+        handleSubscribeAssistantEvents(
+          {
+            headers: {
+              "x-vellum-client-id": "client-1",
+              "x-vellum-interface-id": interfaceId,
+              ...(advertised
+                ? { "x-vellum-cu-window-capture": advertised }
+                : {}),
+            },
+            abortSignal: ac.signal,
+          },
+          { hub },
+        );
+        expect(
+          hub
+            .getClientById("client-1")
+            ?.capabilities.includes("host_cu_window_capture"),
+        ).toBe(supported);
+      } finally {
+        ac.abort();
+      }
+    },
+  );
+});

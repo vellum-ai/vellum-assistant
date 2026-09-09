@@ -148,6 +148,36 @@ describe("mergeAdjacentAssistantMessages · standalone rows", () => {
   });
 });
 
+describe("mergeAdjacentAssistantMessages · channel-deleted rows", () => {
+  test("a row deleted on its channel never folds, in either direction", () => {
+    // Mirrors the daemon's `isStandaloneAssistantMessage`: the fold keeps
+    // only the survivor's fields, so it would drop the donor's deletion or
+    // spread the survivor's tombstone over text the channel still shows.
+    const messages = [
+      makeAssistant({
+        id: "a-1",
+        ...textBody("still visible "),
+        timestamp: 1000,
+      }),
+      makeAssistant({
+        id: "gone-1",
+        ...textBody("removed from the channel"),
+        timestamp: 1010,
+        deletedAt: 1725100001000,
+      }),
+      makeAssistant({
+        id: "a-2",
+        ...textBody("also visible"),
+        timestamp: 1020,
+      }),
+    ];
+    const result = mergeAdjacentAssistantMessages(messages);
+    expect(result.map((m) => m.id)).toEqual(["a-1", "gone-1", "a-2"]);
+    expect(result[1]!.deletedAt).toBe(1725100001000);
+    expect(messageText(result[0]!)).toBe("still visible ");
+  });
+});
+
 describe("mergeAdjacentAssistantMessages · referential stability", () => {
   test("returns the input array (by reference) when no adjacent pair exists", () => {
     const messages = [

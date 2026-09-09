@@ -18,17 +18,19 @@ const UPDATES = [
   feedItem({
     id: "update-1",
     status: "new",
-    title: "Repaired a corrupt git store",
+    title: "Made recaps of 12 important emails and deleted 6",
     summary:
-      "Caught this heartbeat's workspace-health failing and rebuilt the index.",
+      "Recapped the 12 emails that needed a reply and deleted 6 newsletters.",
+    conversationId: "conv-inbox",
     timestamp: "2026-08-05T09:30:00.000Z",
     createdAt: "2026-08-05T09:30:00.000Z",
   }),
   feedItem({
     id: "update-2",
-    status: "seen",
-    title: "Heartbeat job miss",
-    summary: "1 heartbeat run was missed while the assistant was asleep.",
+    status: "new",
+    title: "Prepared a wedding schedule",
+    summary: "The day-of schedule is drafted with the vendors' arrival times.",
+    conversationId: "conv-wedding",
     timestamp: "2026-08-04T09:30:00.000Z",
     createdAt: "2026-08-04T09:30:00.000Z",
   }),
@@ -37,6 +39,7 @@ const UPDATES = [
     status: "seen",
     title: "Skill updated: Weekly Report Export",
     summary: 'Updated the skill "Weekly Report Export" from this pass.',
+    sourceLabel: "Memory sweep",
     timestamp: "2026-08-01T09:30:00.000Z",
     createdAt: "2026-08-01T09:30:00.000Z",
   }),
@@ -71,13 +74,18 @@ const meta = {
   parameters: { layout: "padded" },
   args: {
     maxHeight: PANEL_CONTENT_HEIGHT,
+    conversationTitles: new Map([
+      ["conv-inbox", "Inbox triage"],
+      ["conv-wedding", "Wedding planning"],
+    ]),
     onSelect: () => {},
     onDismiss: () => {},
     onToggleRead: () => {},
+    onDecide: () => {},
   },
   decorators: [
     (Story) => (
-      <div className="w-96 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
+      <div className="w-[435px] rounded-[var(--radius-xl)] bg-[var(--surface-lift)] pb-[var(--app-spacing-lg)] shadow-[var(--shadow-popover)]">
         <Story />
       </div>
     ),

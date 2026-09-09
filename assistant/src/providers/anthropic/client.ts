@@ -10,7 +10,14 @@ import {
 } from "../../util/provider-error-patterns.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
+import {
+  clampProviderString,
+  isDecodableTextMimeType,
+  keepFileAsWorkspaceRef,
+} from "../content-block-size.js";
+import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
+import { isEffortSupported } from "../model-catalog.js";
 import {
   couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
@@ -282,15 +289,6 @@ const ANTHROPIC_SUPPORTED_IMAGE_TYPES = new Set([
   "image/gif",
   "image/webp",
 ]);
-
-function isTextBasedMimeType(mediaType: string): boolean {
-  return (
-    mediaType.startsWith("text/") ||
-    mediaType === "application/json" ||
-    mediaType === "application/xml" ||
-    mediaType === "application/javascript"
-  );
-}
 
 /** Anthropic requires tool_use IDs to match ^[a-zA-Z0-9_-]+$ */
 function sanitizeToolId(id: string): string {
@@ -1041,7 +1039,8 @@ export class AnthropicProvider implements Provider {
       const effectiveModel =
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
-      const supportsEffort = !isHaiku;
+      // Effort support is per-model: Haiku and Sonnet 4.5 reject the param (see isEffortSupported).
+      const supportsEffort = isEffortSupported(effectiveModel);
       // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
       // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
       // for this model" — model-wide, not effort-conditional (verified
@@ -2148,9 +2147,10 @@ export class AnthropicProvider implements Provider {
         const cacheControl = (
           block as { cache_control?: Anthropic.CacheControlEphemeral }
         ).cache_control;
+        const text = clampProviderString(block.text);
         return cacheControl
-          ? { type: "text", text: block.text, cache_control: cacheControl }
-          : { type: "text", text: block.text };
+          ? { type: "text", text, cache_control: cacheControl }
+          : { type: "text", text };
       }
       case "thinking":
         if (!block.signature) {
@@ -2183,6 +2183,9 @@ export class AnthropicProvider implements Provider {
           },
         };
       case "file": {
+        if (keepFileAsWorkspaceRef(block.source)) {
+          return { type: "text", text: fileBlockToProviderText(block) };
+        }
         const { media_type, data, filename } = base64Source(block.source);
         if (media_type === "application/pdf") {
           // Only valid base64 document source for Anthropic
@@ -2192,9 +2195,11 @@ export class AnthropicProvider implements Provider {
             ...(filename ? { title: filename } : {}),
           } as unknown as Anthropic.ContentBlockParam;
         }
-        if (isTextBasedMimeType(media_type)) {
+        if (isDecodableTextMimeType(media_type)) {
           // Decode base64 to UTF-8 text and send as PlainTextSource
-          const decodedText = Buffer.from(data, "base64").toString("utf-8");
+          const decodedText = clampProviderString(
+            Buffer.from(data, "base64").toString("utf-8"),
+          );
           return {
             type: "document",
             source: {
@@ -2205,14 +2210,11 @@ export class AnthropicProvider implements Provider {
             ...(filename ? { title: filename } : {}),
           } as unknown as Anthropic.ContentBlockParam;
         }
-        // Binary non-text file: use extracted_text if available, otherwise a placeholder
+        // Binary non-text file: name the workspace file, never dump bytes.
         log.warn(
           `Binary file type not natively supported by Anthropic: ${media_type}; falling back to text`,
         );
-        const fallbackText = block.extracted_text?.trim()
-          ? block.extracted_text
-          : `[File: ${filename ?? "unknown"} (${media_type}) — binary file]`;
-        return { type: "text", text: fallbackText };
+        return { type: "text", text: fileBlockToProviderText(block) };
       }
       case "tool_use":
         return {

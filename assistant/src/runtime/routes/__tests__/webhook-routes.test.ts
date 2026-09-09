@@ -8,9 +8,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { InternalError, UnprocessableEntityError } from "../errors.js";
 
 let isPlatform = false;
+let velayWebhooksEnabled = false;
 let config: Record<string, unknown> = {};
 let platformContextEnabled = false;
 let registerCallbackRouteError: Error | undefined;
+
+let localWebhookRouteRegistered = true;
 
 const registerCallbackRouteMock = mock(
   async (callbackPath: string, _type: string, _source?: string) => {
@@ -19,6 +22,11 @@ const registerCallbackRouteMock = mock(
     }
     return `https://gateway.vellum.ai/assistant-123/${callbackPath}`;
   },
+);
+
+const registerLocalWebhookRouteMock = mock(
+  async (_callbackPath: string, _type: string, _source?: string) =>
+    localWebhookRouteRegistered,
 );
 
 // Spread the real modules: these are broad barrels and replacing them wholesale
@@ -35,8 +43,15 @@ mock.module("../../../config/loader.js", () => ({
   getConfig: () => config,
 }));
 
+const actualVelayGate = await import("../../../inbound/velay-webhooks-gate.js");
+mock.module("../../../inbound/velay-webhooks-gate.js", () => ({
+  ...actualVelayGate,
+  isVelayWebhooksEnabled: () => velayWebhooksEnabled,
+}));
+
 mock.module("../../../inbound/platform-callback-registration.js", () => ({
   registerCallbackRoute: registerCallbackRouteMock,
+  registerLocalWebhookRoute: registerLocalWebhookRouteMock,
   resolvePlatformCallbackRegistrationContext: async () => ({
     isPlatform,
     platformBaseUrl: "https://api.vellum.ai",
@@ -59,10 +74,13 @@ const register = (body: Record<string, unknown>) =>
 describe("webhooks_register callback URL resolution", () => {
   beforeEach(() => {
     isPlatform = false;
+    velayWebhooksEnabled = false;
     config = {};
     platformContextEnabled = false;
     registerCallbackRouteError = undefined;
+    localWebhookRouteRegistered = true;
     registerCallbackRouteMock.mockClear();
+    registerLocalWebhookRouteMock.mockClear();
   });
 
   test("platform pods register with the platform gateway", async () => {
@@ -75,6 +93,7 @@ describe("webhooks_register callback URL resolution", () => {
       path: "webhooks/telegram",
       mode: "platform",
     });
+    expect(registerLocalWebhookRouteMock).not.toHaveBeenCalled();
   });
 
   // The bug: a local assistant that IS connected to the platform used to fall
@@ -95,6 +114,68 @@ describe("webhooks_register callback URL resolution", () => {
     );
   });
 
+  test("velay-webhooks on: a pod claims the subpath and uses the published URL", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+    config = {
+      ingress: { publicBaseUrl: "https://velay.vellum.ai/assistant-123" },
+    };
+
+    expect(await register({ type: "telegram", source: "@my_bot" })).toEqual({
+      callbackUrl: "https://velay.vellum.ai/assistant-123/webhooks/telegram",
+      type: "telegram",
+      path: "webhooks/telegram",
+      mode: "self-hosted",
+    });
+    expect(registerLocalWebhookRouteMock).toHaveBeenCalledWith(
+      "webhooks/telegram",
+      "telegram",
+      "@my_bot",
+    );
+    expect(registerCallbackRouteMock).not.toHaveBeenCalled();
+  });
+
+  test("velay-webhooks on: a refused claim falls back to the platform", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+    localWebhookRouteRegistered = false;
+    config = {
+      ingress: { publicBaseUrl: "https://velay.vellum.ai/assistant-123" },
+    };
+
+    expect(await register({ type: "telegram" })).toMatchObject({
+      callbackUrl: "https://gateway.vellum.ai/assistant-123/webhooks/telegram",
+      mode: "platform",
+    });
+    expect(registerLocalWebhookRouteMock).toHaveBeenCalled();
+  });
+
+  test("velay-webhooks on: a pod with no published URL still registers with the platform", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+
+    expect(await register({ type: "telegram" })).toMatchObject({
+      callbackUrl: "https://gateway.vellum.ai/assistant-123/webhooks/telegram",
+      mode: "platform",
+    });
+    expect(registerLocalWebhookRouteMock).not.toHaveBeenCalled();
+  });
+
+  test("velay-webhooks on: a pod with ingress disabled falls back to the platform", async () => {
+    isPlatform = true;
+    velayWebhooksEnabled = true;
+    platformContextEnabled = true;
+    config = { ingress: { enabled: false } };
+
+    expect(await register({ type: "telegram" })).toMatchObject({
+      mode: "platform",
+    });
+    expect(registerLocalWebhookRouteMock).not.toHaveBeenCalled();
+  });
+
   test("disconnected local assistant uses the configured publicBaseUrl", async () => {
     config = { ingress: { publicBaseUrl: "https://abc.ngrok.io" } };
 
@@ -105,6 +186,7 @@ describe("webhooks_register callback URL resolution", () => {
       mode: "self-hosted",
     });
     expect(registerCallbackRouteMock).not.toHaveBeenCalled();
+    expect(registerLocalWebhookRouteMock).not.toHaveBeenCalled();
   });
 
   test("disconnected local assistant with no ingress is still unprocessable", async () => {
@@ -124,6 +206,7 @@ describe("webhooks_register callback URL resolution", () => {
       mode: "self-hosted",
     });
     expect(registerCallbackRouteMock).not.toHaveBeenCalled();
+    expect(registerLocalWebhookRouteMock).not.toHaveBeenCalled();
   });
 
   // The gateway publishes the Velay tunnel URL into ingress.publicBaseUrl, so

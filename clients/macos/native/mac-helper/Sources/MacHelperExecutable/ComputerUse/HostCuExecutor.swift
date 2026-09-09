@@ -67,6 +67,7 @@ enum HostCuActionRunner {
 
         // For observe-only requests, skip action execution and just capture state
         let isObserveOnly = toolName == "computer_use_observe" || toolName == "cu_observe"
+        let captureTarget = captureTarget(from: input)
 
         var executionResult: String? = nil
         var executionError: String? = nil
@@ -190,10 +191,26 @@ enum HostCuActionRunner {
             executionResult: executionResult,
             executionError: executionError,
             stepNumber: stepNumber,
-            conversationId: conversationId
+            conversationId: conversationId,
+            captureTarget: captureTarget
         )
 
         return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+    }
+
+    // MARK: - Capture Target
+
+    /// What an observe request asks to read, when it asks for less than the
+    /// main display. The daemon carries the companion's pick as exactly one
+    /// of these keys; a window wins over a display should both ever arrive.
+    private static func captureTarget(from input: [String: Any]) -> CaptureTarget? {
+        if let windowId = (input["captureWindowId"] as? NSNumber)?.uint32Value {
+            return .window(windowId)
+        }
+        if let displayId = (input["captureDisplayId"] as? NSNumber)?.uint32Value {
+            return .display(displayId)
+        }
+        return nil
     }
 
     // MARK: - Tool Name Mapping
@@ -349,7 +366,8 @@ enum HostCuActionRunner {
         executionResult: String?,
         executionError: String?,
         stepNumber: Int,
-        conversationId: String
+        conversationId: String,
+        captureTarget: CaptureTarget? = nil
     ) async -> ObservationData {
         var axTreeText: String?
         var axDiffText: String?
@@ -361,24 +379,52 @@ enum HostCuActionRunner {
         var screenHeightPt: Int?
         var secondaryWindowsText: String?
 
-        if let result = await enumerator.enumerateCurrentWindow() {
+        // Targeted reads are standalone snapshots, never a desktop diff baseline.
+        // Clear before enumeration, including failed/missing-window captures, so
+        // the next ordinary observation also starts with a fresh baseline.
+        if captureTarget != nil {
+            previousAXElements.removeValue(forKey: conversationId)
+        }
+
+        // The tree stays inside what the screenshot shows. A window target
+        // reads that window's tree, focused or not; a display target reads
+        // the frontmost window on that display. Neither falls back to the
+        // focused window: it may be on another display or another app, and
+        // its text would then be filed against a frame that never showed it.
+        // A targeted read with no matching tree is a screenshot alone.
+        let windowResult: (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+        switch captureTarget {
+        case .window(let windowId):
+            windowResult = await enumerator.enumerateWindow(windowId: windowId)
+        case .display(let displayId):
+            if let windowId = CaptureSources.topmostWindowId(onDisplay: displayId) {
+                windowResult = await enumerator.enumerateWindow(windowId: windowId)
+            } else {
+                windowResult = nil
+            }
+        case nil:
+            windowResult = await enumerator.enumerateCurrentWindow()
+        }
+
+        if let result = windowResult {
             axTreeText = AccessibilityTreeEnumerator.formatAXTree(
                 elements: result.elements,
                 windowTitle: result.windowTitle,
                 appName: result.appName
             )
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
-            currentElements = flat
+            currentElements = captureTarget == nil ? flat : nil
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
             log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
 
             // Compute AX diff against previous step's elements
-            if let previousFlat = previousAXElements[conversationId] {
+            if captureTarget == nil, let previousFlat = previousAXElements[conversationId] {
                 axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
             }
 
-            // Enumerate secondary windows on first step
-            if stepNumber <= 1 {
+            // Enumerate secondary windows on first step. Never for a targeted
+            // read: those windows are outside what the user agreed to show.
+            if stepNumber <= 1 && captureTarget == nil {
                 let secondaryWindows = await enumerator.enumerateSecondaryWindows(
                     excludingPID: result.pid,
                     maxWindows: 2
@@ -388,7 +434,7 @@ enum HostCuActionRunner {
 
             // Capture screenshot
             do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540)
+                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
                 screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx
@@ -404,7 +450,7 @@ enum HostCuActionRunner {
             // No focused window — try screenshot as fallback
             log.warning("[\(stepNumber)] No AX tree available — falling back to screenshot")
             do {
-                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540)
+                let screenshotResult = try await screenCapture.captureScreenWithMetadata(maxWidth: 960, maxHeight: 540, target: captureTarget)
                 screenshotBase64 = screenshotResult.jpegData.base64EncodedString()
                 if let meta = screenshotResult.metadata {
                     screenshotWidthPx = meta.screenshotWidthPx

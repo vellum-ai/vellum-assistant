@@ -145,7 +145,7 @@ All guardian approval decisions, regardless of how they arrive, route through a 
 
 **Text fallback path (always available):**
 
-- Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel.
+- Every prompt includes a `requestCode` (6-char alphanumeric). Guardians can reply with `<requestCode> approve` or `<requestCode> reject` on any channel. The instruction saying so travels only in the card's `plainTextFallback`, which a transport appends when it sends text without buttons; composed copy and `questionText` never carry it.
 - `access_request` prompts carry the request-code verify/trust/reject/block directive in the card's `plainTextFallback`, appended by a transport only when it sends text without buttons; the `"open invite flow"` phrase for starting the Trusted Contacts invite flow stays in the text on every surface because nothing offers a button for it.
 - `pending_question` prompts (voice-originated) support `<requestCode> <your answer>` for free-text answers.
 - The `routeGuardianReply` router processes text replies through a priority-ordered pipeline: callback parsing -> request code parsing -> NL classification. All paths converge on `applyGuardianDecision`.
@@ -199,7 +199,7 @@ The guardian request system provides a channel-agnostic, unified domain for all 
 
 4. **Deterministic API (prompt listing and decision endpoints):** Desktop clients and API consumers use `GET /v1/guardian-actions/pending` and `POST /v1/guardian-actions/decision` (HTTP). These endpoints surface guardian requests alongside legacy pending interactions and channel approval records, with deduplication to avoid double-rendering.
 
-5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS guardian conversations. Each prompt also embeds deterministic text fallback instructions (request-code-based approve/reject directives, and for `access_request` the "open invite flow" phrase) so text-based channels and manual fallback always work. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed — no auto-resolve when the target is ambiguous.
+5. **Buttons first, text fallback:** All request kinds (`tool_approval`, `pending_question`, `access_request`) are rendered as structured button cards when displayed in macOS guardian conversations. Each card also carries deterministic text fallback instructions (request-code-based directives, and for `access_request` the "open invite flow" phrase) in its `plainTextFallback`, appended by a transport only when it sends text without buttons, so text-based channels and manual fallback always work without the instructions duplicating the buttons. Code-only messages (just a request code without decision text) return clarification instead of auto-approving. Disambiguation with multiple pending requests stays fail-closed: no auto-resolve when the target is ambiguous.
 
 **Resolver registry:** Kind-specific resolvers (`src/approvals/guardian-request-resolvers.ts`) handle side effects after CAS resolution. Built-in resolvers: `tool_approval` (channel/desktop approval path), `pending_question` (voice call question path), and `access_request` (trusted-contact verification session creation). New request kinds register resolvers without touching the core primitive.
 

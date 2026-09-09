@@ -34,8 +34,8 @@
  *
  * Gaps between slots leave room for future injectors to slot in at granular
  * positions (e.g. `25` between unified-turn-context and pkb) without
- * renumbering. The memory-v3 injectors sit far above this range (1000 cards
- * / 1001 outbound spotlight).
+ * renumbering. The memory-v3 injectors sit far above this range (1000
+ * sections / 1001 pointer).
  */
 export const DEFAULT_INJECTOR_ORDER = {
   diskPressureWarning: 5,

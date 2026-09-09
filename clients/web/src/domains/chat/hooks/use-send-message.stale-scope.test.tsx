@@ -1,10 +1,10 @@
 /**
  * A send entered after the user moved to another thread.
  *
- * `submitMessage` awaits before it calls in here: the composer resolves the
- * Eyes camera frame, and an edited message reposts through an undo first. Both
- * hold a call that closed over the conversation the click happened in, and a
- * conversation switch during either lands the send in this hook with the
+ * `submitMessage` awaits before it calls in here: an edited message reposts
+ * through an undo first, and every delivery is chained behind the one before
+ * it. Both hold a call that closed over the conversation the click happened in,
+ * and a conversation switch during either lands the send in this hook with the
  * session store already belonging to somewhere else.
  *
  * The message still goes to the conversation it was written in, because the

@@ -5,7 +5,8 @@
  *
  * Shared by the sandbox bash tool and skill sandbox runner.
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 
 import { pathListDelimiter } from "@vellumai/environments/shell";
 
@@ -49,10 +50,14 @@ export const SAFE_ENV_VARS = [
   "VELLUM_PLATFORM_URL",
   "VELLUM_ASSISTANT_PLATFORM_URL",
   "VELLUM_DOCS_BASE_URL",
+  "VELLUM_WEB_URL",
+  "VELLUM_MARKETING_URL",
   "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
-  "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
+  // Socket path only. The CES HTTP bearer (`CES_SERVICE_TOKEN`) and
+  // `CES_CREDENTIAL_URL` stay in the assistant process: child shells must
+  // not inherit a vault token they can printenv or log.
   "CES_LOCAL_SOCKET",
   // Per-instance port of the assistant-managed Qdrant sidecar, so skill and
   // bash-tool subprocesses that use the vector helpers (e.g. embed/search over
@@ -64,7 +69,6 @@ export const SAFE_ENV_VARS = [
   "IS_PLATFORM",
   "VELLUM_CLOUD",
   "VELLUM_SANDBOX_RUNTIME",
-  "CES_SERVICE_TOKEN",
   "VELLUM_PROFILER_RUN_ID",
   "VELLUM_PROFILER_MODE",
   "VELLUM_PROFILER_MAX_BYTES",
@@ -116,6 +120,10 @@ function isKataFamilyRuntime(runtime: string | undefined): boolean {
 
 function kataAptPaths(dataRoot: string): string[] {
   return [
+    // Shims for chroot wrapper scripts with hardcoded absolute paths must
+    // shadow the broken originals in the chroot bin dirs below (see
+    // docker-kata-apt-shims.sh).
+    `${dataRoot}/.host-shims`,
     `${dataRoot}/bin`,
     `${dataRoot}/usr/local/sbin`,
     `${dataRoot}/usr/local/bin`,
@@ -163,6 +171,69 @@ function kataPythonPaths(dataRoot: string): string[] {
     ),
     `${dataRoot}/usr/lib/python3/dist-packages`,
   ];
+}
+
+// Bun synthesizes a `node` shim directory (<temp>/bun-node-<hash>/, holding
+// `node` and `bun` symlinks to itself) and prepends it to PATH whenever it
+// starts with no real Node on PATH. That `node` is Bun, which runs a Node CLI
+// under different semantics, so it must never shadow a real interpreter in a
+// sandbox subprocess. It stays when it is the only `node` there is: on a native
+// install (Bun only, no Node) removing it would break every `#!/usr/bin/env
+// node` CLI outright.
+function bunNodeShimParents(sourceEnv: NodeJS.ProcessEnv): string[] {
+  const roots = [
+    tmpdir(),
+    "/tmp",
+    sourceEnv.TMPDIR,
+    sourceEnv.TEMP,
+    sourceEnv.TMP,
+  ];
+  return roots
+    .filter((root): root is string => Boolean(root))
+    .map((root) => root.replace(/[\\/]+$/, ""));
+}
+
+function hasNodeExecutable(dir: string): boolean {
+  for (const name of ["node", "node.exe"]) {
+    try {
+      if (statSync(`${dir}/${name}`).isFile()) {
+        return true;
+      }
+    } catch {
+      // Entry missing or unreadable: not a Node interpreter we can use.
+    }
+  }
+  return false;
+}
+
+function stripBunNodeShimDirs(
+  value: string,
+  sourceEnv: NodeJS.ProcessEnv,
+): string {
+  const parents = bunNodeShimParents(sourceEnv);
+  const separator = pathListDelimiter();
+  const entries = value.split(separator);
+  const kept = entries.filter((entry) => {
+    const normalized = entry.replace(/[\\/]+$/, "");
+    const cut = Math.max(
+      normalized.lastIndexOf("/"),
+      normalized.lastIndexOf("\\"),
+    );
+    if (cut < 0) {
+      return true;
+    }
+    return !(
+      normalized.slice(cut + 1).startsWith("bun-node-") &&
+      parents.includes(normalized.slice(0, cut))
+    );
+  });
+  if (kept.length === entries.length) {
+    return value;
+  }
+  if (!kept.some(hasNodeExecutable)) {
+    return value;
+  }
+  return kept.join(separator);
 }
 
 /**
@@ -240,6 +311,11 @@ export function buildSanitizedEnv(
         env.PATH.split(pathListDelimiter()).filter(Boolean),
       );
     }
+  }
+  // Runs after the kata entries are in place: a Node installed into the
+  // persistent apt chroot is what makes dropping Bun's shim safe there.
+  if (env.PATH != null) {
+    env.PATH = stripBunNodeShimDirs(env.PATH, sourceEnv);
   }
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();

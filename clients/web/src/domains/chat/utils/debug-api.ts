@@ -47,6 +47,7 @@ import {
 } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
+import { forceSleepStage } from "@/domains/chat/utils/sleep-stage-debug-flag";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import { toggleAppIframeSandboxDisabled } from "@/lib/app-sandbox-debug-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
@@ -65,6 +66,7 @@ import {
   shouldShowThinkingIndicator,
 } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
+import type { SleepStageScene } from "@/stores/assistant-sleep-stage-store";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -618,13 +620,11 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     if (conditions.hasUncompletedVisibleSurface) {
       failingConditions.push("hasUncompletedVisibleSurface");
     }
-    if (
-      !(
-        conditions.isThinking ||
-        conditions.restoredProcessing ||
-        !conditions.hasStreamingAssistantMessage
-      )
-    ) {
+    if (!(
+      conditions.isThinking ||
+      conditions.restoredProcessing ||
+      !conditions.hasStreamingAssistantMessage
+    )) {
       failingConditions.push("streamingAssistantMessageActive");
     }
     if (conditions.hasStreamingAssistantThinking) {
@@ -899,6 +899,17 @@ export interface VellumDebugFlagsApi {
    *
    *  Returns the value in effect after the call. */
   impersonateVersion(value?: string | null): string | null;
+  /** Pin the conversation page's sleep stage to one scene so the
+   *  sleeping / waking / woke animation can be watched without an
+   *  assistant that will actually sleep. In memory only; a reload
+   *  clears it.
+   *
+   *  - `forceSleepStage("sleeping" | "waking" | "woke")` - pin it.
+   *  - `forceSleepStage(null)` - clear, back to the real status.
+   *  - `forceSleepStage()` - log + return the current value.
+   *
+   *  Returns the value in effect after the call. */
+  forceSleepStage(value?: SleepStageScene | null): SleepStageScene | null;
   /** Render app iframes without their `sandbox` attribute, giving the
    *  app document the host's origin so origin-gated APIs
    *  (`getDisplayMedia()`, …) work. Costs the isolation the sandbox
@@ -1032,6 +1043,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
+      forceSleepStage,
       toggleAppsSandboxDisabled: toggleAppIframeSandboxDisabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);

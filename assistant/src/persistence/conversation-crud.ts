@@ -32,6 +32,7 @@ import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
@@ -41,7 +42,6 @@ import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
-import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
@@ -116,6 +116,7 @@ import {
 } from "./job-handlers/message-lexical.js";
 import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
+import { mergeMessageMetadata } from "./message-metadata.js";
 import {
   rawAll,
   rawExec,
@@ -416,17 +417,31 @@ export const messageMetadataSchema = z
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
-    /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
-     *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
-     *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
-     *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
-     *  not import the memory feature. */
+    /** Memory-v3 frozen net-new section block (unwrapped), the v3
+     *  counterpart of `memoryInjectedBlock`. A row carries at most one of the
+     *  two. The key matches the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept as a literal here (like
+     *  `memoryInjectedBlock`) so the storage schema does not import the memory
+     *  feature. */
     memoryV3InjectedBlock: z.string().optional(),
-    /** Memory-v3 per-turn `<memory_spotlight>` block (wrapped). Rehydrated
-     *  by `loadFromDb` so historical turns keep the spotlight they were sent
-     *  with. The key matches the memory plugin's
-     *  `MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`, kept as a literal here so
-     *  the storage schema does not import the memory feature. */
+    /** Rendering format of `memoryV3InjectedBlock`, stamped by the build
+     *  that persisted it and compared on read against the memory plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT`; a row carrying the block without
+     *  it holds a legacy compact-card block. The key matches the plugin's
+     *  `MEMORY_V3_INJECTED_BLOCK_FORMAT_METADATA_KEY`, kept as a literal here
+     *  so the storage schema does not import the memory feature. */
+    memoryV3InjectedBlockFormat: z.number().optional(),
+    /** Memory-v3 per-turn `<memory_pointer>` block (wrapped). Rehydrated by
+     *  `loadFromDb` so historical turns keep the pointer they were sent with.
+     *  The key matches the memory plugin's
+     *  `MEMORY_V3_POINTER_BLOCK_METADATA_KEY`, kept as a literal here so the
+     *  storage schema does not import the memory feature. */
+    memoryV3PointerBlock: z.string().optional(),
+    /** Persisted `<memory_spotlight>` text (wrapped) from earlier builds that
+     *  shipped the per-turn spotlight layer. Never written; `loadFromDb`
+     *  rehydrates it verbatim as inert history so the prompts those turns
+     *  were sent with stay byte-identical across the upgrade. The key matches
+     *  the memory plugin's `LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY`. */
     memoryV3SpotlightBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
@@ -497,8 +512,9 @@ export function isProviderErrorMetadata(
 }
 
 /**
- * True when an assistant row is a standalone display turn: a system card or
- * a provider-error notice, or a deliberate-silence marker. Standalone rows never merge with adjacent
+ * True when an assistant row is a standalone display turn: a system card, a
+ * provider-error notice, a deliberate-silence marker, a reaction, or a row
+ * deleted on its channel. Standalone rows never merge with adjacent
  * assistant rows, and turn grouping closes on them, so display merging and
  * the turn resolver agree on boundaries. Takes the raw persisted `metadata`
  * JSON string; malformed JSON and non-assistant roles are never standalone.
@@ -516,11 +532,26 @@ export function isStandaloneAssistantMessage(
       isSystemCardMetadata(parsed) ||
       isProviderErrorMetadata(parsed) ||
       isNoResponseMetadata(parsed) ||
-      isReactionMessageMetadata(parsed)
+      isReactionMessageMetadata(parsed) ||
+      isChannelDeletedMetadata(metadata)
     );
   } catch {
     return false;
   }
+}
+
+/**
+ * True when the row was deleted on its channel after it was stored. The
+ * marker lives in the provider envelope rather than in `messageKind`, so a
+ * merged run would take the anchor's envelope and either drop the deletion
+ * or claim it over text that is still visible. The substring guard keeps the
+ * envelope parse off rows that cannot carry it.
+ */
+function isChannelDeletedMetadata(metadata: string): boolean {
+  return (
+    metadata.includes("deletedAt") &&
+    readProviderMetadata(metadata)?.deletedAt !== undefined
+  );
 }
 
 /**
@@ -2675,6 +2706,44 @@ export function selectSightFrameCaptureTimes(
 }
 
 /**
+ * The newest camera frame in the conversation, by the `createdAt` of the row
+ * that carries it, or null when no row carries one.
+ *
+ * The one-row form of {@link selectSightFrameCaptureTimes}, for a caller that
+ * wants only the latest and runs on every voice turn: every stored frame stays
+ * a row for the life of the conversation, so the full scan grows with the
+ * call. Same narrowing and the same validation, so the two agree on what a
+ * frame is. A row carrying several frames answers with the last attached.
+ */
+export function selectNewestSightFrameCapture(
+  conversationId: string,
+): { attachmentId: string; createdAt: number } | null {
+  const db = getDb();
+  const row = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  if (!row) {
+    return null;
+  }
+  const ids = sightFrameAttachmentIdsFromMetadata(
+    parseMessageMetadata(row.metadata),
+  );
+  const attachmentId = ids.at(-1);
+  return attachmentId === undefined
+    ? null
+    : { attachmentId, createdAt: row.createdAt };
+}
+
+/**
  * Count messages in a conversation that were created strictly after the
  * `afterMessageId` reference message. If `afterMessageId` is `null` or empty,
  * counts all messages in the conversation. If the referenced message no
@@ -4166,8 +4235,9 @@ export function finalizeMessageContent(
 }
 
 /**
- * Merge `updates` into the metadata JSON of an existing message.
- * Reads the current metadata, shallow-merges the new fields, and writes back.
+ * Merge `updates` into the metadata JSON of an existing message
+ * ({@link mergeMessageMetadata}). Reads the current metadata, shallow-merges
+ * the new fields, and writes back.
  */
 export function updateMessageMetadata(
   messageId: string,
@@ -4179,11 +4249,8 @@ export function updateMessageMetadata(
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
-  // Sanitized like the transactional sibling above: a malformed stored
-  // envelope must not fail the update that is trying to stamp the row.
-  const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
   db.update(messages)
-    .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
+    .set({ metadata: mergeMessageMetadata(row?.metadata, updates) })
     .where(eq(messages.id, messageId))
     .run();
 }
@@ -4210,11 +4277,10 @@ export function updateMessageContentAndMetadata(
       .from(messages)
       .where(eq(messages.id, messageId))
       .get();
-    const existing = row?.metadata ? safeParseRecord(row.metadata) : {};
     tx.update(messages)
       .set({
         content: newContent,
-        metadata: JSON.stringify({ ...existing, ...metadataUpdates }),
+        metadata: mergeMessageMetadata(row?.metadata, metadataUpdates),
       })
       .where(eq(messages.id, messageId))
       .run();

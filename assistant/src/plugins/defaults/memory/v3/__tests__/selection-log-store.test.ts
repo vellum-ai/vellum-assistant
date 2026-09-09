@@ -10,7 +10,11 @@
  *   - NO blind fallback to a neighbouring turn/message;
  *   - the fork fallback: a turn inherited from a fork resolves to the parent's
  *     rows via the message's `forkSourceMessageId` back-pointer;
- *   - source/pinned/section mapping and the rendered `<memory>` block;
+ *   - a pool-only turn (a pool row, no selection rows: the selector rejected
+ *     everything or the gate hard-skipped) resolves through the pool's
+ *     stamped message id, with the same fork walk, to an empty selection
+ *     carrying the pool;
+ *   - source/section mapping and the rendered `<memory>` block;
  *   - `live` reflects the config gate.
  *
  * `mock.module` is process-global and leaks into sibling files in a
@@ -27,6 +31,12 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
+import {
+  ensureMemoryV3PoolsSchema,
+  ensureMemoryV3SelectionsSectionKeyOnce,
+} from "../plugin-schema.js";
+import type { PoolCandidateRecord, PoolLane } from "../pool-log-store.js";
+import { type Section, sectionKey } from "../types.js";
 
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
@@ -35,6 +45,7 @@ const realDb = {
   ...(await import("../../../../../persistence/db-connection.js")),
 };
 const realPageContent = { ...(await import("../page-content.js")) };
+const realPageStore = { ...(await import("../../substrate/page-store.js")) };
 
 let storeMockActive = false;
 let liveEnabled = false;
@@ -57,7 +68,26 @@ function makeDb() {
   testSqlite.exec(`CREATE TABLE messages (id TEXT PRIMARY KEY, metadata TEXT)`);
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
+  // The plugin's own column on the relocated table, so `seed` can write keys.
+  ensureMemoryV3SelectionsSectionKeyOnce(memorySqlite);
+  ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
+}
+
+/** One pooled candidate in the persisted shape `writePool` stores. */
+function candidate(
+  slug: string,
+  lane: PoolLane,
+  chosen: boolean,
+  section?: { title: string },
+): PoolCandidateRecord {
+  return {
+    slug,
+    lane,
+    section_title: section?.title ?? null,
+    section_key: section?.title ?? null,
+    chosen,
+  };
 }
 
 function seed(
@@ -66,16 +96,16 @@ function seed(
   rows: Array<{
     slug: string;
     source: string;
-    pinned?: boolean;
     sectionOrdinal?: number;
     sectionTitle?: string;
+    sectionKey?: string;
   }>,
   messageId: string | null = null,
 ): void {
   const stmt = memorySqlite.query(
     `INSERT INTO memory_v3_selections
-       (conversation_id, turn, slug, source, pinned, created_at,
-        message_id, section_ordinal, section_title)
+       (conversation_id, turn, slug, source, created_at,
+        message_id, section_ordinal, section_title, section_key)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const r of rows) {
@@ -84,11 +114,11 @@ function seed(
       turn,
       r.slug,
       r.source,
-      r.pinned ? 1 : 0,
       1000 + turn,
       messageId,
       r.sectionOrdinal ?? null,
       r.sectionTitle ?? null,
+      r.sectionKey ?? null,
     );
   }
 }
@@ -100,6 +130,21 @@ function seedMessage(id: string, forkSourceMessageId?: string): void {
   testSqlite
     .query(`INSERT INTO messages (id, metadata) VALUES (?, ?)`)
     .run(id, metadata);
+}
+
+/** Stamp a pool row with its assistant message id, as the turn-end backfill
+ *  does for the pool and selection rows together. */
+function stampPool(
+  conversationId: string,
+  turn: number,
+  messageId: string,
+): void {
+  memorySqlite
+    .query(
+      `UPDATE memory_v3_pools SET message_id = ?
+       WHERE conversation_id = ? AND turn = ?`,
+    )
+    .run(messageId, conversationId, turn);
 }
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
@@ -132,18 +177,31 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
       : realDb.getMemorySqlite(),
 }));
 
+// Bodies of the pages the inspector reconstructs matched sections from; a
+// slug with no entry reads from disk, where this unit's pages do not exist.
+const pageBodies = new Map<string, string>();
+mock.module("../../substrate/page-store.js", () => ({
+  ...realPageStore,
+  readPage: async (workspaceDir: string, slug: string) =>
+    storeMockActive && pageBodies.has(slug)
+      ? ({ body: pageBodies.get(slug)! } as unknown as Awaited<
+          ReturnType<typeof realPageStore.readPage>
+        >)
+      : realPageStore.readPage(workspaceDir, slug),
+}));
+
 mock.module("../page-content.js", () => ({
   ...realPageContent,
-  // The inspector store reconstructs each selection's matched section from the
-  // current page; in this unit the test pages don't exist on disk, so the
-  // section map is empty and the renderer falls back to the full page. The mock
-  // stands in for that render and reflects whether a section was supplied.
-  renderV3SectionContent: async (slug: string, section?: { title: string }) =>
+  // The inspector store reconstructs each selection's matched section from
+  // the current page and renders that section, or the lead when the row
+  // resolved to none. The mock stands in for that render and names the
+  // section it was handed by key, so a repeat or chunk is told apart.
+  renderV3InjectionEntry: async (slug: string, section?: Section) =>
     storeMockActive
       ? section
-        ? `section[${section.title}] for ${slug}`
-        : `body for ${slug}`
-      : realPageContent.renderV3SectionContent(slug, undefined),
+        ? `# memory/concepts/${slug}.md § ${sectionKey(section)}\nsection[${sectionKey(section)}] for ${slug}`
+        : `# memory/concepts/${slug}.md\nbody for ${slug}`
+      : realPageContent.renderV3InjectionEntry(slug, undefined),
 }));
 
 const {
@@ -151,6 +209,9 @@ const {
   getMemoryV3SelectionForInspectorByMessageIds,
   summarizeSelections,
 } = await import("../selection-log-store.js");
+// The pool writer resolves the same stubbed memory connection, so tests seed
+// pool rows through it and read them back through the inspector store.
+const { writePool } = await import("../pool-log-store.js");
 
 beforeEach(() => {
   storeMockActive = true;
@@ -159,6 +220,7 @@ beforeEach(() => {
   // The inspector's `live` flag comes from `isMemoryV3Live(getConfig())`,
   // which reads `memory.v3.live` — seed it for real.
   setConfig("memory", { v3: { live: false } });
+  pageBodies.clear();
   testDb = makeDb();
 });
 
@@ -196,14 +258,14 @@ describe("getMemoryV3SelectionForInspector", () => {
     expect(await getMemoryV3SelectionForInspector("conv-3", 3)).toBeNull();
   });
 
-  test("maps source/pinned/section and renders the <memory> block", async () => {
+  test("maps source/section and renders the <memory> block", async () => {
     // The second row carries a retired free-text source label (the column is
     // permissive); the inspector passes it through verbatim. Neither row has a
     // matched section, so section fields are null and the block falls back to
-    // full pages.
+    // each page's lead.
     seed("conv-4", 1, [
-      { slug: "domain-a/page-1", source: "edge", pinned: true },
-      { slug: "domain-b/page-2", source: "legacy-carry", pinned: false },
+      { slug: "domain-a/page-1", source: "edge" },
+      { slug: "domain-b/page-2", source: "legacy-carry" },
     ]);
 
     const log = await getMemoryV3SelectionForInspector("conv-4", 1);
@@ -211,14 +273,12 @@ describe("getMemoryV3SelectionForInspector", () => {
       {
         slug: "domain-a/page-1",
         source: "edge",
-        pinned: true,
         sectionOrdinal: null,
         sectionHeading: null,
       },
       {
         slug: "domain-b/page-2",
         source: "legacy-carry",
-        pinned: false,
         sectionOrdinal: null,
         sectionHeading: null,
       },
@@ -273,19 +333,225 @@ describe("getMemoryV3SelectionForInspectorByMessageIds", () => {
       {
         slug: "domain-a/page-1",
         source: "needle",
-        pinned: false,
         sectionOrdinal: 2,
         sectionHeading: "Heading A",
       },
       {
         slug: "domain-b/page-2",
         source: "core",
-        pinned: false,
         sectionOrdinal: null,
         sectionHeading: null,
       },
     ]);
     expect(log?.injectedText).toContain("<memory>");
+  });
+
+  test("includes the turn's candidate pool when one was persisted", async () => {
+    seed(
+      "conv-m",
+      3,
+      [
+        { slug: "domain-a/page-1", source: "core" },
+        {
+          slug: "domain-b/page-2",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Heading B",
+        },
+      ],
+      "msg-pool",
+    );
+    // The pool the selector saw: the core card, an unchosen hot card, and the
+    // needle line with its matched section. The join is by the selection rows'
+    // (conversation, turn), so the pool row needs no message id of its own.
+    writePool(memorySqlite, "conv-m", 3, {
+      candidates: [
+        candidate("domain-a/page-1", "core", true),
+        candidate("domain-c/page-9", "hot", false),
+        candidate("domain-b/page-2", "needle", true, { title: "Heading B" }),
+      ],
+      pool_size: 3,
+      selected_count: 2,
+      selector_ran: true,
+    });
+    // A pool for a neighbouring turn must not bleed in.
+    writePool(memorySqlite, "conv-m", 4, {
+      candidates: [candidate("other/page", "core", true)],
+      pool_size: 1,
+      selected_count: 1,
+      selector_ran: true,
+    });
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-pool",
+    ]);
+    expect(log?.pool).toEqual({
+      poolSize: 3,
+      selectedCount: 2,
+      selectorRan: true,
+      candidates: [
+        {
+          slug: "domain-a/page-1",
+          lane: "core",
+          sectionHeading: null,
+          sectionKey: null,
+          chosen: true,
+        },
+        {
+          slug: "domain-c/page-9",
+          lane: "hot",
+          sectionHeading: null,
+          sectionKey: null,
+          chosen: false,
+        },
+        {
+          slug: "domain-b/page-2",
+          lane: "needle",
+          sectionHeading: "Heading B",
+          sectionKey: "Heading B",
+          chosen: true,
+        },
+      ],
+    });
+    // The turn-keyed variant resolves the same pool.
+    const byTurn = await getMemoryV3SelectionForInspector("conv-m", 3);
+    expect(byTurn?.pool).toEqual(log?.pool);
+  });
+
+  test("pool is null for a turn logged before pools were persisted", async () => {
+    seed("conv-m", 0, [{ slug: "domain-a/page-1", source: "needle" }], "msg-1");
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-1"]);
+    expect(log?.selections).toHaveLength(1);
+    expect(log?.pool).toBeNull();
+  });
+
+  test("resolves the parent's pool for a forked (inherited) turn", async () => {
+    seed(
+      "conv-parent",
+      4,
+      [{ slug: "domain-a/page-1", source: "needle" }],
+      "parent-msg",
+    );
+    writePool(memorySqlite, "conv-parent", 4, {
+      candidates: [candidate("domain-a/page-1", "needle", true)],
+      pool_size: 1,
+      selected_count: 1,
+      selector_ran: true,
+    });
+    seedMessage("fork-msg", "parent-msg");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "fork-msg",
+    ]);
+    expect(log?.pool?.candidates.map((c) => c.slug)).toEqual([
+      "domain-a/page-1",
+    ]);
+  });
+
+  test("a pool-only turn resolves through its stamped message id to an empty selection with the pool", async () => {
+    // The selector saw two candidates and rejected both: no selection rows,
+    // one pool row, stamped at turn end like the selection rows would be.
+    writePool(memorySqlite, "conv-m", 5, {
+      candidates: [
+        candidate("domain-a/page-1", "core", false),
+        candidate("domain-b/page-2", "needle", false, { title: "Heading B" }),
+      ],
+      pool_size: 2,
+      selected_count: 0,
+      selector_ran: true,
+    });
+    stampPool("conv-m", 5, "msg-rejected");
+    // A selection under another message must not be mistaken for this turn.
+    seed("conv-m", 6, [{ slug: "domain-c/page-9", source: "hot" }], "msg-6");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-rejected",
+    ]);
+    expect(log).toEqual({
+      turn: 5,
+      live: false,
+      selections: [],
+      injectedText: "",
+      pool: {
+        poolSize: 2,
+        selectedCount: 0,
+        selectorRan: true,
+        candidates: [
+          {
+            slug: "domain-a/page-1",
+            lane: "core",
+            sectionHeading: null,
+            sectionKey: null,
+            chosen: false,
+          },
+          {
+            slug: "domain-b/page-2",
+            lane: "needle",
+            sectionHeading: "Heading B",
+            sectionKey: "Heading B",
+            chosen: false,
+          },
+        ],
+      },
+    });
+    // The turn-keyed variant resolves the same pool-only log.
+    expect(await getMemoryV3SelectionForInspector("conv-m", 5)).toEqual(log);
+  });
+
+  test("a hard-skipped turn resolves to an empty selection whose pool records the selector as not run", async () => {
+    writePool(memorySqlite, "conv-m", 5, {
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    });
+    stampPool("conv-m", 5, "msg-skipped");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-skipped",
+    ]);
+    expect(log?.selections).toEqual([]);
+    expect(log?.injectedText).toBe("");
+    expect(log?.pool).toEqual({
+      poolSize: 0,
+      selectedCount: 0,
+      selectorRan: false,
+      candidates: [],
+    });
+  });
+
+  test("a fork copy of a pool-only turn resolves through the back-pointer walk", async () => {
+    writePool(memorySqlite, "conv-parent", 4, {
+      candidates: [candidate("domain-a/page-1", "dense", false)],
+      pool_size: 1,
+      selected_count: 0,
+      selector_ran: true,
+    });
+    stampPool("conv-parent", 4, "parent-msg");
+    // A fork of a fork: neither copy carries rows of its own.
+    seedMessage("mid-msg", "parent-msg");
+    seedMessage("fork2-msg", "mid-msg");
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds([
+      "fork2-msg",
+    ]);
+    expect(log?.turn).toBe(4);
+    expect(log?.selections).toEqual([]);
+    expect(log?.pool?.candidates.map((c) => c.slug)).toEqual([
+      "domain-a/page-1",
+    ]);
+  });
+
+  test("does not match a pool row that predates the message-id backfill (null message_id)", async () => {
+    writePool(memorySqlite, "conv-m", 5, {
+      candidates: [],
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: false,
+    }); // message_id null
+    expect(
+      await getMemoryV3SelectionForInspectorByMessageIds(["any"]),
+    ).toBeNull();
   });
 
   test("returns null for empty message ids and for an unmatched id", async () => {
@@ -388,7 +654,7 @@ describe("summarizeSelections", () => {
     ]);
     // Turn 2: page-1 re-selected (needle) + page-2 re-surfaced by edge.
     seed("conv-a", 2, [
-      { slug: "domain-a/page-1", source: "needle", pinned: true },
+      { slug: "domain-a/page-1", source: "needle" },
       { slug: "domain-b/page-2", source: "edge" },
     ]);
     // A different conversation must not bleed into the aggregate.
@@ -406,6 +672,7 @@ describe("summarizeSelections", () => {
       span: 0,
       learned: 0,
       entity: 0,
+      rare: 0,
     });
     expect(summary.turns).toBe(2);
     // page-1 and page-2 — distinct across the two turns.
@@ -425,6 +692,7 @@ describe("summarizeSelections", () => {
         span: 0,
         learned: 0,
         entity: 0,
+        rare: 0,
       },
       turns: 0,
       distinctSlugs: 0,
@@ -448,6 +716,7 @@ describe("summarizeSelections", () => {
         span: 0,
         learned: 0,
         entity: 0,
+        rare: 0,
       },
       turns: 0,
       distinctSlugs: 0,
@@ -469,5 +738,274 @@ describe("summarizeSelections", () => {
     // But the turn and both distinct slugs are still reflected.
     expect(summary.turns).toBe(1);
     expect(summary.distinctSlugs).toBe(2);
+  });
+});
+
+describe("matched-section reconstruction", () => {
+  const page = [
+    "Lead.",
+    "",
+    "## Heading A",
+    "",
+    "Body A.",
+    "",
+    "## Heading B",
+    "",
+    "Body B.",
+  ].join("\n");
+
+  const repeated = [
+    "Lead.",
+    "",
+    "## Notes",
+    "",
+    "First.",
+    "",
+    "## Notes",
+    "",
+    "Second.",
+  ].join("\n");
+
+  test("a row recorded with a section key resolves to that exact occurrence of a repeated heading, even when its ordinal now points at the other", async () => {
+    // The page now: lead (0), "Notes" (1), "Notes" again (2). Both rows were
+    // recorded before a section above the headings was removed, so each
+    // recorded ordinal now sits on the OTHER occurrence of the title.
+    pageBodies.set("domain-a/page-1", repeated);
+    seed(
+      "conv-k",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+          sectionKey: "Notes",
+        },
+      ],
+      "msg-k-1",
+    );
+    seed(
+      "conv-k",
+      1,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 1,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      "msg-k-2",
+    );
+
+    const first = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-k-1",
+    ]);
+    expect(first?.injectedText).toContain("section[Notes] for domain-a/page-1");
+    expect(first?.injectedText).not.toContain("Notes#1");
+    const second = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-k-2",
+    ]);
+    expect(second?.injectedText).toContain(
+      "section[Notes#1] for domain-a/page-1",
+    );
+    // The wire shape still carries the recorded title and ordinal as logged.
+    expect(second?.selections).toEqual([
+      {
+        slug: "domain-a/page-1",
+        source: "needle",
+        sectionOrdinal: 1,
+        sectionHeading: "Notes",
+      },
+    ]);
+  });
+
+  test("a keyed row whose key is no longer on the page renders the lead rather than another section of that title", async () => {
+    // The page kept a single "Notes"; the row names the repeat that was
+    // removed. The surviving occurrence is not what was injected.
+    pageBodies.set(
+      "domain-a/page-1",
+      ["Lead.", "", "## Notes", "", "Only."].join("\n"),
+    );
+    seed(
+      "conv-k",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      "msg-k-3",
+    );
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-k-3"]);
+    expect(log?.injectedText).toContain("body for domain-a/page-1");
+    expect(log?.injectedText).not.toContain("section[");
+  });
+
+  test("a selections table created without section_key (as migration 338 leaves it) gains the column on the first read", async () => {
+    memorySqlite = new Database(":memory:");
+    ensureMemoryV3SelectionsSchema(memorySqlite);
+    ensureMemoryV3PoolsSchema(memorySqlite);
+    memorySqlite
+      .query(
+        `INSERT INTO memory_v3_selections
+           (conversation_id, turn, slug, source, created_at, message_id,
+            section_ordinal, section_title)
+         VALUES ('conv-l', 0, 'domain-a/page-1', 'needle', 1000, 'msg-l', 1,
+                 'Heading A')`,
+      )
+      .run();
+    pageBodies.set("domain-a/page-1", page);
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-l"]);
+    expect(log?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
+    expect(
+      (
+        memorySqlite
+          .query(`PRAGMA table_info(memory_v3_selections)`)
+          .all() as Array<{ name: string }>
+      ).map((column) => column.name),
+    ).toContain("section_key");
+  });
+
+  test("a row recorded without a key resolves by its title first, so a page re-chunked since the turn still renders the section that was injected", async () => {
+    // At the turn, "Heading A" sat at ordinal 2; the page has since been
+    // edited and "Heading B" holds that ordinal.
+    pageBodies.set("domain-a/page-1", page);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Heading A",
+        },
+      ],
+      "msg-r-1",
+    );
+
+    const log = await getMemoryV3SelectionForInspectorByMessageIds(["msg-r-1"]);
+    expect(log?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
+    expect(log?.injectedText).not.toContain("Heading B");
+  });
+
+  test("for a row recorded without a key, the ordinal picks among repeats of the title while it still points at one; otherwise the first occurrence", async () => {
+    pageBodies.set("domain-a/page-1", repeated);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 2,
+          sectionTitle: "Notes",
+        },
+      ],
+      "msg-r-2",
+    );
+    seed(
+      "conv-r",
+      1,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 7,
+          sectionTitle: "Notes",
+        },
+      ],
+      "msg-r-3",
+    );
+
+    const pointed = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-2",
+    ]);
+    expect(pointed?.injectedText).toContain(
+      "section[Notes#1] for domain-a/page-1",
+    );
+    const drifted = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-3",
+    ]);
+    expect(drifted?.injectedText).toContain(
+      "section[Notes] for domain-a/page-1",
+    );
+    expect(drifted?.injectedText).not.toContain("Notes#1");
+  });
+
+  test("a title no longer on the page renders the lead; a row recorded without a title falls back to its ordinal", async () => {
+    pageBodies.set("domain-a/page-1", page);
+    seed(
+      "conv-r",
+      0,
+      [
+        {
+          slug: "domain-a/page-1",
+          source: "needle",
+          sectionOrdinal: 1,
+          sectionTitle: "Gone",
+        },
+      ],
+      "msg-r-4",
+    );
+    seed(
+      "conv-r",
+      1,
+      [{ slug: "domain-a/page-1", source: "needle", sectionOrdinal: 1 }],
+      "msg-r-5",
+    );
+
+    const gone = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-4",
+    ]);
+    expect(gone?.injectedText).toContain("body for domain-a/page-1");
+    expect(gone?.injectedText).not.toContain("section[");
+    const untitled = await getMemoryV3SelectionForInspectorByMessageIds([
+      "msg-r-5",
+    ]);
+    expect(untitled?.injectedText).toContain(
+      "section[Heading A] for domain-a/page-1",
+    );
+  });
+});
+
+describe("selection reads after a failed section_key ensure", () => {
+  test("a selections table whose column ensure failed reads as no v3 diagnostic rather than an error", async () => {
+    // A memory database created before the column existed, on storage the
+    // ALTER cannot reach: the ensure fails open, so every read that names
+    // `section_key` throws, and the inspector must see no v3 diagnostic
+    // instead of a failed route.
+    memorySqlite = new Database(":memory:");
+    ensureMemoryV3SelectionsSchema(memorySqlite);
+    memorySqlite
+      .query(
+        `INSERT INTO memory_v3_selections
+           (conversation_id, turn, slug, source, created_at, message_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run("conv-ro", 0, "domain-a/page-1", "needle", 1000, "msg-ro-1");
+    memorySqlite.exec("PRAGMA query_only = ON");
+
+    await expect(
+      getMemoryV3SelectionForInspectorByMessageIds(["msg-ro-1"]),
+    ).resolves.toBeNull();
+    await expect(
+      getMemoryV3SelectionForInspector("conv-ro", 0),
+    ).resolves.toBeNull();
+    // A read that names no `section_key` still serves.
+    expect(summarizeSelections("conv-ro").turns).toBe(1);
   });
 });

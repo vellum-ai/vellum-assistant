@@ -417,6 +417,35 @@ describe("handleHostCuResult — Phase 2 targetClientId guard", () => {
       expect(result).toEqual({ accepted: true });
       expect(cuResolveSpy).toHaveLength(1);
     });
+
+    test("rejects a different actor when the pending request recorded a source actor", () => {
+      const requestId = "req-cu-untargeted-actor-mismatch";
+      registerPending(requestId, {
+        targetActorPrincipalId: "principal-owner",
+      });
+
+      expect(() =>
+        handleHostCuResult({
+          body: cuBody(requestId),
+          headers: { "x-vellum-actor-principal-id": "principal-attacker" },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("accepts the recorded source actor on an untargeted pending request", async () => {
+      const requestId = "req-cu-untargeted-actor-match";
+      registerPending(requestId, {
+        targetActorPrincipalId: "principal-owner",
+      });
+
+      const result = await handleHostCuResult({
+        body: cuBody(requestId),
+        headers: { "x-vellum-actor-principal-id": "principal-owner" },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(cuResolveSpy).toHaveLength(1);
+    });
   });
 });
 

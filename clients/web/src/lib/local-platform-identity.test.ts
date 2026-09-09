@@ -29,6 +29,8 @@ let browserDeviceId: string | null = null;
 let statusBody: unknown;
 let ensureRegistrationBody: unknown;
 let reprovisionApiKeyBody: unknown;
+/** What `POST /v1/platform/verify-credential` reports about the stored key. */
+let verifyCredentialStatus: "valid" | "rejected" | "unknown" = "valid";
 let requests: RecordedRequest[] = [];
 let secretsUnavailable = false;
 let storedSecrets: string[] = [];
@@ -62,6 +64,8 @@ mock.module("@/lib/local-mode", () => ({
   isLocalAssistant: (assistant: { cloud?: string }) =>
     assistant?.cloud === "local",
   isLocalClient: () => isLocalClientValue,
+  isLocalGatewayAssistant: (assistant: { cloud?: string }) =>
+    assistant?.cloud === "local" || assistant?.cloud === "docker",
   isPlatformDisabled: () => isPlatformDisabledValue,
   isRemoteGatewayMode: () => isRemoteGatewayModeValue,
   primeLocalGatewayConnectionWithRepair:
@@ -112,10 +116,19 @@ mock.module("@/stores/organization-store", () => ({
   },
 }));
 
+const { MIN_VERSION: VERIFY_ROUTE_MIN_VERSION } =
+  await import("@/lib/backwards-compat/credential-verification");
+const { VERSION_RESOLUTION_TIMEOUT_MS } =
+  await import("@/lib/backwards-compat/utils");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
 const {
   bootstrapLocalAssistantPlatformIdentity,
+  canRecoverLocalAssistantPlatformCredential,
+  LocalPlatformCredentialRecoveryError,
   resetLocalPlatformIdentityCacheForTesting,
   setBootstrapRetryDelaysForTesting,
+  recoverLocalAssistantPlatformCredential,
   resolveLocalAssistantPlatformIdentity,
 } = await import("@/lib/local-platform-identity");
 
@@ -159,11 +172,11 @@ beforeEach(() => {
   selfHostedActorToken = "actor-token";
   browserDeviceId = null;
   statusBody = {
-    assistant_id: PLATFORM_ASSISTANT_ID,
+    assistantId: PLATFORM_ASSISTANT_ID,
     baseUrl: STATUS_PLATFORM_BASE_URL,
-    organization_id: ORGANIZATION_ID,
-    has_assistant_api_key: true,
-    client_installation_id: HOST_INSTALLATION_ID,
+    organizationId: ORGANIZATION_ID,
+    hasAssistantApiKey: true,
+    clientInstallationId: HOST_INSTALLATION_ID,
   };
   ensureRegistrationBody = {
     assistant: { id: PLATFORM_ASSISTANT_ID },
@@ -172,6 +185,7 @@ beforeEach(() => {
   reprovisionApiKeyBody = {
     provisioning: { assistant_api_key: "reprovisioned-key" },
   };
+  verifyCredentialStatus = "valid";
   requests = [];
   secretsUnavailable = false;
   storedSecrets = [];
@@ -184,6 +198,9 @@ beforeEach(() => {
   fetchOrganizationsMock.mockClear();
   updateLockfileAssistantMock.mockClear();
   resetLocalPlatformIdentityCacheForTesting();
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", VERIFY_ROUTE_MIN_VERSION, RUNTIME_ASSISTANT_ID);
   // Single attempt by default — retry tests opt into a schedule.
   setBootstrapRetryDelaysForTesting([]);
 
@@ -215,6 +232,9 @@ beforeEach(() => {
         url.pathname === "/v1/assistants/self-hosted-local/reprovision-api-key/"
       ) {
         return jsonResponse(reprovisionApiKeyBody);
+      }
+      if (url.pathname.endsWith("/v1/platform/verify-credential")) {
+        return jsonResponse({ status: verifyCredentialStatus });
       }
       if (url.pathname.endsWith("/v1/secrets")) {
         if (secretsUnavailable) {
@@ -256,10 +276,10 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
   test("falls back to the configured platform URL when status omits its base URL", async () => {
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: true,
-      client_installation_id: HOST_INSTALLATION_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: true,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     const platformAssistantId =
@@ -274,13 +294,199 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     });
   });
 
+  /** The incident shape: a key IS stored, so every presence check reads
+   * healthy, but the platform rejects it on every managed call. An existing
+   * registration hands back no key, so only an explicit rotation can produce
+   * a replacement. */
+  function seedRejectedCredential() {
+    statusBody = {
+      assistantId: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: true,
+      clientInstallationId: HOST_INSTALLATION_ID,
+    };
+    ensureRegistrationBody = {
+      assistant: { id: PLATFORM_ASSISTANT_ID },
+      assistant_api_key: null,
+    };
+  }
+
+  test("the user's repair rotates a stored key the platform has rejected", async () => {
+    seedRejectedCredential();
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    const injectedSecrets = requests
+      .filter((request) => request.pathname.endsWith("/v1/secrets"))
+      .map((request) => request.body);
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:assistant_api_key",
+      value: "reprovisioned-key",
+    });
+  });
+
+  // Storing a credential proves the write landed, not that it works. A
+  // replacement rejected in turn has to surface as a failure, or the
+  // notification reports a repair that repaired nothing.
+  test("a replacement the platform rejects fails the repair", async () => {
+    seedRejectedCredential();
+    verifyCredentialStatus = "rejected";
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toMatchObject({ reason: "replacement_rejected" });
+  });
+
+  // A daemon that predates the verification route cannot confirm anything.
+  // Its 404 would read as a failed repair after a successful rotation and
+  // invite another, so on those daemons the stored replacement is the repair.
+  test("an older assistant skips verification and reports the stored replacement as the repair", async () => {
+    seedRejectedCredential();
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", "0.11.8", RUNTIME_ASSISTANT_ID);
+    verifyCredentialStatus = "rejected";
+
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    expect(requestNames()).not.toContain("verify-credential");
+  });
+
+  test("an unconfirmed replacement fails rather than claiming success", async () => {
+    seedRejectedCredential();
+    verifyCredentialStatus = "unknown";
+
+    await expect(
+      recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).rejects.toMatchObject({ reason: "unconfirmed" });
+  });
+
+  // Resolving returns the id untouched for anything it does not provision for,
+  // so a repair that cannot act has to say so rather than resolving as though
+  // it fixed something.
+  test("a repair this client cannot perform reports why", async () => {
+    isLocalClientValue = false;
+
+    const failure = await recoverLocalAssistantPlatformCredential(
+      RUNTIME_ASSISTANT_ID,
+    ).catch((err: unknown) => err);
+    expect(failure).toBeInstanceOf(LocalPlatformCredentialRecoveryError);
+    expect(failure).toMatchObject({ reason: "cannot_act_here" });
+    expect(requestNames()).not.toContain("reprovision-api-key");
+  });
+
+  // The surface that offers the repair reads the same predicate the repair
+  // refuses on, so a button is never rendered for a repair that would fail.
+  test("the capability predicate agrees with the repair", () => {
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(true);
+    isRemoteGatewayModeValue = true;
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(false);
+    isRemoteGatewayModeValue = false;
+    isPlatformDisabledValue = true;
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(false);
+  });
+
+  // A local Docker instance is never hatched, woken or retired from here, but
+  // its gateway takes the same credential write a plain local assistant's
+  // does, so the repair serves it rather than handing the user a CLI command
+  // with a key placeholder they have no way to fill.
+  test("a local Docker assistant is repairable here", async () => {
+    activeAssistant = { ...activeAssistant, cloud: "docker" };
+    seedRejectedCredential();
+
+    expect(
+      canRecoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID),
+    ).toBe(true);
+    await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).toContain("reprovision-api-key");
+    const injectedSecrets = requests
+      .filter((request) => request.pathname.endsWith("/v1/secrets"))
+      .map((request) => request.body);
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:assistant_api_key",
+      value: "reprovisioned-key",
+    });
+  });
+
+  // The repair's wider scope must not leak into bootstrap: the web lifecycle
+  // does not own a Docker instance, so it never provisions one unasked.
+  test("bootstrap leaves a local Docker assistant alone", async () => {
+    activeAssistant = { ...activeAssistant, cloud: "docker" };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+    bootstrapLocalAssistantPlatformIdentity();
+    await flushAsyncWork();
+
+    expect(requestNames()).toEqual([]);
+  });
+
+  // The switch window: a version still held for the assistant the user just
+  // left must not vouch for the one being repaired. The gate reads as
+  // unsupported, so verification is skipped rather than 404ing after a
+  // successful rotation.
+  //
+  // The scoped wait is bounded, not satisfiable: the store never holds a
+  // version for this owner, so the repair waits out
+  // VERSION_RESOLUTION_TIMEOUT_MS by design before it decides. That equals the
+  // runner's default per-test budget, so the test carries its own budget
+  // derived from the constant rather than racing it.
+  test(
+    "a version held for a different assistant does not enable verification",
+    async () => {
+      seedRejectedCredential();
+      useAssistantIdentityStore
+        .getState()
+        .setIdentity(
+          "test-asst",
+          VERIFY_ROUTE_MIN_VERSION,
+          "some-other-assistant",
+        );
+      verifyCredentialStatus = "rejected";
+
+      await recoverLocalAssistantPlatformCredential(RUNTIME_ASSISTANT_ID);
+
+      expect(requestNames()).toContain("reprovision-api-key");
+      expect(requestNames()).not.toContain("verify-credential");
+    },
+    VERSION_RESOLUTION_TIMEOUT_MS + 5_000,
+  );
+
+  // Rotation replaces a credential, so it happens because someone asked and at
+  // no other time. Routine identity resolution sees the same stored key and
+  // leaves it alone, whatever state it is in.
+  test("resolution alone never rotates a stored key", async () => {
+    statusBody = {
+      assistantId: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: true,
+      clientInstallationId: HOST_INSTALLATION_ID,
+    };
+
+    await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(requestNames()).not.toContain("reprovision-api-key");
+  });
+
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: false,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
     ensureRegistrationBody = {
       assistant: { id: OTHER_PLATFORM_ASSISTANT_ID },
@@ -350,11 +556,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     electronHostOS = "windows";
     electronSessionToken = "electron-session-token";
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: false,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
@@ -375,11 +581,11 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
     navigatorPlatform = "Win32";
     electronSessionToken = "electron-session-token";
     statusBody = {
-      assistant_id: PLATFORM_ASSISTANT_ID,
+      assistantId: PLATFORM_ASSISTANT_ID,
       baseUrl: STATUS_PLATFORM_BASE_URL,
-      organization_id: ORGANIZATION_ID,
-      has_assistant_api_key: false,
-      client_installation_id: HOST_INSTALLATION_ID,
+      organizationId: ORGANIZATION_ID,
+      hasAssistantApiKey: false,
+      clientInstallationId: HOST_INSTALLATION_ID,
     };
 
     await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
@@ -468,7 +674,7 @@ describe("bootstrapLocalAssistantPlatformIdentity", () => {
   function simulateDaemonRestartWithMissingApiKey(): void {
     statusBody = {
       ...(statusBody as Record<string, unknown>),
-      has_assistant_api_key: false,
+      hasAssistantApiKey: false,
     };
     secretsUnavailable = true;
   }

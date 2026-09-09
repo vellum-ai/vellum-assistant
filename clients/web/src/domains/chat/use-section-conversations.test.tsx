@@ -124,6 +124,10 @@ function groupSection(all: Conversation[] = DERIVED): SidebarSection {
   };
 }
 
+function assistantSection(all: Conversation[] = []): SidebarSection {
+  return { type: "assistant", key: "assistant", label: "On My Mind", all };
+}
+
 function openGate() {
   useAssistantIdentityStore
     .getState()
@@ -169,6 +173,17 @@ describe("useSectionConversations", () => {
     renderSection(pinnedSection());
 
     expect(sentFilters.at(-1)).toEqual({ groupId: "system:pinned" });
+  });
+
+  /* One axis only, unlike a channel section. The daemon narrows this
+     pseudo-group to the ungrouped set already, and it spans every origin: a
+     thread the assistant started about a Slack message is still a thread the
+     assistant started, so narrowing to the native channel would drop it. */
+  test("the assistant section asks for its pseudo-group, unnarrowed by origin", () => {
+    openGate();
+    renderSection(assistantSection());
+
+    expect(sentFilters.at(-1)).toEqual({ groupId: "system:assistant" });
   });
 
   /* A channel section constrains BOTH axes. `origin_channel` is a separate

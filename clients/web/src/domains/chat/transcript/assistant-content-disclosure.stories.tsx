@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { userEvent, within } from "storybook/test";
 
@@ -197,4 +198,192 @@ export const Streaming: Story = {
     isStreaming: true,
     items: MIXED_RUN,
   },
+};
+
+/**
+ * A long run, one row at a time. Rows land every 900ms from this pool until
+ * it is spent, the way a turn that reads a dozen files does, so the story
+ * shows the crawl filling, hitting its cap, and then pinning to the newest
+ * row while the older ones fade out at the top edge.
+ */
+const CRAWL_POOL: AssistantContentDisclosureItem[] = [
+  {
+    key: "prose-1",
+    node: (
+      <CollapsedProse>
+        Let me find the feedback first. Most likely it&apos;s comments on the
+        Notion doc. Loading the comment-review skill to pull them.
+      </CollapsedProse>
+    ),
+  },
+  {
+    key: "thinking-1",
+    iconName: "brain",
+    node: (
+      <SingleActivity
+        variant="thinking"
+        content="No comments on the page-level anchor. They must be attached to individual blocks instead."
+      />
+    ),
+  },
+  {
+    key: "prose-2",
+    node: (
+      <CollapsedProse>
+        No page-level comments. They&apos;re probably anchored to individual
+        blocks, so I&apos;ll sweep all 52 blocks.
+      </CollapsedProse>
+    ),
+  },
+  {
+    key: "tool-1",
+    iconName: "file",
+    node: (
+      <SingleActivity
+        variant="tool"
+        toolCall={makeToolCall({
+          id: "tc-sweep",
+          name: "read_file",
+          input: { path: "blocks.json", activity: "Sweeping 52 blocks" },
+        })}
+      />
+    ),
+  },
+  {
+    key: "prose-3",
+    node: (
+      <CollapsedProse>
+        Found 20 comments but the markdown field came back empty. The field
+        structure must differ, so I&apos;ll dump one raw comment.
+      </CollapsedProse>
+    ),
+  },
+  {
+    key: "thinking-2",
+    iconName: "brain",
+    node: (
+      <SingleActivity
+        variant="thinking"
+        content="The comment markdown fields printed empty. The body is probably under rich_text."
+      />
+    ),
+  },
+  {
+    key: "prose-4",
+    node: (
+      <CollapsedProse>
+        Comments are in rich_text, authored by Alice. Re-running the sweep
+        with proper extraction, ordered by time.
+      </CollapsedProse>
+    ),
+  },
+  {
+    key: "multi-1",
+    iconName: "terminal",
+    node: (
+      <div className="w-full">
+        <MultiActivityGroup
+          toolCalls={[
+            makeToolCall({
+              id: "tc-extract",
+              input: {
+                command: "notion comments --all",
+                activity: "Extracting 20 comments",
+              },
+            }),
+            makeToolCall({
+              id: "tc-sort",
+              input: { command: "sort -k time", activity: "Ordering by time" },
+            }),
+          ]}
+        />
+      </div>
+    ),
+  },
+  {
+    key: "prose-5",
+    node: (
+      <CollapsedProse>
+        All 20 comments extracted. Clear split: durable plan-writing rules for
+        the skill, and specific rewrites for the Interactive Tools doc. I need
+        three more inputs: the original customer message, the truth about
+        ui_show persistence, and per-tool token estimates.
+      </CollapsedProse>
+    ),
+  },
+  {
+    key: "thinking-3",
+    iconName: "brain",
+    node: (
+      <SingleActivity
+        variant="thinking"
+        content="Case found: case-123, a Discord customer. Now the original message."
+      />
+    ),
+  },
+  {
+    key: "prose-6",
+    node: (
+      <CollapsedProse>
+        Case found. Now the original customer message. Let me get the full case
+        output and check for notes or the linked activity.
+      </CollapsedProse>
+    ),
+  },
+  {
+    key: "tool-2",
+    iconName: "file",
+    node: (
+      <SingleActivity
+        variant="tool"
+        toolCall={makeToolCall({
+          id: "tc-case",
+          name: "read_file",
+          input: { path: "case-123.md", activity: "Reading the case record" },
+        })}
+      />
+    ),
+  },
+];
+
+const CRAWL_ROW_INTERVAL_MS = 900;
+
+/** Feeds `CRAWL_POOL` into a streaming disclosure one row at a time. */
+function StreamingCrawlHarness() {
+  const [count, setCount] = useState(2);
+  useEffect(() => {
+    if (count >= CRAWL_POOL.length) {
+      return;
+    }
+    const timer = setTimeout(
+      () => setCount((current) => current + 1),
+      CRAWL_ROW_INTERVAL_MS,
+    );
+    return () => clearTimeout(timer);
+  }, [count]);
+  return (
+    <AssistantContentDisclosure
+      isStreaming
+      items={CRAWL_POOL.slice(0, count)}
+    />
+  );
+}
+
+/**
+ * Streaming, long enough to overflow the cap. The run holds at its capped
+ * height with the newest row pinned to the bottom edge and older rows fading
+ * out at the top. Drag up inside the run to read an earlier row; the crawl
+ * stops following until you scroll back to the bottom.
+ */
+export const StreamingCrawl: Story = {
+  render: () => <StreamingCrawlHarness />,
+};
+
+/**
+ * The same crawl at phone width, where the cap is shorter so the run leaves
+ * room for the composer and the reply below it.
+ */
+export const StreamingCrawlMobile: Story = {
+  render: () => <StreamingCrawlHarness />,
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };

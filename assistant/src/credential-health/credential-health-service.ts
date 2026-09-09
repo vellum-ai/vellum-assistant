@@ -38,6 +38,11 @@ import {
   expectedScopesForStoredToken,
   scopeDifference,
 } from "../oauth/scope-utils.js";
+import { credentialKey } from "../security/credential-key.js";
+import {
+  getSecureKeyAsync,
+  getSecureKeyResultAsync,
+} from "../security/secure-keys.js";
 import {
   TokenExpiredError,
   withValidToken,
@@ -608,6 +613,131 @@ async function checkManagedProvider(
   }
 
   return results;
+}
+
+/**
+ * Connection id for the Vellum-managed assistant credential.
+ *
+ * The credential is a single workspace-wide slot rather than one row per
+ * account, so it carries the credential-store key as its id instead of a
+ * connection uuid.
+ */
+const ASSISTANT_API_KEY_CONNECTION_ID = "vellum:assistant_api_key";
+
+/**
+ * Health of the platform-provisioned assistant API key, the credential that
+ * authenticates Vellum-managed inference.
+ *
+ * Deliberately not part of {@link checkAllCredentials} yet. Adding it there
+ * makes the heartbeat raise a `credential.health_alert` for this credential,
+ * and that alert has nowhere to send the reader until the notification carries
+ * the repair. It is used on demand for now, by the route a client calls to
+ * confirm a credential it just wrote.
+ *
+ * This is the one credential the assistant cannot mint for itself: the
+ * platform issues it and a signed-in client writes it in. For a self-hosted
+ * or local assistant the platform deliberately does not self-heal a dead key
+ * (`recover_expired_assistant_api_key` excludes registrations of that kind,
+ * because the client owns the reprovision flow), so its health has to be
+ * observed here and acted on by a client.
+ *
+ * Statuses map onto the shared vocabulary:
+ *   - `missing_token`: no key is stored, so managed inference cannot run.
+ *   - `revoked`: the platform settled that the stored key is not accepted.
+ *   - `unreachable`: the credential store or the platform did not answer, so
+ *     health is unknown. The heartbeat drops these before notifying, which is
+ *     what keeps a transient outage from raising a credential alert.
+ *
+ * `canAutoRecover` is true for both failure statuses: recovery needs no
+ * re-authorization from the user, only a signed-in client to rotate the key.
+ */
+export async function checkAssistantApiKey(): Promise<CredentialHealthResult | null> {
+  const base: Omit<
+    CredentialHealthResult,
+    "status" | "details" | "canAutoRecover"
+  > = {
+    connectionId: ASSISTANT_API_KEY_CONNECTION_ID,
+    provider: "vellum",
+    accountInfo: null,
+    missingScopes: [],
+  };
+
+  const stored = await getSecureKeyResultAsync(
+    credentialKey("vellum", "assistant_api_key"),
+  );
+
+  if (stored.unreachable) {
+    return {
+      ...base,
+      status: "unreachable",
+      details:
+        "The credential store is unreachable, so Vellum's managed credentials could not be checked.",
+      canAutoRecover: false,
+    };
+  }
+
+  if (stored.value == null) {
+    // A workspace that was never connected to the platform has no managed
+    // credential and is not unhealthy. Only an install that already carries
+    // the rest of a platform identity is missing something.
+    const baseUrl = await getSecureKeyAsync(
+      credentialKey("vellum", "platform_base_url"),
+    );
+    if (!baseUrl) {
+      return null;
+    }
+    return {
+      ...base,
+      status: "missing_token",
+      details:
+        "No Vellum-managed credentials are stored yet. Log in to the Vellum platform to set them up.",
+      canAutoRecover: true,
+    };
+  }
+
+  const { VellumPlatformClient } = await import("../platform/client.js");
+  const client = await VellumPlatformClient.create();
+  if (!client) {
+    return {
+      ...base,
+      status: "unreachable",
+      details:
+        "The Vellum platform client could not be built, so Vellum's managed credentials could not be checked.",
+      canAutoRecover: false,
+    };
+  }
+
+  const verdict = await client.verifyCredential();
+  if (verdict === "rejected") {
+    return {
+      ...base,
+      status: "revoked",
+      // Names the recovery the app actually performs. A replacement is
+      // provisioned only when someone asks for one, from the repair action or
+      // by logging in from the command line, so the copy points at that
+      // action rather than at reconnecting something the reader never
+      // connected.
+      details:
+        "Vellum's managed credentials stopped working, so chat and background tasks that use them are paused. Restoring takes a moment and will not affect anything else.",
+      canAutoRecover: true,
+    };
+  }
+  if (verdict === "unknown") {
+    return {
+      ...base,
+      status: "unreachable",
+      details:
+        "Vellum did not answer the managed-credential check. Health is unknown until the next check.",
+      canAutoRecover: false,
+    };
+  }
+
+  return {
+    ...base,
+    status: "healthy",
+    details: "Vellum's managed credentials are working.",
+    canAutoRecover: true,
+  };
 }
 
 // ── Public API ────────────────────────────────────────────────────────

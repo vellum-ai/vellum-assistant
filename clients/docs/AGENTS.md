@@ -96,3 +96,13 @@ Behavior ported from the platform app that intentionally differs:
 - The React compiler is off (`reactCompiler` unset; the platform app enables it). Turning it on requires `babel-plugin-react-compiler`.
 - `/docs/releases` is the only `force-dynamic` route. It fetches the public releases API at request time (`revalidate: 60`, 10 s timeout, fail-soft to an empty list). `RELEASES_API_URL` overrides the base URL; `DJANGO_INTERNAL_URL` supports in-cluster fetch without a code change.
 - Search is lexical only; the platform's unreachable embeddings mode was dropped during the port.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

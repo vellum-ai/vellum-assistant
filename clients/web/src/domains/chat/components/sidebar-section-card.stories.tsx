@@ -14,6 +14,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
+import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { GroupIndicatorDot } from "@/domains/chat/components/collapsed-group-icon";
 import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
 import {
@@ -260,6 +261,80 @@ export const Composed: Story = {
         groupMenu={CHATS_MENU}
         trailing={<GroupActionsMenu label="Chats" {...CHATS_MENU} />}
       />
+    </CollapsibleNavSection.Root>
+  ),
+};
+
+/**
+ * The assistant-initiated section: the one card painted in the assistant's
+ * own color, and the one that renders at zero.
+ *
+ * The tint reads `--avatar-accent`, which the real app publishes on `<html>`
+ * from the active avatar. Storybook has no assistant, so these stories set it
+ * on the card's own wrapper — same variable, same `color-mix`, so what shows
+ * here is what the sidebar paints. Change the hex below to check a different
+ * avatar color; the light end of the palette is the one worth looking at,
+ * since a 7% mix has to stay distinguishable from a plain card without
+ * turning into a highlight.
+ *
+ * The empty state's eyes are absent here for the same reason: the mark reads
+ * the real avatar and renders `null` without one, which is exactly what a
+ * custom-image avatar gets in the app.
+ */
+const ASSISTANT_TINT_CLASS =
+  "bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_7%,var(--surface-lift))]";
+
+const ASSISTANT_THREADS: Conversation[] = [
+  conversation("a1", "Your Tuesday reviews keep slipping past 6pm", {
+    hasUnseenLatestAssistantMessage: true,
+  }),
+  conversation("a2", "That contractor never sent the revised quote"),
+  conversation("a3", "You've rewritten the same paragraph four times"),
+];
+
+export const AssistantInitiated: Story = {
+  args: {
+    value: "assistant",
+    label: "From Ada",
+    items: ASSISTANT_THREADS,
+    cardClassName: ASSISTANT_TINT_CLASS,
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ ["--avatar-accent" as string]: "#C4436A" }}>
+        <Story />
+      </div>
+    ),
+  ],
+  render: (args) => (
+    <CollapsibleNavSection.Root type="multiple" defaultValue={["assistant"]}>
+      <SidebarSectionCard {...args} />
+    </CollapsibleNavSection.Root>
+  ),
+};
+
+/**
+ * Nothing yet — the state the section spends its first days in, and the only
+ * reason it renders at zero at all.
+ */
+export const AssistantInitiatedEmpty: Story = {
+  args: {
+    value: "assistant",
+    label: "From Ada",
+    items: [],
+    cardClassName: ASSISTANT_TINT_CLASS,
+    children: <AssistantSectionEmptyState />,
+  },
+  decorators: [
+    (Story) => (
+      <div style={{ ["--avatar-accent" as string]: "#C4436A" }}>
+        <Story />
+      </div>
+    ),
+  ],
+  render: (args) => (
+    <CollapsibleNavSection.Root type="multiple" defaultValue={["assistant"]}>
+      <SidebarSectionCard {...args} />
     </CollapsibleNavSection.Root>
   ),
 };

@@ -12,6 +12,7 @@
  * covered by `src/__tests__/conversation-wait-for-idle.test.ts`.
  */
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -35,8 +36,18 @@ mock.module("../../daemon/conversation-store.js", () => ({
 // production (a BYO provider resolves the profile key through its own column
 // of the intent matrix), so it is scripted rather than read from a catalog.
 let pinProfileSupportsVision = true;
+// Vision capability of the conversation's own profile, which an escalated
+// leg is pinned to. Scripted for the same reason.
+let conversationProfileSupportsVision = true;
+// Per-profile answers that outrank the two switches above, for a mix whose
+// arms differ.
+const visionByProfile = new Map<string, boolean>();
 mock.module("../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: () => pinProfileSupportsVision,
+  doesSupportVision: (profile: string) =>
+    visionByProfile.get(profile) ??
+    (profile === "latency-optimized"
+      ? pinProfileSupportsVision
+      : conversationProfileSupportsVision),
 }));
 
 // Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
@@ -126,6 +137,8 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -162,6 +175,9 @@ interface WaitForIdleCall {
 
 interface FakeConversation {
   conversationId: string;
+  /** Per-conversation profile pin an escalated leg follows; absent = none. */
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
   callSessionId: string | undefined;
   forcePromptSideEffects: boolean;
   currentRequestId: string | undefined;
@@ -208,6 +224,10 @@ function makeFakeConversation(opts: {
   workingDir?: string;
   /** In-memory history the profile pin reads; undefined models a text-only call. */
   messages?: Array<{ role: string; content: unknown[] }>;
+  /** Per-conversation profile pin; undefined models an unpinned conversation. */
+  inferenceProfile?: string;
+  /** Expiry of that pin; a past stamp models a lapsed session pin. */
+  inferenceProfileExpiresAt?: number;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   const confirmationDecisions: Array<{ requestId: string; decision: string }> =
@@ -224,6 +244,12 @@ function makeFakeConversation(opts: {
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
+    ...(opts.inferenceProfile !== undefined
+      ? { inferenceProfile: opts.inferenceProfile }
+      : {}),
+    ...(opts.inferenceProfileExpiresAt !== undefined
+      ? { inferenceProfileExpiresAt: opts.inferenceProfileExpiresAt }
+      : {}),
     // The workspace boundary the reach check compares paths against. A real
     // conversation always has one; without it the approval gate fails closed.
     workingDir: opts.workingDir ?? "/tmp/workspace-voice-bridge-test",
@@ -310,6 +336,7 @@ interface FakeTurnState {
   assistantId: string | undefined;
   callSessionId: string | undefined;
   trustContext: unknown;
+  actorPrincipalId: string | undefined;
   commandIntent: unknown;
   turnChannelContext: unknown;
   turnInterfaceContext: unknown;
@@ -332,6 +359,8 @@ function wireTurnState(
   const conv = fake as FakeConversation & {
     assistantId?: string;
     trustContext?: unknown;
+    currentTurnSourceActorPrincipalId?: string;
+    currentTurnActorStampGeneration?: number;
     commandIntent?: unknown;
     channelCapabilities?: unknown;
     voiceCallControlPrompt?: string;
@@ -341,6 +370,22 @@ function wireTurnState(
   conv.assistantId = initial.assistantId;
   conv.callSessionId = initial.callSessionId;
   conv.trustContext = initial.trustContext;
+  // The real Conversation counts every write to the actor stamp behind an
+  // accessor (see `currentTurnActorStampGeneration`), which is what lets a
+  // turn tell its own stamp from a concurrent writer's. The fake counts them
+  // the same way, so the bridge's check is exercised here rather than being
+  // trivially true against a plain property.
+  let actorPrincipal = initial.actorPrincipalId;
+  conv.currentTurnActorStampGeneration = 0;
+  Object.defineProperty(conv, "currentTurnSourceActorPrincipalId", {
+    configurable: true,
+    get: () => actorPrincipal,
+    set: (value: string | undefined) => {
+      actorPrincipal = value;
+      conv.currentTurnActorStampGeneration =
+        (conv.currentTurnActorStampGeneration ?? 0) + 1;
+    },
+  });
   conv.commandIntent = initial.commandIntent;
   conv.channelCapabilities = initial.channelCapabilities;
   conv.voiceCallControlPrompt = initial.voiceCallControlPrompt;
@@ -374,6 +419,7 @@ function wireTurnState(
     assistantId: conv.assistantId,
     callSessionId: conv.callSessionId,
     trustContext: conv.trustContext,
+    actorPrincipalId: conv.currentTurnSourceActorPrincipalId,
     commandIntent: conv.commandIntent,
     turnChannelContext,
     turnInterfaceContext,
@@ -393,6 +439,7 @@ function makeWinnerState(): FakeTurnState {
     assistantId: "assistant-winner",
     callSessionId: "session-winner",
     trustContext: { sourceChannel: "imessage", trustClass: "trusted_contact" },
+    actorPrincipalId: "principal-winner",
     commandIntent: undefined,
     turnChannelContext: {
       userMessageChannel: "imessage",
@@ -1489,6 +1536,103 @@ describe("startVoiceTurn queued-message drain race", () => {
   });
 });
 
+describe("startVoiceTurn actor principal", () => {
+  // The turn's actor is what host proxies match connected desktop clients
+  // against (`pickSameUserAutoResolve`). A turn that carries none matches no
+  // client, so every computer-use call it makes is refused however healthy
+  // the connected client is.
+
+  test("stamps the caller's actor for the duration of the turn", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-stamp"),
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBe("principal-guardian");
+  });
+
+  /**
+   * A phone caller is whoever dialled in. Resolving them to a desktop client
+   * would hand an inbound caller the owner's machine, so the telephony path
+   * passes no actor and the turn must not invent one.
+   */
+  test("a turn with no caller actor leaves the conversation without one", async () => {
+    const statesAtPersist: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      onPersist: () => {
+        statesAtPersist.push(readState());
+      },
+    });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn(makeTurnOptions(undefined, "conv-actor-absent"));
+
+    expect(statesAtPersist.length).toBe(1);
+    expect(statesAtPersist[0]!.actorPrincipalId).toBeUndefined();
+  });
+
+  /** The stamp is the turn's, so it goes when the turn does. */
+  test("releases the actor when the turn ends", async () => {
+    const fake = makeFakeConversation({ processing: false });
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBeUndefined();
+  });
+
+  /**
+   * The release is not unconditional. `runAgentLoopImpl` gives up the
+   * processing claim before the turn-boundary commit is awaited, so a retry
+   * can take the conversation and stamp its own actor while this turn is
+   * still unwinding. The retry route installs no auth-context fallback, so a
+   * clear on the way out would leave it with no actor at all and its
+   * host-proxy calls refused.
+   */
+  test("does not clear an actor another turn stamped while this one unwound", async () => {
+    let conv: { currentTurnSourceActorPrincipalId?: string } | null = null;
+    const fake = makeFakeConversation({
+      processing: false,
+      runAgentLoop: async () => {
+        conv!.currentTurnSourceActorPrincipalId = "principal-retry";
+      },
+    });
+    conv = fake.conversation as {
+      currentTurnSourceActorPrincipalId?: string;
+    };
+    const readState = wireTurnState(fake.conversation, {});
+    fakeConversation = fake.conversation;
+
+    const handle = await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-actor-release-guard"),
+      actorPrincipalId: "principal-guardian",
+    });
+    handle.abort();
+    await flushMicrotasks();
+
+    expect(readState().actorPrincipalId).toBe("principal-retry");
+  });
+});
+
 describe("startVoiceTurn race-loss state restore", () => {
   // A busy persist means a concurrent turn (the lock winner) is running with
   // per-turn state it installed. Every race-loss path must put the winner's
@@ -1545,6 +1689,54 @@ describe("startVoiceTurn race-loss state restore", () => {
       assistantMessageInterface: "phone",
     });
     expect(retryState.voiceCallControlPrompt).toContain("voice_call_control");
+  });
+
+  /**
+   * The winner here is an ordinary message turn, which stamps the actor
+   * directly (`conversation-routes`, `conversation-process`) rather than
+   * through this bridge. It shares the guardian, so it writes the identical
+   * string this turn did and the field cannot say which of them wrote it.
+   * Reverting on that would hand the winner a principal from an earlier turn,
+   * and automatic host-client resolution would then go looking for that other
+   * principal's desktop.
+   */
+  test("an ordinary turn's actor stamp is not reverted by a losing voice turn", async () => {
+    const statesDuringWait: FakeTurnState[] = [];
+    const fake = makeFakeConversation({
+      processing: false,
+      waitForIdle: async () => {
+        statesDuringWait.push(readState());
+        fake.setProcessingFlag(false);
+        return true;
+      },
+      onPersist: (attempt) => {
+        if (attempt === 1) {
+          // The winner takes the conversation and stamps the same guardian,
+          // the way an ordinary turn does: a direct write, counted but
+          // otherwise invisible to this bridge.
+          (
+            fake.conversation as { currentTurnSourceActorPrincipalId?: string }
+          ).currentTurnSourceActorPrincipalId = "principal-guardian";
+          fake.setProcessingFlag(true);
+          throw new Error("Conversation is already processing a message");
+        }
+      },
+    });
+    // What an earlier turn left resident, and what a value-based revert would
+    // wrongly put back.
+    const readState = wireTurnState(fake.conversation, {
+      actorPrincipalId: "principal-other",
+    });
+    fakeConversation = fake.conversation;
+
+    await startVoiceTurn({
+      ...makeTurnOptions(undefined, "conv-race-ordinary-winner"),
+      callSessionId: "session-voice-loser",
+      actorPrincipalId: "principal-guardian",
+    });
+
+    expect(statesDuringWait.length).toBe(1);
+    expect(statesDuringWait[0]!.actorPrincipalId).toBe("principal-guardian");
   });
 
   test("a busy persist whose retry wait exhausts the budget leaves the winner's values in place", async () => {
@@ -2415,19 +2607,19 @@ describe("transcript hygiene (teardown pass)", () => {
   });
 });
 
-describe("startVoiceTurn image-bearing profile pin", () => {
-  /** A persisted user message carrying a photo taken mid-call. */
-  const PHOTO_HISTORY = [
-    { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
-    {
-      role: "user",
-      content: [
-        { type: "text", text: "here's a photo:" },
-        { type: "image", source: { type: "base64", data: "abc" } },
-      ],
-    },
-  ];
+/** A persisted user message carrying a photo taken mid-call. */
+const PHOTO_HISTORY = [
+  { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "here's a photo:" },
+      { type: "image", source: { type: "base64", data: "abc" } },
+    ],
+  },
+];
 
+describe("startVoiceTurn image-bearing profile pin", () => {
   beforeEach(() => {
     pinProfileSupportsVision = true;
   });
@@ -2514,5 +2706,190 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     });
 
     expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+});
+
+describe("startVoiceTurn escalated-leg profile pin", () => {
+  beforeEach(() => {
+    pinProfileSupportsVision = true;
+    conversationProfileSupportsVision = true;
+  });
+
+  afterEach(() => {
+    setConfig("llm", {});
+  });
+
+  async function runOptionsFor(opts: {
+    messages?: Array<{ role: string; content: unknown[] }>;
+    inferenceProfile?: string;
+    inferenceProfileExpiresAt?: number;
+    turn?: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const fake = makeFakeConversation({
+      processing: false,
+      ...(opts.messages ? { messages: opts.messages } : {}),
+      ...(opts.inferenceProfile
+        ? { inferenceProfile: opts.inferenceProfile }
+        : {}),
+      ...(opts.inferenceProfileExpiresAt !== undefined
+        ? { inferenceProfileExpiresAt: opts.inferenceProfileExpiresAt }
+        : {}),
+    });
+    fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> = {};
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+      ...(opts.turn ?? {}),
+    });
+    return runOptions;
+  }
+
+  test("with no chat-model selection the leg keeps the call-site profile", async () => {
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("the workspace chat-model selection pins the leg", async () => {
+    // `callAgent`'s chain never consults `llm.activeProfile`, so without the
+    // pin the hand-off would land on the site's shipped default while the
+    // same conversation's typed turns run on the user's pick.
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("the conversation's own pin wins over the workspace selection", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      inferenceProfile: "cost-optimized",
+    });
+
+    expect(runOptions.overrideProfile).toBe("cost-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("a lapsed conversation pin falls back to the workspace selection", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      inferenceProfile: "cost-optimized",
+      inferenceProfileExpiresAt: Date.now() - 1,
+    });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("only the escalated leg follows the conversation", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const frontDoor = await runOptionsFor({
+      turn: { routingLeg: "front-door" },
+    });
+    expect(frontDoor.callSite).toBe("voiceFrontDoor");
+    expect(frontDoor.overrideProfile).toBeUndefined();
+
+    const unrouted = await runOptionsFor({ turn: { routingLeg: undefined } });
+    expect(unrouted.callSite).toBe("callAgent");
+    expect(unrouted.overrideProfile).toBeUndefined();
+  });
+
+  test("an image stays on a conversation profile whose model takes it", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("an image hands a text-only conversation profile to the image pin", async () => {
+    // A model that rejects the image fails the whole leg, so the image pin
+    // outranks the conversation's choice for this one turn.
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    conversationProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("latency-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("an image with no image-capable profile anywhere keeps the conversation profile", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    conversationProfileSupportsVision = false;
+    pinProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("an explicit routing pin wins over the conversation profile", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      turn: { overrideProfile: "balanced" },
+    });
+
+    expect(runOptions.overrideProfile).toBe("balanced");
+  });
+
+  test("a mix is judged by the arm serving this conversation, not by any arm", async () => {
+    // A mix reads as vision-capable when any arm is, but dispatch expands it
+    // to one arm from the conversation seed. Only that arm's model sees the
+    // image, so only that arm's capability decides whether the image pin
+    // takes over. The pin itself stays the mix's own name, so dispatch lands
+    // on the same arm.
+    const llm = {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    };
+    setConfig("llm", llm);
+    let chosenArm: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        chosenArm = chosenProfile;
+      },
+    });
+    expect(chosenArm).toBeDefined();
+    const otherArm =
+      chosenArm === "quality-optimized"
+        ? "cost-optimized"
+        : "quality-optimized";
+    try {
+      // Only the unchosen arm takes images: judged as "any arm", the mix
+      // would keep the pin off and the image would reach a text-only model.
+      visionByProfile.set(chosenArm!, false);
+      visionByProfile.set(otherArm, true);
+      const textOnlyArm = await runOptionsFor({ messages: PHOTO_HISTORY });
+      expect(textOnlyArm.overrideProfile).toBe("latency-optimized");
+
+      // Only the chosen arm takes images: no pin needed, the mix stands.
+      visionByProfile.set(chosenArm!, true);
+      visionByProfile.set(otherArm, false);
+      const visionArm = await runOptionsFor({ messages: PHOTO_HISTORY });
+      expect(visionArm.overrideProfile).toBe("voice-mix");
+    } finally {
+      visionByProfile.clear();
+    }
   });
 });

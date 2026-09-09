@@ -202,6 +202,14 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.thinkingLevel).toBe(false);
   });
 
+  test("openai gpt-6-astra enables effort and verbosity", () => {
+    const vis = resolveProfileParamVisibility("openai", "gpt-6-astra");
+    expect(vis.effort).toBe(true);
+    expect(vis.verbosity).toBe(true);
+    expect(vis.thinking).toBe(false);
+    expect(vis.thinkingLevel).toBe(false);
+  });
+
   test("gemini enables thinkingLevel for thinking-capable models", () => {
     const vis = resolveProfileParamVisibility("gemini", "gemini-2.5-flash");
     expect(vis.thinkingLevel).toBe(true);
@@ -260,6 +268,12 @@ describe("geminiThinkingLevels", () => {
     expect(
       geminiThinkingLevels("gemini-3.1-pro-preview-customtools"),
     ).toEqual(["low", "medium", "high"]);
+  });
+
+  test("gemini-3.8-flash excludes 'minimal'", () => {
+    const levels = geminiThinkingLevels("gemini-3.8-flash");
+    expect(levels).toEqual(["low", "medium", "high"]);
+    expect(levels).not.toContain("minimal");
   });
 
   test("gemini-3.7-flash excludes 'minimal'", () => {

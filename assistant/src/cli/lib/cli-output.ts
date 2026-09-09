@@ -11,17 +11,17 @@ export function writeLine(msg: string): void {
 }
 
 /**
- * Format a USD cost with variable precision: "$0.00" for zero, six decimal
- * places for sub-cent amounts, two decimal places otherwise.
+ * Format a USD amount with variable precision: "$0.00" for zero, six decimal
+ * places for sub-cent magnitudes, two decimal places otherwise. A negative
+ * amount (a billing balance can be) carries its sign ahead of the dollar sign.
  */
 export function formatCostUsd(usd: number): string {
   if (usd === 0) {
     return "$0.00";
   }
-  if (usd < 0.01) {
-    return `$${usd.toFixed(6)}`;
-  }
-  return `$${usd.toFixed(2)}`;
+  const magnitude = Math.abs(usd);
+  const digits = magnitude < 0.01 ? 6 : 2;
+  return `${usd < 0 ? "-" : ""}$${magnitude.toFixed(digits)}`;
 }
 
 /**

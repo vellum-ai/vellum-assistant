@@ -127,6 +127,7 @@ function imageState(etag: string): AvatarState {
     traits: null,
     source: "upload",
     image: { updatedAt: "2026-01-01T00:00:00.000Z", etag },
+    accent: null,
   };
 }
 
@@ -135,6 +136,7 @@ const NONE: AvatarState = {
   traits: null,
   source: null,
   image: null,
+  accent: null,
 };
 
 interface Patch {
@@ -275,6 +277,7 @@ describe("syncAvatarToPlatform", () => {
       traits: { bodyShape: "blob", eyeStyle: "curious", color: "green" },
       source: null,
       image: null,
+      accent: null,
     };
     mockRasterPath = null;
     syncAvatarToPlatform();

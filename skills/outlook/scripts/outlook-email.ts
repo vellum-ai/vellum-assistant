@@ -106,10 +106,10 @@ async function draft(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
 
   if (args["help"]) {
-    console.log(`Usage: outlook-email.ts draft --to <emails> --subject <text> --body <html>
+    console.log(`Usage: outlook-email.ts draft [--to <emails>] --subject <text> --body <html>
 
 Options:
-  --to          Comma-separated recipient emails (required)
+  --to          Comma-separated recipient emails (optional; omit to create a draft with no To)
   --subject     Email subject (required)
   --body        Email body as HTML (required)
   --cc          Comma-separated CC emails
@@ -119,7 +119,7 @@ Options:
     return;
   }
 
-  const to = requireArg(args, "to");
+  const to = optionalArg(args, "to");
   const subject = requireArg(args, "subject");
   const body = requireArg(args, "body");
   const cc = optionalArg(args, "cc");
@@ -127,7 +127,7 @@ Options:
   const inReplyTo = optionalArg(args, "in-reply-to");
   const account = optionalArg(args, "account");
 
-  const toRecipientsList = toRecipients(parseCsv(to));
+  const toRecipientsList = to ? toRecipients(parseCsv(to)) : undefined;
   const ccRecipientsList = cc ? toRecipients(parseCsv(cc)) : undefined;
   const bccRecipientsList = bcc ? toRecipients(parseCsv(bcc)) : undefined;
 
@@ -148,41 +148,65 @@ Options:
 
     const draftId = replyResponse.data.id;
 
-    // Patch the draft to update recipients (do NOT patch subject —
-    // the Graph API auto-generates "Re: ..." and we should preserve it)
+    // Patch recipients only when the caller supplied them. Do not patch
+    // subject: Graph auto-generates "Re: ..." and we should preserve it.
     const patchBody: Record<string, unknown> = {};
-    patchBody.toRecipients = toRecipientsList;
-    if (ccRecipientsList) patchBody.ccRecipients = ccRecipientsList;
-    if (bccRecipientsList) patchBody.bccRecipients = bccRecipientsList;
+    if (toRecipientsList) {
+      patchBody.toRecipients = toRecipientsList;
+    }
+    if (ccRecipientsList) {
+      patchBody.ccRecipients = ccRecipientsList;
+    }
+    if (bccRecipientsList) {
+      patchBody.bccRecipients = bccRecipientsList;
+    }
 
-    const patchResponse = await graphPatch<DraftMessageResponse>(
-      `/v1.0/me/messages/${encodeURIComponent(draftId)}`,
-      patchBody,
-      account,
-    );
-
-    if (!patchResponse.ok) {
-      printError(
-        `Failed to update reply draft: status ${patchResponse.status}`,
+    if (Object.keys(patchBody).length > 0) {
+      const patchResponse = await graphPatch<DraftMessageResponse>(
+        `/v1.0/me/messages/${encodeURIComponent(draftId)}`,
+        patchBody,
+        account,
       );
+
+      if (!patchResponse.ok) {
+        printError(
+          `Failed to update reply draft: status ${patchResponse.status}`,
+        );
+        return;
+      }
+
+      ok({
+        draftId,
+        subject: patchResponse.data.subject ?? subject,
+        webLink: patchResponse.data.webLink,
+        to: to ?? null,
+      });
       return;
     }
 
     ok({
       draftId,
-      subject: patchResponse.data.subject ?? subject,
-      webLink: patchResponse.data.webLink,
+      subject: replyResponse.data.subject ?? subject,
+      webLink: replyResponse.data.webLink,
+      to: to ?? null,
     });
   } else {
-    // Create a new draft message
+    // Create a new draft message. Recipients are optional: Graph accepts a
+    // Drafts-folder message with no To, so the user can add addresses in Outlook.
     const messageBody: Record<string, unknown> = {
       subject,
       body: { contentType: "HTML", content: body },
-      toRecipients: toRecipientsList,
       isDraft: true,
     };
-    if (ccRecipientsList) messageBody.ccRecipients = ccRecipientsList;
-    if (bccRecipientsList) messageBody.bccRecipients = bccRecipientsList;
+    if (toRecipientsList) {
+      messageBody.toRecipients = toRecipientsList;
+    }
+    if (ccRecipientsList) {
+      messageBody.ccRecipients = ccRecipientsList;
+    }
+    if (bccRecipientsList) {
+      messageBody.bccRecipients = bccRecipientsList;
+    }
 
     const response = await graphPost<DraftMessageResponse>(
       "/v1.0/me/messages",
@@ -199,6 +223,7 @@ Options:
       draftId: response.data.id,
       subject,
       webLink: response.data.webLink,
+      to: to ?? null,
     });
   }
 }

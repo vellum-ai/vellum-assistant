@@ -247,15 +247,24 @@
     "adjust": "调整",
     "capProgress": " / 本月 {cap}",
     "connectCardBanner": "自动充值需要您绑定一张信用卡。",
+    "dailyLimitLookupError": "无法检查每日积分限额，自动充值需要该限额。请重试以继续。",
     "declinedCutoffNotice": "多次付款失败后，我们已暂停自动充值。请添加新的付款方式以重新开启自动充值。",
     "disableError": "未能禁用自动充值。请重试。",
     "dismiss": "忽略",
     "loadError": "未能加载自动充值配置。",
     "loading": "加载中…",
+    "retry": "重试",
     "summary": "当余额低于 {threshold} 时，自动充值 {amount}",
     "toggleHelper": "自动充值仅在套餐用量耗尽时发生",
     "toggleLabel": "启用自动充值",
     "updateError": "未能保存自动充值设置。请重试。"
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "禁用自动充值",
+    "message": "自动充值需要设置每日积分限额。请设置一个限额以保存自动充值设置，或禁用自动充值。",
+    "save": "保存",
+    "saving": "保存中…",
+    "title": "设置每日积分限额"
   },
   "autoTopUpDisableConfirm": {
     "disable": "禁用",
@@ -444,12 +453,12 @@
     "urlPlaceholder": "在此处粘贴回调 URL..."
   },
   "checkoutBonusModal": {
-    "body": "领取一次性 {amount} 积分，我们将直接将其添加到您的账户余额中。无需支付。",
-    "claim": "领取 {amount} 积分",
+    "body": "领取一次性 {amount} 额外用量，我们将直接将其添加到您的使用余额中。无需支付。",
+    "claim": "领取 {amount} 额外用量",
     "decline": "不用了，谢谢",
-    "errorToast": "无法添加积分。请重试。",
-    "grantedToast": "{amount} 积分已添加到您的账户。",
-    "title": "我们赠送您 {amount}",
+    "errorToast": "无法添加额外用量。请重试。",
+    "grantedToast": "{amount} 额外用量已添加到您的使用余额。",
+    "title": "我们赠送您 {amount} 额外用量",
     "unavailableToast": "此优惠已不再可用。"
   },
   "checkoutPage": {
@@ -987,6 +996,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 账户",
+    "cancel": "取消",
     "connectAccount": "连接账户",
     "connectAccountLower": "连接账户",
     "connectToContinue": "连接账户以继续",
@@ -1031,8 +1041,7 @@
     "emptyTitle": "无 MCP 服务器",
     "loadError": "加载 MCP 服务器失败。请检查助手是否正在运行。",
     "loading": "正在加载 MCP 服务器...",
-    "reloadAriaLabel": "重新加载 MCP 服务器",
-    "reloadTooltip": "重新加载所有服务器",
+    "reloadButton": "刷新",
     "removeDialogConfirm": "移除",
     "removeDialogMessage": "您确定要移除“{serverId}”吗？这将断开此服务器提供的所有工具。",
     "removeDialogTitle": "移除 MCP 服务器",
@@ -1061,20 +1070,18 @@
     "totalTools": "{count, plural, other {# 个工具}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "关闭",
     "authenticate": "认证",
+    "authenticatedBadge": "已认证",
     "authenticating": "正在认证...",
     "configure": "配置",
-    "configureTooltip": "配置",
     "estimatedTokens": "~{count} 个 Token",
-    "oauthBadge": "OAuth",
+    "moreActions": "{serverId} 的更多操作",
     "reAuth": "重新认证",
-    "reAuthTooltip": "重新认证 OAuth",
     "registeredTools": "{count, plural, other {# 个已注册工具}}",
-    "removeServerAriaLabel": "移除 {serverId}",
-    "removeServerTooltip": "移除服务器",
+    "removeServer": "删除服务器",
     "revoke": "撤销",
     "revokeOAuthTooltip": "撤销 OAuth 凭据",
-    "revoking": "正在撤销...",
     "statusConnected": "已连接",
     "statusDisabled": "已禁用",
     "statusError": "错误",
@@ -1520,6 +1527,18 @@
     "selectModelError": "请选择一个模型。",
     "selectModelPlaceholder": "选择模型",
     "selectProviderPlaceholder": "选择提供商…"
+  },
+  "profileModalitiesSection": {
+    "audio": "音频",
+    "enableAria": "启用{modality}",
+    "enabledColumn": "启用",
+    "helper": "仅当模态已启用且标记为模型支持时，才会发送给模型。未按此方式发送的图片会生成文字说明。",
+    "image": "图片",
+    "resolvedOff": "不发送给模型",
+    "resolvedOn": "发送给模型",
+    "supportedAria": "模型支持{modality}",
+    "supportedColumn": "模型支持",
+    "title": "模态"
   },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的操作",
@@ -2165,8 +2184,6 @@
     "customKey": "自定义",
     "defaultBadge": "默认",
     "enableVoiceShortcut": "启用语音模式快捷方式",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn 需要输入监控。请在“系统设置”中授予权限，或设置自定义快捷方式。",
     "focusedTabNote": "按键说话仅在此标签页处于焦点时有效，并且浏览器可能会在页面识别之前拦截某些快捷方式（例如 Ctrl+T）。如需始终开启按键说话功能，请使用 Vellum 桌面应用。",
     "grantMicrophoneAccessHint": "授予麦克风访问权限以列出可用的输入设备。",
     "interruptSensitivityAriaLabel": "打断灵敏度",
@@ -2184,7 +2201,6 @@
     "pauseBeforeReplyDescription": "您停止说话后，助手等待多久才回复。更长的暂停时间可让您在句子中间整理思绪，而不会被打断。",
     "pauseBeforeReplyLabel": "回复前暂停",
     "pressShortcut": "按下快捷方式…",
-    "recommendedBadge": "推荐",
     "recordingPrompt": "按下组合键或按键…",
     "resetToDefaults": "恢复默认设置",
     "savedMicrophone": "已保存的麦克风",
@@ -2209,6 +2225,20 @@
     "voiceShortcutSubtitleDesktop": "用于开始/结束语音对话的全局快捷方式。",
     "voiceShortcutTitle": "语音模式快捷方式",
     "captionsRecommendation": "我们建议初次使用时保持关闭，体验更接近真实对话。"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "允许输入监控",
+    "customHint": "按住 Cmd、Ctrl、Option、Shift 中的两个或更多键，然后松开。",
+    "customLabel": "自定义",
+    "fnDictationNote": "如果 macOS 听写在连按两次 Fn 时启动，请在“系统设置”的“键盘”中关闭它。",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "在允许输入监控之前，无法监听该键。",
+    "offLabel": "关闭",
+    "recordingPrompt": "按住修饰键…",
+    "refusedNote": "无法监听该键。请重启应用后重试。",
+    "subtitle": "按住可在光标处听写或询问所选内容。连按两次可开始或结束通话。",
+    "title": "语音键",
+    "voiceOverNote": "Control 和 Option 是 VoiceOver 的修饰键。如果你使用 VoiceOver，其命令会优先占用这些键。"
   },
   "voicePickerCard": {
     "changeButton": "更改",
@@ -2282,6 +2312,38 @@
     "redirectUrl": "重定向 URL",
     "waitingAuthorization": "等待授权..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "伙伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "独立",
+        "right": "协作"
+      },
+      "genzBoomer": {
+        "left": "Z世代",
+        "right": "婴儿潮一代"
+      },
+      "playfulSerious": {
+        "left": "活泼",
+        "right": "严肃"
+      },
+      "politeUnfiltered": {
+        "left": "礼貌",
+        "right": "直率"
+      }
+    },
+    "loadError": "无法加载个性滑块。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "保存",
+    "saveErrorToast": "无法保存个性滑块。请重试。",
+    "saveSuccessToast": "个性滑块已保存。",
+    "saving": "正在保存…",
+    "subtitle": "将这些滑块值保存到此助手。这不会改写身份文件。",
+    "title": "个性"
+  },
   "sidebar": {
     "general": "常规",
     "model": "模型与服务",
@@ -2297,6 +2359,7 @@
     "community": "社区",
     "debug": "调试",
     "developer": "开发者",
+    "personality": "个性",
     "logout": "退出登录",
     "login": "登录",
     "title": "设置"
@@ -2308,5 +2371,27 @@
       "doctor": "诊断",
       "conversations": "会话"
     }
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "添加 API 密钥",
+    "cancelConnect": "取消设置",
+    "chooseFromList": "从列表中选择",
+    "connectedTag": "已连接",
+    "customModelAriaLabel": "自定义模型 ID",
+    "customModelHint": "输入提供商所需的精确模型标识符。该标识符将按原样发送至连接。",
+    "customModelOption": "输入自定义模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "无匹配的模型",
+    "modelPlaceholder": "搜索模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 个可用模型} other {# 个可用模型}}。使用上下方向键浏览，按回车键选择。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推荐",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "设置",
+    "signInTag": "登录",
+    "soleProviderHint": "仅 {name} 提供此模型。"
   }
 }

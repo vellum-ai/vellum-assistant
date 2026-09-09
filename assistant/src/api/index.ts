@@ -154,6 +154,14 @@ export {
   REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
 } from "./constants/document-tools.js";
 export {
+  PERSONALITY_AXIS_IDS,
+  PERSONALITY_DIRECTION_AXES,
+  PERSONALITY_SLIDER_DEFAULT,
+  PERSONALITY_SLIDERS_PATH,
+  type PersonalityAxisId,
+  type PersonalityDirectionAxis,
+} from "./constants/personality-sliders.js";
+export {
   MIN_INPUT_RESERVE_TOKENS,
   type ProfileConfigIssue,
   validateInferenceProfileConfig,
@@ -832,6 +840,10 @@ export {
   MemoryV2ConfigSnapshotSchema,
 } from "./responses/memory-v2-activation-log.js";
 export {
+  type MemoryV3Pool,
+  type MemoryV3PoolCandidate,
+  MemoryV3PoolCandidateSchema,
+  MemoryV3PoolSchema,
   type MemoryV3SelectionLog,
   MemoryV3SelectionLogSchema,
   type MemoryV3SelectionRow,

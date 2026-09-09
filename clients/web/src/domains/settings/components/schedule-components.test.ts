@@ -662,6 +662,7 @@ describe("SystemTasksSection", () => {
           activeHoursEnd: null,
           cronExpression: null,
           timezone: null,
+          effectiveTimezone: null,
           nextRunAt: null,
           lastRunAt: null,
           success: true,

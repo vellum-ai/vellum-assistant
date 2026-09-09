@@ -23,10 +23,14 @@ Writes are split in two, and both need the guardian at the app:
 
   create/update/delete  the record: who someone is (name, notes). Opens a
                         form in the guardian's app; nothing is written until
-                        they submit it. A record has no channel, so it grants
-                        no access on its own.
+                        they submit it. A record on its own has no channel, so
+                        it grants no access.
   prompt                the channel: an address the guardian types, bound to
                         a contact. This is what makes someone reachable.
+
+Both at once is one form: 'create --name <name> --channel <type>' confirms the
+record and the channel together. To extend a contact that already exists, run
+'channels add <contactId>'.
 
 Granting someone access to message the assistant is 'contacts invites create'.
 
@@ -113,6 +117,21 @@ Examples:
           description: "Proposed notes, prefilled into the form",
         },
         {
+          flags: "--channel <channel>",
+          description:
+            "Also bind a channel on the same form (email, phone, telegram, whatsapp, slack). Requires --name.",
+        },
+        {
+          flags: "--address <address>",
+          description:
+            "Address to pre-fill; the guardian can edit it before submitting. Requires --channel.",
+        },
+        {
+          flags: "--verify",
+          description:
+            "Pre-check the form's 'mark verified' box. The guardian decides: unchecked, the channel stays unverified.",
+        },
+        {
           flags: "--label <label>",
           description: "Display label shown on the form",
         },
@@ -132,16 +151,33 @@ Opens an add-contact form in the guardian's app, prefilled with --name and
 --notes. The guardian can edit either field before submitting, and the values
 they submit are what gets written. Nothing is written if they dismiss the form.
 
-The new contact has no channels, so it cannot message the assistant and the
-assistant cannot reach it. It is a name to hang notes on and to address an
-invite to. Use 'contacts prompt' to bind an address, or
+Without --channel the new contact has no channels, so it cannot message the
+assistant and the assistant cannot reach it. It is a name to hang notes on and
+to address an invite to. Use 'contacts prompt' to bind an address later, or
 'contacts invites create' to let someone bind their own.
+
+With --channel the record and the channel are one form and one confirmation:
+the guardian confirms the name and the address together, and the contact is
+created with that channel attached. --name is required in that mode, since the
+contact is created under it. That form shows --notes but does not let the
+guardian edit them, so they are written as passed; use 'contacts update' to
+change them afterwards.
+
+--address and --verify only mean something alongside --channel, so either one
+without it is refused rather than ignored.
+
+--json reports what the form wrote, so the shape follows the mode: without
+--channel it is {ok, contact}, and with it the address form's
+{ok, contactId, channelId, channelType, address, verified}. The new id is
+contact.id in the first and contactId in the second. With --notes, notesSaved
+answers whether they landed: true, false, or null when the write did not say.
 
 ${FORM_NOTE}
 
 Examples:
   $ assistant contacts create --name "Alice"
   $ assistant contacts create --name "Alice" --notes "Dentist, referred by Bob"
+  $ assistant contacts create --name "Alice" --channel email --address alice@example.com
   $ assistant contacts create --name "Alice" --json`,
     },
     {
@@ -219,14 +255,65 @@ channels. Nothing is deleted unless they confirm.
 
 Deleting a contact deletes its channels with it, so anyone reaching the
 assistant through those channels loses access. A guardian contact cannot be
-deleted. To merge a duplicate instead of deleting it, use the contact_merge
-tool, which keeps the surviving contact's channels.
+deleted. To fold a duplicate into the record you are keeping instead of
+deleting it, run 'assistant contacts merge <survivorId> <donorId>', which moves
+the donor's channels to the survivor rather than destroying them.
 
 ${FORM_NOTE}
 
 Examples:
   $ assistant contacts delete 7a3b1c2d-4e5f-6789-abcd-ef0123456789
   $ assistant contacts delete abc-123 --json`,
+    },
+    {
+      name: "merge",
+      args: "<survivorId> <donorId>",
+      description: "Propose merging two contacts for the guardian to confirm",
+      options: [
+        {
+          flags: "--keep-donor-name",
+          description:
+            "Seed the form with the donor's name instead of the survivor's",
+        },
+        {
+          flags: "--label <label>",
+          description: "Display label shown on the confirmation",
+        },
+        {
+          flags: "--description <description>",
+          description: "Longer description shown on the confirmation",
+        },
+        {
+          flags: "--timeout <ms>",
+          description:
+            "How long the confirmation stays open (ms). The command waits for it to close.",
+          defaultValue: String(300_000),
+        },
+      ],
+      helpText: `
+Arguments:
+  survivorId   UUID of the contact to keep. Run 'assistant contacts list' to find IDs.
+  donorId      UUID of the contact to fold into it. Run 'assistant contacts list' to find IDs.
+
+Opens a confirmation in the guardian's app naming both contacts and listing the
+channels that move. Nothing is merged unless they confirm.
+
+The donor's channels move to the survivor, both sets of notes are combined, and
+the donor record is deleted. Nobody loses access: every address that reached the
+donor reaches the survivor afterwards. A contact's interaction count is the sum
+over its channels, so a moved channel brings its history with it; an address the
+survivor already holds is left where it is, and its donor-side history goes with
+the deleted record. A guardian contact cannot be the donor.
+
+The survivor keeps its own name unless the guardian edits it on the form.
+--keep-donor-name seeds that field with the donor's name, for when the donor is
+the better-named record of the two.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts merge 7a3b1c2d-4e5f-6789-abcd-ef0123456789 9f8e7d6c-5b4a-3210-fedc-ba9876543210
+  $ assistant contacts merge abc-123 def-456 --keep-donor-name --json`,
     },
     {
       name: "prompt",
@@ -246,6 +333,11 @@ Examples:
           flags: "--default-value <address>",
           description:
             "Suggested address to pre-fill the input with (user can edit before submitting)",
+        },
+        {
+          flags: "--contact-id <id>",
+          description:
+            "Bind to this existing contact instead of matching by address. Run 'assistant contacts list' to find ids.",
         },
         {
           flags: "--role <role>",
@@ -276,19 +368,28 @@ Examples:
 Opens an address form in the guardian's app. They enter a channel address
 (phone number, email, Telegram ID, etc.) and it is bound as a channel.
 
-Which contact it binds to depends on --role:
+Which contact it binds to depends on --contact-id and --role:
 
+  --contact-id <id>  Binds to that contact, which the form names, whatever
+                     address the guardian submits. Cannot be combined with
+                     --role guardian, which picks its contact by role.
   --role guardian    Binds to the guardian contact. An address already bound
                      to a different contact is rejected as a conflict.
-  anything else      Looks up the submitted (channel type, address). A match
+  neither            Looks up the submitted (channel type, address). A match
                      reuses that contact and channel; no match creates a new
                      contact named after the address. Other --role values are
                      form hints only: the contact is created with role
                      "contact" either way.
 
-This cannot add a channel to an arbitrary existing contact. To name a contact
-first, run 'contacts create'; to let someone bind their own address, use
-'contacts invites create'.
+Two contacts cannot share one address, so a --contact-id bind is refused when
+the form is submitted if the address is by then held by a different contact.
+The refusal names that contact and nothing is written. Pre-filling --channel and
+--default-value alongside --contact-id also checks up front and warns when the
+address looks taken, without refusing: that check reads the local mirror, so
+only the refusal on submit is authoritative.
+
+'contacts channels add <contactId>' is the same targeted bind under its own
+verb. To let someone bind their own address, use 'contacts invites create'.
 
 The channel is saved unverified unless the guardian leaves the form's "mark
 verified" box checked, which attests it the same way Contacts Verify me does.
@@ -299,6 +400,7 @@ ${FORM_NOTE}
 Examples:
   $ assistant contacts prompt --channel phone --role guardian
   $ assistant contacts prompt --channel email --label "Alice's email address"
+  $ assistant contacts prompt --contact-id abc-123 --channel email
   $ assistant contacts prompt --channel imessage --role guardian --verify \\
       --label "Your iMessage number" --placeholder "+15555550142"`,
     },
@@ -312,10 +414,75 @@ status (active, pending, revoked, blocked, unverified) and a policy
 (allow, deny) that controls how the assistant handles messages
 from that channel.
 
+Channels are read through their contact: 'assistant contacts get <contactId>'
+lists them with their IDs. There is no delete verb by design: access is
+withdrawn with 'update-status --status revoked', which keeps the record of who
+had it, and deleting the contact takes its channels with it.
+
 Examples:
+  $ assistant contacts channels add <contactId> --channel email --address alice@example.com
   $ assistant contacts channels update-status <channelId> --status revoked --reason "No longer needed"
   $ assistant contacts channels update-status <channelId> --policy deny`,
       subcommands: [
+        {
+          name: "add",
+          args: "<contactId>",
+          description:
+            "Add a channel to an existing contact, for the guardian to confirm",
+          options: [
+            {
+              flags: "--channel <channel>",
+              description:
+                "Channel type to bind (email, phone, telegram, whatsapp, slack)",
+              required: true,
+            },
+            {
+              flags: "--address <address>",
+              description:
+                "Address to pre-fill; the guardian can edit it before submitting",
+            },
+            {
+              flags: "--verify",
+              description:
+                "Pre-check the form's 'mark verified' box. The guardian decides: unchecked, the channel stays unverified.",
+            },
+            {
+              flags: "--label <label>",
+              description: "Display label shown on the form",
+            },
+            {
+              flags: "--description <description>",
+              description: "Longer description shown on the form",
+            },
+            {
+              flags: "--timeout <ms>",
+              description:
+                "How long the form stays open (ms). The command waits for it to close.",
+              defaultValue: String(300_000),
+            },
+          ],
+          helpText: `
+Arguments:
+  contactId   UUID of the contact to bind the channel to. Run
+              'assistant contacts list' to find IDs.
+
+Opens an address form in the guardian's app naming this contact, so they can
+see where the channel is going. Whatever address they submit binds to that
+contact, and no second contact is created. Unlike 'contacts prompt', the target
+is fixed by the id, not matched from the address.
+
+Two contacts cannot share one address. An address already held by a different
+contact is refused when the form is submitted, naming that contact, and nothing
+is written. Passing --address also checks up front and warns when it looks
+taken, without refusing: that check reads the local mirror, so only the refusal
+on submit is authoritative.
+
+${FORM_NOTE}
+
+Examples:
+  $ assistant contacts channels add 7a3b1c2d-4e5f-6789-abcd-ef0123456789 --channel email --address alice@example.com
+  $ assistant contacts channels add abc-123 --channel phone --verify --json`,
+        },
         {
           name: "update-status",
           args: "<channelId>",

@@ -12,6 +12,12 @@
  *
  * Retrieval mirrors the live section-lane engine's cheap lanes: a BM25F needle
  * over sections, optionally unioned with dense cosine over section embeddings.
+ * Each hit renders as the injection entry production would attach for it
+ * (`renderV3InjectionEntry`, read over the eval corpus): the matched heading
+ * section, or the lead when the hit is on the lead. The selector card never
+ * reaches a packet: its lead and section TOC are text the injector does not
+ * send for a heading match, so a judge reading them would pass a corpus on
+ * content production never injects.
  * Everything runs in memory — no Qdrant writes, no live-lane mutation — which is
  * why it is safe to run against arbitrary staging/snapshot directories.
  */
@@ -36,9 +42,14 @@ import {
   messages,
 } from "../../../../persistence/schema/index.js";
 import { FRONTMATTER_REGEX, parseFrontmatterFields } from "../frontmatter.js";
-import { injectedConceptHeader } from "../substrate/injected-block-slugs.js";
-import { slugFromConceptPath } from "../substrate/page-store.js";
-import { renderCard } from "../v3/card.js";
+import {
+  parsePageContent,
+  slugFromConceptPath,
+} from "../substrate/page-store.js";
+import {
+  type ConceptPageReader,
+  renderV3InjectionEntry,
+} from "../v3/page-content.js";
 import { buildSectionNeedle } from "../v3/section-needle.js";
 import { buildSectionIndex } from "../v3/sections.js";
 import type { SectionIndex, Slug } from "../v3/types.js";
@@ -55,7 +66,9 @@ export type EmbedAll = (texts: string[]) => Promise<number[][]>;
 export interface Corpus {
   /** Flat slugs (path under `dir`, minus `.md`, forward-slashed). */
   slugs: Slug[];
-  /** slug -> full file text (frontmatter included; the card renderer strips it). */
+  /** slug -> full file text (frontmatter included; the retriever's page
+   *  reader parses it exactly as the live page store parses a workspace
+   *  page, so a lead entry carries its `[current: …]` line). */
   rawBySlug: Map<Slug, string>;
   /** slug -> frontmatter-stripped body (what the section index chunks). */
   bodyBySlug: Map<Slug, string>;
@@ -122,7 +135,10 @@ export interface RetrievalHit {
 
 export interface Retriever {
   index: SectionIndex;
-  rawBySlug: Map<Slug, string>;
+  /** Reads a corpus page for `renderV3InjectionEntry`, so a packet entry is
+   *  what the injector would attach for this corpus rather than for the
+   *  workspace. */
+  readPage: ConceptPageReader;
   /** Top-`k` distinct articles (needle ∪ dense), each with a matched section. */
   retrieve(
     queryText: string,
@@ -206,33 +222,68 @@ export async function buildRetriever(
     return merged;
   }
 
-  return { index, rawBySlug: corpus.rawBySlug, retrieve };
+  return { index, readPage: corpusPageReader(corpus), retrieve };
+}
+
+/** A page reader over a corpus: the corpus file parsed by the live page
+ *  store's own parser, `null` for a slug the corpus lacks or a page it
+ *  cannot parse (as the injector's workspace reader resolves). */
+function corpusPageReader(corpus: Corpus): ConceptPageReader {
+  return async (slug) => {
+    const raw = corpus.rawBySlug.get(slug);
+    if (raw === undefined) {
+      return null;
+    }
+    try {
+      return parsePageContent(slug, raw);
+    } catch {
+      return null;
+    }
+  };
+}
+
+/** Truncate an entry's body to `cap` characters, keeping its header line
+ *  whole: the eval's packet budget, applied to the live entry. */
+function capEntryBody(entry: string, cap: number): string {
+  const headerEnd = entry.indexOf("\n");
+  if (headerEnd === -1) {
+    return entry;
+  }
+  const bodyStart = headerEnd + 1;
+  return entry.slice(0, bodyStart) + entry.slice(bodyStart, bodyStart + cap);
 }
 
 /**
- * Render the retrieved pages as one "memory set" string: each page's live-style
- * card (lead + section TOC) followed by its matched section in full, mirroring
- * what the model sees (accumulated cards + spotlighted section).
+ * Render the retrieved pages as one "memory set" string: for each hit, the
+ * injection entry the live injector would attach for it, rendered by the
+ * injector's own `renderV3InjectionEntry` over the eval corpus (the matched
+ * heading section; the lead, with its `[current: …]` line, when the hit is
+ * on the lead), so the judge scores exactly the text production injects for
+ * that hit. The selector card (lead plus section TOC) is not part of a
+ * packet. Each entry's body is capped at `sectionCharCap` characters below
+ * its header line (an eval budget); a hit whose entry renders empty is
+ * skipped.
  */
-export function renderMemorySet(
+export async function renderMemorySet(
   retriever: Retriever,
   hits: RetrievalHit[],
   sectionCharCap: number,
-): string {
-  if (hits.length === 0) {
+): Promise<string> {
+  const entries = await Promise.all(
+    hits.map(async (hit) =>
+      capEntryBody(
+        await renderV3InjectionEntry(
+          hit.slug,
+          retriever.index.sections[hit.sectionIdx],
+          retriever.readPage,
+        ),
+        sectionCharCap,
+      ),
+    ),
+  );
+  const parts = entries.filter((entry) => entry.length > 0);
+  if (parts.length === 0) {
     return "(no pages retrieved)";
-  }
-  const parts: string[] = [];
-  for (const hit of hits) {
-    const raw = retriever.rawBySlug.get(hit.slug) ?? "";
-    const card = renderCard(hit.slug, raw);
-    const section = retriever.index.sections[hit.sectionIdx];
-    if (section) {
-      const body = section.text.trim().slice(0, sectionCharCap);
-      parts.push(`${card}\n\n${injectedConceptHeader(hit.slug)}\n${body}`);
-    } else {
-      parts.push(card);
-    }
   }
   return parts.join("\n\n---\n\n");
 }
@@ -492,12 +543,12 @@ export async function buildPackets(
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i]!;
     const qVec = queryVecs[i] ?? null;
-    const snapSet = renderMemorySet(
+    const snapSet = await renderMemorySet(
       snapshot,
       snapshot.retrieve(t.userText, qVec, opts.k),
       opts.sectionCharCap,
     );
-    const stageSet = renderMemorySet(
+    const stageSet = await renderMemorySet(
       staging,
       staging.retrieve(t.userText, qVec, opts.k),
       opts.sectionCharCap,

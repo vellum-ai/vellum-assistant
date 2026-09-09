@@ -70,6 +70,10 @@
     "updateFailed": "Couldn't update \"{label}\". Your change was reverted."
   },
   "avatarManagementModal": {
+    "accent": "Accent",
+    "accentAutomatic": "Automatic",
+    "accentPickerLabel": "Accent color",
+    "accentReset": "Reset",
     "body": "Body",
     "color": "Color",
     "eyes": "Eyes",
@@ -152,13 +156,33 @@
   },
   "companionSurface": {
     "allow": "Allow",
+    "calling": "Calling…",
+    "callingNamed": "Calling {name}…",
+    "captureKind": "Source kind",
+    "captureNothing": "Nothing to show",
+    "capturePicker": "What to teach from",
+    "captureScreen": "Screen {n}",
+    "captureScreens": "Screens",
+    "captureTabs": "Chrome tabs",
+    "captureWindows": "Windows",
     "deny": "Deny",
     "dictating": "Listening",
+    "draw": "Draw",
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
     "muteAssistant": "Mute assistant",
     "muteMicrophone": "Mute microphone",
     "notNow": "Not now",
+    "offerCopy": "Copy",
+    "offerDiscard": "Discard",
+    "offerHeard": "{app} pasted that",
+    "offerNowhere": "Nowhere to put these",
+    "offerQuit": "Quit {app}",
+    "offerUse": "Use Vellum's",
+    "offerVersion": "Vellum heard",
+    "openVellum": "Open Vellum",
+    "share": "Share",
+    "sharePicker": "What to share",
     "showSummary": "Show summary",
     "stopTeaching": "Stop teaching",
     "summarizing": "Summarizing",
@@ -166,6 +190,14 @@
     "teach": "Teach",
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "Sharing your screen",
+    "sharingScreenNamed": "Sharing your screen with {name}",
+    "sharingWindow": "Sharing a window",
+    "sharingWindowNamed": "Sharing a window with {name}",
+    "teaching": "Teaching",
+    "teachingNamed": "Teaching {name}"
   },
   "contentActionBar": {
     "copiedAria": "Copied",
@@ -760,12 +792,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} account connected.",
-    "authPopupClosed": "{name} connection failed: authorization popup closed.",
     "authorizationError": "{name} error: {code}",
     "authorizationFailed": "{name} authorization failed",
     "popupBlocked": "Popup blocked. Please enable popups and try again.",
-    "popupClosed": "{name} connection failed: popup closed.",
-    "startFailed": "Failed to start {name} authorization."
+    "startFailed": "Failed to start {name} authorization.",
+    "startFailedWithReason": "Couldn't start {name} authorization: {reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "Your browser blocked a page the assistant tried to open.",
@@ -864,5 +895,10 @@
       "label": "Full access",
       "description": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "Every {count, plural, one {# hr} other {# hrs}}",
+    "everyMinutes": "Every {count, plural, one {# min} other {# mins}}",
+    "retrospectiveSubtitle": "After conversation activity"
   }
 }

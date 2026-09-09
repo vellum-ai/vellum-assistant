@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./tokens.css": "./src/tokens.css",
+    "./storybook-links": "./src/storybook-links.ts",
     "./components/*": "./src/components/*.tsx",
     "./components/panel-item": "./src/components/panel-item/panel-item.tsx",
     "./components/panel-item/marquee-text": "./src/components/panel-item/marquee-text.tsx",

@@ -1,17 +1,29 @@
 import {
   BrowserWindow,
   Menu,
+  app,
+  clipboard,
   screen,
+  systemPreferences,
+  type Display,
   type MenuItemConstructorOptions,
+  type Rectangle,
 } from "electron";
 import { z } from "zod";
 
 import {
+  companionCapturePickSchema,
   companionContextSchema,
+  watchCaptureTargetSchema,
   voiceActivityContentSchema,
   voiceActivityControlSchema,
   voiceActivityStartSchema,
+  companionAnnotationInkSchema,
+  companionAnnotationPhaseSchema,
+  companionAnnotationStrokeSchema,
+  COMPANION_ANNOTATION_MAX_STROKES,
   COMPANION_BASE_MAX_PILL_WIDTH,
+  VOICE_START_REQUEST_TTL_MS,
   COMPANION_INTRO_ACTIONS,
   COMPANION_INTRO_BEATS,
   companionBoxFor,
@@ -21,7 +33,15 @@ import {
   companionPadFor,
   companionScaleFor,
   WATCH_FLAG,
+  companionLowerReachFor,
+  type CoachmarkRefusal,
+  type CoachmarkRequest,
+  type CoachmarkResult,
+  type CoachmarkUnresolved,
+  namesATarget,
+  type PlacedCoachmark,
   type CompanionCardGrowth,
+  type CompanionCoachmark,
   type CompanionGrowth,
   type CompanionContext,
   type CompanionIntroAction,
@@ -31,6 +51,7 @@ import {
   type CompanionSurfaceState,
   type VellumCommand,
   type VoiceActivityState,
+  type WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 import { companionSizeSubmenus } from "@vellumai/electron-desktop/companion-menu";
 import {
@@ -47,6 +68,7 @@ import {
 } from "@vellumai/electron-desktop/window-state";
 
 import {
+  getAccentHex,
   getAvatarPng,
   getCharacter,
   onAvatarChange,
@@ -59,7 +81,18 @@ import {
   createFloatingWindow,
   getFloatingWindow,
 } from "@vellumai/electron-desktop/floating-window";
+import {
+  captureSourceThumbnail,
+  captureTargetFrame,
+  locateOnTarget,
+  listCaptureSources,
+  resolveCapturePick,
+  windowBoundsFor,
+} from "./companion-capture-sources";
+import { setPointerOnCompanion } from "./companion-pointer";
+import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
+import log from "./logger";
 import {
   current as currentMainWindow,
   dispatchToMain,
@@ -101,7 +134,9 @@ const isWatchEnabled = (): boolean =>
  * holding that expansion for as long as a call runs. It stays on screen
  * for the app's whole run unless the user hides it via the tray's "Show
  * Companion" item, a choice that persists across launches
- * (`readCompanionHidden` in `window-state.ts`).
+ * (`readCompanionHidden` in `window-state.ts`), and it steps off the screen
+ * for as long as Vellum itself is the frontmost app with its window showing
+ * (see `syncFrontmost`).
  *
  * **It is also the desktop's live-voice session surface**, the counterpart to
  * the iOS Dynamic Island and Lock Screen activity. Main holds the session
@@ -238,8 +273,30 @@ export const geometryFor = (
   };
 };
 
-/** Gap from the work area's bottom edge on the first ever launch. */
-const DEFAULT_MARGIN = 24;
+/**
+ * Gap between the creature's visible bottom and the work area's bottom edge on
+ * the first ever launch.
+ *
+ * From the *visible* bottom, not the avatar's box. The box runs a good way
+ * past the artwork on every side to hold the glow and the bob's slack (see
+ * `companionBaselineFor`), so a margin measured against it would be this gap
+ * plus however much slack the current size carries, growing with every step of
+ * the scale.
+ *
+ * Small, because the surface floats over whatever the user is working in and
+ * the bottom of a window is where that application keeps its own controls. A
+ * companion resting a finger's width above the work area is a companion in
+ * front of the thing it was put there to help with. Resting on that edge
+ * leaves it a strip of its own under everything else, which is the shape of
+ * the bargain: seen when looked for, out of the way when not.
+ *
+ * Two points rather than none. The clamp takes the creature all the way down
+ * to the edge and a drag can put it there, but opening flush against it leaves
+ * the lit rim's own bloom with nowhere to fall, and a glow cut off by the
+ * bottom of the display reads as the surface being clipped rather than as it
+ * resting on something.
+ */
+const DEFAULT_MARGIN = 2;
 
 let growth: CompanionGrowth = "right";
 
@@ -326,6 +383,170 @@ const finishIntro = (): void => {
 let call: VoiceActivityState | null = null;
 
 /**
+ * How long a dial is drawn with no session answering it.
+ *
+ * The window asked to start a session answers every press it decides on, with
+ * a `start` or with an `end`, so this only catches the presses it never gets
+ * to decide: a request parked behind a layout that does not mount, or a window
+ * that went away mid-preflight. Longer than the request itself can live, by a
+ * margin for a preflight that began at the end of that life, so the dial is
+ * never gone while a session can still arrive from it: a pill that closed on a
+ * call still coming would reopen on the call a moment later, which is the one
+ * thing worse than a long dial.
+ */
+export const COMPANION_DIAL_TIMEOUT_MS = VOICE_START_REQUEST_TTL_MS + 5_000;
+
+/**
+ * Whether Talk has been pressed and no session has answered it yet. See
+ * {@link CompanionSurfaceState.dialing}.
+ *
+ * Held here rather than in the surface's renderer for the reason the session
+ * is: the press leaves that renderer at once, and a reload across the wait
+ * would come back to a pill that had forgotten it was dialing.
+ */
+let dialing = false;
+let dialTimer: ReturnType<typeof setTimeout> | null = null;
+
+const disarmDial = (): void => {
+  if (dialTimer !== null) {
+    clearTimeout(dialTimer);
+    dialTimer = null;
+  }
+};
+
+/**
+ * Whether a Talk press starts a dial.
+ *
+ * Not while a session is already on the surface: the window that owns it
+ * spends the press on the call the user is in, so nothing is coming that a
+ * dial could wait for. A session the store holds but the mirror has not yet
+ * pushed dials anyway, and the `start` that follows within the beat ends it.
+ */
+export const dialOnTalk = (current: VoiceActivityState | null): boolean =>
+  current === null;
+
+/**
+ * Whether the surface is the call's rather than the pill.
+ *
+ * From the Talk press, not from the session's first phase: the dial is the
+ * call's own first beat, and a surface that moved and lit only once the
+ * session answered would move a second after the user reached for it.
+ */
+export const callSurfaceFor = (
+  current: VoiceActivityState | null,
+  dial: boolean,
+): boolean => current !== null || dial;
+
+/**
+ * The frame drawn around what a watch session reads: a display, or the one
+ * window the user picked.
+ *
+ * The session's, not the call's: a call is a microphone, and the creature's
+ * ring already says one is running, where a surface being read is a fact
+ * about that surface and is framed like one. Its own window rather than a
+ * bigger canvas: the canvas is sized once for the pill's reach and the frame
+ * wants the whole of whatever is read, and a click-through sheet the size of
+ * a display with the pill's hit-testing inside it would put the forwarded
+ * mouse-move on every pixel of the screen.
+ */
+const WATCH_FRAME_KIND = "companion-watch-frame";
+const WATCH_FRAME_ROUTE = "/floating/companion-watch-frame";
+
+/**
+ * How often the frame asks where a picked window is.
+ *
+ * A window the user is dragging moves every frame, and nothing tells this
+ * process when another app's window moves, so the frame polls the helper's
+ * window list and follows. Four times a second is a frame that keeps up with
+ * a deliberate drag without the helper answering a list call for every
+ * mouse-move.
+ */
+const FRAME_FOLLOW_MS = 250;
+
+/**
+ * Where the avatar sat before the call took the surface to the bottom of the
+ * display, or `null` outside a call.
+ *
+ * The call's handlebar defaults to the bottom centre of the screen, the way a
+ * meeting's does, and the user is free to drag it from there; when the call
+ * ends the pill goes back to where it lived. Held in memory only: the
+ * surface's position is never persisted, so there is nothing on disk for a
+ * call to corrupt.
+ *
+ * Always a place the surface rests, never one it is passing through. A call
+ * that arrives while the pill is still gliding home reads its home off the
+ * glide's target (see {@link glide}), so the call after it goes back to the
+ * same place the one before it did.
+ */
+let callHome: { x: number; y: number } | null = null;
+
+/**
+ * How long the surface takes to glide between the pill's home and the call's
+ * place at the bottom of the display.
+ *
+ * A little longer than the 300ms the surface's own CSS gives the pill. That
+ * transition crosses a pill's width where this one can cross most of a
+ * display, and a move that far at the pill's pace reads as a flick rather
+ * than a glide.
+ */
+export const COMPANION_GLIDE_MS = 380;
+
+/**
+ * The frame the glide is stepped at, near the display's own refresh so each
+ * step is a point or two rather than a hop.
+ */
+const GLIDE_FRAME_MS = 16;
+
+/**
+ * How far along the glide the surface is at a moment of it, from `0` at the
+ * start to `1` at the end.
+ *
+ * An ease-out: most of the distance goes by early and the last of it settles
+ * slowly, the shape of the `cubic-bezier(.2,.8,.2,1)` the surface's CSS moves
+ * the pill with, so the window moving and the pill unfurling on it read as
+ * one motion. Exported for its tests, as {@link growthFor} is.
+ */
+export const glideProgress = (t: number): number => {
+  const clamped = Math.min(Math.max(t, 0), 1);
+  return 1 - (1 - clamped) ** 3;
+};
+
+/**
+ * The glide in flight, or `null` while the surface is at rest.
+ *
+ * `to` is where the avatar's centre will come to rest, which is the point
+ * `callHome` reads when a call arrives mid-flight. `from` is where it left,
+ * so each frame is a fraction of one straight line rather than a step from
+ * wherever the last frame happened to land.
+ */
+let glide: {
+  from: { x: number; y: number };
+  to: { x: number; y: number };
+  startedAt: number;
+  timer: ReturnType<typeof setTimeout>;
+} | null = null;
+
+const cancelGlide = (): void => {
+  if (glide === null) {
+    return;
+  }
+  clearTimeout(glide.timer);
+  glide = null;
+};
+
+/**
+ * Whether the surface moves at once rather than over time.
+ *
+ * Read per move rather than once at launch: it is the system's "Reduce
+ * motion" setting, which the user can change while the app runs. Per move
+ * and not per frame, so a glide is one thing from start to landing: a toggle
+ * during one lands the glide in flight on its timetable and decides how the
+ * next move happens.
+ */
+const prefersReducedMotion = (): boolean =>
+  systemPreferences.getAnimationSettings().prefersReducedMotion;
+
+/**
  * What the app's window last published about the assistant: its name, whether
  * a turn is running, and the sessions it holds.
  *
@@ -350,14 +571,17 @@ let context: CompanionContext = {
 const currentState = (): CompanionSurfaceState => {
   const png = getAvatarPng();
   const character = getCharacter();
+  const accentHex = getAccentHex();
   return {
     growth,
     cardGrowth,
     avatarBox: geometry.avatarBox,
     optionsBox: geometry.optionsBox,
     character: character === null ? undefined : character,
+    accentHex: accentHex === null ? undefined : accentHex,
     avatarBase64: png === null ? undefined : png.toString("base64"),
     call,
+    dialing,
     intro,
     assistantName: context.assistantName,
     working: context.working,
@@ -369,10 +593,37 @@ const currentState = (): CompanionSurfaceState => {
     // has no resting value to settle to, since every value it can hold is a
     // claim that something is happening.
     watchRetro: context.watchRetro,
+    // Passed through as it arrived, for the reason `watchRetro` is: an offer
+    // is a claim that something was said, and absence is the only way to say
+    // nothing was.
+    dictationOffer: context.dictationOffer,
     // Settled the same way, and to zero rather than to anything carried over:
     // a publisher that reports no count has taken no reads this surface can
     // vouch for.
     captureCount: context.captureCount ?? 0,
+    // Passed through as it arrived, for the reason `watchRetro` is: every
+    // shape it can hold names something being read, and absence is the whole
+    // screen.
+    captureTarget: context.captureTarget,
+    // Settled to a boolean the way `watching` is, since a picker offered on
+    // an unknown answer is a promise nothing downstream can keep.
+    watchTargets: context.watchTargets === true,
+    // Passed through as it arrived, for the reason `captureTarget` is: every
+    // shape it can hold names something being shared, and absence is nothing.
+    screenShare: context.screenShare,
+    // Settled to a boolean the way `watchTargets` is: the control this decides
+    // starts capturing the user's screen, so not knowing reads as not offering.
+    screenShareEnabled: context.screenShareEnabled === true,
+    // Main's own, along with the marks below. Every line above passes on what
+    // the app's window said; these two are what main did with its frame.
+    annotating,
+    // Absent rather than empty, so a surface reads one shape for nothing
+    // being pointed at whether the shell holds marks or has never heard of
+    // them.
+    coachmarks: coachmarks.length === 0 ? undefined : coachmarks,
+    // Main's as well: where the frame window sits is main's, and this is the
+    // part of that window the menu bar is drawn over.
+    frameInsetTop: publishFrameInsetTop(),
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -500,10 +751,20 @@ export const placeCanvas = (
   // the minimum, which `Math.min` then resolves toward the top-left corner
   // rather than producing a position outside the display.
   const half = geometry.avatarBox / 2;
+  // Downward the clamp is the lowest thing the surface can draw, not its box.
+  // The box holds the glow and the bob's slack, and slack is not something the
+  // user can see: clamping to it stops the surface short of the edge by
+  // however much of it is empty. Reading the creature's artwork alone is the
+  // other mistake, since a pointer grows a pill around it and a call stands a
+  // bar on the same point, both of which reach lower. See
+  // `companionLowerReachFor`. Upward and sideways the box still decides: the
+  // canvas above has its own bound below, and the sides are where a half box
+  // is deliberately allowed to hang past the edge.
+  const reach = companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
   const minCentreX = workArea.x + half;
   const maxCentreX = workArea.x + workArea.width - half;
   const minCentreY = workArea.y + half;
-  const maxCentreY = workArea.y + workArea.height - half;
+  const maxCentreY = workArea.y + workArea.height - reach;
   const centreX = Math.min(Math.max(avatarCentre.x, minCentreX), maxCentreX);
   const wantedY = Math.min(Math.max(avatarCentre.y, minCentreY), maxCentreY);
 
@@ -528,6 +789,11 @@ export const placeCanvas = (
  * room to grow either way, and low so it sits under the window the user is
  * working in rather than over it.
  *
+ * The margin is measured to the lowest thing the surface can draw from this
+ * point, so the same gap is left under it at every size and in every state it
+ * can enter without the window moving. See {@link DEFAULT_MARGIN} and
+ * `companionLowerReachFor`.
+ *
  * Exported for its tests and pure for the same reason as {@link placeCanvas}.
  */
 export const defaultAvatarCentre = (
@@ -535,7 +801,11 @@ export const defaultAvatarCentre = (
   geometry: CompanionGeometry,
 ): { x: number; y: number } => ({
   x: workArea.x + workArea.width / 2,
-  y: workArea.y + workArea.height - DEFAULT_MARGIN - geometry.avatarBox / 2,
+  y:
+    workArea.y +
+    workArea.height -
+    DEFAULT_MARGIN -
+    companionLowerReachFor(geometry.avatarBox, geometry.optionsBox),
 });
 
 /**
@@ -559,10 +829,47 @@ const defaultCanvasOrigin = (): { x: number; y: number } => {
 };
 
 const pushState = (): void => {
-  const win = getFloatingWindow(COMPANION_KIND);
-  if (win) {
-    win.webContents.send("vellum:companion:state", currentState());
+  const state = currentState();
+  // The glow reads the same state the surface does, for the same reason the
+  // surface holds none of it: one push, two windows, no second idea of which
+  // call is running or what colour it is.
+  for (const kind of [COMPANION_KIND, WATCH_FRAME_KIND]) {
+    const win = getFloatingWindow(kind);
+    if (win) {
+      win.webContents.send("vellum:companion:state", state);
+    }
   }
+};
+
+/**
+ * Start or end the dial, and push the surface if that changed anything.
+ *
+ * The bound is armed with the dial and disarmed with it, whichever way it
+ * ends, so a session that answers in a second does not leave a timer behind to
+ * end a later dial early.
+ */
+const setDialing = (next: boolean): void => {
+  disarmDial();
+  if (next) {
+    dialTimer = setTimeout(() => {
+      dialTimer = null;
+      setDialing(false);
+    }, COMPANION_DIAL_TIMEOUT_MS);
+  }
+  if (dialing === next) {
+    return;
+  }
+  dialing = next;
+  // A dial ending, however it ends (answered, declined, cancelled from the
+  // pill, or timed out), takes the row a pick was made from with it unless
+  // a session answered. A pick still resolving must not start a session
+  // over a bar that closed; a session that did answer will have its own
+  // Teach press.
+  if (!next && call === null) {
+    pickGeneration += 1;
+  }
+  syncCallSurface();
+  pushState();
 };
 
 /**
@@ -590,18 +897,47 @@ const avatarCentre = (win: {
  * never moved.
  */
 const refreshGrowth = (): void => {
+  // A frame around the whole screen follows the surface from display to
+  // display, and one around a picked display is placed again from that
+  // display's bounds, which the same events (a display arriving, leaving,
+  // rotating or rescaling) can move under it. One around a picked window
+  // follows the window instead. Before either early return below: a drag
+  // across displays need not change either growth, and a session outlives
+  // the surface being hidden, so its frame has to follow the display with
+  // no surface on screen at all.
+  //
+  // The same events move the menu bar over that frame, and the frame's
+  // renderer holds the inset it was last pushed. So a push is due when the
+  // inset moved, on its own account: the growth below can be unchanged, or
+  // there can be no surface to measure it for, while the label sits under a
+  // bar that just got taller.
+  let frameInsetMoved = false;
+  if (
+    getFloatingWindow(WATCH_FRAME_KIND) !== null &&
+    context.captureTarget?.kind !== "window"
+  ) {
+    syncWatchFrame();
+    frameInsetMoved = frameInsetTop() !== publishedFrameInsetTop;
+  }
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   const centre = avatarCentre(win);
-  const { workArea } = screen.getDisplayNearestPoint({
+  const display = screen.getDisplayNearestPoint({
     x: Math.round(centre.x),
     y: Math.round(centre.y),
   });
+  const { workArea } = display;
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   growth = nextGrowth;
@@ -616,6 +952,885 @@ const refreshGrowth = (): void => {
 };
 
 /**
+ * Put the avatar on a point, clamped into the work area it is measured against.
+ *
+ * The drag, the call's move to the bottom of the display and the move back
+ * all go through here. The card direction is settled before the move, not
+ * after: `setPosition` fires `move`, which runs `refreshGrowth`, which reads
+ * the avatar's position back out of the window using that variable, so it has
+ * to already say which offset the new origin was computed against, or the
+ * refresh measures the avatar somewhere it is not and moves the window a
+ * second time. The renderer cannot see the intervening frame: the push is a
+ * message and the move is immediate.
+ */
+const moveAvatarTo = (
+  win: BrowserWindow,
+  centre: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): void => {
+  const placed = placeCanvas(centre, workArea, geometry);
+  if (placed.cardGrowth !== cardGrowth) {
+    cardGrowth = placed.cardGrowth;
+    pushState();
+  }
+  win.setPosition(placed.origin.x, placed.origin.y);
+};
+
+const displayUnder = (point: { x: number; y: number }): Display =>
+  screen.getDisplayNearestPoint({
+    x: Math.round(point.x),
+    y: Math.round(point.y),
+  });
+
+/**
+ * Take the avatar to a point over {@link COMPANION_GLIDE_MS}, landing exactly
+ * where {@link moveAvatarTo} would have put it at once.
+ *
+ * A timer on this side rather than the window server's own animated
+ * `setPosition`. That one takes neither a duration nor a curve (macOS derives
+ * the time from the change in the frame's *height*, so a move that keeps the
+ * canvas's size is over before it can be seen), it blocks main for the length
+ * of it, and it moves the window along a line nothing here has clamped. Every
+ * frame of this glide goes through `moveAvatarTo` against the display under
+ * it, so each is clamped the way a drag's move is and the card direction is
+ * settled before the window moves, exactly as for a hand.
+ *
+ * The landing point is fixed when the glide starts and placed again against
+ * whatever display is under it when the glide lands, so a display that
+ * changes mid-flight cannot leave the avatar off the edge of it. A new glide
+ * replaces a running one from wherever the window has reached, and a drag
+ * cancels one outright (see the `moveBy` handler): the hand wins over the
+ * timetable.
+ *
+ * Instant under the system's "Reduce motion".
+ */
+const glideAvatarTo = (
+  win: BrowserWindow,
+  centre: { x: number; y: number },
+  workArea: { x: number; y: number; width: number; height: number },
+): void => {
+  cancelGlide();
+  if (prefersReducedMotion()) {
+    moveAvatarTo(win, centre, workArea);
+    return;
+  }
+  const from = avatarCentre(win);
+  // The point the glide ends on is the point the instant move would land on,
+  // read back out of the placement the same way `avatarCentre` reads it out of
+  // the window, so nothing about where the surface rests depends on which of
+  // the two moved it.
+  const placed = placeCanvas(centre, workArea, geometry);
+  const to = {
+    x: placed.origin.x + geometry.canvasWidth / 2,
+    y: placed.origin.y + avatarOffsetFor(placed.cardGrowth, geometry),
+  };
+  if (from.x === to.x && from.y === to.y) {
+    return;
+  }
+  const tick = (): void => {
+    // A frame belongs to the glide it was scheduled by, and only that glide
+    // is allowed to move the window. Checked by identity rather than against
+    // `null`: a frame of a glide that was replaced must not touch the one
+    // that replaced it, in either direction, and cancelling from here would
+    // clear the newer glide's timer, not this one's.
+    if (glide !== flight) {
+      return;
+    }
+    if (win.isDestroyed()) {
+      cancelGlide();
+      return;
+    }
+    const t = (performance.now() - flight.startedAt) / COMPANION_GLIDE_MS;
+    if (t >= 1) {
+      glide = null;
+      moveAvatarTo(win, to, displayUnder(to).workArea);
+      return;
+    }
+    const progress = glideProgress(t);
+    const point = {
+      x: from.x + (to.x - from.x) * progress,
+      y: from.y + (to.y - from.y) * progress,
+    };
+    // Against the display the frame is over rather than the one the glide is
+    // headed for, as a drag is: a glide between displays clamped to its
+    // destination's edges would jump to that edge on its first frame.
+    moveAvatarTo(win, point, displayUnder(point).workArea);
+    flight.timer = setTimeout(tick, GLIDE_FRAME_MS);
+  };
+  const flight: NonNullable<typeof glide> = {
+    from,
+    to,
+    startedAt: performance.now(),
+    timer: setTimeout(tick, GLIDE_FRAME_MS),
+  };
+  glide = flight;
+};
+
+/**
+ * Whether the frame is taking the mouse, so the user can draw on the surface
+ * they are showing.
+ *
+ * Main's rather than either renderer's, because it decides whether a window
+ * main opened is click-through, which is not a fact a renderer can hold. The
+ * pill presses it and the frame acts on it, and both read it back off the
+ * pushed state, so the control drawn held down and the window taking presses
+ * are one thing.
+ */
+let annotating = false;
+
+/**
+ * Whether the frame is drawn around the shared surface: something is shared,
+ * and the frame is around *that*.
+ *
+ * What every mark on the frame depends on, drawn by either end. Coordinates
+ * on it are fractions of the surface the frame encloses, so they describe
+ * what they claim to only while this holds.
+ *
+ * The second half matters because {@link framedTarget} prefers a watch
+ * session's target when both are running. The frame would then be around the
+ * surface being read while the frames sent are of the surface being shared,
+ * and a circle drawn on one would arrive on the other, around whatever
+ * happened to lie at those coordinates.
+ */
+const framesTheShare = (): boolean =>
+  context.watching !== true && context.screenShare !== undefined;
+
+/**
+ * Whether the frame has handed the mouse back to the desktop for a scroll,
+ * while the mode stays on.
+ *
+ * A frame taking presses takes the wheel with them, and a transparent window
+ * the size of the shared surface that eats every wheel event is a shared
+ * app the user cannot scroll or move through. Nothing on the desktop forwards
+ * a wheel event through a window that is taking the mouse, so the frame
+ * steps aside instead: the renderer reports the first wheel event it
+ * receives, the frame goes click-through with mouse-move forwarded so the
+ * rest of that scroll reaches the app underneath, and the frame takes the
+ * mouse back when the scroll ends. Two things say it has. The renderer
+ * reports the first move it is forwarded, since a hand that has moved the
+ * pointer is pointing at something again. The mac helper reports the scroll
+ * stopping, since a hand that scrolls and then presses without moving the
+ * pointer is one the renderer would never hear from, and the press would
+ * land on the app.
+ *
+ * Main's for the reason {@link annotating} is: it decides what a window main
+ * opened does with the mouse.
+ */
+let frameScrolling = false;
+
+/**
+ * Give the frame the mouse, or give it back to the desktop.
+ *
+ * Forwarded mouse-move only while the frame has stepped aside for a scroll:
+ * that is the one state in which the renderer has to see the pointer without
+ * holding it, so it can ask for the mouse back. Off the mode, nothing is
+ * forwarded, since there is nothing on the frame to point at and a forwarded
+ * move over a display-sized window is a move on every pixel of the screen.
+ */
+const applyFrameMouse = (): void => {
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame === null) {
+    return;
+  }
+  if (!annotating) {
+    frame.setIgnoreMouseEvents(true);
+    return;
+  }
+  if (frameScrolling) {
+    frame.setIgnoreMouseEvents(true, { forward: true });
+    return;
+  }
+  frame.setIgnoreMouseEvents(false);
+};
+
+/**
+ * Turn drawing on or off, and take it down when the share it belonged to is
+ * gone.
+ *
+ * Idempotent, and run after every change to the context as well as on the
+ * press: a mode left on over a share that ended is a transparent window
+ * eating every click on that display.
+ *
+ * Either edge forgets a scroll the frame stepped aside for. The mode going
+ * on is the user asking for the mouse, whatever the pointer was doing before
+ * the press; the mode going off leaves nothing for the scroll to have stepped
+ * aside from.
+ */
+const setAnnotating = (next: boolean): void => {
+  const resolved = next && framesTheShare();
+  if (resolved === annotating) {
+    return;
+  }
+  annotating = resolved;
+  frameScrolling = false;
+  unwatchFrameScroll();
+  applyFrameMouse();
+  pushState();
+};
+
+/**
+ * Step aside for a scroll on the frame, or take the mouse back after one.
+ *
+ * Refused off the mode rather than remembered: a frame that is not taking
+ * presses has no mouse to hand back, and a scroll recorded against the next
+ * time the mode goes on would open it click-through.
+ */
+const setFrameScrolling = (next: boolean): void => {
+  const resolved = next && annotating;
+  if (resolved === frameScrolling) {
+    return;
+  }
+  frameScrolling = resolved;
+  if (resolved) {
+    watchFrameScroll(() => setFrameScrolling(false));
+  } else {
+    unwatchFrameScroll();
+  }
+  applyFrameMouse();
+};
+
+/**
+ * Nothing being pointed at, as one value.
+ *
+ * Shared rather than a fresh empty list each time, so {@link setCoachmarks}
+ * settles: clearing a frame that is already clear arrives as the value it
+ * already holds, and pushes nothing.
+ */
+const NO_COACHMARKS: readonly CompanionCoachmark[] = [];
+
+/**
+ * What the assistant is pointing at on the shared surface.
+ *
+ * Held by main for the reason {@link annotating} is: the marks are fractions
+ * of the surface the frame encloses, and the frame is main's. A window that
+ * kept its own marks would go on drawing them over a share that had moved to
+ * another target, which is the one thing a mark must never do.
+ */
+let coachmarks: readonly CompanionCoachmark[] = NO_COACHMARKS;
+
+/**
+ * The surface the standing marks were measured against, or nothing when none
+ * stand.
+ *
+ * Held beside them because a share can move to another display or window
+ * while they are up. The fractions would survive that move and describe the
+ * new surface instead, putting a ring around whatever lies at those
+ * coordinates there.
+ */
+let coachmarkTarget: WatchCaptureTarget | undefined;
+
+/**
+ * How many requests to change what is pointed at have been taken.
+ *
+ * Resolving a name is a round trip to the helper and nothing is queued behind
+ * it, so a second request can arrive and finish while the first is still out.
+ * `screen_clear_marks` is the case that matters, because it has nothing to
+ * look up and answers immediately: the lookup landing afterwards would put
+ * the mark the user was just told was gone back on their screen. Each request
+ * takes the next number on the way in, and only the request holding the
+ * latest one is allowed to paint.
+ */
+let coachmarkRequests = 0;
+
+/**
+ * The surface of the last frame this process handed to the window holding the
+ * session, or nothing before it has served one.
+ *
+ * The assistant measures a mark against the picture it was last shown, and
+ * that picture came through here. When the share moves, the frames the model
+ * is holding are still of the surface before the move, so its fractions
+ * describe that one: painting them now would ring whatever happens to lie at
+ * those coordinates on the new surface. Comparing this against the current
+ * share is how main tells a mark the model could have measured from a mark it
+ * could not.
+ *
+ * Recorded only for a frame that came back, since a capture that failed is
+ * one the model was never shown.
+ */
+let capturedTarget: WatchCaptureTarget | undefined;
+
+/** Whether two picks name the one surface. */
+const sameCaptureTarget = (
+  a: WatchCaptureTarget | undefined,
+  b: WatchCaptureTarget | undefined,
+): boolean => {
+  if (a === undefined || b === undefined) {
+    return a === b;
+  }
+  if (a.kind === "display") {
+    return b.kind === "display" && a.displayId === b.displayId;
+  }
+  return b.kind === "window" && a.windowId === b.windowId;
+};
+
+/** Point at things on the shared surface, or take down what is pointed at. */
+const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
+  const resolved = framesTheShare() ? next : NO_COACHMARKS;
+  if (resolved.length > 0) {
+    // A mark says go and press that, so the press has to reach the app under
+    // it. Drawing is the one thing that makes this frame take the mouse, and
+    // a press on a ringed control would land in the drawing instead. Here
+    // rather than at either entrance, because it is a fact about marks being
+    // up rather than about who put them there. The mode is the user's, and
+    // pressing Draw again gets it back.
+    setAnnotating(false);
+  }
+  const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
+  if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
+    return;
+  }
+  coachmarks = resolved;
+  coachmarkTarget = against;
+  pushState();
+};
+
+/**
+ * Take the marks down when what they describe is gone: the share ended, a
+ * watch session took the frame, or the share moved to another surface.
+ *
+ * Run after every change to the context, for the reason {@link setAnnotating}
+ * is run there: a mark that outlives the surface it was measured against is a
+ * ring around whatever has since moved under it.
+ */
+const syncCoachmarks = (): void => {
+  if (
+    framesTheShare() &&
+    sameCaptureTarget(context.screenShare, coachmarkTarget)
+  ) {
+    return;
+  }
+  setCoachmarks(NO_COACHMARKS);
+};
+
+/**
+ * Forget the picture the assistant was last shown the moment the share stops
+ * being of that surface.
+ *
+ * Any change counts, not just a share ending. A share that stops and starts
+ * again on the same display is a new share, and what the model is holding
+ * from before the stop is as old as the gap. So is a share that moves to
+ * another surface and comes back: the user was working on the first one all
+ * the while it was not being shown, and a picture kept across that round trip
+ * would let the first mark through measured against a screen that has since
+ * moved on. Clearing on the way out is what makes the return safe, since by
+ * then there is nothing left to match.
+ */
+const syncCapturedTarget = (): void => {
+  if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
+    capturedTarget = undefined;
+  }
+};
+
+/**
+ * Point at things on the shared surface on the assistant's behalf, and say
+ * whether the marks stand.
+ *
+ * The answer is the point of this entrance. A press from the pill can watch
+ * the surface for what it did; the assistant is somewhere else, and marks it
+ * believes it placed on a screen nobody is sharing would have it talking
+ * about a ring the user cannot see. So a refusal comes back as one rather
+ * than as silence.
+ *
+ * **Marks are the asking conversation's or they are nobody's.** A mark names
+ * a rectangle and nothing else, so without the caller's own conversation
+ * beside it main cannot tell the call's turn from any other the same user has
+ * running, and a background turn would draw on a call it has no part in and
+ * be told it worked. The surface publishes whose call it is
+ * (`callConversationId`); anything that does not match it is refused, an
+ * unclaimed surface included, since a claim that cannot be checked is not a
+ * claim that passed.
+ *
+ * **Marks are measured against a picture, so the picture has to be of this
+ * surface.** A share that moved between the last frame and this request
+ * leaves the model holding a view of the surface before the move, and
+ * fractions off that view land somewhere arbitrary on the one now shared.
+ * {@link syncCoachmarks} takes down marks that are already up when the target
+ * changes and cannot reach one that arrives afterwards, so the arrival is
+ * refused here instead.
+ *
+ * **The last request in owns the screen.** Requests are not queued, so a
+ * lookup still out when a later one lands would paint over its answer.
+ * {@link coachmarkRequests} settles that: the latest number paints, and
+ * anything holding an older one is refused.
+ *
+ * **A request replaces everything, including with nothing.** A name that does
+ * not resolve takes the standing marks down on its way to saying so. They
+ * describe the step before this one, and leaving them up would point the user
+ * at a control while the assistant says it could not find the one it meant.
+ *
+ * **Taking them down always succeeds**, whoever asks and whatever the frame is
+ * around. The two directions are not the same risk: a mark placed by the
+ * wrong conversation is a ring on a stranger's screen reported as a success,
+ * where a clear by the wrong conversation costs a ring that was going to come
+ * down anyway. Refusing those would leave marks standing that nothing could
+ * reach, which is the failure this whole entrance exists to avoid.
+ */
+export const showCompanionCoachmarks = async (
+  requests: readonly CoachmarkRequest[],
+  conversationId?: string,
+): Promise<CoachmarkResult> => {
+  if (requests.length === 0) {
+    coachmarkRequests += 1;
+    setCoachmarks(NO_COACHMARKS);
+    return { kind: "placed", marks: [] };
+  }
+  const share = context.screenShare;
+  const refusal = whyNotToDraw(conversationId, share);
+  if (refusal !== null) {
+    return { kind: "refused", refusal };
+  }
+  if (share === undefined) {
+    return { kind: "refused", refusal: "unshared" };
+  }
+  // Taken after the refusals above, so a request that was never going to
+  // change what is on screen does not supersede one that is.
+  coachmarkRequests += 1;
+  const sequence = coachmarkRequests;
+
+  const marks: PlacedCoachmark[] = [];
+  for (const request of requests) {
+    if (!namesATarget(request)) {
+      // Bounds given outright are an extent someone means, so they keep the
+      // ring. The kind is added here rather than asked for: what the caller
+      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      marks.push({ kind: "region", ...request });
+      continue;
+    }
+    const placed = await placeOnNamedTarget(share, request);
+    // Both asked after every await, because both answers can change across
+    // one. Something else asking to point in the meantime owns the screen
+    // now, and this request touching it at all would undo that.
+    if (sequence !== coachmarkRequests) {
+      return { kind: "refused", refusal: "superseded" };
+    }
+    // Asked against the share these marks are being resolved on rather than
+    // against whatever is shared now. Resolving a name is a round trip to the
+    // helper and the user is still working the whole time: a share that moved
+    // and had a frame of its own served in that window answers every check
+    // the current state can make, and these marks would land on it measured
+    // against the surface it replaced.
+    const moved = whyNotToDraw(conversationId, share);
+    if (moved !== null) {
+      return { kind: "refused", refusal: moved };
+    }
+    if ("reason" in placed) {
+      // A request replaces everything on screen, and it has replaced it with
+      // nothing it can draw. Leaving the last step's mark up would point the
+      // user at a control this turn is about to say it could not find.
+      setCoachmarks(NO_COACHMARKS);
+      return { kind: "unresolved", unresolved: placed };
+    }
+    marks.push(placed);
+  }
+
+  // The name a mark resolved from is for the caller to read back, not for the
+  // frame to draw: what goes on screen is a rectangle, and the renderer has
+  // no use for the label it came from.
+  setCoachmarks(marks.map(({ matched: _matched, ...mark }) => mark));
+  return { kind: "placed", marks };
+};
+
+/**
+ * Why the marks cannot go up, or `null` when they can.
+ *
+ * Pulled out because it is asked before resolving a name and again after
+ * every round trip that resolving takes, since resolving takes long enough
+ * for the answer to change.
+ *
+ * `measuredAgainst` is the surface the marks in hand describe, which is the
+ * share as it was when the request was taken. Asking only what is shared
+ * *now* is not enough: a share that moved and then served a frame of its own
+ * leaves the current state entirely self-consistent, and marks measured
+ * against the surface before the move would pass on their way onto the one
+ * after it.
+ */
+const whyNotToDraw = (
+  conversationId: string | undefined,
+  measuredAgainst: WatchCaptureTarget | undefined,
+): CoachmarkRefusal | null => {
+  if (!framesTheShare()) {
+    return "unshared";
+  }
+  if (
+    context.callConversationId === undefined ||
+    conversationId !== context.callConversationId
+  ) {
+    return "not-this-call";
+  }
+  if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
+    return "stale-surface";
+  }
+  if (!sameCaptureTarget(measuredAgainst, context.screenShare)) {
+    return "stale-surface";
+  }
+  return null;
+};
+
+/**
+ * One named control as a mark, or why it could not be one.
+ *
+ * The conversion is the whole point of resolving through the tree: the helper
+ * answers in screen points, the surface has bounds in the same space, and a
+ * fraction is the difference between them. Nothing here estimates anything.
+ */
+const placeOnNamedTarget = async (
+  share: WatchCaptureTarget,
+  request: { target: string; caption?: string },
+): Promise<PlacedCoachmark | CoachmarkUnresolved> => {
+  const located = await locateOnTarget(share, request.target);
+  if (!located.found) {
+    return {
+      target: request.target,
+      reason: located.reason,
+      candidates: located.ambiguous ?? located.available ?? [],
+      ...(located.candidateCount === undefined
+        ? {}
+        : { candidateCount: located.candidateCount }),
+    };
+  }
+  const bounds = await surfaceBounds(share);
+  if (bounds === null) {
+    return { target: request.target, reason: "no-tree", candidates: [] };
+  }
+  // The centre, not the frame. An element's frame is its hit area, which is
+  // routinely a good deal larger than the thing drawn inside it, and it can
+  // belong to the small triangle that discloses a row rather than the row.
+  // Its position is trustworthy where its extent is not, so the arrow is
+  // aimed at the middle of it and nothing claims a size.
+  return {
+    kind: "point",
+    x: (located.x + located.width / 2 - bounds.x) / bounds.width,
+    y: (located.y + located.height / 2 - bounds.y) / bounds.height,
+    ...(request.caption === undefined ? {} : { caption: request.caption }),
+    matched: located.label,
+  };
+};
+
+/**
+ * Where the shared surface is, in the screen points a located control is in.
+ *
+ * The same bounds the frame is placed on, for the same reason: a fraction of
+ * the surface only means anything against the rectangle the frame draws.
+ */
+const surfaceBounds = async (
+  share: WatchCaptureTarget,
+): Promise<Rectangle | null> => {
+  // The frame's own rectangle, because that is the one the marks are drawn
+  // on. It is placed on the share's bounds, and `placeWatchFrame` asks for
+  // the whole display rather than its work area, so the two should agree;
+  // asking the frame rather than deriving the surface a second time is what
+  // keeps them the same rectangle by construction, whatever the window
+  // system did with the request.
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame !== null) {
+    return frame.getBounds();
+  }
+  // No frame yet, which a mark cannot be drawn on anyway. Answered from the
+  // share so the caller's own guards decide what to say about it.
+  if (share.kind === "display") {
+    return (
+      screen.getAllDisplays().find((d) => d.id === share.displayId)?.bounds ??
+      null
+    );
+  }
+  return windowBoundsFor(share.windowId);
+};
+
+/**
+ * Frame a rectangle of the desktop, or move the frame to it.
+ *
+ * For a display, its whole bounds rather than its work area, the way a shared
+ * screen is framed: the menu bar draws over the top edge, and a frame that
+ * stopped short of it would read as a window's border rather than the
+ * screen's. For a window, the window's own bounds, so the frame is its edge.
+ *
+ * One step below the surface at the same level, so the pill is always drawn
+ * over the frame and never under it, and above the window it frames. Click-
+ * through with nothing forwarded: there is nothing on it to point at.
+ */
+const placeWatchFrame = (bounds: Rectangle): void => {
+  const existing = getFloatingWindow(WATCH_FRAME_KIND);
+  if (existing !== null) {
+    const current = existing.getBounds();
+    if (
+      current.x !== bounds.x ||
+      current.y !== bounds.y ||
+      current.width !== bounds.width ||
+      current.height !== bounds.height
+    ) {
+      existing.setBounds(bounds);
+    }
+    if (!existing.isVisible()) {
+      existing.showInactive();
+    }
+    return;
+  }
+  const win = createFloatingWindow({
+    kind: WATCH_FRAME_KIND,
+    route: WATCH_FRAME_ROUTE,
+    width: bounds.width,
+    height: bounds.height,
+    ignoreMouseEvents: true,
+    position: { x: bounds.x, y: bounds.y },
+    browserWindow: {
+      hasShadow: false,
+      focusable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      backgroundColor: "#00000000",
+      // **The frame must be the surface, to the pixel.** Without this macOS
+      // holds a window to the display's work area: asked for the whole
+      // display it comes back a menu bar lower and a menu bar shorter, and
+      // says nothing. The assistant measures its marks against a picture of
+      // the whole display, and a fraction of that drawn into the shorter
+      // window lands low by the menu bar's height at the top, shrinking to
+      // nothing at the foot. The menu bar draws over the top of the window
+      // either way; `frameInsetTop` is what keeps the rim clear of it.
+      enableLargerThanScreen: true,
+    },
+  });
+  win.setAlwaysOnTop(true, "floating", -1);
+  // A frame opened while the mode is already on is one the user is expecting
+  // to draw on: the mode outlives the window, which is replaced whenever the
+  // share moves to another target. A scroll the old window stepped aside for
+  // does not: this window's renderer has seen no scroll and would never ask
+  // for a mouse it does not know it gave up.
+  frameScrolling = false;
+  unwatchFrameScroll();
+  applyFrameMouse();
+};
+
+/**
+ * Which pick is the current one, so a resolution that outlives the next
+ * press cannot dispatch. See the toggle handler.
+ */
+let pickGeneration = 0;
+
+const closeWatchFrame = (): void => {
+  getFloatingWindow(WATCH_FRAME_KIND)?.close();
+};
+
+/**
+ * The poll keeping the frame on a picked window, or `null` when the frame is
+ * on a display, which does not move.
+ */
+let frameFollow: ReturnType<typeof setInterval> | null = null;
+
+const stopFollowingWindow = (): void => {
+  if (frameFollow !== null) {
+    clearInterval(frameFollow);
+    frameFollow = null;
+  }
+};
+
+/**
+ * Keep the frame on `windowId` for as long as the session reads it.
+ *
+ * Asked once now and then on a timer, since nothing tells this process when
+ * another app's window moves. A window that is not on screen (minimized, on
+ * another space, or closed) hides the frame rather than closing it: the
+ * session is still reading it, or trying to, and the frame comes back with
+ * the window. The lookups are serialized by the `busy` latch so a slow helper
+ * answer cannot pile up behind the timer.
+ */
+const followWindow = (windowId: number): void => {
+  stopFollowingWindow();
+  let busy = false;
+  const place = (): void => {
+    if (busy) {
+      return;
+    }
+    busy = true;
+    void windowBoundsFor(windowId)
+      .then((bounds) => {
+        // The session may have ended, or moved to another target, while the
+        // helper was answering. A frame placed for it would be for nothing.
+        const framed = framedTarget();
+        if (
+          framed === null ||
+          framed === "screen" ||
+          framed.kind !== "window" ||
+          framed.windowId !== windowId
+        ) {
+          return;
+        }
+        if (bounds === null) {
+          getFloatingWindow(WATCH_FRAME_KIND)?.hide();
+          return;
+        }
+        placeWatchFrame(bounds);
+      })
+      .catch((err: unknown) => {
+        log.warn("[companion] could not place the frame on its window:", err);
+      })
+      .finally(() => {
+        busy = false;
+      });
+  };
+  place();
+  frameFollow = setInterval(place, FRAME_FOLLOW_MS);
+};
+
+/**
+ * Frame what is being read, or take the frame down, to match what the app's
+ * window last said about the session.
+ *
+ * Idempotent, and run after every change to the context. A session started
+ * on a pick frames exactly that: the display by its id, or the window by its
+ * id, followed as it moves. A session with no target reads the whole screen,
+ * and the display framed is the one under the avatar, which is where the
+ * user's eye already is for this surface's state, or under the cursor when
+ * the surface is hidden: the frame is the session's rather than the
+ * surface's, since a hidden pill is not a screen that has stopped being
+ * read.
+ *
+ * A picked display that has since been unplugged falls back to the display
+ * under the surface. The session's reads of it fail and its frame would be
+ * off every screen, so framing where the user is looking says the session is
+ * still open, which is the one thing the frame must always say.
+ */
+/**
+ * What the frame is drawn around: a watch session's target, the whole screen
+ * when it has none, else what the call is being shared, else nothing.
+ *
+ * The watch session first, because its frame is the one thing on the desktop
+ * that says a machine is being read, and the two rarely disagree: a session
+ * and a share started from the same picker are almost always the same
+ * target.
+ */
+const framedTarget = (): WatchCaptureTarget | "screen" | null => {
+  if (context.watching === true) {
+    return context.captureTarget ?? "screen";
+  }
+  return context.screenShare ?? null;
+};
+
+/**
+ * The display a whole-screen frame goes on: the picked one by its id, else
+ * the one under the surface, or under the cursor when the surface is hidden.
+ * See {@link syncWatchFrame} for why each.
+ *
+ * For a target that is not a window. A window frame is placed by following
+ * the window, and the display it happens to be on is not a fact the frame
+ * is about.
+ */
+const framedDisplay = (
+  target: Extract<WatchCaptureTarget, { kind: "display" }> | undefined,
+): Display => {
+  if (target !== undefined) {
+    const display = screen
+      .getAllDisplays()
+      .find((candidate) => candidate.id === target.displayId);
+    if (display !== undefined) {
+      return display;
+    }
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  return displayUnder(
+    win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
+  );
+};
+
+/**
+ * How much of the top of the frame window the menu bar draws over, when a
+ * whole display is framed. See `CompanionSurfaceState.frameInsetTop`.
+ *
+ * Read from the same display {@link syncWatchFrame} places the frame on, so
+ * the inset and the window it describes cannot come from different screens.
+ * Nothing for a window frame, whose top edge is the window's own.
+ */
+const frameInsetTop = (): number | undefined => {
+  const framed = framedTarget();
+  if (framed === null) {
+    return undefined;
+  }
+  const target = framed === "screen" ? undefined : framed;
+  if (target?.kind === "window") {
+    return undefined;
+  }
+  const display = framedDisplay(target);
+  return Math.max(display.workArea.y - display.bounds.y, 0);
+};
+
+/**
+ * The inset the renderers were last handed, so {@link refreshGrowth} can
+ * tell a display event that moved the menu bar from one that did not.
+ *
+ * Every state a renderer receives is built by `currentState`, whether pushed
+ * or pulled on mount, so recording it there is what keeps this honest.
+ */
+let publishedFrameInsetTop: number | undefined;
+
+const publishFrameInsetTop = (): number | undefined => {
+  publishedFrameInsetTop = frameInsetTop();
+  return publishedFrameInsetTop;
+};
+
+const syncWatchFrame = (): void => {
+  // Before the frame is placed or taken down, so a mode that has lost its
+  // share is off by the time a window could be left holding the mouse for it,
+  // and marks that have lost theirs are down before the frame moves off the
+  // surface they were measured against. The pushed state that follows carries
+  // every fact at once.
+  setAnnotating(annotating);
+  syncCoachmarks();
+  syncCapturedTarget();
+  const framed = framedTarget();
+  if (framed === null) {
+    stopFollowingWindow();
+    closeWatchFrame();
+    return;
+  }
+  const target = framed === "screen" ? undefined : framed;
+  if (target?.kind === "window") {
+    followWindow(target.windowId);
+    return;
+  }
+  stopFollowingWindow();
+  placeWatchFrame(framedDisplay(target).bounds);
+};
+
+/**
+ * Make the surface the call's, or give it back to the pill, to match what
+ * main is holding.
+ *
+ * Idempotent, and run after every change to the session or the dial. Into a
+ * call: remember where the avatar rests and glide it to the bottom centre of
+ * its display. Out of one: glide the avatar home. A surface not on screen has
+ * nothing to move.
+ */
+const syncCallSurface = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (callSurfaceFor(call, dialing)) {
+    if (win === null || callHome !== null) {
+      return;
+    }
+    // Where the surface rests, which while it is gliding home is where the
+    // glide is headed rather than the point it has reached. A call that
+    // arrives on the way home must send the pill back to that home when it
+    // ends, not to wherever it was passing through when the call came.
+    callHome = glide === null ? avatarCentre(win) : glide.to;
+    const display = displayUnder(callHome);
+    glideAvatarTo(
+      win,
+      defaultAvatarCentre(display.workArea, geometry),
+      display.workArea,
+    );
+    return;
+  }
+  if (callHome === null) {
+    return;
+  }
+  const home = callHome;
+  callHome = null;
+  if (win === null) {
+    return;
+  }
+  glideAvatarTo(win, home, displayUnder(home).workArea);
+};
+
+/**
  * Clicks pass through the canvas until the renderer says the pointer is over
  * the pill.
  *
@@ -626,6 +1841,9 @@ const refreshGrowth = (): void => {
  * many times the size of anything visible.
  */
 const setInteractive = (interactive: boolean): void => {
+  // Read by the input-activity forwarder, which must not read a press on
+  // these controls as an edit in the user's document.
+  setPointerOnCompanion(interactive);
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win || win.isDestroyed()) {
     return;
@@ -635,6 +1853,77 @@ const setInteractive = (interactive: boolean): void => {
     return;
   }
   win.setIgnoreMouseEvents(true, { forward: true });
+};
+
+/**
+ * Whether Vellum is the active application.
+ *
+ * The surface stands in for the app while the user is working somewhere else,
+ * and it steps off the screen while the app itself is in front: over the app's
+ * own window it is a second copy of the same controls, floating over the chat
+ * they belong to.
+ *
+ * Read from the application's activation rather than from window focus. The
+ * panels this app floats (Quick Input, the dictation overlay, this surface)
+ * take key status without activating the app, and the main window loses key
+ * status to them, so focus says the wrong thing in both directions: a panel
+ * focused over someone else's app would count as Vellum being in front, and
+ * the main window losing focus to one would count as the user having left.
+ * Activation moves only when the user goes to another app or comes back.
+ *
+ * The main window taking focus is read as activation as well. A regular
+ * window cannot become key in an inactive app, and it is the one signal that
+ * cannot arrive early: the launch's own `did-become-active` is not promised to
+ * fire after this listener exists, while the window's first focus comes after
+ * `whenReady`.
+ */
+let appActive = false;
+
+/**
+ * Whether this module has taken the surface off the screen for the app being
+ * in front. Held here rather than read back from the window, so each decision
+ * is measured against the last one made and not against a window server
+ * answer that folds occlusion and minimisation into "visible".
+ */
+let surfaceAway = false;
+
+/**
+ * Whether the app's own window is on screen. An active app whose window has
+ * been put away from the tray, or closed, shows nothing of its own, and the
+ * surface is what stands in for it then.
+ */
+const mainWindowShowing = (): boolean => {
+  const win = currentMainWindow();
+  return win !== null && !win.isDestroyed() && win.isVisible();
+};
+
+/**
+ * Take the surface off the screen while the app is in front, and put it back
+ * when the user leaves.
+ *
+ * Hidden rather than closed, unlike the tray's choice in
+ * `setCompanionSurfaceVisible`: this is a state the user leaves by switching
+ * apps, many times an hour, and the surface has to come back exactly as it
+ * was. Closing would forget where the pill was, replay the opening placement
+ * and lose the call's home. `hide` then `showInactive` keeps the mouse
+ * forwarding that makes the canvas hit-testable, which is what `blur` would
+ * not have (see the note at `openCompanionWindow`).
+ */
+const syncFrontmost = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (!win || win.isDestroyed()) {
+    return;
+  }
+  const away = appActive && mainWindowShowing();
+  if (away === surfaceAway) {
+    return;
+  }
+  surfaceAway = away;
+  if (away) {
+    win.hide();
+    return;
+  }
+  win.showInactive();
 };
 
 /**
@@ -661,6 +1950,22 @@ export const dispatchWithoutRaising = (command: VellumCommand): void => {
   });
 };
 
+/**
+ * Come forward on the conversation the user was last in.
+ *
+ * `currentConversation` is the command the app already has for exactly this,
+ * so the surface asks for it rather than growing a path of its own, and the
+ * two degrade the same way. The renderer navigates when it has a conversation
+ * to navigate to and does nothing when it does not, which leaves the window
+ * simply coming forward. Shared by the avatar's press on a call and the
+ * surface's menu.
+ */
+const openVellum = (): void => {
+  void ensureMainWindowVisible().then(() => {
+    dispatchToMain({ kind: "currentConversation" });
+  });
+};
+
 let installed = false;
 
 /**
@@ -684,14 +1989,36 @@ let installed = false;
 export const companionContextMenuTemplate = (
   current: Record<CompanionSizeAxis, CompanionSize>,
   actions: {
+    open: () => void;
     setSize: (axis: CompanionSizeAxis, size: CompanionSize) => void;
+    resetPosition: () => void;
     hide: () => void;
   },
 ): MenuItemConstructorOptions[] => [
+  {
+    // The way back to Vellum from an idle surface. A press on the creature
+    // starts a call, so going back to the app is here, first, since it is the
+    // one item a user reaches for that is not about the surface itself.
+    label: "Open Vellum",
+    click: () => {
+      actions.open();
+    },
+  },
+  { type: "separator" as const },
   // The size pickers the tray offers too, from the one builder both read. They
-  // leave the top level short enough to read at a glance: two headings, and the
-  // one item that is not a size.
+  // leave the top level short enough to read at a glance: two headings, and
+  // two items that are not a size.
   ...companionSizeSubmenus(current, actions.setSize),
+  {
+    // Grouped with the sizes, since it is about the same thing they are: how
+    // the surface sits on the screen. The way back for a pill dragged
+    // somewhere it is in the way, or lost behind a window the user has since
+    // closed, without hiding and showing it again to get there.
+    label: "Reset Position",
+    click: () => {
+      actions.resetPosition();
+    },
+  },
   { type: "separator" as const },
   {
     // Named for what it does to the thing under the cursor. The tray's item is
@@ -732,6 +2059,10 @@ export const installCompanionWindow = (): void => {
       if (!win || win.isDestroyed()) {
         return;
       }
+      // The hand wins over a glide in flight. Left running, the glide would
+      // keep pulling the surface toward its target between the user's moves,
+      // and the pill would slide out from under the pointer.
+      cancelGlide();
       // In the avatar's coordinates, not the window's. The avatar is what the
       // hand is holding, and its offset inside the canvas changes when the card
       // direction flips, so a delta applied to the origin would drag the mascot
@@ -742,23 +2073,7 @@ export const installCompanionWindow = (): void => {
       // one it started on, so a surface dragged onto a second display is
       // clamped to that display's edges instead of being held back at the
       // first one's.
-      const { workArea } = screen.getDisplayNearestPoint({
-        x: Math.round(wanted.x),
-        y: Math.round(wanted.y),
-      });
-      const placed = placeCanvas(wanted, workArea, geometry);
-      // Before the move, not after. `setPosition` fires `move`, which runs
-      // `refreshGrowth`, which reads the avatar's position back out of the
-      // window using this exact variable, so it has to already say which
-      // offset the new origin was computed against, or the refresh measures the
-      // avatar somewhere it is not and moves the window a second time. The
-      // renderer cannot see the intervening frame: the push is a message and
-      // the move is immediate.
-      if (placed.cardGrowth !== cardGrowth) {
-        cardGrowth = placed.cardGrowth;
-        pushState();
-      }
-      win.setPosition(placed.origin.x, placed.origin.y);
+      moveAvatarTo(win, wanted, displayUnder(wanted).workArea);
     },
   );
 
@@ -773,6 +2088,12 @@ export const installCompanionWindow = (): void => {
    * some other app entirely, so "focused" would name the wrong target.
    */
   on("vellum:companion:startVoice", z.tuple([]), () => {
+    // Drawn before the press is delivered, so the pill answers the hand in
+    // the same beat: the session it asks for opens after a network round trip
+    // in a window the user cannot see.
+    if (dialOnTalk(call)) {
+      setDialing(true);
+    }
     dispatchWithoutRaising({ kind: "startVoice" });
   });
 
@@ -789,9 +2110,216 @@ export const installCompanionWindow = (): void => {
    * else, and here that work is the subject of the session: bringing Vellum
    * forward would cover the very thing the session exists to watch.
    */
-  on("vellum:companion:toggleWatch", z.tuple([]), () => {
-    dispatchWithoutRaising({ kind: "toggleWatch" });
+  on(
+    "vellum:companion:toggleWatch",
+    // An empty tuple is a press with no pick: the stop edge, or a start from
+    // a surface with no picker. Two shapes rather than an optional element,
+    // so a press sent with no argument at all parses as exactly that.
+    z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
+    ([pick]) => {
+      if (pick === undefined) {
+        pickGeneration += 1;
+        dispatchWithoutRaising({ kind: "toggleWatch" });
+        return;
+      }
+      // A tab is resolved here, before the command leaves: it takes a round
+      // trip through Chrome that the window owning the session has no way
+      // to make. A pick that cannot be resolved starts nothing, and says so
+      // in the log; a whole-screen session in place of the tab the user
+      // chose would read more than they agreed to.
+      //
+      // Only the latest pick may start anything. The round trip can be slow
+      // (the first one waits on the Automation prompt), the picker closes on
+      // the press, and a second pick made meanwhile would otherwise resolve
+      // beside the first: two toggles, one of which ends the session the
+      // other started. A press with no pick supersedes a pending one too.
+      const generation = ++pickGeneration;
+      void resolveCapturePick(pick).then((target) => {
+        if (target === null || generation !== pickGeneration) {
+          return;
+        }
+        dispatchWithoutRaising({ kind: "toggleWatch", target });
+      });
+    },
+  );
+
+  /**
+   * What a session could read right now, for the picker Teach opens. Listed
+   * on demand: the desktop changes under every push, and the list is only
+   * worth anything at the moment it is drawn.
+   */
+  handle("vellum:companion:listCaptureSources", z.tuple([]), () => {
+    // A picker opening again is the user starting over: whatever pick was
+    // still resolving belonged to the choice they just left.
+    pickGeneration += 1;
+    return listCaptureSources();
   });
+
+  /**
+   * Share, delivered to the renderer holding the session the way Watch is.
+   *
+   * The same two shapes as `toggleWatch`, and the same resolution of a tab
+   * before the command leaves; the difference is what the shapes mean. A pick
+   * is the start, or a move to a new target, and a press with none is the
+   * stop, since the surface can see a share is on and says so. The pick
+   * generation is shared with Watch's: both come from the one picker, and a
+   * pick still resolving when the other control is pressed belonged to a
+   * choice the user has left.
+   */
+  on(
+    "vellum:companion:setScreenShare",
+    z.union([z.tuple([]), z.tuple([companionCapturePickSchema])]),
+    ([pick]) => {
+      if (pick === undefined) {
+        pickGeneration += 1;
+        dispatchWithoutRaising({ kind: "setScreenShare" });
+        return;
+      }
+      const generation = ++pickGeneration;
+      void resolveCapturePick(pick).then((target) => {
+        if (target === null || generation !== pickGeneration) {
+          return;
+        }
+        dispatchWithoutRaising({ kind: "setScreenShare", target });
+      });
+    },
+  );
+
+  /**
+   * Draw, from the pill: hand the frame the mouse, or give it back.
+   *
+   * Handled here rather than forwarded, unlike Share's press beside it. What
+   * it changes is whether a window main opened is click-through, and no
+   * renderer can change that; what the pressing window gets back is
+   * `annotating` on the next push, the same way it learns a share started.
+   *
+   * A press asking for the mode with nothing shared is refused rather than
+   * remembered ({@link framesTheShare}), so the mode can never be armed
+   * ahead of a share and take a display's clicks the moment one starts.
+   */
+  on("vellum:companion:setAnnotating", z.tuple([z.boolean()]), ([next]) => {
+    setAnnotating(next);
+  });
+
+  /**
+   * Draw, from the keyboard: the same mode, flipped rather than set.
+   *
+   * A key has to be its own way back, and the side pressing it is not the
+   * side that knows which way that is. `annotating` is main's, and a renderer
+   * reading it off the pushed state would be answering with what the mode was
+   * when the last push left, which for a press made in the gap between a
+   * share starting and the state arriving is the wrong way round.
+   *
+   * Refused with nothing shared for the reason the press from the pill is
+   * ({@link canAnnotate}), and refused the same way: nothing changes, and the
+   * next push says the mode is off, which is what the desktop is doing.
+   */
+  on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
+    setAnnotating(!annotating);
+  });
+
+  /**
+   * A scroll on the frame, or the pointer moving after one, from the frame's
+   * own window.
+   *
+   * The frame is what decides where a wheel event lands, and it cannot
+   * forward one it has taken. What it can do is stop taking them: on the
+   * first the renderer sees, the frame steps aside so the rest of the scroll
+   * reaches the app underneath, and on the first forwarded move it takes the
+   * mouse back. See {@link frameScrolling}.
+   */
+  on("vellum:companion:setFrameScrolling", z.tuple([z.boolean()]), ([next]) => {
+    setFrameScrolling(next);
+  });
+
+  /**
+   * A mark drawn on the frame, delivered to the renderer holding the session
+   * the way Share's press is.
+   *
+   * Both edges travel. `drawing` is what stops that renderer sending frames
+   * mid-stroke, and it is worth as much as the `released` that carries the
+   * strokes: a circle sent half drawn is a circle around nothing.
+   *
+   * A *mark* is refused unless the mode is on, because the mode is what makes
+   * its coordinates mean anything: they are fractions of the frame, and the
+   * frame is only around the shared surface while {@link framesTheShare} holds.
+   *
+   * **A release carrying nothing is let through either way**, and the order
+   * of events is the whole reason. Lowering the mode is what unmounts the
+   * layer, and the layer lets go of the hand on its way out, so that release
+   * necessarily arrives *after* `annotating` is already false. Refused here,
+   * it would be refused exactly on the path it exists for: the `drawing` that
+   * stopped the session's frames would stand with nothing left to lift it,
+   * and the share would go on suppressing every frame until it was restarted.
+   * It carries no coordinates, so there is nothing in it for the mode to make
+   * sense of.
+   */
+  on(
+    "vellum:companion:annotateShare",
+    z.tuple([
+      companionAnnotationPhaseSchema,
+      z
+        .array(companionAnnotationStrokeSchema)
+        .max(COMPANION_ANNOTATION_MAX_STROKES),
+      companionAnnotationInkSchema,
+    ]),
+    ([phase, strokes, ink]) => {
+      const lettingGo = phase === "released" && strokes.length === 0;
+      if (!annotating && !lettingGo) {
+        return;
+      }
+      dispatchWithoutRaising({ kind: "annotateShare", phase, strokes, ink });
+    },
+  );
+
+  /**
+   * One frame of what is being shared, for the renderer holding the session
+   * to hand to it. Asked by that renderer on its own cadence, so this does
+   * nothing but reach the helper: the target is whatever the renderer was
+   * told it is sharing, and a refusal comes back as null rather than as an
+   * error, since one missed frame is not something the call should notice.
+   */
+  handle(
+    "vellum:companion:captureScreen",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => captureTargetFrame(target),
+  );
+
+  /**
+   * A frame of this surface reached the call, so the assistant has now been
+   * shown it ({@link capturedTarget}).
+   *
+   * Separate from the capture above, because taking a frame is not showing
+   * one. The renderer prepares, uploads and sends it afterwards, and an
+   * upload that fails or a reconnect that voids it means the call was shown
+   * nothing. Recorded on the capture, a share that moved would open
+   * {@link showCompanionCoachmarks} to the new surface while the only picture
+   * the assistant holds is still of the old one, which is the arrival that
+   * guard exists to refuse. A failure that never acknowledges simply leaves
+   * the gate shut, which is the safe direction.
+   *
+   * Only the window holding the session knows the frame landed, so this is
+   * told rather than settled here.
+   */
+  on(
+    "vellum:companion:sharedFrame",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => {
+      capturedTarget = target;
+    },
+  );
+
+  /**
+   * A preview of one row of the picker, for the tile it is drawn as. Asked
+   * once per display and per window the list came back with, so the answering
+   * is paced in `captureSourceThumbnail` rather than here: this handler is
+   * reached once per tile and knows nothing of the others.
+   */
+  handle(
+    "vellum:companion:captureSourceThumbnail",
+    z.tuple([watchCaptureTargetSchema]),
+    ([target]) => captureSourceThumbnail(target),
+  );
 
   /**
    * The answer to the summary question, delivered to the window that asked it.
@@ -818,6 +2346,39 @@ export const installCompanionWindow = (): void => {
   });
 
   /**
+   * The answer to the offer of a dictation's words. Never raises the app:
+   * every answer acts on the application in front, on the pasteboard, or on
+   * nothing, and the user is standing in that application.
+   *
+   * **Copy is done here** rather than passed on with the rest. Main owns the
+   * pasteboard, and the two windows either side of this one cannot use it: a
+   * renderer's clipboard write needs a focused document, and the surface's
+   * window is a click-through canvas that never takes focus.
+   *
+   * The words copied are the offer the press names, not whichever offer is
+   * standing when it arrives. A hold that replaces an offer reaches here
+   * before it reaches the surface, and a press from that gap would otherwise
+   * put words the user never read onto their pasteboard. The answer travels
+   * either way, and travels named, because the window publishing the offer
+   * has the same gap to guard against.
+   */
+  on(
+    "vellum:companion:answerDictationOffer",
+    z.tuple([z.enum(["use", "quit", "copy", "dismiss"]), z.string()]),
+    ([answer, offerId]) => {
+      const offered = context.dictationOffer;
+      if (answer === "copy" && offered?.id === offerId) {
+        clipboard.writeText(offered.text);
+      }
+      dispatchWithoutRaising({
+        kind: "answerDictationOffer",
+        answer,
+        offerId,
+      });
+    },
+  );
+
+  /**
    * The assistant's name and what the window holding it knows about the turn
    * and the sessions it is running.
    *
@@ -834,6 +2395,7 @@ export const installCompanionWindow = (): void => {
     z.tuple([companionContextSchema]),
     ([next]) => {
       context = next;
+      syncWatchFrame();
       pushState();
     },
   );
@@ -886,7 +2448,9 @@ export const installCompanionWindow = (): void => {
           options: readCompanionSize("options"),
         },
         {
+          open: openVellum,
           setSize: setCompanionSurfaceSize,
+          resetPosition: resetCompanionSurfacePosition,
           hide: () => {
             setCompanionSurfaceVisible(false);
           },
@@ -896,11 +2460,7 @@ export const installCompanionWindow = (): void => {
     menu.popup({ window: win });
   });
 
-  on("vellum:companion:activate", z.tuple([]), () => {
-    void ensureMainWindowVisible().then(() => {
-      dispatchToMain({ kind: "currentConversation" });
-    });
-  });
+  on("vellum:companion:activate", z.tuple([]), openVellum);
 
   // -------------------------------------------------------------------------
   // The running session
@@ -921,6 +2481,12 @@ export const installCompanionWindow = (): void => {
       // expected traffic; every field it carries is current, so there is
       // nothing on the running call worth preserving against it.
       call = start;
+      // The session is the answer the dial was waiting for. Cleared before the
+      // push rather than through `setDialing`, so the surface sees one state
+      // with the call on it and not a beat of neither.
+      disarmDial();
+      dialing = false;
+      syncCallSurface();
       pushState();
     },
   );
@@ -939,10 +2505,19 @@ export const installCompanionWindow = (): void => {
   );
 
   on("vellum:voiceActivity:end", z.tuple([]), () => {
+    // With no session running this is the window asked for one saying no: a
+    // first-run card to answer, an assistant with no voice, a request spent
+    // some other way. Each has shown the user something else, so the dial ends
+    // and the pill closes.
     if (call === null) {
+      setDialing(false);
       return;
     }
     call = null;
+    // The row the pick was made from is gone with the call, so a pick still
+    // resolving must not start a session over a bar that is not there.
+    pickGeneration += 1;
+    syncCallSurface();
     pushState();
   });
 
@@ -959,6 +2534,18 @@ export const installCompanionWindow = (): void => {
     "vellum:voiceActivity:control",
     z.tuple([voiceActivityControlSchema]),
     ([control]) => {
+      // The end control on a dial is the user changing their mind. The pill
+      // closes here rather than waiting for the window asked to answer, and
+      // the request is taken back by a command rather than by this control:
+      // the control is heard only where a session is owned, and a dial can be
+      // ended from a route where nothing owns one yet. The command lands in
+      // the root layout, which is mounted wherever the request was parked.
+      if (control.action === "endSession" && dialing) {
+        setDialing(false);
+        if (currentMainWindow() !== null) {
+          dispatchToMain({ kind: "cancelVoiceStart" });
+        }
+      }
       const surface = getFloatingWindow(COMPANION_KIND);
       for (const win of BrowserWindow.getAllWindows()) {
         if (
@@ -999,19 +2586,58 @@ export const installCompanionWindow = (): void => {
     if (currentMainWindow() !== null) {
       return;
     }
+    // A dial is a claim on that window too: the request it carries is gone
+    // with the renderer that parked it.
     const claiming =
-      context.watching === true || context.dictating !== undefined;
+      context.watching === true ||
+      context.screenShare !== undefined ||
+      context.dictating !== undefined ||
+      context.dictationOffer !== undefined ||
+      dialing;
     if (!claiming) {
       return;
     }
+    disarmDial();
+    dialing = false;
+    syncCallSurface();
     context = {
       ...context,
       watching: false,
+      captureTarget: undefined,
+      screenShare: undefined,
+      screenShareEnabled: false,
       dictating: undefined,
       dictationText: undefined,
+      // The offer belongs to that window too: the words and the way into the
+      // application they would go to went down with it, so an offer left
+      // standing is one whose answers do nothing.
+      dictationOffer: undefined,
     };
+    syncWatchFrame();
     pushState();
   });
+
+  // The app coming forward and going back, which is what decides whether the
+  // surface is on the screen at all while it is open. See `appActive`.
+  app.on("did-become-active", () => {
+    appActive = true;
+    syncFrontmost();
+  });
+  app.on("did-resign-active", () => {
+    appActive = false;
+    syncFrontmost();
+  });
+  app.on("browser-window-focus", (_event, win) => {
+    if (win !== currentMainWindow()) {
+      return;
+    }
+    appActive = true;
+    syncFrontmost();
+  });
+  // The app's window being shown, put away or closed moves the answer without
+  // the app's activation changing at all: a window hidden from the tray leaves
+  // Vellum active with nothing of its own on screen.
+  onMainWindowVisibilityChange(syncFrontmost);
 
   // One avatar feeds every surface, so a change to the Dock icon is a change
   // here too. Repaint only: whether there is a surface to repaint is a question
@@ -1074,6 +2700,20 @@ export const openCompanionWindow = (): void => {
       // invisible canvas rect rather than the pill inside it. Same reason the
       // dictation overlay turns it off.
       hasShadow: false,
+      // **The canvas is allowed off the bottom of the screen.** Without this
+      // macOS quietly slides a window back until its whole frame is inside the
+      // work area, and this canvas carries `dropBelow` points of empty space
+      // under the creature to hold a pill that is usually not drawn. A surface
+      // asked to sit on the bottom edge is then handed back a position a whole
+      // `dropBelow` higher, and the creature rests that far up whatever margin
+      // it was given: 40pt at the authored size. The clamp in `placeCanvas`
+      // keeps the *creature* on screen, which is the thing worth keeping
+      // there; the empty canvas around it is free to hang off.
+      //
+      // The same refusal at the top is worked around instead of lifted (see
+      // `placeCanvas`), because a canvas over the menu bar would put the
+      // introduction's card behind it.
+      enableLargerThanScreen: true,
       // **Unfocusable, like the dictation overlay.** `type: "panel"` already
       // makes the window non-activating, so clicking it never brings Vellum
       // forward; this goes further and stops it taking key status, because a
@@ -1103,6 +2743,22 @@ export const openCompanionWindow = (): void => {
 
   refreshGrowth();
   win.on("move", refreshGrowth);
+  // A home remembered for a window that no longer exists is one the next
+  // window must not be sent to: it opens where every window opens. A glide
+  // still in flight has nothing left to move.
+  win.on("closed", () => {
+    cancelGlide();
+    callHome = null;
+  });
+  // `createFloatingWindow` has already shown it. A surface opened while the
+  // app is in front, which is where a sign-in opens it from, goes straight back
+  // off the screen: it is due when the user leaves.
+  surfaceAway = false;
+  syncFrontmost();
+  // A surface shown mid-call is the call's from its first frame, and one
+  // shown mid-session has the frame beside it rather than under the cursor.
+  syncCallSurface();
+  syncWatchFrame();
 };
 
 const closeCompanionWindow = (): void => {
@@ -1172,7 +2828,13 @@ export const setCompanionSurfaceSize = (
     geometry = next;
     return;
   }
-  const centre = avatarCentre(win);
+  // Where the avatar rests, which for a glide in flight is where it is headed.
+  // The canvas is rebuilt around a point the avatar stays on, and a point it
+  // is passing through is one the next frame leaves; so the glide lands here,
+  // early, and the canvas is built around its landing. Left running, its
+  // frames would step a line measured in the old geometry across the new one.
+  const centre = glide === null ? avatarCentre(win) : glide.to;
+  cancelGlide();
   geometry = next;
   const { workArea } = screen.getDisplayNearestPoint({
     x: Math.round(centre.x),
@@ -1191,6 +2853,40 @@ export const setCompanionSurfaceSize = (
     height: geometry.canvasHeight,
   });
   pushState();
+};
+
+/**
+ * Take the avatar back to where the surface opens: the bottom centre of the
+ * display it is on (see {@link defaultAvatarCentre}). The right-click menu's
+ * "Reset Position".
+ *
+ * The display it is on rather than the one under the cursor, which is what
+ * the open reads: the menu was popped from the pill, so the two are the same
+ * display, and measuring from the pill keeps the reset answerable without a
+ * pointer. Where the pill rests, for a glide in flight, is where the glide is
+ * headed, as every other reader of its resting place has it.
+ *
+ * During a call the surface is already at this point unless the user dragged
+ * it away, and the call is holding the place the pill goes back to when the
+ * call ends. A reset asked for mid-call makes the default that place too:
+ * the user has just said where the surface belongs, and a call ending by
+ * sending it back to wherever it was before would undo that.
+ *
+ * A glide rather than a jump, the way the call moves it, and instant under
+ * "Reduce motion" for the same reason.
+ */
+export const resetCompanionSurfacePosition = (): void => {
+  const win = getFloatingWindow(COMPANION_KIND);
+  if (win === null || win.isDestroyed()) {
+    return;
+  }
+  const resting = glide === null ? avatarCentre(win) : glide.to;
+  const { workArea } = displayUnder(resting);
+  const home = defaultAvatarCentre(workArea, geometry);
+  if (callHome !== null) {
+    callHome = home;
+  }
+  glideAvatarTo(win, home, workArea);
 };
 
 /**

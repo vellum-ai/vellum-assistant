@@ -2,6 +2,8 @@
  * Centralized error handling for runtime HTTP request dispatch.
  */
 
+import { IpcConnectError } from "@vellumai/gateway-client/ipc-client";
+
 import { ConfigError, ProviderNotConfiguredError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -30,6 +32,14 @@ export async function withErrorHandling(
     if (err instanceof ConfigError) {
       log.warn({ err, endpoint }, "Runtime HTTP config error");
       return httpError("UNPROCESSABLE_ENTITY", err.message, 422);
+    }
+    if (err instanceof IpcConnectError) {
+      log.warn({ err, endpoint }, "Gateway IPC is unreachable");
+      return httpError(
+        "SERVICE_UNAVAILABLE",
+        `Gateway is not reachable over IPC: ${err.message}`,
+        503,
+      );
     }
     log.error({ err, endpoint }, "Runtime HTTP handler error");
     const message =

@@ -61,8 +61,10 @@ type OverlayView =
   | "acp-run-detail"
   | "background-task-detail"
   | "skill-detail"
+  | "wake-detail"
   | "channel-setup"
-  | "channel-transcript";
+  | "channel-transcript"
+  | "chat-info";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -134,8 +136,10 @@ function resolveViewBefore(
     | "viewBeforeAcpRunDetail"
     | "viewBeforeBackgroundTaskDetail"
     | "viewBeforeSkillDetail"
+    | "viewBeforeWakeDetail"
     | "viewBeforeChannelSetup"
-    | "viewBeforeChannelTranscript",
+    | "viewBeforeChannelTranscript"
+    | "viewBeforeChatInfo",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -148,8 +152,10 @@ function resolveViewBefore(
     mv === "acp-run-detail" ||
     mv === "background-task-detail" ||
     mv === "skill-detail" ||
+    mv === "wake-detail" ||
     mv === "channel-setup" ||
-    mv === "channel-transcript"
+    mv === "channel-transcript" ||
+    mv === "chat-info"
   ) {
     return state[field];
   }
@@ -173,8 +179,10 @@ export type MainView =
   | "acp-run-detail"
   | "background-task-detail"
   | "skill-detail"
+  | "wake-detail"
   | "channel-setup"
-  | "channel-transcript";
+  | "channel-transcript"
+  | "chat-info";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -413,6 +421,21 @@ export interface ToolDetailPayload {
  * the live source can't be resolved (message paged out, or identity-less
  * callers like stories).
  */
+/**
+ * Payload for the wake-detail side panel: everything the transcript card
+ * folds away behind "View details".
+ *
+ * A snapshot rather than a surface id, because a wake card is written once and
+ * never revised: there is no later version of it for the panel to miss, and a
+ * lookup would strand the panel empty whenever the message it came from has
+ * been paged out of the loaded transcript window.
+ */
+export interface WakeDetailPayload {
+  title: string;
+  body: string;
+  metadata: Array<{ label: string; value: string }>;
+}
+
 export interface ActivityStepsPayload {
   messageId?: string;
   groupIndex?: number;
@@ -454,6 +477,47 @@ export function sameMessageFilesTarget(
   b: MessageFilesPayload,
 ): boolean {
   return a.messageId === b.messageId;
+}
+
+/** The asset categories the chat-info panel groups a conversation into. */
+export type ChatInfoCategory = "apps" | "files" | "frames";
+
+/** What the chat-info panel is showing: one conversation, at one level. */
+export interface ChatInfoPayload {
+  assistantId: string;
+  conversationId: string;
+  /**
+   * The category drilled into through See All. `null` is the top level, where
+   * every category shows one truncated row.
+   */
+  category: ChatInfoCategory | null;
+}
+
+/**
+ * The identity of a chat-info target. Conversation ids are assistant-scoped,
+ * so both halves name it; hosts key the panel on this so a retarget remounts
+ * it rather than carrying preview and pending-delete state across.
+ */
+export function chatInfoTargetKey(
+  target: Pick<ChatInfoPayload, "assistantId" | "conversationId">,
+): string {
+  return `${target.assistantId}:${target.conversationId}`;
+}
+
+/**
+ * Whether the chat-info panel is on screen showing `target`. Single source of
+ * truth for the header trigger's selected state, the trigger's own teardown,
+ * and the store's toggle.
+ */
+export function sameChatInfoTarget(
+  state: Pick<ViewerState, "mainView" | "activeChatInfo">,
+  target: Pick<ChatInfoPayload, "assistantId" | "conversationId">,
+): boolean {
+  return (
+    state.mainView === "chat-info" &&
+    state.activeChatInfo !== null &&
+    chatInfoTargetKey(state.activeChatInfo) === chatInfoTargetKey(target)
+  );
 }
 
 /** The identity fields a thinking drawer target is matched on. */
@@ -506,6 +570,8 @@ export interface ViewerState {
   viewBeforeActivitySteps: Exclude<MainView, OverlayView>;
   activeMessageFiles: MessageFilesPayload | null;
   viewBeforeMessageFiles: Exclude<MainView, OverlayView>;
+  activeChatInfo: ChatInfoPayload | null;
+  viewBeforeChatInfo: Exclude<MainView, OverlayView>;
   activeWorkflowRunId: string | null;
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
@@ -514,6 +580,8 @@ export interface ViewerState {
   viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
   activeSkillDetailId: string | null;
   viewBeforeSkillDetail: Exclude<MainView, OverlayView>;
+  activeWakeDetail: WakeDetailPayload | null;
+  viewBeforeWakeDetail: Exclude<MainView, OverlayView>;
   activeChannelSetup: ChannelSetupPayload | null;
   viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
@@ -571,6 +639,10 @@ export interface ViewerActions {
   openSkillDetail: (skillId: string) => void;
   closeSkillDetail: () => void;
 
+  // --- Wake detail ---
+  openWakeDetail: (payload: WakeDetailPayload) => void;
+  closeWakeDetail: () => void;
+
   // --- Process-detail routing facade ---
   /**
    * Opens any background-process detail panel by `{ kind, id }`, delegating to
@@ -621,13 +693,37 @@ export interface ViewerActions {
   toggleMessageFiles: (payload: MessageFilesPayload) => void;
   closeMessageFiles: () => void;
 
+  // --- Chat info panel ---
+  /** Open the chat-info panel for `target`, at the top level. */
+  openChatInfo: (target: {
+    assistantId: string;
+    conversationId: string;
+  }) => void;
+  /**
+   * Open the chat-info panel for `target`, or close it when it is already
+   * showing the SAME conversation. Powers the header trigger, where clicking
+   * the already-active control dismisses the panel.
+   */
+  toggleChatInfo: (target: {
+    assistantId: string;
+    conversationId: string;
+  }) => void;
+  closeChatInfo: () => void;
+  /** Drill into a category (See All) or back out (`null`). No-op unless the panel is open. */
+  setChatInfoCategory: (category: ChatInfoCategory | null) => void;
+
   /**
    * Drop the payloads of the panels whose content is scoped to one
    * conversation's transcript. Called on conversation switch: overlay
    * panels are dismissed when the viewer returns to chat, and holding
    * their payloads keeps the previous conversation's data alive -
    * `activeMessageFiles` in particular retains decoded attachment blob/data
-   * URLs. Leaves `mainView` alone; this is a memory concern, not navigation.
+   * URLs.
+   *
+   * Leaves `mainView` alone except for `"chat-info"`, which it restores to
+   * the view the panel was opened from: that panel is the conversation's own,
+   * so a switch that takes its payload has to take the view with it rather
+   * than leave an empty panel on screen.
    */
   clearTranscriptPanelPayloads: () => void;
 
@@ -723,6 +819,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeActivitySteps: "chat",
   activeMessageFiles: null,
   viewBeforeMessageFiles: "chat",
+  activeChatInfo: null,
+  viewBeforeChatInfo: "chat",
   activeWorkflowRunId: null,
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
@@ -731,6 +829,8 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeBackgroundTaskDetail: "chat",
   activeSkillDetailId: null,
   viewBeforeSkillDetail: "chat",
+  activeWakeDetail: null,
+  viewBeforeWakeDetail: "chat",
   activeChannelSetup: null,
   viewBeforeChannelSetup: "chat",
   activeChannelTranscript: null,
@@ -955,6 +1055,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  // --- Wake detail ---
+
+  openWakeDetail: (payload) => {
+    set({
+      mainView: "wake-detail",
+      activeWakeDetail: payload,
+      viewBeforeWakeDetail: resolveViewBefore(get(), "viewBeforeWakeDetail"),
+    });
+  },
+
+  closeWakeDetail: () => {
+    set({
+      mainView: get().viewBeforeWakeDetail,
+      activeWakeDetail: null,
+    });
+  },
+
   // --- Process-detail routing facade ---
 
   openProcessDetail: ({ kind, id }) => {
@@ -1007,11 +1124,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       case "skill-detail":
         get().closeSkillDetail();
         return true;
+      case "wake-detail":
+        get().closeWakeDetail();
+        return true;
       case "channel-setup":
         get().closeChannelSetup();
         return true;
       case "channel-transcript":
         get().closeChannelTranscript();
+        return true;
+      case "chat-info":
+        // Alone among the overlays, this one's second level lives in the
+        // store, so Escape and Android Back pop the drill-in before the panel.
+        if (get().activeChatInfo?.category != null) {
+          get().setChatInfoCategory(null);
+        } else {
+          get().closeChatInfo();
+        }
         return true;
       default:
         return false;
@@ -1210,11 +1339,59 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     });
   },
 
+  // --- Chat info panel ---
+
+  openChatInfo: (target) => {
+    set({
+      mainView: "chat-info",
+      activeChatInfo: {
+        assistantId: target.assistantId,
+        conversationId: target.conversationId,
+        category: null,
+      },
+      viewBeforeChatInfo: resolveViewBefore(get(), "viewBeforeChatInfo"),
+    });
+  },
+
+  toggleChatInfo: (target) => {
+    if (sameChatInfoTarget(get(), target)) {
+      get().closeChatInfo();
+    } else {
+      get().openChatInfo(target);
+    }
+  },
+
+  closeChatInfo: () => {
+    set({
+      mainView: get().viewBeforeChatInfo,
+      activeChatInfo: null,
+    });
+  },
+
+  setChatInfoCategory: (category) => {
+    const state = get();
+    const active = state.activeChatInfo;
+    if (
+      state.mainView !== "chat-info" ||
+      active == null ||
+      active.category === category
+    ) {
+      return;
+    }
+    set({ activeChatInfo: { ...active, category } });
+  },
+
   clearTranscriptPanelPayloads: () => {
+    const { mainView, viewBeforeChatInfo } = get();
     set({
       activeMessageFiles: null,
       activeActivitySteps: null,
       activeToolDetail: null,
+      activeChatInfo: null,
+      // The chat-info panel is about the conversation itself, so the switch
+      // that drops its payload has to settle its view too. The other three
+      // are reached from a transcript row and are already off screen.
+      mainView: mainView === "chat-info" ? viewBeforeChatInfo : mainView,
     });
   },
 

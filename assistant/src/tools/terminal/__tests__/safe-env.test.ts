@@ -1,4 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  test,
+} from "bun:test";
 
 import {
   buildSanitizedEnv,
@@ -37,6 +47,23 @@ describe("safe-env Qdrant forwarding", () => {
     process.env.QDRANT_URL = "http://external:6333";
     const env = buildSanitizedEnv();
     expect(env.QDRANT_URL).toBeUndefined();
+  });
+});
+
+describe("safe-env CES vault isolation", () => {
+  test("strips the CES HTTP bearer and credential URL from child shells", () => {
+    expect(SAFE_ENV_VARS).not.toContain("CES_SERVICE_TOKEN");
+    expect(SAFE_ENV_VARS).not.toContain("CES_CREDENTIAL_URL");
+    expect(SAFE_ENV_VARS).toContain("CES_LOCAL_SOCKET");
+
+    const env = buildSanitizedEnv("linux", {
+      CES_SERVICE_TOKEN: "vault-bearer",
+      CES_CREDENTIAL_URL: "http://127.0.0.1:8090",
+      CES_LOCAL_SOCKET: "/tmp/ces.sock",
+    });
+    expect(env.CES_SERVICE_TOKEN).toBeUndefined();
+    expect(env.CES_CREDENTIAL_URL).toBeUndefined();
+    expect(env.CES_LOCAL_SOCKET).toBe("/tmp/ces.sock");
   });
 });
 
@@ -96,5 +123,54 @@ describe("safe-env Windows forwarding", () => {
     );
     expect(windowsEnv.SystemRoot).toBe("C:\\Windows");
     expect(windowsEnv.COMSPEC).toBe("C:\\Windows\\System32\\cmd.exe");
+  });
+});
+
+describe("safe-env PATH scrubbing", () => {
+  let root: string;
+  let shimDir: string;
+  let realNodeDir: string;
+  let emptyDir: string;
+
+  beforeAll(() => {
+    // Directly under a temp root, so it matches the shape Bun synthesizes.
+    shimDir = mkdtempSync(join(tmpdir(), "bun-node-"));
+    root = mkdtempSync(join(tmpdir(), "safe-env-path-"));
+    realNodeDir = join(root, "real-bin");
+    emptyDir = join(root, "empty-bin");
+    mkdirSync(realNodeDir);
+    mkdirSync(emptyDir);
+    writeFileSync(join(realNodeDir, "node"), "", { mode: 0o755 });
+  });
+
+  afterAll(() => {
+    rmSync(shimDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  test("drops Bun's synthesized node shim dir, keeping the rest in order", () => {
+    const env = buildSanitizedEnv("linux", {
+      PATH: `${shimDir}:${realNodeDir}:/usr/bin:/bin`,
+    });
+
+    expect(env.PATH).toBe(`${realNodeDir}:/usr/bin:/bin`);
+  });
+
+  test("keeps a similarly named directory outside the temp dir", () => {
+    const env = buildSanitizedEnv("linux", {
+      PATH: `${realNodeDir}:/home/assistant/bun-node-tools:/usr/bin`,
+    });
+
+    expect(env.PATH).toBe(
+      `${realNodeDir}:/home/assistant/bun-node-tools:/usr/bin`,
+    );
+  });
+
+  test("keeps the shim when it is the only node on PATH", () => {
+    const env = buildSanitizedEnv("linux", {
+      PATH: `${shimDir}:${emptyDir}`,
+    });
+
+    expect(env.PATH).toBe(`${shimDir}:${emptyDir}`);
   });
 });

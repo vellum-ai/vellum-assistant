@@ -25,6 +25,21 @@ export function nonEmpty(value: string | null | undefined): string | undefined {
 }
 
 /**
+ * Models sometimes write the two-character sequence `\n` (or `\t`) instead of
+ * a real line break. Turn those into actual newlines so a briefing stored as
+ * a notification body still parses as markdown.
+ *
+ * Real newlines and tabs are left alone. A backslash that is not part of `\n`
+ * or `\t` is left alone too.
+ */
+export function decodeLiteralLineBreaks(text: string): string {
+  if (!text.includes("\\")) {
+    return text;
+  }
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
+/**
  * Safely read a string property from an unknown-typed payload object.
  * Returns `undefined` when the payload is falsy, not an object, or the
  * key does not hold a string value.
@@ -361,13 +376,21 @@ export function stripRequestCodeDirectives(
  * becomes `ask`, the request's own deterministic text, so a card surface
  * never shows the mechanics it exists to avoid; without one it keeps its
  * text rather than becoming empty, which downstream reads as missing copy.
- * A title is a headline, never the ask, so a mechanics-only title keeps
- * its text.
+ * A title left empty becomes `headline`, the deterministic title for the
+ * request kind: a title is a headline, never the ask, and the banner shows
+ * it, so a mechanics-only title must not survive either.
  */
 export function stripReplyMechanicsFromCopy(
   copy: RenderedChannelCopy,
-  strip: (text: string) => string,
-  ask: string | undefined,
+  {
+    strip,
+    ask,
+    headline,
+  }: {
+    strip: (text: string) => string;
+    ask: string | undefined;
+    headline: string;
+  },
 ): RenderedChannelCopy {
   const fallback = ask === undefined ? undefined : nonEmpty(ask);
   const stripField = (text: string): string => {
@@ -377,7 +400,7 @@ export function stripReplyMechanicsFromCopy(
   const strippedTitle = strip(copy.title);
   return {
     ...copy,
-    title: strippedTitle.length > 0 ? strippedTitle : copy.title,
+    title: strippedTitle.length > 0 ? strippedTitle : headline,
     body: stripField(copy.body),
     deliveryText: copy.deliveryText
       ? stripField(copy.deliveryText)

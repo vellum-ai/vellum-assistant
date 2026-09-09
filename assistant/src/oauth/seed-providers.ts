@@ -969,10 +969,143 @@ export const PROVIDER_SEED_DATA: Record<
     dashboardUrl: "https://www.figma.com/developers/apps",
     clientIdPlaceholder: null,
     logoUrl: "https://cdn.simpleicons.org/figma",
-    defaultScopes: ["files:read", "file_comments:write"],
-    availableScopes: "https://developers.figma.com/docs/rest-api/scopes/",
+    // Figma access tokens expire after 90 days and a refresh token is issued
+    // with every grant, so the refresh endpoint is wired up. Both the token
+    // and refresh endpoints authenticate the client with HTTP Basic
+    // (client_secret_basic), not form-encoded credentials.
+    refreshUrl: "https://api.figma.com/v1/oauth/refresh",
+    // Granular scopes only. The legacy `files:read` scope is deprecated by
+    // Figma in favour of the narrower `file_*` scopes and is deliberately
+    // absent here; it stays in availableScopes for BYO apps that still rely
+    // on it. Enterprise-only and org-admin-only scopes (file_variables:*,
+    // library_analytics:read, org:*) are offered but not requested by
+    // default, because Figma rejects the whole authorization request if the
+    // app cannot grant a requested scope. `selections:read` is withheld for
+    // that same reason: it is not offered in the app's OAuth scope list, so
+    // requesting it would fail the entire authorization.
+    defaultScopes: [
+      "current_user:read",
+      "file_content:read",
+      "file_metadata:read",
+      "file_versions:read",
+      "file_comments:read",
+      "file_comments:write",
+      "file_dev_resources:read",
+      "file_dev_resources:write",
+      "folders:read",
+      "folder_metadata:read",
+      "library_content:read",
+      "library_assets:read",
+      "team_library_content:read",
+    ],
+    availableScopes: [
+      {
+        scope: "current_user:read",
+        description: "Read your name, email, and profile image",
+      },
+      {
+        scope: "file_content:read",
+        description:
+          "Read the contents of files, such as nodes and the editor type",
+      },
+      {
+        scope: "file_metadata:read",
+        description: "Read metadata of files",
+      },
+      {
+        scope: "file_versions:read",
+        description: "Read the version history for files you can access",
+      },
+      {
+        scope: "file_comments:read",
+        description: "Read the comments for files",
+      },
+      {
+        scope: "file_comments:write",
+        description: "Post and delete comments and comment reactions in files",
+      },
+      {
+        scope: "file_dev_resources:read",
+        description: "Read dev resources in files",
+      },
+      {
+        scope: "file_dev_resources:write",
+        description: "Write dev resources to files",
+      },
+      {
+        scope: "folders:read",
+        description: "List folders and files in folders",
+      },
+      {
+        scope: "folder_metadata:read",
+        description: "Read metadata of folders",
+      },
+      {
+        scope: "library_content:read",
+        description: "Read published components and styles of files",
+      },
+      {
+        scope: "library_assets:read",
+        description: "Read data of individual published components and styles",
+      },
+      {
+        scope: "team_library_content:read",
+        description: "Read published components and styles of teams",
+      },
+      {
+        scope: "selections:read",
+        description: "Read most recent selection in files you can access",
+      },
+      {
+        scope: "file_variables:read",
+        description: "Read variables in files (Enterprise plan only)",
+      },
+      {
+        scope: "file_variables:write",
+        description:
+          "Write variables and collections in files (Enterprise plan only)",
+      },
+      {
+        scope: "library_analytics:read",
+        description: "Read your design system analytics (Enterprise plan only)",
+      },
+      {
+        scope: "webhooks:read",
+        description: "Read metadata of webhooks",
+      },
+      {
+        scope: "webhooks:write",
+        description: "Create and manage webhooks",
+      },
+      {
+        scope: "org:activity_log_read",
+        description:
+          "Read organization activity logs (Enterprise plan, org admin only)",
+      },
+      {
+        scope: "org:ai_metering_usage_read",
+        description:
+          "Read organization AI usage (Enterprise plan, org admin only)",
+      },
+      {
+        scope: "org:developer_log_read",
+        description:
+          "Read organization developer logs (Governance+, org admin only)",
+      },
+      {
+        scope: "org:discovery_read",
+        description:
+          "Read text event data in the organization (Governance+, org admin only)",
+      },
+      {
+        scope: "files:read",
+        description:
+          "Deprecated by Figma. Broad read access to files, folders, users, versions, comments, components, styles, and webhooks",
+      },
+    ],
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17331,
+    managedServiceConfigKey: "figma-oauth",
     injectionTemplates: [
       {
         hostPattern: "api.figma.com",
@@ -983,7 +1116,11 @@ export const PROVIDER_SEED_DATA: Record<
     ],
     appType: "App",
     identityUrl: "https://api.figma.com/v1/me",
-    identityResponsePaths: ["handle", "email"],
+    // GET /v1/me returns a flat user object: { id, handle, img_url, email }.
+    // `id` is the stable account identifier; email is the friendlier label
+    // with handle as the fallback.
+    identityResponsePaths: ["email", "handle"],
+    featureFlag: "figma-oauth",
   },
 
   outlook: {
@@ -1130,6 +1267,68 @@ export const PROVIDER_SEED_DATA: Record<
         valuePrefix: "Bearer ",
       },
     ],
+  },
+  stripe_link: {
+    provider: "stripe_link",
+    authorizeUrl: "https://login.link.com/auth",
+    tokenExchangeUrl: "https://login.link.com/auth/token",
+    refreshUrl: "https://login.link.com/auth/token",
+    revokeUrl: "https://login.link.com/auth/revoke",
+    revokeBodyTemplate: {
+      token: "{access_token}",
+      token_type_hint: "access_token",
+    },
+    pingUrl: "https://api.link.com/userinfo",
+    baseUrl: "https://api.link.com",
+    displayLabel: "Link by Stripe",
+    description: "Wallet payment methods for agent purchases",
+    dashboardUrl: "https://dashboard.stripe.com",
+    // Link issues OAuth clients by request rather than through a self-serve
+    // dashboard, so there is no placeholder shape to suggest.
+    clientIdPlaceholder: null,
+    // Clients draw the bundled Link symbol; this remote fallback carries the
+    // parent Stripe mark because Simple Icons has no Link one (`link` 404s on
+    // the CDN).
+    logoUrl: "https://cdn.simpleicons.org/stripe",
+    defaultScopes: ["payment_methods.agentic", "userinfo:read"],
+    availableScopes: [
+      {
+        scope: "payment_methods.agentic",
+        description:
+          "Create single-use cards and payment tokens against the wallet",
+      },
+      {
+        scope: "userinfo:read",
+        description: "Read the wallet owner's profile (email, name, phone)",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_post",
+    // Link's authorize request also needs a `key` param holding the Stripe
+    // publishable key of the account behind the OAuth client. Vellum's own
+    // key lives in the platform registry, which is the only place it is the
+    // right answer: it pairs with the platform's client_id. Seeding it here
+    // would hand every self-hosted install our merchant identity to send
+    // alongside their own client_id, so BYO is deliberately left without one.
+    // See setupNotes.
+    loopbackPort: 17340,
+    managedServiceConfigKey: "stripe-link-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.link.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    setupNotes: [
+      "Link is available in managed mode only. Its authorize endpoint requires a `key` parameter carrying the Stripe publishable key for the account that owns the OAuth client, and a bring-your-own connection has nowhere to put one: authorizeParams is re-stamped from seed data on every startup and no CLI or API surface sets it. Use managed mode, where the platform supplies both halves.",
+    ],
+    // /userinfo returns no id, so email is the only stable-ish handle; phone
+    // backstops a wallet that has one but no email on file.
+    identityUrl: "https://api.link.com/userinfo",
+    identityResponsePaths: ["email", "phone"],
+    featureFlag: "stripe-link-oauth",
   },
 };
 

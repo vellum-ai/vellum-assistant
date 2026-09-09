@@ -32,7 +32,16 @@
       "scope": "client",
       "key": "vision-mode",
       "label": "Vision Mode",
-      "description": "Gates the Eyes camera surface in the web composer: the toggle, the floating viewfinder tile, and the send-frame path are all reachable only through the toggle. String-valued so future A/B arms can be added as new values.",
+      "description": "Gates hold-to-Live ambient frame sampling in the voice room camera. String-valued so future A/B arms can be added as new values.",
+      "defaultEnabled": "off",
+      "values": ["off", "on"]
+    },
+    {
+      "id": "assistant-initiated-threads",
+      "scope": "assistant",
+      "key": "assistant-initiated-threads",
+      "label": "Assistant-Initiated Threads",
+      "description": "Gates the sidebar section collecting the conversations the assistant started on its own: rows stamped `source='assistant_initiated'` at creation by producers that opt a thread in (heartbeat realizations worth the user's time; nothing stamps it yet, so the section starts empty and holds only new threads by construction). Transactional notification trails keep `source='notification'` and stay in Chats and the bell. When on, the daemon emits an `assistant` row from the section index and withholds member conversations from the Chats bucket; when off, they stay in Chats and no `assistant` row is emitted, which is the shipped behavior. Deliberately daemon-scope only: the index row is self-describing, so clients render the section on its presence rather than on a flag of their own. A second client-side gate could only hide a section whose rows the daemon has already withheld from Chats, which would lose those threads instead of reverting the feature. String-valued so future A/B arms can be added as new values.",
       "defaultEnabled": "off",
       "values": ["off", "on"]
     },
@@ -67,6 +76,14 @@
       "key": "settings-developer-nav",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
+      "defaultEnabled": false
+    },
+    {
+      "id": "vellum-hosted-inference",
+      "scope": "assistant",
+      "key": "vellum-hosted-inference",
+      "label": "Vellum Hosted Inference",
+      "description": "Show Vellum-hosted GPU models (Qwen3 8B) in the catalog and the Settings Personality sliders that steer them.",
       "defaultEnabled": false
     },
     {
@@ -194,7 +211,7 @@
       "scope": "client",
       "key": "camera-gate-debug-hud",
       "label": "Camera Gate Debug HUD",
-      "description": "Unlock the camera frame gate's tuning readout: the Settings toggle that turns it on, and the live panel over the composer's sight tile and the voice room's viewfinder showing motion, novelty and detail against their thresholds, the check that decided each frame, and sliders that move those thresholds while the camera runs. Staff sessions get it without the flag; the flag is for local gateway sessions, which carry no platform identity and are where the gate is tuned.",
+      "description": "Unlock the camera frame gate's tuning readout: the switch in the camera's view options that turns it on, and the live panel over the composer's sight tile and the voice room's viewfinder showing motion, novelty and detail against their thresholds, the check that decided each frame, and sliders that move those thresholds while the camera runs. Staff sessions get it without the flag; the flag is for local gateway sessions, which carry no platform identity and are where the gate is tuned.",
       "defaultEnabled": false
     },
     {
@@ -358,6 +375,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "schedule-result-notify",
+      "scope": "assistant",
+      "key": "schedule-result-notify",
+      "label": "Schedule Result Notify",
+      "description": "Gates the `schedule.result` fallback notification the assistant sends when an execute-mode schedule run produces user-facing output but never notifies about it itself. On by default; turn it off to return to notify-only-if-the-run-said-so, where a scheduled briefing can run and leave no trace outside its own conversation.",
+      "defaultEnabled": true
+    },
+    {
       "id": "assistant-reply-push",
       "scope": "assistant",
       "key": "assistant-reply-push",
@@ -366,19 +391,19 @@
       "defaultEnabled": true
     },
     {
-      "id": "desktop-presence-suppression",
+      "id": "activity-presence-suppression",
       "scope": "assistant",
-      "key": "desktop-presence-suppression",
-      "label": "Desktop Presence Suppression",
-      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a Mac desktop client reports itself attended. On by default; turn it off to restore unconditional reply pushes.",
-      "defaultEnabled": true
+      "key": "activity-presence-suppression",
+      "label": "Activity Presence Suppression",
+      "description": "Gates whether a background-activity failure notification is suppressed while a client reports itself visible on that conversation. Off by default; turn it on to stop notifying about work the user is already watching.",
+      "defaultEnabled": false
     },
     {
       "id": "web-presence-suppression",
       "scope": "assistant",
       "key": "web-presence-suppression",
       "label": "Web Presence Suppression",
-      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a browser tab reports itself visible on that conversation. On by default; turn it off to restore unconditional reply pushes for web-visible conversations.",
+      "description": "Gates whether a `chat.assistant_reply` push is suppressed while a browser tab or desktop app window reports itself visible on that conversation. On by default; turn it off to restore unconditional reply pushes for web-visible conversations.",
       "defaultEnabled": true
     },
     {
@@ -415,11 +440,27 @@
       "defaultEnabled": false
     },
     {
+      "id": "stripe-link-oauth",
+      "scope": "assistant",
+      "key": "stripe-link-oauth",
+      "label": "Link by Stripe Integration",
+      "description": "Gates the seeded Link by Stripe OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes. Off by default because a connected wallet lets an assistant spend real money.",
+      "defaultEnabled": false
+    },
+    {
       "id": "monday-oauth",
       "scope": "assistant",
       "key": "monday-oauth",
       "label": "monday.com Integration",
       "description": "Gates the seeded monday.com OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "figma-oauth",
+      "scope": "assistant",
+      "key": "figma-oauth",
+      "label": "Figma Integration",
+      "description": "Gates the seeded Figma OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup, and existing connections keep injecting credentials; only its visibility changes.",
       "defaultEnabled": false
     },
     {
@@ -436,6 +477,14 @@
       "key": "model-first-profile-create",
       "label": "Model-First Profile Create",
       "description": "Reverses the two questions the web client's New Model modal asks when creating an inference profile. Off: the modal asks for a provider first and then offers that provider's models. On: it opens on one searchable list of every catalog model the assistant can reach, deduplicated across providers, and only then asks which provider serves the chosen model. That second question is skipped when a single provider serves it, answered with radio cards when several do, and turned into an inline connect form (API key, setup, or ChatGPT sign-in) when the chosen route has no connection yet. Editing an existing profile is unchanged either way, and both flows persist the same profile shape.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "velay-webhooks",
+      "scope": "assistant",
+      "key": "velay-webhooks",
+      "label": "Velay Webhooks",
+      "description": "Platform pods resolve webhook callback URLs from the Velay-published ingress URL instead of registering platform callback routes. Falls back to platform callback registration while no tunnel URL is published.",
       "defaultEnabled": false
     }
   ]

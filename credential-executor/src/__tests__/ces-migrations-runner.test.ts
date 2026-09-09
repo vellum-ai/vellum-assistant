@@ -80,6 +80,7 @@ mock.module("pino", () => ({ default: mockPinoLogger }));
 mock.module("pino-pretty", () => ({ default: (): object => ({}) }));
 
 // Import after mocking
+import { initLogger } from "../logger.js";
 import { runCesMigrations } from "../migrations/runner.js";
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,9 @@ function makeMigration(id: string): CesMigration {
 
 describe("runCesMigrations", () => {
   beforeEach(() => {
+    // Rebuild the module-level root logger from the mocked pino, discarding any
+    // real logger a previously-executed test file left cached.
+    initLogger({ dir: undefined, retentionDays: 0 });
     mockFileExists = false;
     mockFileContents = null;
     existsSyncFn.mockClear();

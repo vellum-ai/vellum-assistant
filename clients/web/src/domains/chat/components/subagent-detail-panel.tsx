@@ -19,7 +19,7 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { DetailShell } from "@/components/detail-shell";
+import { DetailShell, DetailShellNotice } from "@/components/detail-shell";
 import {
   AnimatedMetricCard,
   formatNumber,
@@ -43,10 +43,9 @@ import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-gro
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import {
   ToolDetailBody,
+  ToolDetailHeaderTitle,
   toolDetailHeaderTitle,
 } from "@/domains/chat/components/tool-detail-panel";
-import { WebFetchDetailView } from "@/domains/chat/components/web-fetch/web-fetch-detail-view";
-import { WebSearchDetailView } from "@/domains/chat/components/web-search/web-search-detail-view";
 import { useSubagentSteps } from "@/domains/chat/subagent-step-projection";
 import { useSubagentStepDetails } from "@/domains/chat/subagent-detail-projection";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
@@ -270,6 +269,12 @@ export function SubagentDetailPanel({
   // The header title tracks the breadcrumb's deepest crumb: the subagent at the
   // timeline, the drilled-into step once a detail is open.
   const headerTitle = activeDetail ? detailTitle : entry.label;
+  // A drilled-into tool step gets the shared tool-detail header so it is headed
+  // the same way as in the main panel; thinking steps and the timeline keep the
+  // plain string title.
+  const showToolHeader = Boolean(
+    activeDetail && activeDetail.kind !== "thinking",
+  );
 
   return (
     <DetailShell
@@ -341,7 +346,12 @@ export function SubagentDetailPanel({
           )}
         </>
       }
-      title={headerTitle}
+      title={showToolHeader ? undefined : headerTitle}
+      titleNode={
+        showToolHeader && activeDetail ? (
+          <ToolDetailHeaderTitle detail={activeDetail} />
+        ) : undefined
+      }
       headerTrailing={<StatusBadge status={entry.status} />}
       headerActions={
         isRunning && onStop ? (
@@ -370,25 +380,15 @@ export function SubagentDetailPanel({
             <>
               {/* Navigation back to the timeline lives in the header (Back button)
               and the breadcrumb; this body only renders the step's detail.
-              Thinking steps render their full reasoning markdown statically
-              (subagent detail isn't a live chat-session source); web_search
-              steps render their query + source links; web_fetch gets a
-              result-shaped view; other tools fall back to the shared
-              technical-details/output body. */}
+              Thinking steps render their reasoning markdown statically, because
+              subagent detail is not a live chat-session source; every tool goes
+              through `ToolDetailBody`, which picks its renderer. */}
               {activeDetail.kind === "thinking" ? (
                 <ChatMarkdownMessage
                   content={activeDetail.thinkingText ?? ""}
                   hardLineBreaks
                   assistantId={assistantId}
                 />
-              ) : activeDetail.kind === "web_search" &&
-                activeDetail.status !== "error" ? (
-                // A successful search shows query + sources; a FAILED one falls
-                // through to `ToolDetailBody`, which renders its full, untruncated
-                // error in the Output section — parity with a failed tool.
-                <WebSearchDetailView detail={activeDetail} />
-              ) : activeDetail.toolName === "web_fetch" ? (
-                <WebFetchDetailView detail={activeDetail} />
               ) : (
                 <ToolDetailBody
                   detail={activeDetail}
@@ -517,12 +517,9 @@ export function SubagentDetailPanel({
                     isRunning={isRunning}
                   />
                 ) : (
-                  <Typography
-                    variant="body-small-default"
-                    className="py-4 text-center text-[var(--content-tertiary)]"
-                  >
+                  <DetailShellNotice>
                     {t("subagentDetailPanel.noEventsYet")}
-                  </Typography>
+                  </DetailShellNotice>
                 )}
               </div>
             </>

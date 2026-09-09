@@ -6,6 +6,7 @@ export const VALID_MEMORY_EMBEDDING_PROVIDERS = [
   "openai",
   "gemini",
   "ollama",
+  "custom",
 ] as const;
 
 const VALID_QDRANT_QUANTIZATION = ["scalar", "none"] as const;
@@ -67,6 +68,26 @@ export const MemoryEmbeddingsConfigSchema = z
       .string({ error: "memory.embeddings.ollamaModel must be a string" })
       .default("nomic-embed-text")
       .describe("Model name for the Ollama embedding provider"),
+    customModel: z
+      .string({ error: "memory.embeddings.customModel must be a string" })
+      .default("text-embedding-3-small")
+      .describe(
+        "Model name for a custom OpenAI-compatible embeddings endpoint",
+      ),
+    baseUrl: z
+      .string({ error: "memory.embeddings.baseUrl must be a string" })
+      .optional()
+      .describe(
+        "Base URL of a custom OpenAI-compatible embeddings endpoint, including the /v1 prefix (for example https://gateway.example.com/v1). Required when provider is 'custom'.",
+      ),
+    customDimensions: z
+      .number({ error: "memory.embeddings.customDimensions must be a number" })
+      .int("memory.embeddings.customDimensions must be an integer")
+      .positive("memory.embeddings.customDimensions must be a positive integer")
+      .optional()
+      .describe(
+        "Output dimensionality requested from a custom embeddings endpoint when the model supports it",
+      ),
   })
   .describe("Embedding generation configuration for semantic memory search");
 

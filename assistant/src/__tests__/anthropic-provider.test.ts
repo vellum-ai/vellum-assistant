@@ -3194,6 +3194,66 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
     // to the request at all.
     expect(lastStreamParams!.output_config).toBeUndefined();
   });
+
+  test("effort is omitted for Sonnet 4.5, which rejects the parameter", async () => {
+    const sonnet45Provider = new AnthropicProvider(
+      "sk-ant-test",
+      "claude-sonnet-4-5-20250929",
+    );
+    await sonnet45Provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { effort: "high" },
+    });
+
+    // Sonnet 4.5 400s on `output_config.effort` ("This model does not
+    // support the effort parameter"), so a profile effort must be dropped
+    // on the wire rather than forwarded.
+    expect(lastStreamParams!.output_config).toBeUndefined();
+  });
+
+  test("effort is omitted for OpenRouter's dotted Sonnet 4.5 id", async () => {
+    // OpenRouter delegates `anthropic/*` models to this provider under
+    // dotted ids, so the exclusion must survive that spelling.
+    const openRouterProvider = new AnthropicProvider(
+      "sk-or-test",
+      "anthropic/claude-sonnet-4.5",
+    );
+    await openRouterProvider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { effort: "high" },
+    });
+
+    expect(lastStreamParams!.output_config).toBeUndefined();
+  });
+
+  test("effort is forwarded for Opus 4.5, which accepts the parameter", async () => {
+    // Opus 4.5 shares Sonnet 4.5's generation (and its
+    // adaptiveThinkingUnsupported flag) but accepts effort on the wire, so
+    // the exclusion must stay narrow rather than family-wide.
+    const opus45Provider = new AnthropicProvider(
+      "sk-ant-test",
+      "claude-opus-4-5-20251101",
+    );
+    await opus45Provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { effort: "high" },
+    });
+
+    expect(lastStreamParams!.output_config).toEqual({ effort: "high" });
+  });
+
+  test("effort is forwarded for Sonnet 4.6", async () => {
+    const sonnet46Provider = new AnthropicProvider(
+      "sk-ant-test",
+      "claude-sonnet-4-6",
+    );
+    await sonnet46Provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { effort: "medium" },
+    });
+
+    expect(lastStreamParams!.output_config).toEqual({ effort: "medium" });
+  });
 });
 
 // ---------------------------------------------------------------------------

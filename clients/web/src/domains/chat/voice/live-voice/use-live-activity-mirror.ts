@@ -60,7 +60,7 @@ import {
   type LiveVoiceState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { currentLocale, useTranslation, type TFunction } from "@/i18n";
-import { getRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
+import { getPublishedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { getIslandAvatarSource } from "@/hooks/use-island-avatar-source";
 import {
   registerLiveActivityPushToken,
@@ -119,7 +119,7 @@ function toActivityContent(
     // unparseable input to its neutral gray. An avatar still loading when the
     // session starts is picked up by the next phase change — it is content,
     // not an attribute, so it is not frozen at `start`.
-    accentHex: getRenderedAvatarAccentHex() ?? "",
+    accentHex: getPublishedAvatarAccentHex() ?? "",
     muted: session.muted,
     // Only this path carries it — the APNs path composes content from the
     // push registration, which has no `outputMuted` in it. See the field's

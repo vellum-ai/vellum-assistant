@@ -1,4 +1,17 @@
 import {
+  Archive,
+  Code2,
+  FileAudio,
+  File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideo,
+  type LucideIcon,
+} from "lucide-react";
+
+import {
   baseMimeType,
   extensionOf,
   GENERIC_MIME_TYPES,
@@ -84,6 +97,23 @@ export type AttachmentIconKind =
   | "document"
   | "text"
   | "file";
+
+/**
+ * Glyph every surface draws for an attachment of a given kind. Components
+ * rather than elements, so each caller sizes the icon for its own tile.
+ */
+export const ATTACHMENT_ICON_BY_KIND: Record<AttachmentIconKind, LucideIcon> = {
+  image: FileImage,
+  video: FileVideo,
+  audio: FileAudio,
+  pdf: FileType2,
+  code: Code2,
+  archive: Archive,
+  spreadsheet: FileSpreadsheet,
+  document: FileText,
+  text: FileText,
+  file: FileIcon,
+};
 
 /** The canonical PDF type plus the aliases publishers use in the wild. */
 const PDF_MIME_TYPES = new Set([
@@ -202,25 +232,6 @@ export function estimateBase64Bytes(base64: string): number {
   const trimmed = base64.replace(/\s/g, "");
   const padding = trimmed.endsWith("==") ? 2 : trimmed.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((trimmed.length * 3) / 4) - padding);
-}
-
-/**
- * Decode a base64 data URI into a Uint8Array. Returns null if the URI does
- * not contain a recognizable `;base64,` segment.
- */
-export function dataUriToUint8Array(
-  dataUri: string,
-): Uint8Array<ArrayBuffer> | null {
-  const match = dataUri.match(/;base64,(.*)$/);
-  if (!match?.[1]) {
-    return null;
-  }
-  const binary = atob(match[1]);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
 }
 
 /** Truncate a filename down the middle so the extension stays visible. */

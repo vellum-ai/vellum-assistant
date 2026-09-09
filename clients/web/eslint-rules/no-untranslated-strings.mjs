@@ -92,10 +92,6 @@ const STRUCTURAL_PROPS = new Set([
   "testId",
   "to",
   "type",
-  // Layout-only className props (`w-32 shrink-0`) read as copy to
-  // `looksLikeCopy` because of spaces, but they are never user-facing text.
-  "iconOnlyGlyphClassName",
-  "wrapperClassName",
 ]);
 
 /** True for props that never hold copy: structural names, `data-*`, handlers. */
@@ -103,7 +99,11 @@ function isStructuralProp(name) {
   return (
     STRUCTURAL_PROPS.has(name) ||
     name.startsWith("data-") ||
-    name.startsWith("on")
+    name.startsWith("on") ||
+    // Layout-only className slot props (`wrapperClassName="w-32 shrink-0"`)
+    // read as copy to `looksLikeCopy` because of spaces, but the suffix is a
+    // firm convention: a prop named `*ClassName` carries classes, never text.
+    name.endsWith("ClassName")
   );
 }
 

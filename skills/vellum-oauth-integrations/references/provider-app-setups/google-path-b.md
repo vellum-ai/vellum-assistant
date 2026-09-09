@@ -133,6 +133,8 @@ assistant credentials prompt --service google --field client_secret \
 
 The `assistant credentials prompt` command is a secure input (not visible in chat), so there is no risk of channel scanners triggering on the `GOCSPX-` prefix. Collect the entire Client Secret value directly — do not ask the user to split or strip any prefix.
 
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
+
 ## Path B Step 5: Authorize and Verify
 
 Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.

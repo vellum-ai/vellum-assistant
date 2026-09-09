@@ -118,6 +118,8 @@ const renderConsumer = () =>
   renderHook(() => useGlobalDeepLinkConsumer(), { wrapper: Wrapper });
 const { drainPendingVoiceStart } =
   await import("@/domains/chat/voice/live-voice/start-voice-request");
+const { voiceEntryGreetingSeed } =
+  await import("@/domains/chat/voice/live-voice/voice-entry-greeting");
 const { useIsVoiceRoomVisible } =
   await import("@/domains/chat/voice/voice-room/use-is-voice-room-visible");
 const { useVoicePrefsStore } = await import("@/stores/voice-prefs-store");
@@ -535,7 +537,12 @@ describe("deeplink.startVoice", () => {
     const conversationId = useConversationStore.getState().activeConversationId;
     expect(conversationId).not.toBeNull();
     expect(conversationId).not.toBe(PRIOR_CONVERSATION_ID);
-    expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId);
+    // A link is one of several ways in, and the daemon's telemetry is told
+    // which. The minted draft is empty, so the assistant speaks first on it.
+    expect(starterMock).toHaveBeenCalledWith("assistant-1", conversationId, {
+      entry: "deep_link",
+      seedText: voiceEntryGreetingSeed(true),
+    });
     expect(mockPathname).toBe(routes.conversation(conversationId ?? ""));
   };
 
@@ -1125,9 +1132,7 @@ describe("deeplink.share", () => {
       await Promise.resolve();
     });
 
-    expect(navigateMock).toHaveBeenCalledWith(
-      routes.conversation("conv-xyz"),
-    );
+    expect(navigateMock).toHaveBeenCalledWith(routes.conversation("conv-xyz"));
     const parked = usePendingDeepLinkStore.getState().pendingShareSend;
     expect(parked?.isNewDraft).toBe(false);
     expect(parked?.threadId).toBe("conv-xyz");
