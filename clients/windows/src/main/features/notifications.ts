@@ -8,7 +8,7 @@ import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
-import { resolveNotificationAvatarPath } from "@vellumai/electron-desktop/notification-avatar-path";
+import { buildHelperToastRequest } from "@vellumai/electron-desktop/helper-toast-request";
 import {
   configureNotifications,
   installNotifications,
@@ -32,7 +32,8 @@ import { ensureVisible } from "../main-window";
  *
  * A toast from a sender puts the assistant's avatar in the toast's logo slot,
  * which the helper reads from a file, so the assistant's name is the title and
- * the conversation title becomes the subtitle.
+ * the conversation title becomes the subtitle. Windows keeps the app name in
+ * the attribution line.
  */
 
 const HELPER_EXECUTABLE = "Vellum.WindowsHelper.exe";
@@ -127,28 +128,11 @@ export const createHelperToastFactory = (
       // instead of rejecting the renderer's invoke.
       Promise.resolve()
         .then(() => {
-          const actions = options.actions.map((action) => ({
-            text: action.text,
-          }));
-          const avatarPath = resolveNotificationAvatarPath(
-            options.sender,
-            app.getPath("userData"),
-            log,
-          );
-          // With an avatar in the logo slot the assistant is the sender, so
-          // its name is the toast title and the conversation title drops to
-          // the subtitle. Windows keeps the app name in the attribution line.
-          const params =
-            options.sender && avatarPath
-              ? {
-                  token,
-                  title: options.sender.name,
-                  subtitle: options.title,
-                  body: options.body,
-                  actions,
-                  avatarPath,
-                }
-              : { token, title: options.title, body: options.body, actions };
+          const params = buildHelperToastRequest(options, {
+            token,
+            userDataDir: app.getPath("userData"),
+            logger: log,
+          });
           return ensureClient().call("notifications/show", params);
         })
         .then((result) => {

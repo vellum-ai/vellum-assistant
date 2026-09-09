@@ -40,6 +40,7 @@
     "./file-open": "./src/file-open.ts",
     "./file-open-preload": "./src/file-open-preload.ts",
     "./global-shortcuts": "./src/global-shortcuts.ts",
+    "./helper-toast-request": "./src/helper-toast-request.ts",
     "./hotkeys": "./src/hotkeys.ts",
     "./host-proxy/cu-executor": "./src/host-proxy/cu-executor.ts",
     "./host-proxy/helper-proxy-executor": "./src/host-proxy/helper-proxy-executor.ts",
