@@ -17,13 +17,11 @@ const SAFE_AREA_RIGHT =
  * the soft keyboard is closed, `0px` while it is open (the home indicator
  * sits behind the keyboard, so nothing needs to clear it).
  *
- * Shared by {@link useMobileOverlayViewportStyle} (exposed as the
- * `--overlay-safe-area-bottom` CSS variable for callers positioned by that
- * hook) and any host that lays out in normal flow instead of
- * `position: fixed` and so cannot rely on the CSS variable being defined in
- * its subtree (the standalone `/documents/:surfaceId` route).
+ * {@link useMobileOverlayViewportStyle} both pads by it and publishes it as
+ * the `--overlay-safe-area-bottom` CSS variable, so callers positioned by
+ * that hook read it from their own subtree.
  */
-export function useOverlaySafeAreaBottomInset(): string {
+function useOverlaySafeAreaBottomInset(): string {
   const keyboardOpen = useKeyboardOpen();
   const visibleViewport = useVisibleViewport();
   return keyboardOpen && visibleViewport ? "0px" : SAFE_AREA_BOTTOM;

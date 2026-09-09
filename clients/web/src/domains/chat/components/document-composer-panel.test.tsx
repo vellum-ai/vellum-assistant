@@ -146,6 +146,18 @@ describe("DocumentComposerPanel", () => {
     const panel = container.firstChild as HTMLElement;
     expect(panel.style.paddingBottom).toBe("12px");
   });
+
+  test("pads nothing for a host that already pads the safe area", () => {
+    const { container } = render(
+      <DocumentComposerPanel
+        assistantId="assistant-1"
+        doc={DOC}
+        bottomInset={null}
+      />,
+    );
+    const panel = container.firstChild as HTMLElement;
+    expect(panel.style.paddingBottom).toBe("");
+  });
 });
 
 describe("DocumentComposerPanel: document-slot lifecycle", () => {

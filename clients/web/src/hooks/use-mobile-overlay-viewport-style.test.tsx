@@ -1,11 +1,10 @@
 /**
- * Tests for `useMobileOverlayViewportStyle` and
- * `useOverlaySafeAreaBottomInset`: the keyboard-aware positioning style shared
- * by the mobile full-screen overlays, and the bottom safe-area inset
- * underneath it.
+ * Tests for `useMobileOverlayViewportStyle`, the keyboard-aware positioning
+ * style shared by the mobile full-screen overlays, including the bottom
+ * safe-area inset it pads by and publishes as `--overlay-safe-area-bottom`.
  *
- * Both compose `useIsMobile` + `useVisibleViewport`; both of those are mocked
- * so each test drives an explicit platform / viewport state.
+ * It composes `useIsMobile` + `useVisibleViewport`; both are mocked so each
+ * test drives an explicit platform / viewport state.
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -24,23 +23,17 @@ mock.module("@/hooks/use-visible-viewport", () => ({
   useVisibleViewport: () => visibleViewport,
 }));
 
-const { useMobileOverlayViewportStyle, useOverlaySafeAreaBottomInset } =
+const { useMobileOverlayViewportStyle } =
   await import("@/hooks/use-mobile-overlay-viewport-style");
+
+function bottomInsetVar(style: React.CSSProperties): unknown {
+  return (style as Record<string, unknown>)["--overlay-safe-area-bottom"];
+}
 
 function captureStyle(): React.CSSProperties {
   let captured: React.CSSProperties = {};
   function Probe() {
     captured = useMobileOverlayViewportStyle();
-    return null;
-  }
-  render(<Probe />);
-  return captured;
-}
-
-function captureBottomInset(): string {
-  let captured = "";
-  function Probe() {
-    captured = useOverlaySafeAreaBottomInset();
     return null;
   }
   render(<Probe />);
@@ -70,9 +63,7 @@ describe("useMobileOverlayViewportStyle", () => {
     expect(style.top).toBe("auto");
     expect(style.height).toBe("100dvh");
     expect(style.paddingBottom).toContain("safe-area-inset-bottom");
-    expect(
-      (style as Record<string, unknown>)["--overlay-safe-area-bottom"],
-    ).toContain("safe-area-inset-bottom");
+    expect(bottomInsetVar(style)).toContain("safe-area-inset-bottom");
   });
 
   test("tracks the visual viewport when the keyboard is open", () => {
@@ -99,9 +90,7 @@ describe("useMobileOverlayViewportStyle", () => {
     expect(style.height).toBe("500px");
     expect(style.paddingBottom).toBe(0);
     expect(style.paddingTop).toContain("safe-area-inset-top");
-    expect(
-      (style as Record<string, unknown>)["--overlay-safe-area-bottom"],
-    ).toBe("0px");
+    expect(bottomInsetVar(style)).toBe("0px");
   });
 
   test("ignores sub-threshold height deltas as incidental drift", () => {
@@ -117,9 +106,10 @@ describe("useMobileOverlayViewportStyle", () => {
     // WHEN the overlay style is computed
     const style = captureStyle();
 
-    // THEN it stays anchored to the full dynamic viewport
+    // THEN it stays anchored to the full dynamic viewport, safe area reserved
     expect(style.height).toBe("100dvh");
     expect(style.bottom).toBe(0);
+    expect(bottomInsetVar(style)).toContain("safe-area-inset-bottom");
   });
 
   test("does not track the viewport on non-mobile platforms", () => {
@@ -135,63 +125,10 @@ describe("useMobileOverlayViewportStyle", () => {
     // WHEN the overlay style is computed
     const style = captureStyle();
 
-    // THEN it uses the static full-height anchoring
+    // THEN it uses the static full-height anchoring and the keyboard-open
+    // zeroing of the bottom inset does not engage
     expect(style.height).toBe("100dvh");
     expect(style.top).toBe("auto");
-  });
-});
-
-describe("useOverlaySafeAreaBottomInset", () => {
-  test("reserves the device safe area while the keyboard is closed", () => {
-    // GIVEN a mobile viewport with no keyboard open
-    isMobile = true;
-    visibleViewport = {
-      height: 800,
-      keyboardHeight: 0,
-      offsetTop: 0,
-      offsetLeft: 0,
-    };
-
-    // WHEN the inset is computed
-    const inset = captureBottomInset();
-
-    // THEN it clears the home indicator
-    expect(inset).toContain("safe-area-inset-bottom");
-  });
-
-  test("reserves nothing while the keyboard is open", () => {
-    // GIVEN a mobile viewport with the soft keyboard raised
-    isMobile = true;
-    visibleViewport = {
-      height: 500,
-      keyboardHeight: 300,
-      offsetTop: 40,
-      offsetLeft: 0,
-    };
-
-    // WHEN the inset is computed
-    const inset = captureBottomInset();
-
-    // THEN it is zero: the home indicator sits behind the keyboard, so a
-    // safe-area gap would only push the composer off the keyboard
-    expect(inset).toBe("0px");
-  });
-
-  test("reserves the safe area on a desktop platform with a shrunken viewport", () => {
-    // GIVEN a desktop platform whose visual viewport shrank for some other
-    // reason than a phone soft keyboard
-    isMobile = false;
-    visibleViewport = {
-      height: 500,
-      keyboardHeight: 300,
-      offsetTop: 40,
-      offsetLeft: 0,
-    };
-
-    // WHEN the inset is computed
-    const inset = captureBottomInset();
-
-    // THEN the keyboard-open zeroing does not engage
-    expect(inset).toContain("safe-area-inset-bottom");
+    expect(bottomInsetVar(style)).toContain("safe-area-inset-bottom");
   });
 });

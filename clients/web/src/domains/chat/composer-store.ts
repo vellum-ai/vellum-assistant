@@ -326,12 +326,13 @@ export interface ComposerActions {
   addPathReferences: (paths: string[]) => void;
   removeAttachment: (localId: string, slot?: ComposerSlot) => void;
   /** Clear all attachments (e.g. after successful send). Does NOT revoke
-   * preview URLs — sent message bubbles still need them. */
+   * preview URLs, since sent message bubbles still need them. */
   resetAttachments: (slot?: ComposerSlot) => void;
-  /** Clear `slot`'s attachments AND revoke their preview URLs (e.g. on
-   * assistant switch). Only revokes URLs belonging to `slot`'s own
-   * attachments, so resetting one slot never leaves the other holding
-   * references to blob URLs that were just freed out from under it. */
+  /** Clear `slot`'s attachments AND revoke every preview URL that slot
+   * created (e.g. on assistant switch), including the ones whose
+   * attachments a previous `resetAttachments` already cleared into sent
+   * message bubbles. The other slot's URLs are left alive, so resetting one
+   * slot never frees blob URLs the other is still rendering. */
   fullReset: (slot?: ComposerSlot) => void;
   dismissAttachmentError: (slot?: ComposerSlot) => void;
 }
@@ -346,8 +347,12 @@ type ComposerStore = ComposerState & ComposerActions;
 let draftsMap = new Map<string, string>();
 /** The assistant ID whose drafts are currently loaded. */
 let currentAssistantId: string | null = null;
-/** Blob URLs for preview images — revoked on assistant switch or unmount. */
-const previewUrls = new Map<string, string>();
+/**
+ * Blob URLs for preview images, keyed by attachment local id and tagged with
+ * the composer slot that created them. Revoked per attachment on removal and
+ * per slot on assistant switch.
+ */
+const previewUrls = new Map<string, { url: string; slot: ComposerSlot }>();
 /** Set of local IDs whose uploads have been cancelled. */
 const cancelledUploads = new Set<string>();
 
@@ -622,7 +627,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           let previewUrl: string | null = null;
           try {
             previewUrl = URL.createObjectURL(previewSource);
-            previewUrls.set(pending.localId, previewUrl);
+            previewUrls.set(pending.localId, { url: previewUrl, slot });
           } catch {
             previewUrl = null;
           }
@@ -699,8 +704,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     });
     // Intentionally do NOT revoke preview blob URLs here. After a successful
     // send the uploaded attachment chip is rendered inside the sent user
-    // message bubble, which still needs those URLs. They get revoked on
-    // assistant switch (fullReset) and on page unload.
+    // message bubble, which still needs those URLs. `fullReset` revokes every
+    // URL this slot created, sent ones included, on assistant switch, and the
+    // rest go on page unload.
     setAttachmentError(set, slot, null);
   },
 
@@ -711,12 +717,12 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
         if (att.kind === "uploading") {
           cancelledUploads.add(att.localId);
         }
-        revokePreview(att.localId);
       }
       return slot === "document"
         ? { documentAttachments: [], documentAttachmentLastError: null }
         : { attachments: [], attachmentLastError: null };
     });
+    revokeSlotPreviews(slot);
   },
 
   dismissAttachmentError: (slot = "main") => {
@@ -782,10 +788,23 @@ function markFailed(
 }
 
 function revokePreview(localId: string) {
-  const url = previewUrls.get(localId);
-  if (url) {
-    URL.revokeObjectURL(url);
+  const entry = previewUrls.get(localId);
+  if (entry) {
+    URL.revokeObjectURL(entry.url);
     previewUrls.delete(localId);
+  }
+}
+
+/**
+ * Revoke every preview URL `slot` created, whether its attachment is still
+ * staged or was cleared into a sent message bubble by `resetAttachments`.
+ */
+function revokeSlotPreviews(slot: ComposerSlot) {
+  for (const [localId, entry] of previewUrls) {
+    if (entry.slot === slot) {
+      URL.revokeObjectURL(entry.url);
+      previewUrls.delete(localId);
+    }
   }
 }
 

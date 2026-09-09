@@ -5,6 +5,9 @@
  * passed to the sidebar's processing tracking, the success and failure
  * paths, the empty-content/uploading guards, and the hand-off of the
  * conversation to watch for a reply to `document-composer-reply-store`.
+ * Also covers the queued-send result, the idempotency nonce carried on the
+ * POST, and the guard that keeps a late-resolving send from clearing a draft
+ * typed for a document it was never about.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -21,6 +24,7 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import type { PostMessageResult } from "@/domains/chat/api/messages";
+import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
 
 const realMessages = await import("@/domains/chat/api/messages");
 // Echoes back the conversation id it was sent (the real server's contract
@@ -105,6 +109,43 @@ function renderSubmit(conversationId: string) {
       }),
     { wrapper },
   );
+}
+
+/** Renders against a swappable `doc`, for the mid-flight document switch. */
+function renderSubmitFor(doc: DocumentConversationRef) {
+  return renderHook(
+    ({ doc: current }: { doc: DocumentConversationRef }) =>
+      useDocumentComposerSubmit({ assistantId: ASSISTANT_ID, doc: current }),
+    { wrapper, initialProps: { doc } },
+  );
+}
+
+/**
+ * Points `postChatMessage` at a promise the test resolves by hand, so a send
+ * can be left in flight while the surface underneath it changes.
+ */
+function deferPostChatMessage(): (result: PostMessageResult) => void {
+  let settle: (result: PostMessageResult) => void = () => {};
+  const pending = new Promise<PostMessageResult>((resolve) => {
+    settle = resolve;
+  });
+  postChatMessageMock = mock(async (..._args: unknown[]) => pending);
+  return (result) => settle(result);
+}
+
+function sentResult(conversationId: string): PostMessageResult {
+  return {
+    ok: true,
+    assistantId: ASSISTANT_ID,
+    conversationId,
+    messageId: "msg-1",
+  };
+}
+
+function sentOptions(callIndex: number): { clientMessageId?: string } {
+  return (postChatMessageMock.mock.calls[callIndex]?.[3] ?? {}) as {
+    clientMessageId?: string;
+  };
 }
 
 function isAwaitingReply(conversationId: string): boolean {
@@ -369,7 +410,7 @@ describe("success path", () => {
 
     expect(postChatMessageMock).toHaveBeenCalledTimes(1);
     expect(postChatMessageMock.mock.calls[0]?.[2]).toBe("hello");
-    expect(postChatMessageMock.mock.calls[0]?.[3]).toEqual({
+    expect(postChatMessageMock.mock.calls[0]?.[3]).toMatchObject({
       attachmentIds: ["srv-1"],
     });
 
@@ -501,5 +542,159 @@ describe("failure path", () => {
     expect(toastErrorMock.mock.calls[0]?.[0]).toBe("Something broke");
     // Nothing was optimistically cleared, so there is nothing to restore.
     expect(useComposerStore.getState().documentInput).toBe("hello");
+  });
+});
+
+describe("queued sends", () => {
+  test("a queued result clears the draft and still awaits the reply", async () => {
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => ({
+        ok: true,
+        queued: true,
+        assistantId: ASSISTANT_ID,
+        conversationId: "conv-existing",
+        requestId: "req-1",
+      }),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // A queued message still gets its own turn, whose `message_complete` is
+    // what the reply watcher waits for, so the surface behaves as it does for
+    // an immediately-processed send.
+    expect(useComposerStore.getState().documentInput).toBe("");
+    expect(result.current.status).toBe("sent");
+    expect(toastInfoMock).toHaveBeenCalledTimes(1);
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+  });
+});
+
+describe("idempotency nonce", () => {
+  test("the POST carries a client message id", async () => {
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(sentOptions(0).clientMessageId).toBeTruthy();
+  });
+
+  test("a retry after a failed send reuses the same client message id", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          return { ok: false, status: 500, error: { detail: "boom" } };
+        }
+        return sentResult("conv-existing");
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("error");
+
+    // The failure leaves the draft in place, so this is the same message
+    // going out again and the daemon dedupes it against the first attempt if
+    // that one landed and only its response was lost.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(result.current.status).toBe("sent");
+    expect(sentOptions(1).clientMessageId).toBe(
+      sentOptions(0).clientMessageId as string,
+    );
+  });
+
+  test("a send after a success gets a fresh client message id", async () => {
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    useComposerStore.getState().setInput("second message", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(sentOptions(1).clientMessageId).toBeTruthy();
+    expect(sentOptions(1).clientMessageId).not.toBe(
+      sentOptions(0).clientMessageId as string,
+    );
+  });
+});
+
+describe("a send that outlives its document", () => {
+  test("a completion after the hook moved to another document leaves the new draft alone", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // The standalone `/documents/:surfaceId` route keeps one hook instance
+    // across documents, so the send resolves into a live hook pointed at a
+    // different surface.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    expect(useComposerStore.getState().documentInput).toBe(
+      "about the second doc",
+    );
+    // The rest of the success path is unconditional: the sent conversation is
+    // still handed to the reply watcher.
+    expect(isAwaitingReply("conv-a")).toBe(true);
+  });
+
+  test("a completion after the hook unmounted leaves the new draft alone", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, unmount } = renderSubmit("conv-a");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // `MobileDocumentOverlay` keys the panel per surface, so switching
+    // documents unmounts this instance while its send is still in flight.
+    unmount();
+    useComposerStore.getState().setInput("about the second doc", "document");
+
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    expect(useComposerStore.getState().documentInput).toBe(
+      "about the second doc",
+    );
+    expect(isAwaitingReply("conv-a")).toBe(true);
   });
 });

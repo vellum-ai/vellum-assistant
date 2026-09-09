@@ -4,11 +4,11 @@
  *
  * The awaiting set is driven straight through
  * `document-composer-reply-store` rather than by running a real send, so
- * these tests pin the watcher's own filtering (which `message_complete`
- * events it acts on) independently of `useDocumentComposerSubmit`, whose
- * hand-off to the store is covered by its own test file. The event bus, the
- * store, and `useConversationStore` are real; only navigation and the toast
- * surface are mocked.
+ * these tests pin the watcher's own filtering (which stream events it treats
+ * as terminal for the wait) independently of `useDocumentComposerSubmit`,
+ * whose hand-off to the store is covered by its own test file. The event bus,
+ * the store, and `useConversationStore` are real; only navigation and the
+ * toast surface are mocked.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render } from "@testing-library/react";
@@ -55,6 +55,26 @@ function publishMessageComplete(
         ...(conversationId ? { conversationId } : {}),
         ...(source ? { source } : {}),
       },
+    });
+  });
+}
+
+function publishGenerationCancelled(conversationId: string) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-cancelled-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: { type: "generation_cancelled", conversationId },
+    });
+  });
+}
+
+function publishGenerationHandoff(conversationId: string) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-handoff-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: { type: "generation_handoff", conversationId, queuedCount: 1 },
     });
   });
 }
@@ -146,5 +166,46 @@ describe("DocumentComposerReplyWatcher", () => {
 
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(awaiting("conv-1")).toBe(true);
+  });
+
+  test("a cancelled generation ends the wait without a toast", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishGenerationCancelled("conv-1");
+
+    // There is no reply to announce, and nothing is left waiting for one.
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(false);
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(false);
+  });
+
+  test("a cancelled generation for an unwatched conversation is ignored", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishGenerationCancelled("conv-unrelated");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(true);
+  });
+
+  test("a handoff keeps the wait open until the queue's own turn completes", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishGenerationHandoff("conv-1");
+
+    // The turn that finished belongs to a message queued ahead of this one.
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(true);
+
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(awaiting("conv-1")).toBe(false);
   });
 });

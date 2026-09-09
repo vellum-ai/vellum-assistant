@@ -1,9 +1,9 @@
 /**
  * The standalone `/assistant/documents/:surfaceId` route is a second way into
  * a document, so opening one there clears its unseen-change record just as the
- * in-chat viewer does. It also hosts the mobile document composer outside the
- * fixed, keyboard-tracking overlay shell, so it owns the composer's bottom
- * safe-area inset itself.
+ * in-chat viewer does. It also hosts the mobile document composer inside
+ * `RootLayout`'s app shell, which already pads the bottom safe area, so the
+ * composer is handed no inset of its own.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -11,7 +11,6 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 
 import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
-import type { VisibleViewport } from "@/hooks/use-visible-viewport";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 
 const daemonSdk = await import("@/generated/daemon/sdk.gen");
@@ -40,19 +39,6 @@ mock.module("@/hooks/use-is-mobile", () => ({
   useIsMobile: () => mockIsMobile,
 }));
 
-// The composer's bottom inset is keyboard-aware, so the viewport it reads is
-// driven explicitly here. Spread the real module to keep the threshold
-// constant `useKeyboardOpen` compares against.
-const visibleViewportModule = await import("@/hooks/use-visible-viewport");
-let mockVisibleViewport: VisibleViewport | null = null;
-mock.module(
-  "@/hooks/use-visible-viewport",
-  (): typeof visibleViewportModule => ({
-    ...visibleViewportModule,
-    useVisibleViewport: () => mockVisibleViewport,
-  }),
-);
-
 let composerPanelProps: Record<string, unknown> | null = null;
 mock.module("@/domains/chat/components/document-composer-panel", () => ({
   DocumentComposerPanel: (props: Record<string, unknown>) => {
@@ -61,24 +47,9 @@ mock.module("@/domains/chat/components/document-composer-panel", () => ({
   },
 }));
 
-const { useOverlaySafeAreaBottomInset } = await import(
-  "@/hooks/use-mobile-overlay-viewport-style"
-);
 const { DocumentViewerPage } = await import(
   "@/domains/chat/document-viewer-page"
 );
-
-/** The inset the shared hook resolves to under the current mocked viewport. */
-function expectedBottomInset(): string {
-  let captured = "";
-  function Probe() {
-    captured = useOverlaySafeAreaBottomInset();
-    return null;
-  }
-  const { unmount } = render(<Probe />);
-  unmount();
-  return captured;
-}
 
 function documentSurface(
   overrides: Partial<DocumentsByIdGetResponse> = {},
@@ -118,7 +89,6 @@ function unseenFor(conversationId: string): string[] {
 beforeEach(() => {
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   mockIsMobile = false;
-  mockVisibleViewport = null;
   composerPanelProps = null;
 });
 
@@ -203,41 +173,16 @@ describe("DocumentViewerPage: mobile composer", () => {
     });
   });
 
-  test("pads the composer with the shared safe-area inset while the keyboard is closed", async () => {
-    // This route lays out in normal flow, so it has no
-    // `--overlay-safe-area-bottom` ancestor to read and computes the same
-    // value `useMobileOverlayViewportStyle` would have published.
+  test("hands the composer no bottom inset of its own", async () => {
+    // The app shell around this route already pads the bottom safe area when
+    // the keyboard is closed and zeroes it when open, so a second inset here
+    // would double the gap under the composer.
     mockIsMobile = true;
-    mockVisibleViewport = {
-      height: 800,
-      keyboardHeight: 0,
-      offsetTop: 0,
-      offsetLeft: 0,
-    };
     documentResult = () => Promise.resolve({ data: documentSurface() });
 
     const { findByTestId } = renderPage("surf-1");
     await findByTestId("doc-composer-panel");
 
-    expect(composerPanelProps?.bottomInset).toBe(expectedBottomInset());
-    expect(composerPanelProps?.bottomInset).toContain("safe-area-inset-bottom");
-  });
-
-  test("drops the composer's bottom inset to zero while the keyboard is open", async () => {
-    mockIsMobile = true;
-    mockVisibleViewport = {
-      height: 500,
-      keyboardHeight: 300,
-      offsetTop: 40,
-      offsetLeft: 0,
-    };
-    documentResult = () => Promise.resolve({ data: documentSurface() });
-
-    const { findByTestId } = renderPage("surf-1");
-    await findByTestId("doc-composer-panel");
-
-    // A fixed safe-area literal would leave dead space above the keyboard.
-    expect(composerPanelProps?.bottomInset).toBe(expectedBottomInset());
-    expect(composerPanelProps?.bottomInset).toBe("0px");
+    expect(composerPanelProps?.bottomInset).toBeNull();
   });
 });

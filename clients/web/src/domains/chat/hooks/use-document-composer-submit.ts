@@ -21,7 +21,7 @@
  * `DocumentComposerReplyWatcher` (in `RootLayout`) owns the subscription and
  * raises the toast.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -76,6 +76,29 @@ export function useDocumentComposerSubmit({
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<DocumentComposerSendStatus>("idle");
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // The surface this hook targets right now, and the idempotency nonce for
+  // the attempt in flight. A send reads both as it resolves, by which point
+  // `doc` may already point somewhere else. The nonce survives a failed send
+  // so the retry carries the same id, which lets the daemon dedupe the case
+  // where it accepted the message and only the response was lost.
+  const surfaceId = doc?.surfaceId ?? null;
+  const currentSurfaceIdRef = useRef(surfaceId);
+  const pendingClientMessageIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentSurfaceIdRef.current = surfaceId;
+    // The draft is cleared when the target document changes, so the next send
+    // is a different message and gets its own nonce.
+    pendingClientMessageIdRef.current = null;
+  }, [surfaceId]);
+
   // Auto-fade the "Sent" micro-state.
   useEffect(() => {
     if (status !== "sent") {
@@ -89,6 +112,7 @@ export function useDocumentComposerSubmit({
     if (!assistantId || !doc) {
       return;
     }
+    const submittedSurfaceId = doc.surfaceId;
 
     const { documentInput, documentAttachments } = useComposerStore.getState();
     const content = documentInput.trim();
@@ -132,11 +156,15 @@ export function useDocumentComposerSubmit({
       const snapshot = findConversation(queryClient, assistantId, resolvedId)
         ?.latestAssistantMessageAt;
 
+      const clientMessageId =
+        pendingClientMessageIdRef.current ?? crypto.randomUUID();
+      pendingClientMessageIdRef.current = clientMessageId;
+
       const result = await postChatMessage(
         assistantId,
         useServerMint ? null : resolvedId,
         content,
-        { attachmentIds },
+        { attachmentIds, clientMessageId },
       );
 
       if (!result.ok) {
@@ -150,6 +178,10 @@ export function useDocumentComposerSubmit({
         );
         return;
       }
+
+      // The daemon holds the message, queued or not, so the nonce has done
+      // its job and the next send is a new message.
+      pendingClientMessageIdRef.current = null;
 
       const conversationId = result.conversationId;
       if (isFreshDraft) {
@@ -178,9 +210,23 @@ export function useDocumentComposerSubmit({
       useConversationStore
         .getState()
         .addProcessingConversationId(conversationId, snapshot);
-      useComposerStore.getState().setInput("", "document");
-      useComposerStore.getState().resetAttachments("document");
+      // Only the surface this send started on owns the shared `"document"`
+      // slot. Switching documents mid-flight, on either host, hands the slot
+      // to the next document's draft, and a late completion clearing it would
+      // wipe text the user typed for a document this send never touched.
+      if (
+        isMountedRef.current &&
+        currentSurfaceIdRef.current === submittedSurfaceId
+      ) {
+        useComposerStore.getState().setInput("", "document");
+        useComposerStore.getState().resetAttachments("document");
+      }
       setStatus("sent");
+      // A queued result awaits a reply the same way an immediate one does. The
+      // daemon ends a turn that has messages queued behind it with
+      // `generation_handoff` instead of `message_complete`, so the reply
+      // watcher's `message_complete` lands only once this message's own turn,
+      // and every turn ahead of it, has finished.
       useDocumentComposerReplyStore.getState().startAwaitingReply(conversationId);
       toast.info(t("documentComposer.messageSentToast"), {
         action: {

@@ -244,11 +244,10 @@ export interface ChatComposerProps {
   onCancelEdit?: () => void;
 
   // Which `composer-store` slot this instance reads/writes its draft text and
-  // attachments from. Defaults to `"main"` (the chat route's composer, the
-  // only slot that existed before the mobile document composer). Pass
-  // `"document"` for the composer pinned to `MobileDocumentOverlay`, which
-  // targets a different, non-active conversation and must not share draft
-  // state with whatever the main composer is pointed at.
+  // attachments from. Defaults to `"main"`, the chat route's composer. Pass
+  // `"document"` for the composer pinned to a document editor, which targets
+  // a different, non-active conversation and must not share draft state with
+  // whatever the main composer is pointed at.
   slot?: ComposerSlot;
 }
 

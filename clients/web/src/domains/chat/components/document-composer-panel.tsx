@@ -13,14 +13,14 @@ export interface DocumentComposerPanelProps {
   assistantId: string | null;
   doc: DocumentConversationRef | null;
   /**
-   * Bottom padding for the safe area below the composer. Defaults to
-   * `MobileDocumentOverlay`'s keyboard-aware `--overlay-safe-area-bottom`
-   * variable; a caller that is not that fixed, keyboard-tracking shell (the
-   * standalone document route) has no CSS variable to read and instead
-   * passes the same keyboard-aware value directly, computed via
-   * `useOverlaySafeAreaBottomInset`.
+   * Bottom padding for the safe area below the composer, one value per host.
+   * `MobileDocumentOverlay` is `position: fixed` outside the app shell and
+   * defines the keyboard-aware `--overlay-safe-area-bottom` variable this
+   * defaults to. The standalone document route lays out inside `RootLayout`'s
+   * app shell, which already pads the safe area around it, and passes `null`
+   * so the composer does not pad it a second time.
    */
-  bottomInset?: string;
+  bottomInset?: string | null;
 }
 
 /**
@@ -62,7 +62,10 @@ export function DocumentComposerPanel({
   const sending = status === "sending";
 
   return (
-    <div className="shrink-0 px-3 pt-2" style={{ paddingBottom: bottomInset }}>
+    <div
+      className="shrink-0 px-3 pt-2"
+      style={{ paddingBottom: bottomInset ?? undefined }}
+    >
       {status === "sent" && (
         <div className="flex items-center justify-center gap-1 pb-1 text-[var(--content-tertiary)]">
           <Check size={12} className="shrink-0" />

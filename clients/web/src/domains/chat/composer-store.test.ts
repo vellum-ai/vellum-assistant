@@ -64,6 +64,8 @@ mock.module(
   }),
 );
 
+import type { UploadedAttachment } from "@/domains/chat/composer-store";
+
 const { MAX_ATTACHMENT_BYTES, useComposerStore } =
   await import("@/domains/chat/composer-store");
 
@@ -125,6 +127,38 @@ async function waitForUploadsSettled(expectedCount: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Attachments never settled");
+}
+
+/** Stage one uploaded image in each composer slot, settled and previewed. */
+async function uploadOneImagePerSlot(): Promise<{
+  mainAtt: UploadedAttachment;
+  docAtt: UploadedAttachment;
+}> {
+  getStore().addFiles(
+    [fileWithHeader(PNG_HEADER, "main.png", "image/png")],
+    "assistant-1",
+  );
+  getStore().addFiles(
+    [fileWithHeader(PNG_HEADER, "doc.png", "image/png")],
+    "assistant-1",
+    "document",
+  );
+  await waitForUploadsSettled(1);
+  for (let i = 0; i < 100; i++) {
+    if (getStore().documentAttachments.every((a) => a.kind !== "uploading")) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+
+  const mainAtt = getStore().attachments[0];
+  const docAtt = getStore().documentAttachments[0];
+  if (mainAtt?.kind !== "uploaded" || docAtt?.kind !== "uploaded") {
+    throw new Error("expected both attachments to have uploaded");
+  }
+  expect(mainAtt.previewUrl).toBeTruthy();
+  expect(docAtt.previewUrl).toBeTruthy();
+  return { mainAtt, docAtt };
 }
 
 // ---------------------------------------------------------------------------
@@ -923,45 +957,56 @@ describe("ComposerSlot isolation", () => {
   test("fullReset only revokes the preview URLs belonging to the slot being reset", async () => {
     const revokeSpy = spyOn(URL, "revokeObjectURL");
     try {
-      getStore().addFiles(
-        [fileWithHeader(PNG_HEADER, "main.png", "image/png")],
-        "assistant-1",
-      );
-      getStore().addFiles(
-        [fileWithHeader(PNG_HEADER, "doc.png", "image/png")],
-        "assistant-1",
-        "document",
-      );
-      await waitForUploadsSettled(1);
-      for (let i = 0; i < 100; i++) {
-        if (
-          getStore().documentAttachments.every((a) => a.kind !== "uploading")
-        ) {
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 5));
-      }
-
-      const mainAtt = getStore().attachments[0];
-      const docAtt = getStore().documentAttachments[0];
-      if (mainAtt?.kind !== "uploaded" || docAtt?.kind !== "uploaded") {
-        throw new Error("expected both attachments to have uploaded");
-      }
-      const mainPreviewUrl = mainAtt.previewUrl;
-      const docPreviewUrl = docAtt.previewUrl;
-      expect(mainPreviewUrl).toBeTruthy();
-      expect(docPreviewUrl).toBeTruthy();
+      const { mainAtt, docAtt } = await uploadOneImagePerSlot();
 
       getStore().fullReset();
 
       // The main slot's own URL is revoked and its attachment cleared...
-      expect(revokeSpy).toHaveBeenCalledWith(mainPreviewUrl);
+      expect(revokeSpy).toHaveBeenCalledWith(mainAtt.previewUrl);
       expect(getStore().attachments).toHaveLength(0);
       // ...but the document slot keeps its attachment AND that attachment's
       // preview URL is left alive, not revoked out from under it.
-      expect(revokeSpy).not.toHaveBeenCalledWith(docPreviewUrl);
+      expect(revokeSpy).not.toHaveBeenCalledWith(docAtt.previewUrl);
       expect(getStore().documentAttachments).toHaveLength(1);
       expect(getStore().documentAttachments[0]).toBe(docAtt);
+    } finally {
+      revokeSpy.mockRestore();
+    }
+  });
+
+  test("fullReset('main') revokes a main-slot URL a send already cleared out of the composer", async () => {
+    const revokeSpy = spyOn(URL, "revokeObjectURL");
+    try {
+      const { mainAtt, docAtt } = await uploadOneImagePerSlot();
+
+      // A successful send empties both composers but keeps the URLs alive for
+      // the sent message bubbles.
+      getStore().resetAttachments();
+      getStore().resetAttachments("document");
+      expect(revokeSpy).not.toHaveBeenCalledWith(mainAtt.previewUrl);
+
+      getStore().fullReset();
+
+      expect(revokeSpy).toHaveBeenCalledWith(mainAtt.previewUrl);
+      expect(revokeSpy).not.toHaveBeenCalledWith(docAtt.previewUrl);
+    } finally {
+      revokeSpy.mockRestore();
+    }
+  });
+
+  test("fullReset('document') revokes a document-slot URL a send already cleared out of the composer", async () => {
+    const revokeSpy = spyOn(URL, "revokeObjectURL");
+    try {
+      const { mainAtt, docAtt } = await uploadOneImagePerSlot();
+
+      getStore().resetAttachments();
+      getStore().resetAttachments("document");
+      expect(revokeSpy).not.toHaveBeenCalledWith(docAtt.previewUrl);
+
+      getStore().fullReset("document");
+
+      expect(revokeSpy).toHaveBeenCalledWith(docAtt.previewUrl);
+      expect(revokeSpy).not.toHaveBeenCalledWith(mainAtt.previewUrl);
     } finally {
       revokeSpy.mockRestore();
     }

@@ -3210,7 +3210,7 @@ describe("ChatComposer — text area during a live-voice session", () => {
   });
 });
 
-describe("ChatComposer — VoiceFirstRunCard gating", () => {
+describe("ChatComposer: VoiceFirstRunCard gating", () => {
   test("a voice-less instance never opens the modal from the global flag", () => {
     // GIVEN the global first-run flag is open (as another, voice-enabled
     // instance mounted alongside this one might have set it)
@@ -3220,7 +3220,7 @@ describe("ChatComposer — VoiceFirstRunCard gating", () => {
     // shape: no `voiceInputRef`/`onVoiceTranscript`)
     const { queryByTestId } = renderComposerView();
 
-    // THEN it does not render the modal — only an instance that offers
+    // THEN it does not render the modal: only an instance that offers
     // dictation at all may open it.
     expect(queryByTestId("first-run-card")).toBeNull();
   });
@@ -3237,7 +3237,7 @@ describe("ChatComposer — VoiceFirstRunCard gating", () => {
   });
 });
 
-describe("ChatComposer — slot-scoped focus", () => {
+describe("ChatComposer: slot-scoped focus", () => {
   test("a non-main instance registers its textarea against its own slot", () => {
     // GIVEN a composer mounted for the "document" slot
     const { container } = renderComposerView({ slot: "document" });
@@ -3266,7 +3266,7 @@ describe("ChatComposer — slot-scoped focus", () => {
       requestComposerFocus("document");
     });
 
-    // THEN the main instance is unaffected — it never registered for
+    // THEN the main instance is unaffected: it never registered for
     // "document", and it keeps its existing window-event mechanism instead.
     expect(document.activeElement).not.toBe(textarea);
   });
