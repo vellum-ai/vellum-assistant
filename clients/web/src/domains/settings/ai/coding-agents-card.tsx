@@ -1,0 +1,184 @@
+import { Loader2 } from "lucide-react";
+import { useCallback, useMemo, useState } from "react";
+
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Input } from "@vellumai/design-library/components/input";
+import {
+  Select,
+  type SelectOption,
+} from "@vellumai/design-library/components/select";
+import { toast } from "@vellumai/design-library/components/toast";
+
+import {
+  ACP_SELECTABLE_MODELS,
+  isAcpSelectableModel,
+} from "@/assistant/acp-model-options";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { ByoServiceCard } from "@/components/byo-service-card";
+import { SaveButton } from "@/components/service-form-controls";
+import { CUSTOM_SENTINEL } from "@/domains/settings/ai/call-site-helpers";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { useDraftOverride } from "@/hooks/use-draft-override";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useTranslation } from "@/i18n";
+import { useSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
+import { captureError } from "@/lib/sentry/capture-error";
+
+/**
+ * Picks the model every new coding-agent session starts on, saved as
+ * `acp.defaultModel`.
+ *
+ * It is the bottom rung of the daemon's resolution ladder, so an explicit
+ * spawn request, a conversation's remembered choice, and a per-agent setting
+ * all outrank it. Leaving it on the agent's default writes `null` and lets
+ * the adapter decide, which is what every session did before this existed.
+ */
+export function CodingAgentsCard() {
+  const { t } = useTranslation("settings");
+  const assistantId = useActiveAssistantId();
+  const queryClient = useQueryClient();
+  const isOrgReady = useIsOrgReady();
+  const supportsModelSwitching = useSupportsAcpModelSwitching();
+
+  const { data: daemonConfig } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    enabled: isOrgReady,
+    staleTime: 30_000,
+  });
+
+  const configMutation = useConfigPatchMutation({
+    onSuccess: (data) => {
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
+    },
+  });
+
+  const serverDefaultModel = daemonConfig?.acp?.defaultModel?.trim() || null;
+
+  const [saving, setSaving] = useState(false);
+  const [defaultModel, setDraftDefaultModel] = useDraftOverride<string | null>(
+    serverDefaultModel,
+  );
+  // Sticks the custom row to the trigger while its input is still empty,
+  // which is the one moment the draft cannot say so for itself.
+  const [customPicked, setCustomPicked] = useState(false);
+
+  const hasCustomValue =
+    Boolean(defaultModel) && !isAcpSelectableModel(defaultModel);
+  const showsCustomInput = customPicked || hasCustomValue;
+  const selectValue = showsCustomInput ? CUSTOM_SENTINEL : defaultModel;
+
+  // Blank custom text means "no default", so clearing the input is the same
+  // choice as picking the agent-default row.
+  const nextDefaultModel = defaultModel?.trim() || null;
+  const saveDisabled = saving || nextDefaultModel === serverDefaultModel;
+
+  const modelOptions = useMemo(
+    (): SelectOption<string>[] => [
+      { value: null, label: t("codingAgentsCard.agentDefaultOption") },
+      ...ACP_SELECTABLE_MODELS.map((option) => ({
+        value: option.value,
+        label: t(option.labelKey),
+      })),
+      {
+        value: CUSTOM_SENTINEL,
+        label: t("codingAgentsCard.customModelOption"),
+        sticky: true,
+      },
+    ],
+    [t],
+  );
+
+  const handleSelect = useCallback(
+    (value: string) => {
+      if (value === CUSTOM_SENTINEL) {
+        setCustomPicked(true);
+        if (!hasCustomValue) {
+          setDraftDefaultModel("");
+        }
+        return;
+      }
+      setCustomPicked(false);
+      setDraftDefaultModel(value);
+    },
+    [hasCustomValue, setDraftDefaultModel],
+  );
+
+  const handleSelectNone = useCallback(() => {
+    setCustomPicked(false);
+    setDraftDefaultModel(null);
+  }, [setDraftDefaultModel]);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { acp: { defaultModel: nextDefaultModel } },
+      });
+    } catch (error) {
+      toast.error(t("codingAgentsCard.configUpdateFailedToast"));
+      captureError(error, { context: "patch_daemon_config" });
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+    toast.success(t("codingAgentsCard.savedToast"));
+  }, [assistantId, configMutation, nextDefaultModel, t]);
+
+  if (!supportsModelSwitching) {
+    return null;
+  }
+
+  return (
+    <ByoServiceCard
+      id="coding-agents"
+      title={t("codingAgentsCard.title")}
+      subtitle={t("codingAgentsCard.subtitle")}
+    >
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <label className="block text-body-small-default text-[var(--content-tertiary)]">
+            {t("codingAgentsCard.modelLabel")}
+          </label>
+          <Select
+            aria-label={t("codingAgentsCard.modelAriaLabel")}
+            value={selectValue}
+            onChange={handleSelect}
+            onSelectNone={handleSelectNone}
+            options={modelOptions}
+          />
+        </div>
+
+        {showsCustomInput && (
+          <div className="space-y-1">
+            <Input
+              label={t("codingAgentsCard.customModelLabel")}
+              value={defaultModel ?? ""}
+              onChange={(e) => setDraftDefaultModel(e.target.value)}
+              placeholder={t("codingAgentsCard.customModelPlaceholder")}
+              fullWidth
+            />
+            <p className="text-body-small-lighter text-[var(--content-tertiary)]">
+              {t("codingAgentsCard.customModelHint")}
+            </p>
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <SaveButton onClick={handleSave} disabled={saveDisabled} />
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+          )}
+        </div>
+      </div>
+    </ByoServiceCard>
+  );
+}
