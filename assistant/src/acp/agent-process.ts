@@ -19,6 +19,7 @@ import type {
   PromptResponse,
   ResumeSessionResponse,
   SessionConfigOption,
+  SetSessionConfigOptionRequest,
 } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
 
@@ -467,23 +468,27 @@ export class AcpAgentProcess {
    * Sets one session config option (e.g. the model selector) via
    * `session/set_config_option`. The agent answers with the full refreshed
    * option set, which replaces the cached one.
+   *
+   * A boolean value sends the `type: "boolean"` request variant; a string
+   * sends the value-id variant.
    */
   async setConfigOption(
     sessionId: string,
     configId: string,
-    value: string,
+    value: string | boolean,
   ): Promise<SessionConfigOption[]> {
     log.info(
       { agentId: this.agentId, sessionId, configId, value },
       "Setting ACP session config option",
     );
 
+    const request: SetSessionConfigOptionRequest =
+      typeof value === "boolean"
+        ? { sessionId, configId, type: "boolean", value }
+        : { sessionId, configId, value };
+
     const response = await this.withAuthRetry(() =>
-      this.requireConnection().setSessionConfigOption({
-        sessionId,
-        configId,
-        value,
-      }),
+      this.requireConnection().setSessionConfigOption(request),
     );
 
     return this.cacheConfigOptions(response.configOptions);

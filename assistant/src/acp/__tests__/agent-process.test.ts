@@ -323,6 +323,44 @@ describe("AcpAgentProcess config options", () => {
     expect(proc.modelConfigOption).toMatchObject({ currentValue: "opus" });
   });
 
+  test("setConfigOption sends the boolean request variant", async () => {
+    const proc = makeProcess();
+    const calls: unknown[] = [];
+    const refreshed = [modelOption("opus")];
+    (proc as unknown as { connection: unknown }).connection = {
+      setSessionConfigOption: (params: unknown) => {
+        calls.push(params);
+        return Promise.resolve({ configOptions: refreshed });
+      },
+    };
+
+    await proc.setConfigOption("session-1", "thinking", true);
+
+    expect(calls).toEqual([
+      {
+        sessionId: "session-1",
+        configId: "thinking",
+        type: "boolean",
+        value: true,
+      },
+    ]);
+  });
+
+  test("setConfigOption omits the discriminator for string values", async () => {
+    const proc = makeProcess();
+    const calls: unknown[] = [];
+    (proc as unknown as { connection: unknown }).connection = {
+      setSessionConfigOption: (params: unknown) => {
+        calls.push(params);
+        return Promise.resolve({ configOptions: [modelOption("opus")] });
+      },
+    };
+
+    await proc.setConfigOption("session-1", "model", "opus");
+
+    expect(calls[0]).not.toHaveProperty("type");
+  });
+
   test("setConfigOption throws when the process is not spawned", async () => {
     const proc = makeProcess();
 
