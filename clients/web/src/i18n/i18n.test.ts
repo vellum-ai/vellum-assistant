@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { stubHostLanguage } from "@/i18n/host-language.test-helper";
 import type { SupportedLocale } from "@/i18n/supported-locales";
 
 let preferred: string[] = [];
@@ -139,31 +138,46 @@ describe("ICU message formatting", () => {
 });
 
 describe("formatLocale", () => {
-  async function hostLanguageUnder(
-    host: string,
+  async function hostLanguagesUnder(
+    hosts: string[],
     app: SupportedLocale,
   ): Promise<string> {
     await initI18n();
     await changeLocale(app);
-    const restore = stubHostLanguage(host);
+    preferred = hosts;
     try {
       return formatLocale();
     } finally {
-      restore();
+      preferred = [];
       await changeLocale("en");
     }
   }
 
   test("keeps the host's region when it speaks the app's language", async () => {
-    expect(await hostLanguageUnder("en-GB", "en")).toBe("en-GB");
-    expect(await hostLanguageUnder("es-MX", "es")).toBe("es-MX");
+    expect(await hostLanguagesUnder(["en-GB"], "en")).toBe("en-GB");
+    expect(await hostLanguagesUnder(["es-MX"], "es")).toBe("es-MX");
   });
 
   test("keeps a Chinese host tag under either Chinese catalog", async () => {
-    expect(await hostLanguageUnder("zh-TW", "zh")).toBe("zh-TW");
+    expect(await hostLanguagesUnder(["zh-TW"], "zh")).toBe("zh-TW");
   });
 
   test("falls back to the app locale when the host speaks another language", async () => {
-    expect(await hostLanguageUnder("de-DE", "en")).toBe("en");
+    expect(await hostLanguagesUnder(["de-DE"], "en")).toBe("en");
+  });
+
+  test("reads past the host's first language to the app's own", async () => {
+    // A device that leads with English while the app runs in Spanish still
+    // states a Spanish region, and that is the one to format in.
+    expect(await hostLanguagesUnder(["en-US", "es-MX"], "es")).toBe("es-MX");
+  });
+
+  test("falls back to the app locale for a tag Intl cannot parse", async () => {
+    // A POSIX environment reports `C`, some shells report an underscored
+    // `en_US`, and a truncated tag reaches the region check intact. Handing
+    // any of them to Intl throws RangeError inside a formatter.
+    expect(await hostLanguagesUnder(["C"], "en")).toBe("en");
+    expect(await hostLanguagesUnder(["en_US"], "en")).toBe("en");
+    expect(await hostLanguagesUnder(["en-1"], "en")).toBe("en");
   });
 });

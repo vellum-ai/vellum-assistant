@@ -230,23 +230,43 @@ function primaryLanguage(tag: string): string {
  * locale otherwise, so `en-GB` under app locale `en` keeps its region while
  * `de-DE` under `en` does not format German dates beside English copy.
  *
- * Comparison is by primary subtag, so a `zh-TW` host keeps `zh-TW` under
- * either Chinese catalog.
+ * The host's whole preference list is searched, not just its first entry, so a
+ * user whose device leads with English while the app runs in Spanish still
+ * formats in the Spanish region they also listed. Comparison is by primary
+ * subtag, so a `zh-TW` host keeps `zh-TW` under either Chinese catalog.
  *
  * References:
- * - https://developer.mozilla.org/en-US/docs/Web/API/Navigator/language
+ * - https://developer.mozilla.org/en-US/docs/Web/API/Navigator/languages
  * - https://www.rfc-editor.org/rfc/rfc5646 (BCP 47 tag structure)
+ * - https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Intl/getCanonicalLocales
  */
 export function formatLocale(): string {
   const app = currentLocale();
-  if (typeof navigator === "undefined") {
+  const host = systemLocales().find(
+    (tag) => primaryLanguage(tag) === primaryLanguage(app),
+  );
+  if (host === undefined || !isFormattableLocale(host)) {
     return app;
   }
-  const host = navigator.language;
-  if (!host) {
-    return app;
+  return host;
+}
+
+/**
+ * Whether `Intl` will accept `tag`, which is not a given for a host-reported
+ * one: a POSIX environment reports `C`, and an underscored `en_US` reaches us
+ * from more than one shell. Every `Intl` constructor throws `RangeError` on
+ * those, and this is read by every date, time, and number formatter in the
+ * app, so the tag is checked once here instead of failing a render later.
+ */
+function isFormattableLocale(tag: string): boolean {
+  try {
+    Intl.getCanonicalLocales(tag);
+    return true;
+  } catch {
+    // A tag Intl cannot parse is host data the caller falls back from, not a
+    // fault to report.
+    return false;
   }
-  return primaryLanguage(host) === primaryLanguage(app) ? host : app;
 }
 
 export { i18next };
