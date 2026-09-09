@@ -125,12 +125,9 @@ export function ProfileEditorProviderSection({
   // fixed model set.
   const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
-  const developerMode =
-    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const hostedInference =
     useAssistantFeatureFlagStore.use.vellumHostedInference();
   const catalogFlags = catalogEnabledFlags({
-    developerMode,
     hostedInference,
   });
 

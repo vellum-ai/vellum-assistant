@@ -65,10 +65,18 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import {
+  clearLifecycleQuiesce,
+  setLifecycleQuiesce,
+} from "../persistence/lifecycle-quiesce.js";
 import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { rawRun } from "../persistence/raw-query.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { BadRequestError, NotFoundError } from "../runtime/routes/errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  NotFoundError,
+} from "../runtime/routes/errors.js";
 import { ROUTES as HEARTBEAT_ROUTES } from "../runtime/routes/heartbeat-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "../runtime/routes/schedule-routes.js";
 import type { RouteDefinition } from "../runtime/routes/types.js";
@@ -1669,6 +1677,27 @@ describe("plugin-sourced schedules over routes", () => {
       await runNow(imperative.id);
 
       expect(existsSync(RUN_MARKER)).toBe(true);
+    });
+
+    test("refuses run-now while a drain quiesce lease is active", async () => {
+      const imperative = await createSchedule({
+        name: "Quiesced script",
+        cronExpression: "* * * * *",
+        message: "",
+        mode: "script",
+        script: `touch ${RUN_MARKER}`,
+      });
+
+      setLifecycleQuiesce();
+      try {
+        await expect(runNow(imperative.id)).rejects.toThrow(ConflictError);
+        await expect(runNow(imperative.id)).rejects.toThrow(
+          "The assistant is shutting down and is not starting new schedule runs.",
+        );
+        expect(existsSync(RUN_MARKER)).toBe(false);
+      } finally {
+        clearLifecycleQuiesce();
+      }
     });
   });
 });

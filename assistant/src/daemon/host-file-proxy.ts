@@ -9,6 +9,7 @@ import {
   ambiguousSameUserError,
   enforceSameActorOrErrorResult,
   pickSameUserAutoResolve,
+  snapshotHostProxyActorPrincipalId,
 } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { readAudioBase64 } from "../tools/shared/filesystem/audio-read.js";
@@ -183,12 +184,11 @@ export class HostFileProxy {
         conversationId,
         kind: "host_file",
         targetClientId: resolvedTargetClientId,
-        targetActorPrincipalId:
-          resolvedTargetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(
-                resolvedTargetClientId,
-              )
-            : undefined,
+        targetActorPrincipalId: snapshotHostProxyActorPrincipalId({
+          hub: assistantEventHub,
+          targetClientId: resolvedTargetClientId,
+          sourceActorPrincipalId,
+        }),
         rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,

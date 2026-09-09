@@ -1286,8 +1286,9 @@ export const PROVIDER_SEED_DATA: Record<
     // Link issues OAuth clients by request rather than through a self-serve
     // dashboard, so there is no placeholder shape to suggest.
     clientIdPlaceholder: null,
-    // Simple Icons has no Link mark (`link` 404s on the CDN), so the parent
-    // Stripe mark stands in.
+    // Clients draw the bundled Link symbol; this remote fallback carries the
+    // parent Stripe mark because Simple Icons has no Link one (`link` 404s on
+    // the CDN).
     logoUrl: "https://cdn.simpleicons.org/stripe",
     defaultScopes: ["payment_methods.agentic", "userinfo:read"],
     availableScopes: [

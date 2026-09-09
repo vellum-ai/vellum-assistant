@@ -75,6 +75,7 @@ export interface CatalogModel {
    */
   supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
+  supportsEffort?: boolean;
   pricing?: CatalogModelPricing;
   /**
    * Upper bound for `reasoning_effort` accepted by this model's upstream API.
@@ -340,6 +341,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 64000,
         supportsThinking: true,
         adaptiveThinkingUnsupported: true,
+        supportsEffort: false,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -2682,6 +2684,24 @@ export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
       (m) =>
         m.adaptiveThinkingUnsupported === true &&
         (m.id === modelId || stripDateSuffix(m.id) === normalized),
+    ),
+  );
+}
+
+/** Whether the model accepts `output_config.effort` on the native Anthropic Messages wire (Haiku family and `supportsEffort: false` models do not; OpenRouter dotted ids normalized). */
+export function isEffortSupported(modelId: string): boolean {
+  if (modelId.includes("haiku")) {
+    return false;
+  }
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalize = (id: string): string =>
+    stripDateSuffix(id.replace(/^[^/]*\//, "").replace(/\./g, "-"));
+  const normalized = normalize(modelId);
+  return !PROVIDER_CATALOG.some((p) =>
+    p.models.some(
+      (m) =>
+        m.supportsEffort === false &&
+        (m.id === modelId || normalize(m.id) === normalized),
     ),
   );
 }

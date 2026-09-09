@@ -29050,7 +29050,8 @@ paths:
       summary: Run schedule now
       description:
         Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its
-        plugin is disabled or no longer declares it.
+        plugin is disabled or no longer declares it. Returns 409 while a drain quiesce lease is active so run-now cannot
+        start work the shutdown snapshot would miss.
       tags:
         - schedules
       parameters:
@@ -29246,6 +29247,8 @@ paths:
                 required:
                   - schedules
                 additionalProperties: false
+        "409":
+          description: A drain quiesce lease is active, so run-now is not starting new work.
   /v1/schedules/{id}/runs:
     get:
       operationId: schedules_by_id_runs_get
@@ -30346,8 +30349,8 @@ paths:
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
-      summary: Generate avatar
-      description: Generate an AI avatar image from a text description.
+      summary: Generate AI avatar (legacy alias)
+      description: Alias of avatar/generate kept for older clients; returns the avatar image path.
       tags:
         - settings
       requestBody:
@@ -30364,6 +30367,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  avatarPath:
+                    type: string
+                required:
+                  - ok
+                  - avatarPath
+                additionalProperties: false
   /v1/settings/client:
     put:
       operationId: settings_client_put

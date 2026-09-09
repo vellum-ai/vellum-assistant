@@ -22,6 +22,11 @@ const INK = "#5eead4";
 const markOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>("[data-testid='companion-coachmark']");
 
+const pointerOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(
+    "[data-testid='companion-coachmark-pointer']",
+  );
+
 const captionOf = (container: HTMLElement): HTMLElement | null =>
   container.querySelector<HTMLElement>(
     "[data-testid='companion-coachmark-caption']",
@@ -36,7 +41,9 @@ describe("a mark on the shared surface", () => {
   test("is placed as fractions of the window", () => {
     const { container } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.25, y: 0.5, width: 0.1, height: 0.2 }]}
+        marks={[
+          { kind: "region" as const, x: 0.25, y: 0.5, width: 0.1, height: 0.2 },
+        ]}
         ink={INK}
       />,
     );
@@ -50,7 +57,9 @@ describe("a mark on the shared surface", () => {
   test("takes no mouse events, so the press lands on the app underneath", () => {
     const { container } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }]}
+        marks={[
+          { kind: "region" as const, x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+        ]}
         ink={INK}
       />,
     );
@@ -63,7 +72,9 @@ describe("a mark on the shared surface", () => {
   test("draws in the accent it is handed", () => {
     const { container } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }]}
+        marks={[
+          { kind: "region" as const, x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+        ]}
         ink="#ff8800"
       />,
     );
@@ -83,7 +94,16 @@ describe("a mark on the shared surface", () => {
   test("holds a mark that runs past the edge inside the surface", () => {
     const { container } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.9, y: 0.1, width: 0.3, height: 0.1, caption: "Here" }]}
+        marks={[
+          {
+            kind: "region" as const,
+            x: 0.9,
+            y: 0.1,
+            width: 0.3,
+            height: 0.1,
+            caption: "Here",
+          },
+        ]}
         ink={INK}
       />,
     );
@@ -97,14 +117,18 @@ describe("a mark on the shared surface", () => {
   test("replaces the element when the mark it draws changes", () => {
     const { container, rerender } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }]}
+        marks={[
+          { kind: "region" as const, x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+        ]}
         ink={INK}
       />,
     );
     const first = markOf(container);
     rerender(
       <CompanionCoachmarks
-        marks={[{ x: 0.4, y: 0.1, width: 0.1, height: 0.1 }]}
+        marks={[
+          { kind: "region" as const, x: 0.4, y: 0.1, width: 0.1, height: 0.1 },
+        ]}
         ink={INK}
       />,
     );
@@ -120,7 +144,9 @@ describe("the caption on a mark", () => {
   test("is absent when the ring is the whole message", () => {
     const { container } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }]}
+        marks={[
+          { kind: "region" as const, x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+        ]}
         ink={INK}
       />,
     );
@@ -129,19 +155,28 @@ describe("the caption on a mark", () => {
 
   test("hangs below and leading for a mark near the top left", () => {
     expect(
-      captionPlacement({ x: 0.1, y: 0.1, width: 0.1, height: 0.1 }, TALL),
+      captionPlacement(
+        { kind: "region" as const, x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+        TALL,
+      ),
     ).toEqual({ above: false, trailing: false });
   });
 
   test("runs back from the right edge for a mark near it", () => {
     expect(
-      captionPlacement({ x: 0.8, y: 0.1, width: 0.1, height: 0.1 }, TALL),
+      captionPlacement(
+        { kind: "region" as const, x: 0.8, y: 0.1, width: 0.1, height: 0.1 },
+        TALL,
+      ),
     ).toEqual({ above: false, trailing: true });
   });
 
   test("sits above a mark near the bottom", () => {
     expect(
-      captionPlacement({ x: 0.1, y: 0.95, width: 0.1, height: 0.04 }, TALL),
+      captionPlacement(
+        { kind: "region" as const, x: 0.1, y: 0.95, width: 0.1, height: 0.04 },
+        TALL,
+      ),
     ).toEqual({ above: true, trailing: false });
   });
 
@@ -151,7 +186,13 @@ describe("the caption on a mark", () => {
    * foot of a short window.
    */
   test("reads the room below in pixels rather than in fractions", () => {
-    const mark = { x: 0.1, y: 0.6, width: 0.1, height: 0.2 };
+    const mark = {
+      kind: "region" as const,
+      x: 0.1,
+      y: 0.6,
+      width: 0.1,
+      height: 0.2,
+    };
     expect(captionPlacement(mark, TALL).above).toBe(false);
     expect(captionPlacement(mark, 120).above).toBe(true);
   });
@@ -162,20 +203,38 @@ describe("the caption on a mark", () => {
    */
   test("takes the roomier side when neither side has enough", () => {
     expect(
-      captionPlacement({ x: 0.1, y: 0.7, width: 0.1, height: 0.1 }, 80).above,
+      captionPlacement(
+        { kind: "region" as const, x: 0.1, y: 0.7, width: 0.1, height: 0.1 },
+        80,
+      ).above,
     ).toBe(true);
     expect(
-      captionPlacement({ x: 0.1, y: 0.2, width: 0.1, height: 0.1 }, 80).above,
+      captionPlacement(
+        { kind: "region" as const, x: 0.1, y: 0.2, width: 0.1, height: 0.1 },
+        80,
+      ).above,
     ).toBe(false);
   });
 
   test("holds a caption off the edge of a window too short for it", () => {
-    const mark = { x: 0.1, y: 0.8, width: 0.1, height: 0.15 };
+    const mark = {
+      kind: "region" as const,
+      x: 0.1,
+      y: 0.8,
+      width: 0.1,
+      height: 0.15,
+    };
     expect(captionOffset(mark, 120, false)).toBe(120 - CAPTION_BUDGET_PX);
   });
 
   test("leaves a caption at its mark when the window has the room", () => {
-    const mark = { x: 0.1, y: 0.1, width: 0.1, height: 0.1 };
+    const mark = {
+      kind: "region" as const,
+      x: 0.1,
+      y: 0.1,
+      width: 0.1,
+      height: 0.1,
+    };
     expect(captionOffset(mark, TALL, false)).toBe(0.2 * TALL + 10);
   });
 
@@ -186,7 +245,7 @@ describe("the caption on a mark", () => {
    */
   test("cannot run off the surface it flipped to stay on", () => {
     const flipped = captionPlacement(
-      { x: 0.6, y: 0.1, width: 0.001, height: 0.1 },
+      { kind: "region" as const, x: 0.6, y: 0.1, width: 0.001, height: 0.1 },
       TALL,
     );
     expect(flipped.trailing).toBe(true);
@@ -196,7 +255,16 @@ describe("the caption on a mark", () => {
   test("is anchored to the corner it was placed at", () => {
     const { container } = render(
       <CompanionCoachmarks
-        marks={[{ x: 0.7, y: 0.9, width: 0.1, height: 0.05, caption: "Press" }]}
+        marks={[
+          {
+            kind: "region" as const,
+            x: 0.7,
+            y: 0.9,
+            width: 0.1,
+            height: 0.05,
+            caption: "Press",
+          },
+        ]}
         ink={INK}
       />,
     );
@@ -204,9 +272,87 @@ describe("the caption on a mark", () => {
     expect(caption?.textContent).toBe("Press");
     expect(caption?.style.right).toBe("20%");
     expect(caption?.style.bottom).toBe(
-      `${captionOffset({ x: 0.7, y: 0.9, width: 0.1, height: 0.05 }, window.innerHeight, true)}px`,
+      `${captionOffset({ kind: "region" as const, x: 0.7, y: 0.9, width: 0.1, height: 0.05 }, window.innerHeight, true)}px`,
     );
     expect(caption?.dataset.above).toBe("");
     expect(caption?.dataset.trailing).toBe("");
+  });
+});
+
+/**
+ * The arrow, which is what a named control gets.
+ *
+ * A ring says where a thing ends as well as where it is; an arrow only says
+ * which thing. These pin the part that has to be exact: the tip lands on the
+ * point, on whichever side the caption is not.
+ */
+describe("an arrow at a place on the shared surface", () => {
+  test("a point draws an arrow rather than a ring", () => {
+    const { container } = render(
+      <CompanionCoachmarks
+        marks={[{ kind: "point" as const, x: 0.5, y: 0.5 }]}
+        ink={INK}
+      />,
+    );
+    expect(pointerOf(container)).not.toBeNull();
+    expect(markOf(container)).toBeNull();
+  });
+
+  test("a region still draws a ring rather than an arrow", () => {
+    const { container } = render(
+      <CompanionCoachmarks
+        marks={[
+          { kind: "region" as const, x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        ]}
+        ink={INK}
+      />,
+    );
+    expect(markOf(container)).not.toBeNull();
+    expect(pointerOf(container)).toBeNull();
+  });
+
+  /**
+   * The arrow hangs below the point with room under it, so it comes up at the
+   * control from the same side its caption is on and neither covers it.
+   */
+  test("the arrow hangs on the caption's side", () => {
+    const { container } = render(
+      <CompanionCoachmarks
+        marks={[
+          { kind: "point" as const, x: 0.5, y: 0.2, caption: "Click it" },
+        ]}
+        ink={INK}
+      />,
+    );
+    const pointer = pointerOf(container);
+    expect(pointer?.dataset.above).toBeUndefined();
+    expect(captionOf(container)?.dataset.above).toBeUndefined();
+  });
+
+  /**
+   * A point with a whole window above it and nothing below has to turn over,
+   * or its arrow and its words would both be drawn off the surface.
+   */
+  test("the arrow turns over when the room is above", () => {
+    const placement = captionPlacement(
+      { kind: "point", x: 0.5, y: 0.99 },
+      TALL,
+    );
+    expect(placement.above).toBe(true);
+  });
+
+  /** A point keeps clear of its own arrow when its caption is placed. */
+  test("the caption clears the arrow rather than sitting on it", () => {
+    const point = { kind: "point" as const, x: 0.5, y: 0.5 };
+    const region = {
+      kind: "region" as const,
+      x: 0.5,
+      y: 0.5,
+      width: 0,
+      height: 0,
+    };
+    expect(captionOffset(point, TALL, false)).toBeGreaterThan(
+      captionOffset(region, TALL, false),
+    );
   });
 });

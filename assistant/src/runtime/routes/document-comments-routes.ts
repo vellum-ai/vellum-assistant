@@ -208,7 +208,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateDocumentComment",
     endpoint: "documents/:id/comments/:commentId",
     method: "PATCH",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update a document comment",
     description: "Update the status or content of a comment.",
     tags: ["documents"],
@@ -273,7 +276,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "deleteDocumentComment",
     endpoint: "documents/:id/comments/:commentId",
     method: "DELETE",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a document comment",
     description: "Permanently delete a comment.",
     tags: ["documents"],
