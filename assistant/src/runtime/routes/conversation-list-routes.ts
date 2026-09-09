@@ -94,12 +94,6 @@ const forkParentSchema = z.object({
 export const conversationSummarySchema = z.object({
   id: z.string(),
   title: z.string(),
-  /**
-   * Present when `title` is a daemon-owned placeholder. Clients localize
-   * from this state rather than matching the title string. Absent for a
-   * real (user or LLM) title.
-   */
-  titleState: z.enum(["generating", "untitled"]).optional(),
   createdAt: z.number(),
   updatedAt: z.number(),
   lastMessageAt: z.number().nullable(),

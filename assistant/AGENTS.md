@@ -89,7 +89,7 @@ Telemetry event types are defined by a platform-generated wire contract (`src/te
 
 ## Daemon i18n
 
-User-facing copy the daemon persists or emits goes through `src/i18n/`. Persist a message key (or the English default when a column already stores English). Resolve with `t(key, locale)` at the HTTP/CLI/channel edge. Never persist a translated string. See [`src/i18n/AGENTS.md`](src/i18n/AGENTS.md).
+User-facing copy the daemon generates as a hardcoded constant goes through `src/i18n/`. Persist the message key. Resolve with `t(key, locale)` at the HTTP/CLI/channel edge. Never persist a translated string, and never match stored display strings back to keys. See [`src/i18n/AGENTS.md`](src/i18n/AGENTS.md).
 
 ## Code comments
 

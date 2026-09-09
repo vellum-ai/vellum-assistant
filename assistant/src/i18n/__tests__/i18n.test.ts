@@ -5,9 +5,8 @@ import {
   MESSAGE_CATALOGS,
   MESSAGE_KEYS,
   SUPPORTED_LOCALES,
-  classifyConversationTitle,
+  isMessageKey,
   localeFromAcceptLanguage,
-  messageKeyFromStored,
   negotiateLocale,
   resolveConversationTitle,
   t,
@@ -72,52 +71,38 @@ describe("t", () => {
   });
 });
 
-describe("messageKeyFromStored", () => {
-  test("recognizes keys and legacy English aliases", () => {
+describe("resolveConversationTitle", () => {
+  test("resolves a stored key and an empty title", () => {
     expect(
-      messageKeyFromStored(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING),
-    ).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING);
-    expect(messageKeyFromStored("Generating title...")).toBe(
-      MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING,
-    );
-    expect(messageKeyFromStored("Untitled Conversation")).toBe(
-      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
-    );
-    expect(messageKeyFromStored("Untitled")).toBe(
-      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
-    );
-    expect(messageKeyFromStored("Weekly planning")).toBeNull();
+      resolveConversationTitle(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING, "zh"),
+    ).toBe("标题生成中...");
+    expect(resolveConversationTitle(null, "es")).toBe("Sin título");
+    expect(resolveConversationTitle("")).toBe("Untitled Conversation");
   });
-});
 
-describe("classifyConversationTitle / resolveConversationTitle", () => {
-  test("empty and untitled aliases are untitled", () => {
-    expect(classifyConversationTitle("")).toBe("untitled");
-    expect(classifyConversationTitle("Untitled Conversation")).toBe(
-      "untitled",
-    );
-    expect(classifyConversationTitle("Untitled")).toBe("untitled");
-    expect(resolveConversationTitle("Untitled Conversation")).toBe(
+  test("passes stored display strings through, including English placeholders", () => {
+    expect(resolveConversationTitle("Untitled Conversation", "es")).toBe(
       "Untitled Conversation",
     );
-    expect(resolveConversationTitle(null, "es")).toBe("Sin título");
-  });
-
-  test("generating aliases resolve through the catalog", () => {
-    expect(classifyConversationTitle("Generating title...")).toBe(
-      "generating",
-    );
     expect(resolveConversationTitle("Generating title...", "zh")).toBe(
-      "标题生成中...",
-    );
-  });
-
-  test("custom titles pass through", () => {
-    expect(classifyConversationTitle("Auth Middleware Rewrite")).toBe(
-      "custom",
+      "Generating title...",
     );
     expect(resolveConversationTitle("Auth Middleware Rewrite", "es")).toBe(
       "Auth Middleware Rewrite",
     );
+  });
+
+  test("defaults locale inside the helper", () => {
+    expect(
+      resolveConversationTitle(MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING),
+    ).toBe("Generating title...");
+  });
+});
+
+describe("isMessageKey", () => {
+  test("recognizes catalog keys only", () => {
+    expect(isMessageKey(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED)).toBe(true);
+    expect(isMessageKey("Untitled Conversation")).toBe(false);
+    expect(isMessageKey("Untitled")).toBe(false);
   });
 });

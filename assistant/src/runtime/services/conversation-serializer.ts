@@ -8,8 +8,6 @@
 
 import { parseChannelId } from "../../channels/types.js";
 import {
-  classifyConversationTitle,
-  DEFAULT_LOCALE,
   resolveConversationTitle,
   type SupportedLocale,
 } from "../../i18n/index.js";
@@ -84,7 +82,7 @@ interface ForkLineage {
 function buildForkLineage(
   conversation: ConversationRow,
   parentCache: Map<string, ConversationRow | null>,
-  locale: SupportedLocale,
+  locale?: SupportedLocale,
 ): ForkLineage {
   const parentConversationId = conversation.forkParentConversationId;
   const parentMessageId = conversation.forkParentMessageId;
@@ -186,9 +184,8 @@ export function serializeConversationSummary(params: {
    */
   isProcessing: boolean;
   /**
-   * Locale used to resolve stored title constants. Defaults to English so
-   * older clients that do not send Accept-Language keep the same title
-   * bytes they already persist.
+   * Locale used to resolve stored title keys. Omitted locale is English
+   * inside {@link resolveConversationTitle}.
    */
   locale?: SupportedLocale;
 }) {
@@ -199,17 +196,15 @@ export function serializeConversationSummary(params: {
     displayMeta,
     parentCache,
     isProcessing,
-    locale = DEFAULT_LOCALE,
+    locale,
   } = params;
   const originChannel = parseChannelId(conversation.originChannel);
   const assistantAttention = buildAssistantAttention(attentionState);
   const forkLineage = buildForkLineage(conversation, parentCache, locale);
-  const titleState = classifyConversationTitle(conversation.title);
 
   return {
     id: conversation.id,
     title: resolveConversationTitle(conversation.title, locale),
-    ...(titleState !== "custom" ? { titleState } : {}),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     lastMessageAt: conversation.lastMessageAt,
@@ -269,7 +264,7 @@ export function serializeConversationSummary(params: {
  */
 export function buildConversationDetailResponse(
   conversationId: string,
-  locale: SupportedLocale = DEFAULT_LOCALE,
+  locale?: SupportedLocale,
 ): { conversation: ReturnType<typeof serializeConversationSummary> } | null {
   const conversation = getConversation(conversationId);
   if (!conversation || conversation.conversationType === "private") {

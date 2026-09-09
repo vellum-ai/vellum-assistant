@@ -184,18 +184,14 @@ export function filterByState(
 
 /**
  * Case-insensitive title match against the visible label and the persisted
- * title. Placeholder rows render through {@link displayConversationTitle}
- * from `titleState`, so a query must hit that localized copy as well as
- * the stored title.
+ * title. Empty titles render through {@link displayConversationTitle}, so
+ * a query must hit that localized copy as well as the stored title.
  */
 export function filterBySearch(
   rows: AllConversationsRow[],
   searchText: string,
-  displayTitle: (
-    title: string | null | undefined,
-    titleState?: "generating" | "untitled" | null,
-  ) => string = (title, titleState) =>
-    displayConversationTitle(title, undefined, titleState),
+  displayTitle: (title: string | null | undefined) => string = (title) =>
+    displayConversationTitle(title),
 ): AllConversationsRow[] {
   const query = searchText.trim().toLowerCase();
   if (!query) {
@@ -203,10 +199,7 @@ export function filterBySearch(
   }
   return rows.filter((row) => {
     const persisted = (row.conversation.title ?? "").toLowerCase();
-    const visible = displayTitle(
-      row.conversation.title,
-      row.conversation.titleState,
-    ).toLowerCase();
+    const visible = displayTitle(row.conversation.title).toLowerCase();
     return persisted.includes(query) || visible.includes(query);
   });
 }

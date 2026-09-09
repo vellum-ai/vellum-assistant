@@ -53,6 +53,7 @@ import {
   getSelfHostedIngressUrl,
   setSelfHostedConnection,
 } from "@/lib/self-hosted/connection";
+import { currentLocale } from "@/i18n";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   installResumeRequestCounter,
@@ -458,6 +459,8 @@ function createInterceptor({
     )) {
       newRequest.headers.set(name, value);
     }
+
+    newRequest.headers.set("Accept-Language", currentLocale());
 
     // Self-hosted assistant + runtime-proxied path → talk to the user's
     // gateway directly instead of stamping the platform's session/CSRF

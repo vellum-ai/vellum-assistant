@@ -2618,7 +2618,7 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("parses conversation_title_updated with titleState", () => {
+  test("strips unknown fields from conversation_title_updated", () => {
     const event = parseEvent({
       type: "conversation_title_updated",
       conversationId: "conv-1",
@@ -2629,7 +2629,6 @@ describe("parseAssistantEvent", () => {
       type: "conversation_title_updated",
       conversationId: "conv-1",
       title: "Untitled",
-      titleState: "untitled",
     });
   });
 

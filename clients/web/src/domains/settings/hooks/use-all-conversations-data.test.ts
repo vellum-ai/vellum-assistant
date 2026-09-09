@@ -342,13 +342,10 @@ describe("filterBySearch", () => {
     );
   });
 
-  test("matches the localized fallback a placeholder row displays", () => {
+  test("matches the localized fallback a titleless row displays", () => {
     const untitled = [
       {
-        conversation: conv("untitled", {
-          title: "Untitled Conversation",
-          titleState: "untitled",
-        }),
+        conversation: conv("untitled", { title: "" }),
         archived: false,
       },
       {
@@ -356,22 +353,11 @@ describe("filterBySearch", () => {
         archived: false,
       },
     ];
-    const displayTitle = (
-      title: string | null | undefined,
-      titleState?: "generating" | "untitled" | null,
-    ) => (titleState === "untitled" ? "Sin título" : (title ?? ""));
+    const displayTitle = (title: string | null | undefined) =>
+      title?.trim() ? title : "Sin título";
 
     const byVisible = filterBySearch(untitled, "sin título", displayTitle);
     expect(byVisible.map((row) => row.conversation.conversationId)).toEqual([
-      "untitled",
-    ]);
-
-    const byPersisted = filterBySearch(
-      untitled,
-      "untitled conversation",
-      displayTitle,
-    );
-    expect(byPersisted.map((row) => row.conversation.conversationId)).toEqual([
       "untitled",
     ]);
   });

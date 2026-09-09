@@ -1,8 +1,5 @@
 import type { IdentityFields } from "../../daemon/handlers/identity.js";
-import {
-  classifyConversationTitle,
-  resolveConversationTitle,
-} from "../../i18n/index.js";
+import { resolveConversationTitle } from "../../i18n/index.js";
 import {
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
@@ -234,13 +231,11 @@ export function publishConversationTitleChanged(
   title: string,
   originClientId?: string,
 ): void {
-  const titleState = classifyConversationTitle(title);
   broadcastMessage(
     {
       type: "conversation_title_updated",
       conversationId,
       title: resolveConversationTitle(title),
-      ...(titleState !== "custom" ? { titleState } : {}),
     },
     conversationId,
   );

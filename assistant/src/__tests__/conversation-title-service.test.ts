@@ -97,6 +97,7 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
   publishConversationTitleChanged: mockPublishConversationTitleChanged,
 }));
 
+import { MESSAGE_KEYS } from "../i18n/index.js";
 import {
   AUTO_TITLE_DETERMINISTIC,
   AUTO_TITLE_LLM,
@@ -302,10 +303,10 @@ describe("conversation-title-service", () => {
       userMessage: "so about that t-shirt...",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     );
   });
@@ -326,7 +327,7 @@ describe("conversation-title-service", () => {
       userMessage: "something",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
   });
 
   // The core bug this PR fixes: weak title models emit their reasoning or
@@ -354,10 +355,10 @@ describe("conversation-title-service", () => {
       userMessage: "hey baby",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     );
   });
@@ -416,7 +417,7 @@ describe("conversation-title-service", () => {
       userMessage: "x",
     });
 
-    expect(result.title).toBe("Untitled Conversation");
+    expect(result.title).toBe(MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED);
   });
 
   test("regeneration skips LLM call when recent messages have no extractable text", async () => {
@@ -508,17 +509,17 @@ describe("conversation-title-service", () => {
     });
 
     expect(provider.sendMessage).not.toHaveBeenCalled();
-    expect(result).toEqual({ title: "Untitled Conversation", updated: true });
+    expect(result).toEqual({ title: MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED, updated: true });
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     );
   });
 
   test("keeps a background job's deterministic title when the model declines", async () => {
     // The model answered with prose the normalizer rejects, so there is no
-    // generated title. Settling for "Untitled Conversation" would name the
+    // generated title. Settling for the untitled fallback would name the
     // job's work less well than the bootstrap title already does.
     mockGetConversation.mockImplementation(() => ({
       title: "Memory consolidation",
@@ -657,7 +658,7 @@ describe("conversation-title-service", () => {
     ).find((c) => c[0] === "conv-1");
     expect(firstUpdate).toEqual([
       "conv-1",
-      "Untitled Conversation",
+      MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,
       AUTO_TITLE_DETERMINISTIC,
     ]);
     const secondUpdate = (

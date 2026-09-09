@@ -117,8 +117,8 @@ export function useAllConversationsData(
 
   const rows = useMemo(
     () =>
-      filterBySearch(stateFiltered, searchText, (title, titleState) =>
-        displayConversationTitle(title, t, titleState),
+      filterBySearch(stateFiltered, searchText, (title) =>
+        displayConversationTitle(title, t),
       ),
     [stateFiltered, searchText, t],
   );

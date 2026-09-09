@@ -128,7 +128,6 @@ export function useConversationSync(
       case "conversation_title_updated":
         patchConversation(queryClient, assistantId, event.conversationId, {
           title: event.title,
-          titleState: event.titleState,
         });
         return;
     }

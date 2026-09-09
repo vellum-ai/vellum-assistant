@@ -545,11 +545,7 @@ export function useNativeWidgetSnapshotSync(
       .slice(0, MAX_SNAPSHOT_CONVERSATIONS)
       .map((conversation) => ({
         id: conversation.conversationId,
-        title: displayConversationTitle(
-          conversation.title,
-          t,
-          conversation.titleState,
-        ),
+        title: displayConversationTitle(conversation.title, t),
         subtitle:
           conversation.groupId === undefined
             ? undefined

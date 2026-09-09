@@ -6,7 +6,6 @@ import {
   buildActionsSection,
   buildServerResultSections,
 } from "@/domains/chat/hooks/command-palette-utils";
-import type { TFunction } from "@/i18n";
 
 const searchResults: GlobalSearchResponse = {
   conversations: [
@@ -172,15 +171,7 @@ describe("buildServerResultSections", () => {
       schedules: [],
       contacts: [],
     };
-    const translate = ((key: string) =>
-      key === "conversationTitle.generating"
-        ? "Generando título..."
-        : key) as TFunction;
-    const sections = buildServerResultSections(
-      generatingResults,
-      new Set(),
-      translate,
-    );
+    const sections = buildServerResultSections(generatingResults, new Set());
     expect(sections[0]!.items[0]!.title).toBe("Generating title...");
   });
 

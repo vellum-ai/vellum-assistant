@@ -38,11 +38,7 @@ function buildRecentsSection(
     items: recent.map((conv) => ({
       id: `conv-${conv.conversationId}`,
       icon: MessageSquare,
-      title: displayConversationTitle(
-        conv.title,
-        translate,
-        conv.titleState,
-      ),
+      title: displayConversationTitle(conv.title, translate),
       subtitle: conv.lastMessageAt
         ? formatRelativeTime(conv.lastMessageAt)
         : undefined,

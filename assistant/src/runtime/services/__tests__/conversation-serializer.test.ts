@@ -160,28 +160,30 @@ describe("serializeConversationSummary · enabledPlugins", () => {
   });
 });
 
-describe("serializeConversationSummary · titleState", () => {
-  test("marks a generating placeholder and resolves it for the locale", () => {
+describe("serializeConversationSummary · title keys", () => {
+  test("resolves a stored title key for the locale", () => {
     const summary = serializeConversationSummary({
-      conversation: makeConversationRow({ title: "Generating title..." }),
+      conversation: makeConversationRow({
+        title: "conversation.title.generating",
+      }),
       displayMeta: { displayOrder: null, isPinned: false, groupId: null },
       parentCache: new Map(),
       isProcessing: false,
       locale: "es",
     });
-    expect(summary.titleState).toBe("generating");
     expect(summary.title).toBe("Generando título...");
+    expect("titleState" in summary).toBe(false);
   });
 
-  test("marks an untitled placeholder", () => {
-    const summary = serialize(makeConversationRow({ title: "Untitled Conversation" }));
-    expect(summary.titleState).toBe("untitled");
+  test("passes a stored display string through", () => {
+    const summary = serialize(
+      makeConversationRow({ title: "Untitled Conversation" }),
+    );
     expect(summary.title).toBe("Untitled Conversation");
   });
 
-  test("omits titleState for a custom title", () => {
+  test("passes a custom title through", () => {
     const summary = serialize(makeConversationRow({ title: "Weekly planning" }));
-    expect("titleState" in summary).toBe(false);
     expect(summary.title).toBe("Weekly planning");
   });
 });
