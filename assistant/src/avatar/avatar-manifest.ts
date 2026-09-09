@@ -47,13 +47,14 @@ export type {
 export type { CharacterTraits };
 
 /** The state an emptied workspace reads as. */
-export const NONE_AVATAR_STATE: Readonly<AvatarState> = {
-  kind: "none",
-  traits: null,
-  source: null,
-  image: null,
-  accent: null,
-};
+export const NONE_AVATAR_STATE: Readonly<AvatarState> =
+  Object.freeze<AvatarState>({
+    kind: "none",
+    traits: null,
+    source: null,
+    image: null,
+    accent: null,
+  });
 
 /**
  * Reads and validates the avatar manifest. Returns `null` when the manifest is

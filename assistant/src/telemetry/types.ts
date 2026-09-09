@@ -627,8 +627,8 @@ export type AuthFallbackTelemetryEvent = EventMap["auth_fallback"];
 export type ConfigSettingTelemetryEvent = EventMap["config_setting"];
 
 /**
- * Avatar-changed event, the avatar store's change event. Wire-shaped with no
- * daemon override; 1:1 with `AvatarChangedTelemetryEventSerializer`.
+ * Avatar-changed event: one per avatar mutation from the avatar store. 1:1
+ * with the wire contract (`AvatarChangedTelemetryEventSerializer`).
  */
 export type AvatarChangedTelemetryEvent = EventMap["avatar_changed"];
 

@@ -7,7 +7,6 @@ import { describe, expect, test } from "bun:test";
 
 import { avatarChangedTelemetryEventSchema } from "../../telemetry/telemetry-wire.generated.js";
 import {
-  type AvatarChangedFields,
   avatarChangedFields,
   isSameAvatar,
 } from "../avatar-changed-telemetry.js";
@@ -37,7 +36,16 @@ const UPLOADED_REWRITTEN: AvatarState = {
   image: { updatedAt: "2026-01-02T00:00:00.000Z", etag: "etag-2" },
 };
 
-function parseOnTheWire(fields: AvatarChangedFields) {
+/** An image manifest derived from legacy files: it names no source and no accent. */
+const UPLOADED_LEGACY: AvatarState = {
+  ...UPLOADED,
+  source: null,
+  accent: null,
+};
+
+const CUSTOM_ACCENT = { hex: "#123456", source: "custom" } as const;
+
+function parseOnTheWire(fields: ReturnType<typeof avatarChangedFields>) {
   return avatarChangedTelemetryEventSchema.safeParse({
     type: "avatar_changed",
     daemon_event_id: "evt-avatar-changed-001",
@@ -89,6 +97,14 @@ describe("avatarChangedFields", () => {
     ).toBe("none");
   });
 
+  test("an upper-case palette hex is emitted lower case", () => {
+    const fields = avatarChangedFields("set_character", NONE_AVATAR_STATE, {
+      ...CHARACTER,
+      accent: { hex: "#4C9B50", source: "palette" },
+    });
+    expect(fields.accent_hex).toBe("#4c9b50");
+  });
+
   test("the client OS rides along only when it is non-empty", () => {
     const withOs = avatarChangedFields(
       "generate_image",
@@ -114,7 +130,7 @@ describe("avatarChangedFields", () => {
       avatarChangedFields("generate_image", NONE_AVATAR_STATE, UPLOADED),
       avatarChangedFields("set_accent", UPLOADED, {
         ...UPLOADED,
-        accent: { hex: "#123456", source: "custom" },
+        accent: CUSTOM_ACCENT,
       }),
       avatarChangedFields("clear", CHARACTER, NONE_AVATAR_STATE),
     ];
@@ -148,26 +164,53 @@ describe("isSameAvatar", () => {
     ).toBe(false);
   });
 
-  test("an image rewritten from the same bytes and source is the same", () => {
-    expect(isSameAvatar(UPLOADED, UPLOADED_REWRITTEN, true)).toBe(true);
+  test("a character whose accent was never recorded is the same under its palette accent", () => {
+    expect(isSameAvatar({ ...CHARACTER, accent: null }, CHARACTER)).toBe(true);
   });
 
-  test("an image is not the same without the byte verdict, even when every manifest field matches", () => {
-    expect(isSameAvatar(UPLOADED, UPLOADED)).toBe(false);
+  test("an image rewritten from the same bytes and source is the same", () => {
+    expect(isSameAvatar(UPLOADED, UPLOADED_REWRITTEN)).toBe(true);
+  });
+
+  test("an image whose bytes changed is not, even when every manifest field matches", () => {
+    expect(isSameAvatar(UPLOADED, UPLOADED_REWRITTEN, true)).toBe(false);
   });
 
   test("the same bytes from a different source is not", () => {
-    expect(isSameAvatar(UPLOADED, { ...UPLOADED, source: "ai" }, true)).toBe(
-      false,
-    );
+    expect(isSameAvatar(UPLOADED, { ...UPLOADED, source: "ai" })).toBe(false);
   });
 
   test("the same bytes under a different accent is not", () => {
     expect(
+      isSameAvatar(UPLOADED, {
+        ...UPLOADED,
+        accent: { hex: "#c81e1e", source: "custom" },
+      }),
+    ).toBe(false);
+  });
+
+  test("a legacy-derived image re-set from the same bytes is the same, whatever the source", () => {
+    expect(isSameAvatar(UPLOADED_LEGACY, UPLOADED)).toBe(true);
+    expect(isSameAvatar(UPLOADED_LEGACY, { ...UPLOADED, source: "ai" })).toBe(
+      true,
+    );
+  });
+
+  test("a legacy-derived image is not the same once the bytes change", () => {
+    expect(isSameAvatar(UPLOADED_LEGACY, UPLOADED, true)).toBe(false);
+  });
+
+  test("a custom accent over one that was never recorded is not", () => {
+    expect(
+      isSameAvatar(UPLOADED_LEGACY, { ...UPLOADED, accent: CUSTOM_ACCENT }),
+    ).toBe(false);
+  });
+
+  test("a previous custom accent under a derived one is not, even with an unknown source", () => {
+    expect(
       isSameAvatar(
+        { ...UPLOADED_LEGACY, accent: { hex: "#c81e1e", source: "custom" } },
         UPLOADED,
-        { ...UPLOADED, accent: { hex: "#c81e1e", source: "custom" } },
-        true,
       ),
     ).toBe(false);
   });
@@ -181,7 +224,7 @@ describe("isSameAvatar", () => {
 
   test("none is never the same as an avatar", () => {
     expect(isSameAvatar(NONE_AVATAR_STATE, CHARACTER)).toBe(false);
-    expect(isSameAvatar(NONE_AVATAR_STATE, UPLOADED, true)).toBe(false);
-    expect(isSameAvatar(UPLOADED, NONE_AVATAR_STATE, true)).toBe(false);
+    expect(isSameAvatar(NONE_AVATAR_STATE, UPLOADED)).toBe(false);
+    expect(isSameAvatar(UPLOADED, NONE_AVATAR_STATE)).toBe(false);
   });
 });

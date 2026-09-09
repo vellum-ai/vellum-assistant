@@ -12,10 +12,12 @@
  * change is announced: every successful mutation leaves the `## Avatar` note
  * in IDENTITY.md, runs the client + platform fan-out
  * (`publishAvatarChanged`), and records an `avatar_changed` telemetry event
- * unless the avatar came out identical. Callers (HTTP/IPC routes) go through
- * it rather than touching artifacts or the manifest directly, and never
- * publish or record on their own. The read-time accent repair in
- * `accent-backfill.ts` is the one other manifest write, and announces nothing.
+ * unless the avatar came out identical. Mutating routes (HTTP/IPC) go through
+ * it rather than touching artifacts or the manifest directly. The
+ * `notify_avatar_updated` route and the avatar watcher in
+ * `daemon/config-watcher.ts` republish out-of-band writes and record nothing;
+ * the read-time accent repair in `accent-backfill.ts` is the one other
+ * manifest write, and announces nothing.
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -85,11 +87,8 @@ interface AvatarTransition {
   action: AvatarChangeAction;
   previous: AvatarState;
   next: AvatarState;
-  /**
-   * Image over image only: the PNG the next state points at is byte-identical
-   * to the previous one.
-   */
-  sameImageBytes?: boolean;
+  /** Set by the image write: the PNG bytes differ from the previous image's. */
+  imageBytesChanged?: boolean;
 }
 
 /**
@@ -106,8 +105,8 @@ function announceChange(
     updateIdentityAvatarSection(identityNote);
   }
   publishAvatarChanged(options?.originClientId);
-  const { action, previous, next, sameImageBytes } = transition;
-  if (isSameAvatar(previous, next, sameImageBytes)) {
+  const { action, previous, next, imageBytesChanged } = transition;
+  if (isSameAvatar(previous, next, imageBytesChanged)) {
     return;
   }
   try {
@@ -206,7 +205,7 @@ export async function setImage(
       action: IMAGE_ACTIONS[source],
       previous,
       next: state,
-      sameImageBytes: previousBytes?.equals(pngBuffer) ?? false,
+      imageBytesChanged: !previousBytes?.equals(pngBuffer),
     },
     describeAvatarState(state, options?.imageDescription),
     options,
@@ -233,11 +232,7 @@ export async function setAccent(
     accent: hex ? { hex, source: "custom" } : await automaticAccent(state),
   };
   writeManifest(next);
-  announceChange(
-    { action: "set_accent", previous: state, next, sameImageBytes: true },
-    null,
-    options,
-  );
+  announceChange({ action: "set_accent", previous: state, next }, null, options);
   return next;
 }
 
