@@ -7,7 +7,7 @@ import {
   PinOff,
   Trash2,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import type { FC, ReactNode } from "react";
 
 import { ActionMenu, Button, toast } from "@vellumai/design-library";
@@ -15,9 +15,9 @@ import { ActionMenu, Button, toast } from "@vellumai/design-library";
 import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
 import { t } from "@/i18n";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
+import { useShareApp } from "@/hooks/use-share-app";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
-import { shareApp } from "@/utils/share-app";
 
 /**
  * The options menu ("dots") the Chat Info panel's app and file tiles reveal
@@ -29,6 +29,22 @@ import { shareApp } from "@/utils/share-app";
  * Open / Download PDF: the daemon has no document-delete endpoint, so
  * deletion is intentionally absent there.
  */
+
+/**
+ * Plate the revealed options menu sits on, pinned to the tile's top-right
+ * corner. Both tiles share it so the menu keeps reading against whatever the
+ * preview underneath happens to be.
+ */
+export function AssetActionsSlot({ children }: { children: ReactNode }) {
+  return (
+    <span
+      data-reveal=""
+      className="absolute right-1 top-1 rounded-md bg-[var(--surface-lift)]"
+    >
+      {children}
+    </span>
+  );
+}
 
 function MenuShell({
   title,
@@ -61,10 +77,9 @@ interface AppAssetActionsProps {
   assistantId: string;
   app: AppSummary;
   /**
-   * Ask the owner to show the delete confirmation. The dialog must be
-   * rendered OUTSIDE the hosting Popover/BottomSheet: it portals and steals
-   * focus, which the popover treats as an outside interaction and closes,
-   * unmounting this component and any dialog state held here with it.
+   * Ask the owner to show the delete confirmation. The panel owns the dialog
+   * so it survives this tile remounting or the panel switching level; the menu
+   * only asks for it.
    */
   onRequestDelete: (app: AppSummary) => void;
 }
@@ -77,25 +92,10 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
   const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isPinned = pinnedAppIds.has(app.id);
 
-  const [isSharing, setIsSharing] = useState(false);
-  const handleShare = useCallback(async () => {
-    if (isSharing) {
-      return;
-    }
-    setIsSharing(true);
-    try {
-      await shareApp(assistantId, app.id, app.name);
-      toast.success(t("chat:appAssetActions.appExported"), {
-        description: `${app.name}.vellum`,
-      });
-    } catch (err) {
-      toast.error(t("chat:appAssetActions.shareFailed"), {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [assistantId, app.id, app.name, isSharing]);
+  const { share } = useShareApp(assistantId, app, {
+    exported: t("chat:appAssetActions.appExported"),
+    failed: t("chat:appAssetActions.shareFailed"),
+  });
 
   return (
     <MenuShell
@@ -114,7 +114,7 @@ export const AppAssetActions: FC<AppAssetActionsProps> = ({
         icon={ArrowUp}
         label={t("chat:conversationAssetActions.share")}
         description={t("chat:conversationAssetActions.exportAsVellum")}
-        onSelect={() => void handleShare()}
+        onSelect={() => void share()}
       />
       <ActionMenu.Item
         icon={Trash2}

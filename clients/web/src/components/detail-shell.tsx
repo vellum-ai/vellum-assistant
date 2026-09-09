@@ -10,7 +10,7 @@
  * scrollable-body wrapper (e.g. `AcpRunChatView`, which owns its own inner
  * scroll container and a sticky composer) but still need a pixel-identical
  * header. `DetailShellTitleWithCount` is the "title · N" header cluster,
- * exported with its midline dot and the body's inset so every panel draws
+ * exported with its midline dot and the shell's inset so every panel draws
  * them from one place.
  */
 
@@ -22,7 +22,7 @@ import { Button, Typography } from "@vellumai/design-library";
 
 import { cn } from "@/utils/misc";
 
-/** Horizontal inset of the scrollable body, in px. */
+/** Horizontal inset of the shell's header, body, and footer, in px. */
 export const DETAIL_SHELL_BODY_INSET_PX = 20;
 
 /** The 3px midline dot between a title and the count beside it. */
@@ -111,7 +111,10 @@ export function DetailShellHeader({
     // Divider uses `--border-hover` (the Figma sidepanel divider, #F6F5F4 in
     // light) rather than `--border-base`, which equals the drawer's
     // `--surface-lift` in dark mode and would render invisible.
-    <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] px-5 py-4">
+    <div
+      className="flex shrink-0 items-center gap-3 border-b border-[var(--border-hover)] py-4"
+      style={{ paddingInline: DETAIL_SHELL_BODY_INSET_PX }}
+    >
       {/* The leading cluster absorbs all the shrink (title truncates first,
           then the cluster clips) so the trailing controls, above all the
           close X, stay visible however narrow the panel gets. */}
@@ -197,7 +200,10 @@ export function DetailShell({
           `--border-base` equals the drawer's `--surface-lift` in dark mode
           and renders invisible. */}
       {footer && (
-        <div className="shrink-0 border-t border-[var(--border-hover)] px-5 py-4">
+        <div
+          className="shrink-0 border-t border-[var(--border-hover)] py-4"
+          style={{ paddingInline: DETAIL_SHELL_BODY_INSET_PX }}
+        >
           {footer}
         </div>
       )}

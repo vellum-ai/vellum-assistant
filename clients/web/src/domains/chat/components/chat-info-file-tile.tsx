@@ -1,7 +1,8 @@
 /**
  * One file in the Chat Info panel: a daemon document, a message attachment, or
  * a camera frame. Documents and non-image attachments show their kind's glyph;
- * an image shows its picture, fetched only once the tile is on screen.
+ * an image shows its picture, fetched and held only while the tile is on
+ * screen.
  */
 
 import { Loader2 } from "lucide-react";
@@ -9,12 +10,13 @@ import { useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { DocumentAssetActions } from "@/domains/chat/components/conversation-asset-actions";
-import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import {
-  ATTACHMENT_ICON_BY_KIND,
-  classifyAttachment,
-} from "@/domains/chat/components/chat-attachments/utils";
+  AssetActionsSlot,
+  DocumentAssetActions,
+} from "@/domains/chat/components/conversation-asset-actions";
+import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
+import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
+import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import { useInView } from "@/hooks/use-in-view";
 import { useTranslation } from "@/i18n";
@@ -34,13 +36,13 @@ export function ChatInfoFileTile({
   assistantId,
   onOpen,
 }: ChatInfoFileTileProps) {
-  const { t, i18n } = useTranslation("chat");
+  const { t } = useTranslation("chat");
   const boxRef = useRef<HTMLButtonElement>(null);
 
-  const hasSeenTile = useInView(boxRef, { rootMargin: "200px", once: true });
+  const isOnScreen = useInView(boxRef, { rootMargin: "200px" });
   // A browser without IntersectionObserver loads every tile rather than none:
   // the picture is the tile's content here, not an enhancement of it.
-  const isVisible = hasSeenTile || typeof IntersectionObserver === "undefined";
+  const isVisible = isOnScreen || typeof IntersectionObserver === "undefined";
 
   const attachment = file.kind === "document" ? null : file.attachment;
   // A document's own glyph is the `document` kind's, so the three kinds of tile
@@ -56,8 +58,6 @@ export function ChatInfoFileTile({
     isVisible && kind === "image",
   );
 
-  // Video posters stay a CSS background: there is no fallback to swap to when
-  // a poster fails, so an <img> would surface the browser's broken glyph.
   const posterUrl =
     kind === "video" && attachment?.thumbnailUrl != null
       ? attachment.thumbnailUrl
@@ -76,34 +76,10 @@ export function ChatInfoFileTile({
 
   const label =
     file.kind === "frame" && file.capturedAt !== null
-      ? formatCaptureTime(file.capturedAt, i18n.resolvedLanguage)
+      ? formatCaptureTime(file.capturedAt)
       : file.title;
 
-  const renderBoxContent = () => {
-    if (kind === "image" && !previewFailed) {
-      if (url) {
-        return (
-          <img
-            src={url}
-            alt=""
-            aria-hidden
-            className="h-full w-full object-cover"
-            onError={() => setPreviewFailed(true)}
-          />
-        );
-      }
-      if (!isError) {
-        return (
-          <Loader2 className="size-8 animate-spin text-[var(--content-tertiary)]" />
-        );
-      }
-    }
-    if (posterUrl) {
-      return null;
-    }
-    const Icon = ATTACHMENT_ICON_BY_KIND[kind];
-    return <Icon className="size-8" />;
-  };
+  const showsImage = kind === "image" && !previewFailed;
 
   return (
     <div
@@ -116,25 +92,32 @@ export function ChatInfoFileTile({
         type="button"
         aria-label={ariaLabel}
         onClick={() => onOpen(file)}
-        style={
-          posterUrl
-            ? { backgroundImage: `url(${JSON.stringify(posterUrl)})` }
-            : undefined
-        }
-        className="relative flex h-[84px] w-full cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-[var(--surface-base)] bg-cover bg-center text-[var(--content-secondary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        className="block h-[84px] w-full cursor-pointer overflow-hidden rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
-        {renderBoxContent()}
+        <AttachmentPreviewBox
+          className="h-full w-full rounded-lg bg-[var(--surface-base)]"
+          kind={kind}
+          imageUrl={showsImage ? url : null}
+          posterUrl={posterUrl}
+          onImageError={() => setPreviewFailed(true)}
+          glyphClassName="size-8"
+          placeholder={
+            showsImage && !isError ? (
+              <Loader2 className="size-8 animate-spin text-[var(--content-tertiary)]" />
+            ) : null
+          }
+        />
       </button>
 
       {/* Attachments and frames carry no menu: the preview modal already offers Download. */}
       {file.kind === "document" ? (
-        <span data-reveal="" className="absolute right-1 top-1">
+        <AssetActionsSlot>
           <DocumentAssetActions
             assistantId={assistantId}
             doc={file.doc}
             onOpen={() => onOpen(file)}
           />
-        </span>
+        </AssetActionsSlot>
       ) : null}
 
       <Typography

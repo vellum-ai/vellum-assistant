@@ -19,7 +19,6 @@ export function useInView(
   {
     threshold = 0,
     rootMargin,
-    once = false,
   }: {
     /**
      * Fraction of the element that must be showing to count as visible. The
@@ -29,8 +28,6 @@ export function useInView(
     threshold?: number;
     /** Grows the viewport the element is tested against, e.g. `"200px"` to start loading just before it scrolls in. */
     rootMargin?: string;
-    /** Latch on the first sighting and stop observing, for work that only needs doing once. */
-    once?: boolean;
   } = {},
 ): boolean {
   const [inView, setInView] = useState(false);
@@ -43,29 +40,22 @@ export function useInView(
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (!entry || (once && !entry.isIntersecting)) {
+        if (!entry) {
           return;
         }
         setInView(entry.isIntersecting);
-        if (once) {
-          observer.disconnect();
-        }
       },
       { threshold, rootMargin },
     );
     observer.observe(el);
     return () => {
       observer.disconnect();
-      if (!once) {
-        // An unmounting element is not on screen. Without this a control that
-        // scrolls out of the virtualised transcript would leave its last
-        // "visible" answer behind and suppress the floating copy forever. A
-        // latched caller keeps its answer: it asked for one sighting, not for
-        // the live state.
-        setInView(false);
-      }
+      // An element that is no longer observed is not on screen. Without this a
+      // control that scrolls out of the virtualised transcript would leave its
+      // last "visible" answer behind and suppress the floating copy forever.
+      setInView(false);
     };
-  }, [ref, threshold, rootMargin, once]);
+  }, [ref, threshold, rootMargin]);
 
   return inView;
 }

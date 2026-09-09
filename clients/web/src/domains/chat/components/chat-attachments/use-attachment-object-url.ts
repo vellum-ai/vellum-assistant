@@ -8,10 +8,9 @@
  * nothing at all, so a caller with an optional attachment still calls this
  * unconditionally.
  *
- * The fetch runs under {@link attachmentContentQueryKey}, which
- * `AttachmentPreviewModal` fetches under too: the modal keeps its own query so
- * it can tell a legacy row apart from a failed fetch, but a thumbnail that has
- * already loaded hands it a cache hit instead of a second request.
+ * Every reader fetches under {@link attachmentContentQueryKey}, so a thumbnail,
+ * the full-screen preview, and an inline markdown image of the same attachment
+ * share one request and one cached blob.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -33,6 +32,10 @@ export interface AttachmentObjectUrl {
   url: string | null;
   /** The bytes failed to load, or can never be fetched (no assistant, no resolvable id). */
   isError: boolean;
+  /** The bytes can never be fetched at all, as against a fetch that failed. */
+  unavailable: boolean;
+  /** The bytes are still on their way, so nothing is settled yet. */
+  isPending: boolean;
 }
 
 export function useAttachmentObjectUrl(
@@ -84,5 +87,10 @@ export function useAttachmentObjectUrl(
     };
   }, [shownBlob]);
 
-  return { url: previewUrl ?? objectUrl, isError: isError || unavailable };
+  return {
+    url: previewUrl ?? objectUrl,
+    isError: isError || unavailable,
+    unavailable,
+    isPending: shouldFetch && !objectUrl && !isError,
+  };
 }

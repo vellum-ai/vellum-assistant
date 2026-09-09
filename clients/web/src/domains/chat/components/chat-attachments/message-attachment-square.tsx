@@ -3,15 +3,16 @@ import { useCallback } from "react";
 
 import { Typography } from "@vellumai/design-library";
 import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
+import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
 
 import {
-  ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   formatAttachmentSize,
   middleTruncate,
 } from "@/domains/chat/components/chat-attachments/utils";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { cn } from "@/utils/misc";
 
 /**
  * Geometry of the square's inner tile box. Shared with
@@ -47,10 +48,7 @@ export function MessageAttachmentSquare({
   const { filename, mimeType, sizeBytes, previewUrl, thumbnailUrl } =
     attachment;
   const kind = classifyAttachment(mimeType, filename);
-  const Icon = ATTACHMENT_ICON_BY_KIND[kind];
   const hasImagePreview = kind === "image" && previewUrl !== null;
-  // Video posters stay a CSS background: there is no fallback to swap to when
-  // a poster fails, so an <img> would surface the browser's broken glyph.
   const backgroundImageUrl =
     kind === "video" && thumbnailUrl != null ? thumbnailUrl : null;
   // With nothing filling the tile, its `--surface-lift` fill disappears on a
@@ -92,30 +90,18 @@ export function MessageAttachmentSquare({
       className={`group flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
       <div className="relative w-fit">
-        <div
-          className={`${ATTACHMENT_TILE_BOX_CLASS} flex items-center justify-center overflow-hidden bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]${showsIcon ? " border border-[var(--border-element)]" : ""}`}
-          style={
-            backgroundImageUrl
-              ? {
-                  backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})`,
-                }
-              : undefined
-          }
-        >
-          {hasImagePreview ? (
-            // A real <img> rather than a CSS background so an undecodable
-            // preview raises `onError` and the owner can fall back to the icon.
-            <img
-              src={previewUrl}
-              alt=""
-              aria-hidden
-              onError={onPreviewError}
-              className="h-full w-full object-cover"
-            />
-          ) : backgroundImageUrl ? null : (
-            <Icon className="h-6 w-6" />
+        <AttachmentPreviewBox
+          className={cn(
+            ATTACHMENT_TILE_BOX_CLASS,
+            "bg-[var(--surface-lift)]",
+            showsIcon && "border border-[var(--border-element)]",
           )}
-        </div>
+          kind={kind}
+          imageUrl={hasImagePreview ? previewUrl : null}
+          posterUrl={backgroundImageUrl}
+          onImageError={onPreviewError}
+          glyphClassName="h-6 w-6"
+        />
         {onDownload && (
           <AttachmentDownloadOverlay
             filename={filename}

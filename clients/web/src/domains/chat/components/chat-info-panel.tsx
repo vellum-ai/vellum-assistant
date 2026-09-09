@@ -236,7 +236,7 @@ export function ChatInfoPanel({
             tileWidth={CHAT_INFO_APP_TILE_WIDTH_PX}
             seeAllAriaLabel={t("chatInfoPanel.seeAllAppsAria")}
             onSeeAll={() => onSelectCategory("apps")}
-            renderTile={(app, _index, layout) => (
+            renderTile={(app, layout) => (
               <ChatInfoAppTile
                 key={app.id}
                 app={app}
