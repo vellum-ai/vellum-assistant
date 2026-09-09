@@ -6,6 +6,21 @@ import { readSetting } from "./xcconfig-fixtures";
 
 const APP_DIR = join(import.meta.dir, "../../App/App");
 const NSE_DIR = join(import.meta.dir, "../../App/NotificationService");
+const REPO_ROOT = join(import.meta.dir, "../../../..");
+
+const RELEASE_WORKFLOW = readFileSync(
+  join(REPO_ROOT, ".github/workflows/release-ios.yaml"),
+  "utf8",
+);
+
+function workflowOutputs(key: string): string[] {
+  return RELEASE_WORKFLOW.split("\n")
+    .flatMap((line) => {
+      const match = line.match(new RegExp(`${key}=(.+?)"`));
+      return match ? [match[1]] : [];
+    })
+    .sort();
+}
 
 const PAIRS = [
   { app: "App.xcconfig", nse: "NotificationService.xcconfig" },
@@ -66,17 +81,7 @@ describe("NSE profile names agree with release-ios.yaml", () => {
   // be checked from here, but a drift between the other two fails the archive
   // with "No profile for team ... matching '<name>' found", which names
   // neither file.
-  const workflow = readFileSync(
-    join(import.meta.dir, "../../../../.github/workflows/release-ios.yaml"),
-    "utf8",
-  );
-  const workflowNames = workflow
-    .split("\n")
-    .flatMap((line) => {
-      const match = line.match(/nse_profile_name=(.+?)"/);
-      return match ? [match[1]] : [];
-    })
-    .sort();
+  const workflowNames = workflowOutputs("nse_profile_name");
 
   test("the workflow names one profile per environment", () => {
     expect(workflowNames).toHaveLength(PAIRS.length);
@@ -88,4 +93,44 @@ describe("NSE profile names agree with release-ios.yaml", () => {
     ).sort();
     expect(configNames).toEqual(workflowNames);
   });
+});
+
+describe("NSE bundle ids agree with release-ios.yaml", () => {
+  // The workflow writes one ExportOptions.plist entry per signed bundle, and
+  // `-exportArchive` fails on an entry that names a bundle the archive does
+  // not contain, with an error that names neither.
+  const workflowIds = workflowOutputs("nse_bundle_id");
+
+  test("the workflow names one bundle id per environment", () => {
+    expect(workflowIds).toHaveLength(PAIRS.length);
+  });
+
+  test("every xcconfig bundle id appears in the workflow", () => {
+    const configIds = PAIRS.map(({ nse }) =>
+      readSetting(nse, "PRODUCT_BUNDLE_IDENTIFIER"),
+    ).sort();
+    expect(configIds).toEqual(workflowIds);
+  });
+});
+
+describe("every avatar failure token is documented", () => {
+  // The README's `reason=` table is the only place a `nse.avatar_unavailable`
+  // line can be decoded, so a token that reaches Console without a row there
+  // is a dead end for whoever is holding the device.
+  const source = readFileSync(join(NSE_DIR, "AvatarCache.swift"), "utf8");
+  const body = source.split("enum UnavailableReason")[1] ?? "";
+  const tokens = [...body.split("}")[0].matchAll(/case \w+ = "(\w+)"/g)].map(
+    (match) => match[1],
+  );
+  const readme = readFileSync(join(import.meta.dir, "../../README.md"), "utf8");
+
+  test("the enum parses", () => {
+    expect(tokens.length).toBeGreaterThan(0);
+  });
+
+  for (const token of tokens) {
+    test(`${token} has a row in the README table`, () => {
+      expect(readme).toContain(`| \`${token}\` |`);
+    });
+  }
 });

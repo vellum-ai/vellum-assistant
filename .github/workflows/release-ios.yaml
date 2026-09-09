@@ -163,7 +163,18 @@ jobs:
           security set-keychain-settings -lut 3600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 
-          echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12
+          if [ -z "$CERT_P12" ]; then
+            echo "::error::DIST_CERTIFICATE_P12 is empty. Export the Apple Distribution certificate as a .p12, encode it with 'base64 -i <file>', and set the secret."
+            exit 1
+          fi
+          # Without this the decode writes an empty or truncated file and
+          # 'security import' fails on the file rather than on the secret,
+          # which sends the operator to the keychain for a fault that is in
+          # the secret.
+          if ! echo "$CERT_P12" | base64 -D > /tmp/ios-certificate.p12; then
+            echo "::error::DIST_CERTIFICATE_P12 is not valid base64. Re-encode the .p12 with 'base64 -i <file>' and replace the secret."
+            exit 1
+          fi
           security import /tmp/ios-certificate.p12 \
             -k "$KEYCHAIN_PATH" \
             -P "$CERT_PASSWORD" \
@@ -223,28 +234,55 @@ jobs:
             echo "Provisioning profile installed from $key"
           }
 
-          # Fails the run when an installed profile does not grant $key.
+          # Decodes an installed profile into a plist for the checks below.
           #
           # Decoding and checking are separate steps on purpose: a profile that
           # is not CMS-signed at all (a mis-encoded secret, a truncated
-          # download) fails the decode, and folding that into the entitlement
+          # download) fails the decode, and folding that into an entitlement
           # test would report a missing capability and send the operator to the
-          # portal for a fault that is in the secret. The decoded plist is read
-          # by key path rather than grepped, so the check is anchored to
-          # Entitlements and asserts the value is true.
-          require_entitlement() {
-            local filename="$1" key="$2" secret="$3" remedy="$4"
-            local plist="$RUNNER_TEMP/$filename.plist"
+          # portal for a fault that is in the secret.
+          decode_profile() {
+            local filename="$1" plist="$2" secret="$3"
             if ! security cms -D -i "$PROFILE_DIR/$filename" > "$plist"; then
               echo "::error::Could not decode the profile installed from $secret with 'security cms -D'. The secret does not hold a CMS-signed .mobileprovision: re-download the profile from the Apple Developer portal, re-encode it with 'base64 -i <file>', and replace $secret."
               exit 1
             fi
+          }
+
+          # Fails the run when the profile does not grant $key as true. The
+          # plist is read by key path rather than grepped, so the check is
+          # anchored to Entitlements and asserts the value.
+          require_entitlement_true() {
+            local plist="$1" key="$2" remedy="$3"
             local granted
             granted=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$plist" 2>/dev/null || true)
             if [ "$granted" != "true" ]; then
               echo "::error::$remedy"
               exit 1
             fi
+          }
+
+          # Fails the run when the profile carries no $key at all. An
+          # entitlement whose value is an array has no "true" to compare
+          # against, so presence is the whole of the assertion.
+          require_entitlement_present() {
+            local plist="$1" key="$2" remedy="$3"
+            if ! /usr/libexec/PlistBuddy -c "Print :Entitlements:$key" "$plist" > /dev/null 2>&1; then
+              echo "::error::$remedy"
+              exit 1
+            fi
+          }
+
+          # Every signed bundle declares the App Group: the app through
+          # App/App.entitlements and App/App-Dev.entitlements, all three
+          # appexes through App/Extension.entitlements. A profile issued before
+          # the group was assigned to its App ID does not grant it, and the
+          # build fails at Archive with an error that names neither the
+          # entitlement nor the fix.
+          require_app_group() {
+            local plist="$1" secret="$2" target="$3"
+            require_entitlement_present "$plist" com.apple.security.application-groups \
+              "Provisioning profile $secret does not grant com.apple.security.application-groups, which $target declares. Archive would fail while signing $target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md for this environment's row: assign the App Group to this App ID (steps 1 and 2), reissue its distribution profile under the identical name (steps 3 and 4), then replace $secret."
           }
 
           # The app profile is non-negotiable: without it there is no build to
@@ -262,11 +300,13 @@ jobs:
           # build has started, with an error that names neither the entitlement
           # nor the fix, so the profile is decoded and checked here instead.
           # The appexes carry no entitlement of their own beyond the App Group,
-          # so this check belongs to the app profile alone.
-          require_entitlement ios_distribution.mobileprovision \
+          # so the communication check belongs to the app profile alone.
+          APP_PLIST="$RUNNER_TEMP/app_profile.plist"
+          decode_profile ios_distribution.mobileprovision "$APP_PLIST" "$APP_PROFILE_KEY"
+          require_entitlement_true "$APP_PLIST" \
             com.apple.developer.usernotifications.communication \
-            "$APP_PROFILE_KEY" \
             "Provisioning profile $APP_PROFILE_KEY does not grant com.apple.developer.usernotifications.communication, which App.entitlements and App-Dev.entitlements declare. Archive would fail while signing the app target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md, steps 2 and 4 for this environment's app row: tick Communication Notifications on the app App ID, reissue its distribution profile under the identical name, then replace $APP_PROFILE_KEY."
+          require_app_group "$APP_PLIST" "$APP_PROFILE_KEY" "the app target"
 
           # A missing extension profile is tolerated: the App IDs and profiles
           # behind IOS_PROVISIONING_PROFILE_EXT* do not exist in the Apple
@@ -277,6 +317,9 @@ jobs:
           EXT_PROFILE_KEY="${{ steps.config.outputs.ext_profile_key }}"
           if install_profile "$EXT_PROFILE_KEY" ios_distribution_ext.mobileprovision; then
             echo "ext_profile_installed=true" >> "$GITHUB_OUTPUT"
+            EXT_PLIST="$RUNNER_TEMP/ext_profile.plist"
+            decode_profile ios_distribution_ext.mobileprovision "$EXT_PLIST" "$EXT_PROFILE_KEY"
+            require_app_group "$EXT_PLIST" "$EXT_PROFILE_KEY" "the VoiceActivity extension"
           else
             echo "ext_profile_installed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Provisioning profile secret $EXT_PROFILE_KEY is empty, so the VoiceActivity extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.ext_profile_name }}' found ... (in target 'VoiceActivity ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $EXT_PROFILE_KEY."
@@ -285,6 +328,9 @@ jobs:
           SHARE_PROFILE_KEY="${{ steps.config.outputs.share_profile_key }}"
           if install_profile "$SHARE_PROFILE_KEY" ios_distribution_share.mobileprovision; then
             echo "share_profile_installed=true" >> "$GITHUB_OUTPUT"
+            SHARE_PLIST="$RUNNER_TEMP/share_profile.plist"
+            decode_profile ios_distribution_share.mobileprovision "$SHARE_PLIST" "$SHARE_PROFILE_KEY"
+            require_app_group "$SHARE_PLIST" "$SHARE_PROFILE_KEY" "the Share extension"
           else
             echo "share_profile_installed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Provisioning profile secret $SHARE_PROFILE_KEY is empty, so the Share extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.share_profile_name }}' found ... (in target 'Share ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $SHARE_PROFILE_KEY."
@@ -293,6 +339,9 @@ jobs:
           NSE_PROFILE_KEY="${{ steps.config.outputs.nse_profile_key }}"
           if install_profile "$NSE_PROFILE_KEY" ios_distribution_nse.mobileprovision; then
             echo "nse_profile_installed=true" >> "$GITHUB_OUTPUT"
+            NSE_PLIST="$RUNNER_TEMP/nse_profile.plist"
+            decode_profile ios_distribution_nse.mobileprovision "$NSE_PLIST" "$NSE_PROFILE_KEY"
+            require_app_group "$NSE_PLIST" "$NSE_PROFILE_KEY" "the NotificationService extension"
           else
             echo "nse_profile_installed=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Provisioning profile secret $NSE_PROFILE_KEY is empty, so the NotificationService extension profile was not installed and is omitted from ExportOptions.plist. THIS RELEASE WILL STILL FAIL: every app target embeds the extension, so 'xcodebuild archive' stops at signing with \"No profile for team ... matching '${{ steps.config.outputs.nse_profile_name }}' found ... (in target 'NotificationService ...')\". No iOS release of any environment can be produced until the portal setup lands. Fix: follow 'Manual Apple Developer portal setup' in clients/ios/README.md to create the App ID and profile, then add $NSE_PROFILE_KEY."

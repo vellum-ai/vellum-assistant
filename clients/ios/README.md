@@ -735,12 +735,8 @@ says to "Enable the Communication Notifications capability in your app target",
 and [WWDC21 session 10091](https://developer.apple.com/videos/play/wwdc2021/10091/)
 splits the two halves the same way: "enable the communication capability via
 Xcode for your application" against "start donating incoming StartCall and
-SendMessage intents in your service extension". Vendor integration guides that
-walk the same setup, such as [Smartsupp's Communication
-Notifications](https://docs.smartsupp.com/mobile-sdk/ios/communication-notifications/)
-page, add the capability once at the project's app target and give the
-extension only its Info.plist and code. Do not add the entitlement to the appex
-speculatively: a target declaring an entitlement its profile does not grant
+SendMessage intents in your service extension". Do not add the entitlement to
+the appex speculatively: a target declaring an entitlement its profile does not grant
 fails to sign, so it would break every environment's release until the NSE App
 IDs carried the capability too.
 
@@ -931,6 +927,7 @@ line is enough to tell a trimmed payload from a rejected download:
 | `reason=` | What it means |
 |-----------|---------------|
 | `no_url` | Cache miss and the payload carried no `avatar_url` (usually a payload trimmed for size). |
+| `invalid_url` | `avatar_url` was present but `URL(string:)` could not read it. |
 | `bad_hash` | `avatar_hash` is not 64 lowercase hex characters. |
 | `insecure_url` | `avatar_url` is not `https`. |
 | `request_failed` | The request never produced a response (offline, DNS, TLS). |
@@ -938,7 +935,18 @@ line is enough to tell a trimmed payload from a rejected download:
 | `declared_too_large` | The response declared a `Content-Length` past 512 KB. |
 | `body_too_large` | The body crossed 512 KB while streaming, declared or not. |
 | `read_failed` | The body stopped mid-transfer, including on extension expiry. |
+| `timed_out` | The body kept arriving, too slowly to go idle, past the download's total budget. |
 | `digest_mismatch` | The bytes did not hash to `avatar_hash`. |
+
+`declared_too_large`, `body_too_large` and `timed_out` are the download's own
+bounds: 512 KB whether the response declares a length or streams one, and six
+seconds of wall clock on top of the request's idle timeout, which bounds only a
+stall. Android bounds the same download the same way, reading 8 KB chunks under
+the same 512 KB cap against a four-second budget (`READ_BUDGET_MILLIS` in
+`clients/android/app/src/main/java/ai/vellum/assistant/push/AvatarCache.java`).
+iOS buffers 16 KB chunks out of a per-byte `URLSession.AsyncBytes` sequence and
+checks the deadline once per 512 bytes, because reading the clock costs more
+than copying the byte it guards.
 
 A banner with no avatar and no `nse.` line at all is the entitlement and
 profile case rather than a code one. `updating(from:)` may throw, which lands
