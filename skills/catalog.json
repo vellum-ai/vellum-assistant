@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T14:45:13.000Z"
+      "updatedAt": "2026-09-09T15:00:26.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -970,7 +970,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T14:45:13.000Z"
+      "updatedAt": "2026-09-09T15:00:26.000Z"
     },
     {
       "id": "telegram-setup",
@@ -1070,7 +1070,9 @@
             "asked to use the user's current location, GPS, or device position",
             "whether the app can access a device sensor, permission, or hardware feature",
             "browsing failed, timed out, or could not reach a page that needs a login",
-            "whether to install the desktop app or Chrome extension"
+            "whether to install the desktop app or Chrome extension",
+            "how do I install you, Windows app, or do you run on my PC",
+            "Linux desktop client or AppImage"
           ],
           "avoid-when": [
             "the user already gave a location as text (just use it)"
@@ -1078,7 +1080,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-08T20:59:52.000Z"
+      "updatedAt": "2026-09-09T19:51:44.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1207,6 +1209,11 @@
             "what it can do or which skills/tools exist",
             "whether a service is connected, and in which sense",
             "its credits, plan allowance, spend, or daily limit",
+            "pricing, plans, or whether Vellum is free",
+            "how to install the desktop, iOS, or Android app",
+            "how do I install you",
+            "whether there is a Windows or Linux desktop app",
+            "do you run on my PC",
             "how to self-host or use your own model API key"
           ],
           "avoid-when": [
@@ -1215,7 +1222,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-08T20:03:58.000Z"
+      "updatedAt": "2026-09-09T19:51:44.000Z"
     },
     {
       "id": "vellum-skills-catalog",
