@@ -922,6 +922,36 @@ describe("seedFromHistory", () => {
     expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
   });
 
+  it("ignores a superseded snapshot answered after a newer one", () => {
+    // Two overlapping fetches: the newer request (opus) returns first, then
+    // the older request (haiku) returns. The older answer must not win.
+    spawn({ acpSessionId: "acp-1" });
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt: 200 },
+    );
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "haiku",
+          availableModels: [{ value: "haiku", label: "Haiku" }],
+        }),
+      ],
+      { fetchedAt: 100 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+  });
+
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {
     const entry = historyEntry({ acpSessionId: "acp-h1" });
     getState().seedFromHistory([entry]);

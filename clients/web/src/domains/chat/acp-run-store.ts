@@ -333,7 +333,9 @@ function mergeEvents(
  * A live `acp_session_model_update` that landed at or after `fetchedAt` is
  * newer than anything this response can carry: the fetch and the SSE stream are
  * separate asynchronous paths, so a request that read model A can be answered
- * after the adapter already moved to model B. That live selection is kept.
+ * after the adapter already moved to model B. That live selection is kept. A
+ * snapshot that applies stamps its own `fetchedAt`, so an older request that
+ * is answered after a newer one is ignored by the same rule.
  *
  * Otherwise the snapshot rules apply: a row carrying `availableModels` is
  * authoritative for both fields, so the supported no-selection state (no
@@ -345,7 +347,7 @@ function mergeModelSelection(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
   fetchedAt?: number,
-): Pick<AcpRunEntry, "model" | "availableModels"> {
+): Pick<AcpRunEntry, "model" | "availableModels" | "modelUpdatedAt"> {
   if (
     fetchedAt !== undefined &&
     existing.modelUpdatedAt !== undefined &&
@@ -354,17 +356,21 @@ function mergeModelSelection(
     return {
       model: existing.model,
       availableModels: existing.availableModels,
+      modelUpdatedAt: existing.modelUpdatedAt,
     };
   }
+  const modelUpdatedAt = fetchedAt ?? existing.modelUpdatedAt;
   if (incoming.availableModels !== undefined) {
     return {
       model: incoming.model,
       availableModels: incoming.availableModels,
+      modelUpdatedAt,
     };
   }
   return {
     model: incoming.model ?? existing.model,
     availableModels: existing.availableModels,
+    modelUpdatedAt,
   };
 }
 
