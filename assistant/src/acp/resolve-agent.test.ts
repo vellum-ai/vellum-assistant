@@ -10,8 +10,7 @@ afterAll(() => {
   which.restore();
 });
 
-const { canonicalAgentId, resolveAcpAgent, listAcpAgents } =
-  await import("./resolve-agent.js");
+const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
 
 beforeEach(() => {
   config.setConfig({});
@@ -57,9 +56,7 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.agent.command).toBe("codex-acp");
-    expect(result.agent.description).toContain(
-      "@agentclientprotocol/codex-acp",
-    );
+    expect(result.agent.description).toContain("@agentclientprotocol/codex-acp");
   });
 
   test("falls back to default profile for claude when no user entry", () => {
@@ -310,45 +307,6 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(fullPath.agent.command).toBe("/opt/bin/claude-agent-acp");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// canonicalAgentId
-// ---------------------------------------------------------------------------
-
-describe("canonicalAgentId", () => {
-  test("folds every natural spelling of an alias onto one id", () => {
-    for (const alias of ["Claude Code", "claude-code", "claude_code"]) {
-      expect(canonicalAgentId(alias)).toBe("claude");
-    }
-    expect(canonicalAgentId("OpenAI Codex")).toBe("codex");
-    expect(canonicalAgentId("codex cli")).toBe("codex");
-  });
-
-  test("passes a canonical id through untouched", () => {
-    expect(canonicalAgentId("claude")).toBe("claude");
-    expect(canonicalAgentId("codex")).toBe("codex");
-  });
-
-  test("passes an id that names no alias through untouched", () => {
-    expect(canonicalAgentId("my-custom-agent")).toBe("my-custom-agent");
-  });
-
-  test("a config entry keyed as the alias keeps its own id", () => {
-    config.setConfig({
-      agents: { "claude code": { command: "my-claude", args: [] } },
-    });
-
-    // The resolver runs this entry rather than the bundled claude, so its
-    // durable state is its own.
-    expect(canonicalAgentId("claude code")).toBe("claude code");
-  });
-
-  test("an alias with no config entry of its own still folds", () => {
-    config.setConfig({ agents: { other: { command: "other", args: [] } } });
-
-    expect(canonicalAgentId("claude code")).toBe("claude");
   });
 });
 

@@ -138,21 +138,10 @@ describe("resolveAcpModel", () => {
     expect(
       resolveAcpModel({
         requestedModel: "opus",
-        conversationPreference: "sonnet",
         agentModel: "haiku",
         defaultModel: "fable",
       }),
     ).toBe("opus");
-  });
-
-  test("falls back to the conversation preference", () => {
-    expect(
-      resolveAcpModel({
-        conversationPreference: "sonnet",
-        agentModel: "haiku",
-        defaultModel: "fable",
-      }),
-    ).toBe("sonnet");
   });
 
   test("falls back to the per-agent model", () => {
@@ -173,7 +162,6 @@ describe("resolveAcpModel", () => {
     expect(
       resolveAcpModel({
         requestedModel: "",
-        conversationPreference: "   ",
         agentModel: "\t\n",
         defaultModel: "fable",
       }),
