@@ -132,6 +132,22 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
   minDetail: 0,
 };
 
+/**
+ * How long a kept frame may stay neither delivered nor dropped before the
+ * share takes it for lost.
+ *
+ * A keep is the gate's baseline from the moment it is judged, and the
+ * pictures behind it are judged against it, so its fate has to be known
+ * within a bound: the upload has none of its own, and one that hangs would
+ * otherwise turn every later picture of the same view away for the rest of
+ * the call, and hold every later send behind it. An upload of one screen
+ * frame takes well under a second. Past this, `sight-capture.ts` writes the
+ * frame off: it is reported dropped, the gate goes back to what the call
+ * has, the picture turned away for it is judged again, and the sends behind
+ * it go on.
+ */
+export const SCREEN_SHARE_SETTLE_WITHIN_MS = 5_000;
+
 export function useLiveVoiceScreenShare(): void {
   const target = useLiveVoiceStore.use.screenShareTarget();
   const state = useLiveVoiceStore.use.state();
@@ -424,6 +440,7 @@ export function useLiveVoiceScreenShare(): void {
             lost(judged);
           }
         },
+        settleWithinMs: SCREEN_SHARE_SETTLE_WITHIN_MS,
       });
     };
 

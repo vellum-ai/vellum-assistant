@@ -121,6 +121,15 @@ export interface SightCaptureRequest {
    * off `capture` resolving: a resolved capture may still be parked.
    */
   readonly onDropped?: () => void;
+  /**
+   * How long after the keep the frame may remain neither shared nor
+   * dropped before it is taken for lost. The upload has no bound of its
+   * own, and a source that judges what comes next against this frame
+   * cannot wait on it forever: past this it is reported dropped, the sends
+   * behind it go on without it, and its upload, if it ever finishes, is
+   * given back. Unset, a frame waits as long as its upload takes.
+   */
+  readonly settleWithinMs?: number;
 }
 
 export interface SightCapture {
@@ -271,6 +280,7 @@ export function createSightCapture(errorContext: string): SightCapture {
     produceFrame,
     onShared,
     onDropped,
+    settleWithinMs,
   }: SightCaptureRequest): Promise<void> {
     // Consent is already gone, and the loop has not been torn down yet. The
     // epoch cannot speak for this one: a capture beginning after the bump
@@ -302,6 +312,29 @@ export function createSightCapture(errorContext: string): SightCapture {
     // their own, and the daemon adds its half.
     const keptAtMs = performance.now();
     let pending: PendingSightSend | null = null;
+    // Said once, whichever path says it: the bound below can write the
+    // frame off while its upload is still running, and that upload's own
+    // end must not say it again.
+    let told = false;
+    const dropped = (): void => {
+      if (told) {
+        return;
+      }
+      told = true;
+      onDropped?.();
+    };
+    // Taken for lost at the bound: its number is settled empty so the sends
+    // behind it drain, and whatever its upload produces afterwards is given
+    // back rather than sent, since the order has moved past it.
+    let writtenOff = false;
+    const deadline =
+      settleWithinMs === undefined
+        ? null
+        : setTimeout(() => {
+            writtenOff = true;
+            dropped();
+            settleCapture(seq, null);
+          }, settleWithinMs);
     try {
       frameCount += 1;
       const frame = await produceFrame(`sight-${frameCount}.jpg`);
@@ -326,7 +359,7 @@ export function createSightCapture(errorContext: string): SightCapture {
       // upload is given back and the source told, once, on each of them.
       const abandonUpload = (): void => {
         reclaimUpload(assistantId, uploaded.id);
-        onDropped?.();
+        dropped();
       };
       // The guards run when the turn comes, not now, so a frame that waited
       // is still checked against the session and camera of the moment it
@@ -382,15 +415,24 @@ export function createSightCapture(errorContext: string): SightCapture {
       // costs one frame and says nothing to the user.
       captureError(cause, { context: errorContext, bestEffort: true });
     } finally {
-      // A capture that produced no send is over here: nothing was uploaded,
-      // or the upload failed, or the encode threw. One with a send is not,
-      // and its word goes out with the send or its discard.
-      if (pending === null) {
-        onDropped?.();
+      if (deadline !== null) {
+        clearTimeout(deadline);
       }
-      // Every path, including the ones that produced nothing: a capture that
-      // never sends must still release the captures behind it.
-      settleCapture(seq, pending);
+      if (writtenOff) {
+        // Already over, and already settled: an upload that finished after
+        // the bound is given back, and nothing else here has a turn to take.
+        pending?.discard();
+      } else {
+        // A capture that produced no send is over here: nothing was
+        // uploaded, or the upload failed, or the encode threw. One with a
+        // send is not, and its word goes out with the send or its discard.
+        if (pending === null) {
+          dropped();
+        }
+        // Every path, including the ones that produced nothing: a capture
+        // that never sends must still release the captures behind it.
+        settleCapture(seq, pending);
+      }
     }
   }
 

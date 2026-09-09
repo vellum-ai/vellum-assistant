@@ -143,7 +143,7 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare } =
+const { useLiveVoiceScreenShare, SCREEN_SHARE_SETTLE_WITHIN_MS } =
   await import("./use-live-voice-screen-share");
 const { useLiveVoiceStore } = await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
@@ -952,6 +952,89 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
       "att-3",
       expect.objectContaining({ reason: "forced" }),
     );
+  });
+});
+
+/**
+ * The upload has no bound of its own, and a keep whose upload hangs would
+ * hold the gate on a view the call never gets, and every later send behind
+ * it, for the rest of the call. Past the bound the frame is written off.
+ */
+describe("useLiveVoiceScreenShare: an upload that hangs", () => {
+  let timers: ReturnType<typeof spyOn> | null = null;
+  /** The bound runs out at once; every other timer is left alone. */
+  const shortenTheBound = (): void => {
+    const realSetTimeout = globalThis.setTimeout;
+    timers = spyOn(globalThis, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) =>
+      realSetTimeout(
+        handler,
+        timeout === SCREEN_SHARE_SETTLE_WITHIN_MS ? 0 : timeout,
+        ...args,
+      )) as typeof setTimeout);
+  };
+  afterEach(() => {
+    timers?.mockRestore();
+    timers = null;
+  });
+
+  test("a hung question frame is written off, and the picture turned away for it goes instead", async () => {
+    shortenTheBound();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    const question = holdNextUpload();
+    show("a+");
+    speak(true);
+    await flush();
+    speak(false);
+    await flush();
+    // The bound has run out: the question's frame is dropped, the stop
+    // edge's picture is judged again at the question's bar and sent, and
+    // it is not held behind the hung upload.
+    await flush();
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
+      "att-1",
+      "att-3",
+    ]);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-3",
+      expect.objectContaining({ reason: "forced" }),
+    );
+
+    // The upload finishing after all is given back, not sent.
+    question.finish();
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-2");
+  });
+
+  test("a hung earlier frame no longer holds the sends behind it", async () => {
+    shortenTheBound();
+    const first = holdNextUpload();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    show("b");
+    speak(true);
+    await flush();
+    await flush();
+    // The share-start frame is written off at the bound and the question's
+    // frame, parked behind it, goes out.
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual(["att-2"]);
+    // And the call has that view: a question about it is answered already.
+    speak(false);
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+
+    first.finish();
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
+    expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
   });
 });
 
