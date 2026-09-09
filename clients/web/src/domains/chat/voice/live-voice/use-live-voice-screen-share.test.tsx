@@ -143,7 +143,7 @@ mock.module("@/domains/chat/api/messages", () => ({
   deleteChatAttachment,
 }));
 
-const { useLiveVoiceScreenShare, SCREEN_SHARE_OUTCOME_WAIT_MS } =
+const { useLiveVoiceScreenShare } =
   await import("./use-live-voice-screen-share");
 const { useLiveVoiceStore } = await import("./live-voice-store");
 const { makeControlsSpies, seedLiveVoiceSession } =
@@ -917,13 +917,14 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
   });
 
   /**
-   * The occasion after a keep is judged against it, and that judgement is
-   * spent: if the keep's upload then fails, the occasion is gone. So the
-   * next occasion waits to learn the keep's fate, and the gate is put right
-   * before it is judged. Here the question's own frame is lost, and the
-   * frame of the view the user left behind still reaches the call.
+   * The occasion after a keep is judged against it at once, since neither
+   * a question's picture nor its send can wait on an earlier upload. If
+   * the keep's upload then fails, the picture turned away for it is judged
+   * again against what the call has. Here the question's own frame is
+   * lost, and the frame of the view the user left behind still reaches the
+   * call.
    */
-  test("an occasion waits for the frame before it, so a lost keep costs no turn", async () => {
+  test("a picture turned away for a keep that is lost is judged again", async () => {
     renderShare();
     share(WINDOW);
     await flush();
@@ -931,9 +932,8 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
     show("a+");
     speak(true);
     await flush();
-    // The stop edge is pictured at once, while the question's frame is
-    // still on its way up, and is not judged until that frame's fate is
-    // known.
+    // The stop edge is pictured and judged at once, against the question's
+    // frame, which it matches, while that frame is still on its way up.
     speak(false);
     await flush();
     expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
@@ -952,66 +952,6 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
       "att-3",
       expect.objectContaining({ reason: "forced" }),
     );
-  });
-});
-
-/**
- * An upload that hangs past the bound holds the frame's fate open, and the
- * occasions behind it cannot wait forever. The frame is taken for lost: the
- * gate goes back to what the call has, so a question asked in the meantime
- * still gets its frame, and if the hung upload lands after all it is not
- * allowed to overwrite what has been judged since.
- */
-describe("useLiveVoiceScreenShare: an upload past the bound", () => {
-  let timers: ReturnType<typeof spyOn> | null = null;
-  /** The bound runs out at once; every other timer is left alone. */
-  const shortenTheBound = (): void => {
-    const realSetTimeout = globalThis.setTimeout;
-    timers = spyOn(globalThis, "setTimeout").mockImplementation(((
-      handler: TimerHandler,
-      timeout?: number,
-      ...args: unknown[]
-    ) =>
-      realSetTimeout(
-        handler,
-        timeout === SCREEN_SHARE_OUTCOME_WAIT_MS ? 0 : timeout,
-        ...args,
-      )) as typeof setTimeout);
-  };
-  afterEach(() => {
-    timers?.mockRestore();
-    timers = null;
-  });
-
-  test("a frame past the bound is taken for lost, and a late landing does not undo what was judged since", async () => {
-    shortenTheBound();
-    renderShare();
-    share(WINDOW);
-    await flush();
-    const question = holdNextUpload();
-    show("a+");
-    speak(true);
-    await flush();
-    // The stop edge is judged once the bound runs out, against the view the
-    // call has, at the question's bar: the hung frame's ask is given back.
-    speak(false);
-    await flush();
-    await flush();
-    expect(uploadChatAttachment).toHaveBeenCalledTimes(3);
-
-    // The hung upload lands after all. Both frames reach the call, in the
-    // order they were taken, and the gate stays on the newest judged view.
-    question.finish();
-    await flush();
-    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
-      "att-1",
-      "att-2",
-      "att-3",
-    ]);
-    speak(true);
-    await flush();
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(3);
   });
 });
 
