@@ -13,6 +13,8 @@ import type {
   MessageAudience,
   StreamOp,
 } from "@vellumai/gateway-client";
+import type { ReactionEmojiIdentity } from "@vellumai/service-contracts/reactions";
+import { slackEmojiCharacter } from "@vellumai/slack-text";
 
 import type { AssistantActivityPhase } from "../../../api/index.js";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
@@ -420,6 +422,21 @@ export async function sendSlackReaction(
     );
     return { ok: false };
   }
+}
+
+/**
+ * What a name the assistant reacts with means on Slack: the character for a
+ * standard emoji, resolved from Slack's own list, or Slack's name for a
+ * workspace emoji only the workspace can render.
+ */
+export function describeSlackReactionEmoji(
+  emoji: string,
+): ReactionEmojiIdentity {
+  const bareName = emoji.replace(/^:+|:+$/g, "");
+  const character = slackEmojiCharacter(bareName);
+  return character !== undefined
+    ? { emojiKind: "unicode", emojiName: character }
+    : { emojiKind: "shortcode", emojiName: bareName };
 }
 
 /** How Slack spells each activity phase on an agent session. */

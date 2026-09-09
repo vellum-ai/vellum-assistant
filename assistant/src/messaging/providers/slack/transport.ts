@@ -6,6 +6,7 @@ import { getLogger } from "../../../util/logger.js";
 import type { ChannelTransport } from "../channel-transport.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
 import {
+  describeSlackReactionEmoji,
   sendSlackAgentSessionStatus,
   sendSlackAttachments,
   sendSlackReaction,
@@ -23,6 +24,8 @@ function mutedBlocks(text: string): KnownBlock[] {
 
 export const slackTransport: ChannelTransport = {
   channel: "slack",
+
+  describeReactionEmoji: describeSlackReactionEmoji,
 
   async react(target) {
     return sendSlackReaction(

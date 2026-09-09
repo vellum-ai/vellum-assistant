@@ -9,6 +9,7 @@ import { isBusyActivityPhase } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
 import {
+  describeDiscordReactionEmoji,
   editDiscordMessage,
   sendDiscordAttachments,
   sendDiscordReaction,
@@ -76,6 +77,8 @@ export const discordTransport: ChannelTransport = {
     );
     return { ok: true };
   },
+
+  describeReactionEmoji: describeDiscordReactionEmoji,
 
   async react(target) {
     return sendDiscordReaction(

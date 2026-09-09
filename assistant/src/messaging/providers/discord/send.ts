@@ -9,7 +9,11 @@ import type {
   ApprovalUIMetadata,
   ChannelDeliveryResult,
 } from "@vellumai/gateway-client";
-import { parseDiscordEmojiMention } from "@vellumai/service-contracts/reactions";
+import {
+  classifyReactionEmojiSpelling,
+  parseDiscordEmojiMention,
+  type ReactionEmojiIdentity,
+} from "@vellumai/service-contracts/reactions";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
@@ -427,6 +431,16 @@ export async function sendDiscordAttachments(
 function discordReactionPathEmoji(emoji: string): string {
   const custom = parseDiscordEmojiMention(emoji);
   return encodeURIComponent(custom ? `${custom.name}:${custom.id}` : emoji);
+}
+
+/**
+ * What a spelling the assistant reacts with means on Discord: a guild emoji
+ * in its mention form, else the character itself.
+ */
+export function describeDiscordReactionEmoji(
+  emoji: string,
+): ReactionEmojiIdentity {
+  return classifyReactionEmojiSpelling(emoji);
 }
 
 /**

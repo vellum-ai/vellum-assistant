@@ -9,6 +9,10 @@ let channelSupported = true;
 
 mock.module("../../messaging/providers/index.js", () => ({
   supportsChannelReaction: () => channelSupported,
+  describeChannelReactionEmoji: (_channel: string, emoji: string) =>
+    emoji === "thumbsup"
+      ? { emojiKind: "unicode", emojiName: "👍" }
+      : { emojiKind: "shortcode", emojiName: emoji },
   sendChannelReaction: async (channel: string, target: ReactionTarget) => {
     reactCalls.push({ channel, target });
     return { ok: reactResultOk };
@@ -155,6 +159,8 @@ describe("react_to_message", () => {
         chatId: "C123",
         messageId: "1700000000.111111",
         emoji: "thumbsup",
+        emojiKind: "unicode",
+        emojiName: "👍",
         op: "added",
         provenanceTrustClass: "guardian",
       },

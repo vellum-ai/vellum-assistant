@@ -11,8 +11,15 @@
  *
  * Every channel's rows write the neutral `providerMeta` envelope, which
  * `readProviderMetadata` serves to channel-agnostic readers and the Slack
- * transcript reads through its Slack view.
+ * transcript reads through its Slack view. The emoji's typed identity is
+ * what the channel's adapter said the spelling means, so a reader renders
+ * the assistant's reaction the way it renders anyone else's.
  */
+import {
+  pickReactionEmojiFields,
+  type ReactionEmojiFields,
+} from "@vellumai/service-contracts/reactions";
+
 import type { ChannelId } from "../channels/types.js";
 import { buildNeutralReactionMeta } from "../messaging/reaction-envelopes.js";
 import {
@@ -23,7 +30,7 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("reaction-record");
 
-export interface QueuedReactionRecord {
+export interface QueuedReactionRecord extends ReactionEmojiFields {
   channel: ChannelId;
   chatId: string;
   /** Target message id, in the channel's own id space. */
@@ -50,6 +57,7 @@ export async function persistReactionRecords(
         chatId: record.chatId,
         targetMessageId: record.messageId,
         emoji: record.emoji,
+        ...pickReactionEmojiFields(record),
         op: record.op,
       };
       // The assistant's own rows carry the neutral envelope on every channel;

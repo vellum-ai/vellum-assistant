@@ -590,8 +590,7 @@ export function SlackReactionLine({ message }: { message: DisplayMessage }) {
     return null;
   }
 
-  // The neutral reaction fact on the same row carries the adapter's typed
-  // fields; Slack's own envelope carries only the spelling.
+  // The neutral reaction fact carries the typed emoji fields.
   const emojiDisplay = displayReactionEmoji(
     message.reaction ?? { emoji: reaction.emoji },
   );

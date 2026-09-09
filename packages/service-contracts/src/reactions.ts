@@ -41,6 +41,12 @@ export const ReactionEmojiFieldsSchema = z.object({
 });
 export type ReactionEmojiFields = z.infer<typeof ReactionEmojiFieldsSchema>;
 
+/** The typed fields with the kind and name known. */
+export type ReactionEmojiIdentity = ReactionEmojiFields & {
+  emojiKind: ReactionEmojiKind;
+  emojiName: string;
+};
+
 /**
  * The typed emoji fields a source actually carries, with undefined ones
  * omitted: an absent key and a present-but-undefined one serialize alike, but the
@@ -96,7 +102,7 @@ export function parseDiscordEmojiMention(
  */
 export function classifyReactionEmojiSpelling(
   emoji: string,
-): ReactionEmojiFields & { emojiKind: ReactionEmojiKind; emojiName: string } {
+): ReactionEmojiIdentity {
   const custom = parseDiscordEmojiMention(emoji);
   if (custom) {
     // The plain `<:name:id>` form says nothing about animation: the
@@ -123,7 +129,7 @@ export function classifyReactionEmojiSpelling(
  */
 export function reactionEmojiIdentity(
   reaction: { emoji: string } & ReactionEmojiFields,
-): ReactionEmojiFields & { emojiKind: ReactionEmojiKind; emojiName: string } {
+): ReactionEmojiIdentity {
   return reaction.emojiKind !== undefined && reaction.emojiName !== undefined
     ? {
         ...pickReactionEmojiFields(reaction),
