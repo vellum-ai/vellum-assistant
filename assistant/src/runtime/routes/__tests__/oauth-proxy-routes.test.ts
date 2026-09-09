@@ -621,9 +621,11 @@ describe("connection selection", () => {
 
     expect(response.status).toBe(409);
     const { error } = await envelope(response);
-    expect(error.details?.accounts).toEqual(["a@example.com", "b@example.com"]);
-    expect(error.message).toContain("a@example.com");
-    expect(error.message).toContain("b@example.com");
+    // The grant holder is a third party, so the accounts are named only at
+    // mint time. Here the caller is told to mint a grant pinned to one.
+    expect(error.details).toEqual({ provider: "stripe_link" });
+    expect(error.message).not.toContain("a@example.com");
+    expect(error.message).not.toContain("b@example.com");
     expect(captured).toBeUndefined();
   });
 });

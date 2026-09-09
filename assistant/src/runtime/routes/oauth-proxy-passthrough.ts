@@ -65,21 +65,24 @@ const STRIPPED_REQUEST_HEADERS = new Set([
 const TEXT_ENCODER = new TextEncoder();
 
 /**
- * Statuses the `Response` constructor refuses a body on. A provider reaches
- * here with 204, 205, or 304; 101 and 103 are interim statuses no HTTP client
- * surfaces as a final response, and are listed so the set is the spec's rather
- * than a subset to re-derive.
+ * Statuses the `Response` constructor refuses a body on, limited to the ones
+ * this route can emit. The interim 1xx statuses are absent: a BYO `fetch`
+ * never surfaces one as a final response and the platform envelope refuses a
+ * status outside 200 to 599, so a `RouteResponse` carrying one would only make
+ * the adapter's `Response` constructor throw.
  */
-const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+const NULL_BODY_STATUSES = new Set([204, 205, 304]);
+
+/** Metadata about the entity, as opposed to framing of this hop. */
+const ENTITY_METADATA_HEADERS = ["content-length", "content-encoding"];
 
 /**
- * Response headers the caller never sees: a framing this daemon re-does
- * itself, and a cookie the request side already refuses to send back, which
- * would only plant provider state on the daemon's own origin.
+ * Response headers the caller never sees on a body-carrying response: framing
+ * this daemon re-does itself, and a cookie the request side already refuses to
+ * send back, which would only plant provider state on the daemon's own origin.
  */
 const STRIPPED_RESPONSE_HEADERS = new Set([
-  "content-length",
-  "content-encoding",
+  ...ENTITY_METADATA_HEADERS,
   "transfer-encoding",
   "connection",
   "keep-alive",
@@ -88,6 +91,16 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   "set-cookie",
   "set-cookie2",
 ]);
+
+/**
+ * The same, minus the entity metadata. A HEAD or a 304 carries no body to
+ * re-frame, and that metadata is what the caller made the request to read.
+ */
+const STRIPPED_BODYLESS_RESPONSE_HEADERS = new Set(
+  [...STRIPPED_RESPONSE_HEADERS].filter(
+    (name) => !ENTITY_METADATA_HEADERS.includes(name),
+  ),
+);
 
 /**
  * Header a provider's 3xx target is moved onto.
@@ -291,20 +304,27 @@ export function sanitizeInboundHeaders(
 
 /**
  * Turn a connection response into the bytes and headers the caller sees. The
- * provider's status is preserved; framing headers are dropped because this
- * response is re-framed on the way out.
+ * provider's status is preserved; framing headers are dropped because a
+ * body-carrying response is re-framed on the way out, while a HEAD or a
+ * null-body status keeps the entity metadata it exists to convey.
  */
 export function materializeProxyResponse(
   upstream: OAuthConnectionResponse,
   method: string,
 ): RouteResponse {
+  const bodyless =
+    method.toUpperCase() === "HEAD" || NULL_BODY_STATUSES.has(upstream.status);
+  const stripped = bodyless
+    ? STRIPPED_BODYLESS_RESPONSE_HEADERS
+    : STRIPPED_RESPONSE_HEADERS;
+
   const headers: Record<string, string> = {};
   let location: string | undefined;
   for (const [name, value] of Object.entries(upstream.headers ?? {})) {
     const lower = name.toLowerCase();
     // `x-vellum-*` is this daemon's namespace on both sides of the hop, so a
     // provider cannot author one.
-    if (STRIPPED_RESPONSE_HEADERS.has(lower) || lower.startsWith("x-vellum-")) {
+    if (stripped.has(lower) || lower.startsWith("x-vellum-")) {
       continue;
     }
     if (lower === "location") {
@@ -317,8 +337,6 @@ export function materializeProxyResponse(
     headers[PROXY_LOCATION_HEADER] = location;
   }
 
-  const bodyless =
-    method.toUpperCase() === "HEAD" || NULL_BODY_STATUSES.has(upstream.status);
   if (bodyless) {
     return new RouteResponse(null, headers, upstream.status);
   }
@@ -343,21 +361,41 @@ export function materializeProxyResponse(
 }
 
 /**
+ * Who reads a proxy error body.
+ *
+ * `grant-holder` is the third-party binary the grant was handed to. It learns
+ * the provider it already knows and the command that repairs the failure, and
+ * never which other accounts of that provider the user holds: account labels
+ * are typically email addresses.
+ *
+ * `operator` is the local principal minting a grant, whose own accounts these
+ * are and who needs them named to pick one.
+ */
+export type ProxyErrorAudience = "grant-holder" | "operator";
+
+/**
  * The resolver throws plain `Error`s for "no active connection", "missing
  * prerequisites", and "missing scopes". All of them mean the caller's
  * dependency is unavailable until they reconnect.
+ *
+ * Its message enumerates the provider's other active account labels whenever
+ * an account filter matched nothing, which a pinned grant reaches by having
+ * its connection deleted or relabeled mid-TTL, so only the operator is given
+ * it verbatim.
  */
 export function mapProxyResolveError(
   err: unknown,
   provider: string,
+  audience: ProxyErrorAudience = "grant-holder",
 ): RouteError {
   if (err instanceof RouteError) {
     return err;
   }
-  return new FailedDependencyError(
-    errorMessage(err),
-    reconnectDetails(provider),
-  );
+  const message =
+    audience === "operator"
+      ? errorMessage(err)
+      : `No usable ${provider} connection is available.`;
+  return new FailedDependencyError(message, reconnectDetails(provider));
 }
 
 /** Map a connection-layer failure onto the status the caller should see. */
@@ -384,18 +422,33 @@ export function mapProxyRequestError(
 }
 
 /**
- * Several connections match the provider and the caller pinned none. The CLI
- * prints only the message, so it names the accounts and how to pick one.
+ * Several connections match the provider and the caller pinned none.
  *
+ * For the operator this is the mint refusing to guess, so the CLI, which
+ * prints only the message, gets the accounts named and an example segment.
  * Account labels are free text a provider chose, so some of them pin nothing
  * (an empty label) or cannot be encoded at all. Every account is still named:
  * building this error may not throw, or the caller would see an encoding
  * failure in place of the 409.
+ *
+ * For the grant holder it is a race: a second connection appeared inside the
+ * TTL of a grant that pins none. Rewriting the base URL to name an account is
+ * not open to it, because the subject an unpinned grant carries matches only
+ * the bare provider segment, so the accounts are neither named nor useful.
  */
 export function ambiguousConnectionError(
   provider: string,
   accounts: string[],
+  audience: ProxyErrorAudience = "grant-holder",
 ): ConflictError {
+  if (audience !== "operator") {
+    return new ConflictError(
+      `Multiple ${provider} connections are available and this grant pins none. ` +
+        `Mint one for a single account with "assistant oauth proxy-url ${provider} --account <account>".`,
+      { provider },
+    );
+  }
+
   const providerSegments = accounts
     .map((account) => pinningProviderSegment(provider, account))
     .filter((segment): segment is string => segment !== null);

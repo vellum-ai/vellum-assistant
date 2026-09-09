@@ -75,7 +75,7 @@ Wire semantics live in `../runtime/routes/oauth-proxy-passthrough.ts`. The remai
 
 ### Provider segment
 
-The first segment is `provider` or `provider@account`, the account pinning one connection when a provider has several. `encodeProxyProviderSegment` refuses a provider key that is empty or holds `@`, `/`, or `:`: the first two would parse back as a different provider, and a `:` would split the grant subject into a fourth component that no subject parser accepts, yielding a grant that could never verify. Accounts are percent-encoded for the same reason. When several accounts are connected and none is pinned, both the mint and the proxy answer 409 naming the accounts and an example segment.
+The first segment is `provider` or `provider@account`, the account pinning one connection when a provider has several. `encodeProxyProviderSegment` refuses a provider key that is empty or holds `@`, `/`, or `:`: the first two would parse back as a different provider, and a `:` would split the grant subject into a fourth component that no subject parser accepts, yielding a grant that could never verify. Accounts are percent-encoded for the same reason. When several accounts are connected and none is pinned, both answer 409, but they say different things. The mint names the accounts, because the caller is the local operator choosing one. The proxy names none, because its caller is the third-party binary holding the grant; it says to mint a grant pinned with `--account`, which is the only thing that resolves it. Rewriting the segment would not, since the subject check runs before resolution.
 
 ### Grant
 
@@ -92,13 +92,14 @@ A grant is pinned when the caller passed `--account` or the resolved connection 
 
 ### Containment
 
-The grant carries one scope for one route, and three checks hold it there:
+The grant carries one scope for one route, and four checks hold it there:
 
-- **Gateway edge auth** (`gateway/src/http/middleware/auth.ts`) refuses it on every gateway-native route, with no loopback fallback. `isSingleRouteGrant` reads any profile outside the `EDGE_AUTH_PROFILES` allowlist as a single-route grant, and also catches a proxy subject carrying some other profile. The passthrough itself never passes through edge auth: it falls to the runtime-proxy catch-all, which re-mints the grant's own profile for the daemon.
+- **Gateway edge auth** (`gateway/src/http/middleware/auth.ts`) refuses it on every gateway-native route, with no loopback fallback. `isSingleRouteGrant` calls `isNarrowScopeProfile` from `gateway/src/auth/scopes.ts`, and also catches a proxy subject carrying some other profile. The passthrough itself never passes through edge auth: it falls to the runtime-proxy catch-all, which re-mints the grant's own profile for the daemon.
 - **The gateway's IPC fast path** (`gateway/src/http/routes/ipc-runtime-proxy.ts`) refuses it against any daemon route naming no scope. The daemon's IPC server runs no policy check of its own, so this is the only enforcement an IPC-served request gets.
-- **`enforcePolicy`** (`../runtime/auth/route-policy.ts`) refuses the same on the HTTP path, then applies the route's own scopes. `oauth.proxy` reaches the passthrough and nothing else.
+- **`enforcePolicy`** (`../runtime/auth/route-policy.ts`) refuses the same on the HTTP path, then applies the route's own scopes. `oauth.proxy` reaches the passthrough and nothing else. Every `/v1` route and the shareable-pages path dispatch through the router, so this runs for all of them.
+- **WebSocket upgrades** are handled before the route table, so edge auth never sees them, and each carries its own identity gate: an actor principal on `runtime-audio-stream` and `live-voice`, the `speech.relay` scope on the relay, and the relay-token identity on `twilio-media-websocket`.
 
-The two `UNSCOPED_ROUTE_PROFILES` sets, one per package, are hand-kept copies: the cross-package import boundary forbids sharing a module, so widening one means editing both. A new profile lands outside both and fails closed.
+The gateway classifies profiles once, in `isNarrowScopeProfile`. The daemon keeps its own copy, because the cross-package import boundary forbids sharing a module, so widening one means editing both. Each is backed by a `Record<ScopeProfile, boolean>`, so a new profile fails to compile until it is classified rather than silently landing outside and failing closed.
 
 ### CLI
 

@@ -45,19 +45,22 @@ export class InsufficientBalanceError extends BackendError {
 }
 
 /**
- * Request options the platform proxy cannot honor. It parses the response body
- * and follows provider redirects server-side, so a managed connection answers
- * with re-serialized JSON and the redirect target's response. A caller that
- * needs the provider's exact bytes or a verbatim 3xx needs a BYO connection.
+ * Request options the platform proxy cannot honor. It parses the response
+ * body, rebuilds the query string from the parsed record, and follows provider
+ * redirects server-side, so a managed connection answers with re-serialized
+ * JSON, a regrouped query, and the redirect target's response. A caller that
+ * needs the provider's exact bytes, its exact query string, or a verbatim 3xx
+ * needs a BYO connection.
  */
 const UNHONORED_MANAGED_OPTIONS = [
   "rawResponseBody",
   "manualRedirect",
+  "rawQuery",
 ] as const;
 
 /** Which of {@link UNHONORED_MANAGED_OPTIONS} this request asks for. */
 export function unhonoredManagedOptions(req: OAuthConnectionRequest): string[] {
-  return UNHONORED_MANAGED_OPTIONS.filter((option) => req[option] === true);
+  return UNHONORED_MANAGED_OPTIONS.filter((option) => Boolean(req[option]));
 }
 
 export interface PlatformOAuthConnectionOptions {

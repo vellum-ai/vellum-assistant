@@ -231,9 +231,43 @@ describe("assistant oauth proxy-url", () => {
   test("--export leaves stdout empty when the call throws", async () => {
     ipcThrow = new Error("Assistant socket is unavailable");
 
-    const { stdout, exitCode } = await runProxyUrl(["stripe_link", "--export"]);
+    const { stdout, stderr, exitCode } = await runProxyUrl([
+      "stripe_link",
+      "--export",
+    ]);
 
     expect(stdout).toBe("");
+    expect(stderr).toBe("Error: Assistant socket is unavailable\n");
     expect(exitCode).toBe(1);
+  });
+
+  test("--export keeps the JSON envelope off stdout with --json", async () => {
+    // The caller evals stdout, so an error envelope there would be executed.
+    ipcThrow = new Error("Assistant socket is unavailable");
+
+    const { stdout, stderr, exitCode } = await runProxyUrl([
+      "--json",
+      "stripe_link",
+      "--export",
+    ]);
+
+    expect(stdout).toBe("");
+    expect(stderr).toBe("Error: Assistant socket is unavailable\n");
+    expect(exitCode).toBe(1);
+  });
+
+  test("--export keeps a rejected --ttl off stdout with --json", async () => {
+    const { stdout, stderr, exitCode } = await runProxyUrl([
+      "--json",
+      "stripe_link",
+      "--export",
+      "--ttl",
+      "abc",
+    ]);
+
+    expect(ipcCalls).toEqual([]);
+    expect(stdout).toBe("");
+    expect(stderr).toContain('Invalid --ttl "abc"');
+    expect(exitCode).toBe(2);
   });
 });

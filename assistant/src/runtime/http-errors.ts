@@ -15,9 +15,10 @@
  * be confused with `ErrorCode` from `util/errors.ts`, which is for internal
  * assistant-layer errors.
  *
- * The union covers every `code` a `RouteError` subclass in
- * `routes/errors.ts` carries, because both adapters emit one through
- * `err.code as HttpErrorCode`.
+ * The union covers every `code` a `RouteError` subclass in `routes/errors.ts`
+ * carries. A `RouteError` constructed directly names its own code, which the
+ * union need not hold, so the adapters' `err.code as HttpErrorCode` is a wire
+ * passthrough rather than a checked narrowing.
  */
 export type HttpErrorCode =
   | "BAD_REQUEST"
