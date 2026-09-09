@@ -26,8 +26,10 @@ mock.module("../agent-process.js", () => ({
     ) {}
     spawn(_cwd: string): void {}
     async initialize(): Promise<void> {}
-    async createSession(_cwd: string): Promise<string> {
-      return `proto-${this.agentId}`;
+    async createSession(
+      _cwd: string,
+    ): Promise<{ sessionId: string; configOptions: [] }> {
+      return { sessionId: `proto-${this.agentId}`, configOptions: [] };
     }
     async prompt(): Promise<{ stopReason: string }> {
       // Never resolves — keeps the session alive in `running` state for

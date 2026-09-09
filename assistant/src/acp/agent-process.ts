@@ -14,8 +14,11 @@ import type {
   AuthMethodEnvVar,
   Client,
   InitializeResponse,
+  LoadSessionResponse,
   NewSessionResponse,
   PromptResponse,
+  ResumeSessionResponse,
+  SessionConfigOption,
 } from "@agentclientprotocol/sdk";
 import * as acp from "@agentclientprotocol/sdk";
 
@@ -57,6 +60,13 @@ export class AcpAgentProcess {
    * afterwards.
    */
   private spawnedEnv: NodeJS.ProcessEnv | null = null;
+
+  /**
+   * Session config options as last reported by the agent: on session
+   * create/load/resume, and on every setConfigOption response (which carries
+   * the full refreshed set). Empty until one of those resolves.
+   */
+  private lastConfigOptions: SessionConfigOption[] = [];
 
   /**
    * Ring of the most recent stderr lines, bounded to ~STDERR_RETENTION_BYTES.
@@ -218,6 +228,31 @@ export class AcpAgentProcess {
     );
   }
 
+  /** Session config options as of the last session or setConfigOption call. */
+  get configOptions(): SessionConfigOption[] {
+    return this.lastConfigOptions;
+  }
+
+  /**
+   * The agent's model selector, if it advertises one. `category` is UX-only
+   * per the ACP spec, so a `model` id counts too; non-select options never do.
+   */
+  get modelConfigOption(): SessionConfigOption | undefined {
+    return this.lastConfigOptions.find(
+      (option) =>
+        option.type === "select" &&
+        (option.id === "model" || option.category === "model"),
+    );
+  }
+
+  /**
+   * Whether the agent exposes a model selector. No capability flag announces
+   * config-option support, so this stays false until a session call reports one.
+   */
+  get supportsModelSelection(): boolean {
+    return this.modelConfigOption != null;
+  }
+
   /**
    * Authentication methods the agent advertised at initialize.
    * Returns an empty array before initialize() resolves.
@@ -354,17 +389,33 @@ export class AcpAgentProcess {
   }
 
   /**
-   * Creates a new ACP session in the specified working directory.
-   * Returns the session ID.
+   * Replaces the cached config options with what the agent just reported,
+   * normalizing the SDK's optional-and-nullable field to an array.
    */
-  async createSession(cwd: string): Promise<string> {
+  private cacheConfigOptions(
+    configOptions: SessionConfigOption[] | null | undefined,
+  ): SessionConfigOption[] {
+    this.lastConfigOptions = configOptions ?? [];
+    return this.lastConfigOptions;
+  }
+
+  /**
+   * Creates a new ACP session in the specified working directory.
+   * Returns the session ID and the config options the agent reported.
+   */
+  async createSession(
+    cwd: string,
+  ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     log.info({ agentId: this.agentId, cwd }, "Creating ACP session");
 
     const result: NewSessionResponse = await this.withAuthRetry(() =>
       this.requireConnection().newSession({ cwd, mcpServers: [] }),
     );
 
-    return result.sessionId;
+    return {
+      sessionId: result.sessionId,
+      configOptions: this.cacheConfigOptions(result.configOptions),
+    };
   }
 
   /**
@@ -375,12 +426,17 @@ export class AcpAgentProcess {
    * callers should suppress forwarding of those replayed updates (see
    * VellumAcpClientHandler.beginReplaySuppression).
    */
-  async loadSession(sessionId: string, cwd: string): Promise<void> {
+  async loadSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     log.info({ agentId: this.agentId, sessionId, cwd }, "Loading ACP session");
 
-    await this.withAuthRetry(() =>
+    const result: LoadSessionResponse = await this.withAuthRetry(() =>
       this.requireConnection().loadSession({ sessionId, cwd, mcpServers: [] }),
     );
+
+    return { configOptions: this.cacheConfigOptions(result.configOptions) };
   }
 
   /**
@@ -390,16 +446,47 @@ export class AcpAgentProcess {
    * preferred when the agent advertises the capability
    * (see supportsSessionResume).
    */
-  async resumeSession(sessionId: string, cwd: string): Promise<void> {
+  async resumeSession(
+    sessionId: string,
+    cwd: string,
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     log.info({ agentId: this.agentId, sessionId, cwd }, "Resuming ACP session");
 
-    await this.withAuthRetry(() =>
+    const result: ResumeSessionResponse = await this.withAuthRetry(() =>
       this.requireConnection().resumeSession({
         sessionId,
         cwd,
         mcpServers: [],
       }),
     );
+
+    return { configOptions: this.cacheConfigOptions(result.configOptions) };
+  }
+
+  /**
+   * Sets one session config option (e.g. the model selector) via
+   * `session/set_config_option`. The agent answers with the full refreshed
+   * option set, which replaces the cached one.
+   */
+  async setConfigOption(
+    sessionId: string,
+    configId: string,
+    value: string,
+  ): Promise<SessionConfigOption[]> {
+    log.info(
+      { agentId: this.agentId, sessionId, configId, value },
+      "Setting ACP session config option",
+    );
+
+    const response = await this.withAuthRetry(() =>
+      this.requireConnection().setSessionConfigOption({
+        sessionId,
+        configId,
+        value,
+      }),
+    );
+
+    return this.cacheConfigOptions(response.configOptions);
   }
 
   /**

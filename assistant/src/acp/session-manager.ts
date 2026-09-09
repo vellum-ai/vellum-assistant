@@ -277,7 +277,8 @@ export class AcpSessionManager {
       );
       await agentProcess.initialize();
       log.info({ acpSessionId, agentId }, "ACP creating session");
-      const acpProtocolSessionId = await agentProcess.createSession(cwd);
+      const { sessionId: acpProtocolSessionId } =
+        await agentProcess.createSession(cwd);
       state.acpSessionId = acpProtocolSessionId;
       state.status = "running";
       log.info(
