@@ -15,7 +15,7 @@ import { getLogger } from "../util/logger.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 
 const log = getLogger("desktop-presence");
-const DESKTOP_INTERFACES = ["macos", "windows"] as const;
+const DESKTOP_INTERFACES = ["macos", "windows", "linux"] as const;
 
 /**
  * Bounds how long suppression can outlive the desktop sleeping or dropping

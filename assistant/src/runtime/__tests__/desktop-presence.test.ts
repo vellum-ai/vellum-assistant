@@ -54,6 +54,15 @@ describe("isDesktopAttended", () => {
     expect(isDesktopAttended()).toBe(true);
   });
 
+  test("fresh active linux client is attended", () => {
+    registerClient({
+      clientId: "linux-1",
+      interfaceId: "linux",
+      presence: "active",
+    });
+    expect(isDesktopAttended()).toBe(true);
+  });
+
   test("active report older than the staleness bound is not attended", () => {
     registerClient({ clientId: "mac-1", presence: "active" });
     expect(isDesktopAttended({ now: afterStaleness() })).toBe(false);

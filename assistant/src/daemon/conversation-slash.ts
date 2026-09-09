@@ -298,6 +298,7 @@ const CLEAN_HELP_LINE =
 const FORK_CAPABLE_INTERFACES = new Set<InterfaceId>([
   "macos",
   "windows",
+  "linux",
   "ios",
 ]);
 

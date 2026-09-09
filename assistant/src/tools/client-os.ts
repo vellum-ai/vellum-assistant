@@ -15,11 +15,15 @@ interface HostClientContext {
 
 export function desktopClientName(
   context: HostClientContext,
-): "Windows" | "macOS" {
-  return context.clientOs === "windows" ||
-    context.transportInterface === "windows"
-    ? "Windows"
-    : "macOS";
+): "Windows" | "Linux" | "macOS" {
+  const surfaces = [context.clientOs, context.transportInterface];
+  if (surfaces.includes("windows")) {
+    return "Windows";
+  }
+  if (surfaces.includes("linux")) {
+    return "Linux";
+  }
+  return "macOS";
 }
 
 export function supportsClientOs(

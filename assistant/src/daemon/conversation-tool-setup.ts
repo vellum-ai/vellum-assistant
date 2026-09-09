@@ -893,7 +893,8 @@ export function isToolActiveForContext(
   if (CLIENT_CAPABILITY_TOOL_NAMES.has(name)) {
     if (name === "ask_question" && channelCapabilities?.clientOS === "macos") {
       // macOS has no UI handler for question_request yet; hiding the tool
-      // avoids a 5-minute prompter timeout when the LLM would otherwise call it.
+      // avoids a 5-minute prompter timeout when the LLM would otherwise call
+      // it. Linux serves the clients/web renderer, which does handle it.
       return false;
     }
     return !hasNoClient;

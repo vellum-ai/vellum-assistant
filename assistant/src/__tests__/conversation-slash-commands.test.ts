@@ -57,6 +57,14 @@ describe("resolveSlash /commands interface-aware help", () => {
     expect(lines.some((line) => line.startsWith("/fork "))).toBe(true);
   });
 
+  test("renders desktop command help for Linux", async () => {
+    const lines = await resolveCommandsLines(
+      makeSlashContext({ userMessageInterface: "linux" }),
+    );
+    expect(lines.some((line) => line.startsWith("/btw "))).toBe(true);
+    expect(lines.some((line) => line.startsWith("/fork "))).toBe(true);
+  });
+
   test("renders iOS command help with /fork", async () => {
     const lines = await resolveCommandsLines(
       makeSlashContext({ userMessageInterface: "ios" }),

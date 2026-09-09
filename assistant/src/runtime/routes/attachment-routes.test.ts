@@ -22,17 +22,14 @@ const testHomeDir = realpathSync(
 
 const attachmentsDir = join(testWorkspaceDir, "data", "attachments");
 const conversationsDir = join(testWorkspaceDir, "conversations");
-const recordingsDir = join(
-  testHomeDir,
-  "Library/Application Support/vellum-assistant/recordings",
-);
+// XDG-shaped app data root, the Linux answer from getUserAppDataDir().
+const appDataDir = join(testHomeDir, ".local", "share");
+const recordingsDir = join(appDataDir, "vellum-assistant", "recordings");
 const outsideDir = mkdtempSync(join(tmpdir(), "attachment-routes-outside-"));
-
-const originalHome = process.env.HOME;
-process.env.HOME = testHomeDir;
 
 mock.module("../../util/platform.js", () => ({
   getWorkspaceDir: () => testWorkspaceDir,
+  getUserAppDataDir: () => appDataDir,
 }));
 
 import { resolveAllowedFileBackedAttachmentPath } from "./attachment-routes.js";
@@ -44,7 +41,6 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  process.env.HOME = originalHome;
   rmSync(testWorkspaceDir, { recursive: true, force: true });
   rmSync(testHomeDir, { recursive: true, force: true });
   rmSync(outsideDir, { recursive: true, force: true });

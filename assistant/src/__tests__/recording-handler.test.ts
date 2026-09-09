@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ─── Mocks (must be before any imports that depend on them) ─────────────────
@@ -97,8 +98,9 @@ mock.module("../daemon/video-thumbnail.js", () => ({
   generateVideoThumbnailFromPath: async () => null,
 }));
 
-// The allowed recordings directory used by the recording handler
-const ALLOWED_RECORDINGS_DIR = `${process.env.HOME}/Library/Application Support/vellum-assistant/recordings`;
+// Pin the Linux app-data root so the allowed recordings directory resolves
+// under a fake XDG_DATA_HOME instead of the runner's real profile.
+process.env.XDG_DATA_HOME = "/tmp/vellum-xdg-data";
 
 // Mock node:fs for file existence/stat checks and realpathSync in the recording handler
 let mockFileExists = true;
@@ -155,6 +157,15 @@ import {
   handleRecordingStop,
 } from "../daemon/handlers/recording.js";
 import type { RecordingStatus } from "../daemon/message-types/computer-use.js";
+import { getUserAppDataDir } from "../util/platform.js";
+
+// The allowed recordings directory used by the recording handler: the macOS
+// Application Support root locally, $XDG_DATA_HOME on Linux.
+const ALLOWED_RECORDINGS_DIR = join(
+  getUserAppDataDir(),
+  "vellum-assistant",
+  "recordings",
+);
 
 // ─── Test helpers ───────────────────────────────────────────────────────────
 

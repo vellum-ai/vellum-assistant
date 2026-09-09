@@ -28,6 +28,7 @@ const CHANNEL_DEFAULT_INTERFACE: Record<string, InterfaceId> = {
 const RICH_INTERFACES = new Set<InterfaceId>([
   "macos",
   "windows",
+  "linux",
   "ios",
   "web",
 ]);
