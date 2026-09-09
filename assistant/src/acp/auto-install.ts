@@ -9,6 +9,11 @@
  * PATH, and the session manager spawns it the usual way (project cwd, token
  * injected only at spawn).
  *
+ * Installs name the pinned `name@version` spec from
+ * `DEFAULT_AGENT_NPM_PACKAGES`, and an adapter already on PATH whose globally
+ * installed version does not match that pin is reinstalled, so the daemon
+ * always drives the adapter version it was built against.
+ *
  * Security boundaries (this is the ATL-808 fix):
  *  - Only commands present in `DEFAULT_AGENT_NPM_PACKAGES` are ever
  *    installed. The package names are vendored constants, NOT user input.
@@ -28,11 +33,14 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { DEFAULT_AGENT_NPM_PACKAGES } from "../config/acp-defaults.js";
+import {
+  DEFAULT_AGENT_NPM_PACKAGES,
+  splitPackageSpec,
+} from "../config/acp-defaults.js";
 import { getLogger } from "../util/logger.js";
 import {
   resolveAcpAgent,
@@ -116,18 +124,69 @@ function sanitizedInstallEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
+interface AdapterVersionProbeDeps {
+  readFile: (path: string) => Promise<string>;
+  /** The module tree `bun add --global` writes into. */
+  globalModulesDir: () => string;
+}
+
+const REAL_PROBE_DEPS: AdapterVersionProbeDeps = {
+  readFile: (path) => readFile(path, "utf8"),
+  globalModulesDir: () =>
+    join(
+      // `bun add --global` honours BUN_INSTALL, and the installer env is a
+      // copy of `process.env`, so the probe has to read the same override.
+      process.env.BUN_INSTALL ?? join(homedir(), ".bun"),
+      "install",
+      "global",
+      "node_modules",
+    ),
+};
+
+let probeDeps: AdapterVersionProbeDeps = REAL_PROBE_DEPS;
+
 /**
- * Install the npm-registry package mapped to `command` via a sandboxed `bun`
- * global install, if (and only if) the command is a known adapter binary and
- * `bun` is on PATH. Unknown commands, or hosts without `bun`, resolve to
- * `{ installed: false }` without ever invoking a package manager (see the
- * security boundary note in the module doc).
+ * Version of the pinned adapter package as installed in bun's global tree, or
+ * undefined when the manifest is missing or unreadable. Undefined is also what
+ * an adapter installed from a different package looks like (the older
+ * `@zed-industries/codex-acp` owns the same `codex-acp` binary name but writes
+ * nothing under the pinned package's path), which is why callers treat it as a
+ * mismatch rather than as "no opinion".
+ */
+export async function getInstalledAdapterVersion(
+  command: string,
+): Promise<string | undefined> {
+  const spec = DEFAULT_AGENT_NPM_PACKAGES[command];
+  if (!spec) {
+    return undefined;
+  }
+  const manifest = join(
+    probeDeps.globalModulesDir(),
+    ...splitPackageSpec(spec).name.split("/"),
+    "package.json",
+  );
+  try {
+    const parsed: unknown = JSON.parse(await probeDeps.readFile(manifest));
+    const version = (parsed as { version?: unknown }).version;
+    return typeof version === "string" ? version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Install the pinned npm-registry package spec mapped to `command` via a
+ * sandboxed `bun` global install, if (and only if) the command is a known
+ * adapter binary and `bun` is on PATH. Unknown commands, or hosts without
+ * `bun`, resolve to `{ installed: false }` without ever invoking a package
+ * manager (see the security boundary note in the module doc). An adapter
+ * already on PATH at the pinned version resolves the same way.
  */
 export function ensureAdapterInstalled(
   command: string,
 ): Promise<AdapterInstallResult> {
-  const packageName = DEFAULT_AGENT_NPM_PACKAGES[command];
-  if (!packageName) {
+  const packageSpec = DEFAULT_AGENT_NPM_PACKAGES[command];
+  if (!packageSpec) {
     return Promise.resolve({ installed: false });
   }
 
@@ -141,7 +200,7 @@ export function ensureAdapterInstalled(
     return inFlight;
   }
 
-  const promise = runInstall(bunPath, command, packageName).then((result) => {
+  const promise = installToPin(bunPath, command, packageSpec).then((result) => {
     if (!result.installed) {
       installPromises.delete(command);
     }
@@ -151,12 +210,32 @@ export function ensureAdapterInstalled(
   return promise;
 }
 
+/**
+ * A binary missing from PATH always installs, unchanged. One already on PATH
+ * installs only when its globally installed version differs from the pin,
+ * which covers both an outdated install and one made from a different package
+ * name that owns the same binary.
+ */
+async function installToPin(
+  bunPath: string,
+  command: string,
+  packageSpec: string,
+): Promise<AdapterInstallResult> {
+  const { version } = splitPackageSpec(packageSpec);
+  if (version !== undefined && Bun.which(command)) {
+    if ((await getInstalledAdapterVersion(command)) === version) {
+      return { installed: false };
+    }
+  }
+  return runInstall(bunPath, command, packageSpec);
+}
+
 async function runInstall(
   bunPath: string,
   command: string,
-  packageName: string,
+  packageSpec: string,
 ): Promise<AdapterInstallResult> {
-  log.info({ command, packageName }, "Auto-installing missing ACP adapter");
+  log.info({ command, packageSpec }, "Installing pinned ACP adapter");
   // Fresh empty dir guaranteed to have no project-local node_modules,
   // bunfig.toml, or .npmrc - this neutralizes the cwd-based resolution
   // hijacks the untrusted task dir would otherwise enable.
@@ -166,16 +245,16 @@ async function runInstall(
       bunPath,
       // `bun add --global` installs AND links the package bin into bun's
       // global bin dir (on PATH in every image).
-      ["add", "--global", packageName],
+      ["add", "--global", packageSpec],
       BUN_INSTALL_TIMEOUT_MS,
       { cwd: installDir, env: sanitizedInstallEnv() },
     );
-    log.info({ command, packageName }, "ACP adapter auto-install succeeded");
+    log.info({ command, packageSpec }, "ACP adapter auto-install succeeded");
     return { installed: true };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     log.warn(
-      { err, command, packageName },
+      { err, command, packageSpec },
       "ACP adapter auto-install failed (falling back to install hint)",
     );
     return { installed: false, error };
@@ -238,4 +317,12 @@ export async function resolveAgentWithAutoInstall(
 /** @internal: exposed for tests only. */
 export function _resetAdapterInstallCacheForTests(): void {
   installPromises.clear();
+  probeDeps = REAL_PROBE_DEPS;
+}
+
+/** @internal: exposed for tests only. */
+export function _setAdapterVersionProbeDepsForTests(
+  deps: Partial<AdapterVersionProbeDeps>,
+): void {
+  probeDeps = { ...REAL_PROBE_DEPS, ...deps };
 }

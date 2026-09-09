@@ -47,9 +47,37 @@ mock.module("../util/logger.js", () => ({
 
 const {
   ensureAdapterInstalled,
+  getInstalledAdapterVersion,
   resolveAgentWithAutoInstall,
   _resetAdapterInstallCacheForTests,
+  _setAdapterVersionProbeDepsForTests,
 } = await import("./auto-install.js");
+
+/** Pinned specs under test, mirroring `DEFAULT_AGENT_NPM_PACKAGES`. */
+const CLAUDE_SPEC = "@agentclientprotocol/claude-agent-acp@0.75.1";
+const CODEX_SPEC = "@agentclientprotocol/codex-acp@1.10.0";
+const GLOBAL_MODULES = "/home/tester/.bun/install/global/node_modules";
+
+/**
+ * Point the version probe at an in-memory bun global tree. Keys are package
+ * names; values are the `version` their manifest reports.
+ */
+function stubGlobalTree(versions: Record<string, string>): void {
+  _setAdapterVersionProbeDepsForTests({
+    globalModulesDir: () => GLOBAL_MODULES,
+    readFile: (path: string) => {
+      const name = path.slice(
+        `${GLOBAL_MODULES}/`.length,
+        -"/package.json".length,
+      );
+      const version = versions[name];
+      if (version === undefined) {
+        return Promise.reject(new Error("ENOENT"));
+      }
+      return Promise.resolve(JSON.stringify({ name, version }));
+    },
+  });
+}
 
 /** Latest call's execFile options ({ cwd, env, ... }). */
 function lastInstallOptions(): { cwd?: string; env?: NodeJS.ProcessEnv } {
@@ -75,11 +103,7 @@ describe("ensureAdapterInstalled", () => {
     expect(execFileMock).toHaveBeenCalledTimes(1);
     const [command, args] = execFileMock.mock.calls[0];
     expect(command).toBe(BUN_BIN);
-    expect(args).toEqual([
-      "add",
-      "--global",
-      "@agentclientprotocol/claude-agent-acp",
-    ]);
+    expect(args).toEqual(["add", "--global", CLAUDE_SPEC]);
   });
 
   test("installer never invokes npm", async () => {
@@ -197,10 +221,103 @@ describe("ensureAdapterInstalled", () => {
     const installedPackages = execFileMock.mock.calls.map(
       (call) => (call[1] as string[])[2],
     );
-    expect(installedPackages.sort()).toEqual([
-      "@agentclientprotocol/claude-agent-acp",
-      "@agentclientprotocol/codex-acp",
+    expect(installedPackages.sort()).toEqual([CLAUDE_SPEC, CODEX_SPEC]);
+  });
+});
+
+describe("getInstalledAdapterVersion", () => {
+  test("reads the version bun wrote into its global module tree", async () => {
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.47.0" });
+
+    expect(await getInstalledAdapterVersion("claude-agent-acp")).toBe("0.47.0");
+  });
+
+  test("undefined when the package is absent from the global tree", async () => {
+    stubGlobalTree({});
+
+    expect(await getInstalledAdapterVersion("codex-acp")).toBeUndefined();
+  });
+
+  test("undefined for a command outside the adapter allowlist", async () => {
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.75.1" });
+
+    expect(
+      await getInstalledAdapterVersion("some-arbitrary-binary"),
+    ).toBeUndefined();
+  });
+
+  test("undefined when the manifest is not valid JSON", async () => {
+    _setAdapterVersionProbeDepsForTests({
+      readFile: () => Promise.resolve("not json"),
+    });
+
+    expect(await getInstalledAdapterVersion("codex-acp")).toBeUndefined();
+  });
+});
+
+describe("ensureAdapterInstalled - version pinning", () => {
+  test("binary on PATH at the pinned version: no install", async () => {
+    which.setWhich({
+      bun: BUN_BIN,
+      "claude-agent-acp": "/usr/local/bin/claude-agent-acp",
+    });
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.75.1" });
+
+    const result = await ensureAdapterInstalled("claude-agent-acp");
+
+    expect(result).toEqual({ installed: false });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  test("binary on PATH at an older version: reinstalls the pinned spec", async () => {
+    which.setWhich({
+      bun: BUN_BIN,
+      "claude-agent-acp": "/usr/local/bin/claude-agent-acp",
+    });
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.47.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const result = await ensureAdapterInstalled("claude-agent-acp");
+
+    expect(result).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CLAUDE_SPEC,
     ]);
+  });
+
+  test("binary on PATH from another package: reinstalls and takes the name over", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": "/usr/local/bin/codex-acp" });
+    // An older `@zed-industries/codex-acp` owns the binary name and leaves
+    // nothing under the pinned package's path.
+    stubGlobalTree({ "@zed-industries/codex-acp": "0.4.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: true });
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CODEX_SPEC,
+    ]);
+  });
+
+  test("binary missing from PATH: installs without consulting the probe", async () => {
+    which.setWhich({ bun: BUN_BIN });
+    _setAdapterVersionProbeDepsForTests({
+      readFile: () => {
+        throw new Error("probe must not run when the binary is missing");
+      },
+    });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -231,9 +348,7 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
     }
     // The resolved command is the REAL binary, not a `bun x` wrapper.
     expect(result.resolved.agent.command).toBe("claude-agent-acp");
-    expect(result.autoInstalledPackage).toBe(
-      "@agentclientprotocol/claude-agent-acp",
-    );
+    expect(result.autoInstalledPackage).toBe(CLAUDE_SPEC);
     expect(result.failureMessage).toBeUndefined();
     expect(execFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock.mock.calls[0][0]).toBe(BUN_BIN);
@@ -264,12 +379,12 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
       return;
     }
     expect(result.resolved.agent.command).toBe("codex-acp");
-    expect(result.autoInstalledPackage).toBe("@agentclientprotocol/codex-acp");
+    expect(result.autoInstalledPackage).toBe(CODEX_SPEC);
     expect(execFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock.mock.calls[0][1]).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/codex-acp",
+      CODEX_SPEC,
     ]);
   });
 
@@ -294,9 +409,7 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
 
     expect(result.resolved.ok).toBe(false);
     expect(result.failureMessage).toContain("claude-agent-acp is not on PATH");
-    expect(result.failureMessage).toContain(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
-    );
+    expect(result.failureMessage).toContain(`bun add -g ${CLAUDE_SPEC}`);
     expect(result.failureMessage).toContain("network is down");
     for (const call of execFileMock.mock.calls) {
       expect(call[0]).not.toBe("npm");
