@@ -54,7 +54,10 @@ const STT_REQUEST_TIMEOUT_MS = 300_000;
 // Helpers
 // ---------------------------------------------------------------------------
 
-async function getAudioDuration(audioPath: string): Promise<number> {
+async function getAudioDuration(
+  audioPath: string,
+  signal?: AbortSignal,
+): Promise<number> {
   const result = await spawnWithTimeout(
     [
       "ffprobe",
@@ -67,6 +70,7 @@ async function getAudioDuration(audioPath: string): Promise<number> {
       audioPath,
     ],
     FFPROBE_TIMEOUT_MS,
+    signal,
   );
   if (result.exitCode !== 0) {
     return 0;
@@ -78,6 +82,7 @@ async function splitAudio(
   audioPath: string,
   chunkDir: string,
   chunkDurationSecs: number,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const chunkPattern = join(chunkDir, "chunk-%03d.wav");
   const result = await spawnWithTimeout(
@@ -99,6 +104,7 @@ async function splitAudio(
       chunkPattern,
     ],
     FFMPEG_TRANSCODE_TIMEOUT_MS,
+    signal,
   );
   if (result.exitCode !== 0) {
     throw new Error(`Failed to split audio: ${result.stderr.slice(0, 300)}`);
@@ -144,14 +150,22 @@ async function resolveSource(
 }
 
 /** Convert source to 16kHz mono WAV for consistent processing. */
-async function toWav(inputPath: string, isVideo: boolean): Promise<string> {
+async function toWav(
+  inputPath: string,
+  isVideo: boolean,
+  signal?: AbortSignal,
+): Promise<string> {
   const wavPath = join(tmpdir(), `vellum-transcribe-${randomUUID()}.wav`);
   const args = ["ffmpeg", "-y", "-i", inputPath];
   if (isVideo) {
     args.push("-vn");
   }
   args.push("-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1", wavPath);
-  const result = await spawnWithTimeout(args, FFMPEG_TRANSCODE_TIMEOUT_MS);
+  const result = await spawnWithTimeout(
+    args,
+    FFMPEG_TRANSCODE_TIMEOUT_MS,
+    signal,
+  );
   if (result.exitCode !== 0) {
     throw new Error(`ffmpeg failed: ${result.stderr.slice(0, 500)}`);
   }
@@ -177,7 +191,7 @@ async function transcribeWithProvider(
   transcriber: BatchTranscriber,
   context: ToolContext,
 ): Promise<string> {
-  const duration = await getAudioDuration(audioPath);
+  const duration = await getAudioDuration(audioPath, context.signal);
   const fileSize = Bun.file(audioPath).size;
 
   // If small enough, send directly
@@ -202,7 +216,12 @@ async function transcribeWithProvider(
         duration / 60,
       )}min) - splitting into chunks...\n`,
     );
-    const chunks = await splitAudio(audioPath, chunkDir, CHUNK_DURATION_SECS);
+    const chunks = await splitAudio(
+      audioPath,
+      chunkDir,
+      CHUNK_DURATION_SECS,
+      context.signal,
+    );
     const parts: string[] = [];
 
     for (let i = 0; i < chunks.length; i++) {
@@ -275,7 +294,7 @@ export async function run(
 
   try {
     // Convert to WAV
-    wavPath = await toWav(inputPath, isVideo);
+    wavPath = await toWav(inputPath, isVideo, context.signal);
 
     const text = await transcribeWithProvider(wavPath, transcriber, context);
 
