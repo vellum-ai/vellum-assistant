@@ -5,21 +5,23 @@ import { Database } from "bun:sqlite";
 import type { WorkspaceMigration } from "./types.js";
 
 /**
- * Repair `gpt-5.4` and `gpt-5.4-mini` pins that route, or can come to
- * route, through the ChatGPT subscription.
+ * Repair `gpt-5.4` and `gpt-5.4-mini` pins that route through the ChatGPT
+ * subscription.
  *
  * OpenAI serves neither model under ChatGPT sign-in: the Codex endpoint
  * rejects them with HTTP 400 ("not supported when using Codex with a
  * ChatGPT account"), so both are out of `CODEX_SUBSCRIPTION_MODEL_IDS`.
- * API-key access is unaffected, so a fragment with its own provider keeps
- * its model unless that provider dispatches to the subscription.
+ * API-key access is unaffected, so the repair is scoped to fragments that
+ * provably dispatch to the subscription; an `openai` (or any other vendor)
+ * fragment keeps its model.
  *
  * A fragment routes through the subscription when its `provider` is the
  * `chatgpt` routing identity, or when the `provider_connections` row it
  * dispatches to is the subscription (row kind `chatgpt`, or an
  * `oauth_subscription` auth on the pre-DB-migration-366 row shape). The row
  * is named by the legacy `provider_connection` binding when present (dispatch
- * honors it first), otherwise by an entry-name `provider`. The identity form fails
+ * honors it first, and the name is only ever a row name), otherwise by an
+ * entry-name `provider`. The identity form fails
  * `LLMSchema.superRefine` once the allowlist drops the model, and the
  * loader's per-section salvage then resets the whole `llm` section; the
  * entry-bound form bypasses the auto-resolution compat gate and 400s on
@@ -27,19 +29,21 @@ import type { WorkspaceMigration } from "./types.js";
  * `llm.profiles.*`.
  *
  * A providerless call-site pin overlays whichever profile wins that site
- * for a turn, and that winner is not fixed: `llm.activeProfile`, a
- * per-conversation pin, a schedule's pin, the advisor profile, and any
- * profile created after this one-time run can each take the top rung.
- * With the model outside the allowlist a subscription-routed winner no
- * longer serves it, so the resolver implies provider `openai` and a
- * subscription-only workspace has no connection for it; a winner pinning
- * the subscription row keeps that pin and 400s. No snapshot of today's
- * profiles can rule that out, so every providerless pin of a retired model
- * on a known call site is repaired: the replacements are drop-in
- * successors on API-key and managed routes too, so a workspace that never
- * selects the subscription loses nothing but a retired model. A call site
- * this snapshot does not know (written by a newer assistant) is left
- * alone, since its resolution is not this version's to judge.
+ * for a turn. With the model outside the allowlist a subscription-routed
+ * winner no longer serves it, so the resolver implies provider `openai`
+ * and a subscription-only workspace has no connection for it; a winner
+ * pinning the subscription row keeps that pin and 400s. The winner is not
+ * fixed by config alone: a per-conversation pin, a schedule's pin, and the
+ * advisor profile each take the top rung for the turns they cover, and any
+ * selectable profile can be pinned after this one-time run. So the pin is
+ * repaired when any selectable profile in the workspace routes through the
+ * subscription (a default key resolving to the `chatgpt` column, or a
+ * usable user-owned profile bound to the subscription), the way resolution
+ * would honor it: shadows of code-owned names and managed stubs are
+ * ignored, and disabled, incomplete, or row-unresolvable profiles cannot
+ * win. A workspace with no such profile serves the model on every route
+ * it can select, and a call site this snapshot does not know (written by a
+ * newer assistant) is left alone.
  *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
@@ -80,17 +84,7 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
     // needs them. An unreadable DB then fails the run (retried next boot)
     // rather than checkpointing a pass that skips entry-bound profiles.
     let rows: Map<string, boolean> | null | undefined;
-    const isSubscriptionProvider = (provider: unknown): boolean => {
-      if (provider === CHATGPT_IDENTITY) {
-        return true;
-      }
-      if (
-        typeof provider !== "string" ||
-        provider.length === 0 ||
-        KNOWN_PROVIDERS.has(provider)
-      ) {
-        return false;
-      }
+    const entryRows = (): Map<string, boolean> => {
       if (rows === undefined) {
         rows = readConnectionRows(workspaceDir);
       }
@@ -99,11 +93,38 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
           "provider_connections is not readable; retrying the model-ID repair on the next run",
         );
       }
-      return rows.get(provider) === true;
+      return rows;
+    };
+    const lookup: ProviderLookup = {
+      isSubscription: (provider) => {
+        if (provider === CHATGPT_IDENTITY) {
+          return true;
+        }
+        if (
+          typeof provider !== "string" ||
+          provider.length === 0 ||
+          KNOWN_PROVIDERS.has(provider)
+        ) {
+          return false;
+        }
+        return entryRows().get(provider) === true;
+      },
+      isSubscriptionRow: (name) => entryRows().get(name) === true,
+      isResolvable: (provider) =>
+        KNOWN_PROVIDERS.has(provider) || entryRows().has(provider),
     };
 
     const isBound = (fragment: Record<string, unknown>): boolean =>
-      fragmentIsSubscriptionBound(fragment, isSubscriptionProvider);
+      fragmentIsSubscriptionBound(fragment, lookup);
+
+    // Memoized: the answer is per workspace, and computing it may read rows.
+    let selectable: boolean | undefined;
+    const anySelectableSubscriptionProfile = (): boolean => {
+      if (selectable === undefined) {
+        selectable = hasSelectableSubscriptionProfile(llm, lookup);
+      }
+      return selectable;
+    };
 
     let changed = false;
 
@@ -114,7 +135,9 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const isRouted = (fragment: Record<string, unknown>): boolean =>
           isBound(fragment) ||
-          (fragment.provider === undefined && KNOWN_CALL_SITES.has(site));
+          (fragment.provider === undefined &&
+            KNOWN_CALL_SITES.has(site) &&
+            anySelectableSubscriptionProfile());
         changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
     }
@@ -153,8 +176,25 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
 
 const CHATGPT_IDENTITY = "chatgpt";
 
+/**
+ * Row-backed predicates. `isSubscription` answers whether a `provider`
+ * value dispatches to the subscription (the identity does; a known vendor
+ * never does; an entry name is judged by its row). `isSubscriptionRow`
+ * judges a `provider_connection` value, which is only ever a row name, so
+ * a row that happens to be named like a vendor or identity is still its
+ * row. `isResolvable` mirrors the resolver's `isResolvableProvider` gate
+ * (a known vendor or identity, or an existing entry row), which keeps a
+ * profile whose provider names no row from winning. All throw on an
+ * unreadable DB so the run retries.
+ */
+interface ProviderLookup {
+  isSubscription: (provider: unknown) => boolean;
+  isSubscriptionRow: (name: string) => boolean;
+  isResolvable: (provider: string) => boolean;
+}
+
 // Frozen snapshot of `KNOWN_LLM_PROVIDERS`: the vendor and identity values
-// that dispatch without a connection row, so none of them is an entry name.
+// that dispatch without a connection row.
 const KNOWN_PROVIDERS = new Set([
   "anthropic",
   "openai",
@@ -173,6 +213,76 @@ const KNOWN_PROVIDERS = new Set([
   "poolside",
   "vellum",
   "chatgpt",
+]);
+
+const REPLACEMENTS: ReadonlyMap<string, string> = new Map([
+  ["gpt-5.4", "gpt-5.5"],
+  ["gpt-5.4-mini", "gpt-5.6-luna"],
+]);
+
+function repairFragment(
+  fragment: Record<string, unknown> | null,
+  isSubscriptionRouted: (fragment: Record<string, unknown>) => boolean,
+): boolean {
+  if (fragment === null || typeof fragment.model !== "string") {
+    return false;
+  }
+  const replacement = REPLACEMENTS.get(fragment.model);
+  if (replacement === undefined) {
+    return false;
+  }
+  if (!isSubscriptionRouted(fragment)) {
+    return false;
+  }
+  fragment.model = replacement;
+  return true;
+}
+
+/**
+ * Whether a fragment's own routing goes through the subscription. The
+ * `chatgpt` identity always does (the schema rejects the pair regardless
+ * of any binding). Otherwise the legacy `provider_connection` binding is
+ * authoritative when present, since dispatch honors it ahead of the
+ * declared provider, and it names a row; only an unbound fragment is
+ * judged by its `provider`.
+ */
+function fragmentIsSubscriptionBound(
+  fragment: Record<string, unknown>,
+  lookup: ProviderLookup,
+): boolean {
+  if (fragment.provider === CHATGPT_IDENTITY) {
+    return true;
+  }
+  const binding = fragment.provider_connection;
+  if (typeof binding === "string" && binding.length > 0) {
+    return lookup.isSubscriptionRow(binding);
+  }
+  return lookup.isSubscription(fragment.provider);
+}
+
+// Frozen snapshot of `DEFAULT_PROFILE_KEYS`: each resolves to the default
+// provider's catalog column unless a usable user-owned shadow in
+// `llm.profiles` stands in for it.
+const DEFAULT_PROFILE_KEYS = new Set([
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+  "latency-optimized",
+]);
+
+// Frozen snapshot of `CODE_OWNED_PROFILE_NAMES`: resolution ignores a
+// workspace shadow of these names and serves the code-owned body, which
+// never routes through the subscription on its own (`latency-optimized`
+// is judged through the default provider like the other default keys).
+// Every other managed stub (a default key, a backup, `os-beta`) is likewise
+// its code-owned body: the default provider's column for a default key, a
+// vellum body otherwise.
+const CODE_OWNED_PROFILE_NAMES = new Set([
+  "latency-optimized",
+  "balanced-backup",
+  "quality-optimized-backup",
+  "cost-optimized-backup",
+  "latency-optimized-backup",
 ]);
 
 // Frozen snapshot of `LLMCallSiteEnum`: the sites whose resolution this
@@ -223,48 +333,95 @@ const KNOWN_CALL_SITES = new Set([
   "workflowLeaf",
 ]);
 
-const REPLACEMENTS: ReadonlyMap<string, string> = new Map([
-  ["gpt-5.4", "gpt-5.5"],
-  ["gpt-5.4-mini", "gpt-5.6-luna"],
-]);
-
-function repairFragment(
-  fragment: Record<string, unknown> | null,
-  isSubscriptionRouted: (fragment: Record<string, unknown>) => boolean,
+/**
+ * Whether any profile a turn can select routes through the subscription:
+ * a default key whose effective body is the `chatgpt` column, or a usable
+ * user-owned profile bound to the subscription. Mix profiles add nothing
+ * of their own: their arms are selectable profiles in their own right.
+ */
+function hasSelectableSubscriptionProfile(
+  llm: Record<string, unknown>,
+  lookup: ProviderLookup,
 ): boolean {
-  if (fragment === null || typeof fragment.model !== "string") {
-    return false;
+  const profiles = readObject(llm.profiles);
+  const names = new Set([
+    ...DEFAULT_PROFILE_KEYS,
+    ...(profiles === null ? [] : Object.keys(profiles)),
+  ]);
+  for (const name of names) {
+    if (profileIsSubscriptionRouted(name, llm, lookup)) {
+      return true;
+    }
   }
-  const replacement = REPLACEMENTS.get(fragment.model);
-  if (replacement === undefined) {
-    return false;
-  }
-  if (!isSubscriptionRouted(fragment)) {
-    return false;
-  }
-  fragment.model = replacement;
-  return true;
+  return false;
 }
 
 /**
- * Whether a fragment's own routing goes through the subscription. The
- * `chatgpt` identity always does (the schema rejects the pair regardless
- * of any binding). Otherwise the legacy `provider_connection` binding is
- * authoritative when present, since dispatch honors it ahead of the
- * declared provider; only an unbound fragment is judged by its `provider`.
+ * Whether the effective body of `name` routes through the subscription.
+ * Code-owned names and managed stubs resolve to code-owned bodies: a
+ * default key to the default provider's column, everything else to a
+ * vellum body. A user-owned shadow wins only when usable (enabled,
+ * complete, provider resolvable); an unusable shadow of a default key
+ * reverts to the column, and any other unusable profile cannot win.
  */
-function fragmentIsSubscriptionBound(
-  fragment: Record<string, unknown>,
+function profileIsSubscriptionRouted(
+  name: string,
+  llm: Record<string, unknown>,
+  lookup: ProviderLookup,
+): boolean {
+  const shadow = userShadow(name, llm);
+  const usable =
+    shadow !== null &&
+    shadow.status !== "disabled" &&
+    !Array.isArray(shadow.mix) &&
+    typeof shadow.provider === "string" &&
+    typeof shadow.model === "string" &&
+    lookup.isResolvable(shadow.provider);
+  if (usable) {
+    return fragmentIsSubscriptionBound(shadow, lookup);
+  }
+  return (
+    DEFAULT_PROFILE_KEYS.has(name) &&
+    defaultProviderIsSubscription(llm, lookup.isSubscription)
+  );
+}
+
+/**
+ * A user-owned `llm.profiles` entry that resolution honors. A managed stub
+ * is not a shadow, and a shadow of a code-owned name is ignored in favor of
+ * the code-owned body.
+ */
+function userShadow(
+  name: string,
+  llm: Record<string, unknown>,
+): Record<string, unknown> | null {
+  if (CODE_OWNED_PROFILE_NAMES.has(name)) {
+    return null;
+  }
+  const shadow = readObject(readObject(llm.profiles)?.[name]);
+  return shadow === null || shadow.source === "managed" ? null : shadow;
+}
+
+/**
+ * Whether `llm.defaultProvider` routes its default column through the
+ * subscription: the `chatgpt` identity, or `openai` pinning a subscription
+ * row by `connectionName`.
+ */
+function defaultProviderIsSubscription(
+  llm: Record<string, unknown>,
   isSubscriptionProvider: (provider: unknown) => boolean,
 ): boolean {
-  if (fragment.provider === CHATGPT_IDENTITY) {
+  const defaultProvider = readObject(llm.defaultProvider);
+  if (defaultProvider === null) {
+    return false;
+  }
+  if (defaultProvider.provider === CHATGPT_IDENTITY) {
     return true;
   }
-  const binding = fragment.provider_connection;
-  if (typeof binding === "string" && binding.length > 0) {
-    return isSubscriptionProvider(binding);
-  }
-  return isSubscriptionProvider(fragment.provider);
+  return (
+    defaultProvider.provider === "openai" &&
+    isSubscriptionProvider(defaultProvider.connectionName)
+  );
 }
 
 /**
