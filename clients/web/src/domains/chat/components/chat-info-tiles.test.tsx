@@ -1,21 +1,17 @@
 /**
  * The Chat Info tiles: what each kind draws, and which of them fetch bytes.
  *
+ * An attachment's bytes are seeded (or failed) on the test's own query client,
+ * under the key the tile reads, rather than by replacing the fetcher module,
+ * so nothing this suite does reaches another file's module graph.
+ *
  * Glyphs are located by their lucide class because the tile draws them
  * decoratively, with no accessible name of their own; everything else is
  * asserted through accessible names and the rendered image source.
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
@@ -26,57 +22,21 @@ import {
 import type { ReactElement } from "react";
 
 import * as appHtmlCache from "@/utils/app-html-cache";
-import * as downloadAttachmentModule from "@/domains/chat/components/chat-attachments/download-attachment";
 import {
+  CHAT_INFO_OBJECT_URL,
+  installChatInfoDomStubs,
   makeAppSummary,
+  makeChatInfoQueryClient,
   makeDocumentAsset,
   makeDocumentSummary,
   makeFileAsset,
   makeFrameAsset,
+  seedChatInfoConversation,
+  seedQueryFailure,
 } from "@/domains/chat/components/chat-info.test-helper";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 
-const OBJECT_URL = "blob:chat-info-tile";
-
-// happy-dom implements neither object URLs nor IntersectionObserver.
-globalThis.URL.createObjectURL = mock(
-  (_obj: Blob | MediaSource): string => OBJECT_URL,
-);
-globalThis.URL.revokeObjectURL = mock((_url: string): void => undefined);
-
-class ImmediateIntersectionObserver {
-  readonly root = null;
-  readonly rootMargin = "";
-  readonly thresholds: number[] = [];
-  constructor(private readonly callback: IntersectionObserverCallback) {}
-  observe(target: Element): void {
-    this.callback(
-      [{ isIntersecting: true, target } as IntersectionObserverEntry],
-      this as unknown as IntersectionObserver,
-    );
-  }
-  unobserve(): void {}
-  disconnect(): void {}
-  takeRecords(): IntersectionObserverEntry[] {
-    return [];
-  }
-}
-globalThis.IntersectionObserver =
-  ImmediateIntersectionObserver as unknown as typeof IntersectionObserver;
-
-const fetchAttachmentContentBlob = mock(
-  async (_assistantId: string, _attachmentId: string): Promise<Blob | null> =>
-    new Blob(["image-bytes"], { type: "image/png" }),
-);
-// Both factories keep the rest of their module real, so a file that imports
-// another of its exports is unaffected by these process-global replacements.
-mock.module(
-  "@/domains/chat/components/chat-attachments/download-attachment",
-  (): Partial<typeof downloadAttachmentModule> => ({
-    ...downloadAttachmentModule,
-    fetchAttachmentContentBlob,
-  }),
-);
+installChatInfoDomStubs();
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.
 mock.module(
@@ -93,36 +53,61 @@ const { ChatInfoFileTile } =
   await import("@/domains/chat/components/chat-info-file-tile");
 const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
-const { appsGetQueryKey } =
-  await import("@/generated/daemon/@tanstack/react-query.gen");
+const { attachmentContentQueryKey } =
+  await import("@/domains/chat/components/chat-attachments/use-attachment-object-url");
 const { formatCaptureTime } = await import("@/utils/format-date");
 
 const ASSISTANT_ID = "asst-1";
+const CONVERSATION_ID = "conv-1";
 
 const APP = makeAppSummary({ id: "app-1", name: "Trip Planner" });
 const DOCUMENT_ASSET = makeDocumentAsset(
   makeDocumentSummary({ title: "Trip Notes" }),
 );
 
-function renderTile(ui: ReactElement) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-  });
-  // Seeded so the options menu's pin lookup never reaches the daemon.
-  client.setQueryData(
-    appsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
-    {
-      apps: [APP],
-    },
-  );
-  return render(
-    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
-  );
+/** The bytes the daemon would return for one attachment. */
+function seedBytes(attachmentId: string) {
+  return (client: QueryClient) => {
+    client.setQueryData(
+      attachmentContentQueryKey(ASSISTANT_ID, attachmentId),
+      new Blob(["image-bytes"], { type: "image/png" }),
+    );
+  };
 }
 
-beforeEach(() => {
-  fetchAttachmentContentBlob.mockClear();
-});
+/** The state a fetch that resolved nothing leaves behind. */
+function seedFetchFailure(attachmentId: string) {
+  return (client: QueryClient) => {
+    seedQueryFailure(
+      client,
+      attachmentContentQueryKey(ASSISTANT_ID, attachmentId),
+    );
+  };
+}
+
+function renderTile(ui: ReactElement, seed?: (client: QueryClient) => void) {
+  const client = makeChatInfoQueryClient();
+  // Seeded so the options menu's pin lookup never reaches the daemon.
+  seedChatInfoConversation(client, {
+    assistantId: ASSISTANT_ID,
+    conversationId: CONVERSATION_ID,
+    apps: [APP],
+  });
+  seed?.(client);
+  return {
+    client,
+    ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
+  };
+}
+
+/** Asserts the tile never asked the daemon for this attachment's bytes. */
+function expectNoFetch(client: QueryClient, attachmentId: string) {
+  const state = client.getQueryState(
+    attachmentContentQueryKey(ASSISTANT_ID, attachmentId),
+  );
+  expect(state?.fetchStatus ?? "idle").toBe("idle");
+  expect(state?.data).toBeUndefined();
+}
 
 afterEach(() => {
   cleanup();
@@ -183,7 +168,7 @@ describe("ChatInfoFileTile attachments", () => {
         previewUrl: SAMPLE_PREVIEWS[0]!,
       }),
     );
-    const { container } = renderTile(
+    const { container, client } = renderTile(
       <ChatInfoFileTile
         file={file}
         assistantId={ASSISTANT_ID}
@@ -194,11 +179,11 @@ describe("ChatInfoFileTile attachments", () => {
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
       SAMPLE_PREVIEWS[0]!,
     );
-    expect(fetchAttachmentContentBlob).not.toHaveBeenCalled();
+    expectNoFetch(client, "inline-1");
     expect(screen.getByLabelText("Preview harbour.png")).toBeDefined();
   });
 
-  test("spins while it fetches, then renders the object URL", async () => {
+  test("renders the object URL for bytes the cache holds", async () => {
     const file = makeFileAsset(
       makeDisplayAttachment({ id: "lazy-1", filename: "photo.png" }),
     );
@@ -208,17 +193,15 @@ describe("ChatInfoFileTile attachments", () => {
         assistantId={ASSISTANT_ID}
         onOpen={() => {}}
       />,
+      seedBytes("lazy-1"),
     );
-
-    expect(container.querySelector(".lucide-loader-circle")).toBeTruthy();
 
     await waitFor(() => {
       expect(container.querySelector("img")).toBeTruthy();
     });
     expect(container.querySelector("img")?.getAttribute("src")).toBe(
-      OBJECT_URL,
+      CHAT_INFO_OBJECT_URL,
     );
-    expect(fetchAttachmentContentBlob).toHaveBeenCalledTimes(1);
   });
 
   test("falls back to the image glyph when the bytes will not decode", async () => {
@@ -231,6 +214,7 @@ describe("ChatInfoFileTile attachments", () => {
         assistantId={ASSISTANT_ID}
         onOpen={() => {}}
       />,
+      seedBytes("broken-1"),
     );
 
     await waitFor(() => {
@@ -242,23 +226,36 @@ describe("ChatInfoFileTile attachments", () => {
     expect(container.querySelector(".lucide-file-image")).toBeTruthy();
   });
 
-  test("falls back to the image glyph when the fetch resolves nothing", async () => {
-    fetchAttachmentContentBlob.mockImplementationOnce(async () => null);
-    const file = makeFileAsset(
-      makeDisplayAttachment({ id: "missing-1", filename: "missing.png" }),
-    );
-    const { container } = renderTile(
-      <ChatInfoFileTile
-        file={file}
-        assistantId={ASSISTANT_ID}
-        onOpen={() => {}}
-      />,
-    );
+  test("falls back to the image glyph when the fetch resolves nothing", () => {
+    // Without an IntersectionObserver the tile counts as on screen from its
+    // first render, so the failed entry is read on mount, where
+    // `retryOnMount: false` leaves it failed rather than asking again.
+    const observer = globalThis.IntersectionObserver;
+    // @ts-expect-error the tile has a branch for a browser without one.
+    delete globalThis.IntersectionObserver;
+    try {
+      const file = makeFileAsset(
+        makeDisplayAttachment({ id: "missing-1", filename: "missing.png" }),
+      );
+      const { container, client } = renderTile(
+        <ChatInfoFileTile
+          file={file}
+          assistantId={ASSISTANT_ID}
+          onOpen={() => {}}
+        />,
+        seedFetchFailure("missing-1"),
+      );
 
-    await waitFor(() => {
       expect(container.querySelector(".lucide-file-image")).toBeTruthy();
-    });
-    expect(container.querySelector("img")).toBeNull();
+      expect(container.querySelector("img")).toBeNull();
+      expect(
+        client.getQueryState(
+          attachmentContentQueryKey(ASSISTANT_ID, "missing-1"),
+        )?.fetchStatus,
+      ).toBe("idle");
+    } finally {
+      globalThis.IntersectionObserver = observer;
+    }
   });
 
   test("falls back to the image glyph for a legacy image it can never fetch", () => {
@@ -266,7 +263,7 @@ describe("ChatInfoFileTile attachments", () => {
     const file = makeFileAsset(
       makeDisplayAttachment({ id: "rehydrated:0", filename: "legacy.png" }),
     );
-    const { container } = renderTile(
+    const { container, client } = renderTile(
       <ChatInfoFileTile
         file={file}
         assistantId={ASSISTANT_ID}
@@ -276,7 +273,7 @@ describe("ChatInfoFileTile attachments", () => {
 
     expect(container.querySelector(".lucide-file-image")).toBeTruthy();
     expect(container.querySelector(".animate-spin")).toBeNull();
-    expect(fetchAttachmentContentBlob).not.toHaveBeenCalled();
+    expectNoFetch(client, "rehydrated:0");
   });
 
   test("renders the PDF glyph without fetching", () => {
@@ -287,7 +284,7 @@ describe("ChatInfoFileTile attachments", () => {
         mimeType: "application/pdf",
       }),
     );
-    const { container } = renderTile(
+    const { container, client } = renderTile(
       <ChatInfoFileTile
         file={file}
         assistantId={ASSISTANT_ID}
@@ -296,7 +293,7 @@ describe("ChatInfoFileTile attachments", () => {
     );
 
     expect(container.querySelector(".lucide-file-type-corner")).toBeTruthy();
-    expect(fetchAttachmentContentBlob).not.toHaveBeenCalled();
+    expectNoFetch(client, "pdf-1");
   });
 });
 

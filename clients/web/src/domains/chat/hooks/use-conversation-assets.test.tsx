@@ -1,118 +1,71 @@
 /**
  * Tests for `useConversationAssets`.
  *
- * Apps and documents come from two TanStack queries, so the suite seeds the
- * cache with `staleTime: Infinity` instead of mocking the SDK: nothing
- * refetches on mount and the derived lists are exactly what a test asks for.
- * The transcript hook behind the attachments is mocked the same way its own
- * suite mocks it.
+ * Apps and documents come from two TanStack queries and the attachments from
+ * the chat-session store, so the suite seeds all three rather than mocking
+ * anything: nothing refetches on mount and the derived lists are exactly what
+ * a test asks for.
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type * as TranscriptMessages from "@/domains/chat/transcript/use-transcript-messages";
+import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import {
+  clearTranscriptMessages,
+  makeAppSummary,
+  makeChatInfoQueryClient,
+  makeDocumentSummary,
+  makePendingChatInfoQueryClient,
+  seedChatInfoConversation,
+  seedQueryFailure,
+  seedTranscriptMessages,
+} from "@/domains/chat/components/chat-info.test-helper";
+import {
+  toConversationFileAssets,
+  useConversationAssets,
+} from "@/domains/chat/hooks/use-conversation-assets";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  appsGetQueryKey,
+  documentsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
-
-const messagesRef: { value: DisplayMessage[] } = { value: [] };
-
-mock.module(
-  "@/domains/chat/transcript/use-transcript-messages",
-  (): Partial<typeof TranscriptMessages> => ({
-    useTranscriptMessages: () => messagesRef.value,
-  }),
-);
-
-const {
-  useConversationAssetCounts,
-  useConversationAssets,
-  toConversationFileAssets,
-} = await import("@/domains/chat/hooks/use-conversation-assets");
-const { clearTranscriptOwner, seedTranscriptOwner } =
-  await import("@/domains/chat/components/chat-info.test-helper");
-const { makeDisplayAttachment } =
-  await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
-const {
-  appsGetOptions,
-  appsGetQueryKey,
-  documentsGetOptions,
-  documentsGetQueryKey,
-} = await import("@/generated/daemon/@tanstack/react-query.gen");
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 
 function makeApp(id: string, updatedAt: number): AppSummary {
-  return {
+  return makeAppSummary({
     id,
     name: `App ${id}`,
     createdAt: updatedAt - 1,
     updatedAt,
-    version: "1.0.0",
     contentId: `content-${id}`,
-    origin: "workspace",
-  };
-}
-
-function makeDocument(surfaceId: string, updatedAt: number): DocumentSummary {
-  return {
-    surfaceId,
-    conversationId: CONVERSATION_ID,
-    title: `Doc ${surfaceId}`,
-    wordCount: 12,
-    createdAt: updatedAt - 1,
-    updatedAt,
-  };
-}
-
-/**
- * `staleTime: Infinity` keeps the seeded entries fresh, so the queries resolve
- * from cache and never reach the generated SDK.
- */
-function makeQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0, staleTime: Infinity },
-    },
   });
 }
 
-function seedConversation(
-  client: QueryClient,
-  apps: AppSummary[],
-  documents: DocumentSummary[],
-) {
-  const queryArgs = {
-    path: { assistant_id: ASSISTANT_ID },
-    query: { conversationId: CONVERSATION_ID },
-  };
-  client.setQueryData(appsGetOptions(queryArgs).queryKey, { apps });
-  client.setQueryData(documentsGetOptions(queryArgs).queryKey, { documents });
+function makeDocument(surfaceId: string, updatedAt: number): DocumentSummary {
+  return makeDocumentSummary({
+    surfaceId,
+    conversationId: CONVERSATION_ID,
+    title: `Doc ${surfaceId}`,
+    createdAt: updatedAt - 1,
+    updatedAt,
+  });
 }
 
-function renderAssets({
-  apps = [],
-  documents = [],
-  refreshKey,
-}: {
-  apps?: AppSummary[];
-  documents?: DocumentSummary[];
-  refreshKey?: number;
-} = {}) {
-  const client = makeQueryClient();
-  seedConversation(client, apps, documents);
+const QUERY_ARGS = {
+  path: { assistant_id: ASSISTANT_ID },
+  query: { conversationId: CONVERSATION_ID },
+};
 
+function renderAssets({
+  client = makeChatInfoQueryClient(),
+  refreshKey,
+}: { client?: QueryClient; refreshKey?: number } = {}) {
   const view = renderHook(
     (props: { refreshKey?: number }) =>
       useConversationAssets({
@@ -131,79 +84,41 @@ function renderAssets({
   return { ...view, client };
 }
 
-function renderCounts({
+function renderSeeded({
   apps = [],
   documents = [],
+  refreshKey,
 }: {
   apps?: AppSummary[];
   documents?: DocumentSummary[];
+  refreshKey?: number;
 } = {}) {
-  const client = makeQueryClient();
-  seedConversation(client, apps, documents);
+  const client = makeChatInfoQueryClient();
+  seedChatInfoConversation(client, {
+    assistantId: ASSISTANT_ID,
+    conversationId: CONVERSATION_ID,
+    apps,
+    documents,
+  });
+  return renderAssets({ client, refreshKey });
+}
 
-  return renderHook(
-    () =>
-      useConversationAssetCounts({
-        assistantId: ASSISTANT_ID,
-        conversationId: CONVERSATION_ID,
-      }),
-    {
-      wrapper: ({ children }) => (
-        <QueryClientProvider client={client}>{children}</QueryClientProvider>
-      ),
-    },
-  );
+function seedMessages(messages: DisplayMessage[]) {
+  seedTranscriptMessages(ASSISTANT_ID, CONVERSATION_ID, messages);
 }
 
 beforeEach(() => {
-  seedTranscriptOwner(ASSISTANT_ID, CONVERSATION_ID);
+  seedMessages([]);
 });
 
 afterEach(() => {
   cleanup();
-  messagesRef.value = [];
-  clearTranscriptOwner();
-});
-
-// `mock.module` is process-global in this runner, so the module graph is put
-// back before the next file loads.
-afterAll(() => {
-  mock.restore();
-});
-
-describe("useConversationAssetCounts", () => {
-  test("totals every category without building the tile model", () => {
-    messagesRef.value = [
-      {
-        id: "msg-1",
-        role: "user",
-        attachments: [
-          makeDisplayAttachment({ id: "att-1" }),
-          makeDisplayAttachment({ id: "att-2" }),
-        ],
-      },
-    ];
-
-    const { result } = renderCounts({
-      apps: [makeApp("a", 1_000), makeApp("b", 2_000)],
-      documents: [makeDocument("doc-1", 1_000)],
-    });
-
-    expect(result.current.counts).toEqual({ apps: 2, files: 3, frames: 0 });
-    expect(result.current.count).toBe(5);
-    expect(result.current).not.toHaveProperty("files");
-  });
-
-  test("counts nothing for a conversation with no assets", () => {
-    const { result } = renderCounts();
-
-    expect(result.current.count).toBe(0);
-  });
+  clearTranscriptMessages();
 });
 
 describe("useConversationAssets", () => {
   test("lists documents before attachments, each newest first", () => {
-    messagesRef.value = [
+    seedMessages([
       {
         id: "msg-1",
         role: "user",
@@ -216,9 +131,9 @@ describe("useConversationAssets", () => {
         timestamp: 2_000,
         attachments: [makeDisplayAttachment({ id: "att-new" })],
       },
-    ];
+    ]);
 
-    const { result } = renderAssets({
+    const { result } = renderSeeded({
       documents: [
         makeDocument("doc-old", 1_000),
         makeDocument("doc-new", 2_000),
@@ -235,7 +150,7 @@ describe("useConversationAssets", () => {
   });
 
   test("sorts apps newest first", () => {
-    const { result } = renderAssets({
+    const { result } = renderSeeded({
       apps: [makeApp("a", 1_000), makeApp("b", 3_000), makeApp("c", 2_000)],
     });
 
@@ -243,7 +158,7 @@ describe("useConversationAssets", () => {
   });
 
   test("counts every category and sums them", () => {
-    messagesRef.value = [
+    seedMessages([
       {
         id: "msg-1",
         role: "user",
@@ -252,9 +167,9 @@ describe("useConversationAssets", () => {
           makeDisplayAttachment({ id: "att-2" }),
         ],
       },
-    ];
+    ]);
 
-    const { result } = renderAssets({
+    const { result } = renderSeeded({
       apps: [makeApp("a", 1_000)],
       documents: [makeDocument("doc-1", 1_000)],
     });
@@ -263,8 +178,15 @@ describe("useConversationAssets", () => {
     expect(result.current.count).toBe(4);
   });
 
+  test("counts nothing for a conversation with no assets", () => {
+    const { result } = renderSeeded();
+
+    expect(result.current.count).toBe(0);
+    expect(result.current.status).toBe("ready");
+  });
+
   test("invalidates both queries when the refresh key changes", () => {
-    const { rerender, client } = renderAssets({ refreshKey: 1 });
+    const { rerender, client } = renderSeeded({ refreshKey: 1 });
     const invalidated: unknown[] = [];
     client.invalidateQueries = (filters) => {
       invalidated.push(filters);
@@ -273,14 +195,42 @@ describe("useConversationAssets", () => {
 
     rerender({ refreshKey: 2 });
 
-    const queryArgs = {
-      path: { assistant_id: ASSISTANT_ID },
-      query: { conversationId: CONVERSATION_ID },
-    };
     expect(invalidated).toEqual([
-      { queryKey: appsGetQueryKey(queryArgs) },
-      { queryKey: documentsGetQueryKey(queryArgs) },
+      { queryKey: appsGetQueryKey(QUERY_ARGS) },
+      { queryKey: documentsGetQueryKey(QUERY_ARGS) },
     ]);
+  });
+});
+
+describe("useConversationAssets status", () => {
+  // An empty category means "nothing here" only once this reads "ready", so
+  // the panel can tell an empty conversation from one still loading.
+  test("is pending until both sources resolve", () => {
+    const { result } = renderAssets({
+      client: makePendingChatInfoQueryClient(),
+    });
+
+    expect(result.current.status).toBe("pending");
+    expect(result.current.count).toBe(0);
+  });
+
+  test("is pending while only one source has resolved", () => {
+    const client = makePendingChatInfoQueryClient();
+    client.setQueryData(appsGetQueryKey(QUERY_ARGS), { apps: [] });
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  test("is error when either source failed", () => {
+    const client = makePendingChatInfoQueryClient();
+    client.setQueryData(appsGetQueryKey(QUERY_ARGS), { apps: [] });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("error");
   });
 });
 
@@ -295,7 +245,6 @@ describe("toConversationFileAssets", () => {
             filename: "old.pdf",
           }),
           key: "msg-old:0",
-          messageId: "msg-old",
           capturedAt: null,
           sightFrame: false,
         },
@@ -305,7 +254,6 @@ describe("toConversationFileAssets", () => {
             filename: "new.pdf",
           }),
           key: "msg-new:0",
-          messageId: "msg-new",
           capturedAt: null,
           sightFrame: false,
         },
@@ -327,14 +275,12 @@ describe("toConversationFileAssets", () => {
         {
           key: "shot",
           attachment: frame,
-          messageId: "msg-1",
           capturedAt: 5_000,
           sightFrame: true,
         },
         {
           key: "shot",
           attachment: upload,
-          messageId: "msg-2",
           capturedAt: null,
           sightFrame: false,
         },

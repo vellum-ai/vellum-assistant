@@ -3,9 +3,6 @@
  * apps, files (daemon documents plus the attachments that are not camera
  * frames), and camera frames. Frames stay empty while attachments come from
  * the transcript, which cannot see the camera-frame tag.
- *
- * `useConversationAssetCounts` is the totals alone, over the same sources, for
- * the header trigger that shows a number rather than the tiles.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +16,6 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   type ConversationAttachmentEntry,
-  type ConversationAttachments,
   useConversationAttachments,
 } from "@/domains/chat/hooks/use-conversation-attachments";
 import type { AppSummary } from "@/types/app-types";
@@ -42,17 +38,25 @@ export type ConversationFileAsset =
       capturedAt: number | null;
     };
 
-export interface ConversationAssetCounts {
-  counts: { apps: number; files: number; frames: number };
-  /** Sum of `counts`: what the header pill shows, and hides on when zero. */
-  count: number;
-}
+/**
+ * How far the two daemon queries have got. The transcript attachments have no
+ * loading state of their own, so they never hold this back from `"ready"`.
+ */
+export type ConversationAssetsStatus = "pending" | "error" | "ready";
 
-export interface ConversationAssets extends ConversationAssetCounts {
+export interface ConversationAssets {
   apps: AppSummary[];
   /** Documents, newest first, then the attachments that are not frames. */
   files: ConversationFileAsset[];
   frames: ConversationFileAsset[];
+  counts: { apps: number; files: number; frames: number };
+  /** Sum of `counts`: what the header trigger shows, and hides on when zero. */
+  count: number;
+  /**
+   * Whether the categories can be believed yet. An empty category means
+   * "nothing here" only once this reads `"ready"`.
+   */
+  status: ConversationAssetsStatus;
   hasMoreFiles: boolean;
   hasMoreFrames: boolean;
   loadMoreFiles: () => void;
@@ -65,6 +69,10 @@ export interface ConversationAssetsTarget {
   /** Bumped externally to trigger a refetch (e.g. on ui_surface_show). Only one mounted caller should pass it. */
   refreshKey?: number;
 }
+
+/** Stable empties, so an unresolved query does not thrash the memos below. */
+const NO_APPS: AppSummary[] = [];
+const NO_DOCUMENTS: DocumentSummary[] = [];
 
 /**
  * Ids are prefixed per kind so a document, an attachment, and a frame that
@@ -106,31 +114,24 @@ export function toConversationFileAssets(
   return { files, frames };
 }
 
-/**
- * The two queries and the transcript attachments every asset reader shares,
- * plus the refresh invalidation, so the queries and their keys live once.
- */
-function useConversationAssetSources({
+export function useConversationAssets({
   assistantId,
   conversationId,
   refreshKey,
-}: ConversationAssetsTarget) {
+}: ConversationAssetsTarget): ConversationAssets {
   const queryClient = useQueryClient();
-  const appsQueryOpts = appsGetOptions({
-    path: { assistant_id: assistantId },
-    query: { conversationId },
-  });
-  const docsQueryOpts = documentsGetOptions({
-    path: { assistant_id: assistantId },
-    query: { conversationId },
-  });
-
-  const { data: apps = [] } = useQuery({
-    ...appsQueryOpts,
+  const appsQuery = useQuery({
+    ...appsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { conversationId },
+    }),
     select: (data) => data.apps,
   });
-  const { data: docs = [] } = useQuery({
-    ...docsQueryOpts,
+  const documentsQuery = useQuery({
+    ...documentsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { conversationId },
+    }),
     select: (data) => data.documents,
   });
 
@@ -157,42 +158,15 @@ function useConversationAssetSources({
     conversationId,
   });
 
-  return { apps, docs, attachments };
-}
+  const apps = appsQuery.data ?? NO_APPS;
+  const docs = documentsQuery.data ?? NO_DOCUMENTS;
 
-function toAssetCounts(
-  appCount: number,
-  docCount: number,
-  attachments: ConversationAttachments,
-): ConversationAssetCounts {
-  const counts = {
-    apps: appCount,
-    files: docCount + attachments.totalFiles,
-    frames: attachments.totalFrames,
-  };
-  return { counts, count: counts.apps + counts.files + counts.frames };
-}
-
-/**
- * How many assets a conversation holds, per category and in total, without
- * building the tile model. The header trigger reads only the number, so it
- * pays for the shared queries and nothing more.
- */
-export function useConversationAssetCounts(
-  target: ConversationAssetsTarget,
-): ConversationAssetCounts {
-  const { apps, docs, attachments } = useConversationAssetSources(target);
-
-  return useMemo(
-    () => toAssetCounts(apps.length, docs.length, attachments),
-    [apps.length, docs.length, attachments],
-  );
-}
-
-export function useConversationAssets(
-  target: ConversationAssetsTarget,
-): ConversationAssets {
-  const { apps, docs, attachments } = useConversationAssetSources(target);
+  let status: ConversationAssetsStatus = "ready";
+  if (appsQuery.isError || documentsQuery.isError) {
+    status = "error";
+  } else if (appsQuery.isPending || documentsQuery.isPending) {
+    status = "pending";
+  }
 
   const sortedApps = useMemo(
     () => [...apps].sort((a, b) => b.updatedAt - a.updatedAt),
@@ -204,17 +178,23 @@ export function useConversationAssets(
     [docs, attachments.entries],
   );
 
-  return useMemo(
-    () => ({
+  return useMemo(() => {
+    const counts = {
+      apps: sortedApps.length,
+      files: docs.length + attachments.totalFiles,
+      frames: attachments.totalFrames,
+    };
+    return {
       apps: sortedApps,
       files,
       frames,
-      ...toAssetCounts(sortedApps.length, docs.length, attachments),
+      counts,
+      count: counts.apps + counts.files + counts.frames,
+      status,
       hasMoreFiles: attachments.hasMoreFiles,
       hasMoreFrames: attachments.hasMoreFrames,
       loadMoreFiles: attachments.loadMoreFiles,
       loadMoreFrames: attachments.loadMoreFrames,
-    }),
-    [sortedApps, files, frames, docs.length, attachments],
-  );
+    };
+  }, [sortedApps, files, frames, docs.length, attachments, status]);
 }

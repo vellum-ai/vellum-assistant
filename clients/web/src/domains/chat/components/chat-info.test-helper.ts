@@ -1,6 +1,7 @@
 /**
- * Fixtures for the Chat Info tests and stories: the two daemon summaries the
- * panel lists, and the assets it renders as tiles.
+ * Fixtures and the shared harness for the Chat Info tests and stories: the two
+ * daemon summaries the panel lists, the assets it renders as tiles, the query
+ * client its hooks read, and the browser APIs happy-dom leaves out.
  *
  * Every asset goes through `toConversationFileAssets`, the mapping the hook
  * itself runs, so a fixture cannot drift from the ids and shapes the panel
@@ -10,12 +11,19 @@
  * way `utils/conversation-list.test-helper.ts` already is.
  */
 
+import { QueryClient } from "@tanstack/react-query";
+
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
   type ConversationFileAsset,
   toConversationFileAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
 import type { ConversationAttachmentEntry } from "@/domains/chat/hooks/use-conversation-attachments";
+import type { DisplayMessage } from "@/domains/chat/types/types";
+import {
+  appsGetQueryKey,
+  documentsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
@@ -69,7 +77,6 @@ export function makeAttachmentEntry(
   return {
     key: attachment.id,
     attachment,
-    messageId: "msg-1",
     capturedAt: null,
     sightFrame: false,
     ...overrides,
@@ -120,4 +127,137 @@ export function clearTranscriptOwner(): void {
     previousAssistantId: null,
     previousConversationId: null,
   });
+}
+
+/**
+ * The object URL every Chat Info stub hands back, so a test can assert an
+ * image is drawing fetched bytes rather than an inline preview.
+ */
+export const CHAT_INFO_OBJECT_URL = "blob:chat-info";
+
+/**
+ * The two browser APIs the tiles need and happy-dom does not implement: object
+ * URLs, and an IntersectionObserver that reports every observed tile on screen
+ * straight away so the lazy image fetch runs inside the test.
+ */
+export function installChatInfoDomStubs(): void {
+  globalThis.URL.createObjectURL = () => CHAT_INFO_OBJECT_URL;
+  globalThis.URL.revokeObjectURL = () => {};
+
+  class ImmediateIntersectionObserver {
+    readonly root = null;
+    readonly rootMargin = "";
+    readonly thresholds: number[] = [];
+    constructor(private readonly callback: IntersectionObserverCallback) {}
+    observe(target: Element): void {
+      this.callback(
+        [{ isIntersecting: true, target } as IntersectionObserverEntry],
+        this as unknown as IntersectionObserver,
+      );
+    }
+    unobserve(): void {}
+    disconnect(): void {}
+    takeRecords(): IntersectionObserverEntry[] {
+      return [];
+    }
+  }
+  globalThis.IntersectionObserver =
+    ImmediateIntersectionObserver as unknown as typeof IntersectionObserver;
+}
+
+/**
+ * Seeded entries answer every read: `staleTime: Infinity` keeps them fresh so
+ * nothing reaches the generated SDK, `retryOnMount: false` keeps a seeded
+ * failure failed, and nothing is collected, so a test can seed before it
+ * renders.
+ */
+const CHAT_INFO_QUERY_DEFAULTS = {
+  retry: false,
+  retryOnMount: false,
+  gcTime: Infinity,
+  staleTime: Infinity,
+} as const;
+
+/** A client that serves what a test seeds and asks the daemon for nothing. */
+export function makeChatInfoQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { ...CHAT_INFO_QUERY_DEFAULTS } },
+  });
+}
+
+/** A client whose queries never run, so an unseeded source stays unresolved. */
+export function makePendingChatInfoQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { ...CHAT_INFO_QUERY_DEFAULTS, enabled: false },
+    },
+  });
+}
+
+/** Puts one query into the state a failed fetch leaves behind. */
+export function seedQueryFailure(
+  client: QueryClient,
+  queryKey: readonly unknown[],
+): void {
+  client
+    .getQueryCache()
+    .build(client, { queryKey })
+    .setState({
+      status: "error",
+      error: new Error("assistant unreachable"),
+      errorUpdatedAt: Date.now(),
+      fetchStatus: "idle",
+    });
+}
+
+/** The apps and documents the daemon would list for one conversation. */
+export function seedChatInfoConversation(
+  client: QueryClient,
+  {
+    assistantId,
+    conversationId,
+    apps = [],
+    documents = [],
+  }: {
+    assistantId: string;
+    conversationId: string;
+    apps?: AppSummary[];
+    documents?: DocumentSummary[];
+  },
+): void {
+  const path = { assistant_id: assistantId };
+  client.setQueryData(appsGetQueryKey({ path, query: { conversationId } }), {
+    apps,
+  });
+  // The app options menu reads the unscoped list to know whether a pin exists.
+  client.setQueryData(appsGetQueryKey({ path }), { apps });
+  client.setQueryData(
+    documentsGetQueryKey({ path, query: { conversationId } }),
+    { documents },
+  );
+}
+
+/** Installs `messages` as the loaded transcript, under its owner. */
+export function seedTranscriptMessages(
+  assistantId: string,
+  conversationId: string,
+  messages: DisplayMessage[],
+): void {
+  useChatSessionStore.setState({
+    snapshot: {
+      messages,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+      seq: 1,
+    },
+    optimisticSends: [],
+  });
+  seedTranscriptOwner(assistantId, conversationId);
+}
+
+/** Drops the seeded transcript, so one test cannot leak into the next. */
+export function clearTranscriptMessages(): void {
+  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  clearTranscriptOwner();
 }

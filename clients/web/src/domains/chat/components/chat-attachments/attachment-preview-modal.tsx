@@ -63,9 +63,14 @@ interface AttachmentPreviewModalProps {
   /** Full list of sibling attachments for gallery navigation. When provided
    *  with more than one entry, prev/next arrows and a position counter render. */
   siblingAttachments?: DisplayAttachment[];
+  /** The active attachment's position in `siblingAttachments`. Given by callers
+   *  whose list can hold two attachments with the same id, which the id lookup
+   *  below cannot tell apart; omitted, the position is looked up by id. */
+  currentIndex?: number;
   /** Called when the user navigates to a different attachment via the gallery
-   *  arrows. The parent swaps the active `attachment` prop in response. */
-  onNavigate?: (attachment: DisplayAttachment) => void;
+   *  arrows. The parent swaps the active `attachment` prop in response, and
+   *  carries the position back so a duplicated id stays resolved. */
+  onNavigate?: (attachment: DisplayAttachment, index: number) => void;
 }
 
 /**
@@ -83,6 +88,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   attachment,
   assistantId,
   siblingAttachments,
+  currentIndex: givenIndex,
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -187,8 +193,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (!siblingAttachments || siblingAttachments.length <= 1) {
       return -1;
     }
+    if (givenIndex !== undefined && siblingAttachments[givenIndex]) {
+      return givenIndex;
+    }
     return siblingAttachments.findIndex((a) => a.id === attachment.id);
-  }, [siblingAttachments, attachment.id]);
+  }, [siblingAttachments, attachment.id, givenIndex]);
 
   const hasGallery =
     currentIndex !== -1 &&
@@ -202,7 +211,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     const prevIndex =
       (currentIndex - 1 + siblingAttachments.length) %
       siblingAttachments.length;
-    onNavigate(siblingAttachments[prevIndex]!);
+    onNavigate(siblingAttachments[prevIndex]!, prevIndex);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const goToNext = useCallback(() => {
@@ -210,7 +219,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       return;
     }
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
-    onNavigate(siblingAttachments[nextIndex]!);
+    onNavigate(siblingAttachments[nextIndex]!, nextIndex);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   // Touch-first navigation (primarily iOS): swipe left/right to change item.

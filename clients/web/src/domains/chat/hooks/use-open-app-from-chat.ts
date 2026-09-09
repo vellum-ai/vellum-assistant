@@ -1,3 +1,11 @@
+/**
+ * Opening one of a conversation's surfaces in the viewer panel: an app through
+ * {@link openAppFromChat}, a document through {@link openDocumentFromChat}.
+ * Both buzz and hand off to the viewer store, so every entry point into the
+ * viewer from chat feels the same. {@link useOpenAppFromChat} binds the app
+ * helper to the active assistant, for the surfaces that do not name one.
+ */
+
 import { useCallback } from "react";
 
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -11,6 +19,15 @@ export async function openAppFromChat(
 ): Promise<void> {
   haptic.light();
   await useViewerStore.getState().loadApp(assistantId, appId);
+}
+
+/** Opens the document `surfaceId` under `assistantId` in the viewer panel. */
+export async function openDocumentFromChat(
+  assistantId: string,
+  surfaceId: string,
+): Promise<void> {
+  haptic.light();
+  await useViewerStore.getState().loadDocument(assistantId, surfaceId);
 }
 
 /**

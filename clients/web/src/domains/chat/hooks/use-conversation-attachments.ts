@@ -1,17 +1,26 @@
 /**
  * Every attachment a conversation carries, newest first.
  *
- * Read from the rendered transcript, which is the loaded pages only, so
- * `totalFiles` counts what is loaded rather than what the conversation holds.
+ * Read from the transcript rows that carry attachments, which is the loaded
+ * pages only, so `totalFiles` counts what is loaded rather than what the
+ * conversation holds. Subscribing to those rows alone rather than to the whole
+ * transcript keeps the always-mounted header trigger still while a turn
+ * streams: older rows keep their identity and the streaming assistant row
+ * carries nothing, so the selected set stays shallow-equal.
  * The transcript also cannot see the camera-frame tag: that lives in daemon
  * message metadata which never crosses the message wire, so `sightFrame` is
  * always false and `totalFrames` is always 0 on this source.
  */
 
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import {
+  type ChatSessionStore,
+  useChatSessionStore,
+} from "@/domains/chat/chat-session-store";
+import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 export interface ConversationAttachmentEntry {
@@ -23,8 +32,6 @@ export interface ConversationAttachmentEntry {
    */
   key: string;
   attachment: DisplayAttachment;
-  /** Carrying transcript row. */
-  messageId: string;
   /** The carrying row's timestamp, epoch ms; null when the row carries none. */
   capturedAt: number | null;
   /** Captured by the live-vision camera gate. Always false on the transcript path. */
@@ -58,6 +65,41 @@ function entryKey(
     : attachmentId;
 }
 
+function carriesAttachments(message: DisplayMessage): boolean {
+  return (message.attachments?.length ?? 0) > 0;
+}
+
+/**
+ * The rows carrying attachments, composed the way `useTranscriptMessages`
+ * composes the whole transcript: the snapshot overlaid with the optimistic
+ * sends by message identity, in snapshot order. The dismissed-surface filter
+ * that read applies is left out because it only ever strips a row's surfaces,
+ * never its attachments.
+ */
+function selectAttachmentRows(state: ChatSessionStore): DisplayMessage[] {
+  return selectTranscriptMessages(
+    (state.snapshot?.messages ?? []).filter(carriesAttachments),
+    state.optimisticSends.filter(carriesAttachments),
+  );
+}
+
+/**
+ * Files and frames partition the entries: one captured by the camera gate
+ * counts as a frame and nowhere else, so the two totals cannot double-count it.
+ */
+export function countEntryTotals(entries: ConversationAttachmentEntry[]): {
+  totalFiles: number;
+  totalFrames: number;
+} {
+  let totalFrames = 0;
+  for (const entry of entries) {
+    if (entry.sightFrame) {
+      totalFrames += 1;
+    }
+  }
+  return { totalFiles: entries.length - totalFrames, totalFrames };
+}
+
 export function useConversationAttachments(target: {
   assistantId: string;
   conversationId: string;
@@ -71,7 +113,7 @@ export function useConversationAttachments(target: {
     ownerAssistantId === target.assistantId &&
     ownerConversationId === target.conversationId;
 
-  const messages = useTranscriptMessages();
+  const messages = useChatSessionStore(useShallow(selectAttachmentRows));
 
   const entries = useMemo(() => {
     if (!ownsTranscript) {
@@ -104,7 +146,6 @@ export function useConversationAttachments(target: {
         collected.push({
           key,
           attachment,
-          messageId: message.id,
           capturedAt: message.timestamp ?? null,
           sightFrame: false,
         });
@@ -116,8 +157,7 @@ export function useConversationAttachments(target: {
   return useMemo(
     () => ({
       entries,
-      totalFiles: entries.length,
-      totalFrames: 0,
+      ...countEntryTotals(entries),
       hasMoreFiles: false,
       hasMoreFrames: false,
       loadMoreFiles: NOOP,
