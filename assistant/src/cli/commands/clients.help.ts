@@ -1,6 +1,7 @@
 /** Declarative help for the `assistant clients` command. */
 
 import {
+  HOST_PROXY_CAPABILITIES,
   HOST_PROXY_SUPPORT,
   hostProxyCapabilities,
 } from "../../types/host-capabilities.js";
@@ -69,15 +70,14 @@ Examples:
         },
         {
           flags: "--capability <name>",
-          description:
-            "Filter to clients supporting this capability (e.g. host_bash, host_file, host_cu, host_browser, host_app_control)",
+          description: `Filter to clients supporting this capability (${HOST_PROXY_CAPABILITIES.join(", ")})`,
         },
       ],
       helpText: `
 Options:
   --json                Output as compact JSON instead of a table.
   --capability <name>   Only show clients that support the named capability.
-                        Valid values: host_bash, host_file, host_cu, host_browser, host_app_control.
+                        Valid values: ${HOST_PROXY_CAPABILITIES.join(", ")}.
 
 The table shows each client's ID, interface type, capabilities,
 connection timestamps, and host environment (when available).
