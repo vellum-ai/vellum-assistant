@@ -473,6 +473,31 @@
     "tryAgain": "Try again",
     "viewPlans": "View plans"
   },
+  "codingAgentsCard": {
+    "agentDefaultOption": "Use the agent's default",
+    "configUpdateFailedToast": "Failed to update assistant configuration. Please try again.",
+    "customModelHint": "Saved as typed, so an alias or a full model id the coding agent understands both work.",
+    "customModelLabel": "Model",
+    "customModelOption": "Custom model",
+    "customModelPlaceholder": "claude-opus-4-1",
+    "modelAriaLabel": "Default coding agent model",
+    "modelLabel": "Default model",
+    "modelOptions": {
+      "best": "Best available",
+      "default": "Default",
+      "fable": "Fable",
+      "fable1m": "Fable (1M context)",
+      "haiku": "Haiku",
+      "opus": "Opus",
+      "opus1m": "Opus (1M context)",
+      "opusplan": "Opus plan mode",
+      "sonnet": "Sonnet",
+      "sonnet1m": "Sonnet (1M context)"
+    },
+    "savedToast": "Coding agent settings saved.",
+    "subtitle": "Choose the model new coding agent sessions start on",
+    "title": "Coding Agents"
+  },
   "communityPage": {
     "communityHubDescription": "Showcases, guides, and projects shared by the community.",
     "communityHubTitle": "Community Hub",

@@ -28,10 +28,31 @@
  * be cut from main between this stamp and the branch's squash-merge into main,
  * since such a build would pass the floor while carrying none of the three.
  */
-import { useAssistantSupports } from "@/lib/backwards-compat/utils";
+import {
+  useAssistantScopedSupports,
+  useAssistantSupports,
+} from "@/lib/backwards-compat/utils";
 
 export const MIN_VERSION = "0.11.10-dev.202609090534.a9ef179";
 
+/** Gates surfaces that follow whichever assistant is active. */
 export function useSupportsAcpModelSwitching(): boolean {
   return useAssistantSupports(MIN_VERSION);
+}
+
+/**
+ * Returns `true` only when the version the identity store holds was fetched
+ * for `assistantId`, the assistant the gated surface reads and writes.
+ *
+ * During an assistant switch the active id changes before the identity store
+ * catches up, so the unscoped gate can answer off the outgoing assistant's
+ * version. On an older newly selected assistant that lights the card, and a
+ * quick save writes an `acp.defaultModel` its config schema strips. Scoping
+ * holds the surface closed until the version hydrates for the assistant it
+ * belongs to.
+ */
+export function useAssistantScopedSupportsAcpModelSwitching(
+  assistantId: string | null | undefined,
+): boolean {
+  return useAssistantScopedSupports(MIN_VERSION, assistantId);
 }

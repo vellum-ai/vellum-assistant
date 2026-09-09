@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { DetailDrawer, MobileDetailOverlay } from "@/components/detail-drawer";
+import { CodingAgentsCard } from "@/domains/settings/ai/coding-agents-card";
 import { ImageGenerationCard } from "@/domains/settings/ai/image-generation-card";
 import {
   LanguageModelCard,
@@ -49,6 +50,7 @@ export function AiPage() {
         onOpenPanel={setLmPanel}
         onClosePanel={() => setLmPanel(null)}
       />
+      <CodingAgentsCard />
       <WebSearchCard />
       <WebFetchCard />
       <ImageGenerationCard />
