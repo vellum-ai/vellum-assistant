@@ -219,6 +219,16 @@ export function DocumentViewerPage() {
     />
   );
 
+  // The composer targets a document only while it is the one the route names.
+  // This route reuses a single page instance across `surfaceId` changes, and
+  // the loaded document trails the param until the next fetch resolves, so a
+  // composer handed the trailing document would send into the conversation of
+  // a document the URL has already left.
+  const composerDoc =
+    doc.surfaceId === surfaceId
+      ? { surfaceId: doc.surfaceId, conversationId: doc.conversationId }
+      : null;
+
   return (
     <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">
       {isMobile ? (
@@ -226,7 +236,7 @@ export function DocumentViewerPage() {
           <div className="min-h-0 flex-1">{viewer}</div>
           <DocumentComposerPanel
             assistantId={assistantId}
-            doc={{ surfaceId: doc.surfaceId, conversationId: doc.conversationId }}
+            doc={composerDoc}
             bottomInset={null}
           />
         </>

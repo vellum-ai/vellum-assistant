@@ -59,7 +59,10 @@ export function DocumentComposerPanel({
     return null;
   }
 
-  const sending = status === "sending";
+  // A null `doc` is a host with no document for the composer to target, which
+  // `useDocumentComposerSubmit` refuses to send against. The panel keeps its
+  // place in the layout so nothing jumps, inert until a document arrives.
+  const disabled = status === "sending" || !doc;
 
   return (
     <div
@@ -81,8 +84,8 @@ export function DocumentComposerPanel({
         slot="document"
         assistantId={assistantId}
         inputRef={inputRef}
-        typingDisabled={sending}
-        sendDisabled={sending}
+        typingDisabled={disabled}
+        sendDisabled={disabled}
         isAssistantBusy={false}
         onStopGenerating={() => {}}
         onSubmit={(e) => {

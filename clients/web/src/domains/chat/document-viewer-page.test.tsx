@@ -7,8 +7,8 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 
 import type { DocumentsByIdGetResponse } from "@/generated/daemon/types.gen";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
@@ -67,7 +67,16 @@ function documentSurface(
   };
 }
 
-function renderPage(surfaceId: string) {
+function GoTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return (
+    <button type="button" data-testid="go" onClick={() => navigate(to)}>
+      go
+    </button>
+  );
+}
+
+function renderPage(surfaceId: string, navigateTo?: string) {
   return render(
     <MemoryRouter initialEntries={[`/assistant/documents/${surfaceId}`]}>
       <Routes>
@@ -76,6 +85,7 @@ function renderPage(surfaceId: string) {
           element={<DocumentViewerPage />}
         />
       </Routes>
+      {navigateTo ? <GoTo to={navigateTo} /> : null}
     </MemoryRouter>,
   );
 }
@@ -170,6 +180,42 @@ describe("DocumentViewerPage: mobile composer", () => {
     expect(composerPanelProps?.doc).toEqual({
       surfaceId: "surf-1",
       conversationId: "conv-1",
+    });
+  });
+
+  test("hands the composer no document while the loaded one is not the route's", async () => {
+    mockIsMobile = true;
+    documentResult = () =>
+      Promise.resolve({ data: documentSurface({ surfaceId: "surf-2" }) });
+
+    const { findByTestId } = renderPage("surf-1");
+    await findByTestId("doc-composer-panel");
+
+    expect(composerPanelProps?.doc).toBeNull();
+  });
+
+  test("drops the composer's document while the route moves ahead of the load", async () => {
+    // One page instance spans both URLs, and the loaded document trails the
+    // param until the next fetch resolves, so the composer must not stay
+    // pointed at the document the URL has already left.
+    mockIsMobile = true;
+    documentResult = () => Promise.resolve({ data: documentSurface() });
+
+    const { findByTestId, getByTestId } = renderPage(
+      "surf-1",
+      "/assistant/documents/surf-2",
+    );
+    await findByTestId("doc-composer-panel");
+    expect(composerPanelProps?.doc).toEqual({
+      surfaceId: "surf-1",
+      conversationId: "conv-1",
+    });
+
+    documentResult = () => new Promise<DocumentResult>(() => {});
+    fireEvent.click(getByTestId("go"));
+
+    await waitFor(() => {
+      expect(composerPanelProps?.doc).toBeNull();
     });
   });
 

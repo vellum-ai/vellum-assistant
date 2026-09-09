@@ -69,6 +69,36 @@ function publishGenerationCancelled(conversationId: string) {
   });
 }
 
+function publishConversationError(conversationId: string) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-conv-error-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "conversation_error",
+        conversationId,
+        code: "PROVIDER_API",
+        userMessage: "The provider failed.",
+        retryable: true,
+      },
+    });
+  });
+}
+
+function publishStreamError(conversationId: string | undefined) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-error-${conversationId ?? "none"}`,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "error",
+        message: "Something went wrong.",
+        ...(conversationId ? { conversationId } : {}),
+      },
+    });
+  });
+}
+
 function publishGenerationHandoff(conversationId: string) {
   act(() => {
     publish("sse.event", {
@@ -188,6 +218,66 @@ describe("DocumentComposerReplyWatcher", () => {
     render(<DocumentComposerReplyWatcher />);
 
     publishGenerationCancelled("conv-unrelated");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(true);
+  });
+
+  test("a conversation error ends the wait without a toast", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishConversationError("conv-1");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(false);
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(false);
+  });
+
+  test("a conversation error for an unwatched conversation is ignored", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishConversationError("conv-unrelated");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(true);
+  });
+
+  test("a terminal stream error ends the wait without a toast", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishStreamError("conv-1");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(awaiting("conv-1")).toBe(false);
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(false);
+  });
+
+  test("a later turn in a failed conversation does not toast in the reply's place", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishConversationError("conv-1");
+    // A turn the user started afterward, which this composer sent nothing
+    // toward, completes normally.
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores an error carrying no conversation id", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishStreamError(undefined);
 
     expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(awaiting("conv-1")).toBe(true);

@@ -109,6 +109,16 @@ describe("DocumentComposerPanel", () => {
     expect(lastComposerProps.typingDisabled).toBe(true);
   });
 
+  test("disables the composer while it has no document to target", () => {
+    // The standalone route hands `null` while its loaded document trails the
+    // route param, so nothing can be typed or sent at the document the URL
+    // has already left.
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={null} />);
+    expect(screen.getByTestId("composer")).toBeDefined();
+    expect(lastComposerProps.sendDisabled).toBe(true);
+    expect(lastComposerProps.typingDisabled).toBe(true);
+  });
+
   test("shows the transient Sent micro-state after a successful send", () => {
     hookStatus = "sent";
     render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);

@@ -6,8 +6,9 @@
  * paths, the empty-content/uploading guards, and the hand-off of the
  * conversation to watch for a reply to `document-composer-reply-store`.
  * Also covers the queued-send result, the idempotency nonce carried on the
- * POST, and the guard that keeps a late-resolving send from clearing a draft
- * typed for a document it was never about.
+ * POST, when the wait for a reply is raised and taken back down, and the
+ * guard that keeps a late-resolving send from clearing a draft typed for a
+ * document, or an assistant, it was never about.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -157,6 +158,18 @@ function renderSubmitFor(doc: DocumentConversationRef) {
     ({ doc: current }: { doc: DocumentConversationRef }) =>
       useDocumentComposerSubmit({ assistantId: ASSISTANT_ID, doc: current }),
     { wrapper, initialProps: { doc } },
+  );
+}
+
+/** Renders against a swappable assistant, for the mid-flight switch. */
+function renderSubmitForAssistant(assistantId: string) {
+  return renderHook(
+    ({ assistantId: current }: { assistantId: string }) =>
+      useDocumentComposerSubmit({
+        assistantId: current,
+        doc: { surfaceId: SURFACE_ID, conversationId: "conv-a" },
+      }),
+    { wrapper, initialProps: { assistantId } },
   );
 }
 
@@ -677,6 +690,65 @@ describe("queued sends", () => {
   });
 });
 
+describe("when the reply wait goes up", () => {
+  test("the wait is up before the send resolves", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // The daemon answers a deduplicated retry exactly as it answers a fresh
+    // accept, so the wait cannot be raised off the response.
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+
+    await act(async () => {
+      settle(sentResult("conv-existing"));
+      await submitted;
+    });
+
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+  });
+
+  test("a retry the daemon dedupes never raises a second wait", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("network dropped");
+        }
+        return sentResult("conv-existing");
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("error");
+
+    // The first attempt landed after all and its turn finished, so the
+    // watcher took the wait back down before the user retried.
+    useDocumentComposerReplyStore.getState().stopAwaitingReply("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The daemon deduped the retry against a turn that is already over, and
+    // nothing in its response says so. Nothing is left waiting, so the next
+    // unrelated completion cannot fire an "Assistant replied" toast.
+    expect(result.current.status).toBe("sent");
+    expect(isAwaitingReply("conv-existing")).toBe(false);
+  });
+});
+
 describe("idempotency nonce", () => {
   test("the POST carries a client message id", async () => {
     useComposerStore.getState().setInput("hello", "document");
@@ -689,13 +761,13 @@ describe("idempotency nonce", () => {
     expect(sentOptions(0).clientMessageId).toBeTruthy();
   });
 
-  test("a retry after a failed send reuses the same client message id", async () => {
+  test("a retry after a thrown send reuses the same client message id", async () => {
     let calls = 0;
     postChatMessageMock = mock(
       async (..._args: unknown[]): Promise<PostMessageResult> => {
         calls += 1;
         if (calls === 1) {
-          return { ok: false, status: 500, error: { detail: "boom" } };
+          throw new Error("network dropped");
         }
         return sentResult("conv-existing");
       },
@@ -721,6 +793,41 @@ describe("idempotency nonce", () => {
     );
   });
 
+  test("a send the daemon answered and refused starts the next attempt fresh", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          return { ok: false, status: 500, error: { detail: "boom" } };
+        }
+        return sentResult("conv-existing");
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("error");
+    // The daemon answered, so nothing was persisted and nothing owes a reply.
+    expect(isAwaitingReply("conv-existing")).toBe(false);
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // There is nothing for the daemon to dedupe this against, so it goes out
+    // as an ordinary first send: its own nonce, and its own wait.
+    expect(result.current.status).toBe("sent");
+    expect(sentOptions(1).clientMessageId).toBeTruthy();
+    expect(sentOptions(1).clientMessageId).not.toBe(
+      sentOptions(0).clientMessageId as string,
+    );
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+  });
+
   test("a send after a success gets a fresh client message id", async () => {
     useComposerStore.getState().setInput("hello", "document");
     const { result } = renderSubmit("conv-existing");
@@ -741,7 +848,7 @@ describe("idempotency nonce", () => {
   });
 });
 
-describe("a send that outlives its document", () => {
+describe("a send that outlives its owner", () => {
   test("a completion after the hook moved to another document leaves the new draft alone", async () => {
     const settle = deferPostChatMessage();
     useComposerStore.getState().setInput("about the first doc", "document");
@@ -770,8 +877,44 @@ describe("a send that outlives its document", () => {
     expect(useComposerStore.getState().documentInput).toBe(
       "about the second doc",
     );
+    // "Sent" belongs to the composer the send left, so the one on screen goes
+    // back to idle rather than reporting a send it never made.
+    expect(result.current.status).toBe("idle");
     // The rest of the success path is unconditional: the sent conversation is
     // still handed to the reply watcher.
+    expect(isAwaitingReply("conv-a")).toBe(true);
+  });
+
+  test("a completion after the assistant changed under the document leaves the new draft alone", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // Switching assistants with the document still open clears the draft and
+    // hands the shared slot to the incoming assistant's composer, so the
+    // surface id alone no longer identifies who the send belongs to.
+    rerender({ assistantId: "assistant-2" });
+    useComposerStore
+      .getState()
+      .setInput("for the second assistant", "document");
+
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    expect(useComposerStore.getState().documentInput).toBe(
+      "for the second assistant",
+    );
+    expect(result.current.status).toBe("idle");
+    // Everything that isn't the composer's own state still runs.
+    expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(isAwaitingReply("conv-a")).toBe(true);
   });
 
