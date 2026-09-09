@@ -616,7 +616,7 @@ const currentState = (): CompanionSurfaceState => {
     coachmarks: coachmarks.length === 0 ? undefined : coachmarks,
     // Main's as well: where the frame window sits is main's, and this is the
     // part of that window the menu bar is drawn over.
-    frameInsetTop: frameInsetTop(),
+    frameInsetTop: publishFrameInsetTop(),
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -898,14 +898,25 @@ const refreshGrowth = (): void => {
   // across displays need not change either growth, and a session outlives
   // the surface being hidden, so its frame has to follow the display with
   // no surface on screen at all.
+  //
+  // The same events move the menu bar over that frame, and the frame's
+  // renderer holds the inset it was last pushed. So a push is due when the
+  // inset moved, on its own account: the growth below can be unchanged, or
+  // there can be no surface to measure it for, while the label sits under a
+  // bar that just got taller.
+  let frameInsetMoved = false;
   if (
     getFloatingWindow(WATCH_FRAME_KIND) !== null &&
     context.captureTarget?.kind !== "window"
   ) {
     syncWatchFrame();
+    frameInsetMoved = frameInsetTop() !== publishedFrameInsetTop;
   }
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   const centre = avatarCentre(win);
@@ -917,6 +928,9 @@ const refreshGrowth = (): void => {
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   growth = nextGrowth;
@@ -1476,6 +1490,20 @@ const frameInsetTop = (): number | undefined => {
   }
   const display = framedDisplay(target);
   return Math.max(display.workArea.y - display.bounds.y, 0);
+};
+
+/**
+ * The inset the renderers were last handed, so {@link refreshGrowth} can
+ * tell a display event that moved the menu bar from one that did not.
+ *
+ * Every state a renderer receives is built by `currentState`, whether pushed
+ * or pulled on mount, so recording it there is what keeps this honest.
+ */
+let publishedFrameInsetTop: number | undefined;
+
+const publishFrameInsetTop = (): number | undefined => {
+  publishedFrameInsetTop = frameInsetTop();
+  return publishedFrameInsetTop;
 };
 
 const syncWatchFrame = (): void => {
