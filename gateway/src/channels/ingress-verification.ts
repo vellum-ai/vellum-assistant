@@ -141,6 +141,33 @@ export const StandardWebhooksVerificationSchema = z
   })
   .strict();
 
+/**
+ * Twilio's request signature.
+ *
+ * A third complete scheme, and the reason it cannot be an `hmac` payload
+ * list: Twilio signs **the full request URL** followed by the POST params
+ * sorted by key and concatenated as `key` + `value` — a byte string the
+ * payload-part vocabulary cannot express, over a **form-encoded** body, with
+ * the digest in `X-Twilio-Signature` as base64 HMAC-SHA1 keyed by the
+ * account auth token. No timestamp, so no freshness window is possible.
+ *
+ * The URL a delivery was signed against is not necessarily the URL the
+ * gateway sees (platform proxy, reverse proxy, tunnel), so verification
+ * tries a candidate list — the platform-injected original URL first, then
+ * forwarded headers, then the configured public base, then the raw request
+ * URL — mirroring `twilio/validate-webhook.ts` for the built-in Twilio
+ * routes.
+ */
+export const TwilioVerificationSchema = z
+  .object({
+    kind: z.literal("twilio"),
+    secret: z.object({ field: CredentialFieldSchema }).strict(),
+  })
+  .strict();
+
+/** Header every Twilio-signed delivery carries its digest in. */
+export const TWILIO_SIGNATURE_HEADER = "x-twilio-signature";
+
 /** Replay window Standard Webhooks requires. */
 export const STANDARD_WEBHOOKS_TOLERANCE_SECONDS = 5 * 60;
 
@@ -153,6 +180,7 @@ export const STANDARD_WEBHOOKS_TOLERANCE_SECONDS = 5 * 60;
 export const IngressVerificationSchema = z.discriminatedUnion("kind", [
   HmacVerificationSchema,
   StandardWebhooksVerificationSchema,
+  TwilioVerificationSchema,
 ]);
 export type IngressVerification = z.infer<typeof IngressVerificationSchema>;
 
@@ -325,6 +353,107 @@ function timestampMs(value: string, format: string): number | null {
 }
 
 /**
+ * The URLs a Twilio delivery might have been signed against.
+ *
+ * Twilio signs the full URL it POSTed to. The gateway can sit behind the
+ * platform callback proxy, a reverse proxy, or a tunnel, so the raw request
+ * URL is only the last candidate, not the first. The order mirrors
+ * `twilio/validate-webhook.ts` for the built-in Twilio routes: the
+ * platform-injected original URL is exact, forwarded headers reconstruct the
+ * public spelling, the configured base covers a gateway that knows its own
+ * public address, and the raw URL is the fallback that keeps a valid
+ * signature from being rejected in a setup none of the above described.
+ */
+function twilioSignatureUrlCandidates(opts: {
+  headers: Headers;
+  requestUrl: string;
+  publicBaseUrl?: string;
+}): string[] {
+  const candidates: string[] = [];
+  const add = (url: string | undefined): void => {
+    if (url && !candidates.includes(url)) candidates.push(url);
+  };
+
+  const injected = opts.headers.get("x-vellum-ingress-url");
+  if (injected) add(injected);
+
+  const proto =
+    opts.headers.get("x-forwarded-proto") ?? opts.headers.get("x-original-proto");
+  const host =
+    opts.headers.get("x-forwarded-host") ?? opts.headers.get("x-original-host");
+  if (proto && host) {
+    const raw = new URL(opts.requestUrl);
+    add(`${proto}://${host}${raw.pathname}${raw.search}`);
+  }
+
+  if (opts.publicBaseUrl) {
+    const raw = new URL(opts.requestUrl);
+    const base = opts.publicBaseUrl.replace(/\/+$/, "");
+    if (base) add(`${base}${raw.pathname}${raw.search}`);
+  }
+
+  add(opts.requestUrl);
+  return candidates;
+}
+
+/**
+ * Verify a Twilio-signed delivery.
+ *
+ * The digest is base64 HMAC-SHA1 over one candidate URL plus the form params
+ * sorted by key and concatenated as `key` + `value`, keyed by the auth token.
+ * Any candidate matching is a pass: the candidates exist precisely because
+ * which spelling Twilio signed depends on the deployment's proxy chain, and
+ * only one of them can be right while none of them is knowable here.
+ */
+function verifyTwilio(opts: {
+  headers: Headers;
+  body: Uint8Array;
+  secret: string;
+  requestUrl: string;
+  publicBaseUrl?: string;
+}): VerificationResult {
+  const { headers, body, secret, requestUrl } = opts;
+  if (!secret) {
+    return { ok: false, reason: "missing_signature" };
+  }
+
+  const presented = headers.get(TWILIO_SIGNATURE_HEADER);
+  if (!presented) {
+    return { ok: false, reason: "missing_signature" };
+  }
+
+  // Form params, parsed from the raw bytes. Twilio posts
+  // `application/x-www-form-urlencoded`; the signature covers the parsed
+  // pairs, not the raw body, so a re-encoded body with the same pairs
+  // verifies and a JSON body cannot.
+  const params = new URLSearchParams(
+    Buffer.from(body).toString("utf8"),
+  );
+  const sorted = [...params.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, value]) => `${key}${value}`)
+    .join("");
+
+  for (const candidate of twilioSignatureUrlCandidates({
+    headers,
+    requestUrl,
+    publicBaseUrl: opts.publicBaseUrl,
+  })) {
+    const expected = createHmac("sha1", secret)
+      .update(`${candidate}${sorted}`)
+      .digest("base64");
+    // String compare is safe here: both sides are base64 of a SHA1 digest,
+    // so the lengths are public and fixed, and `timingSafeEqual` would throw
+    // on the length mismatch this comparison is allowed to have.
+    if (expected === presented) {
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, reason: "bad_signature" };
+}
+
+/**
  * Verify a delivery against the route's declared scheme.
  *
  * Order matters: the freshness check runs before the HMAC because it is the
@@ -336,12 +465,35 @@ export function verifyDeclaredSignature(opts: {
   body: Uint8Array;
   secret: string;
   nowMs?: number;
+  /**
+   * The raw request URL, as this gateway sees it. Only the `twilio` kind
+   * reads it: every other scheme signs bytes the gateway already has.
+   */
+  requestUrl?: string;
+  /** The assistant's configured public base URL, for URL reconstruction. */
+  publicBaseUrl?: string;
 }): VerificationResult {
   const { verification, headers, body, secret } = opts;
   const nowMs = opts.nowMs ?? Date.now();
 
   if (verification.kind === "standard-webhooks") {
     return verifyStandardWebhooks({ headers, body, secret, nowMs });
+  }
+
+  if (verification.kind === "twilio") {
+    if (!opts.requestUrl) {
+      // A caller that cannot say what URL it is serving has no way to check
+      // a signature that covers it. Fail closed rather than verify against
+      // a guess.
+      return { ok: false, reason: "bad_signature" };
+    }
+    return verifyTwilio({
+      headers,
+      body,
+      secret,
+      requestUrl: opts.requestUrl,
+      publicBaseUrl: opts.publicBaseUrl,
+    });
   }
 
   const presented = headers.get(verification.signature.header);

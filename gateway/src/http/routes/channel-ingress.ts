@@ -94,6 +94,13 @@ function verificationView(verification: IngressVerification): {
       signatureHeader: "webhook-signature",
     };
   }
+  if (verification.kind === "twilio") {
+    // Fixed by the scheme itself, not declared per route.
+    return {
+      algorithm: "sha1",
+      signatureHeader: "X-Twilio-Signature",
+    };
+  }
   return {
     algorithm: verification.algorithm,
     signatureHeader: verification.signature.header,

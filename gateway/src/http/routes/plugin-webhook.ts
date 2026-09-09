@@ -269,6 +269,16 @@ export interface PluginWebhookHandlerDeps {
   resolve: () => PluginIngressResolution;
   /** Signing secrets, read through the TTL cache so rotation is picked up. */
   credentials: CredentialCache | undefined;
+  /**
+   * The assistant's configured public ingress base, when there is one.
+   *
+   * Read for the `twilio` verification kind, whose signature covers the full
+   * URL the vendor POSTed to: a gateway behind a proxy sees a different URL
+   * than the one that was signed, and the configured base is one of the
+   * candidate spellings verification tries. Optional so tests and hosts
+   * without public ingress still verify against the remaining candidates.
+   */
+  ingressPublicBaseUrl?: () => string | undefined;
   fetchImpl?: (
     input: string | URL | Request,
     init?: RequestInit,
@@ -298,6 +308,7 @@ export interface PluginWebhookHandlerDeps {
  */
 export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
   const { config, resolve, credentials, fetchImpl } = deps;
+  const ingressPublicBaseUrl = deps.ingressPublicBaseUrl;
 
   return async (req: Request, plugin: string, path: string) => {
     let match: ReturnType<typeof findDeclaredRoute>;
@@ -370,6 +381,10 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
           headers: req.headers,
           body: body.bytes,
           secret: candidate,
+          // The twilio kind signs the URL the vendor POSTed to; every other
+          // scheme signs bytes the gateway already holds and ignores it.
+          requestUrl: req.url,
+          publicBaseUrl: ingressPublicBaseUrl?.(),
         });
         rejection = result.ok ? undefined : result.reason;
         return result.ok;
@@ -464,21 +479,35 @@ async function deliverGatedInbound(opts: {
   forward: PluginForward;
 }): Promise<Response> {
   const { inbound, forward } = opts;
-  const { config, plugin, routePath, body } = forward;
+  const { config, plugin, routePath, req, body } = forward;
 
   let parsed: unknown;
-  try {
-    const text = new TextDecoder().decode(body);
-    parsed = text.trim() === "" ? undefined : JSON.parse(text);
-  } catch {
-    // Authentic but unreadable. The signature checked out, so this is the
-    // vendor sending something we cannot parse rather than an attacker; the
-    // plugin may still recognise it.
-    log.warn(
-      { plugin, path: routePath },
-      "Plugin webhook payload is not JSON, forwarding ungated",
-    );
-    return forwardToPlugin(forward);
+  const contentType = (
+    req.headers.get("content-type") ?? ""
+  ).toLowerCase();
+  if (contentType.includes("application/x-www-form-urlencoded")) {
+    // A form-encoded delivery (Twilio's webhooks are always this shape).
+    // Parsed into a flat record so the inbound declaration's field paths can
+    // read the vendor's parameter names exactly as they sit on the wire.
+    // Without this branch the JSON parse below throws on every form body and
+    // the delivery is forwarded ungated — a delivery the gate was declared to
+    // read, silently exempted from it.
+    const params = new URLSearchParams(new TextDecoder().decode(body));
+    parsed = Object.fromEntries(params.entries());
+  } else {
+    try {
+      const text = new TextDecoder().decode(body);
+      parsed = text.trim() === "" ? undefined : JSON.parse(text);
+    } catch {
+      // Authentic but unreadable. The signature checked out, so this is the
+      // vendor sending something we cannot parse rather than an attacker; the
+      // plugin may still recognise it.
+      log.warn(
+        { plugin, path: routePath },
+        "Plugin webhook payload is not JSON, forwarding ungated",
+      );
+      return forwardToPlugin(forward);
+    }
   }
 
   const reading = readPluginInbound({
