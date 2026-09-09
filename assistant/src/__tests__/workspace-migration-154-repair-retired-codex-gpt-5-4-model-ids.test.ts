@@ -219,6 +219,10 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
       // A stale pin under a site profile that is not itself subscription-
       // routed: another selectable profile can still be pinned over it.
       heartbeatAgent: { profile: "byok", model: STALE },
+      // Every shipped site is known, including the ones added after the
+      // call-site enum's first tranche.
+      guardianQuestionCopy: { model: STALE_MINI },
+      workflowLeaf: { model: STALE },
     };
     const cases: Array<Record<string, unknown>> = [
       // The default keys resolve to the chatgpt column.
@@ -284,6 +288,8 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
       expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
       expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
       expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT);
+      expect(llm.callSites.guardianQuestionCopy.model).toBe(REPLACEMENT_MINI);
+      expect(llm.callSites.workflowLeaf.model).toBe(REPLACEMENT);
     }
   });
 
