@@ -9,11 +9,22 @@
 
 import { Sparkles } from "lucide-react";
 
+import type { AcpModelOption } from "@/domains/chat/acp-run-store";
 import { MetricCard } from "@/domains/chat/components/metric-card";
 import { useTranslation } from "@/i18n";
 
-export function AcpModelStatCard({ model }: { model: string }) {
+export function AcpModelStatCard({
+  model,
+  options,
+}: {
+  model: string;
+  options?: AcpModelOption[];
+}) {
   const { t } = useTranslation("chat");
+  // The adapter names its own models, so an alias it advertises reads as
+  // "Best available" rather than the `best` it is keyed by. An adapter that
+  // advertises no list, or a model absent from one, keeps the wire value.
+  const named = options?.find((option) => option.value === model)?.label;
   return (
     <MetricCard
       icon={
@@ -22,7 +33,7 @@ export function AcpModelStatCard({ model }: { model: string }) {
           style={{ color: "var(--content-secondary)" }}
         />
       }
-      value={model}
+      value={named ?? model}
       label={t("acpRunChatView.modelLabel")}
     />
   );

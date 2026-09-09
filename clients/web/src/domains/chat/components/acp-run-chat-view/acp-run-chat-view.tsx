@@ -310,7 +310,10 @@ export function AcpRunChatView({
                   // Beside the token tiles the model takes a row of its own: a
                   // model id in half of a 400px panel has nowhere to render.
                   <div className={showsUsage ? "col-span-2" : undefined}>
-                    <AcpModelStatCard model={model} />
+                    <AcpModelStatCard
+                      model={model}
+                      options={entry.availableModels}
+                    />
                   </div>
                 )}
               </div>
