@@ -103,12 +103,11 @@ export function usePreferencesUsage(
   // stay idle until the claim is otherwise live, so the common healthy path
   // costs nothing.
   //
-  // Live is the summary's own ratio rather than `spent`, which waits on the
-  // subscription: the same population either way, but the classifier's reads
-  // now run beside that request instead of queueing behind it, so the panel's
-  // first painted frame is the settled one rather than a bar it is about to
-  // replace. `spent` stays in the disjunction for the Pro sub whose grants
-  // total nothing, whose full bar is the plan's fallback rather than a ratio.
+  // What makes it live is the summary's own ratio, which the subscription does
+  // not gate, so the classifier's reads run alongside that request and the
+  // first reading the hook produces already carries the claim. `spent` widens
+  // the same condition to the Pro sub whose grants total nothing, whose full
+  // bar is the plan's fallback rather than a ratio the summary can derive.
   const { settled: claimSettled, routeBurnsManaged } =
     useByokCreditRouteVerdict(
       enabled &&

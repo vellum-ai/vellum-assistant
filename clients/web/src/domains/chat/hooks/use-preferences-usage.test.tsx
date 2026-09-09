@@ -2,12 +2,11 @@
  * Tests for `usePreferencesUsage`, and specifically for when it arms the BYOK
  * route classifier behind the extra-credits claim.
  *
- * The claim needs the subscription; the classifier's reads do not. Arming them
- * off `spent` queued them behind that request, so the panel spent a whole
- * round trip showing a bar it was about to replace with the amber line. What
- * these tests hold is the arming contract that fixed it: armed off the summary
- * for anyone whose grants it can already see are spent, still idle for
- * everyone else.
+ * The claim needs the subscription; the classifier's reads do not, so the two
+ * run alongside each other and the first reading the hook produces already
+ * carries the claim rather than a bar standing in for it. The contract these
+ * tests hold is the arming one: armed off the summary for anyone whose grants
+ * it can already see are spent, idle for everyone else.
  *
  * The subscription is driven from the SDK boundary the way the panel tests
  * drive it. The wallet status and the classifier are mocked: the real hooks
@@ -155,7 +154,7 @@ describe("usePreferencesUsage", () => {
 
     await settle();
     // Still no reading, because the plan has not landed. The classifier is
-    // already running against it rather than after it.
+    // already running alongside that request.
     expect(result.current.usage).toBeNull();
     expect(candidates).toContain(true);
   });
