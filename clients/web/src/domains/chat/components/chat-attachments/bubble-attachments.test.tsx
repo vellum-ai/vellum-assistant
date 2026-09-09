@@ -79,6 +79,29 @@ describe("BubbleAttachments", () => {
     ).toBe("img-1");
   });
 
+  test("opens the gallery at the clicked image's position when two share an id", () => {
+    // The text-parsing history fallback can rehydrate two rows under one
+    // synthetic id, which the modal's id lookup cannot tell apart.
+    const rehydrated = (filename: string): DisplayAttachment => ({
+      id: "rehydrated:0",
+      filename,
+      mimeType: "image/png",
+      sizeBytes: 1_024,
+      previewUrl: `https://example.com/${filename}`,
+    });
+    const { getByRole, getByTestId } = render(
+      <BubbleAttachments
+        attachments={[rehydrated("first.png"), rehydrated("second.png")]}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "second.png" }));
+
+    const modal = getByTestId("preview-modal");
+    expect(modal.getAttribute("data-attachment-id")).toBe("rehydrated:0");
+    expect(modal.getAttribute("data-current-index")).toBe("1");
+  });
+
   test("preserves the original attachment order for a mixed list", () => {
     const { getByText, getByRole } = render(
       <BubbleAttachments attachments={[pdf, imageWithPreview]} />,

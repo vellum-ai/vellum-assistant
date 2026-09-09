@@ -103,13 +103,11 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
-const { ChatMarkdownMessage, isVellumLink } = await import(
-  "@/domains/chat/components/chat-markdown-message"
-);
+const { ChatMarkdownMessage, isVellumLink } =
+  await import("@/domains/chat/components/chat-markdown-message");
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { attachmentContentQueryKey } = await import(
-  "@/domains/chat/components/chat-attachments/use-attachment-object-url"
-);
+const { attachmentContentQueryKey } =
+  await import("@/domains/chat/components/chat-attachments/use-attachment-object-url");
 
 function makeAttachment(
   overrides: Pick<DisplayAttachment, "filename" | "mimeType"> &
@@ -428,6 +426,26 @@ describe("ChatMarkdownMessage (image dispatch)", () => {
     ).toBeTruthy();
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
     expect(workspaceFileContentGet).not.toHaveBeenCalled();
+  });
+
+  test("a rehydrated attachment falls back rather than loading forever", () => {
+    // A synthetic `rehydrated:` id has no bytes behind it and never will, so
+    // the inline image settles on the fallback instead of a loading chip.
+    const { container } = renderMarkdown({
+      content: "![alt](vellum://workspace/scratch/chart.png)",
+      attachments: [
+        makeAttachment({
+          id: "rehydrated:0",
+          filename: "chart.png",
+          mimeType: "image/png",
+        }),
+      ],
+      assistantId: "asst-1",
+    });
+
+    expect(screen.getByText("Image failed to load (alt)")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
   test("an image draws bytes another reader already cached, with no fetch of its own", async () => {

@@ -121,6 +121,17 @@ describe("fetchAttachmentContentBlob", () => {
     expect((only?.err as ApiError).status).toBe(503);
   });
 
+  test("answers null for a missing attachment without reporting it", async () => {
+    contentResponse = async () => ({
+      data: undefined,
+      error: { message: "Attachment not found" },
+      response: new Response(null, { status: 404 }),
+    });
+
+    expect(await fetchAttachmentContentBlob("asst-1", "att-gone")).toBeNull();
+    expect(captured).toEqual([]);
+  });
+
   test("never fetches, and never reports, for a synthetic history id", async () => {
     expect(
       await fetchAttachmentContentBlob("asst-1", "rehydrated:0"),

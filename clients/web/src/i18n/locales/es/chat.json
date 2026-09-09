@@ -133,6 +133,8 @@
     "closePreviewAria": "Cerrar vista previa",
     "downloadAria": "Descargar {filename}",
     "downloadLabel": "Descargar",
+    "legacyUnavailable": "Vista previa no disponible. El contenido del archivo no se conservó en el historial del chat.",
+    "loadFailed": "No se pudo cargar la vista previa.",
     "nextAttachmentAria": "Adjunto siguiente",
     "pdfLoadFailed": "No se pudo mostrar este PDF",
     "previewAria": "Vista previa de {filename}",

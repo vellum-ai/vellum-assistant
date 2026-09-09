@@ -38,7 +38,11 @@ export async function fetchAttachmentContentBlob(
     // `throwOnError: false` hands HTTP failures back as a value, so the status
     // has to be attached here for the transient filter to read it.
     if (response && !response.ok) {
-      reportAttachmentFetchFailure(toApiError(error, response));
+      // A deleted or unknown attachment is a state the surfaces render, not a
+      // fault to report.
+      if (response.status !== 404) {
+        reportAttachmentFetchFailure(toApiError(error, response));
+      }
     } else {
       reportAttachmentFetchFailure(
         error ?? new Error("Attachment content response carried no blob"),

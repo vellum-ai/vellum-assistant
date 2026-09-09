@@ -39,7 +39,7 @@ export function ChatInfoFileTile({
   const { t } = useTranslation("chat");
   const boxRef = useRef<HTMLButtonElement>(null);
 
-  const isOnScreen = useInView(boxRef, { rootMargin: "200px" });
+  const isOnScreen = useInView(boxRef);
   // A browser without IntersectionObserver loads every tile rather than none:
   // the picture is the tile's content here, not an enhancement of it.
   const isVisible = isOnScreen || typeof IntersectionObserver === "undefined";

@@ -68,13 +68,14 @@ function report(index: number, isIntersecting: boolean): void {
   });
 }
 
-function renderInView(rootMargin?: string) {
+function renderInView(threshold = 0) {
   const ref: RefObject<Element | null> = {
     current: document.createElement("div"),
   };
   return renderHook(
-    ({ margin }: { margin?: string }) => useInView(ref, { rootMargin: margin }),
-    { initialProps: { margin: rootMargin } },
+    ({ fraction }: { fraction: number }) =>
+      useInView(ref, { threshold: fraction }),
+    { initialProps: { fraction: threshold } },
   );
 }
 
@@ -93,11 +94,11 @@ afterAll(() => {
 });
 
 describe("useInView", () => {
-  test("hands rootMargin to the observer it builds", () => {
-    renderInView("200px");
+  test("observes the element against the threshold it was given", () => {
+    renderInView(0.5);
 
     expect(observers).toHaveLength(1);
-    expect(observers[0]!.options?.rootMargin).toBe("200px");
+    expect(observers[0]!.options?.threshold).toBe(0.5);
     expect(observers[0]!.observed).toHaveLength(1);
   });
 
@@ -114,13 +115,13 @@ describe("useInView", () => {
   });
 
   test("forgets its last answer when the observation ends", () => {
-    const { result, rerender } = renderInView("200px");
+    const { result, rerender } = renderInView(0);
     report(0, true);
     expect(result.current).toBe(true);
 
     // A changed option tears the observer down and builds another, which is
     // the same cleanup an unmount runs.
-    rerender({ margin: "400px" });
+    rerender({ fraction: 0.5 });
 
     expect(observers[0]!.disconnects).toBe(1);
     expect(observers).toHaveLength(2);
@@ -134,5 +135,18 @@ describe("useInView", () => {
     unmount();
 
     expect(observers[0]!.disconnects).toBe(1);
+  });
+
+  test("stays false, and observes nothing, without IntersectionObserver", () => {
+    // A caller that must draw regardless (the Chat Info tile's picture is its
+    // content) reads `typeof IntersectionObserver` itself rather than waiting
+    // on an answer this hook can never give.
+    delete (globalThis as { IntersectionObserver?: unknown })
+      .IntersectionObserver;
+
+    const { result } = renderInView();
+
+    expect(result.current).toBe(false);
+    expect(observers).toHaveLength(0);
   });
 });

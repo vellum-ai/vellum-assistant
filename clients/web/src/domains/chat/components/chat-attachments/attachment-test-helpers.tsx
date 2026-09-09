@@ -27,9 +27,9 @@ export {
 
 /**
  * Replace the preview modal with a probe exposing the opened attachment, its
- * preview URL, and its gallery siblings - enough for both the gallery-size
- * assertions and the failed-decode assertions. Call this at module scope,
- * above the import of the component under test.
+ * preview URL, its gallery position, and its gallery siblings - enough for the
+ * gallery-size, gallery-position and failed-decode assertions. Call this at
+ * module scope, above the import of the component under test.
  */
 export function mockAttachmentPreviewModal(): void {
   mock.module(
@@ -38,13 +38,16 @@ export function mockAttachmentPreviewModal(): void {
       AttachmentPreviewModal: ({
         attachment,
         siblingAttachments,
+        currentIndex,
       }: {
         attachment: { id: string; previewUrl: string | null };
         siblingAttachments?: Array<{ id: string; previewUrl: string | null }>;
+        currentIndex?: number;
       }) => (
         <div
           data-testid="preview-modal"
           data-attachment-id={attachment.id}
+          data-current-index={String(currentIndex)}
           data-preview-url={String(attachment.previewUrl)}
           data-sibling-count={String((siblingAttachments ?? []).length)}
           data-sibling-preview-urls={JSON.stringify(

@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
+import { mockAttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
@@ -47,6 +48,10 @@ const saveFileMock = mock(
 mock.module("@/runtime/native-file", () => ({
   saveFile: saveFileMock,
 }));
+
+// The strip's own wiring is what is under test, so the modal is a probe
+// reporting which attachment it was handed and at which position.
+mockAttachmentPreviewModal();
 
 const imagesModule =
   await import("@/domains/chat/components/chat-attachments/tool-result-images");
@@ -156,6 +161,36 @@ describe("ToolResultImages referenced media", () => {
     // Saved from the fetched blob (referenced media has no inline data URL).
     expect(saveFileMock.mock.calls[0]![0]).toBeInstanceOf(Blob);
     expect(saveFileMock.mock.calls[0]![1]).toBe("file-read.png");
+  });
+
+  test("opens the gallery at the clicked image's position when two calls name one id", () => {
+    // A turn that reads the same image twice yields two entries under one
+    // attachment id, which the modal's id lookup cannot tell apart.
+    const calls: ChatMessageToolCall[] = [
+      {
+        id: "tc-first",
+        name: "media_generate_image",
+        input: {},
+        result: "Generated 1 image",
+        imageAttachmentIds: ["att-same"],
+        completedAt: 1,
+      },
+      {
+        id: "tc-second",
+        name: "file_read",
+        input: {},
+        result: "Read 1 image",
+        imageAttachmentIds: ["att-same"],
+        completedAt: 2,
+      },
+    ];
+    renderStrip(calls);
+
+    fireEvent.click(screen.getByRole("button", { name: "file-read.png" }));
+
+    const modal = screen.getByTestId("preview-modal");
+    expect(modal.getAttribute("data-attachment-id")).toBe("att-same");
+    expect(modal.getAttribute("data-current-index")).toBe("1");
   });
 
   /** A message attachment chip carrying `id`. */

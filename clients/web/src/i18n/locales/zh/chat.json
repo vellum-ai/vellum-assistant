@@ -132,6 +132,8 @@
     "closePreviewAria": "关闭预览",
     "downloadAria": "下载 {filename}",
     "downloadLabel": "下载",
+    "legacyUnavailable": "预览不可用。文件内容未保存在聊天记录中。",
+    "loadFailed": "无法加载预览。",
     "nextAttachmentAria": "下一个附件",
     "pdfLoadFailed": "无法显示此 PDF",
     "previewAria": "{filename} 的预览",
