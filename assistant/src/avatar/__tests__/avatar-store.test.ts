@@ -507,7 +507,7 @@ describe("avatar-store", () => {
     const RED_ACCENT = { accent_hex: "#c81e1e", accent_source: "derived" };
     const events = () => recorded.map((entry) => entry.fields);
 
-    test("an identical re-upload above the raster serving cap is still not a change", async () => {
+    test("an identical re-upload above the raster serving cap is not a change", async () => {
       const big = Buffer.alloc(5 * 1024 * 1024 + 1, 7);
 
       await setImage(big, "upload");

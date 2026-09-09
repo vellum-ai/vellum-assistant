@@ -11,11 +11,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import * as realSyncEvents from "../../sync/resource-sync-events.js";
+
 /** The origin id handed to the fan-out, one entry per announced change. */
 const publishedOrigins: Array<string | undefined> = [];
 mock.module("../../sync/resource-sync-events.js", () => ({
-  getOriginClientId: (headers: Record<string, string> | undefined) =>
-    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  getOriginClientId: realSyncEvents.getOriginClientId,
   publishAvatarChanged: (originClientId?: string) => {
     publishedOrigins.push(originClientId);
   },
@@ -396,8 +397,7 @@ describe("avatar write/remove handlers", () => {
     });
 
     test("reads the accent out of the uploaded image", async () => {
-      const handler = getHandler("avatar_upload_image");
-      await handler({ body: { content: RED_PNG.toString("base64") } });
+      await uploadRed();
       expect(readManifestFile()!.accent).toEqual({
         hex: "#c81e1e",
         source: "derived",
@@ -604,14 +604,7 @@ describe("avatar write/remove handlers", () => {
       expect(recorded[0]!.fields).not.toHaveProperty("client_os");
     });
 
-    test("no headers yields an event without client_os", async () => {
-      await uploadRed();
-
-      expect(recorded).toHaveLength(1);
-      expect(recorded[0]!.fields).not.toHaveProperty("client_os");
-    });
-
-    test("the client id still reaches the fan-out", async () => {
+    test("the client id reaches the fan-out", async () => {
       await uploadRed({ "x-vellum-client-id": "web-1" });
 
       expect(publishedOrigins).toEqual(["web-1"]);

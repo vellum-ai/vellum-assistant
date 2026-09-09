@@ -274,19 +274,9 @@ async function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
 }
 
 function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
-  // `hadAvatar` must reflect whether *any* avatar was configured before the
-  // clear — not just a rendered PNG. A character-only workspace (traits present,
-  // no PNG) is still an avatar, and clearAvatar() deletes its traits/ascii too.
-  // Derive from the manifest (self-healing on a manifest-miss) and treat any
-  // non-"none" kind as hadAvatar.
-  const hadAvatar = readManifestSelfHealing().kind !== "none";
-
-  // Clear everything to a manifest-consistent kind:"none". Semantic change
-  // (intentional): traits no longer persist alongside an image, so there is
-  // nothing to revert to — the legacy "re-render character from traits" branch
-  // has been removed. avatar/remove is now a plain clear, reachable only via
-  // CLI/host.
-  clearAvatar(changeOptions(headers));
+  // A character-only workspace (traits, no PNG) is still an avatar, so
+  // `hadAvatar` comes from the cleared state's kind.
+  const hadAvatar = clearAvatar(changeOptions(headers)).kind !== "none";
   return { ok: true, hadAvatar };
 }
 
