@@ -7,7 +7,8 @@
  *   4. A custom model reaches the daemon exactly as typed, since the adapter
  *      accepts ids this list does not enumerate.
  *   5. A stored value outside the list opens on the custom row, pre-filled.
- *   6. An assistant that predates the feature gets no card at all.
+ *   6. The capability gate is scoped to the assistant the card writes to.
+ *   7. An assistant that predates the feature gets no card at all.
  *
  * The design-library Select is real, driven through its combobox trigger like
  * `web-search-card.test.tsx`.
@@ -60,9 +61,16 @@ mock.module("@/hooks/use-is-org-ready", () => ({
 }));
 
 let supportsModelSwitching = true;
+let scopedAssistantIds: (string | null | undefined)[] = [];
 mock.module("@/lib/backwards-compat/acp-model-switching", () => ({
   MIN_VERSION: "0.11.10-dev.202609090534.a9ef179",
   useSupportsAcpModelSwitching: () => supportsModelSwitching,
+  useAssistantScopedSupportsAcpModelSwitching: (
+    assistantId: string | null | undefined,
+  ) => {
+    scopedAssistantIds.push(assistantId);
+    return supportsModelSwitching;
+  },
 }));
 
 const { CodingAgentsCard } =
@@ -120,6 +128,7 @@ describe("CodingAgentsCard", () => {
   beforeEach(() => {
     configPatchCalls.length = 0;
     supportsModelSwitching = true;
+    scopedAssistantIds = [];
     daemonConfigData = {};
   });
 
@@ -217,6 +226,13 @@ describe("CodingAgentsCard", () => {
     expect(modelTrigger().textContent).toContain("Custom model");
     expect(customInput().value).toBe("gpt-5-codex");
     expect(saveButton().disabled).toBe(true);
+  });
+
+  test("scopes the capability gate to the card's assistant", () => {
+    renderCard();
+
+    expect(scopedAssistantIds.length).toBeGreaterThan(0);
+    expect(new Set(scopedAssistantIds)).toEqual(new Set([ASSISTANT_ID]));
   });
 
   test("renders nothing on an assistant that predates model switching", () => {

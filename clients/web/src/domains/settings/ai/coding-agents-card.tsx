@@ -25,7 +25,7 @@ import {
 import { useDraftOverride } from "@/hooks/use-draft-override";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
-import { useSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
+import { useAssistantScopedSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
 import { captureError } from "@/lib/sentry/capture-error";
 
 /**
@@ -34,15 +34,16 @@ import { captureError } from "@/lib/sentry/capture-error";
  *
  * It is the bottom rung of the daemon's resolution ladder, so an explicit
  * spawn request, a conversation's remembered choice, and a per-agent setting
- * all outrank it. Leaving it on the agent's default writes `null` and lets
- * the adapter decide, which is what every session did before this existed.
+ * all outrank it. Leaving it on the agent's default writes `null`, which
+ * delegates model selection to the adapter.
  */
 export function CodingAgentsCard() {
   const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
-  const supportsModelSwitching = useSupportsAcpModelSwitching();
+  const supportsModelSwitching =
+    useAssistantScopedSupportsAcpModelSwitching(assistantId);
 
   const { data: daemonConfig } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId } }),
@@ -51,10 +52,14 @@ export function CodingAgentsCard() {
   });
 
   const configMutation = useConfigPatchMutation({
-    onSuccess: (data) => {
+    // The cache key comes from the mutation VARIABLES, not the render-time
+    // id: TanStack rebinds a pending mutation's options on rerender, so a
+    // captured id would file this assistant's response under whichever
+    // assistant the user switched to while the PATCH was in flight.
+    onSuccess: (data, variables) => {
       configGetSetQueryData(
         queryClient,
-        { path: { assistant_id: assistantId } },
+        { path: { assistant_id: variables.path.assistant_id } },
         data,
       );
     },

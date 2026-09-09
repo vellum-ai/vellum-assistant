@@ -1,19 +1,33 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { renderHook } from "@testing-library/react";
+import { cleanup, renderHook } from "@testing-library/react";
 
 import {
   MIN_VERSION,
+  useAssistantScopedSupportsAcpModelSwitching,
   useSupportsAcpModelSwitching,
 } from "@/lib/backwards-compat/acp-model-switching";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-function setVersion(version: string | null) {
-  useAssistantIdentityStore.getState().setIdentity("test-asst", version);
+const OWNER_ASSISTANT_ID = "asst-owner";
+
+function setVersion(
+  version: string | null,
+  identityAssistantId: string | null = OWNER_ASSISTANT_ID,
+) {
+  useAssistantIdentityStore
+    .getState()
+    .setIdentity("test-asst", version, identityAssistantId);
 }
 
 function supports(): boolean {
   return renderHook(() => useSupportsAcpModelSwitching()).result.current;
+}
+
+function scopedSupports(assistantId: string | null | undefined): boolean {
+  return renderHook(() =>
+    useAssistantScopedSupportsAcpModelSwitching(assistantId),
+  ).result.current;
 }
 
 beforeEach(() => {
@@ -21,6 +35,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
 });
 
@@ -60,5 +75,34 @@ describe("useSupportsAcpModelSwitching", () => {
     expect(supports()).toBe(true);
     setVersion("0.11.11");
     expect(supports()).toBe(true);
+  });
+});
+
+// The owner-scoping truth table lives in `utils.test.ts`. What is pinned here
+// is that the settings card's gate follows the assistant it writes to: during
+// an assistant switch the active id moves first, and an unscoped answer off
+// the outgoing version would light the card on a daemon that strips the key.
+describe("useAssistantScopedSupportsAcpModelSwitching", () => {
+  test("true when the supported version was fetched for this assistant", () => {
+    setVersion(MIN_VERSION);
+    expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(true);
+  });
+
+  test("false when the supported version belongs to another assistant", () => {
+    setVersion(MIN_VERSION, "asst-other");
+    expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(false);
+  });
+
+  test("false without an assistant id", () => {
+    setVersion(MIN_VERSION);
+    expect(scopedSupports(null)).toBe(false);
+    expect(scopedSupports(undefined)).toBe(false);
+  });
+
+  test("false when the scoped version predates the floor", () => {
+    setVersion("0.11.9");
+    expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(false);
+    setVersion(null);
+    expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(false);
   });
 });
