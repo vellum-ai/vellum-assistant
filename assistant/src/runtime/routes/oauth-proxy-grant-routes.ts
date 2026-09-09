@@ -49,7 +49,7 @@ const GrantResponseSchema = z.object({
   ttlSeconds: z.number(),
 });
 
-export type OAuthProxyGrantResponse = z.infer<typeof GrantResponseSchema>;
+type OAuthProxyGrantResponse = z.infer<typeof GrantResponseSchema>;
 
 export async function handleOAuthProxyGrant({
   body = {},
@@ -67,7 +67,8 @@ export async function handleOAuthProxyGrant({
   }
 
   // Resolving here means the caller is told to pick an account before any
-  // provider call is made with the grant.
+  // provider call is made with the grant. This route answers the local
+  // principal that owns the connections, so its errors name them.
   let resolution: OAuthConnectionResolution;
   try {
     resolution = await resolveOAuthConnectionWithMeta(
@@ -75,10 +76,14 @@ export async function handleOAuthProxyGrant({
       account ? { account } : undefined,
     );
   } catch (err) {
-    throw mapProxyResolveError(err, provider);
+    throw mapProxyResolveError(err, provider, "operator");
   }
   if (resolution.ambiguous) {
-    throw ambiguousConnectionError(provider, resolution.allAccounts);
+    throw ambiguousConnectionError(
+      provider,
+      resolution.allAccounts,
+      "operator",
+    );
   }
 
   // The pinned account is named by the subject as well as by the segment, so

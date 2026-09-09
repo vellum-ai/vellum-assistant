@@ -630,9 +630,10 @@ describe("PlatformOAuthConnection", () => {
     });
   });
 
-  // The platform proxy parses the response and follows redirects server-side,
-  // so managed mode diverges from BYO on both flags by design.
-  test("names rawResponseBody and manualRedirect as unhonored", () => {
+  // The platform proxy parses the response, rebuilds the query, and follows
+  // redirects server-side, so managed mode diverges from BYO on all three by
+  // design.
+  test("names every option the platform proxy cannot honor", () => {
     expect(unhonoredManagedOptions({ method: "GET", path: "/x" })).toEqual([]);
     expect(
       unhonoredManagedOptions({
@@ -640,8 +641,15 @@ describe("PlatformOAuthConnection", () => {
         path: "/x",
         rawResponseBody: true,
         manualRedirect: true,
+        rawQuery: "?a=1&flag",
       }),
-    ).toEqual(["rawResponseBody", "manualRedirect"]);
+    ).toEqual(["rawResponseBody", "manualRedirect", "rawQuery"]);
+  });
+
+  test("an empty rawQuery asks for no fidelity to lose", () => {
+    expect(
+      unhonoredManagedOptions({ method: "GET", path: "/x", rawQuery: "" }),
+    ).toEqual([]);
   });
 
   test("manualRedirect neither errors nor reaches the proxy envelope", async () => {

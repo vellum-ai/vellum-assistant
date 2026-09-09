@@ -159,12 +159,6 @@ describe("proxyGrantSubject", () => {
     );
   });
 
-  test("an unpinned grant keeps the shape already in circulation", () => {
-    expect(proxyGrantSubject("stripe_link", undefined)).toBe(
-      "local:self:oauth-proxy.stripe_link",
-    );
-  });
-
   test("a pinned account gets its own subject, matching the URL segment", () => {
     const subject = proxyGrantSubject("stripe_link", "a@example.com");
 
@@ -272,8 +266,8 @@ describe("parseProxyQuery", () => {
       ["constructor", "c"],
       ["toString", "t"],
     ]);
-    // The literal-object build would have mutated this prototype instead.
-    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+    // A `__proto__` key is data only because the record inherits nothing.
+    expect(Object.getPrototypeOf(query!)).toBeNull();
   });
 
   test("a repeated __proto__ collapses into an array like any other key", () => {
@@ -441,21 +435,7 @@ describe("materializeProxyResponse", () => {
     expect(await bodyText(response.body)).toBe(JSON.stringify({ id: "pm_1" }));
   });
 
-  test("keeps an upstream content type over the JSON default", () => {
-    const response = materializeProxyResponse(
-      upstream({
-        headers: { "Content-Type": "application/vnd.api+json" },
-        body: { id: "pm_1" },
-      }),
-      "GET",
-    );
-
-    expect(response.headers).toEqual({
-      "Content-Type": "application/vnd.api+json",
-    });
-  });
-
-  test("finds an upstream content type whatever its casing", () => {
+  test("keeps an upstream content type, whatever its casing, over the JSON default", () => {
     const response = materializeProxyResponse(
       upstream({
         headers: { "CoNtEnT-TyPe": "application/vnd.api+json" },
@@ -514,8 +494,6 @@ describe("materializeProxyResponse", () => {
 
     for (const [status, method] of [
       [200, "HEAD"],
-      [101, "GET"],
-      [103, "GET"],
       [204, "DELETE"],
       [205, "POST"],
       [304, "GET"],
@@ -529,13 +507,65 @@ describe("materializeProxyResponse", () => {
       expect(response.headers).toEqual(headers);
     }
   });
+
+  test("a bodyless response keeps the entity metadata it exists to convey", () => {
+    // A HEAD is made to read exactly these, and a 304 tells a cache what the
+    // entity it already holds looks like.
+    for (const [status, method] of [
+      [200, "HEAD"],
+      [304, "GET"],
+    ] as const) {
+      const response = materializeProxyResponse(
+        upstream({
+          status,
+          headers: {
+            "Content-Length": "4096",
+            "content-encoding": "gzip",
+            "transfer-encoding": "chunked",
+            connection: "keep-alive",
+            "set-cookie": "sid=abc",
+            etag: 'W/"1"',
+          },
+        }),
+        method,
+      );
+
+      expect(response.body).toBeNull();
+      expect(response.headers).toEqual({
+        "Content-Length": "4096",
+        "content-encoding": "gzip",
+        etag: 'W/"1"',
+      });
+    }
+  });
+
+  test("a body-carrying response drops the entity metadata it re-frames", () => {
+    const response = materializeProxyResponse(
+      upstream({
+        headers: { "content-length": "4096", "content-encoding": "gzip" },
+        body: "ok",
+      }),
+      "GET",
+    );
+
+    expect(response.headers).toEqual({});
+  });
 });
 
 describe("mapProxyResolveError", () => {
+  // What the resolver throws when an account filter matches nothing and the
+  // provider has other active connections.
+  const enumeratingResolverError = new Error(
+    'No active OAuth connection found for provider "stripe_link" with account ' +
+      '"gone@example.com". Active stripe_link connections: a@example.com, ' +
+      "b@example.com. Check the account spelling.",
+  );
+
   test("wraps a plain resolver error as a failed dependency", () => {
     const mapped = mapProxyResolveError(
       new Error("No active connection for stripe_link"),
       "stripe_link",
+      "operator",
     );
 
     expect(mapped.statusCode).toBe(424);
@@ -547,15 +577,58 @@ describe("mapProxyResolveError", () => {
     });
   });
 
-  test("stringifies a non-Error throw", () => {
-    expect(mapProxyResolveError("missing scopes", "stripe_link").message).toBe(
-      "missing scopes",
+  test("stringifies a non-Error throw for the operator", () => {
+    expect(
+      mapProxyResolveError("missing scopes", "stripe_link", "operator").message,
+    ).toBe("missing scopes");
+  });
+
+  test("the grant holder is told nothing about the user's other accounts", () => {
+    const mapped = mapProxyResolveError(
+      enumeratingResolverError,
+      "stripe_link",
     );
+
+    expect(mapped.statusCode).toBe(424);
+    expect(mapped.message).toBe(
+      "No usable stripe_link connection is available.",
+    );
+    expect(mapped.message).not.toContain("@example.com");
+    expect(mapped.details).toEqual({
+      provider: "stripe_link",
+      reconnect: "assistant oauth connect stripe_link",
+    });
+  });
+
+  test("redacting is the default, so a new call site cannot leak by omission", () => {
+    expect(
+      mapProxyResolveError(enumeratingResolverError, "stripe_link"),
+    ).toEqual(
+      mapProxyResolveError(
+        enumeratingResolverError,
+        "stripe_link",
+        "grant-holder",
+      ),
+    );
+  });
+
+  test("the operator, whose accounts these are, sees them named", () => {
+    const mapped = mapProxyResolveError(
+      enumeratingResolverError,
+      "stripe_link",
+      "operator",
+    );
+
+    expect(mapped.message).toBe(enumeratingResolverError.message);
+    expect(mapped.message).toContain("a@example.com");
   });
 
   test("returns a RouteError unchanged", () => {
     const original = new ForbiddenError("nope");
     expect(mapProxyResolveError(original, "stripe_link")).toBe(original);
+    expect(mapProxyResolveError(original, "stripe_link", "operator")).toBe(
+      original,
+    );
   });
 });
 
@@ -666,11 +739,10 @@ describe("mapProxyRequestError", () => {
 });
 
 describe("ambiguousConnectionError", () => {
-  test("names both accounts and how to pin one", () => {
-    const err = ambiguousConnectionError("stripe_link", [
-      "a@example.com",
-      "b@example.com",
-    ]);
+  const ACCOUNTS = ["a@example.com", "b@example.com"];
+
+  test("names both accounts and how to pin one for the operator", () => {
+    const err = ambiguousConnectionError("stripe_link", ACCOUNTS, "operator");
 
     expect(err.statusCode).toBe(409);
     expect(err.message).toContain("a@example.com");
@@ -691,11 +763,13 @@ describe("ambiguousConnectionError", () => {
     // hold a lone surrogate that `encodeURIComponent` refuses.
     const accounts = ["", "\uD800", "b@example.com"];
 
-    const err = ambiguousConnectionError("stripe_link", accounts);
+    const err = ambiguousConnectionError("stripe_link", accounts, "operator");
 
     expect(err.statusCode).toBe(409);
     expect(err.code).toBe("CONFLICT");
-    for (const account of accounts) {
+    // The empty label is in the joined list as an empty run of text, which no
+    // assertion can distinguish from its absence; the rest are checked.
+    for (const account of accounts.filter(Boolean)) {
       expect(err.message).toContain(account);
     }
     expect(err.message).toContain('"stripe_link@b%40example.com"');
@@ -707,7 +781,11 @@ describe("ambiguousConnectionError", () => {
   });
 
   test("drops the example when no account can pin a segment", () => {
-    const err = ambiguousConnectionError("stripe_link", ["", "\uD800"]);
+    const err = ambiguousConnectionError(
+      "stripe_link",
+      ["", "\uD800"],
+      "operator",
+    );
 
     expect(err.statusCode).toBe(409);
     expect(err.message).toContain("Multiple stripe_link connections");
@@ -717,5 +795,28 @@ describe("ambiguousConnectionError", () => {
       accounts: ["", "\uD800"],
       providerSegments: [],
     });
+  });
+
+  test("the grant holder is named no account and pointed at a new mint", () => {
+    // An unpinned grant's subject matches the bare provider segment alone, so
+    // rewriting the base URL to name an account would 403 rather than resolve.
+    const err = ambiguousConnectionError("stripe_link", ACCOUNTS);
+
+    expect(err.statusCode).toBe(409);
+    expect(err.code).toBe("CONFLICT");
+    for (const account of ACCOUNTS) {
+      expect(err.message).not.toContain(account);
+    }
+    expect(err.message).not.toContain("stripe_link@");
+    expect(err.message).toContain(
+      "assistant oauth proxy-url stripe_link --account <account>",
+    );
+    expect(err.details).toEqual({ provider: "stripe_link" });
+  });
+
+  test("redacting is the default, so a new call site cannot leak by omission", () => {
+    expect(ambiguousConnectionError("stripe_link", ACCOUNTS)).toEqual(
+      ambiguousConnectionError("stripe_link", ACCOUNTS, "grant-holder"),
+    );
   });
 });

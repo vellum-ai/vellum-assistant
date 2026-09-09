@@ -2,10 +2,13 @@
  * Tests for the `Request` the `/x/*` routes synthesize for user-authored
  * handler files.
  *
- * Two properties matter here. Fidelity: served over HTTP the handler sees the
- * URL the client sent, so repeated query keys and percent-encoded path
- * segments survive; served over IPC there is no wire URL, so it is rebuilt
- * from the matched path and the flattened query. And audience: the verified
+ * Three properties matter here. Fidelity: served over HTTP the handler sees the
+ * pathname and query the client sent, so repeated query keys and
+ * percent-encoded path segments survive; served over IPC there is no wire URL,
+ * so both are rebuilt from the matched path and the flattened query. Stability:
+ * the origin is synthetic on every transport, so a handler resolving a relative
+ * URL against `request.url` reads the same host everywhere. And audience: the
+ * verified
  * `x-vellum-subject` is daemon-side authorization material and stays out of
  * workspace code, while the identity the handler has always seen, and every
  * other header, still reaches it.
@@ -25,6 +28,7 @@ const ROUTE_PATH = "hello world";
 const ECHO_HANDLER = `export function GET(request) {
   const url = new URL(request.url);
   return Response.json({
+    origin: url.origin,
     pathname: url.pathname,
     tags: url.searchParams.getAll("tag"),
     subject: request.headers.get("x-vellum-subject"),
@@ -36,6 +40,7 @@ const ECHO_HANDLER = `export function GET(request) {
 `;
 
 interface EchoBody {
+  origin: string;
   pathname: string;
   tags: string[];
   subject: string | null;
@@ -73,7 +78,7 @@ afterEach(() => {
 });
 
 describe("user route request URL", () => {
-  test("served over HTTP, the wire URL reaches the handler intact", async () => {
+  test("served over HTTP, the wire path and query reach the handler intact", async () => {
     const body = await echo({
       pathParams: { path: ROUTE_PATH },
       // The flattened record the adapter also passes: last value wins, so it
@@ -96,6 +101,21 @@ describe("user route request URL", () => {
 
     expect(body.pathname).toBe("/v1/x/hello%20world");
     expect(body.tags).toEqual(["b"]);
+  });
+
+  test("the origin is the same synthetic host on both transports", async () => {
+    const overHttp = await echo({
+      pathParams: { path: ROUTE_PATH },
+      rawUrl: new URL("http://127.0.0.1:4747/v1/x/hello%20world?tag=a&tag=b"),
+      headers: IDENTITY_HEADERS_IN,
+    });
+    const overIpc = await echo({
+      pathParams: { path: ROUTE_PATH },
+      headers: IDENTITY_HEADERS_IN,
+    });
+
+    expect(overHttp.origin).toBe("http://localhost");
+    expect(overIpc.origin).toBe("http://localhost");
   });
 });
 

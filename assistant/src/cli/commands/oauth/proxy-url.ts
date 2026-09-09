@@ -57,13 +57,23 @@ export function registerProxyUrlCommand(oauth: Command): void {
       opts: { account?: string; ttl?: string; export?: boolean },
       cmd: Command,
     ) => {
+      // `--export` output is eval'd, so stdout carries export lines or
+      // nothing: a failure reports on stderr rather than through the
+      // format-aware envelope, which `--json` puts on stdout.
+      const reportFailure = (message: string): void => {
+        if (opts.export) {
+          process.stderr.write(`Error: ${message}\n`);
+          return;
+        }
+        writeError(cmd, message);
+      };
+
       try {
         let ttlSeconds: number | undefined;
         if (opts.ttl !== undefined) {
           const parsed = Number.parseInt(opts.ttl, 10);
           if (!Number.isInteger(parsed) || String(parsed) !== opts.ttl.trim()) {
-            writeError(
-              cmd,
+            reportFailure(
               `Invalid --ttl "${opts.ttl}": expected a whole number of seconds.`,
             );
             process.exitCode = 2;
@@ -96,10 +106,7 @@ export function registerProxyUrlCommand(oauth: Command): void {
 
         writeOutput(cmd, result);
       } catch (err) {
-        // `--export` output is eval'd, so a failure reports through the
-        // format-aware envelope rather than putting JSON on stdout.
-        const message = err instanceof Error ? err.message : String(err);
-        writeError(cmd, message);
+        reportFailure(err instanceof Error ? err.message : String(err));
         process.exitCode = 1;
       }
     },
