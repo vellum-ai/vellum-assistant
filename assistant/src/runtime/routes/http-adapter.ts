@@ -3,6 +3,8 @@
  * for the HTTP server's route table.
  */
 
+import { IpcConnectError } from "@vellumai/gateway-client/ipc-client";
+
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
@@ -190,6 +192,13 @@ export function routeDefinitionsToHTTPRoutes(
             err.message,
             err.statusCode,
             err.details,
+          );
+        }
+        if (err instanceof IpcConnectError) {
+          return httpError(
+            "SERVICE_UNAVAILABLE",
+            `Gateway is not reachable over IPC: ${err.message}`,
+            503,
           );
         }
         throw err;

@@ -186,10 +186,28 @@ describe("PinnedAppNavItem", () => {
   });
 
   /* The row's one command stays a named, focusable control where the device
-     cannot hover: the swipe button behind the row is out of the accessibility
-     tree until a swipe reveals it, and a long press is not something a screen
-     reader or switch control can announce. */
+     cannot hover, because a long press is not something a screen reader or a
+     switch control can announce. */
   test("expanded: keeps the trailing unpin button where the device cannot hover", () => {
+    viewport.set({ narrow: true, coarsePointer: true });
+
+    render(
+      <PinnedAppNavItem
+        app={APP}
+        active={false}
+        collapsed={false}
+        {...actions()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
+    expect(onUnpin).toHaveBeenCalledWith("app-1");
+  });
+
+  /* A pill is its own swipe box. The wrapper takes the pill's shape, so the
+     action behind it is a capsule the pill's size and the gesture arms on the
+     pill rather than across the rail beside it. */
+  test("expanded: swipes in its own shape", () => {
     viewport.set({ narrow: true, coarsePointer: true });
 
     const { container } = render(
@@ -201,14 +219,16 @@ describe("PinnedAppNavItem", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Unpin My App" }));
-    expect(onUnpin).toHaveBeenCalledWith("app-1");
-
-    // Behind the row until a swipe slides it away, hence found by attribute:
-    // it is `aria-hidden` and out of the tab path while it is back there.
-    expect(
-      container.querySelector('button[aria-label="Unpin"][aria-hidden="true"]'),
-    ).not.toBeNull();
+    const row = container.querySelector<HTMLElement>("[data-swipe-action-row]");
+    expect(row).not.toBeNull();
+    expect(row!.className).toContain("w-fit");
+    expect(row!.className).toContain("rounded-full");
+    // Behind the pill until a swipe uncovers it: hidden, so nothing of it
+    // shows at the pill's rounded edge.
+    const layer = container.querySelector(
+      'button[aria-label="Unpin"]',
+    )!.parentElement!;
+    expect(layer.style.visibility).toBe("hidden");
   });
 
   /* The tile is the shape with the most riding on the menu: no hover button,

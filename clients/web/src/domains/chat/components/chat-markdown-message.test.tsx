@@ -103,10 +103,11 @@ const openWorkspaceFile = mock(async (_path: string) => {});
 
 mock.module("@/utils/open-workspace-file", () => ({ openWorkspaceFile }));
 
-const { ChatMarkdownMessage, isVellumLink } = await import(
-  "@/domains/chat/components/chat-markdown-message"
-);
+const { ChatMarkdownMessage, isVellumLink } =
+  await import("@/domains/chat/components/chat-markdown-message");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { attachmentContentQueryKey } =
+  await import("@/domains/chat/components/chat-attachments/use-attachment-object-url");
 
 function makeAttachment(
   overrides: Pick<DisplayAttachment, "filename" | "mimeType"> &
@@ -115,10 +116,14 @@ function makeAttachment(
   return { id: "att-1", sizeBytes: 1024, previewUrl: null, ...overrides };
 }
 
-function renderMarkdown(props: ChatMarkdownMessageProps) {
+function renderMarkdown(
+  props: ChatMarkdownMessageProps,
+  seed?: (client: QueryClient) => void,
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  seed?.(queryClient);
   return render(<ChatMarkdownMessage {...props} />, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -421,6 +426,47 @@ describe("ChatMarkdownMessage (image dispatch)", () => {
     ).toBeTruthy();
     expect(attachmentsByIdContentGet).toHaveBeenCalledTimes(1);
     expect(workspaceFileContentGet).not.toHaveBeenCalled();
+  });
+
+  test("a rehydrated attachment falls back rather than loading forever", () => {
+    // A synthetic `rehydrated:` id has no bytes behind it and never will, so
+    // the inline image settles on the fallback instead of a loading chip.
+    const { container } = renderMarkdown({
+      content: "![alt](vellum://workspace/scratch/chart.png)",
+      attachments: [
+        makeAttachment({
+          id: "rehydrated:0",
+          filename: "chart.png",
+          mimeType: "image/png",
+        }),
+      ],
+      assistantId: "asst-1",
+    });
+
+    expect(screen.getByText("Image failed to load (alt)")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
+
+  test("an image draws bytes another reader already cached, with no fetch of its own", async () => {
+    const { container } = renderMarkdown(
+      {
+        content: "![alt](vellum://workspace/scratch/chart.png)",
+        attachments: [
+          makeAttachment({ filename: "chart.png", mimeType: "image/png" }),
+        ],
+        assistantId: "asst-1",
+      },
+      (client) => {
+        client.setQueryData(
+          attachmentContentQueryKey("asst-1", "att-1"),
+          new Blob([new Uint8Array(PNG_BYTES)], { type: "image/png" }),
+        );
+      },
+    );
+
+    await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+    expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
 
   test("a vellum:// image with no matching attachment renders the workspace embed", async () => {

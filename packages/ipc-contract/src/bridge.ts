@@ -686,6 +686,19 @@ export interface VellumBridge {
       ink: string,
     ): void;
     /**
+     * The user is scrolling the app under the frame, or has moved the
+     * pointer since, from the frame's own window while it is taking presses.
+     *
+     * A window taking presses takes the wheel with them and cannot forward
+     * it, so on `true` main makes the frame click-through with mouse-move
+     * forwarded, which lets the rest of the scroll reach the app underneath
+     * and still shows the renderer where the pointer is; on `false` it takes
+     * the mouse back. Refused while drawing is off, since there is no mouse
+     * to hand back. Absent on a shell that predates it, which the frame
+     * reads as having no scroll to let through.
+     */
+    setFrameScrolling?(scrolling: boolean): void;
+    /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame
      * could be taken: the window has gone, the display was unplugged, or

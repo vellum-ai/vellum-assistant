@@ -654,16 +654,6 @@
     "loginNotice": "Log in to the Vellum platform to manage backups.",
     "noAssistant": "No assistant found. Hatch an assistant to access debug controls.",
     "onboardingClearedToast": "Onboarding flags cleared.",
-    "previewDescription": "Serve this browser the preview UI build instead of the stable one. Toggling reloads the page.",
-    "previewOffAriaLabel": "Preview channel is off",
-    "previewOnAriaLabel": "Preview channel is on",
-    "previewRequestedPreview": "Requested: preview",
-    "previewRequestedStable": "Requested: stable",
-    "previewRunningPreview": "Running: preview build {version}",
-    "previewRunningStable": "Running: stable build {version}",
-    "previewTitle": "Preview channel (Vellum-only)",
-    "previewUnavailableHint": "No preview build is being served, so this browser is still on stable. Delete the vellum_preview cookie in devtools to reset.",
-    "previewVersionUnknown": "unknown",
     "replay": "Replay",
     "replayDescription": "Clear local onboarding flags and re-walk the privacy → hatch screens. Your existing assistant is preserved.",
     "replayTitle": "Replay onboarding (Vellum-only)",
@@ -1429,6 +1419,16 @@
     "unavailableBody": "The Preview channel is not enabled for this assistant.",
     "unavailableTitle": "Preview channel is unavailable",
     "unknownDate": "Unknown"
+  },
+  "previewUiChannel": {
+    "description": "Loads the preview build of this app in this browser. Your assistant is unaffected.",
+    "offAriaLabel": "Preview UI is off",
+    "onAriaLabel": "Preview UI is on",
+    "runningPreview": "Running: preview build {version}",
+    "runningStable": "Running: stable build {version}",
+    "title": "Preview UI",
+    "unavailableHint": "No preview build is being served, so this browser is still on stable. Delete the vellum_preview cookie in devtools to reset.",
+    "versionUnknown": "unknown"
   },
   "privacyPage": {
     "llmLogRetentionDescription": "How long to keep LLM request and response logs on this device. These logs record the prompts and completions sent to model providers and are used for debugging. Shorter retention improves privacy; longer retention helps troubleshoot issues.",

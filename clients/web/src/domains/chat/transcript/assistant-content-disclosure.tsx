@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Bolt, ChevronRight } from "lucide-react";
-import { Collapsible } from "@vellumai/design-library";
+import { Collapsible, ScrollShadow } from "@vellumai/design-library";
 
 import { useTranslation } from "@/i18n";
 
@@ -8,7 +8,18 @@ import type { IconName } from "@/domains/chat/components/tool-progress-card/deri
 import { ICON_MAP } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import { cn } from "@/utils/misc";
 
+import { usePinnedToBottom } from "./use-pinned-to-bottom";
+
 const EARLIER_ACTIVITY_VALUE = "earlier-activity";
+
+/**
+ * Height cap on the live run while it streams. Sized in lines of the 13px /
+ * 20px collapsed prose: about six lines on a phone, about nine on a wider
+ * window, where the transcript has room to show more of the run without the
+ * run pushing the reply off screen. Tailwind's `sm` breakpoint keeps the two
+ * sizes in CSS alongside the rest of the transcript's width variants.
+ */
+const STREAMING_RUN_HEIGHT_CLASS = "max-h-[7.5rem] sm:max-h-[11.25rem]";
 
 /** One collapsed group, plus the glyph that marks it on the timeline. */
 export interface AssistantContentDisclosureItem {
@@ -48,24 +59,43 @@ export function AssistantContentDisclosure({
   isStreaming = false,
 }: AssistantContentDisclosureProps) {
   const { t } = useTranslation("chat");
+  const streamingRunRef = usePinnedToBottom();
   const [animateOnSettle] = useState(isStreaming);
   const [value, setValue] = useState(
     isStreaming ? EARLIER_ACTIVITY_VALUE : "",
   );
+  // Whether the current open state came from the user's own click rather
+  // than the streaming pin. On settle the pin lets go one frame after
+  // `isStreaming` drops, and for that frame the run is still open: it keeps
+  // the capped live treatment until the accordion has actually closed, so the
+  // whole timeline never expands for a painted frame and then animates shut.
+  // A run the user opens afterwards shows the uncapped timeline.
+  const [openedByUser, setOpenedByUser] = useState(false);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() =>
-      setValue(isStreaming ? EARLIER_ACTIVITY_VALUE : ""),
-    );
+    const frame = requestAnimationFrame(() => {
+      setValue(isStreaming ? EARLIER_ACTIVITY_VALUE : "");
+      if (isStreaming) {
+        setOpenedByUser(false);
+      }
+    });
     return () => cancelAnimationFrame(frame);
   }, [isStreaming]);
+
+  const handleValueChange = (next: string) => {
+    setValue(next);
+    setOpenedByUser(next === EARLIER_ACTIVITY_VALUE);
+  };
+
+  const showsLiveRun =
+    isStreaming || (value === EARLIER_ACTIVITY_VALUE && !openedByUser);
 
   return (
     <Collapsible.Root
       type="single"
       collapsible
       value={isStreaming ? EARLIER_ACTIVITY_VALUE : value}
-      onValueChange={setValue}
+      onValueChange={handleValueChange}
     >
       <Collapsible.Item value={EARLIER_ACTIVITY_VALUE}>
         <Collapsible.Trigger
@@ -101,15 +131,34 @@ export function AssistantContentDisclosure({
           {/* While streaming there is no trigger and nothing has been collapsed
               yet: this is the live turn's own work, which stays flush with the
               response. The timeline arrives with the trigger when the turn
-              settles, under cover of the collapse animation. */}
-          {isStreaming ? (
-            <div className="flex flex-col gap-2">
-              {items.map((item) => (
-                <div key={item.key} className="w-full">
-                  {item.node}
-                </div>
-              ))}
-            </div>
+              settles, under cover of the collapse animation.
+
+              The live run is capped in height and pinned to its newest row, so
+              a long turn reads as a crawl: new rows arrive at the bottom edge
+              and older ones fade out at the top instead of stacking up until
+              the run fills the viewport. Only the top edge fades, since the
+              bottom is where the newest row sits. The scrollbar is hidden so
+              the crawl reads as prose, and the box still scrolls, so a reader
+              who wants an earlier row can drag back up; `overscroll-contain`
+              stops that drag from bleeding into the transcript once it hits
+              the top. Once the turn settles and the run has closed, the cap
+              goes with it: a run the user reopens shows the whole timeline. */}
+          {showsLiveRun ? (
+            <ScrollShadow
+              ref={streamingRunRef}
+              fadeEdges="start"
+              size={32}
+              hideScrollBar
+              className={cn("overscroll-contain", STREAMING_RUN_HEIGHT_CLASS)}
+            >
+              <div className="flex flex-col gap-2">
+                {items.map((item) => (
+                  <div key={item.key} className="w-full">
+                    {item.node}
+                  </div>
+                ))}
+              </div>
+            </ScrollShadow>
           ) : (
             // 2px of daylight between the trigger's text and the glyph column
             // below it, so the timeline reads as nested under the trigger

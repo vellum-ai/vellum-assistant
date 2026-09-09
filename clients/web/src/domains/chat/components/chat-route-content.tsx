@@ -140,7 +140,6 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
-import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -160,7 +159,10 @@ import {
 } from "@/domains/chat/rule-editor-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import {
+  openDocumentFromChat,
+  useOpenAppFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -463,9 +465,8 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {
-      haptic.light();
       if (assistantId) {
-        void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+        void openDocumentFromChat(assistantId, surfaceId);
       }
     },
     [assistantId],
