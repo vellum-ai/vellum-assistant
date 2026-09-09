@@ -705,6 +705,7 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "Assistant replied",
+    "imageNotSupported": "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
     "messageSentToast": "Message sent",
     "placeholder": "What would you like to do?",
     "sendFailed": "Couldn't send your message. Try again.",

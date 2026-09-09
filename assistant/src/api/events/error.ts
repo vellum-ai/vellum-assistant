@@ -27,6 +27,13 @@ export const ErrorEventSchema = z.object({
   errorCategory: z.string().optional(),
   requestId: z.string().optional(),
   conversationId: z.string().optional(),
+  /**
+   * The `clientMessageId` of the one message this error is about, when the
+   * failure belongs to a single message rather than the turn: a queued
+   * message the daemon could not persist while the batch it was dequeued
+   * with runs on. Clients that track sends by nonce end only that one.
+   */
+  clientMessageId: z.string().optional(),
 });
 
 export type ErrorEvent = z.infer<typeof ErrorEventSchema>;

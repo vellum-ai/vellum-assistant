@@ -701,6 +701,7 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "助手已回复",
+    "imageNotSupported": "当前模型不支持图片输入。请切换到支持视觉的模型后再添加图片。",
     "messageSentToast": "消息已发送",
     "placeholder": "您想做什么？",
     "sendFailed": "无法发送您的消息，请重试。",

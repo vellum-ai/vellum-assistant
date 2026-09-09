@@ -34,6 +34,13 @@ mock.module("@/hooks/use-mobile-overlay-viewport-style", () => ({
   useMobileOverlayViewportStyle: () => ({}),
 }));
 
+// The panel's attachment gate reads the target conversation's model through
+// TanStack Query, which this suite mounts no client for. Its own filtering is
+// covered by `document-composer-panel.test.tsx`.
+mock.module("@/domains/chat/hooks/use-image-attachments-allowed", () => ({
+  useImageAttachmentsAllowed: () => true,
+}));
+
 mock.module("@/domains/chat/components/document-viewer-container", () => ({
   DocumentViewerContainer: () => <div data-testid="viewer" />,
 }));

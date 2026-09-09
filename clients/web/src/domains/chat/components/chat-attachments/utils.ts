@@ -73,6 +73,26 @@ export function isImageAttachment(file: Pick<File, "name" | "type">): boolean {
   return isImageExtension(extensionOf(file.name));
 }
 
+/**
+ * Split files a surface is about to stage into the ones it may keep and a
+ * count of the images it turned away.
+ *
+ * Every surface that stages attachments asks the same question of the same
+ * vision gate (`useImageAttachmentsAllowed`), so the filter and the count that
+ * drives the "no image input" notice live here rather than once per surface.
+ */
+export function partitionAttachableFiles(
+  files: FileList | File[],
+  imageAttachmentsAllowed: boolean,
+): { allowed: File[]; droppedImages: number } {
+  const list = Array.from(files);
+  if (imageAttachmentsAllowed) {
+    return { allowed: list, droppedImages: 0 };
+  }
+  const allowed = list.filter((file) => !isImageAttachment(file));
+  return { allowed, droppedImages: list.length - allowed.length };
+}
+
 export type AttachmentIconKind =
   | "image"
   | "video"

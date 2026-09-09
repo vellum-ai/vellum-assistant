@@ -88,7 +88,10 @@ function publishConversationError(conversationId: string) {
   });
 }
 
-function publishStreamError(conversationId: string | undefined) {
+function publishStreamError(
+  conversationId: string | undefined,
+  clientMessageId?: string,
+) {
   act(() => {
     publish("sse.event", {
       id: `evt-error-${conversationId ?? "none"}`,
@@ -97,6 +100,7 @@ function publishStreamError(conversationId: string | undefined) {
         type: "error",
         message: "Something went wrong.",
         ...(conversationId ? { conversationId } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
       },
     });
   });
@@ -1042,6 +1046,112 @@ describe("DocumentComposerReplyWatcher", () => {
 
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
       expect(awaiting("conv-1")).toBe(false);
+    });
+  });
+
+  describe("an error that names a message", () => {
+    test("drops only the send carrying the nonce", () => {
+      // GIVEN two sends the daemon dequeued into one turn
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      acknowledgeRunning("conv-1", "cm-1");
+      acknowledgeRunning("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // WHEN the daemon reports a failure for the second one alone
+      publishStreamError("conv-1", "cm-2");
+
+      // THEN only that send ends, silently, and the turn still running for
+      // the first one keeps the activity up
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(nonces("conv-1")).toEqual(["cm-1"]);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("settles nothing when the nonce names no pending send", () => {
+      // GIVEN one send running in the conversation
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      acknowledgeRunning("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // WHEN another client's message is the one that failed
+      publishStreamError("conv-1", "cm-someone-else");
+
+      // THEN this send is untouched and still owed its reply
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(nonces("conv-1")).toEqual(["cm-1"]);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("an error naming no message ends every send running", () => {
+      // GIVEN two sends running in one turn
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      acknowledgeRunning("conv-1", "cm-1");
+      acknowledgeRunning("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // WHEN the turn itself fails
+      publishStreamError("conv-1");
+
+      // THEN both sends end, silently
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("drops a send the daemon could not persist from the queue", () => {
+      // GIVEN a running send and a second one parked behind it
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      acknowledgeRunning("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-2");
+
+      // WHEN the queued send fails before any turn runs it
+      publishStreamError("conv-1", "cm-2");
+
+      // THEN it is gone, since no reply is coming for it
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(nonces("conv-1")).toEqual(["cm-1"]);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
     });
   });
 

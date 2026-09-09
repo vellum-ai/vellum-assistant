@@ -10,6 +10,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
+import type { UploadAttachmentResult } from "@/domains/chat/api/messages";
 import type { DocumentComposerSendStatus } from "@/domains/chat/hooks/use-document-composer-submit";
 import chatEn from "@/i18n/locales/en/chat.json";
 
@@ -21,6 +22,21 @@ mock.module("@/domains/chat/hooks/use-document-composer-submit", () => ({
     status: hookStatus,
     submit: submitMock,
   }),
+}));
+
+let imageAttachmentsAllowed = true;
+mock.module("@/domains/chat/hooks/use-image-attachments-allowed", () => ({
+  useImageAttachmentsAllowed: () => imageAttachmentsAllowed,
+}));
+
+// The store uploads what it queues. Spread the real module rather than naming
+// its exports, so every other importer keeps the ones it reads.
+const actualMessagesApi = await import("@/domains/chat/api/messages");
+mock.module("@/domains/chat/api/messages", () => ({
+  ...actualMessagesApi,
+  uploadChatAttachment: mock(
+    async (): Promise<UploadAttachmentResult> => ({ ok: true, id: "srv-up" }),
+  ),
 }));
 
 let lastComposerProps: Record<string, unknown> = {};
@@ -47,6 +63,7 @@ function resetComposerDocumentSlot() {
 afterEach(() => {
   cleanup();
   hookStatus = "idle";
+  imageAttachmentsAllowed = true;
   submitMock.mockClear();
   lastComposerProps = {};
   resetComposerDocumentSlot();
@@ -155,6 +172,67 @@ describe("DocumentComposerPanel", () => {
     );
     const panel = container.firstChild as HTMLElement;
     expect(panel.style.paddingBottom).toBe("");
+  });
+});
+
+describe("DocumentComposerPanel: attachment vision gate", () => {
+  // Real PNG magic bytes: the store refuses an image whose payload matches no
+  // known signature, and this test is about the panel's filter, not that one.
+  const pngBytes = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+  ]);
+  const image = new File([pngBytes], "photo.png", { type: "image/png" });
+  const note = new File(["notes"], "note.txt", { type: "text/plain" });
+
+  function addFiles(files: File[]) {
+    const onAddAttachmentFiles = lastComposerProps.onAddAttachmentFiles as (
+      files: File[],
+    ) => void;
+    onAddAttachmentFiles(files);
+  }
+
+  test("stages every file while the target model can see images", () => {
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    addFiles([image, note]);
+
+    expect(
+      useComposerStore
+        .getState()
+        .documentAttachments.map((att) => att.filename),
+    ).toEqual(["photo.png", "note.txt"]);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBeNull();
+  });
+
+  test("turns an image away when the target model cannot see one", () => {
+    // Below the image-fallback release an image on a non-vision model fails
+    // the whole turn at the provider, and by then the send has already
+    // cleared the draft, so the panel refuses the image up front.
+    imageAttachmentsAllowed = false;
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    addFiles([image, note]);
+
+    expect(
+      useComposerStore
+        .getState()
+        .documentAttachments.map((att) => att.filename),
+    ).toEqual(["note.txt"]);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBe(
+      chatEn.documentComposer.imageNotSupported,
+    );
+  });
+
+  test("keeps the notice visible when the image was the only file", () => {
+    imageAttachmentsAllowed = false;
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    addFiles([image]);
+
+    expect(useComposerStore.getState().documentAttachments).toEqual([]);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBe(
+      chatEn.documentComposer.imageNotSupported,
+    );
   });
 });
 

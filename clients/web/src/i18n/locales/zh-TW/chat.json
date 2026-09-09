@@ -701,6 +701,7 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "助理已回覆",
+    "imageNotSupported": "目前的模型不支援圖片輸入。請切換到支援視覺的模型後再附加圖片。",
     "messageSentToast": "訊息已傳送",
     "placeholder": "您想做什麼？",
     "sendFailed": "無法傳送您的訊息，請再試一次。",

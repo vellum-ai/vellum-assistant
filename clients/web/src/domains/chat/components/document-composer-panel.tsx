@@ -3,9 +3,11 @@ import { useEffect, useRef } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
+import { partitionAttachableFiles } from "@/domains/chat/components/chat-attachments/utils";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDocumentComposerSubmit } from "@/domains/chat/hooks/use-document-composer-submit";
+import { useImageAttachmentsAllowed } from "@/domains/chat/hooks/use-image-attachments-allowed";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
 import { useTranslation } from "@/i18n";
 
@@ -29,6 +31,12 @@ export function DocumentComposerPanel({
   const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { status, submit } = useDocumentComposerSubmit({ assistantId, doc });
+  // These attachments are sent to the document's own conversation, so the
+  // image gate reads that conversation's model, not the chat route's.
+  const imageAttachmentsAllowed = useImageAttachmentsAllowed(
+    assistantId,
+    doc?.conversationId,
+  );
 
   // Clear the document slot's staged text/attachments whenever the target
   // document changes or the panel unmounts, so a draft typed for one
@@ -82,9 +90,23 @@ export function DocumentComposerPanel({
           void submit();
         }}
         onAddAttachmentFiles={(files) => {
-          useComposerStore
-            .getState()
-            .addFiles(files, assistantId, "document");
+          const { allowed, droppedImages } = partitionAttachableFiles(
+            files,
+            imageAttachmentsAllowed,
+          );
+          if (allowed.length > 0) {
+            useComposerStore
+              .getState()
+              .addFiles(allowed, assistantId, "document");
+          }
+          // Set after `addFiles`, which clears the slot's error on a clean queue.
+          if (droppedImages > 0) {
+            useComposerStore.setState({
+              documentAttachmentLastError: t(
+                "documentComposer.imageNotSupported",
+              ),
+            });
+          }
         }}
       />
     </div>

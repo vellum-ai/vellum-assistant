@@ -2268,6 +2268,65 @@ describe("Batched drain correctness fixes", () => {
     expect(events4.find((e) => e.type === "message_complete")).toBeDefined();
   });
 
+  test("failed batch member error names its requestId and clientMessageId", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Mid tail fails to persist while its siblings succeed. A client that
+    // tracks sends by nonce has to be able to tell this one-message failure
+    // apart from a turn-level one, so the error names the message.
+    addMessageShouldThrowForContent.add("nonce-mid-marker");
+
+    conversation.enqueueMessage({
+      content: "nonce-head",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-nonce-head",
+    });
+    conversation.enqueueMessage({
+      content: "nonce-mid-marker",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-nonce-mid",
+      clientMessageId: "cm-mid",
+    });
+    conversation.enqueueMessage({
+      content: "nonce-tail",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-nonce-tail",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(events3.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      conversationId: "conv-1",
+      requestId: "req-nonce-mid",
+      clientMessageId: "cm-mid",
+    });
+
+    // The siblings persisted, so neither is told anything failed.
+    expect(events2.find((e) => e.type === "error")).toBeUndefined();
+    expect(events4.find((e) => e.type === "error")).toBeUndefined();
+
+    // Cleanup: resolve the batched run.
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
   test("drainBatch emits exactly one activity-state event for the whole batch", async () => {
     const activityStates: AssistantEvent[] = [];
     const conversation = makeConversation((msg) => {

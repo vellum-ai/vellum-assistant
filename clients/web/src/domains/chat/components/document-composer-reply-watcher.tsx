@@ -32,7 +32,8 @@ function clearProcessingWhenSettled(conversationId: string): void {
  * awaiting a reply (`document-composer-reply-store.ts`), and ends the wait
  * silently when that turn is cancelled or fails instead. A terminal stream
  * event answers every send running in its conversation, since one turn can
- * run a batch of them, and raises one toast for them all.
+ * run a batch of them, and raises one toast for them all. An `error` naming
+ * a message is the exception: it ends only the send carrying that nonce.
  *
  * A terminal settles a send only once the stream has acknowledged it as
  * running: the daemon's echo says it took the send in and started its turn,
@@ -153,6 +154,23 @@ export function DocumentComposerReplyWatcher() {
     }
     const { conversationId } = event;
     if (!conversationId) {
+      return;
+    }
+    // An `error` that names a message is that message's alone, a queued
+    // member the daemon could not persist while the batch it was dequeued
+    // with runs on, so only the send carrying that nonce ends. An `error`
+    // naming no message is the turn's, and ends every send running in it.
+    if (event.type === "error" && event.clientMessageId !== undefined) {
+      const { clientMessageId } = event;
+      const replyStore = useDocumentComposerReplyStore.getState();
+      const pending = replyStore.pendingReplies.get(conversationId) ?? [];
+      // A nonce naming none of these sends is another client's message, and
+      // the sends listed here are still owed their own terminals.
+      if (!pending.some((p) => p.clientMessageId === clientMessageId)) {
+        return;
+      }
+      replyStore.stopAwaitingReply(conversationId, clientMessageId);
+      clearProcessingWhenSettled(conversationId);
       return;
     }
     // Each of these ends the turn that was running (`error` and

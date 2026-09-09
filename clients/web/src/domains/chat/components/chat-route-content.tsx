@@ -62,9 +62,8 @@ import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeh
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { partitionAttachableFiles } from "@/domains/chat/components/chat-attachments/utils";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
-import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";
 import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
@@ -135,7 +134,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
-import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
+import { useImageAttachmentsAllowed } from "@/domains/chat/hooks/use-image-attachments-allowed";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -981,20 +980,11 @@ export function ChatMainPanel({
     !activeConversation && activeConversationId
       ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
       : undefined;
-  const activeProfileModel = useActiveProfileModel(
+  const imageAttachmentsAllowed = useImageAttachmentsAllowed(
     assistantId,
     activeConversation?.conversationId,
     activeDraftProfile,
   );
-  const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
-  const visionGateActive = useVisionAttachmentGate();
-  // Whether an image attached to the next message would survive the turn, read
-  // by the drop/pick filter below. On an assistant with the image-fallback
-  // plugin the gate is inactive and the question does not arise; below it, an
-  // image on a profile without vision fails the whole turn on the provider's
-  // rejection.
-  const imageAttachmentsAllowed =
-    !visionGateActive || activeModelSupportsVision;
 
   const isInMaintenanceWithNoMessages =
     !isLoadingHistory &&
@@ -1007,11 +997,11 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const handleDroppedFiles = useCallback(
     (files: FileList | File[]): File[] => {
-      const arr = Array.from(files);
-      const allowed = imageAttachmentsAllowed
-        ? arr
-        : arr.filter((f) => !isImageAttachment(f));
-      if (allowed.length < arr.length) {
+      const { allowed, droppedImages } = partitionAttachableFiles(
+        files,
+        imageAttachmentsAllowed,
+      );
+      if (droppedImages > 0) {
         useComposerStore.setState({
           attachmentLastError:
             "The current model doesn't support image input. Switch to a vision-capable model to attach images.",

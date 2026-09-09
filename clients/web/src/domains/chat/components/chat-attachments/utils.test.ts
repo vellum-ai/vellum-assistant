@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import {
   classifyAttachment,
   isImageAttachment,
+  partitionAttachableFiles,
 } from "@/domains/chat/components/chat-attachments/utils";
 
 describe("isImageAttachment", () => {
@@ -59,6 +60,48 @@ describe("isImageAttachment", () => {
     );
     expect(isImageAttachment({ name: "noextension", type: "" })).toBe(false);
     expect(isImageAttachment({ name: "archive.zip", type: "" })).toBe(false);
+  });
+});
+
+describe("partitionAttachableFiles", () => {
+  const image = new File([""], "photo.jpg", { type: "image/jpeg" });
+  const typeless = new File([""], "shot.png", { type: "" });
+  const note = new File([""], "note.txt", { type: "text/plain" });
+
+  test("keeps every file while images are allowed", () => {
+    const { allowed, droppedImages } = partitionAttachableFiles(
+      [image, typeless, note],
+      true,
+    );
+    expect(allowed).toEqual([image, typeless, note]);
+    expect(droppedImages).toBe(0);
+  });
+
+  test("turns images away and counts them while they are not allowed", () => {
+    const { allowed, droppedImages } = partitionAttachableFiles(
+      [image, typeless, note],
+      false,
+    );
+    expect(allowed).toEqual([note]);
+    expect(droppedImages).toBe(2);
+  });
+
+  test("keeps non-images whichever way the gate points", () => {
+    expect(partitionAttachableFiles([note], false)).toEqual({
+      allowed: [note],
+      droppedImages: 0,
+    });
+    expect(partitionAttachableFiles([note], true)).toEqual({
+      allowed: [note],
+      droppedImages: 0,
+    });
+  });
+
+  test("counts nothing for an empty pick", () => {
+    expect(partitionAttachableFiles([], false)).toEqual({
+      allowed: [],
+      droppedImages: 0,
+    });
   });
 });
 
