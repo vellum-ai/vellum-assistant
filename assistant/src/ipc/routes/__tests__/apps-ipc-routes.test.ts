@@ -18,24 +18,36 @@ afterAll(() => {
   mockActive = false;
 });
 
-const compileApp = mock(async (): Promise<CompileResult> => ({
-  ok: true,
-  errors: [],
-  warnings: [],
-  durationMs: 11,
-}));
-const notifyAppSurfacesChanged = mock(() => {});
-const getApp = mock((id: string) =>
-  id === "app-1" ? { id: "app-1", name: "Budget" } : null,
-);
-const getAppDirPath = mock(() => "/tmp/apps/budget");
-const isPluginAppId = mock((id: string) => id.startsWith("plugins~"));
-
 const realAppStore = { ...(await import("../../../apps/app-store.js")) };
 const realCompiler = { ...(await import("../../../bundler/app-compiler.js")) };
 const realNotify = {
   ...(await import("../../../daemon/app-change-notify.js")),
 };
+
+const compileApp = mock(
+  async (
+    _appDir: Parameters<typeof realCompiler.compileApp>[0],
+  ): Promise<CompileResult> => ({
+    ok: true,
+    errors: [],
+    warnings: [],
+    durationMs: 11,
+  }),
+);
+const notifyAppSurfacesChanged = mock(
+  (..._args: Parameters<typeof realNotify.notifyAppSurfacesChanged>) => {},
+);
+const getApp = mock((id: Parameters<typeof realAppStore.getApp>[0]) =>
+  id === "app-1" ? { id: "app-1", name: "Budget" } : null,
+);
+const getAppDirPath = mock(
+  (_appId: Parameters<typeof realAppStore.getAppDirPath>[0]) =>
+    "/tmp/apps/budget",
+);
+const isPluginAppId = mock(
+  (id: Parameters<typeof realAppStore.isPluginAppId>[0]) =>
+    id.startsWith("plugins~"),
+);
 
 mock.module("../../../apps/app-store.js", () => ({
   ...realAppStore,
