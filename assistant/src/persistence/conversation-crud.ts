@@ -4841,9 +4841,11 @@ function isToolResultMessage(role: string, content: string): boolean {
  * A `WHERE` fragment keeping every row {@link isToolResultMessage} rejects,
  * with the same semantics: a non-object element, or an element whose `type` is
  * anything else, makes the row an ordinary one. The classification runs inside
- * SQLite so no message body is read into memory to decide it, and the nested
- * `CASE` pins the evaluation order the planner is free to reorder an `AND`
- * chain out of, so a plain-text body never reaches a JSON function.
+ * SQLite so no message body is read into memory to decide it. Every `CASE`
+ * pins an evaluation order the planner could otherwise reorder an `AND` chain
+ * out of: a plain-text body never reaches a JSON function, and an element's
+ * type is checked before `json_extract` for the same reason, since `json_each`
+ * exposes a bare string element unquoted.
  */
 function excludesToolResultRows(): SQL {
   return sql`NOT (CASE
@@ -4852,8 +4854,12 @@ function excludesToolResultRows(): SQL {
         WHEN json_type(${messages.content}) = 'array'
           THEN json_array_length(${messages.content}) > 0
             AND NOT EXISTS (
-              SELECT 1 FROM json_each(${messages.content})
-              WHERE json_extract(value, '$.type') IS NOT 'tool_result'
+              SELECT 1 FROM json_each(${messages.content}) AS block
+              WHERE CASE
+                WHEN block.type = 'object'
+                  THEN json_extract(block.value, '$.type') IS NOT 'tool_result'
+                ELSE 1
+              END
             )
         ELSE 0
       END

@@ -402,6 +402,40 @@ describe("GET /v1/attachments", () => {
     expect(result.total).toBe(2);
   });
 
+  test("lists rows whose content array holds a bare string element", async () => {
+    const conversation = createConversation("Historical blocks");
+
+    const textPhoto = await newAttachment("bare-text.png");
+    const textRow = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(textRow.id, textPhoto, 0);
+    setCreatedAt(textRow.id, 1000);
+    setContent(
+      textRow.id,
+      JSON.stringify([{ type: "text", text: "hi" }, "bare string"]),
+    );
+
+    const toolPhoto = await newAttachment("bare-tool.png");
+    const toolRow = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(toolRow.id, toolPhoto, 0);
+    setCreatedAt(toolRow.id, 2000);
+    setContent(
+      toolRow.id,
+      JSON.stringify([
+        { type: "tool_result", tool_use_id: "x", content: "ok" },
+        "bare string",
+      ]),
+    );
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments.map((a) => a.id)).toEqual([toolPhoto, textPhoto]);
+    expect(result.total).toBe(2);
+  });
+
   test("lists an attachment carried twice once, under the newest carrier", async () => {
     const conversation = createConversation("Resent");
 
