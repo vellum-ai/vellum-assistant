@@ -15,6 +15,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
   clearTranscriptMessages,
+  holdOrgHeaderUnresolved,
   makeAppSummary,
   makeChatInfoQueryClient,
   makeDocumentSummary,
@@ -132,12 +133,20 @@ function ownWithoutSnapshot(loading: boolean): void {
   });
 }
 
+let releaseOrgHeader = () => {};
+
 beforeEach(() => {
+  // Both daemon queries gate on the org header, so holding it unresolved is
+  // what leaves a source a test does not seed unresolved, with nothing
+  // requested. Released after the render is torn down, so no query can enable
+  // itself on the way out.
+  releaseOrgHeader = holdOrgHeaderUnresolved();
   seedMessages([]);
 });
 
 afterEach(() => {
   cleanup();
+  releaseOrgHeader();
   clearTranscriptMessages();
   // The store is a module singleton, so its loading flag goes back to the
   // value a fresh chat session starts on.
@@ -340,10 +349,10 @@ describe("useConversationAssets status", () => {
     expect(result.current.status).toBe("pending");
   });
 
-  // The daemon answers a startup or auth race with a status of its own, and
-  // those are sources that have not answered yet: reporting a failure there
-  // puts "could not be loaded" on every chat header through a restart.
-  test("is pending when a source failed the way a starting daemon does", () => {
+  // A restarting daemon's 503 is retried before it settles, so one that has
+  // settled here has spent that budget: nothing else is coming, and a source
+  // that reads pending forever would hide the trigger for the whole session.
+  test("is error when a transient status settled with nothing cached", () => {
     const client = seededQueries();
     client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
     seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
@@ -351,10 +360,29 @@ describe("useConversationAssets status", () => {
 
     const { result } = renderAssets({ client });
 
+    expect(result.current.status).toBe("error");
+  });
+
+  // The gate, not the client: an ungated query with nothing cached fetches on
+  // mount, and a request sent before the org header can be produced comes back
+  // a 400 the panel would then have to report as this conversation's failure.
+  test("holds both queries idle while the org header is unresolved", () => {
+    const client = makeChatInfoQueryClient();
+
+    const { result } = renderAssets({ client });
+
+    for (const queryKey of [
+      appsGetQueryKey(QUERY_ARGS),
+      documentsGetQueryKey(QUERY_ARGS),
+    ]) {
+      const query = client.getQueryCache().find({ queryKey })!;
+      expect(query.state.fetchStatus).toBe("idle");
+      expect(query.state.status).toBe("pending");
+    }
     expect(result.current.status).toBe("pending");
   });
 
-  test("is error when a source failed the way a broken one does", () => {
+  test("is error when a source settled on a 500 with nothing cached", () => {
     const client = seededQueries();
     client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
     seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
@@ -365,7 +393,10 @@ describe("useConversationAssets status", () => {
     expect(result.current.status).toBe("error");
   });
 
-  test("reports a failed source before the transcript has landed", () => {
+  // A failure named while another source is still coming is one the panel
+  // would take back the moment that source lands, so every source settles
+  // first and only then does a failed one speak.
+  test("is pending while a source failed and the transcript has not landed", () => {
     clearTranscriptMessages();
     const client = seededQueries();
     client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
@@ -373,7 +404,33 @@ describe("useConversationAssets status", () => {
 
     const { result } = renderAssets({ client });
 
-    expect(result.current.status).toBe("error");
+    expect(result.current.status).toBe("pending");
+  });
+
+  test("is pending while one source failed and the other is unresolved", () => {
+    const client = makePendingChatInfoQueryClient();
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  // TanStack refetches on reconnect, so a browser that dropped its connection
+  // gets its answer back on its own: that source is still on its way, unlike
+  // one the daemon answered with a status.
+  test("is pending when a source failed the way a dropped connection does", () => {
+    const client = seededQueries();
+    client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+    client
+      .getQueryCache()
+      .find({ queryKey: documentsGetQueryKey(QUERY_ARGS) })!
+      .setState({ error: new TypeError("Failed to fetch") });
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("pending");
   });
 });
 

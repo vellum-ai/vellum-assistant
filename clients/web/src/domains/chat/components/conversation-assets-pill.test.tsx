@@ -37,6 +37,7 @@ import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachment
 import {
   attachmentRows,
   clearTranscriptMessages,
+  holdOrgHeaderUnresolved,
   installChatInfoDomStubs,
   makeChatInfoQueryClient,
   makeDocumentSummary,
@@ -48,6 +49,7 @@ import {
 import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { DocumentSummary } from "@/types/document-types";
+import { ApiError } from "@/utils/api-errors";
 
 const restoreDomStubs = installChatInfoDomStubs();
 
@@ -144,16 +146,30 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
   };
 }
 
-/** A client whose documents source failed with nothing cached under it. */
+const DOCUMENTS_KEY = documentsGetQueryKey({
+  path: { assistant_id: ASSISTANT_ID },
+  query: { conversationId: CONVERSATION_ID },
+});
+
+/**
+ * A client whose documents source failed with nothing cached under it, apps
+ * answered: the trigger names a failure only once every source has settled.
+ */
 function failedDocumentsClient(): QueryClient {
   const client = makePendingChatInfoQueryClient();
-  seedQueryFailure(
-    client,
-    documentsGetQueryKey({
-      path: { assistant_id: ASSISTANT_ID },
-      query: { conversationId: CONVERSATION_ID },
-    }),
-  );
+  seedConversation(client, [], CONVERSATION_ID);
+  client.removeQueries({ queryKey: DOCUMENTS_KEY });
+  seedQueryFailure(client, DOCUMENTS_KEY);
+  return client;
+}
+
+/** The same failure, carrying the status a restarting assistant answers with. */
+function unavailableDocumentsClient(): QueryClient {
+  const client = failedDocumentsClient();
+  client
+    .getQueryCache()
+    .find({ queryKey: DOCUMENTS_KEY })!
+    .setState({ error: new ApiError(503, "HTTP 503") });
   return client;
 }
 
@@ -222,7 +238,13 @@ function chatInfoState() {
   return { mainView, activeChatInfo };
 }
 
+let releaseOrgHeader = () => {};
+
 beforeEach(() => {
+  // Both daemon queries gate on the org header, so holding it unresolved is
+  // what leaves a source a test does not seed unresolved, with nothing
+  // requested.
+  releaseOrgHeader = holdOrgHeaderUnresolved();
   // A settled transcript, so the trigger's sources are only as unresolved as
   // a test makes them: an unloaded one holds the count pending on its own.
   seedTranscriptMessages(ASSISTANT_ID, CONVERSATION_ID, []);
@@ -233,6 +255,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  releaseOrgHeader();
   clearTranscriptMessages();
   viewport.restore();
   reducedMotion = false;
@@ -480,6 +503,28 @@ describe("empty asset list", () => {
     expect(
       screen.getByRole("button", { name: UNAVAILABLE_LABEL }),
     ).toBeTruthy();
+  });
+
+  // A restart's 503 is retried before it settles, so one that settled anyway
+  // is a source that is not coming back inside this conversation's lifetime.
+  test("keeps the trigger when a transient status settled", () => {
+    renderPillWith(unavailableDocumentsClient());
+
+    expect(
+      screen.getByRole("button", { name: UNAVAILABLE_LABEL }),
+    ).toBeTruthy();
+  });
+
+  // The dot points at changes inside a list the trigger could not load, and
+  // the name beside it no longer mentions them.
+  test("drops the unseen dot when a source could not be loaded", () => {
+    markUnseen();
+    renderPillWith(failedDocumentsClient());
+
+    expect(
+      screen.getByRole("button", { name: UNAVAILABLE_LABEL }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
   });
 });
 

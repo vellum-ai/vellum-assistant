@@ -32,6 +32,7 @@ import {
   CHAT_INFO_NARROW_PHONE_PX,
   CHAT_INFO_T0,
   clearTranscriptMessages,
+  holdOrgHeaderUnresolved,
   makeAppSummary,
   makeChatInfoQueryClient,
   makeDocumentAsset,
@@ -383,7 +384,7 @@ function seedChatInfoTranscript({
  */
 export const inChatInfoConversation: Decorator =
   function InChatInfoConversation(Story, { parameters }) {
-    const [client] = useState(() => {
+    const [{ client, releaseOrgHeader }] = useState(() => {
       const conversation: ChatInfoStoryConversation = {
         ...DEFAULT_CONVERSATION,
         ...(parameters.chatInfo as
@@ -391,17 +392,26 @@ export const inChatInfoConversation: Decorator =
           | undefined),
       };
       let created: QueryClient;
+      let release = () => {};
       if (conversation.pendingSources) {
         created = makePendingChatInfoQueryClient();
+        // The org header is the gate the two daemon queries wait on, so an
+        // unresolved one is what leaves this story's sources unanswered.
+        release = holdOrgHeaderUnresolved();
       } else {
         created = makeChatInfoQueryClient();
         seedChatInfoQueries(created, conversation);
       }
       conversation.afterSeed?.(created, conversation);
       seedChatInfoTranscript(conversation);
-      return created;
+      return { client: created, releaseOrgHeader: release };
     });
-    useEffect(() => clearTranscriptMessages, []);
+    useEffect(() => {
+      return () => {
+        clearTranscriptMessages();
+        releaseOrgHeader();
+      };
+    }, [releaseOrgHeader]);
 
     return (
       <QueryClientProvider client={client}>

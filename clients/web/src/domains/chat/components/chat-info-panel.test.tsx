@@ -39,6 +39,7 @@ import {
   CHAT_INFO_T0,
   chatInfoAppHtmlCacheMock,
   clearTranscriptMessages,
+  holdOrgHeaderUnresolved,
   installChatInfoDomStubs,
   makeAppSummary,
   makeChatInfoQueryClient,
@@ -231,7 +232,13 @@ async function renderChatInfo(
   });
 }
 
+let releaseOrgHeader = () => {};
+
 beforeEach(() => {
+  // Both daemon queries gate on the org header, so holding it unresolved is
+  // what leaves a source a test takes back out unresolved, with nothing
+  // requested.
+  releaseOrgHeader = holdOrgHeaderUnresolved();
   calls.length = 0;
   viewport.set({ narrow: false, coarsePointer: false });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
@@ -245,6 +252,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  releaseOrgHeader();
   viewport.restore();
   clearTranscriptMessages();
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
@@ -516,18 +524,5 @@ describe("ChatInfoPanel unsettled sources", () => {
 
     expect(screen.getByText("Assets could not be loaded")).toBeDefined();
     expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
-  });
-
-  // A category left empty by the failure above says why, once. Calling it an
-  // empty category as well would answer a question the source never got to.
-  test("does not call a drilled-in category empty when its source failed", async () => {
-    await renderChatInfo("files", {
-      apps: [],
-      messages: [],
-      afterSeed: failDocuments,
-    });
-
-    expect(screen.getByText("Assets could not be loaded")).toBeDefined();
-    expect(screen.queryByText("Nothing in this category yet")).toBeNull();
   });
 });

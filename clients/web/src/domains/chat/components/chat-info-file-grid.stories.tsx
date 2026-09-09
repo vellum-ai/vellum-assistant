@@ -30,7 +30,6 @@ const meta: Meta<typeof ChatInfoFileGrid> = {
   args: {
     items: chatInfoStoryFrames(6),
     assistantId: CHAT_INFO_ASSISTANT_ID,
-    status: "ready",
     hasMore: false,
     onLoadMore: fn(),
     onOpen: fn(),
@@ -63,10 +62,4 @@ export const FilesOnAPhone: Story = {
   decorators: [inChatInfoPhonePage],
   globals: { viewport: { value: "sbCompactPhone", isRotated: false } },
   args: { items: Object.values(CHAT_INFO_STORY_FILES) },
-};
-
-/** A category drilled into with nothing in it says so where the tiles were. */
-export const Empty: Story = {
-  decorators: [inChatInfoDrawerColumn],
-  args: { items: [] },
 };

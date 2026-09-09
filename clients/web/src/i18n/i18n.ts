@@ -233,7 +233,9 @@ function primaryLanguage(tag: string): string {
  * The host's whole preference list is searched, not just its first entry, so a
  * user whose device leads with English while the app runs in Spanish still
  * formats in the Spanish region they also listed. Comparison is by primary
- * subtag, so a `zh-TW` host keeps `zh-TW` under either Chinese catalog.
+ * subtag, so a `zh-TW` host keeps `zh-TW` under either Chinese catalog, and a
+ * tag `Intl` cannot parse is skipped rather than chosen and rejected, so the
+ * entry behind it still gets its turn.
  *
  * References:
  * - https://developer.mozilla.org/en-US/docs/Web/API/Navigator/languages
@@ -243,12 +245,10 @@ function primaryLanguage(tag: string): string {
 export function formatLocale(): string {
   const app = currentLocale();
   const host = systemLocales().find(
-    (tag) => primaryLanguage(tag) === primaryLanguage(app),
+    (tag) =>
+      primaryLanguage(tag) === primaryLanguage(app) && isFormattableLocale(tag),
   );
-  if (host === undefined || !isFormattableLocale(host)) {
-    return app;
-  }
-  return host;
+  return host ?? app;
 }
 
 /**

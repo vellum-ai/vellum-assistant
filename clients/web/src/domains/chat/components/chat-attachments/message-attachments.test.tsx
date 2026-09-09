@@ -10,14 +10,17 @@ import {
   squareLabels,
 } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 
-mockAttachmentPreviewModal();
+const restorePreviewModal = mockAttachmentPreviewModal();
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { useViewerStore } from "@/stores/viewer-store";
 
+// `mock.module` is process-global, so the real preview modal goes back before
+// the next file loads.
 afterAll(() => {
+  restorePreviewModal();
   mock.restore();
 });
 afterEach(() => {

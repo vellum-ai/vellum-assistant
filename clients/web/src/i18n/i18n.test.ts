@@ -119,9 +119,7 @@ describe("ICU message formatting", () => {
     expect(t("chat:conversationAssets.label", { count: 1 })).toBe("1 ресурс");
     expect(t("chat:conversationAssets.label", { count: 2 })).toBe("2 ресурса");
     expect(t("chat:conversationAssets.label", { count: 5 })).toBe("5 ресурсов");
-    expect(t("chat:conversationAssets.label", { count: 21 })).toBe(
-      "21 ресурс",
-    );
+    expect(t("chat:conversationAssets.label", { count: 21 })).toBe("21 ресурс");
     expect(t("chat:conversationAssets.label", { count: 22 })).toBe(
       "22 ресурса",
     );
@@ -179,5 +177,12 @@ describe("formatLocale", () => {
     expect(await hostLanguagesUnder(["C"], "en")).toBe("en");
     expect(await hostLanguagesUnder(["en_US"], "en")).toBe("en");
     expect(await hostLanguagesUnder(["en-1"], "en")).toBe("en");
+  });
+
+  test("reads past a malformed tag to the next one in the app's language", async () => {
+    // The malformed entry leads the list and speaks the app's language, so a
+    // search that validated only its own pick would stop there and never
+    // reach the region the device actually states.
+    expect(await hostLanguagesUnder(["en-1", "en-GB"], "en")).toBe("en-GB");
   });
 });

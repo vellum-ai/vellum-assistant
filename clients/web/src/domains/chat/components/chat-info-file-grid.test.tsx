@@ -2,10 +2,10 @@
  * `ChatInfoFileGrid`: the panel's second level, given one file category's
  * items.
  *
- * The real tiles render here, since what the grid owns is the set of them, the
- * paging control under it, and what it says with nothing to show. Bytes are
- * never fetched: the frames carry their preview inline and the query client
- * serves only what a test seeds. How a tile labels itself is the tile suite's.
+ * The real tiles render here, since what the grid owns is the set of them and
+ * the paging control under it. Bytes are never fetched: the frames carry their
+ * preview inline and the query client serves only what a test seeds. How a
+ * tile labels itself is the tile suite's.
  */
 
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
@@ -23,10 +23,7 @@ import {
   makeFileAsset,
   makeFrameAsset,
 } from "@/domains/chat/components/chat-info.test-helper";
-import type {
-  ConversationAssetsStatus,
-  ConversationFileAsset,
-} from "@/domains/chat/hooks/use-conversation-assets";
+import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 
 const restoreDomStubs = installChatInfoDomStubs();
 
@@ -52,13 +49,11 @@ const FILE = makeFileAsset(
 
 function renderGrid({
   items = [FRAME],
-  status = "ready",
   hasMore = false,
   onLoadMore = () => {},
   onOpen = () => {},
 }: {
   items?: ConversationFileAsset[];
-  status?: ConversationAssetsStatus;
   hasMore?: boolean;
   onLoadMore?: () => void;
   onOpen?: (file: ConversationFileAsset) => void;
@@ -68,7 +63,6 @@ function renderGrid({
       <ChatInfoFileGrid
         items={items}
         assistantId={ASSISTANT_ID}
-        status={status}
         hasMore={hasMore}
         onLoadMore={onLoadMore}
         onOpen={onOpen}
@@ -122,20 +116,5 @@ describe("ChatInfoFileGrid", () => {
     renderGrid({ hasMore: false });
 
     expect(loadMore()).toBeNull();
-  });
-
-  test("names the empty category, not the whole chat", () => {
-    renderGrid({ items: [] });
-
-    expect(screen.getByText("Nothing in this category yet")).toBeDefined();
-  });
-
-  // An empty grid means "nothing here" only once the category's sources have
-  // answered: a notice under a drill-in that is still loading reads as an
-  // answer the loaded grid then replaces.
-  test("says nothing about a category whose sources have not answered", () => {
-    renderGrid({ items: [], status: "pending" });
-
-    expect(screen.queryByText("Nothing in this category yet")).toBeNull();
   });
 });
