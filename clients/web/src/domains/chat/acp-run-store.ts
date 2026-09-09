@@ -109,6 +109,13 @@ export interface AcpRunEntry {
   model?: string;
   /** Models the session can switch to; absent when the adapter has no selector. */
   availableModels?: AcpModelOption[];
+  /**
+   * When `setModel` last recorded a live selection, in `Date.now()` ms. Store
+   * local, never on the wire: it orders a live update against a snapshot whose
+   * fetch began earlier, so an in-flight `/acp/sessions` read cannot replace a
+   * selection the adapter has already moved past.
+   */
+  modelUpdatedAt?: number;
   events: AcpRunRawEvent[];
 }
 
@@ -228,7 +235,8 @@ export interface AcpRunActions {
    * Record the session's model selection. Unlike `updateUsage`, both fields are
    * replaced wholesale: the adapter reports its full current state, so a
    * cleared selection or a shrunken option set must not be masked by the
-   * previous one.
+   * previous one. Stamps `modelUpdatedAt` so a snapshot requested before this
+   * update cannot roll it back.
    */
   setModel: (params: {
     acpSessionId: string;
@@ -242,8 +250,16 @@ export interface AcpRunActions {
    * stale-but-longer snapshot, while always merging terminal/status/usage
    * metadata from the history entry. Sets `highWaterMark` to the max seq over
    * the merged buffer and indexes `byToolUseId`.
+   *
+   * `fetchedAt` is when the caller issued the request these entries answer.
+   * A model update stamped at or after it is newer than the snapshot, so the
+   * live selection is kept. Callers that cannot say omit it and get the plain
+   * snapshot rules.
    */
-  seedFromHistory: (entries: AcpRunEntry[]) => void;
+  seedFromHistory: (
+    entries: AcpRunEntry[],
+    options?: { fetchedAt?: number },
+  ) => void;
 
   reset: () => void;
 }
@@ -312,16 +328,34 @@ function mergeEvents(
 }
 
 /**
- * Fold a snapshot's model selection into a live entry. A row carrying
- * `availableModels` is authoritative for both fields, so the supported
- * no-selection state (no `model`, empty options) clears a stale selection. A
- * legacy row that omits the option set keeps the store's options and only
- * upgrades a model it actually carries.
+ * Fold a snapshot's model selection into a live entry.
+ *
+ * A live `acp_session_model_update` that landed at or after `fetchedAt` is
+ * newer than anything this response can carry: the fetch and the SSE stream are
+ * separate asynchronous paths, so a request that read model A can be answered
+ * after the adapter already moved to model B. That live selection is kept.
+ *
+ * Otherwise the snapshot rules apply: a row carrying `availableModels` is
+ * authoritative for both fields, so the supported no-selection state (no
+ * `model`, empty options) clears a stale selection, while a legacy row that
+ * omits the option set keeps the store's options and only upgrades a model it
+ * actually carries.
  */
 function mergeModelSelection(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
+  fetchedAt?: number,
 ): Pick<AcpRunEntry, "model" | "availableModels"> {
+  if (
+    fetchedAt !== undefined &&
+    existing.modelUpdatedAt !== undefined &&
+    existing.modelUpdatedAt >= fetchedAt
+  ) {
+    return {
+      model: existing.model,
+      availableModels: existing.availableModels,
+    };
+  }
   if (incoming.availableModels !== undefined) {
     return {
       model: incoming.model,
@@ -344,6 +378,7 @@ function mergeModelSelection(
 function mergeHistoryEntry(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
+  fetchedAt?: number,
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
@@ -366,7 +401,7 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
-    ...mergeModelSelection(existing, incoming),
+    ...mergeModelSelection(existing, incoming, fetchedAt),
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -680,12 +715,13 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           ...existing,
           model: params.model,
           availableModels: params.availableModels,
+          modelUpdatedAt: Date.now(),
         },
       },
     });
   },
 
-  seedFromHistory: (entries) => {
+  seedFromHistory: (entries, options) => {
     const { byId, orderedIds, byToolUseId, highWaterMark } = get();
 
     // Union live + history events by seq and always merge terminal/status/
@@ -698,7 +734,8 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
-        merge: mergeHistoryEntry,
+        merge: (existing, incoming) =>
+          mergeHistoryEntry(existing, incoming, options?.fetchedAt),
       });
 
     let nextByToolUseId = byToolUseId;

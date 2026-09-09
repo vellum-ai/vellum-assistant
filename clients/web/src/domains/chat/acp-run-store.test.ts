@@ -741,6 +741,19 @@ describe("setModel", () => {
     expect(entry.availableModels).toEqual([]);
   });
 
+  it("stamps when the live selection landed", () => {
+    spawn();
+    const before = Date.now();
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    const stamped = getState().byId["acp-1"]!.modelUpdatedAt;
+    expect(stamped).toBeGreaterThanOrEqual(before);
+  });
+
   it("ignores an unknown session", () => {
     const before = { ...getState().byId };
     getState().setModel({
@@ -853,6 +866,60 @@ describe("seedFromHistory", () => {
     const entry = getState().byId["acp-1"]!;
     expect(entry.model).toBe("haiku");
     expect(entry.availableModels).toEqual([{ value: "haiku", label: "Haiku" }]);
+  });
+
+  it("keeps a live update that landed after the fetch began", () => {
+    // The fetch read model A, then a live update moved the session to B before
+    // the response arrived. The older snapshot must not roll it back.
+    spawn({ acpSessionId: "acp-1" });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+    const modelUpdatedAt = getState().byId["acp-1"]!.modelUpdatedAt!;
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt: modelUpdatedAt - 1 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+  });
+
+  it("applies a snapshot whose fetch began after the live update", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+    const modelUpdatedAt = getState().byId["acp-1"]!.modelUpdatedAt!;
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt: modelUpdatedAt + 1 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
   });
 
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {
