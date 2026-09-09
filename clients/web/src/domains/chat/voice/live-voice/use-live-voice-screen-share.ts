@@ -307,17 +307,20 @@ export function useLiveVoiceScreenShare(): void {
     /**
      * Make `frame` what the gate judges against, or nothing when there is
      * no frame to give it. Both ways drop a standing arm, so the question
-     * still open gets its ask again.
+     * still open gets its ask again: its window runs again from now, since
+     * the ask may be put back well after it was made, and the pictures that
+     * may answer it still date from the question.
      */
     const moveGateTo = (frame: JudgedFrame | null): void => {
+      const nowMs = performance.now();
       if (frame === null) {
-        gate.reset(performance.now());
+        gate.reset(nowMs);
       } else {
         gate.adopt(frame.grid, frame.atMs);
       }
       baseline = frame;
       if (armedAtMs !== null) {
-        gate.armForcedKeep(armedAtMs);
+        gate.armForcedKeep(nowMs, armedAtMs);
       }
     };
 
@@ -413,12 +416,12 @@ export function useLiveVoiceScreenShare(): void {
         keep = { reason: "drawing" };
       } else {
         if (askedAtMs !== null) {
-          // The ask is placed just before its own picture is judged, and
-          // stands from when the question started: the picture was asked
-          // for at the same moment, so it can spend the ask, and the ask
-          // runs out on the question's clock rather than the queue's.
+          // The ask is placed just before its own picture is judged, with
+          // its window running from now, since the queue may have held the
+          // picture, and its bound at the question: the picture was asked
+          // for at that moment, so it can spend the ask.
           armedAtMs = askedAtMs;
-          gate.armForcedKeep(askedAtMs);
+          gate.armForcedKeep(nowMs, askedAtMs);
         }
         const decision = gate.offer(grid, nowMs, requestedAtMs);
         // A flat screen whose colour changed is a new view the gate cannot

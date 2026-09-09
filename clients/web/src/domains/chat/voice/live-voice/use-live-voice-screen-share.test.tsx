@@ -1103,6 +1103,9 @@ describe("useLiveVoiceScreenShare: an upload that hangs", () => {
     const question = holdNextUpload();
     show("a+");
     speak(true);
+    // The bound is longer than the ask's own window. The ask the lost frame
+    // spent is put back all the same, for the pictures of the question.
+    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
     await flush();
     speak(false);
     await flush();

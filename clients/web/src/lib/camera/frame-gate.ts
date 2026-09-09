@@ -377,17 +377,22 @@ export interface FrameGate {
    * One shot, and it expires {@link FRAME_GATE_FORCED_KEEP_TTL_MS} after
    * `nowMs`.
    *
-   * `nowMs` is also the arm's lower bound: only a frame whose picture provably
-   * postdates it may spend it. The proof an offer carries is its
-   * `capturedSinceMs`, the earliest its picture can have been taken, and a
-   * frame whose bound falls before the arm was taken before the ask: exactly
-   * the stale scene the arm exists to get past. Such a frame is judged as an
-   * ambient one and leaves the arm standing for the first frame whose bound
-   * reaches it. The comparison only means something because the arm and the
-   * offers are stamped from one clock, which every caller of this gate reads
-   * from `performance.now`.
+   * `askedAtMs` is the arm's lower bound, and is `nowMs` unless given: only
+   * a frame whose picture provably postdates it may spend the arm. The proof
+   * an offer carries is its `capturedSinceMs`, the earliest its picture can
+   * have been taken, and a frame whose bound falls before the ask was taken
+   * before the ask: exactly the stale scene the arm exists to get past. Such
+   * a frame is judged as an ambient one and leaves the arm standing for the
+   * first frame whose bound reaches it. The comparison only means something
+   * because the arm and the offers are stamped from one clock, which every
+   * caller of this gate reads from `performance.now`.
+   *
+   * The two are given separately for a caller putting an ask back: a keep
+   * that spent it was lost, so the ask stands again, and its window runs
+   * again from now, but the pictures that may answer it still date from the
+   * question, which is when they were asked for.
    */
-  armForcedKeep(nowMs: number): void;
+  armForcedKeep(nowMs: number, askedAtMs?: number): void;
   /**
    * Drop all comparison history: no last-kept baseline, no previous frame,
    * and a fresh warmup window starting at `nowMs`.
@@ -722,9 +727,9 @@ export function createFrameGate(
       recordKeep(nowMs);
     },
 
-    armForcedKeep(nowMs: number): void {
+    armForcedKeep(nowMs: number, askedAtMs: number = nowMs): void {
       forcedArm = {
-        sinceMs: nowMs,
+        sinceMs: askedAtMs,
         untilMs: nowMs + FRAME_GATE_FORCED_KEEP_TTL_MS,
       };
     },
