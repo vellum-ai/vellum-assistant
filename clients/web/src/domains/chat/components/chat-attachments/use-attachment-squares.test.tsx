@@ -67,6 +67,24 @@ describe("useAttachmentSquares", () => {
     expect(modal.getAttribute("data-current-index")).toBe("1");
   });
 
+  test("nulls only the failed position's preview when two squares share an id", () => {
+    const withPreview = SHARED_ID.map((att, index) => ({
+      ...att,
+      mimeType: "image/png",
+      filename: `${index}.png`,
+      previewUrl: `https://example.com/${index}.png`,
+    }));
+    const { container } = render(<Squares attachments={withPreview} />);
+
+    const [first] = Array.from(container.querySelectorAll("img"));
+    fireEvent.error(first!);
+
+    const remaining = Array.from(container.querySelectorAll("img"));
+    expect(remaining.map((img) => img.getAttribute("src"))).toEqual([
+      "https://example.com/1.png",
+    ]);
+  });
+
   test("keys each square on its position, so a shared id is still unique", () => {
     const logged: unknown[] = [];
     const realError = console.error;
