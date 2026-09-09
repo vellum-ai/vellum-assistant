@@ -151,28 +151,33 @@ export function projectUserFacingContent(
   // segment for that delta, so a projection that emitted one block per call
   // would report a segment the channel never owed, and durable reconciliation
   // would post the second message again underneath the finished stream.
-  const delivered: string[] = [];
-  let deliveredRider: number | undefined;
-  for (const block of content) {
-    const message = sendUserMessageText(block);
-    if (message === null) {
-      continue;
-    }
-    delivered.push(message);
-    // Carry the persist path's `_redactionVersion` rider onto the text block
-    // these become. A message is redacted when the row is built, so a sentinel
-    // inside it is redactor-authored; without the rider the history renderer
-    // would treat the projected block as pre-feature and neutralize that
-    // sentinel into an inert glyph string.
-    const rider = isRecord(block) ? block["_redactionVersion"] : undefined;
-    if (typeof rider === "number") {
-      deliveredRider = Math.max(deliveredRider ?? rider, rider);
-    }
-  }
-
+  // A run of delivered messages becomes ONE text block, carrying them joined
+  // the way the live emission joins them.
+  //
+  // One response may call the tool more than once, and the loop streams those
+  // messages as a single `text_delta`. A channel whose stream IS the reply
+  // (Slack finalizes its streamed message in place) counts one delivered
+  // segment for that delta, so a projection that emitted one block per call
+  // would report a segment the channel never owed, and durable reconciliation
+  // would post the second message again underneath the finished stream.
+  //
+  // A run ENDS at a tool call that is not a delivery, because that is exactly
+  // where visible activity separates two messages. `/messages` consolidates a
+  // turn's rows into one content array before projecting, so without that
+  // break a turn that sent a progress message, ran a tool, then sent the
+  // result would fold both onto the first call's position and reload would
+  // show the result above the tool activity it came from. Blocks that render
+  // no text of their own (the demoted scratchpad) do not break a run: nothing
+  // of theirs appears between the two messages.
   let changed = false;
-  let deliveredEmitted = false;
   const projected: unknown[] = [];
+  /** Index in `projected` of the open run's text block, if one is open. */
+  let openRun: number | undefined;
+
+  const closeRun = (): void => {
+    openRun = undefined;
+  };
+
   for (const block of content) {
     if (isRecord(block) && block["type"] === "text") {
       changed = true;
@@ -183,21 +188,45 @@ export function projectUserFacingContent(
       });
       continue;
     }
-    if (sendUserMessageText(block) !== null) {
+    const message = sendUserMessageText(block);
+    if (message !== null) {
       changed = true;
-      // The whole run of messages rides the first call's position; the rest
-      // are dropped, having been folded into it.
-      if (!deliveredEmitted) {
-        deliveredEmitted = true;
+      // Carry the persist path's `_redactionVersion` rider onto the text block
+      // this becomes. A message is redacted when the row is built, so a
+      // sentinel inside it is redactor-authored; without the rider the history
+      // renderer would treat the projected block as pre-feature and neutralize
+      // that sentinel into an inert glyph string.
+      const rider = isRecord(block) ? block["_redactionVersion"] : undefined;
+      if (openRun === undefined) {
+        openRun = projected.length;
         projected.push({
           type: "text",
-          text: joinWithSpacing(delivered),
-          ...(deliveredRider !== undefined
-            ? { _redactionVersion: deliveredRider }
-            : {}),
+          text: message,
+          ...(typeof rider === "number" ? { _redactionVersion: rider } : {}),
         });
+        continue;
       }
+      const open = projected[openRun] as {
+        text: string;
+        _redactionVersion?: number;
+      };
+      projected[openRun] = {
+        ...open,
+        text: joinWithSpacing([open.text, message]),
+        ...(typeof rider === "number"
+          ? {
+              _redactionVersion: Math.max(
+                open._redactionVersion ?? rider,
+                rider,
+              ),
+            }
+          : {}),
+      };
       continue;
+    }
+    if (isRecord(block) && block["type"] === "tool_use") {
+      // Visible activity between two messages: they are separate segments.
+      closeRun();
     }
     projected.push(block);
   }
