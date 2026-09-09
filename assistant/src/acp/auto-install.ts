@@ -3,7 +3,7 @@
  *
  * When a spawn fails preflight with `binary_not_found`, callers (the
  * `acp_spawn` tool and the `/v1/acp/spawn` route) call
- * `resolveAgentWithAutoInstall(agentId)`, which performs a ONE-TIME global
+ * `resolveAgentWithAutoInstall(agentId)`, which performs a sandboxed global
  * install of the mapped adapter package via `bun`, then re-resolves and
  * continues. After the install the adapter is a normal trusted binary on
  * PATH, and the session manager spawns it the usual way (project cwd, token
@@ -19,6 +19,10 @@
  * or brew is left alone with a warning, since a bun install would not change
  * which binary spawns. The check runs on every resolution, never cached, so
  * an adapter replaced under a running daemon is caught on the next spawn.
+ * Every install is verified by re-probing; one that reports success and still
+ * leaves the pin unsatisfied abandons that pin for the life of the process,
+ * so a state the probe can never satisfy costs one install, not one per
+ * spawn, resume, and tool call.
  *
  * Security boundaries (this is the ATL-808 fix):
  *  - Only commands present in `DEFAULT_AGENT_NPM_PACKAGES` are ever
@@ -50,6 +54,7 @@ import {
 import type { AcpAgentConfig } from "../config/acp-schema.js";
 import { getLogger } from "../util/logger.js";
 import {
+  lookupAcpAgentConfig,
   resolveAcpAgent,
   type ResolveAcpAgentResult,
 } from "./resolve-agent.js";
@@ -72,20 +77,43 @@ export interface AdapterInstallResult {
 }
 
 /**
- * In-flight install promises, keyed by command AND the search path the probe
- * ran on. Concurrent spawns for the same adapter on the same PATH dedupe to a
- * single global install, while two agents whose `env.PATH` selects different
- * binaries each get their own decision: one PATH reaching an externally
- * managed adapter must not exempt another PATH reaching an outdated
- * bun-linked one. Nothing is cached past settle: the adapter on disk can
- * change under a running daemon (a user running the documented `bun add -g
- * ...@latest`), so every spawn re-probes.
+ * In-flight pin checks, keyed by command AND the search path the probe ran
+ * on. Concurrent spawns for the same adapter on the same PATH dedupe to a
+ * single decision, while two agents whose `env.PATH` selects different
+ * binaries each get their own: one PATH reaching an externally managed
+ * adapter must not exempt another PATH reaching an outdated bun-linked one.
+ * Nothing is cached past settle: the adapter on disk can change under a
+ * running daemon, so every spawn re-probes.
  */
-const installPromises = new Map<string, Promise<AdapterInstallResult>>();
+const pinChecks = new Map<string, Promise<AdapterInstallResult>>();
 
-/** Key for `installPromises`: the command plus the PATH the probe will use. */
-function inFlightKey(command: string, searchPath?: string): string {
-  return `${command}\u0000${searchPath ?? ""}`;
+/** In-flight global installs, keyed by command alone. */
+const installRuns = new Map<string, Promise<AdapterInstallResult>>();
+
+/** Composite map key over two fields that may contain any character. */
+function joinKey(first: string, second: string): string {
+  return `${first}\u0000${second}`;
+}
+
+/**
+ * Share one in-flight promise per key. The entry is evicted once the promise
+ * settles, whatever the outcome, so callers coalesce without anything being
+ * cached across calls.
+ */
+function coalesce<T>(
+  inFlight: Map<string, Promise<T>>,
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const existing = inFlight.get(key);
+  if (existing) {
+    return existing;
+  }
+  const promise = fn().finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, promise);
+  return promise;
 }
 
 /**
@@ -93,6 +121,31 @@ function inFlightKey(command: string, searchPath?: string): string {
  * spawn; the warning it can emit is worth saying once.
  */
 const warnedOutsideBun = new Set<string>();
+
+/** Commands already reported as unpinnable because `bun` is not on PATH. */
+const warnedMissingBun = new Set<string>();
+
+/**
+ * `command`/`packageSpec` pairs whose install reported success and left the
+ * pin unsatisfied. Nothing the daemon can do reaches the pinned state, so
+ * reinstalling would block every later spawn for the install timeout with no
+ * chance of succeeding. The pair is abandoned for the life of the process.
+ */
+const abandonedPins = new Set<string>();
+
+/** Emit `message` once per key: the pin check runs on every resolution. */
+function warnOnce(
+  seen: Set<string>,
+  key: string,
+  fields: Record<string, unknown>,
+  message: string,
+): void {
+  if (seen.has(key)) {
+    return;
+  }
+  seen.add(key);
+  log.warn(fields, message);
+}
 
 /**
  * Run `execFile` with an AbortController-driven timeout. Returns the stdout
@@ -286,38 +339,70 @@ export function ensureAdapterInstalled(
 
   const bunPath = Bun.which("bun");
   if (!bunPath) {
+    warnOnce(
+      warnedMissingBun,
+      command,
+      { command, packageSpec },
+      "bun is not on PATH; leaving the ACP adapter as-is and skipping the version pin",
+    );
     return Promise.resolve({ installed: false });
   }
 
-  const key = inFlightKey(command, searchPath);
-  const inFlight = installPromises.get(key);
-  if (inFlight) {
-    return inFlight;
-  }
+  // Nothing survives the call: the probe is a manifest read plus a realpath,
+  // cheap enough to repeat, and caching a no-install decision would pin the
+  // daemon to whatever the adapter looked like at first spawn.
+  return coalesce(pinChecks, joinKey(command, searchPath ?? ""), () =>
+    installToPin(bunPath, command, packageSpec, searchPath),
+  );
+}
 
-  // Evicted once settled, whatever the outcome: the probe is a manifest read
-  // plus a realpath, cheap enough to repeat, and caching a no-install decision
-  // would pin the daemon to whatever the adapter looked like at first spawn.
-  const promise = installToPin(
-    bunPath,
-    command,
-    packageSpec,
-    searchPath,
-  ).finally(() => {
-    installPromises.delete(key);
-  });
-  installPromises.set(key, promise);
-  return promise;
+interface PinProbe {
+  /**
+   * `install`: PATH has no adapter, or the bun-linked one is not the pinned
+   * package at the pinned version, which covers an outdated install and one
+   * whose bin another package has taken over.
+   * `external`: PATH selects an adapter bun did not link, so an install would
+   * rewrite the disk without changing which binary spawns.
+   * `satisfied`: the binary a spawn selects is the pin.
+   */
+  action: "install" | "satisfied" | "external";
+  /** The executable a spawn on this search path would select. */
+  binaryPath?: string;
+}
+
+/** What the pin requires of the binary `searchPath` selects right now. */
+async function probePin(
+  command: string,
+  packageSpec: string,
+  searchPath?: string,
+): Promise<PinProbe> {
+  const binaryPath = whichOnPath(command, searchPath);
+  if (!binaryPath) {
+    return { action: "install" };
+  }
+  const { name, version } = splitPackageSpec(packageSpec);
+  if (version === undefined) {
+    return { action: "satisfied", binaryPath };
+  }
+  if (!(await isBunManagedBinary(command, binaryPath))) {
+    return { action: "external", binaryPath };
+  }
+  if (!(await bunLinkOwnedBy(command, name))) {
+    return { action: "install", binaryPath };
+  }
+  const action =
+    (await getInstalledAdapterVersion(command)) === version
+      ? "satisfied"
+      : "install";
+  return { action, binaryPath };
 }
 
 /**
- * A binary missing from PATH always installs, unchanged. One already on PATH
- * skips the install only when bun linked it, the link still resolves into the
- * pinned package, and that package's manifest reports the pinned version. Any
- * other bun-linked case installs, which covers an outdated install and one
- * whose bin another package has taken over. An adapter that came from
- * anywhere else stays put: PATH would keep selecting it, so a bun install
- * would change nothing but the disk.
+ * Install the pin when the probe says PATH does not already select it. The
+ * install is verified by re-probing, since `bun add` exiting 0 does not prove
+ * the pinned binary is what a spawn now runs: a bin link left pointing
+ * elsewhere, or a realpath the daemon may not read, would otherwise reinstall
+ * on every spawn forever.
  */
 async function installToPin(
   bunPath: string,
@@ -325,31 +410,41 @@ async function installToPin(
   packageSpec: string,
   searchPath?: string,
 ): Promise<AdapterInstallResult> {
-  const binaryPath = whichOnPath(command, searchPath);
-  if (!binaryPath) {
-    return runInstall(bunPath, command, packageSpec);
-  }
-  const { name, version } = splitPackageSpec(packageSpec);
-  if (version === undefined) {
+  const probe = await probePin(command, packageSpec, searchPath);
+  if (probe.action === "external") {
+    warnOnce(
+      warnedOutsideBun,
+      command,
+      { command, binaryPath: probe.binaryPath, packageSpec },
+      "ACP adapter is managed outside bun; leaving it in place and skipping the version pin",
+    );
     return { installed: false };
   }
-  if (!(await isBunManagedBinary(command, binaryPath))) {
-    if (!warnedOutsideBun.has(command)) {
-      warnedOutsideBun.add(command);
-      log.warn(
-        { command, binaryPath, packageSpec },
-        "ACP adapter is managed outside bun; leaving it in place and skipping the version pin",
-      );
-    }
+  if (probe.action === "satisfied") {
     return { installed: false };
   }
-  if (!(await bunLinkOwnedBy(command, name))) {
-    return runInstall(bunPath, command, packageSpec);
-  }
-  if ((await getInstalledAdapterVersion(command)) === version) {
+  const pinKey = joinKey(command, packageSpec);
+  if (abandonedPins.has(pinKey)) {
     return { installed: false };
   }
-  return runInstall(bunPath, command, packageSpec);
+  // Probes stay per PATH, but two PATHs spelling the same bun tree reach one
+  // global tree, and racing `bun add --global` against it is the bug.
+  const result = await coalesce(installRuns, command, () =>
+    runInstall(bunPath, command, packageSpec),
+  );
+  if (!result.installed) {
+    return result;
+  }
+  const verified = await probePin(command, packageSpec, searchPath);
+  if (verified.action === "install") {
+    warnOnce(
+      abandonedPins,
+      pinKey,
+      { command, packageSpec, binaryPath: verified.binaryPath },
+      "ACP adapter install reported success but PATH still does not select the pinned version; leaving it alone for the rest of this process",
+    );
+  }
+  return result;
 }
 
 /**
@@ -400,7 +495,10 @@ async function runInstall(
 export interface ResolveWithAutoInstallResult {
   /** The final resolver outcome (post-install re-resolve when applicable). */
   resolved: ResolveAcpAgentResult;
-  /** Set when a missing adapter binary was silently installed via bun. */
+  /**
+   * Set when bun installed the adapter during this resolution, whether it was
+   * missing or merely off the pin, so the caller can explain the delay.
+   */
   autoInstalledPackage?: string;
   /**
    * Set when the auto-install itself failed: the original install hint
@@ -422,14 +520,20 @@ export async function resolveAgentWithAutoInstall(
 ): Promise<ResolveWithAutoInstallResult> {
   const resolved = resolveAcpAgent(agentId);
   if (resolved.ok) {
-    return { resolved: await enforcePin(agentId, resolved.agent) };
+    return enforcePin(agentId, resolved.agent);
   }
   if (resolved.reason !== "binary_not_found") {
     return { resolved };
   }
 
   const { command, hint } = resolved;
-  const install = await ensureAdapterInstalled(command);
+  // The resolver decided `binary_not_found` against the agent's own PATH, so
+  // the recovery probes that PATH too: an adapter the daemon can see and the
+  // agent cannot still needs installing.
+  const install = await ensureAdapterInstalled(
+    command,
+    lookupAcpAgentConfig(agentId)?.env?.PATH,
+  );
   if (install.installed) {
     const retried = resolveAcpAgent(agentId);
     if (retried.ok) {
@@ -455,13 +559,15 @@ export async function resolveAgentWithAutoInstall(
  * A resolution that succeeded still has to satisfy the pin: the adapter on
  * PATH may be an older bun-managed install, or one linked by a different
  * package that owns the same binary name. Reinstall and re-resolve when it
- * does not match. When the reinstall fails, keep the original resolution and
- * warn: a stale adapter still beats no adapter.
+ * does not match, returning the re-resolution even when it failed so the
+ * caller surfaces its actionable hint instead of a bare spawn ENOENT. When
+ * the reinstall fails, keep the original resolution and warn: a stale adapter
+ * still beats no adapter.
  */
 async function enforcePin(
   agentId: string,
   agent: AcpAgentConfig,
-): Promise<ResolveAcpAgentResult> {
+): Promise<ResolveWithAutoInstallResult> {
   const { command } = agent;
   const install = await ensureAdapterInstalled(command, agent.env?.PATH);
   if (install.installed) {
@@ -471,21 +577,28 @@ async function enforcePin(
         { agentId, command },
         "Reinstalled the ACP adapter at its pinned version",
       );
-      return retried;
     }
-  } else if (install.error) {
+    return {
+      resolved: retried,
+      autoInstalledPackage: DEFAULT_AGENT_NPM_PACKAGES[command],
+    };
+  }
+  if (install.error) {
     log.warn(
       { agentId, command, error: install.error },
       "Could not reinstall the ACP adapter at its pinned version; spawning the installed one",
     );
   }
-  return { ok: true, agent };
+  return { resolved: { ok: true, agent } };
 }
 
 /** @internal: exposed for tests only. */
 export function _resetAdapterInstallCacheForTests(): void {
-  installPromises.clear();
+  pinChecks.clear();
+  installRuns.clear();
   warnedOutsideBun.clear();
+  warnedMissingBun.clear();
+  abandonedPins.clear();
   probeDeps = REAL_PROBE_DEPS;
 }
 

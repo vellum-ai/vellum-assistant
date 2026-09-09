@@ -58,6 +58,8 @@ function warnings(): string[] {
     .map((record) => record.message);
 }
 
+const { formatResolveFailure } = await import("./resolve-agent.js");
+
 const {
   ensureAdapterInstalled,
   getInstalledAdapterVersion,
@@ -267,9 +269,29 @@ describe("ensureAdapterInstalled", () => {
   });
 
   test("a settled install is not cached: the next call probes again", async () => {
-    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+    let installedVersion = "0.47.0";
+    which.setWhich({
+      bun: BUN_BIN,
+      "claude-agent-acp": bunLinked("claude-agent-acp"),
+    });
+    _setAdapterVersionProbeDepsForTests({
+      bunInstallDir: () => BUN_ROOT,
+      realpath: fakeRealpath({
+        "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
+      }),
+      readFile: () =>
+        Promise.resolve(JSON.stringify({ version: installedVersion })),
+    });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installedVersion = "0.75.1";
+      },
+    });
 
     await ensureAdapterInstalled("claude-agent-acp");
+    // The adapter drifts off the pin again under the running daemon.
+    installedVersion = "0.47.0";
     await ensureAdapterInstalled("claude-agent-acp");
 
     expect(execFileMock).toHaveBeenCalledTimes(2);
@@ -539,6 +561,56 @@ describe("ensureAdapterInstalled - version pinning", () => {
     expect(warnings().join(" ")).not.toContain("managed outside bun");
   });
 
+  test("an install that leaves the pin unsatisfied is never retried", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
+    // `bun add` will exit 0 without moving the tree off 0.4.0, so no number of
+    // reinstalls can satisfy the pin.
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "0.4.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const first = await ensureAdapterInstalled("codex-acp");
+    const second = await ensureAdapterInstalled("codex-acp");
+    const third = await ensureAdapterInstalled("codex-acp");
+
+    expect(first).toEqual({ installed: true });
+    expect(second).toEqual({ installed: false });
+    expect(third).toEqual({ installed: false });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(
+      warnings().filter((message) =>
+        message.includes("does not select the pinned version"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("two PATHs into the same bun tree run a single install", async () => {
+    const BUN_BIN_DIR = `${BUN_ROOT}/bin`;
+    const ALIAS_BIN_DIR = `${BUN_ALIAS_ROOT}/bin`;
+    which.setWhich((cmd, options) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd !== "codex-acp") {
+        return null;
+      }
+      return options?.PATH === ALIAS_BIN_DIR
+        ? aliasLinked("codex-acp")
+        : bunLinked("codex-acp");
+    });
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "0.4.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const [direct, aliased] = await Promise.all([
+      ensureAdapterInstalled("codex-acp", BUN_BIN_DIR),
+      ensureAdapterInstalled("codex-acp", ALIAS_BIN_DIR),
+    ]);
+
+    // Both probes want the pin, and both are served by one `bun add --global`.
+    expect(direct).toEqual({ installed: true });
+    expect(aliased).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
   test("binary missing from PATH: installs without consulting the probe", async () => {
     which.setWhich({ bun: BUN_BIN });
     _setAdapterVersionProbeDepsForTests({
@@ -620,6 +692,47 @@ describe("resolveAgentWithAutoInstall - resolution order", () => {
       "--global",
       CODEX_SPEC,
     ]);
+  });
+
+  test("recovery probes the agent's own PATH, not the daemon's", async () => {
+    const AGENT_PATH = "/opt/agent/bin";
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "claude-agent-acp",
+          args: [],
+          env: { PATH: AGENT_PATH },
+        },
+      },
+    });
+    let installed = false;
+    which.setWhich((cmd, options) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd !== "claude-agent-acp") {
+        return null;
+      }
+      // The daemon's PATH already reaches a pinned adapter; the agent's does
+      // not, which is the failure the resolver reported.
+      if (options?.PATH !== AGENT_PATH) {
+        return bunLinked("claude-agent-acp");
+      }
+      return installed ? `${AGENT_PATH}/claude-agent-acp` : null;
+    });
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.75.1" });
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        installed = true;
+      },
+    });
+
+    const result = await resolveAgentWithAutoInstall("claude");
+
+    expect(result.resolved.ok).toBe(true);
+    expect(result.autoInstalledPackage).toBe(CLAUDE_SPEC);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
   });
 
   test("binary missing + bun absent: no install, plain failure with the hint", async () => {
@@ -805,7 +918,8 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     const second = await resolveAgentWithAutoInstall("codex");
 
     expect(second.resolved.ok).toBe(true);
-    expect(manifestReads).toBe(2);
+    // One probe per spawn, plus the second spawn's post-install verification.
+    expect(manifestReads).toBe(3);
     expect(execFileMock).toHaveBeenCalledTimes(1);
     expect(execFileMock.mock.calls[0][1]).toEqual([
       "add",
@@ -832,6 +946,39 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     expect(result.failureMessage).toBeUndefined();
     expect(warnings().join(" ")).toContain(
       "Could not reinstall the ACP adapter",
+    );
+  });
+
+  test("post-install resolution failure surfaces the resolver's hint", async () => {
+    let onPath = true;
+    which.setWhich((cmd) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd === "claude-agent-acp" && onPath) {
+        return bunLinked("claude-agent-acp");
+      }
+      return null;
+    });
+    stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.47.0" });
+    // The reinstall unlinks the bin instead of repointing it, so the adapter
+    // the caller was about to spawn is gone.
+    execScripts.set(BUN_ADD_KEY, {
+      stdout: "",
+      onCall: () => {
+        onPath = false;
+      },
+    });
+
+    const result = await resolveAgentWithAutoInstall("claude");
+
+    expect(result.resolved.ok).toBe(false);
+    if (result.resolved.ok) {
+      return;
+    }
+    expect(result.resolved.reason).toBe("binary_not_found");
+    expect(formatResolveFailure("claude", result.resolved)).toContain(
+      `bun add -g ${CLAUDE_SPEC}`,
     );
   });
 

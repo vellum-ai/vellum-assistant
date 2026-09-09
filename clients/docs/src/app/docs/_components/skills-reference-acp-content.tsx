@@ -33,10 +33,10 @@ export function SkillsReferenceACPContent() {
             Setup required
           </SectionHeading>
           <p className="mb-0 text-zinc-600">
-            The protocol adapter is installed automatically the first time you use an agent. For
-            Claude Code that is everything: sign-in runs through an in-app Connect card, so there is
-            nothing to install yourself. The Codex adapter, @agentclientprotocol/codex-acp,
-            includes Codex and reuses your existing Codex login. Say
+            The protocol adapter is installed automatically and kept at the version your Assistant
+            pins. For Claude Code that is everything: sign-in runs through an in-app Connect card,
+            so there is nothing to install yourself. The Codex adapter,
+            @agentclientprotocol/codex-acp, includes Codex and reuses your existing Codex login. Say
             &ldquo;Set up ACP&rdquo; to walk through authentication. Naming Claude Code or Codex is
             also enough: the assistant offers once to connect it here, then continues.
           </p>
