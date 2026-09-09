@@ -29,9 +29,11 @@ mock.module("../messaging/providers/discord/api.js", () => ({
   },
 }));
 
+const { acknowledgedSend } =
+  await import("../messaging/providers/send-result.js");
 const actualSend = await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
-  DiscordPartialSendError: actualSend.DiscordPartialSendError,
+  ...actualSend,
   sendDiscordReply: async (
     target: { channelId: string },
     text: string,
@@ -48,7 +50,7 @@ mock.module("../messaging/providers/discord/send.js", () => ({
         : new Error("simulated component rejection");
     }
     sendCalls.push({ channelId: target.channelId, text, approval });
-    return { lastMessageId: String(2000 + sendCalls.length) };
+    return acknowledgedSend([String(2000 + sendCalls.length)]);
   },
   editDiscordMessage: async (
     target: { channelId: string },

@@ -211,11 +211,17 @@ export function ToolDetailHeaderTitle({
       >
         {title}
       </Typography>
-      <div className="mt-0.5 flex min-w-0 items-center gap-2">
+      {/* Wraps rather than competing for one line. Where the device cannot
+          hover, `RiskChip` renders the tolerance sentence as a second sibling
+          here, and on one line that sentence takes the space the tool name
+          needs: at the drawer's width "Edit File" came out as "Edit...". The
+          tool that ran is the thing this row exists to name, so the sentence
+          moves to its own line instead. */}
+      <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
         <Typography
           variant="body-small-lighter"
           as="span"
-          className="truncate text-[var(--content-tertiary)]"
+          className="shrink-0 truncate text-[var(--content-tertiary)]"
         >
           {friendlyName(detail.toolName)}
         </Typography>
