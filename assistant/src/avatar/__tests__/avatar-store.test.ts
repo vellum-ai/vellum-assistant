@@ -50,8 +50,13 @@ mock.module("../../runtime/sync/resource-sync-events.js", () => ({
 
 /** Every telemetry event the store records, in order. */
 const recorded: Array<{ name: string; fields: Record<string, unknown> }> = [];
+/** When set, the outbox throws it instead of recording (an unmigrated DB). */
+let recordFailure: Error | null = null;
 mock.module("../../telemetry/telemetry-events-outbox.js", () => ({
   recordTelemetryEvent: (name: string, fields: Record<string, unknown>) => {
+    if (recordFailure) {
+      throw recordFailure;
+    }
     recorded.push({ name, fields });
     return { id: "evt", createdAt: 0 };
   },
@@ -107,6 +112,7 @@ describe("avatar-store", () => {
     mkdirSync(avatarDir, { recursive: true });
     publishedOrigins.length = 0;
     recorded.length = 0;
+    recordFailure = null;
   });
 
   afterEach(() => {
@@ -498,6 +504,16 @@ describe("avatar-store", () => {
   describe("avatar_changed telemetry", () => {
     const RED_ACCENT = { accent_hex: "#c81e1e", accent_source: "derived" };
     const events = () => recorded.map((entry) => entry.fields);
+
+    test("a failed record never fails the change: the manifest and fan-out stand", async () => {
+      recordFailure = new Error("no such table: telemetry_events");
+
+      await setImage(RED_PNG, "upload", { originClientId: "web-1" });
+
+      expect(readManifestFile()?.kind).toBe("image");
+      expect(publishedOrigins).toEqual(["web-1"]);
+      expect(recorded).toEqual([]);
+    });
 
     test("an upload over an empty workspace records one image event carrying the client OS", async () => {
       await setImage(RED_PNG, "upload", { clientOs: "macos" });

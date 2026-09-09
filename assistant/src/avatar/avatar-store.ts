@@ -94,7 +94,8 @@ interface AvatarTransition {
 
 /**
  * The side effects every persisted change owes. An identical re-set still
- * notifies but is not counted.
+ * notifies but is not counted. Telemetry is best effort: the avatar is
+ * already written and announced, so a failed record is logged, not thrown.
  */
 function announceChange(
   transition: AvatarTransition,
@@ -106,11 +107,16 @@ function announceChange(
   }
   publishAvatarChanged(options?.originClientId);
   const { action, previous, next, sameImageBytes } = transition;
-  if (!isSameAvatar(previous, next, sameImageBytes)) {
+  if (isSameAvatar(previous, next, sameImageBytes)) {
+    return;
+  }
+  try {
     recordTelemetryEvent(
       "avatar_changed",
       avatarChangedFields(action, previous, next, options?.clientOs),
     );
+  } catch (err) {
+    log.warn({ err, action }, "Failed to record the avatar_changed event");
   }
 }
 
