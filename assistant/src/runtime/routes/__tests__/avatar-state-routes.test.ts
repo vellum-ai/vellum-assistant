@@ -437,6 +437,14 @@ describe("avatar write/remove handlers", () => {
       await expect(
         getHandler("settings_avatar_generate_post")({ body: {} }),
       ).rejects.toThrow(/description is required/);
+      await expect(
+        getHandler("settings_avatar_generate_post")({
+          body: { description: "   " },
+        }),
+      ).rejects.toThrow(/description is required/);
+      await expect(
+        getHandler("avatar_generate")({ body: { description: " \n " } }),
+      ).rejects.toThrow(/description is required/);
       expect(readManifestFile()).toBeNull();
     });
   });

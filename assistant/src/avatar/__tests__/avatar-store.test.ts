@@ -390,6 +390,32 @@ describe("avatar-store", () => {
       expect(content).toContain(`## Avatar\n${note}\n`);
     });
 
+    test("a multi-line description is replaced whole and the next section is intact", async () => {
+      writeFileSync(
+        identityPath(),
+        "# IDENTITY.md\n\n- **Name:** Sage\n\n## Avatar\nA tall ghost.\nIt wears a hat.\n\n## Notes\nkeep me\n",
+      );
+
+      await setImage(RED_PNG, "upload");
+
+      expect(readFileSync(identityPath(), "utf-8")).toBe(
+        "# IDENTITY.md\n\n- **Name:** Sage\n\n## Avatar\nA custom image the user uploaded.\n\n## Notes\nkeep me\n",
+      );
+    });
+
+    test("a multi-line description at the end of the file is replaced whole", async () => {
+      writeFileSync(
+        identityPath(),
+        "# IDENTITY.md\n\n- **Name:** Sage\n\n## Avatar\nA tall ghost.\nIt wears a hat.\n",
+      );
+
+      await setImage(RED_PNG, "upload");
+
+      expect(readFileSync(identityPath(), "utf-8")).toBe(
+        "# IDENTITY.md\n\n- **Name:** Sage\n\n## Avatar\nA custom image the user uploaded.\n",
+      );
+    });
+
     test("the note is appended when IDENTITY.md has no Avatar section", async () => {
       writeFileSync(identityPath(), "# IDENTITY.md\n\n- **Name:** Sage\n");
 

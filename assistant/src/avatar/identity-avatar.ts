@@ -55,6 +55,37 @@ export function describeAvatarState(
   return NO_AVATAR_IDENTITY_NOTE;
 }
 
+const AVATAR_HEADING = "## Avatar";
+const ANY_HEADING = /^#{1,6} /;
+
+/**
+ * The file with its `## Avatar` section, however many lines it spans, replaced
+ * by `description`; appended when there is none. The section runs to the next
+ * heading or the end of the file.
+ */
+function withAvatarSection(content: string, description: string): string {
+  const lines = content.split("\n");
+  const start = lines.findIndex((line) => line.trimEnd() === AVATAR_HEADING);
+  if (start === -1) {
+    return `${content.trimEnd()}\n\n${AVATAR_HEADING}\n${description}\n`;
+  }
+  let end = start + 1;
+  while (end < lines.length && !ANY_HEADING.test(lines[end]!)) {
+    end += 1;
+  }
+  const rest = lines.slice(end);
+  if (rest.length === 0) {
+    return `${[...lines.slice(0, start), AVATAR_HEADING, description].join("\n")}\n`;
+  }
+  return [
+    ...lines.slice(0, start),
+    AVATAR_HEADING,
+    description,
+    "",
+    ...rest,
+  ].join("\n");
+}
+
 /**
  * Update the `## Avatar` section in IDENTITY.md with a plain-text description.
  * If the section doesn't exist, appends it. An unmodified template is left
@@ -85,22 +116,8 @@ export function updateIdentityAvatarSection(description: string): void {
     return;
   }
 
-  const sectionBody = `## Avatar\n${description}\n`;
-
-  // Match ## Avatar and its content up to (but not including) the next heading
-  // at any level, or end of file. Uses multiline ^ to match headings at line start.
-  const avatarSectionRegex = /## Avatar\n[\s\S]*?(?=^#{1,6} |\s*$)/m;
-
-  let updated: string;
-  if (avatarSectionRegex.test(content)) {
-    updated = content.replace(avatarSectionRegex, sectionBody);
-  } else {
-    // Append the section
-    updated = content.trimEnd() + "\n\n" + sectionBody + "\n";
-  }
-
   try {
-    writeFileSync(identityPath, updated, "utf-8");
+    writeFileSync(identityPath, withAvatarSection(content, description), "utf-8");
   } catch (err) {
     log.warn({ err }, "Failed to update IDENTITY.md avatar section");
   }

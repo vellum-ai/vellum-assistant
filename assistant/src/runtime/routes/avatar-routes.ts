@@ -159,9 +159,8 @@ function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
 }
 
 async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
-  const description = (body as Record<string, unknown>)?.description as
-    | string
-    | undefined;
+  const raw = (body as Record<string, unknown>)?.description;
+  const description = typeof raw === "string" ? raw.trim() : "";
   if (!description) {
     throw new BadRequestError("description is required");
   }
