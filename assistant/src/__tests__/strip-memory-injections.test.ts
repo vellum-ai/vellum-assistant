@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import { stripSpotlightInjections } from "../context/strip-injections.js";
+import {
+  LEGACY_MEMORY_SPOTLIGHT_MATCHER,
+  MEMORY_POINTER_MATCHER,
+  stripInjectionsForCompaction,
+  stripTailUserTextBlocksByPrefix,
+} from "../context/strip-injections.js";
 import { stripExistingMemoryInjections } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
+import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -220,49 +225,92 @@ describe("stripExistingMemoryInjections", () => {
 });
 
 // ---------------------------------------------------------------------------
-// stripSpotlightInjections: leftover memory-v3 spotlight blocks are removed
-// from every user message (compaction leftover cleanup). Frozen `<memory>`
-// card blocks must never be touched (the cache contract).
+// The memory-v3 pointer strip is TAIL-ONLY at assembly (a re-entry must not
+// double-stack the current turn's pointer) and history-wide only under
+// compaction. Historical user messages keep the pointer they were sent with,
+// and frozen `<memory>` section blocks are never touched (the cache contract).
 // ---------------------------------------------------------------------------
 
-const spotlightBlock = (inner: string): ContentBlock => ({
+const pointerBlock = (inner: string): ContentBlock => ({
   type: "text",
-  text: wrapMemorySpotlightBlock(inner),
+  text: wrapMemoryPointerBlock(inner),
 });
 
-describe("stripSpotlightInjections", () => {
-  test("strips spotlight blocks from every user message, leaving <memory> blocks intact", () => {
+describe("tail pointer strip (MEMORY_POINTER_MATCHER)", () => {
+  test("strips the tail's pointer only; earlier turns keep theirs and <memory> blocks stay", () => {
     const messages = [
-      userMsg(memoryTextBlock, textBlock("first"), spotlightBlock("s1")),
+      userMsg(memoryTextBlock, textBlock("first"), pointerBlock("p1")),
       assistantMsg("ok"),
-      userMsg(memoryTextBlock, textBlock("second"), spotlightBlock("s2")),
+      userMsg(memoryTextBlock, textBlock("second"), pointerBlock("p2")),
     ];
-    const result = stripSpotlightInjections(messages);
-    expect(result[0].content).toEqual([memoryTextBlock, textBlock("first")]);
-    expect(result[1]).toBe(messages[1]); // assistant message untouched
+    const result = stripTailUserTextBlocksByPrefix(messages, [
+      MEMORY_POINTER_MATCHER,
+    ]);
+    // Historical turn untouched, identity preserved.
+    expect(result[0]).toBe(messages[0]);
+    expect(result[1]).toBe(messages[1]);
     expect(result[2].content).toEqual([memoryTextBlock, textBlock("second")]);
   });
 
-  test("requires the full wrapper: user text merely starting with the tag survives", () => {
-    const lookalike = textBlock("<memory_spotlight>\nnot really a block");
+  test("requires the full wrapper: tail text merely starting with the tag survives", () => {
+    const lookalike = textBlock("<memory_pointer>\nnot really a block");
     const messages = [userMsg(lookalike, textBlock("hello"))];
-    const result = stripSpotlightInjections(messages);
+    const result = stripTailUserTextBlocksByPrefix(messages, [
+      MEMORY_POINTER_MATCHER,
+    ]);
     expect(result[0].content).toEqual([lookalike, textBlock("hello")]);
   });
 
-  test("content no-op when no spotlight blocks exist", () => {
-    const messages = [
-      userMsg(memoryTextBlock, textBlock("hello")),
+  test("no-op when the tail carries no pointer or is not a user message", () => {
+    const withoutPointer = [
+      userMsg(memoryTextBlock, textBlock("hello"), pointerBlock("stale")),
       assistantMsg("hi"),
-      userMsg(imageBlock),
     ];
-    const result = stripSpotlightInjections(messages);
-    expect(result).toEqual(messages);
-    // Untouched messages keep their identity (cheap no-op detection upstream).
-    expect(result[0]).toBe(messages[0]);
+    expect(
+      stripTailUserTextBlocksByPrefix(withoutPointer, [MEMORY_POINTER_MATCHER]),
+    ).toBe(withoutPointer);
+    const plain = [userMsg(memoryTextBlock, textBlock("hello"))];
+    expect(
+      stripTailUserTextBlocksByPrefix(plain, [MEMORY_POINTER_MATCHER]),
+    ).toBe(plain);
   });
 
-  test("no-op for empty messages array", () => {
-    expect(stripSpotlightInjections([])).toEqual([]);
+  test("a legacy <memory_spotlight> persisted by an earlier build is tail-stripped and compaction-stripped like the pointer", () => {
+    const spotlight = textBlock(
+      "<memory_spotlight>\nlegacy matched section\n</memory_spotlight>",
+    );
+    const messages = [
+      userMsg(memoryTextBlock, textBlock("first"), spotlight),
+      assistantMsg("ok"),
+      userMsg(memoryTextBlock, textBlock("second"), spotlight),
+    ];
+    const tailStripped = stripTailUserTextBlocksByPrefix(messages, [
+      MEMORY_POINTER_MATCHER,
+      LEGACY_MEMORY_SPOTLIGHT_MATCHER,
+    ]);
+    expect(tailStripped[0]).toBe(messages[0]);
+    expect(tailStripped[2].content).toEqual([
+      memoryTextBlock,
+      textBlock("second"),
+    ]);
+
+    const compacted = stripInjectionsForCompaction([
+      userMsg(textBlock("first"), spotlight),
+      assistantMsg("ok"),
+      userMsg(textBlock("second"), spotlight),
+    ]);
+    expect(compacted[0].content).toEqual([textBlock("first")]);
+    expect(compacted[2].content).toEqual([textBlock("second")]);
+  });
+
+  test("compaction strips every turn's pointer along with the other runtime injections", () => {
+    const messages = [
+      userMsg(textBlock("first"), pointerBlock("p1")),
+      assistantMsg("ok"),
+      userMsg(textBlock("second"), pointerBlock("p2")),
+    ];
+    const result = stripInjectionsForCompaction(messages);
+    expect(result[0].content).toEqual([textBlock("first")]);
+    expect(result[2].content).toEqual([textBlock("second")]);
   });
 });

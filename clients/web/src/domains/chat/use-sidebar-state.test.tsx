@@ -713,3 +713,157 @@ describe("useSidebarState index unread threading", () => {
     );
   });
 });
+
+describe("useSidebarState assistant-initiated section", () => {
+  test("renders from the index row, at the foot of the list", () => {
+    // It sits at the bottom, directly above the Preferences footer.
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 3, unread: 1 },
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    const sections = result.current.sections;
+    expect(sections.at(-1)?.key).toBe("assistant");
+    expect(sections.at(-1)?.label).toBe("On My Mind");
+  });
+
+  test("stays at the foot under a stored order that puts it first", () => {
+    // The pin is applied to the rendered order, not to the stored preference,
+    // so an order written before this section existed — or one a drag left
+    // saying otherwise — still resolves to the bottom.
+    // Chats before Pinned inverts the default, so this also proves the stored
+    // order is genuinely being read — otherwise the assertion below would
+    // hold for the default order too and prove nothing.
+    localStorage.setItem(
+      "vellum:sidebar-section-order:asst-1",
+      JSON.stringify(["assistant", "recents", "pinned"]),
+    );
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 3, unread: 1 },
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections.map((s) => s.key)).toEqual([
+      "recents",
+      "pinned",
+      "assistant",
+    ]);
+  });
+
+  test("cannot be nudged out of its slot, and nothing can be nudged past it", () => {
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 3, unread: 1 },
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    // The pinned section itself never moves.
+    expect(result.current.canMoveSection("assistant", -1)).toBe(false);
+    expect(result.current.canMoveSection("assistant", 1)).toBe(false);
+    // And Chats, the last orderable section, has nowhere further down to go —
+    // rather than offering a swap the pin would silently undo.
+    expect(result.current.canMoveSection("recents", 1)).toBe(false);
+    expect(result.current.canMoveSection("recents", -1)).toBe(true);
+  });
+
+  test("renders at zero, the way Chats does", () => {
+    // Every other section exists only when it has rows. This one has an empty
+    // state whose whole job is explaining the section to someone with none.
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 0, unread: 0 },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections.some((s) => s.key === "assistant")).toBe(
+      true,
+    );
+  });
+
+  test("carries the index unread onto the section", () => {
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 4, unread: 2 },
+      { kind: "chats", total: 0, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(sectionFor(result.current.sections, "assistant")).toHaveProperty(
+      "unread",
+      2,
+    );
+  });
+
+  test("no index row means no section — the flag-off and old-daemon answer", () => {
+    // The daemon emits the row only under `assistant-initiated-threads`, and
+    // with the flag off it also leaves those threads in Chats. Absence of the
+    // row is therefore the whole gate; there is no client-side flag to check.
+    sidebarSectionsImpl = [
+      { kind: "pinned", total: 1, unread: 0 },
+      { kind: "chats", total: 5, unread: 0 },
+    ];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations: [] }),
+    );
+
+    expect(result.current.sections.some((s) => s.key === "assistant")).toBe(
+      false,
+    );
+  });
+
+  test("the derived path never invents the section", () => {
+    // Membership rides `source`, which the derived fallback cannot know
+    // without the complete list a windowed list never drains.
+    const { result } = renderHook(() =>
+      useSidebarState({
+        assistantId: "asst-1",
+        conversations: [makeConversation(0)],
+      }),
+    );
+
+    expect(result.current.sections.some((s) => s.key === "assistant")).toBe(
+      false,
+    );
+  });
+
+  test("takes no rows from the derived buckets", () => {
+    // Those rows are withheld from the foreground list the buckets are built
+    // from, so there is nothing to fall back to and the section's own query
+    // is the only thing that fills it. An `all` seeded from `recents` here
+    // would render Chats' conversations under the assistant's header.
+    sidebarSectionsImpl = [
+      { kind: "assistant", total: 2, unread: 0 },
+      { kind: "chats", total: 3, unread: 0 },
+    ];
+    const conversations = [makeConversation(0), makeConversation(1)];
+
+    const { result } = renderHook(() =>
+      useSidebarState({ assistantId: "asst-1", conversations }),
+    );
+
+    expect(sectionFor(result.current.sections, "assistant").all).toHaveLength(
+      0,
+    );
+    expect(sectionFor(result.current.sections, "recents").all).toHaveLength(2);
+  });
+});

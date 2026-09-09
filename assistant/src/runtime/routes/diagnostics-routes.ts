@@ -33,7 +33,13 @@ const log = getLogger("diagnostics-routes");
 // Dictation
 // ---------------------------------------------------------------------------
 
-type DictationMode = "dictation" | "command" | "action";
+/**
+ * `command` is a selection changed by the words, `question` a selection the
+ * words asked about. Both need selected text; which one comes back is the
+ * model's reading of the words, so a client that holds a key over a passage
+ * and says "what does this mean" is not handed a rewrite of it.
+ */
+type DictationMode = "dictation" | "command" | "action" | "question";
 
 const DICTATION_CLASSIFICATION_TIMEOUT_MS = 5000;
 const MAX_WINDOW_TITLE_LENGTH = 100;
@@ -115,12 +121,12 @@ function buildCombinedDictationPrompt(
 
 function buildCommandPrompt(body: DictationBody, stylePrompt?: string): string {
   const sections = [
-    "You are a text transformation assistant. The user has selected text and given a voice command to transform it.",
+    "You are a text transformation assistant. The user has selected text and spoken. The words are either an instruction to change the selected text or a question about it.",
     "",
     "## Rules",
-    "- Apply the instruction to the selected text",
-    "- Return ONLY the transformed text, nothing else",
-    "- Do NOT add explanations or commentary",
+    "- If the words ask for a changed version of the selected text (rewrite, shorten, translate, fix, make it lighter, turn it into a list), kind is edit and text is ONLY the transformed text, nothing else",
+    "- If the words ask about the selected text rather than for a changed version of it (what does this mean, is this right, who said this, summarize it for me), kind is answer and text is empty",
+    "- Do NOT add explanations or commentary to an edit",
   ];
 
   if (stylePrompt) {
@@ -399,20 +405,69 @@ async function handleCommandMode(
       };
     }
 
+    const modelStartedAt = Date.now();
     const response = await provider.sendMessage(
       [userMessage(body.transcription)],
       {
-        tools: [],
+        tools: [
+          {
+            name: "transform_selection",
+            description:
+              "Return the selected text changed as instructed, or say the words were a question about it",
+            input_schema: {
+              type: "object" as const,
+              properties: {
+                kind: {
+                  type: "string",
+                  enum: ["edit", "answer"],
+                  description:
+                    "edit = the words ask for a changed version of the selected text. answer = the words ask about the selected text and no changed version is wanted.",
+                },
+                text: {
+                  type: "string",
+                  description:
+                    "If edit: the transformed text only, ready to replace the selection. If answer: empty.",
+                },
+              },
+              required: ["kind", "text"],
+            },
+          },
+        ],
         systemPrompt,
-        config: { callSite: "interactionClassifier", max_tokens: maxTokens },
+        config: {
+          callSite: "interactionClassifier",
+          max_tokens: maxTokens,
+          tool_choice: { type: "tool" as const, name: "transform_selection" },
+        },
       },
     );
 
-    const textBlock = response.content.find((b) => b.type === "text");
+    const toolBlock = extractToolUse(response);
+    const input = (toolBlock?.input ?? {}) as { kind?: string; text?: string };
+    const edited = input.text?.trim() ?? "";
+    const isQuestion =
+      input.kind === "answer" || (toolBlock !== undefined && !edited);
+    log.info(
+      {
+        mode: isQuestion ? "question" : "command",
+        modelMs: Date.now() - modelStartedAt,
+        inChars: inputLength,
+        outChars: edited.length,
+      },
+      "LLM selection transform",
+    );
+    if (isQuestion) {
+      return {
+        text: body.transcription,
+        mode: "question",
+        ...profileMeta,
+      };
+    }
+    // No tool block at all is a model that did not answer the question
+    // asked; the selection goes back unchanged, which a client reads as
+    // nothing to put in its place.
     const cleanedText =
-      textBlock && "text" in textBlock
-        ? textBlock.text.trim()
-        : (body.context.selectedText ?? body.transcription);
+      edited || (body.context.selectedText ?? body.transcription);
     const normalizedText = applyDictionary(cleanedText, profile.dictionary);
     return {
       text: normalizedText,
@@ -453,7 +508,11 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: DictationRequestSchema,
     responseBody: z.object({
       text: z.string().describe("Processed text output"),
-      mode: z.string().describe("Detected mode: dictation, command, or action"),
+      mode: z
+        .string()
+        .describe(
+          "Detected mode: dictation, command, action, or question (selected text the words asked about rather than changed; text is the transcription)",
+        ),
       actionPlan: z
         .string()
         .optional()

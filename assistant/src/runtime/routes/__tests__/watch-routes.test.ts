@@ -8,10 +8,11 @@ import type {
 import type { WatchSessionSummary } from "../../../watch/watch-session-manager.js";
 import { WatchSessionManager } from "../../../watch/watch-session-manager.js";
 import { renderWatchTimeline } from "../../../watch/watch-timeline.js";
-import type { HostObservation } from "../../host-observe.js";
+import type { HostCaptureTarget, HostObservation } from "../../host-observe.js";
 import {
   closeWatchIngress,
   drainWatchRetros,
+  parseWatchCaptureTarget,
   reopenWatchIngressForTest,
   type WatchStreamServerFrame,
   WatchStreamSession,
@@ -118,6 +119,7 @@ interface HarnessOverrides {
   idleTimeoutMs?: number;
   /** How long the stand-in retrospective takes before it settles. */
   retroDelayMs?: number;
+  captureTarget?: HostCaptureTarget;
 }
 
 function newSession(overrides: HarnessOverrides = {}) {
@@ -147,6 +149,9 @@ function newSession(overrides: HarnessOverrides = {}) {
     },
     ...(overrides.idleTimeoutMs !== undefined
       ? { idleTimeoutMs: overrides.idleTimeoutMs }
+      : {}),
+    ...(overrides.captureTarget !== undefined
+      ? { captureTarget: overrides.captureTarget }
       : {}),
   });
   return { ws, transcriber, manager, session, retros, finished };
@@ -189,6 +194,27 @@ describe("watch stream session", () => {
     // timeline does not have. The two reads themselves are acknowledged, which
     // is the case below.
     expect(ws.lifecycle()).toEqual(["ready"]);
+
+    session.handleMessage(JSON.stringify({ type: "stop" }));
+    transcriber!.emit({ type: "closed" });
+  });
+
+  test("hands the session's capture target to the manager", async () => {
+    const targets: (HostCaptureTarget | undefined)[] = [];
+    const manager = new WatchSessionManager({
+      observe: async (options) => {
+        targets.push(options.captureTarget);
+        return observation();
+      },
+    });
+    const { session, transcriber } = newSession({
+      manager,
+      captureTarget: { kind: "display", displayId: 69734400 },
+    });
+    await session.start();
+    await Bun.sleep(5);
+
+    expect(targets).toEqual([{ kind: "display", displayId: 69734400 }]);
 
     session.handleMessage(JSON.stringify({ type: "stop" }));
     transcriber!.emit({ type: "closed" });
@@ -594,5 +620,48 @@ describe("watch stream session", () => {
     // A second close is a no-op rather than a second stop.
     session.handleClose(1006, "abnormal closure");
     expect(transcriber!.stopCount).toBe(1);
+  });
+});
+
+/**
+ * The pick on the upgrade URL. The two names are the two kinds of target, and
+ * a request that names both or names one badly is turned away before a
+ * session exists rather than resolved into whichever guess reads better.
+ */
+describe("parseWatchCaptureTarget", () => {
+  const parse = (query: string) =>
+    parseWatchCaptureTarget(new URLSearchParams(query));
+
+  test("reads a display", () => {
+    expect(parse("captureDisplayId=69734400")).toEqual({
+      captureTarget: { kind: "display", displayId: 69734400 },
+    });
+  });
+
+  test("reads a window", () => {
+    expect(parse("captureWindowId=4211")).toEqual({
+      captureTarget: { kind: "window", windowId: 4211 },
+    });
+  });
+
+  test("names nothing when neither is given", () => {
+    expect(parse("mimeType=audio/pcm")).toEqual({});
+  });
+
+  test("refuses both at once", () => {
+    const result = parse("captureDisplayId=1&captureWindowId=2");
+    expect("error" in result).toBe(true);
+  });
+
+  test("refuses anything that is not a whole number", () => {
+    for (const query of [
+      "captureWindowId=abc",
+      "captureWindowId=-1",
+      "captureWindowId=1.5",
+      "captureWindowId=",
+      "captureDisplayId=0x10",
+    ]) {
+      expect("error" in parse(query)).toBe(true);
+    }
   });
 });

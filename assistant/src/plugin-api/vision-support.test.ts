@@ -17,6 +17,12 @@ interface MockProfileEntry {
   model?: string;
   status?: string;
   mix?: Array<{ profile: string; weight: number }>;
+  inputModalities?: {
+    text?: { enabled?: boolean; supported?: boolean };
+    image?: { enabled?: boolean; supported?: boolean };
+    audio?: { enabled?: boolean; supported?: boolean };
+    video?: { enabled?: boolean; supported?: boolean };
+  };
 }
 
 let mockProfiles: Record<string, MockProfileEntry> = {};
@@ -103,6 +109,49 @@ describe("doesSupportVision", () => {
     expect(doesSupportVision(profile("unknown-model"))).toBe(false);
   });
 
+  test("an openai-compatible profile sends images when the override declares support", () => {
+    setMockConfig({
+      gateway: {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        inputModalities: { image: { enabled: true, supported: true } },
+      },
+    });
+    expect(doesSupportVision(profile("gateway"))).toBe(true);
+  });
+
+  test("an openai-compatible profile without an override still fail-closes", () => {
+    setMockConfig({
+      gateway: {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+      },
+    });
+    expect(doesSupportVision(profile("gateway"))).toBe(false);
+  });
+
+  test("enabling image without declaring support keeps the catalog value", () => {
+    setMockConfig({
+      gateway: {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        inputModalities: { image: { enabled: true } },
+      },
+    });
+    expect(doesSupportVision(profile("gateway"))).toBe(false);
+  });
+
+  test("a catalog vision model can be policy-disabled on the profile", () => {
+    setMockConfig({
+      "vision-profile": {
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+        inputModalities: { image: { enabled: false } },
+      },
+    });
+    expect(doesSupportVision(profile("vision-profile"))).toBe(false);
+  });
+
   test("implies the provider from the catalog when profile only sets model", () => {
     setMockConfig({ "model-only": { model: "claude-opus-4-6" } });
     expect(doesSupportVision(profile("model-only"))).toBe(true);
@@ -140,6 +189,27 @@ describe("doesSupportVision", () => {
         model: "accounts/fireworks/models/glm-5p2",
       },
       "vision-arm": { provider: "anthropic", model: "claude-opus-4-6" },
+    });
+    expect(doesSupportVision(profile("mix-profile"))).toBe(true);
+  });
+
+  test("mix profile returns true when an unknown arm declares image support", () => {
+    setMockConfig({
+      "mix-profile": {
+        mix: [
+          { profile: "text-arm", weight: 0.5 },
+          { profile: "gateway-arm", weight: 0.5 },
+        ],
+      },
+      "text-arm": {
+        provider: "fireworks",
+        model: "accounts/fireworks/models/glm-5p2",
+      },
+      "gateway-arm": {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        inputModalities: { image: { enabled: true, supported: true } },
+      },
     });
     expect(doesSupportVision(profile("mix-profile"))).toBe(true);
   });
@@ -314,5 +384,16 @@ describe("doesSupportVision with a bare string", () => {
   test("returns false for a string that is neither a model nor a profile", () => {
     setMockConfig({});
     expect(doesSupportVision("some-unknown-string")).toBe(false);
+  });
+
+  test("honors a free-text image override when looked up by model id", () => {
+    setMockConfig({
+      gateway: {
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        inputModalities: { image: { enabled: true, supported: true } },
+      },
+    });
+    expect(doesSupportVision("qwen2.5-vl")).toBe(true);
   });
 });

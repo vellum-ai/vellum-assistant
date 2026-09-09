@@ -16,12 +16,14 @@ import { PendingConfirmationRow } from "@/domains/chat/transcript/pending-confir
 import { PendingContactRecordRequestRow } from "@/domains/chat/transcript/pending-contact-record-request-row";
 import { PendingContactRequestRow } from "@/domains/chat/transcript/pending-contact-request-row";
 import { PendingSecretRow } from "@/domains/chat/transcript/pending-secret-row";
+import { DeletedMessageRow } from "@/domains/chat/transcript/deleted-message-row";
 import { NoResponseRow } from "@/domains/chat/transcript/no-response-row";
 import { ReactionLineRow } from "@/domains/chat/transcript/reaction-line-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
+import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 import { isPointerCoarse } from "@/utils/pointer";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -225,6 +227,20 @@ export const TranscriptRow = memo(function TranscriptRow({
   const { t } = useTranslation("chat");
   switch (item.kind) {
     case "message": {
+      // A row deleted on its channel renders as a tombstone whatever else it
+      // is: the channel no longer shows it, so neither does the transcript.
+      // The shell keeps the row addressable and its content behind Inspect.
+      if (isChannelDeleted(item.message)) {
+        return (
+          <SubstitutedMessageShell
+            message={item.message}
+            conversationId={conversationId}
+            onInspectMessage={onInspectMessage}
+          >
+            <DeletedMessageRow />
+          </SubstitutedMessageShell>
+        );
+      }
       // Daemon-authored status cards render as standalone system notices,
       // outside the persona bubble/avatar/hover-action machinery.
       if (item.message.isSystemCard) {

@@ -85,6 +85,9 @@ function makeChunk(params: {
 
 export function extractDocsPageFromHtml(route: string, html: string): DocsSearchChunk[] {
   const $ = load(html);
+  // Structured-data payloads would otherwise be indexed as section prose.
+  $("script, iframe").remove();
+
   const main = $(".docs-main").first();
 
   const pageTitle = elementText($, main.find("h1").first()) || "Docs";

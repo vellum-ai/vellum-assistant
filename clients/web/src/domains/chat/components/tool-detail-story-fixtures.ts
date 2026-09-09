@@ -647,9 +647,55 @@ export const thinkingDetail: ToolDetailPayload = payload({
 });
 
 /**
- * The `web_search` variant. `ToolDetailPanel` has no branch for this kind, so
- * only `SubagentDetailPanel` renders it as a search view; opened through the
- * standard panel it would fall through to the generic tool treatment.
+ * `web_fetch`. Its result carries a small header (requested and final URL,
+ * status, any notices) above a `Content:` marker, which the fetch view parses
+ * into a page-shaped summary instead of showing the envelope.
+ */
+export const webFetchDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-fetch-1",
+  toolName: "web_fetch",
+  title: "Fetching a webpage",
+  activity: "Reading the autodocs page",
+  input: {
+    activity: "Reading the autodocs page",
+    url: "https://storybook.js.org/docs/writing-docs/autodocs",
+    max_chars: 20000,
+  },
+  result: [
+    "Requested URL: https://storybook.js.org/docs/writing-docs/autodocs",
+    "Final URL: https://storybook.js.org/docs/writing-docs/autodocs",
+    "Status: 200",
+    "Content:",
+    "# Autodocs",
+    "",
+    "Storybook can automatically generate a documentation page from a set of",
+    "stories by adding the `autodocs` tag to a component's meta.",
+  ].join("\n"),
+  riskLevel: "low",
+});
+
+/**
+ * A search that failed. There are no sources to lay out, so it deliberately
+ * falls through to the generic body, where the error renders in full the way
+ * any other failed tool's does.
+ */
+export const webSearchErrorDetail: ToolDetailPayload = payload({
+  toolCallId: "tc-web-search-2",
+  toolName: "web_search",
+  title: "Searching the web",
+  activity: "Searching for Storybook autodocs configuration",
+  kind: "web_search",
+  input: { activity: "Searching the web", query: "storybook autodocs tag" },
+  searchQuery: "storybook autodocs tag",
+  searchResults: [],
+  result:
+    "Error: the search provider returned 503 Service Unavailable after 3 attempts.",
+  status: "error",
+});
+
+/**
+ * The `web_search` variant: the query and the sources it found, in place of the
+ * input and output blocks.
  */
 export const webSearchDetail: ToolDetailPayload = payload({
   toolCallId: "tc-web-search-1",

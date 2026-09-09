@@ -20,6 +20,7 @@ import { listHeartbeatRuns } from "../../heartbeat/heartbeat-run-store.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
+import { resolveScheduleTimezone } from "../../schedule/schedule-timezone.js";
 import { readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
@@ -35,6 +36,41 @@ import {
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("heartbeat-routes");
+
+const HeartbeatConfigResponseSchema = z.object({
+  enabled: z.boolean(),
+  intervalMs: z.number(),
+  activeHoursStart: z.number().nullable(),
+  activeHoursEnd: z.number().nullable(),
+  cronExpression: z.string().nullable(),
+  timezone: z.string().nullable(),
+  effectiveTimezone: z
+    .string()
+    .nullable()
+    .describe(
+      "Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's configured or detected zone",
+    ),
+  nextRunAt: z.number().nullable(),
+  lastRunAt: z.number().nullable(),
+  success: z.boolean(),
+});
+
+function heartbeatConfigResponse() {
+  const heartbeat = getConfig().heartbeat;
+  const svc = HeartbeatService.getInstance();
+  return {
+    enabled: heartbeat.enabled,
+    intervalMs: heartbeat.intervalMs,
+    activeHoursStart: heartbeat.activeHoursStart ?? null,
+    activeHoursEnd: heartbeat.activeHoursEnd ?? null,
+    cronExpression: heartbeat.cronExpression ?? null,
+    timezone: heartbeat.timezone ?? null,
+    effectiveTimezone: resolveScheduleTimezone(heartbeat.timezone),
+    nextRunAt: svc?.nextRunAt ?? null,
+    lastRunAt: svc?.lastRunAt ?? null,
+    success: true,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Handlers (transport-agnostic)
@@ -196,32 +232,8 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get heartbeat config",
     description: "Return the current heartbeat schedule configuration.",
     tags: ["heartbeat"],
-    responseBody: z.object({
-      enabled: z.boolean(),
-      intervalMs: z.number(),
-      activeHoursStart: z.number().nullable(),
-      activeHoursEnd: z.number().nullable(),
-      cronExpression: z.string().nullable(),
-      timezone: z.string().nullable(),
-      nextRunAt: z.number().nullable(),
-      lastRunAt: z.number().nullable(),
-      success: z.boolean(),
-    }),
-    handler: async (_args: RouteHandlerArgs) => {
-      const config = getConfig().heartbeat;
-      const svc = HeartbeatService.getInstance();
-      return {
-        enabled: config.enabled,
-        intervalMs: config.intervalMs,
-        activeHoursStart: config.activeHoursStart ?? null,
-        activeHoursEnd: config.activeHoursEnd ?? null,
-        cronExpression: config.cronExpression ?? null,
-        timezone: config.timezone ?? null,
-        nextRunAt: svc?.nextRunAt ?? null,
-        lastRunAt: svc?.lastRunAt ?? null,
-        success: true,
-      };
-    },
+    responseBody: HeartbeatConfigResponseSchema,
+    handler: async (_args: RouteHandlerArgs) => heartbeatConfigResponse(),
   },
   {
     operationId: "updateHeartbeatConfig",
@@ -258,19 +270,9 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .nullable()
         .optional()
-        .describe("Timezone for cron evaluation"),
+        .describe("Timezone for cron and active-hours evaluation"),
     }),
-    responseBody: z.object({
-      enabled: z.boolean(),
-      intervalMs: z.number(),
-      activeHoursStart: z.number().nullable(),
-      activeHoursEnd: z.number().nullable(),
-      cronExpression: z.string().nullable(),
-      timezone: z.string().nullable(),
-      nextRunAt: z.number().nullable(),
-      lastRunAt: z.number().nullable(),
-      success: z.boolean(),
-    }),
+    responseBody: HeartbeatConfigResponseSchema,
     handler: async ({ body = {} }: RouteHandlerArgs) => {
       // Build a patch containing only the fields the caller actually set.
       // Writing back the full Zod-defaulted heartbeat object would bake
@@ -316,24 +318,10 @@ export const ROUTES: RouteDefinition[] = [
         throw new InternalError("Failed to save config");
       }
 
-      // Read effective values back through the schema-defaulting loader so
-      // callers that only set a subset of fields still see the resolved
-      // (post-default) shape in the response.
-      const heartbeat = getConfig().heartbeat;
       const svc = HeartbeatService.getInstance();
       svc?.reconfigure();
 
-      return {
-        enabled: heartbeat.enabled,
-        intervalMs: heartbeat.intervalMs,
-        activeHoursStart: heartbeat.activeHoursStart ?? null,
-        activeHoursEnd: heartbeat.activeHoursEnd ?? null,
-        cronExpression: heartbeat.cronExpression ?? null,
-        timezone: heartbeat.timezone ?? null,
-        nextRunAt: svc?.nextRunAt ?? null,
-        lastRunAt: svc?.lastRunAt ?? null,
-        success: true,
-      };
+      return heartbeatConfigResponse();
     },
   },
   {

@@ -199,6 +199,62 @@ export function groupContentBlocks(
 }
 
 /**
+ * Where an assistant response's final answer begins: the index of the last
+ * non-empty text group, extended left across every surface that group sits
+ * after and the prose introducing those surfaces. Everything before the
+ * returned index is the turn's intermediate work, which the render body
+ * collapses into "Earlier activity".
+ *
+ * A surface is part of the answer, not the work behind it, so a turn that
+ * replies with prose and an interactive surface keeps its prose in the answer
+ * even when a scrap of text trails the surface. That is the shape the
+ * onboarding greeting produces: greeting, `ui_show`, choice surface, then a
+ * lone emoji.
+ *
+ * `drawsVisibleOutput` reports whether a group draws anything the user can
+ * see: a timeline row, a dedicated inline card (subagent, workflow, ACP run,
+ * background task, answered question), or other visible group output. A group
+ * that draws nothing cannot separate two that do, so the walk passes straight
+ * through it. The `ui_show` call that opened a surface draws no output of its
+ * own, and neither does a thought whose reasoning never arrived. The first
+ * activity group that does draw visible output is real intermediate work and
+ * ends the answer.
+ *
+ * Returns -1 when the response carries no text at all, which leaves every group
+ * outside the answer's range.
+ */
+export function finalResponseStartIndex(
+  groups: readonly ContentBlockGroup[],
+  drawsVisibleOutput: (group: ContentBlockGroup, index: number) => boolean,
+): number {
+  const lastTextIndex = groups.findLastIndex(
+    (group) => group.type === "text" && group.text.trim().length > 0,
+  );
+  let start = lastTextIndex;
+  let crossedSurface = false;
+  for (let index = lastTextIndex - 1; index >= 0; index--) {
+    const group = groups[index];
+    if (!group || !drawsVisibleOutput(group, index)) {
+      continue;
+    }
+    if (group.type === "surface") {
+      crossedSurface = true;
+      start = index;
+      continue;
+    }
+    // Prose joins the answer only once the walk has crossed a surface it could
+    // be introducing. Text that merely precedes more text is a lead-in to the
+    // work between them, and stays collapsible.
+    if (group.type === "text" && crossedSurface) {
+      start = index;
+      continue;
+    }
+    break;
+  }
+  return start;
+}
+
+/**
  * Project an activity group's ordered items into the card-rendering shape:
  * ordered `ToolCallCardItem`s (thinking text interleaved with tool calls)
  * plus the flat tool-call list. Empty thinking segments and suppressed UI
@@ -335,12 +391,35 @@ export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
 }
 
 /**
+ * Whether an activity group's tool calls produce a dedicated inline card
+ * rather than a timeline row: a subagent spawn, or a call the render path
+ * treats as card-backed (workflow, ACP run, background task, answered
+ * question). Those cards are visible output and bound the final-response walk
+ * the same way a drawn chip does.
+ */
+export function activityHasDedicatedCard(
+  items: readonly ContentBlockActivityItem[],
+  isCardBacked: (toolCall: ChatMessageToolCall) => boolean,
+): boolean {
+  for (const item of items) {
+    if (item.type !== "tool_use") {
+      continue;
+    }
+    if (isSubagentSpawnCall(item.toolCall) || isCardBacked(item.toolCall)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Detect a task-progress card surface — `template === "task_progress"` with a
  * non-empty `steps` array. Used by the activity-summary hoist-detection path.
  */
 export function isTaskProgressSurface(surface: Surface): boolean {
   const data = surface.data as
-    { template?: string; templateData?: { steps?: unknown } } | undefined;
+    | { template?: string; templateData?: { steps?: unknown } }
+    | undefined;
   return (
     data?.template === "task_progress" &&
     Array.isArray(data.templateData?.steps) &&

@@ -431,5 +431,20 @@
       "v1": "Migrate my memory from v1 to v3. That's most likely two hops, your \"Memory v2 Migration\" skill and then your \"Memory v3 Migration\" skill, but work out what my assistant actually needs and follow whichever skills you use exactly.\n\nRun it in the background and tell me when it's done, or if something blocks.",
       "enable": "Turn my memory back on. I'd like you to start remembering things from our conversations again."
     }
+  },
+  "categories": {
+    "email": "Email",
+    "calendar": "Calendar",
+    "messaging": "Messaging",
+    "browsing": "Browsing",
+    "productivity": "Productivity",
+    "development": "Development",
+    "voice": "Voice",
+    "commerce": "Commerce",
+    "content": "Content",
+    "health": "Health",
+    "system": "System",
+    "integrations": "Integrations",
+    "other": "Other"
   }
 }

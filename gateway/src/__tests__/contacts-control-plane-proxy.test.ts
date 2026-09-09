@@ -153,9 +153,15 @@ let contactStoreUpdateChannelMock: ReturnType<typeof mock<UpdateChannelFn>> =
 type MergeFn = (
   keepId: string,
   mergeId: string,
-) => Promise<typeof DEFAULT_MOCK_CONTACT | null>;
+) => Promise<{
+  contact: typeof DEFAULT_MOCK_CONTACT | null;
+  mirrored: boolean;
+}>;
 let contactStoreMergeMock: ReturnType<typeof mock<MergeFn>> = mock(
-  async () => null,
+  async () => ({
+    contact: null,
+    mirrored: true,
+  }),
 );
 
 // ── Invite method mocks ───────────────────────────────────────────────────────
@@ -444,7 +450,10 @@ afterEach(() => {
   contactStoreGetMock = mock(async () => null);
   contactStoreGetAclMock = mock(async () => new Map<string, ContactAcl>());
   contactStoreUpdateChannelMock = mock(() => null);
-  contactStoreMergeMock = mock(async () => null);
+  contactStoreMergeMock = mock(async () => ({
+    contact: null,
+    mirrored: true,
+  }));
   contactStoreGetContactMock = mock(() => ({ id: "ct_1" }));
   contactStoreListInvitesMock = mock(() => []);
   contactStoreCreateInviteMock = mock(() => DEFAULT_INVITE);
@@ -2175,8 +2184,8 @@ describe("handleUpdateContactChannel (gateway-native)", () => {
 describe("handleMergeContacts (gateway-native)", () => {
   test("merges contacts natively and returns survivor", async () => {
     contactStoreMergeMock = mock(async () => ({
-      ...DEFAULT_MOCK_CONTACT,
-      id: "ct_keep",
+      contact: { ...DEFAULT_MOCK_CONTACT, id: "ct_keep" },
+      mirrored: true,
     }));
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
@@ -2307,7 +2316,10 @@ describe("handleMergeContacts (gateway-native)", () => {
   });
 
   test("returns 200 even if store returns null (survivor read-back miss)", async () => {
-    contactStoreMergeMock = mock(async () => null);
+    contactStoreMergeMock = mock(async () => ({
+      contact: null,
+      mirrored: true,
+    }));
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleMergeContacts(

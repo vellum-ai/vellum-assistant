@@ -141,7 +141,12 @@ export function useMessageLifecycle({
         parsed.resource === "messages" &&
         parsed.conversationId === currentActiveId
       ) {
-        void reconcileActiveConversation("sync_tag");
+        // Authoritative: the daemon says this conversation's messages
+        // changed, and the change may sit on a loaded page older than the
+        // latest one the reconcile fetches (a channel deletion of an older
+        // row), so every loaded page refetches rather than only when the
+        // latest page differs.
+        void reconcileActiveConversation("sync_tag", true);
         return;
       }
     }

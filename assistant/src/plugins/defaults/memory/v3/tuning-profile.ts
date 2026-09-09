@@ -49,6 +49,12 @@ export const MEMORY_V3_FULL_PROFILE_MIN_PAGES = 10;
  * Lean profile for brand-new / sparse-corpus assistants: dense lane off,
  * selector off, learned-edge lane off, and small pools. Applied until the
  * corpus crosses {@link MEMORY_V3_FULL_PROFILE_MIN_PAGES} real concept pages.
+ * The entity lane is not profile switched: a synchronous in-memory pass, its
+ * `memory.v3.entity` tuning applies at every corpus size. The rare-term lane
+ * follows the selector instead (`shadow-plugin.ts` threads `memory.v3.rareTerm`
+ * only with `selectorEnabled`), so it is off under this profile: with no
+ * selector every pooled line is injected, and rare lines are candidates for a
+ * judge, not evidence strong enough to inject unjudged.
  */
 export const MEMORY_V3_NEW_USER_TUNING: ResolvedV3Tuning = {
   hotSetK: 8,

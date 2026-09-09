@@ -828,8 +828,9 @@ export function ComposerSettingsMenu({
   // Access trigger: the active preset's name beside its icon, as a floating
   // pill on mobile (Figma 7840-8819) and as an action-row button on desktop
   // (Figma 7471-25243).
+  const activePresetLabel = t(activePreset.labelKey, activePreset.label);
   const accessLabel = tChat("composerSettingsMenu.accessAria", {
-    label: activePreset.label,
+    label: activePresetLabel,
   });
   const accessTrigger = isMobile ? (
     <Button
@@ -845,7 +846,7 @@ export function ComposerSettingsMenu({
       <span aria-hidden="true" className={pillIconClass}>
         <AccessIcon />
       </span>
-      {activePreset.label}
+      {activePresetLabel}
     </Button>
   ) : (
     <Button
@@ -856,7 +857,7 @@ export function ComposerSettingsMenu({
       className={`${triggerClass} ${triggerLabelClass} ${inertActionRowTriggerClass} shrink-0`}
       disabled={!accessLive}
     >
-      {activePreset.label}
+      {activePresetLabel}
     </Button>
   );
 
@@ -934,6 +935,8 @@ export function ComposerSettingsMenu({
   // the two layouts can never drift apart.
   const accessMenuItems = accessItems.map(({ preset, isActive, isDefault }) => {
     const PresetIcon = preset.icon;
+    const presetLabel = t(preset.labelKey, preset.label);
+    const presetDesc = t(preset.descriptionKey, preset.description);
     return (
       <Menu.Item
         key={preset.id}
@@ -952,9 +955,9 @@ export function ComposerSettingsMenu({
             <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
           ) : undefined
         }
-        title={preset.description}
+        title={presetDesc}
       >
-        {preset.label}
+        {presetLabel}
         {isDefault && (
           <span className="ml-1 text-[var(--content-tertiary)]">
             {tChat("composerSettingsMenu.defaultSuffix")}
@@ -1039,7 +1042,7 @@ export function ComposerSettingsMenu({
     // the real one lands; the trigger itself is always mounted, so the profile
     // section below it is reachable either way.
     const activeSummary = [
-      accessSettled ? activePreset.label : null,
+      accessSettled ? activePresetLabel : null,
       displayProfileLabel,
     ]
       .filter(Boolean)
@@ -1098,30 +1101,33 @@ export function ComposerSettingsMenu({
                 <SectionLabel>
                   {tChat("composerSettingsMenu.assistantAccess")}
                 </SectionLabel>
-                {accessItems.map(({ preset, isActive, isDefault }) => (
-                  <PanelItem
-                    key={preset.id}
-                    icon={preset.icon}
-                    label={
-                      isDefault
-                        ? tChat("composerSettingsMenu.defaultLabel", {
-                            label: preset.label,
-                          })
-                        : preset.label
-                    }
-                    active={isActive}
-                    className="max-md:[&>span:first-child]:gap-[11px]"
-                    trailingAction={
-                      isActive ? (
-                        <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
-                      ) : undefined
-                    }
-                    onSelect={() => {
-                      handleSelect(preset);
-                      setAccessOpen(false);
-                    }}
-                  />
-                ))}
+                {accessItems.map(({ preset, isActive, isDefault }) => {
+                  const presetLabel = t(preset.labelKey, preset.label);
+                  return (
+                    <PanelItem
+                      key={preset.id}
+                      icon={preset.icon}
+                      label={
+                        isDefault
+                          ? tChat("composerSettingsMenu.defaultLabel", {
+                              label: presetLabel,
+                            })
+                          : presetLabel
+                      }
+                      active={isActive}
+                      className="max-md:[&>span:first-child]:gap-[11px]"
+                      trailingAction={
+                        isActive ? (
+                          <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
+                        ) : undefined
+                      }
+                      onSelect={() => {
+                        handleSelect(preset);
+                        setAccessOpen(false);
+                      }}
+                    />
+                  );
+                })}
               </BottomSheet.Body>
             </BottomSheet.Content>
           </BottomSheet.Root>

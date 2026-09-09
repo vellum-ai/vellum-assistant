@@ -386,16 +386,6 @@ describe("emitAssistantReplyNotification", () => {
       expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
     });
 
-    test("leaves the signal live when the presence flag is off", async () => {
-      setOverridesForTesting({ "desktop-presence-suppression": false });
-
-      await run();
-
-      expect(emitCalls).toHaveLength(1);
-      expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
-      expect(desktopPresenceArgs).toEqual([]);
-    });
-
     test("leaves the signal live when the presence read throws", async () => {
       desktopPresenceShouldThrow = true;
 
@@ -455,6 +445,9 @@ describe("emitAssistantReplyNotification", () => {
 
         expect(emitCalls).toHaveLength(1);
         expect(emitCalls[0].attentionHints.visibleInSourceNow).toBe(false);
+        // The origin check runs first, so a turn no desktop opened never
+        // reaches the presence read.
+        expect(desktopPresenceArgs).toEqual([]);
       });
     }
 

@@ -31,6 +31,11 @@ let availableUsageBalance: string | null = null;
 let totalUsageBalance: string | null = null;
 /** What the panel asked the wallet status to classify against. */
 let balanceStatusOpts: unknown;
+// Whether the route classification behind the panel's colours has landed.
+// Kept separately drivable because those colours are exactly what must not be
+// painted before it has: a double that always answers instantly cannot see
+// the flash.
+let classificationSettled = true;
 mock.module("@/hooks/use-billing-balance-status", () => ({
   useBillingBalanceStatus: (opts?: unknown) => {
     balanceStatusOpts = opts;
@@ -45,6 +50,7 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
       availableUsageBalance,
       totalUsageBalance,
       enabled: billingEnabled,
+      settled: classificationSettled,
     };
   },
 }));
@@ -52,10 +58,20 @@ mock.module("@/hooks/use-billing-balance-status", () => ({
 // The real BYOK gate classifies through five daemon queries and the
 // resolved-assistants store, none of which these tests stand up; what the
 // hook owns is only how the verdict gates the extra-credits claim.
-let byokRoute = false;
+/**
+ * Which route the classifier lands on. One knob rather than two: the gate
+ * derives `suppress` and `routeBurnsManaged` from the same classification, so
+ * separate switches could stage a BYOK route that also burns managed credits,
+ * which it never reports.
+ */
+let route: "managed" | "byok" | "unknown" = "managed";
 mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
-  useSuppressCreditBannersForByok: (candidate: boolean) =>
-    candidate && byokRoute,
+  useByokCreditRouteVerdict: (candidate: boolean) => ({
+    // Only a proven BYOK route with no recent burn holds the banners down.
+    suppress: candidate && route === "byok",
+    settled: classificationSettled,
+    routeBurnsManaged: route === "managed",
+  }),
 }));
 
 const { PreferencesUsagePanel } = await import("./preferences-usage-panel");
@@ -111,11 +127,12 @@ async function settle(): Promise<void> {
 beforeEach(() => {
   subscription = proSubscription();
   billingEnabled = true;
+  classificationSettled = true;
   creditsExhausted = false;
   effectiveBalance = null;
   availableUsageBalance = null;
   totalUsageBalance = null;
-  byokRoute = false;
+  route = "managed";
   balanceStatusOpts = undefined;
 });
 
@@ -324,7 +341,7 @@ describe("PreferencesUsagePanel", () => {
     totalUsageBalance = "25.00";
     availableUsageBalance = "0.00";
     effectiveBalance = "18.00";
-    byokRoute = true;
+    route = "byok";
     const { findByTestId, queryByText } = renderPanel();
 
     const panel = await findByTestId("preferences-usage");
@@ -346,6 +363,67 @@ describe("PreferencesUsagePanel", () => {
     expect(panel.textContent).toContain("100% used");
     expect(queryByText("Now using extra usage credits")).toBeNull();
     expect(queryByText("Add credits to continue.")).toBeNull();
+  });
+
+  test("holds the neutral reading while the classification is in flight", async () => {
+    // Spent grants with credit behind them on a route that will turn out to
+    // be managed: the settled answer is the amber extra-credits line. The red
+    // reading must not appear on the way there, however long the classifier's
+    // daemon queries take.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "0.00";
+    effectiveBalance = "12.00";
+    classificationSettled = false;
+    const { findByTestId, getByText, queryByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    const fill = () =>
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style");
+    // The length comes off the summary alone, so it is already honest.
+    expect(panel.textContent).toContain("100% used");
+    expect(fill()).toContain("width: 100%");
+    // Neither reading is claimed yet.
+    expect(queryByText("Now using extra usage credits")).toBeNull();
+    expect(fill()).not.toContain("--system-negative-strong");
+    expect(getByText("100% used").className).not.toContain(
+      "--system-negative-strong",
+    );
+  });
+
+  test("no managed route means no extra-credits claim", async () => {
+    // Settled and wallet funded, with suppression down for a reason that is
+    // not a managed route: a read that failed, or a BYOK route with spend on
+    // another surface. `suppress` alone cannot tell either from managed.
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "0.00";
+    effectiveBalance = "12.00";
+    route = "unknown";
+    const { findByTestId, queryByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    expect(panel.textContent).toContain("100% used");
+    expect(queryByText("Now using extra usage credits")).toBeNull();
+  });
+
+  test("an unsettled classification withholds the exhausted strip too", async () => {
+    totalUsageBalance = "25.00";
+    availableUsageBalance = "0.00";
+    effectiveBalance = "0.00";
+    creditsExhausted = true;
+    classificationSettled = false;
+    const { findByTestId, queryByText } = renderPanel();
+
+    const panel = await findByTestId("preferences-usage");
+    // The strip and the bar's colour are the same verdict, so they land on one
+    // render rather than the strip growing the popover a beat later.
+    expect(queryByText("Add credits to continue.")).toBeNull();
+    expect(
+      panel
+        .querySelector('[data-slot="progress-bar-fill"]')
+        ?.getAttribute("style"),
+    ).not.toContain("--system-negative-strong");
   });
 
   test("a reading below 100% stays neutral", async () => {

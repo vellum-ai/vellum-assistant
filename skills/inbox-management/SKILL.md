@@ -174,10 +174,28 @@ subject:("newsletter" OR "weekly digest" OR "monthly digest") in:inbox
 
 ### Step 2: Cold outreach judgment (Stage 2: archive / Stage 0-1: flag)
 
-Use `gmail-scan.ts --action outreach-scan` only for digest inbox senders. For each result, judge: is this person/offer potentially relevant to the user?
+Scope the scan to the poll window, then intersect it with the digest:
+
+```bash
+bun run scripts/gmail-scan.ts outreach-scan --time-range 1d
+```
+
+`--time-range` feeds Gmail's `newer_than:`, whose granularity is days, so `1d` is the smallest window that covers the default `0 */3 * * 1-5` cadence. On a first sync, use the schedule's `--lookback` value rounded up to whole days. Append one `--account user@example.com` flag per mailbox when the schedule watches specific inboxes.
+
+Then drop every result that is not in the digest: keep only senders that appear among the digest's inbox messages, and ignore the rest. The scan has no digest filter and its cache spans the whole window, so its results reach back past the mail this run is allowed to judge.
+
+For each surviving sender, judge: is this person/offer potentially relevant to the user?
 
 - **Relevant** → leave in inbox, include in summary
 - **Not relevant** → archive (Stage 2) / flag as "would archive" (Stage 0-1)
+
+Archive only the digest ids for that sender, as one comma-separated list:
+
+```bash
+bun run scripts/gmail-archive.ts --message-ids <id1>,<id2>,<id3>
+```
+
+Never archive through the `--cache-key` + `--sender-emails` path here. That path replays the scan's cache and pulls the sender's older messages, which are outside the digest.
 
 ### Step 3: Urgent scan (all stages)
 
@@ -205,8 +223,8 @@ From digest inbox messages, filter out anything caught by Steps 1-2, calendar re
 
 For each remaining email from real humans expecting a response:
 
-1. Check for existing draft in the thread: call `list_drafts`, filter results by thread ID. If draft exists, skip.
-2. Read full thread context via `get_thread`.
+1. Check whether the thread already has a draft (the Gmail thread view shows it). If it does, skip.
+2. Read the full thread before drafting so the reply answers what was actually asked.
 3. Decide: does this need a reply? If no, skip.
 4. Create draft in-thread via `gmail-email.ts draft --thread-id "..." --in-reply-to "..."`. Draft must be fully written in the user's voice (use Personal Knowledge Base style profile), substantive, no placeholders. **Never auto-send.**
 

@@ -224,8 +224,8 @@ active decisions, open questions, commitments, project states.
 </retained_images>
 
 <tail_start
-  timestamp="[exact timestamp from the turn_context of the first message to preserve verbatim]"
-  preview="[first ~60 characters of that message for verification]" />
+  timestamp="[exact timestamp from the turn_context of the first preserved user message, or empty if the cut is an assistant turn]"
+  preview="[first ~60 characters of the first preserved message, user or assistant]" />
 </compaction_result>
 </compaction_instructions>`;
 
@@ -445,7 +445,7 @@ export interface ParsedCompactionResult {
  * Lenient by design — the model may wrap the block in narration, may omit
  * `<retained_images>`, and may produce slightly malformed inner tags. We
  * accept any of those. Returns `null` only when the required fields
- * (summary + tail_start.timestamp) are missing. With
+ * (summary plus a tail_start timestamp or preview) are missing. With
  * `requireTailStart: false` (the fixed-boundary mode, where the caller
  * already owns the cut) an absent `<tail_start>` is tolerated and its
  * fields come back empty.
@@ -474,7 +474,8 @@ export function parseCompactionResult(
   const tail = extractTailStart(inner);
   if (
     opts.requireTailStart !== false &&
-    (!tail || tail.timestamp.length === 0)
+    (!tail ||
+      (tail.timestamp.trim().length === 0 && tail.preview.trim().length === 0))
   ) {
     return null;
   }
@@ -508,7 +509,7 @@ function extractTailStart(
   inner: string,
 ): { timestamp: string; preview: string } | null {
   // Match `<tail_start ... />` or `<tail_start ...></tail_start>` with
-  // attributes in any order. We require at least `timestamp="..."`.
+  // attributes in any order. Timestamp or preview is enough to resolve.
   const tagMatch = inner.match(
     /<tail_start\b([\s\S]*?)(?:\/>|<\/tail_start>)/i,
   );
@@ -733,10 +734,12 @@ export function canonicalDateTimeKey(ts: string): string | null {
  *   1. Exact timestamp match against a `<turn_context>` `current_time:` line
  *   2. Substring match (model may emit a shortened or re-formatted ts)
  *   3. Canonical date+time match (tolerant of weekday/timezone paraphrasing)
- *   4. Preview-text fallback — locate the message whose first non-injection
- *      text starts with the preview string
+ *   4. Preview-text fallback — locate the message (user or assistant)
+ *      whose first non-injection text starts with the preview string.
+ *      The later tool-pairing walk moves an assistant hit back to a
+ *      clean user boundary.
  */
-function resolveTailStartIndex(
+export function resolveTailStartIndex(
   messages: Message[],
   timestamps: (string | null)[],
   parsed: ParsedCompactionResult,
@@ -771,11 +774,7 @@ function resolveTailStartIndex(
   if (wantedPreview.length > 0) {
     const previewHead = wantedPreview.slice(0, 40);
     for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
-      if (m.role !== "user") {
-        continue;
-      }
-      const head = extractFirstTextPreview(m);
+      const head = extractFirstTextPreview(messages[i]);
       if (head.length > 0 && head.startsWith(previewHead)) {
         return i;
       }

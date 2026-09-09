@@ -31,8 +31,11 @@ mock.module("../credential-reader.js", () => ({
   readCredential: (key: string) => mockReadCredential(key),
 }));
 
-const { createWatchStreamWebsocketHandler, getWatchStreamWebsocketHandlers } =
-  await import("../http/routes/watch-stream-websocket.js");
+const {
+  createWatchStreamWebsocketHandler,
+  getWatchStreamWebsocketHandlers,
+  watchStreamUpstreamParams,
+} = await import("../http/routes/watch-stream-websocket.js");
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -189,6 +192,71 @@ describe("createWatchStreamWebsocketHandler", () => {
     const data = upgradedData(server);
     expect(data.conversationId).toBeUndefined();
     expect(data.clientId).toBeUndefined();
+  });
+
+  /**
+   * The companion's pick. Both ids ride the upstream dial verbatim: the frame
+   * the client draws around what it picked is only honest if the runtime
+   * reads the same thing, and this proxy is the one place between them.
+   */
+  test("carries the capture target through to the runtime", async () => {
+    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&captureWindowId=4242`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    await handler(req, server);
+
+    const data = upgradedData(server);
+    expect(data.captureWindowId).toBe(4242);
+    expect(data.captureDisplayId).toBeUndefined();
+    expect(watchStreamUpstreamParams(data)).toMatchObject({
+      captureWindowId: "4242",
+    });
+    expect(
+      watchStreamUpstreamParams({
+        ...data,
+        captureWindowId: undefined,
+        captureDisplayId: 7,
+      }),
+    ).toMatchObject({ captureDisplayId: "7" });
+    expect(
+      watchStreamUpstreamParams({ ...data, captureWindowId: undefined }),
+    ).not.toHaveProperty("captureWindowId");
+  });
+
+  test("reads a blank capture id as absent", async () => {
+    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&captureDisplayId=`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const server = makeFakeServer();
+    await handler(req, server);
+    expect(upgradedData(server).captureDisplayId).toBeUndefined();
+  });
+
+  test("refuses a capture id that is not a whole number", async () => {
+    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    for (const bad of ["-1", "1.5", "abc", "0x10"]) {
+      const req = new Request(
+        `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&captureWindowId=${bad}`,
+        { headers: { upgrade: "websocket" } },
+      );
+      const res = await handler(req, makeFakeServer());
+      expect(res?.status).toBe(400);
+    }
+  });
+
+  test("refuses a display and a window named together", async () => {
+    const handler = createWatchStreamWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/v1/watch/stream?token=${TEST_TOKEN}&mimeType=audio/pcm&captureDisplayId=1&captureWindowId=2`,
+      { headers: { upgrade: "websocket" } },
+    );
+    const res = await handler(req, makeFakeServer());
+    expect(res?.status).toBe(400);
   });
 
   test("returns 401 when no token is provided", async () => {

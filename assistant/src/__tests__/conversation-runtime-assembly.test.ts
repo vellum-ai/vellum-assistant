@@ -152,16 +152,34 @@ import { conversations, messages } from "../persistence/schema/index.js";
 import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
+import { wrapMemoryPointerBlock } from "../plugins/defaults/memory/memory-marker.js";
 import { getPkbRoot } from "../plugins/defaults/memory/v1/pkb/types.js";
+import {
+  MEMORY_V3_BLOCK_ID,
+  MEMORY_V3_COMMIT_META_KEY,
+  MEMORY_V3_POINTER_BLOCK_ID,
+} from "../plugins/defaults/memory/v3/types.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
 } from "../plugins/defaults/turn-context/unified-turn-context.js";
+import {
+  registerPluginInjectors,
+  unregisterPluginInjectors,
+} from "../plugins/injector-registry.js";
+import type {
+  InjectionBlock,
+  Injector,
+  TurnContext,
+} from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
-import { getWorkspacePromptPath } from "../util/platform.js";
+import {
+  getWorkspacePluginsDir,
+  getWorkspacePromptPath,
+} from "../util/platform.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 
 // `applyRuntimeInjections` self-resolves the Slack active-thread focus block by
@@ -3951,6 +3969,275 @@ describe("Slack channel chronological rendering — multi-thread", () => {
       .join("\n");
     expect(allText).not.toContain("<memory __injected>");
     expect(allText).toContain("only transcript line");
+  });
+
+  // ── memory-v3 block under the replacement ──────────────────────────────
+  // The transcript is rendered from persisted rows, so the frozen memory-v3
+  // blocks that live in message metadata never reach it. The chain walker
+  // states the replacement on the turn context of every injector after the
+  // transcript injector (the sections injector renders every selection
+  // afresh for it) and assembly attaches the block to the transcript's tail
+  // in memory only: uncaptured and uncommitted. The probe mirrors the real
+  // injector's block id, placement, and commit meta under its own name (the
+  // real one is registered by the memory plugin and stays inert with
+  // memory-v3 off).
+  const V3_PROBE_PLUGIN = "memory-v3-replacement-probe";
+
+  /** A Slack DM conversation with one persisted transcript row, the live
+   *  conversation the assembly under test resolves. */
+  function seedSlackImConversation(): void {
+    seedSlackChannelConversationWithRows(
+      {
+        channel: "slack",
+        dashboardCapable: false,
+        supportsDynamicUi: false,
+        supportsVoiceInput: false,
+        chatType: "im",
+      },
+      [
+        userRow({
+          id: "v3-replaced-1",
+          createdAt: 1700000000_000,
+          text: "transcript line",
+          slackMeta: buildSlackMeta({ channelTs: T0, displayName: "alice" }),
+          extraOuterMetadata: { provenanceTrustClass: "guardian" },
+        }),
+      ],
+    );
+  }
+
+  function probeMemoryV3Injector(seen: {
+    ctx: TurnContext | null;
+    commits: number;
+  }): Injector {
+    return {
+      name: V3_PROBE_PLUGIN,
+      order: 1000,
+      async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+        seen.ctx = ctx;
+        return {
+          id: MEMORY_V3_BLOCK_ID,
+          text: "<memory>\nrendered sections\n</memory>",
+          placement: "after-memory-prefix",
+          meta: {
+            [MEMORY_V3_COMMIT_META_KEY]: () => {
+              seen.commits += 1;
+            },
+          },
+        };
+      },
+    };
+  }
+
+  test("slack replacement is stated on the turn context and attaches the memory-v3 block in memory only: uncaptured, uncommitted", async () => {
+    const seen = { ctx: null as TurnContext | null, commits: 0 };
+    registerPluginInjectors(V3_PROBE_PLUGIN, [probeMemoryV3Injector(seen)]);
+    try {
+      seedSlackImConversation();
+
+      const { messages: result, blocks } = await applyRuntimeInjections(
+        [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
+        { conversationId: FALLBACK_CONVERSATION_ID },
+      );
+
+      expect(seen.ctx?.replacesRunMessages).toBe(true);
+      const tail = result[result.length - 1];
+      const tailTexts = tail.content
+        .filter((b): b is { type: "text"; text: string } => b.type === "text")
+        .map((b) => b.text);
+      expect(tailTexts).toContain("<memory>\nrendered sections\n</memory>");
+      expect(tailTexts.join("\n")).toContain("transcript line");
+      expect(blocks.memoryV3InjectedBlock).toBeUndefined();
+      expect(seen.commits).toBe(0);
+    } finally {
+      unregisterPluginInjectors(V3_PROBE_PLUGIN);
+    }
+  });
+
+  test("without a replacement the same memory-v3 block is captured and committed", async () => {
+    const seen = { ctx: null as TurnContext | null, commits: 0 };
+    registerPluginInjectors(V3_PROBE_PLUGIN, [probeMemoryV3Injector(seen)]);
+    try {
+      seedChannelCapabilitiesConversation({
+        channel: "vellum",
+        dashboardCapable: true,
+        supportsDynamicUi: true,
+        supportsVoiceInput: true,
+      });
+
+      const { blocks } = await applyRuntimeInjections(
+        [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
+        { conversationId: FALLBACK_CONVERSATION_ID },
+      );
+
+      // No injector ahead of the probe produced a replacement, so the walker
+      // never states one.
+      expect(seen.ctx?.replacesRunMessages).toBeUndefined();
+      expect(blocks.memoryV3InjectedBlock).toBe("rendered sections");
+      expect(seen.commits).toBe(1);
+    } finally {
+      unregisterPluginInjectors(V3_PROBE_PLUGIN);
+    }
+  });
+
+  // ── the transcript injector absent: the channel plugin disabled ────────
+  // `getRegisteredInjectors` drops a plugin's injectors while its
+  // `.disabled` sentinel exists, so a Slack conversation is then assembled
+  // onto its own history, frozen blocks included, and residency means what
+  // it does on any other channel: the turn is an ordinary committed
+  // injection. The probes mirror the real memory-v3 pair's projection rule
+  // over one selected section, with the section store reduced to `claimed`:
+  // under a replacement the section renders afresh and the block carries no
+  // commit; otherwise it renders only while unclaimed, with a commit that
+  // claims it, and is pointed at once claimed.
+  const V3_MIRROR_PLUGIN = "memory-v3-residency-probe";
+  const MIRROR_SECTION_PATH = "memory/concepts/page-a.md";
+  const MIRROR_SECTION_INNER = `# ${MIRROR_SECTION_PATH}\nhead a`;
+  function mirrorMemoryV3Injectors(
+    claimed: Set<string>,
+    seen: { replaced: boolean[] },
+  ): Injector[] {
+    const sectionBlock = (meta?: InjectionBlock["meta"]): InjectionBlock => ({
+      id: MEMORY_V3_BLOCK_ID,
+      text: `<memory>\n${MIRROR_SECTION_INNER}\n</memory>`,
+      placement: "after-memory-prefix",
+      ...(meta ? { meta } : {}),
+    });
+    return [
+      {
+        name: V3_MIRROR_PLUGIN,
+        order: 1000,
+        async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+          const replaced = ctx.replacesRunMessages === true;
+          seen.replaced.push(replaced);
+          if (replaced) {
+            return sectionBlock();
+          }
+          if (claimed.has(MIRROR_SECTION_PATH)) {
+            return {
+              id: MEMORY_V3_BLOCK_ID,
+              text: "",
+              placement: "after-memory-prefix",
+            };
+          }
+          return sectionBlock({
+            [MEMORY_V3_COMMIT_META_KEY]: () => {
+              claimed.add(MIRROR_SECTION_PATH);
+            },
+          });
+        },
+      },
+      {
+        name: `${V3_MIRROR_PLUGIN}-pointer`,
+        order: 1001,
+        async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
+          if (
+            ctx.replacesRunMessages === true ||
+            !claimed.has(MIRROR_SECTION_PATH)
+          ) {
+            return null;
+          }
+          return {
+            id: MEMORY_V3_POINTER_BLOCK_ID,
+            text: wrapMemoryPointerBlock(MIRROR_SECTION_PATH),
+            placement: "after-memory-prefix",
+          };
+        },
+      },
+    ];
+  }
+
+  /** Write the `default-channel` plugin's `.disabled` sentinel; returns its
+   *  directory for removal. */
+  function disableChannelPlugin(): string {
+    const dir = join(getWorkspacePluginsDir(), "default-channel");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".disabled"), "");
+    return dir;
+  }
+
+  test("with the channel plugin disabled a Slack conversation is not replaced: the block is captured and claimed once, and the next turn points at it", async () => {
+    const claimed = new Set<string>();
+    const seen = { replaced: [] as boolean[] };
+    registerPluginInjectors(
+      V3_MIRROR_PLUGIN,
+      mirrorMemoryV3Injectors(claimed, seen),
+    );
+    const pluginDir = disableChannelPlugin();
+    try {
+      seedSlackImConversation();
+
+      const first = await applyRuntimeInjections(
+        [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
+        { conversationId: FALLBACK_CONVERSATION_ID, turnIndex: 0 },
+      );
+      // The transcript injector is out of the chain, so the history is the
+      // turn's own and no injector is told of a replacement.
+      expect(seen.replaced).toEqual([false]);
+      const firstTexts = first.messages[
+        first.messages.length - 1
+      ]!.content.filter(
+        (b): b is { type: "text"; text: string } => b.type === "text",
+      ).map((b) => b.text);
+      expect(firstTexts).toContain("inbound");
+      expect(firstTexts.join("\n")).not.toContain("transcript line");
+      // An ordinary committed injection: persisted and claimed.
+      expect(first.blocks.memoryV3InjectedBlock).toBe(MIRROR_SECTION_INNER);
+      expect(first.blocks.memoryV3PointerBlock).toBeUndefined();
+      expect(claimed).toEqual(new Set([MIRROR_SECTION_PATH]));
+
+      const second = await applyRuntimeInjections(
+        [
+          ...first.messages,
+          { role: "assistant", content: [{ type: "text", text: "reply" }] },
+          { role: "user", content: [{ type: "text", text: "follow-up" }] },
+        ],
+        { conversationId: FALLBACK_CONVERSATION_ID, turnIndex: 1 },
+      );
+      // The section is resident in the history the turn is assembled onto,
+      // so it is pointed at rather than rendered and persisted again.
+      expect(seen.replaced).toEqual([false, false]);
+      expect(second.blocks.memoryV3InjectedBlock).toBeUndefined();
+      expect(second.blocks.memoryV3PointerBlock).toBe(
+        wrapMemoryPointerBlock(MIRROR_SECTION_PATH),
+      );
+      expect(claimed).toEqual(new Set([MIRROR_SECTION_PATH]));
+    } finally {
+      rmSync(pluginDir, { recursive: true, force: true });
+      unregisterPluginInjectors(V3_MIRROR_PLUGIN);
+    }
+  });
+
+  test("with the channel plugin enabled the same conversation is replaced every turn: rendered afresh, nothing captured or claimed", async () => {
+    const claimed = new Set<string>();
+    const seen = { replaced: [] as boolean[] };
+    registerPluginInjectors(
+      V3_MIRROR_PLUGIN,
+      mirrorMemoryV3Injectors(claimed, seen),
+    );
+    try {
+      seedSlackImConversation();
+
+      for (const turnIndex of [0, 1]) {
+        const { messages: result, blocks } = await applyRuntimeInjections(
+          [{ role: "user", content: [{ type: "text", text: "inbound" }] }],
+          { conversationId: FALLBACK_CONVERSATION_ID, turnIndex },
+        );
+        const tailTexts = result[result.length - 1]!.content.filter(
+          (b): b is { type: "text"; text: string } => b.type === "text",
+        ).map((b) => b.text);
+        expect(tailTexts).toContain(
+          `<memory>\n${MIRROR_SECTION_INNER}\n</memory>`,
+        );
+        expect(tailTexts.join("\n")).toContain("transcript line");
+        expect(blocks.memoryV3InjectedBlock).toBeUndefined();
+        expect(blocks.memoryV3PointerBlock).toBeUndefined();
+      }
+      expect(seen.replaced).toEqual([true, true]);
+      expect(claimed.size).toBe(0);
+    } finally {
+      unregisterPluginInjectors(V3_MIRROR_PLUGIN);
+    }
   });
 
   // ── transport_hints suppression for slack channels ────────────────────

@@ -64,20 +64,3 @@ map <domain> --manual --json               # Manual mode: user drives the browse
 map <domain> --duration <secs> --json      # Auto mode with custom duration
 map <domain> --manual --duration <secs> --json  # Manual mode with custom timeout
 ```
-
-## Example Interaction
-
-**User**: "Map the Notion API"
-
-1. Ask: "What are you trying to build with Notion? And should I browse automatically, or do you want to drive the browser?"
-2. User says: "I want to build a CLI to manage my pages. I'll drive."
-3. `map notion.com --manual --json` -> Chrome window opens
-4. Tell user: "A Chrome window is open. Log into Notion and do a representative workflow - create a page, edit it, maybe move it. I'll record all API calls in the background. Close the browser when you're done."
-5. User closes browser -> CLI outputs discovered endpoints
-6. Present findings: "I found 14 API endpoints. Here are the key ones for page management:
-   - `POST /api/v3/getSpaces` - lists workspaces
-   - `POST /api/v3/syncRecordValues` - fetches page content
-   - `POST /api/v3/submitTransaction` - creates/updates pages
-   - `POST /api/v3/enqueueTask` - async operations (export, duplicate)
-     Authentication: Cookie-based session with `token_v2`."
-7. Offer: "Want me to create a CLI tool that wraps these endpoints for managing Notion pages?"

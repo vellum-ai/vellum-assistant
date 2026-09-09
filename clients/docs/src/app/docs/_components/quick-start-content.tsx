@@ -4,6 +4,7 @@ import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
+import { DocsVideo } from "@/app/docs/_components/docs-video";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
@@ -54,6 +55,8 @@ export function QuickStartContent() {
           install completes, whether you signed up for Vellum Cloud or
           set up a local install on your Mac.
         </p>
+
+        <DocsVideo video="always-on-assistant" />
 
         <section id="your-assistant-is-ready">
           <SectionHeading id="your-assistant-is-ready" level={2}>

@@ -1,17 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import type { CliInvocation } from "../util";
 import type { GuardianTokenData } from "../guardian-token";
-
-class FakeChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
-  kill = mock(() => true);
-}
+import { FakeChild, mockChildProcessSpawn } from "./helpers/child-process-mock";
 
 let lastChild: FakeChild;
 const spawnMock = mock((_command: string, _args: string[]) => {
@@ -19,7 +13,7 @@ const spawnMock = mock((_command: string, _args: string[]) => {
   return lastChild;
 });
 
-mock.module("node:child_process", () => ({ spawn: spawnMock }));
+await mockChildProcessSpawn(spawnMock);
 
 let getGuardianAccessToken: typeof import("../guardian-token").getGuardianAccessToken;
 let saveGuardianToken: typeof import("../guardian-token").saveGuardianToken;

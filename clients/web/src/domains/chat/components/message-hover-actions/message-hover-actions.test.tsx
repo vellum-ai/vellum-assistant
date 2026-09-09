@@ -21,6 +21,22 @@ describe("MessageHoverActions", () => {
     expect(html).toContain("select-none");
   });
 
+  test("omits the copy action for a row deleted on its channel", () => {
+    const message: DisplayMessage = {
+      id: "m-deleted",
+      role: "user",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("text the channel no longer shows"),
+      deletedAt: 1725100001000,
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} onInspect={() => {}} />,
+    );
+
+    expect(html).not.toContain('title="Copy"');
+    expect(html).toContain('title="Inspect"');
+  });
+
   test("renders inspect action for user messages when provided", () => {
     const message: DisplayMessage = {
       id: "m2",

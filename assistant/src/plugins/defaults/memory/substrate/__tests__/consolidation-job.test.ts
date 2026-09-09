@@ -1396,3 +1396,69 @@ describe("article-shape selection — keyed on the live gate", () => {
     expect(prompt).toContain("memory/core-pages.md");
   });
 });
+
+describe("memoryV2ConsolidateJob: over-long sections repair step", () => {
+  beforeEach(() => {
+    writeFileSync(bufferPath(), "- [Apr 27, 9:00 AM] Alice prefers VS Code.\n");
+  });
+
+  const REPORT = {
+    windowChars: 6000,
+    sections: [{ slug: "project-notes", title: "design notes", chars: 95270 }],
+  };
+
+  test("v3 live: the lister runs against the workspace and its report reaches the prompt", async () => {
+    flagStates["memory-v3-live"] = true;
+    const seen: string[] = [];
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG, {
+        listOverlongSections: async (workspaceDir) => {
+          seen.push(workspaceDir);
+          return REPORT;
+        },
+      });
+
+      expect(result.kind).toBe("invoked");
+      expect(seen).toHaveLength(1);
+      expect(String(runnerLastArgs?.prompt)).toContain(
+        "`memory/concepts/project-notes.md`, `## design notes` (95,270 characters)",
+      );
+    } finally {
+      delete flagStates["memory-v3-live"];
+    }
+  });
+
+  test("v3 not live: the lister never runs and the prompt carries no step", async () => {
+    let calls = 0;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG, {
+      listOverlongSections: async () => {
+        calls += 1;
+        return REPORT;
+      },
+    });
+
+    expect(result.kind).toBe("invoked");
+    expect(calls).toBe(0);
+    expect(String(runnerLastArgs?.prompt)).not.toContain(
+      "split sections that exceed",
+    );
+  });
+
+  test("a failing lister omits the step and the run proceeds", async () => {
+    flagStates["memory-v3-live"] = true;
+    try {
+      const result = await memoryV2ConsolidateJob(makeJob(), CONFIG, {
+        listOverlongSections: async () => {
+          throw new Error("scan failed");
+        },
+      });
+
+      expect(result.kind).toBe("invoked");
+      expect(String(runnerLastArgs?.prompt)).not.toContain(
+        "split sections that exceed",
+      );
+    } finally {
+      delete flagStates["memory-v3-live"];
+    }
+  });
+});

@@ -34,6 +34,10 @@ import { generateSparseEmbedding } from "../../../../persistence/embeddings/embe
 import { applyCorrectionIfCalibrated } from "../anisotropy.js";
 import { embedWithBackend } from "../embeddings.js";
 import { getLogger } from "../logging.js";
+import {
+  CLI_COMMAND_SLUG_PREFIX,
+  cliCommandSlugFor,
+} from "./capability-slugs.js";
 import { buildCliCommandHelpContent } from "./cli-command-content.js";
 import { invalidatePageIndex } from "./page-index.js";
 import {
@@ -51,25 +55,12 @@ import type { CliCommandEntry } from "./types.js";
 const log = getLogger("memory-v2-cli-command-store");
 
 /**
- * Slug prefix under which CLI-command embeddings are indexed in
- * `memory_v2_concept_pages`. Concept-page slugs must match
- * `[a-z0-9][a-z0-9-]*(/...)*`, and `cli-commands` matches that pattern, so the
- * prefix coexists with hand-authored concept pages without escape work.
- */
-export const CLI_COMMAND_SLUG_PREFIX = "cli-commands/";
-
-/**
  * Payload discriminator written on every CLI-command-seeded Qdrant point.
  * Keeps CLI rows distinguishable from user-authored concept pages and from
  * skill rows that happen to live in adjacent namespaces, so prefix pruning
  * never deletes a hand-authored page sitting under `cli-commands/...`.
  */
 const CLI_COMMAND_PAYLOAD_KIND = "cli-command";
-
-/** Compose the unified-collection slug for a CLI command name. */
-export function cliCommandSlugFor(name: string): string {
-  return `${CLI_COMMAND_SLUG_PREFIX}${name}`;
-}
 
 /**
  * Module-level cache of rendered CLI-command entries keyed by command name.
@@ -316,11 +307,6 @@ export function getCliCommandCapability(
     : idOrSlug;
   const entry = entries?.get(id);
   return entry ? Object.freeze({ ...entry }) : null;
-}
-
-/** True iff the slug refers to a CLI-command entry in the unified collection. */
-export function isCliCommandSlug(slug: string): boolean {
-  return slug.startsWith(CLI_COMMAND_SLUG_PREFIX);
 }
 
 /**

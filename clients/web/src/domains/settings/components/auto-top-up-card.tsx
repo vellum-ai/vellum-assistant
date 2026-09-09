@@ -1,5 +1,5 @@
 import { Coins, Info, X } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 
@@ -8,6 +8,7 @@ import {
   organizationsBillingAutoTopUpRetrieveQueryKey,
   organizationsBillingAutoTopUpRetrieveSetQueryData,
   organizationsBillingAutoTopUpUpdateMutation,
+  organizationsBillingDailyCreditLimitRetrieveOptions,
   organizationsBillingDailyCreditLimitRetrieveQueryKey,
   organizationsBillingSummaryRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
@@ -18,6 +19,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { formatUsdShort } from "@/utils/format-usd";
+import { AutoTopUpDailyLimitModal } from "@/domains/settings/components/auto-top-up-daily-limit-modal";
 import { AutoTopUpDisableConfirm } from "@/domains/settings/components/auto-top-up-disable-confirm";
 import {
   AutoTopUpForm,
@@ -142,12 +144,18 @@ function SummaryChip({
  * - On + view: toggle + inline summary ("Add $X when balance falls under
  *   $Y") + spend-vs-cap when a monthly cap is set + Adjust button.
  * - On + configuring (mode === "form"): toggle + 3-input row (threshold,
- *   amount, monthly cap) + Save.
+ *   amount, monthly cap) + Save. Saving while the org has no daily credit
+ *   limit first opens `AutoTopUpDailyLimitModal`: the limit it saves lands
+ *   in the daily-limit card, then the auto-reload config is persisted.
+ *   Declining leaves auto-reload off.
  */
 export function AutoTopUpCard() {
   const { t } = useTranslation("settings");
   const queryClient = useQueryClient();
   const configQuery = useAutoTopUpConfigQuery();
+  const dailyLimitQuery = useQuery(
+    organizationsBillingDailyCreditLimitRetrieveOptions(),
+  );
   const updateMutation = useMutation(
     organizationsBillingAutoTopUpUpdateMutation(),
   );
@@ -172,6 +180,11 @@ export function AutoTopUpCard() {
   const [showAddPm, setShowAddPm] = useState(false);
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [pmModal, setPmModal] = useState<PaymentModalSnapshot | null>(null);
+  // Form values whose save is waiting on the daily-limit gate; non-null while
+  // `AutoTopUpDailyLimitModal` is open.
+  const [gatedValues, setGatedValues] = useState<AutoTopUpFormValues | null>(
+    null,
+  );
 
   // Removing the card (in `PaymentMethodsCard`) disables auto-reload
   // server-side, so when the shared config's PM goes away, leave the add-card
@@ -354,7 +367,7 @@ export function AutoTopUpCard() {
     setConfirmingDisable(false);
   };
 
-  const handleSave = (values: AutoTopUpFormValues) => {
+  const persistConfig = (values: AutoTopUpFormValues) => {
     // `monthly_cap_usd` is optional on the API: empty string in the form
     // means "no cap / uncapped" and is sent as `null`. The backend
     // serializer accepts null and the response renders "No limit". The
@@ -410,6 +423,39 @@ export function AutoTopUpCard() {
     );
   };
 
+  /**
+   * The backend requires a daily credit limit while auto-reload is on, so a
+   * save goes through the gate unless a limit is known to be on file. While
+   * the limit is unknown (lookup still loading or refetching, or its latest
+   * attempt failed, even over cached data) Save stays disabled and nothing
+   * is gated: the value has to be current before it decides whether the gate
+   * opens, since the gate's default would replace a limit set elsewhere.
+   */
+  const dailyLimitUnknown =
+    dailyLimitQuery.data == null ||
+    dailyLimitQuery.isError ||
+    dailyLimitQuery.isFetching;
+  const dailyLimitLookupFailed = dailyLimitQuery.isError;
+  const handleSave = (values: AutoTopUpFormValues) => {
+    const dailyLimit = dailyLimitUnknown ? null : dailyLimitQuery.data;
+    if (dailyLimit == null) {
+      return;
+    }
+    if (dailyLimit.daily_credit_limit_usd == null) {
+      setGatedValues(values);
+      return;
+    }
+    persistConfig(values);
+  };
+
+  const handleDailyLimitSaved = () => {
+    const values = gatedValues;
+    setGatedValues(null);
+    if (values != null) {
+      persistConfig(values);
+    }
+  };
+
   const handleConfirmDisable = () => {
     disableMutation.mutate(
       {},
@@ -455,6 +501,22 @@ export function AutoTopUpCard() {
         },
       },
     );
+  };
+
+  /**
+   * Declining the daily-limit gate leaves auto-reload off: a pending enable
+   * is dropped along with the form (nothing was persisted), while a config
+   * that is already on is disabled server-side, since it cannot stay on
+   * without a limit. The form stays locked (`submitting` below) until that
+   * disable settles, so a second Save cannot race it.
+   */
+  const handleDailyLimitDeclined = () => {
+    setGatedValues(null);
+    if (enabled) {
+      handleConfirmDisable();
+      return;
+    }
+    exitFormMode();
   };
 
   /**
@@ -666,6 +728,27 @@ export function AutoTopUpCard() {
         </Notice>
       )}
 
+      {isFormMode && dailyLimitLookupFailed && (
+        <Notice
+          tone="error"
+          className="mt-4"
+          data-testid="auto-top-up-daily-limit-lookup-error"
+          actions={
+            <Button
+              variant="outlined"
+              size="compact"
+              onClick={() => void dailyLimitQuery.refetch()}
+              disabled={dailyLimitQuery.isFetching}
+              data-testid="auto-top-up-daily-limit-retry-button"
+            >
+              {t("autoTopUpCard.retry")}
+            </Button>
+          }
+        >
+          {t("autoTopUpCard.dailyLimitLookupError")}
+        </Notice>
+      )}
+
       {isFormMode && (
         <AutoTopUpForm
           initialValues={
@@ -677,10 +760,18 @@ export function AutoTopUpCard() {
                 }
               : undefined
           }
-          submitting={updateMutation.isPending}
+          submitting={updateMutation.isPending || disableMutation.isPending}
+          saveDisabled={dailyLimitUnknown}
           serverErrors={fieldErrors}
           onCancel={exitFormMode}
           onSave={handleSave}
+        />
+      )}
+
+      {gatedValues != null && (
+        <AutoTopUpDailyLimitModal
+          onSaved={handleDailyLimitSaved}
+          onCancel={handleDailyLimitDeclined}
         />
       )}
 

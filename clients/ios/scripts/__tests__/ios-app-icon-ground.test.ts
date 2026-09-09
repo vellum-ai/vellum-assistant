@@ -11,6 +11,11 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  P3_SPELLING,
+  readFillSpecializations,
+  readIconFill,
+} from "./icon-bundle-fixtures";
 
 const APP_DIR = join(import.meta.dir, "../../App/App");
 
@@ -24,25 +29,6 @@ const TARGETS = [
 function readGround(xcconfig: string): string | undefined {
   const contents = readFileSync(join(APP_DIR, "Config", xcconfig), "utf8");
   return /^APP_ICON_GROUND\s*=\s*(.+)$/m.exec(contents)?.[1]?.trim();
-}
-
-interface FillSpecialization {
-  appearance?: string;
-  value: { solid: string };
-}
-
-function readFillSpecializations(icon: string): FillSpecialization[] {
-  const contents = readFileSync(join(APP_DIR, icon, "icon.json"), "utf8");
-  return JSON.parse(contents)["fill-specializations"];
-}
-
-/** The bundle pins every appearance to one color, so any specialization does. */
-function readIconFill(icon: string): string {
-  const solids = new Set(
-    readFillSpecializations(icon).map(({ value }) => value.solid),
-  );
-  expect(solids.size).toBe(1);
-  return [...solids][0] as string;
 }
 
 describe("ios app icon ground", () => {
@@ -68,9 +54,7 @@ describe("ios app icon ground", () => {
 
   test("every ground is the spelling the Swift parser reads", () => {
     for (const { xcconfig } of TARGETS) {
-      expect(readGround(xcconfig)).toMatch(
-        /^display-p3:\d+\.\d+,\d+\.\d+,\d+\.\d+,\d+\.\d+$/,
-      );
+      expect(readGround(xcconfig)).toMatch(P3_SPELLING);
     }
   });
 });

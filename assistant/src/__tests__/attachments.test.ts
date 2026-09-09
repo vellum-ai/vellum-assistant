@@ -127,6 +127,32 @@ describe("attachmentsToReferenceBlocks", () => {
     expect(JSON.stringify(blocks)).not.toContain("data");
   });
 
+  test("omits extracted_text on a video workspace_ref", () => {
+    const blocks = attachmentsToReferenceBlocks([
+      {
+        attachmentId: "att-vid",
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        sizeBytes: 40_000_000,
+        extractedText: "this must not dump into the prompt",
+      },
+    ]);
+
+    expect(blocks).toEqual([
+      {
+        type: "file",
+        source: {
+          type: "workspace_ref",
+          media_type: "video/mp4",
+          attachmentId: "att-vid",
+          sizeBytes: 40_000_000,
+          filename: "clip.mp4",
+        },
+      },
+    ]);
+    expect(JSON.stringify(blocks)).not.toContain("extracted");
+  });
+
   test("builds a file workspace_ref with filename and extracted text", () => {
     const blocks = attachmentsToReferenceBlocks([
       {
@@ -206,6 +232,23 @@ describe("attachmentsToContentBlocks", () => {
 
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe("image");
+  });
+
+  test("omits extracted_text on an inline video file block", async () => {
+    const blocks = await attachmentsToContentBlocks([
+      {
+        filename: "clip.mp4",
+        mimeType: "video/mp4",
+        data: "AAAA",
+        extractedText: "must not dump",
+      },
+    ]);
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({
+      type: "file",
+      source: { type: "base64", media_type: "video/mp4", filename: "clip.mp4" },
+    });
+    expect(blocks[0]).not.toHaveProperty("extracted_text");
   });
 
   test("creates file content block for non-image mime types", async () => {

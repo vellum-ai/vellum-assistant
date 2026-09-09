@@ -37,6 +37,7 @@ import {
   matchesSectionFilter,
   patchAffectsMembership,
   reconcileSectionMembership,
+  matchesIndexBucket,
 } from "@/utils/section-membership";
 
 const ASSISTANT_ID = "asst-1";
@@ -207,6 +208,90 @@ describe("matchesSectionFilter", () => {
 // ---------------------------------------------------------------------------
 // patchAffectsMembership
 // ---------------------------------------------------------------------------
+
+describe("assistant-initiated membership", () => {
+  const member = () =>
+    conversation({ source: "assistant_initiated", groupId: undefined });
+
+  test("the assistant section holds its stamped, ungrouped rows", () => {
+    expect(
+      matchesSectionFilter(member(), { groupId: "system:assistant" }),
+    ).toBe(true);
+  });
+
+  test("pinning or filing a member moves it out of the section", () => {
+    expect(
+      matchesSectionFilter(
+        conversation({
+          source: "assistant_initiated",
+          groupId: "system:pinned",
+          isPinned: true,
+        }),
+        { groupId: "system:assistant" },
+      ),
+    ).toBe(false);
+    expect(
+      matchesSectionFilter(
+        conversation({
+          source: "assistant_initiated",
+          groupId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        }),
+        { groupId: "system:assistant" },
+      ),
+    ).toBe(false);
+  });
+
+  test("unstamped rows are never members", () => {
+    expect(
+      matchesSectionFilter(conversation(), { groupId: "system:assistant" }),
+    ).toBe(false);
+  });
+
+  test("Chats gives up members only while the split is active", () => {
+    // The split's on-signal is the daemon-emitted index row; without it there
+    // is no section to hold the row, so Chats must keep it.
+    expect(matchesSectionFilter(member(), { groupId: "system:all" })).toBe(
+      true,
+    );
+    expect(
+      matchesSectionFilter(
+        member(),
+        { groupId: "system:all" },
+        { assistantSplitActive: true },
+      ),
+    ).toBe(false);
+  });
+
+  test("the assistant index bucket claims members, and Chats yields them", () => {
+    const assistantRow = { kind: "assistant", total: 1, unread: 0 } as const;
+    const chatsRow = { kind: "chats", total: 3, unread: 1 } as const;
+
+    expect(matchesIndexBucket(member(), assistantRow)).toBe(true);
+    expect(
+      matchesIndexBucket(member(), chatsRow, { assistantSplitActive: true }),
+    ).toBe(false);
+    expect(matchesIndexBucket(member(), chatsRow)).toBe(true);
+    expect(matchesIndexBucket(conversation(), assistantRow)).toBe(false);
+  });
+
+  test("a pinned member belongs to the pinned bucket, not the assistant one", () => {
+    const pinnedMember = conversation({
+      source: "assistant_initiated",
+      groupId: "system:pinned",
+      isPinned: true,
+    });
+    expect(
+      matchesIndexBucket(pinnedMember, { kind: "pinned", total: 1, unread: 0 }),
+    ).toBe(true);
+    expect(
+      matchesIndexBucket(pinnedMember, {
+        kind: "assistant",
+        total: 1,
+        unread: 0,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("patchAffectsMembership", () => {
   test("true for every field a section filter reads", () => {

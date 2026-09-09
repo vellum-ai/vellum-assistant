@@ -29,6 +29,15 @@ mock.module("@/runtime/main-window", () => ({
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
 }));
 
+/**
+ * The companion's dial, which a refusal has to close: with no session running,
+ * `end` is the surface being told that none is coming.
+ */
+const endVoiceActivityMock = mock(() => undefined);
+mock.module("@/runtime/desktop-voice-activity", () => ({
+  endVoiceActivity: endVoiceActivityMock,
+}));
+
 mock.module("@/lib/backwards-compat/utils", () => ({
   ...utils,
   whenAssistantVersionKnownFor,
@@ -57,9 +66,11 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 const {
   PENDING_VOICE_START_TTL_MS,
   askVoiceFromSurface,
+  cancelPendingVoiceStart,
   drainPendingVoiceStart,
   requestVoiceStart,
   startVoiceFromSurface,
+  toggleVoiceFromSurface,
 } = await import("@/domains/chat/voice/live-voice/start-voice-request");
 const { isLiveVoiceSessionOwnedBy, useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
@@ -154,10 +165,12 @@ function mintedConversationId(): string {
  * minted for it rather than the one the app was left on, and the composer for
  * that conversation was navigated onto the screen so it can own the session.
  */
-function expectStartedOnFreshDraft(): void {
+function expectStartedOnFreshDraft(
+  entry: "deep_link" | "companion" = "deep_link",
+): void {
   const draftId = mintedConversationId();
   expect(draftId).not.toBe(PRIOR_CONVERSATION_ID);
-  expect(starter).toHaveBeenCalledWith("assistant-1", draftId);
+  expect(starter).toHaveBeenCalledWith("assistant-1", draftId, { entry });
   expect(navigate).toHaveBeenCalledWith(routes.conversation(draftId), {
     replace: true,
   });
@@ -186,6 +199,7 @@ beforeEach(() => {
   whenAssistantVersionKnownFor.mockClear();
   preflightLiveVoice.mockClear();
   ensureMainWindowVisibleMock.mockClear();
+  endVoiceActivityMock.mockClear();
   versionResolution = Promise.resolve();
   preflightVerdict = { status: "ready" };
   // These tests are about delivery, not about the first-ever entry: a user who
@@ -203,7 +217,7 @@ describe("starting a session", () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();
 
     expectStartedOnFreshDraft();
@@ -214,7 +228,7 @@ describe("starting a session", () => {
     identityHydrated();
 
     // No `ChatLayout` yet: the drain no-ops and the request stays parked.
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await Promise.resolve();
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(true);
@@ -234,7 +248,7 @@ describe("starting a session", () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();
 
     const draftId = mintedConversationId();
@@ -257,7 +271,7 @@ describe("starting a session", () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();
 
     const draftId = mintedConversationId();
@@ -275,7 +289,7 @@ describe("starting a session", () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();
 
     expect(useViewerStore.getState().mainView).toBe("chat");
@@ -292,7 +306,7 @@ describe("starting a session", () => {
       attachments: [],
     });
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await flushDrain();
 
     expect(useViewerStore.getState().activeMessageFiles).toBeNull();
@@ -324,7 +338,7 @@ describe("a request that cannot be served yet stays parked", () => {
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await drainPendingVoiceStart(navigate);
 
     expect(starter).not.toHaveBeenCalled();
@@ -346,7 +360,9 @@ describe("a request that cannot be served yet stays parked", () => {
     registerStarter();
     useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
 
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     await drainPendingVoiceStart(navigate);
 
     // The version is awaited for the assistant a fresh start now means, not
@@ -370,7 +386,9 @@ describe("a request that cannot be served yet stays parked", () => {
 
     const draftId = mintedConversationId();
     expect(draftId).not.toBe(PRIOR_CONVERSATION_ID);
-    expect(starter).toHaveBeenCalledWith("assistant-2", draftId);
+    expect(starter).toHaveBeenCalledWith("assistant-2", draftId, {
+      entry: "deep_link",
+    });
     expect(isParked()).toBe(false);
   });
 
@@ -383,7 +401,9 @@ describe("a request that cannot be served yet stays parked", () => {
       hydrate = resolve;
     });
 
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     const drained = drainPendingVoiceStart(navigate);
     // Navigating off the chat layout mid-await: there is no starter left to
     // hand this to.
@@ -414,7 +434,7 @@ describe("a request that will never be served is discarded", () => {
     identityHydrated("0.10.11");
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await drainPendingVoiceStart(navigate);
 
     expect(starter).not.toHaveBeenCalled();
@@ -450,6 +470,7 @@ describe("a request that will never be served is discarded", () => {
 
     usePendingDeepLinkStore.setState({
       pendingVoiceStartAt: Date.now() - PENDING_VOICE_START_TTL_MS + 5_000,
+      pendingVoiceStartEntry: "deep_link",
     });
     await drainPendingVoiceStart(navigate);
 
@@ -461,12 +482,59 @@ describe("a request that will never be served is discarded", () => {
 // Exactly-once
 // ---------------------------------------------------------------------------
 
+/**
+ * The companion's dial, ended: the request behind it is taken back wherever it
+ * has got to, so the preflight it may be in the middle of opens nothing.
+ */
+describe("cancelling a pending start", () => {
+  test("spends a parked request", () => {
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
+
+    cancelPendingVoiceStart();
+
+    expect(isParked()).toBe(false);
+  });
+
+  test("stops a drain that is mid-preflight from starting", async () => {
+    identityHydrated();
+    registerStarter();
+    const preflight: { settle: (() => void) | null } = { settle: null };
+    preflightLiveVoice.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          preflight.settle = () => {
+            resolve(preflightVerdict);
+          };
+        }),
+    );
+
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    await Promise.resolve();
+    cancelPendingVoiceStart();
+    preflight.settle?.();
+    await drainPendingVoiceStart(navigate);
+
+    expect(starter).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalledWith(
+      expect.stringContaining("/conversation"),
+      expect.anything(),
+    );
+  });
+
+  test("is a no-op with nothing parked", () => {
+    cancelPendingVoiceStart();
+    expect(isParked()).toBe(false);
+  });
+});
+
 describe("one-shot delivery", () => {
   test("repeat drains after a start are free", async () => {
     identityHydrated();
     registerStarter();
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await drainPendingVoiceStart(navigate);
     await drainPendingVoiceStart(navigate);
     await drainPendingVoiceStart(navigate);
@@ -480,8 +548,8 @@ describe("one-shot delivery", () => {
   test("two links before a drain are one request", async () => {
     identityHydrated();
 
-    requestVoiceStart(navigate);
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await Promise.resolve();
 
     registerStarter();
@@ -499,7 +567,7 @@ describe("startVoiceFromSurface", () => {
   test("navigates to the chat and parks the request", () => {
     identityHydrated();
 
-    startVoiceFromSurface(navigate);
+    startVoiceFromSurface(navigate, { entry: "companion" });
 
     // Navigating to the chat is what mounts the layout that owns the starter;
     // the drain then mints the conversation the session binds to.
@@ -512,7 +580,7 @@ describe("startVoiceFromSurface", () => {
     // yet. It must survive until one does rather than being spent on arrival.
     identityHydrated();
 
-    startVoiceFromSurface(navigate);
+    startVoiceFromSurface(navigate, { entry: "companion" });
     await Promise.resolve();
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(true);
@@ -521,8 +589,9 @@ describe("startVoiceFromSurface", () => {
     await drainPendingVoiceStart(navigate);
 
     // The press was made from outside the conversation the app was left on,
-    // and it opens a call of its own rather than resuming that thread.
-    expectStartedOnFreshDraft();
+    // and it opens a call of its own rather than resuming that thread. The
+    // control that made it travels with it, since by now the press is gone.
+    expectStartedOnFreshDraft("companion");
   });
 
   test("a running session spends the press", () => {
@@ -530,7 +599,7 @@ describe("startVoiceFromSurface", () => {
     registerStarter();
     useLiveVoiceStore.getState().setState("listening");
 
-    startVoiceFromSurface(navigate);
+    startVoiceFromSurface(navigate, { entry: "companion" });
 
     // That session is the one the user is in. Navigating would only walk the
     // app away from the composer that owns it.
@@ -549,13 +618,18 @@ describe("askVoiceFromSurface", () => {
     identityHydrated();
     registerStarter();
 
-    expect(askVoiceFromSurface(navigate, "> the cell\n\nwhat is this")).toBe(
-      true,
-    );
+    expect(
+      askVoiceFromSurface(
+        navigate,
+        "> the cell\n\nwhat is this",
+        "voice_key_ask",
+      ),
+    ).toBe(true);
     await flushDrain();
 
     const draftId = mintedConversationId();
     expect(starter).toHaveBeenCalledWith("assistant-1", draftId, {
+      entry: "voice_key_ask",
       seedText: "> the cell\n\nwhat is this",
       seedVisible: true,
       endAfterSeedReply: true,
@@ -568,7 +642,9 @@ describe("askVoiceFromSurface", () => {
     registerStarter();
     useLiveVoiceStore.getState().setState("listening");
 
-    expect(askVoiceFromSurface(navigate, "what is this")).toBe(true);
+    expect(askVoiceFromSurface(navigate, "what is this", "voice_key_ask")).toBe(
+      true,
+    );
 
     expect(sendText).toHaveBeenCalledWith("what is this");
     expect(navigate).not.toHaveBeenCalled();
@@ -582,7 +658,7 @@ describe("askVoiceFromSurface", () => {
     identityHydrated("0.10.11");
     registerStarter();
 
-    askVoiceFromSurface(navigate, "what is this");
+    askVoiceFromSurface(navigate, "what is this", "voice_key_ask");
     await flushDrain();
 
     expect(starter).not.toHaveBeenCalled();
@@ -596,7 +672,7 @@ describe("askVoiceFromSurface", () => {
     registerStarter();
     preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
 
-    askVoiceFromSurface(navigate, "what is this");
+    askVoiceFromSurface(navigate, "what is this", "voice_key_ask");
     await flushDrain();
 
     expect(starter).not.toHaveBeenCalled();
@@ -611,7 +687,7 @@ describe("askVoiceFromSurface", () => {
       return preflightVerdict;
     });
 
-    askVoiceFromSurface(navigate, "what is this");
+    askVoiceFromSurface(navigate, "what is this", "voice_key_ask");
     await flushDrain();
 
     expect(starter).not.toHaveBeenCalled();
@@ -625,7 +701,9 @@ describe("askVoiceFromSurface", () => {
     sendText.mockReturnValueOnce(false);
     useLiveVoiceStore.getState().setState("speaking");
 
-    expect(askVoiceFromSurface(navigate, "what is this")).toBe(false);
+    expect(askVoiceFromSurface(navigate, "what is this", "voice_key_ask")).toBe(
+      false,
+    );
     expect(isParked()).toBe(false);
   });
 });
@@ -642,7 +720,7 @@ describe("entry guards", () => {
     registerStarter();
     useVoicePrefsStore.setState({ firstRunSeen: false });
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -662,7 +740,7 @@ describe("entry guards", () => {
     registerStarter();
     useVoicePrefsStore.setState({ firstRunSeen: false });
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -679,7 +757,7 @@ describe("entry guards", () => {
     registerStarter();
     useVoicePrefsStore.setState({ firstRunSeen: true });
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await Promise.resolve();
     await Promise.resolve();
 
@@ -691,12 +769,65 @@ describe("entry guards", () => {
     registerStarter();
     preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await drainPendingVoiceStart(navigate);
 
     expect(useLiveVoiceStore.getState().configNotice).toBe("Set up a voice.");
     expect(starter).not.toHaveBeenCalled();
     expect(isParked()).toBe(false);
+  });
+
+  /**
+   * The companion draws a dial from the press until a session answers, and a
+   * refusal is the answer "none is coming". Every refusal says so, so the pill
+   * closes on the decision rather than on a timeout.
+   */
+  test("a refusal tells the companion its dial is over", async () => {
+    identityHydrated();
+    registerStarter();
+    preflightVerdict = { status: "not-ready", userMessage: "Set up a voice." };
+
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    await drainPendingVoiceStart(navigate);
+
+    expect(endVoiceActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("the first-run card tells the companion its dial is over too", async () => {
+    identityHydrated();
+    registerStarter();
+    useVoicePrefsStore.setState({ firstRunSeen: false });
+
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(endVoiceActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("an assistant too old for live voice tells the companion its dial is over", async () => {
+    identityHydrated("0.10.11");
+    registerStarter();
+
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    await drainPendingVoiceStart(navigate);
+
+    expect(endVoiceActivityMock).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A start that goes through answers the dial with the session itself, which
+   * the mirror publishes. An `end` here would close the pill under the call.
+   */
+  test("a start that goes through says nothing of the kind", async () => {
+    identityHydrated();
+    registerStarter();
+
+    requestVoiceStart(navigate, { entry: "deep_link" });
+    await drainPendingVoiceStart(navigate);
+
+    expectStartedOnFreshDraft();
+    expect(endVoiceActivityMock).not.toHaveBeenCalled();
   });
 
   test("a failed preflight starts anyway rather than blocking voice", async () => {
@@ -706,7 +837,7 @@ describe("entry guards", () => {
     registerStarter();
     preflightVerdict = null;
 
-    requestVoiceStart(navigate);
+    requestVoiceStart(navigate, { entry: "deep_link" });
     await drainPendingVoiceStart(navigate);
 
     expectStartedOnFreshDraft();
@@ -718,7 +849,9 @@ describe("entry guards", () => {
     // case that must not spend the press.
     identityHydrated();
     registerStarter();
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     let released: () => void = () => {};
     preflightLiveVoice.mockImplementationOnce(
       () =>
@@ -768,7 +901,9 @@ describe("state read before the preflight is re-read after it", () => {
           release = () => resolve(preflightVerdict);
         }),
     );
-    usePendingDeepLinkStore.getState().setPendingVoiceStart();
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingVoiceStart({ entry: "deep_link" });
     const drain = drainPendingVoiceStart(navigate);
     await Promise.resolve();
     await Promise.resolve();
@@ -838,5 +973,35 @@ describe("state read before the preflight is re-read after it", () => {
     await drain;
 
     expect(useLiveVoiceStore.getState().configNotice).toBeNull();
+  });
+});
+
+describe("toggling from a surface", () => {
+  test("with no session running, asks for one the way Talk does", () => {
+    toggleVoiceFromSurface(navigate, "voice_key");
+
+    expect(navigate).toHaveBeenCalledWith(routes.assistant);
+    expect(isParked()).toBe(true);
+  });
+
+  test("with a session running, ends it and asks for nothing", () => {
+    const stop = mock(() => undefined);
+    useLiveVoiceStore.getState().setControls({
+      stop,
+      release: () => {},
+      interrupt: () => {},
+      setMuted: () => {},
+      setOutputMuted: () => {},
+      updateConfig: () => {},
+    } as unknown as Parameters<
+      ReturnType<typeof useLiveVoiceStore.getState>["setControls"]
+    >[0]);
+    useLiveVoiceStore.getState().setState("listening");
+
+    toggleVoiceFromSurface(navigate, "voice_key");
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(isParked()).toBe(false);
+    expect(navigate).not.toHaveBeenCalled();
   });
 });

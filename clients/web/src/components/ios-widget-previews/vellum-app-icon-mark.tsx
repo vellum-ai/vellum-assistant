@@ -20,8 +20,8 @@ import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
 
 /** The three grounds the Icon Composer bundles declare, in sRGB. */
 export const APP_ICON_GROUNDS = {
-  production: "#4E9857",
-  staging: "#E7C91A",
+  production: "#4C9B50",
+  staging: "#E9C91A",
   dev: "#FF88C9",
 } as const;
 

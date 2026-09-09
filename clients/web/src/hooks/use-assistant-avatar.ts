@@ -18,6 +18,7 @@ import type {
   CharacterComponents,
   CharacterTraits,
 } from "@/types/avatar";
+import { resolveAvatarAccentHex } from "@/utils/avatar-accent";
 
 export const AVATAR_QUERY_KEY_PREFIX = "assistantAvatar";
 
@@ -184,12 +185,30 @@ function legacyAvatarState(
   imageUrl: string | null,
 ): AvatarState {
   if (imageUrl) {
-    return { kind: "image", traits: null, source: null, image: null };
+    return {
+      kind: "image",
+      traits: null,
+      source: null,
+      image: null,
+      accent: null,
+    };
   }
   if (traits) {
-    return { kind: "character", traits, source: null, image: null };
+    return {
+      kind: "character",
+      traits,
+      source: null,
+      image: null,
+      accent: null,
+    };
   }
-  return { kind: "none", traits: null, source: null, image: null };
+  return {
+    kind: "none",
+    traits: null,
+    source: null,
+    image: null,
+    accent: null,
+  };
 }
 
 /** {@link readAvatarViaLegacyFiles} that throws on an inconclusive read, like the manifest path. */
@@ -290,11 +309,33 @@ export function useAssistantAvatar(
     });
   }, [assistantId, queryClient]);
 
+  const components = data?.components ?? null;
+  const traits = data?.traits ?? null;
+  const customImageUrl = data?.customImageUrl ?? null;
+  const state = data?.state ?? null;
+
   return {
-    components: data?.components ?? null,
-    traits: data?.traits ?? null,
-    customImageUrl: data?.customImageUrl ?? null,
-    state: data?.state ?? null,
+    components,
+    traits,
+    customImageUrl,
+    state,
+    /**
+     * The colour every avatar-tinted surface paints with, or null while there
+     * is none. The one derivation; see `resolveAvatarAccentHex`.
+     */
+    accentHex: resolveAvatarAccentHex({
+      state,
+      components,
+      traits,
+      customImageUrl,
+    }),
+    /**
+     * The daemon's accent record, for the surface that edits it: its
+     * `source` says whether the user set the colour or it was read out of
+     * the image. Null on assistants that predate accents, which is also the
+     * signal that the accent route is not there to write to.
+     */
+    accent: state?.accent ?? null,
     isLoading,
     isSuccess,
     invalidate,

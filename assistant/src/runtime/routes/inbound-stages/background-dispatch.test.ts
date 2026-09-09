@@ -113,12 +113,35 @@ mock.module("../../../messaging/providers/index.js", () => ({
     sentActivity.push(target);
     return setChannelActivityImpl(target);
   },
+  // Slack declares it can stream by implementing the method; whether a given
+  // conversation can is Slack's own answer to `start`, which is why the stub
+  // below models the refusal rather than gating before the call.
+  getTransportForCallback: () => ({
+    streamReply: () => undefined,
+    streamPersists: true,
+  }),
   sendChannelStreamOp: async (
-    _callbackUrl: string,
+    callbackUrl: string,
     _chatId: string,
     op: Record<string, unknown>,
   ) => {
     sentStreamOps.push(op);
+    // `chat.startStream` streams into a thread, and names the reader when the
+    // room has more than one, so a start lacking either is refused. Modelled
+    // here so these tests exercise the fallback the refusal produces.
+    // `chat.startStream` streams into a thread, and a room with more than one
+    // reader must name the reader, so a start lacking either is refused. Slack
+    // ids say which room this is: `D` a DM, `C` a channel. Modelled here so
+    // these tests exercise the fallback a refusal produces, rather than a gate
+    // that no longer exists above the transport.
+    if (op.action === "start") {
+      if (!callbackUrl.includes("threadTs=")) {
+        return { ok: false };
+      }
+      if (/channel=C/.test(callbackUrl) && op.audience === undefined) {
+        return { ok: false };
+      }
+    }
     return sendChannelStreamOpImpl(op);
   },
 }));
@@ -549,7 +572,8 @@ describe("processChannelMessageInBackground — reply delivery", () => {
 
     await flush();
 
-    expect(slackStreamOps()).toEqual([]);
+    // A start is attempted and refused, so nothing advances past it.
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
     expect(
       deliveredChannelReplies
         .map((entry) => entry.payload.text)
@@ -605,7 +629,6 @@ describe("processChannelMessageInBackground — reply delivery", () => {
     expect(slackStreamOps()).toEqual([
       {
         action: "start",
-        anchorMessageId: threadTs,
         text: "Streamed DM reply.",
         appended: "Streamed DM reply.",
       },
@@ -687,7 +710,8 @@ describe("processChannelMessageInBackground — reply delivery", () => {
         .map((entry) => entry.payload.text)
         .filter(Boolean),
     ).toEqual([]);
-    expect(slackStreamOps()).toEqual([]);
+    // A start is attempted and refused, so nothing advances past it.
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
     expect(replyDeliveryCalls).toEqual([
       { messageId: "assistant-msg-channel-final", startFromSegment: 0 },
     ]);

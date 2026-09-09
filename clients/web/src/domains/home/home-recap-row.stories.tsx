@@ -235,13 +235,62 @@ export const MarkdownSummaryWithoutTitle: Story = {
   },
 };
 
-/** The compact density the feed uses where vertical space is tight. */
-export const Compact: Story = {
+/**
+ * Named for the thread it came from. The bell resolves the name from the
+ * conversation lists and passes it down; the row only prints it.
+ */
+export const WithThreadName: Story = {
   args: {
-    density: "compact",
+    threadName: "Weekly report export",
     item: feedItem({
       ...SkillUpdated.args.item,
-      id: "feed-skill-updated-compact",
+      id: "feed-skill-updated-thread",
+    }),
+  },
+};
+
+/**
+ * A question waiting on the user. The ask reads as the quoted message it is,
+ * and the row offers no buttons: the answer is given in the conversation.
+ */
+export const GuardianQuestionPending: Story = {
+  args: {
+    threadName: "Venue shortlist",
+    item: feedItem({
+      id: "guardian:req-question",
+      title: "Guardian Question",
+      summary: "Which venue should I book, the Barn or the Loft?",
+      category: "security",
+      urgency: "high",
+      detailPanel: { kind: "permissionChat" },
+      conversationId: FIXTURE_CONVERSATION_ID,
+      guardianRequest: {
+        requestId: "req-question",
+        kind: "pending_question",
+        intent: "question",
+        status: "pending",
+      },
+    }),
+  },
+};
+
+/**
+ * An item the assistant attached offers to. The body previews under the
+ * title because the offers act on it, where a row that only reports would
+ * show its title alone.
+ */
+export const WithOffers: Story = {
+  args: {
+    item: feedItem({
+      id: "feed-offers",
+      title: "Q3 pricing deck",
+      summary:
+        "Alice replied about the Q3 pricing deck and wants your notes before Thursday.",
+      category: "email",
+      urgency: "medium",
+      actions: [
+        { id: "draft-reply", label: "Draft a reply", prompt: "Draft a reply" },
+      ],
     }),
   },
 };

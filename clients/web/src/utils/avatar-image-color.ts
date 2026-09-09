@@ -1,19 +1,20 @@
 /**
- * Deriving a room-fill color from a custom (uploaded) avatar image.
+ * Colour work on an uploaded avatar image, in the browser.
  *
- * A character avatar hands every avatar-tinted surface an explicit palette
- * color to paint with. An uploaded image hands over pixels instead, so a
- * surface that fills itself with "the assistant's color" has to sample one out
- * of those pixels. That is what this does: one representative color, so an
- * uploaded avatar drives the same surfaces a character does.
+ * The daemon reads an uploaded image's accent out of its pixels and serves it
+ * with the avatar manifest; {@link sampleAvatarAccentHex} runs the same maths
+ * (`dominantAccentHex`, shared through `@vellumai/avatar-manifest`) on a
+ * canvas for assistants that predate accents, so the two can never disagree
+ * about what colour an image is.
  *
- * The sample is normalized rather than used raw: a photograph's average is
- * usually a washed-out near-white or a muddy near-black, neither of which is a
- * background anything can be drawn on. {@link normalizeFieldHex} keeps the
- * sampled hue and pins the perceived brightness into the band the character
- * palette occupies, which is the band avatar-tinted treatments are tuned
- * against.
+ * {@link normalizeFieldHex} is the room's treatment of that accent. A raw
+ * accent is usually too bright or too dark to be a background anything can be
+ * drawn on, so the fill keeps the hue and pins the perceived brightness into
+ * the band the character palette occupies, which is the band avatar-tinted
+ * treatments are tuned against.
  */
+
+import { dominantAccentHex } from "@vellumai/avatar-manifest/accent";
 
 import { coverCropSquare } from "./avatar-raster";
 
@@ -34,20 +35,6 @@ const FIELD_BRIGHTNESS = 0.45;
  * There is deliberately no floor: a grayscale avatar earns a gray room.
  */
 const FIELD_MAX_SATURATION = 0.68;
-
-/** Pixels below this alpha are skipped: a transparent logo's ground is not its color. */
-const MIN_ALPHA = 128;
-
-/**
- * How strongly a pixel's colorfulness weights it in the average.
- *
- * A flat average is dominated by whatever fills the most area, which for most
- * uploads is a white or black background, so the "avatar color" of a red logo
- * on white comes out pale pink. Weighting by chroma lets the colored pixels
- * carry the result while the base weight keeps a genuinely gray image gray.
- */
-const CHROMA_WEIGHT = 4;
-const BASE_WEIGHT = 0.25;
 
 /** Parse `#rgb` / `#rrggbb` into 0-255 channels; null when malformed. */
 function parseHex(hex: string): [number, number, number] | null {
@@ -102,11 +89,7 @@ function rgbToHsl(
 }
 
 /** HSL (all 0-1) back to RGB (0-255). */
-function hslToRgb(
-  h: number,
-  s: number,
-  l: number,
-): [number, number, number] {
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   const c = (1 - Math.abs(2 * l - 1)) * s;
   const hp = h * 6;
   const x = c * (1 - Math.abs((hp % 2) - 1));
@@ -154,8 +137,8 @@ function hexAtBrightness(h: number, s: number, target: number): string {
 }
 
 /**
- * Pin a sampled color into the band avatar-tinted surfaces are drawn for: the
- * hue is kept, the saturation is capped, and the perceived brightness is set to
+ * Pin an accent into the band avatar-tinted surfaces are drawn for: the hue
+ * is kept, the saturation is capped, and the perceived brightness is set to
  * {@link FIELD_BRIGHTNESS}. Returns the input unchanged if it is not a hex.
  */
 export function normalizeFieldHex(hex: string): string {
@@ -172,45 +155,9 @@ export function normalizeFieldHex(hex: string): string {
 }
 
 /**
- * One representative color for a block of RGBA pixels, normalized per
- * {@link normalizeFieldHex}. Null when the block holds no pixel opaque enough
- * to count (an all-transparent crop), so the caller keeps its own fallback.
- *
- * Split out from the canvas work so the color math is testable without a DOM.
- */
-export function fieldHexFromImageData(data: Uint8ClampedArray): string | null {
-  let totalWeight = 0;
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  for (let i = 0; i + 3 < data.length; i += 4) {
-    const alpha = data[i + 3]!;
-    if (alpha < MIN_ALPHA) {
-      continue;
-    }
-    const pr = data[i]!;
-    const pg = data[i + 1]!;
-    const pb = data[i + 2]!;
-    const chroma =
-      (Math.max(pr, pg, pb) - Math.min(pr, pg, pb)) / 255;
-    const weight = BASE_WEIGHT + chroma * CHROMA_WEIGHT;
-    totalWeight += weight;
-    r += pr * weight;
-    g += pg * weight;
-    b += pb * weight;
-  }
-  if (totalWeight === 0) {
-    return null;
-  }
-  return normalizeFieldHex(
-    toHex(r / totalWeight, g / totalWeight, b / totalWeight),
-  );
-}
-
-/**
  * Sample `src` (a renderer-owned blob URL or a data URI) down to a small
- * offscreen canvas and return its field color, or null when the image cannot
- * be read.
+ * offscreen canvas and return its accent, or null when the image cannot be
+ * read.
  *
  * Null covers every failure the caller has to survive: a decode error, an
  * image with no extent, a browser that hands back no 2D context, and a remote
@@ -220,12 +167,13 @@ export function fieldHexFromImageData(data: Uint8ClampedArray): string | null {
  * take a surface down.
  *
  * Non-square uploads are center-cropped with {@link coverCropSquare}, the same
- * crop `ChatAvatar` renders, so the sample comes from the pixels the user can
- * actually see rather than from bands that are cropped away.
+ * crop `ChatAvatar` renders and the daemon samples, so the sample comes from
+ * the pixels the user can actually see rather than from bands that are
+ * cropped away.
  */
-export async function sampleAvatarFieldHex(
+export async function sampleAvatarAccentHex(
   src: string,
-  size = 24,
+  size = 48,
 ): Promise<string | null> {
   if (!src || typeof document === "undefined") {
     return null;
@@ -250,8 +198,18 @@ export async function sampleAvatarFieldHex(
     if (!ctx) {
       return null;
     }
-    ctx.drawImage(image, crop.sx, crop.sy, crop.side, crop.side, 0, 0, size, size);
-    return fieldHexFromImageData(ctx.getImageData(0, 0, size, size).data);
+    ctx.drawImage(
+      image,
+      crop.sx,
+      crop.sy,
+      crop.side,
+      crop.side,
+      0,
+      0,
+      size,
+      size,
+    );
+    return dominantAccentHex(ctx.getImageData(0, 0, size, size).data);
   } catch {
     return null;
   }

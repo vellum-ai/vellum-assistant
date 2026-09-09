@@ -12,8 +12,16 @@ type SaveDialogResult = { canceled: boolean; filePath?: string };
 let saveDialogResult: SaveDialogResult = { canceled: true };
 const saveDialogCalls: Array<{ options: { defaultPath?: string } }> = [];
 
+const quitListeners: Array<() => void> = [];
 mock.module("electron", () => ({
-  app: { getAppPath: () => "/nonexistent-app-path", once: () => undefined },
+  app: {
+    getAppPath: () => "/nonexistent-app-path",
+    once: (event: string, listener: () => void) => {
+      if (event === "before-quit") {
+        quitListeners.push(listener);
+      }
+    },
+  },
   dialog: {
     showSaveDialog: (_window: unknown, options: { defaultPath?: string }) => {
       saveDialogCalls.push({ options });
@@ -50,6 +58,14 @@ mock.module("@vellumai/electron-desktop/notifications", () => ({
   configureNotifications: () => undefined,
   installNotifications: () => undefined,
 }));
+const windowAttentionInstalls = { count: 0 };
+const teardownWindowAttention = mock(() => undefined);
+mock.module("@vellumai/electron-desktop/window-attention", () => ({
+  installWindowAttention: () => {
+    windowAttentionInstalls.count += 1;
+    return teardownWindowAttention;
+  },
+}));
 
 class FakeSidecarClient {
   static instances: FakeSidecarClient[] = [];
@@ -85,6 +101,8 @@ mock.module("@vellumai/native-sidecar/supervisor", () => ({
 }));
 
 const { createHelperToastFactory } = await import("./features/notifications");
+const { default: windowAttentionFeature } =
+  await import("./features/window-attention");
 const { default: shareFeature, sanitizeFilename } =
   await import("./features/share");
 const { DesktopCapabilityRegistry } =
@@ -95,6 +113,22 @@ beforeEach(() => {
   saveDialogCalls.length = 0;
   saveDialogResult = { canceled: true };
   FakeSidecarClient.instances.length = 0;
+  quitListeners.length = 0;
+  windowAttentionInstalls.count = 0;
+  teardownWindowAttention.mockClear();
+});
+
+describe("window attention feature", () => {
+  test("installs the window-attention publisher and tears it down on quit", () => {
+    windowAttentionFeature.install(new DesktopCapabilityRegistry());
+
+    expect(windowAttentionInstalls.count).toBe(1);
+    expect(teardownWindowAttention).not.toHaveBeenCalled();
+
+    expect(quitListeners).toHaveLength(1);
+    quitListeners[0]!();
+    expect(teardownWindowAttention).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("helper toast factory", () => {

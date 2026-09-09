@@ -403,6 +403,42 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open OpenAI Platform",
     },
     models: [
+      // GPT-6 Astra. cacheRead is the 90% cached-read discount; cacheWrite
+      // is the 1.25x-input rate GPT-5.6+ bills for prompt tokens written to
+      // the cache (reported as `cache_write_tokens` in usage, tracked as
+      // `cacheCreationInputTokens`). Long-context (>272K input) is 2x input
+      // / 1.5x output / 2x cache-read+write for the whole request. Effort
+      // accepts low through max and rejects `none`.
+      {
+        id: "gpt-6-astra",
+        displayName: "GPT-6 Astra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
       // GPT-5.6 family (Sol / Terra / Luna). cacheRead is the 90% cached-read
       // discount; cacheWrite is the 1.25x-input rate GPT-5.6+ bills for
       // prompt tokens written to the cache (reported as `cache_write_tokens`
@@ -631,6 +667,22 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       linkLabel: "Open Google AI Studio",
     },
     models: [
+      {
+        id: "gemini-3.8-flash",
+        displayName: "Gemini 3.8 Flash",
+        contextWindowTokens: 1048576,
+        maxOutputTokens: 65536,
+        supportsThinking: true,
+        thinkingFloor: "low",
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 1.5,
+          outputPer1mTokens: 7.5,
+          cacheReadPer1mTokens: 0.15,
+        },
+      },
       {
         id: "gemini-3.7-flash",
         displayName: "Gemini 3.7 Flash",
@@ -929,23 +981,6 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       {
-        id: "accounts/fireworks/models/glm-5p2",
-        displayName: "GLM 5.2",
-        // Fireworks serves GLM 5.2 with a 1,040K input window.
-        contextWindowTokens: 1040000,
-        maxOutputTokens: 131072,
-        supportsThinking: true,
-        supportsCaching: true,
-        supportsVision: false,
-        supportsToolUse: true,
-        maxEffort: "max",
-        pricing: {
-          inputPer1mTokens: 1.4,
-          outputPer1mTokens: 4.4,
-          cacheReadPer1mTokens: 0.26,
-        },
-      },
-      {
         id: "accounts/fireworks/models/glm-5p3",
         displayName: "GLM 5.3",
         contextWindowTokens: 1040000,
@@ -984,6 +1019,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.029,
         },
       },
+      {
+        id: "accounts/fireworks/models/glm-5p2",
+        displayName: "GLM 5.2",
+        // Fireworks serves GLM 5.2 with a 1,040K input window.
+        contextWindowTokens: 1040000,
+        maxOutputTokens: 131072,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: false,
+        supportsToolUse: true,
+        maxEffort: "max",
+        pricing: {
+          inputPer1mTokens: 1.4,
+          outputPer1mTokens: 4.4,
+          cacheReadPer1mTokens: 0.26,
+        },
+      },
       // Kimi K2.5 (accounts/fireworks/models/kimi-k2p5) is intentionally
       // absent: Fireworks serves it on-demand/dedicated only, so serverless
       // chat/completions calls 404 ("not found, inaccessible, and/or not
@@ -1006,17 +1058,10 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
           cacheReadPer1mTokens: 0.06,
         },
       },
-      {
-        id: "accounts/fireworks/models/minimax-m2p7",
-        displayName: "MiniMax M2.7",
-        contextWindowTokens: 196608,
-        maxOutputTokens: 25000,
-        supportsThinking: false,
-        supportsCaching: false,
-        supportsVision: false,
-        supportsToolUse: true,
-        pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 1.2 },
-      },
+      // MiniMax M2.7 (accounts/fireworks/models/minimax-m2p7) is
+      // intentionally absent: Fireworks has no serverless deployment for
+      // it (the model page claims serverless support, but the serving API
+      // returns 404).
       {
         id: "accounts/fireworks/models/deepseek-v4-pro-0813",
         displayName: "DeepSeek V4 Pro",
@@ -1300,6 +1345,72 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
       // OpenAI
+      // GPT-6 Astra. The `*-pro` slug is the same underlying model served
+      // with `reasoning.mode: pro` at identical rates. cacheWrite is the
+      // 1.25x-input rate GPT-5.6+ bills for prompt tokens written to the
+      // cache. Long-context (>272K input) is 2x input / 1.5x output / 2x
+      // cache-read+write for the whole request. Effort accepts low through
+      // max and rejects `none`.
+      {
+        id: "openai/gpt-6-astra",
+        displayName: "GPT-6 Astra",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
+      {
+        id: "openai/gpt-6-astra-pro",
+        displayName: "GPT-6 Astra Pro",
+        contextWindowTokens: 1050000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens:
+          OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        supportsPromptCacheBreakpoints: true,
+        maxEffort: "max",
+        supportedEfforts: ["low", "medium", "high", "xhigh", "max"],
+        pricing: {
+          inputPer1mTokens: 10.0,
+          outputPer1mTokens: 50.0,
+          cacheWritePer1mTokens: 12.5,
+          cacheReadPer1mTokens: 1.0,
+          tiers: [
+            {
+              inputTokenThreshold: OPENAI_LONG_CONTEXT_PRICING_THRESHOLD_TOKENS,
+              inputPer1mTokens: 20,
+              outputPer1mTokens: 75,
+              cacheWritePer1mTokens: 25,
+              cacheReadPer1mTokens: 2,
+            },
+          ],
+        },
+      },
       // GPT-5.6 family (Sol / Terra / Luna). The `*-pro` slugs are the same
       // underlying models served with `reasoning.mode: pro` at identical
       // rates. cacheWrite is the 1.25x-input rate GPT-5.6+ bills for prompt
@@ -1838,7 +1949,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // Z.ai
       {
         id: "z-ai/glm-5.3",
-        displayName: "GLM-5.3",
+        displayName: "GLM 5.3",
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1853,7 +1964,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       {
         id: "z-ai/glm-5.3-flash",
-        displayName: "GLM-5.3 Flash",
+        displayName: "GLM 5.3 Flash",
         contextWindowTokens: 1310720,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -1868,7 +1979,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       },
       {
         id: "z-ai/glm-5.2",
-        displayName: "GLM-5.2",
+        displayName: "GLM 5.2",
         contextWindowTokens: 1048576,
         maxOutputTokens: 131072,
         supportsThinking: true,
@@ -2410,7 +2521,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint:
       "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
-    featureFlag: "settings-developer-nav",
+    featureFlag: "vellum-hosted-inference",
     models: [
       {
         id: "qwen/qwen3-8b",
@@ -2422,7 +2533,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 0.3 },
-        featureFlag: "settings-developer-nav",
+        featureFlag: "vellum-hosted-inference",
       },
     ],
     defaultModel: "qwen/qwen3-8b",

@@ -7,8 +7,16 @@ const TWILIO_ACCOUNT_SID_FIELD = "accountSid";
 
 /**
  * Returns true when the only config change is a Velay-managed publicBaseUrl
- * update. Callers use this to skip side effects that shouldn't fire for
- * Velay-only ingress updates (e.g. Telegram webhook re-registration).
+ * update.
+ *
+ * Callers use this to hold back side effects that would hand a provider an
+ * address the tunnel owns and can withdraw. Email callback re-registration
+ * stays suppressed on that basis in every configuration.
+ *
+ * Telegram lifts the suppression while `velay-webhooks` is on, because the
+ * published Velay URL is then the address Telegram is meant to point at and
+ * this event is the only signal that it changed. That check lives at the call
+ * site so this derivation stays a pure read of the event.
  */
 export function isOnlyVelayPublicBaseUrlChange(
   event: ConfigChangeEvent,

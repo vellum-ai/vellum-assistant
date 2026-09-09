@@ -62,7 +62,8 @@
     "toggleFailed": "Не удалось переключить расписание.",
     "notUsedForWorkflow": "Не используется в запусках сценариев",
     "enabled": "Включено",
-    "disabled": "Выключено"
+    "disabled": "Выключено",
+    "timezone": "Часовой пояс"
   },
   "systemTaskDetail": {
     "openMemorySettings": "Открыть настройки Памяти",

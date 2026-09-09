@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildAccessRequestCardView,
-  buildAccessRequestContractText,
+  buildAccessRequestContextText,
+  buildAccessRequestReplyMechanics,
   parseAccessRequestPayload,
 } from "../notifications/access-request-copy.js";
 
@@ -111,10 +112,10 @@ describe("admitted-mode introduction nudge copy", () => {
       senderIdentifier: "Alice",
       sourceChannel: "telegram",
     };
-    expect(buildAccessRequestContractText(base)).toContain(
+    expect(buildAccessRequestContextText(base)).toContain(
       "is requesting access to the assistant.",
     );
-    const admitted = buildAccessRequestContractText({
+    const admitted = buildAccessRequestContextText({
       ...base,
       trigger: "admitted",
     });
@@ -122,8 +123,8 @@ describe("admitted-mode introduction nudge copy", () => {
     expect(admitted).not.toContain("is requesting access");
   });
 
-  test("admitted contract text keeps the decision directives", () => {
-    const text = buildAccessRequestContractText({
+  test("admitted reply mechanics keep the decision directives", () => {
+    const text = buildAccessRequestReplyMechanics({
       actorDisplayName: "Alice",
       sourceChannel: "telegram",
       requestCode: "ab12cd",

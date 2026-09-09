@@ -40,10 +40,11 @@ const log = getLogger("message-consolidation");
 
 /**
  * True when an assistant row is a standalone display turn (system card,
- * provider-error notice, or deliberate-silence marker) that never merges with adjacent assistant rows in
+ * provider-error notice, deliberate-silence marker, reaction, or a row
+ * deleted on its channel) that never merges with adjacent assistant rows in
  * either direction. Merging one into an adjacent run would let the anchor's
- * metadata win and drop the `messageKind` marker from the wire (or stamp it
- * onto a bubble containing real assistant text).
+ * metadata win and drop the marker from the wire (or stamp it onto a bubble
+ * containing real assistant text).
  */
 function isStandaloneAssistantRow(msg: MessageRow): boolean {
   return isStandaloneAssistantMessage(msg.role, msg.metadata);

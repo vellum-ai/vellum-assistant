@@ -1,8 +1,10 @@
 import type { KnownBlock } from "@slack/types";
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
+import { extractThreadTsFromCallbackUrl } from "../../../channels/slack-callback-url.js";
 import { getLogger } from "../../../util/logger.js";
 import type { ChannelTransport } from "../channel-transport.js";
+import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
 import {
   sendSlackAgentSessionStatus,
   sendSlackAttachments,
@@ -94,7 +96,31 @@ export const slackTransport: ChannelTransport = {
     return { ok };
   },
 
-  async streamReply(_ctx, chatId, op) {
-    return sendSlackStreamOp(chatId, op);
+  // `chat.startStream` and `chat.appendStream` both cap `markdown_text`, so
+  // the caller splits a wider delta and advances its delivered mark once per
+  // operation this transport confirms.
+  maxStreamTextChars: SLACK_STREAM_MARKDOWN_LIMIT,
+
+  // `chat.stopStream` finalizes the streamed message in place, so what the
+  // stream leaves behind IS the reply and durable delivery must not resend it.
+  streamPersists: true,
+
+  /**
+   * `chat.startStream` streams into a thread, so a turn with no thread to
+   * open under cannot stream. Resolving that here, from this channel's own
+   * callback, is what keeps Slack's addressing out of the shared session:
+   * a start with no thread reports not-ok and the caller sends the finished
+   * reply instead.
+   */
+  async streamReply(ctx, chatId, op) {
+    if (op.action !== "start") {
+      return sendSlackStreamOp(chatId, op);
+    }
+    const threadTs =
+      op.anchorMessageId ?? extractThreadTsFromCallbackUrl(ctx.callbackUrl);
+    if (!threadTs) {
+      return { ok: false };
+    }
+    return sendSlackStreamOp(chatId, { ...op, anchorMessageId: threadTs });
   },
 };

@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { DocsContent } from "@/app/docs/_components/docs-content";
+import { DocsVideo } from "@/app/docs/_components/docs-video";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
@@ -22,6 +23,8 @@ export function HostingOptionsLocalHostingContent() {
   return (
     <>
       <DocsContent title="Local hosting" breadcrumb="Docs / Hosting options / Local hosting">
+        <DocsVideo video="local-hosting-setup" />
+
         <section id="overview">
           <SectionHeading id="overview" level={2}>
             Overview
