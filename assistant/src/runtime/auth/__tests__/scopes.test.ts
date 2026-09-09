@@ -3,6 +3,17 @@ import { describe, expect, test } from "bun:test";
 import { hasAllScopes, hasScope, resolveScopeProfile } from "../scopes.js";
 import type { AuthContext, Scope, ScopeProfile } from "../types.js";
 
+/** Every profile name; the Record keeps this list exhaustive. */
+const KNOWN_PROFILES = Object.keys({
+  actor_client_v1: true,
+  gateway_ingress_v1: true,
+  gateway_service_v1: true,
+  local_v1: true,
+  oauth_proxy_v1: true,
+  speech_relay_v1: true,
+  ui_page_v1: true,
+} satisfies Record<ScopeProfile, true>) as ScopeProfile[];
+
 /** Utility to create a minimal AuthContext with a given scope profile. */
 function makeCtx(profile: ScopeProfile): AuthContext {
   return {
@@ -88,6 +99,21 @@ describe("resolveScopeProfile", () => {
     const scopes = resolveScopeProfile("local_v1");
     expect(scopes.has("local.all")).toBe(true);
     expect(scopes.size).toBe(1);
+  });
+
+  test("oauth_proxy_v1 includes only oauth.proxy", () => {
+    const scopes = resolveScopeProfile("oauth_proxy_v1");
+    expect(scopes.has("oauth.proxy")).toBe(true);
+    expect(scopes.size).toBe(1);
+  });
+
+  test("no other profile grants oauth.proxy", () => {
+    for (const profile of KNOWN_PROFILES) {
+      if (profile === "oauth_proxy_v1") {
+        continue;
+      }
+      expect(resolveScopeProfile(profile).has("oauth.proxy")).toBe(false);
+    }
   });
 });
 
