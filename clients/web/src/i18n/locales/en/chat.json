@@ -484,6 +484,10 @@
   "composerAttachments": {
     "fileTooLarge": "{name} is larger than {limit} and can't be attached.",
     "filesTooLarge": "{count, plural, one {# file is too large and can't be attached.} other {# files are too large and can't be attached.}}",
+    "imageResizeFailed": "Couldn't resize this image for upload. Try a smaller image.",
+    "imageStillTooLargeAfterResize": "This attachment is still larger than {limit} after resizing. Try a smaller image.",
+    "imageTooLargeToProcess": "This image is too large to process safely. Please choose a smaller image.",
+    "imageUnreadable": "This image can't be sent: the file appears to be corrupt or in an unsupported format.",
     "noActiveAssistant": "No active assistant. Please try again.",
     "uploadFailed": "Upload failed"
   },

@@ -109,6 +109,9 @@ const STORAGE_KEY_PREFIX = "vellum:chatDrafts:";
  */
 export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
+/** {@link MAX_ATTACHMENT_BYTES} as the catalog renders it. */
+const MAX_ATTACHMENT_LABEL = "50 MB";
+
 // ---------------------------------------------------------------------------
 // localStorage helpers (draft persistence)
 // ---------------------------------------------------------------------------
@@ -157,7 +160,7 @@ function createLocalId(): string {
 }
 
 function uploadLimitLabel(file: File): string {
-  return isAutoResizableImage(file) ? "100 MB" : "50 MB";
+  return isAutoResizableImage(file) ? "100 MB" : MAX_ATTACHMENT_LABEL;
 }
 
 /**
@@ -182,10 +185,6 @@ export function canQueueFile(
     file.size <= IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES
   );
 }
-
-/** Chip error for an image whose bytes are not an image at all. */
-const UNREADABLE_IMAGE_ERROR =
-  "This image can't be sent: the file appears to be corrupt or in an unsupported format.";
 
 /**
  * Whether a file declared as an image holds bytes no image decoder can read.
@@ -577,7 +576,12 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           const uploadFile =
             prepared.status === "failed" ? file : prepared.file;
           if (await isUnreadableImage(uploadFile)) {
-            markFailed(set, slot, pending.localId, UNREADABLE_IMAGE_ERROR);
+            markFailed(
+              set,
+              slot,
+              pending.localId,
+              t("chat:composerAttachments.imageUnreadable"),
+            );
             return;
           }
           if (uploadFile.size > MAX_ATTACHMENT_BYTES) {
@@ -585,7 +589,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
               set,
               slot,
               pending.localId,
-              "This attachment is still larger than 50 MB after resizing. Try a smaller image.",
+              t("chat:composerAttachments.imageStillTooLargeAfterResize", {
+                limit: MAX_ATTACHMENT_LABEL,
+              }),
             );
             return;
           }

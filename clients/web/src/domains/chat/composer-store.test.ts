@@ -55,15 +55,20 @@ mock.module(
     downloadAttachment: mock(async () => {}),
   }),
 );
+import type { ImageAttachmentResizeResult } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
+
+const prepareImageAttachmentForUploadMock = mock(
+  async (file: File): Promise<ImageAttachmentResizeResult> => ({
+    status: "unchanged",
+    file,
+  }),
+);
 mock.module(
   "@/domains/chat/components/chat-attachments/attachment-image-resize",
   () => ({
     IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES: 100 * 1024 * 1024,
     isAutoResizableImage: () => false,
-    prepareImageAttachmentForUpload: async (file: File) => ({
-      status: "unchanged" as const,
-      file,
-    }),
+    prepareImageAttachmentForUpload: prepareImageAttachmentForUploadMock,
   }),
 );
 
@@ -138,6 +143,13 @@ function oversizedFile(name: string): File {
     type: "application/octet-stream",
     size: MAX_ATTACHMENT_BYTES + 1,
   } as unknown as File;
+}
+
+/** An image whose resized bytes still exceed the cap, described without allocating them. */
+function oversizedImageFile(name: string): File {
+  const file = fileWithHeader(PNG_HEADER, name, "image/png");
+  Object.defineProperty(file, "size", { value: MAX_ATTACHMENT_BYTES + 1 });
+  return file;
 }
 
 /** Poll until no attachment is in the transient "uploading" state. */
@@ -666,9 +678,7 @@ describe("addFiles image byte validation", () => {
       throw new Error(`expected failed attachment, got ${att.kind}`);
     }
     expect(att.filename).toBe("photo.png");
-    expect(att.error).toBe(
-      "This image can't be sent: the file appears to be corrupt or in an unsupported format.",
-    );
+    expect(att.error).toBe(attachmentCopy("imageUnreadable"));
     expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
   });
 
@@ -786,6 +796,28 @@ describe("addFiles attachment error copy", () => {
       throw new Error(`expected failed attachment, got ${att.kind}`);
     }
     expect(att.error).toBe("Attachment storage is full");
+  });
+
+  test("an image still over the cap after resizing takes the catalog message", async () => {
+    prepareImageAttachmentForUploadMock.mockResolvedValueOnce({
+      status: "resized",
+      file: oversizedImageFile("huge.png"),
+    });
+
+    getStore().addFiles(
+      [fileWithHeader(PNG_HEADER, "huge.png", "image/png")],
+      "assistant-1",
+    );
+    await waitForUploadsSettled(1);
+
+    const att = getStore().attachments[0];
+    if (att.kind !== "failed") {
+      throw new Error(`expected failed attachment, got ${att.kind}`);
+    }
+    expect(att.error).toBe(
+      attachmentCopy("imageStillTooLargeAfterResize", { limit: "50 MB" }),
+    );
+    expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
   });
 });
 

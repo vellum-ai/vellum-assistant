@@ -480,6 +480,10 @@
   "composerAttachments": {
     "fileTooLarge": "{name} 超過 {limit}，無法附加。",
     "filesTooLarge": "{count, plural, other {# 個檔案過大，無法附加。}}",
+    "imageResizeFailed": "無法調整此圖片的大小以便上傳。請選擇較小的圖片。",
+    "imageStillTooLargeAfterResize": "調整大小後，此附件仍超過 {limit}。請選擇較小的圖片。",
+    "imageTooLargeToProcess": "此圖片過大，無法安全處理。請選擇較小的圖片。",
+    "imageUnreadable": "無法傳送此圖片：檔案似乎已損毀或格式不支援。",
     "noActiveAssistant": "沒有作用中的助理。請再試一次。",
     "uploadFailed": "上傳失敗"
   },

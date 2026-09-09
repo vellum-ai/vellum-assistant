@@ -480,6 +480,10 @@
   "composerAttachments": {
     "fileTooLarge": "{name} supera {limit} y no se puede adjuntar.",
     "filesTooLarge": "{count, plural, one {# archivo es demasiado grande y no se puede adjuntar.} other {# archivos son demasiado grandes y no se pueden adjuntar.}}",
+    "imageResizeFailed": "No se pudo redimensionar esta imagen para subirla. Prueba con una imagen más pequeña.",
+    "imageStillTooLargeAfterResize": "Este archivo adjunto sigue superando {limit} después de redimensionarlo. Prueba con una imagen más pequeña.",
+    "imageTooLargeToProcess": "Esta imagen es demasiado grande para procesarla de forma segura. Elige una imagen más pequeña.",
+    "imageUnreadable": "No se puede enviar esta imagen: el archivo parece estar dañado o en un formato no compatible.",
     "noActiveAssistant": "No hay ningún asistente activo. Inténtalo de nuevo.",
     "uploadFailed": "Error al subir"
   },

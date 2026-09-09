@@ -15,7 +15,7 @@
  */
 
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 
 import type { DocumentComposerSendStatus } from "@/domains/chat/hooks/use-document-composer-submit";
 import type { OpenedDocumentState } from "@/stores/viewer-store";
@@ -210,19 +210,21 @@ describe("MobileDocumentOverlay: document-slot lifecycle", () => {
         onClose={noop}
       />,
     );
-    useComposerStore.setState({
-      documentInput: "draft for A",
-      documentAttachments: [
-        {
-          kind: "uploaded",
-          localId: "a1",
-          id: "srv-1",
-          filename: "f.txt",
-          mimeType: "text/plain",
-          sizeBytes: 1,
-          previewUrl: null,
-        },
-      ],
+    act(() => {
+      useComposerStore.setState({
+        documentInput: "draft for A",
+        documentAttachments: [
+          {
+            kind: "uploaded",
+            localId: "a1",
+            id: "srv-1",
+            filename: "f.txt",
+            mimeType: "text/plain",
+            sizeBytes: 1,
+            previewUrl: null,
+          },
+        ],
+      });
     });
 
     rerender(
@@ -245,7 +247,9 @@ describe("MobileDocumentOverlay: document-slot lifecycle", () => {
         onClose={noop}
       />,
     );
-    useComposerStore.getState().setInput("unsent draft", "document");
+    act(() => {
+      useComposerStore.getState().setInput("unsent draft", "document");
+    });
 
     rerender(
       <MobileDocumentOverlay
@@ -266,7 +270,9 @@ describe("MobileDocumentOverlay: document-slot lifecycle", () => {
         onClose={noop}
       />,
     );
-    useComposerStore.getState().setInput("still typing", "document");
+    act(() => {
+      useComposerStore.getState().setInput("still typing", "document");
+    });
 
     // Same surfaceId, e.g. a parent re-render triggered by an unrelated prop.
     rerender(

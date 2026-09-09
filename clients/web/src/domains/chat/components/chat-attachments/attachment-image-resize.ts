@@ -1,3 +1,5 @@
+import { t } from "@/i18n";
+
 export const IMAGE_AUTO_RESIZE_TARGET_BYTES = Math.floor(3.5 * 1024 * 1024);
 export const IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES = 100 * 1024 * 1024;
 
@@ -131,8 +133,7 @@ export async function prepareImageAttachmentForUpload(
   if (file.size > IMAGE_AUTO_RESIZE_SOURCE_LIMIT_BYTES) {
     return {
       status: "failed",
-      error:
-        "This image is too large to process safely. Please choose a smaller image.",
+      error: t("chat:composerAttachments.imageTooLargeToProcess"),
     };
   }
 
@@ -142,7 +143,7 @@ export async function prepareImageAttachmentForUpload(
   } catch {
     return {
       status: "failed",
-      error: "Couldn't resize this image for upload. Try a smaller image.",
+      error: t("chat:composerAttachments.imageResizeFailed"),
     };
   }
 
@@ -162,7 +163,7 @@ export async function prepareImageAttachmentForUpload(
     ) {
       return {
         status: "failed",
-        error: "Couldn't resize this image for upload. Try a smaller image.",
+        error: t("chat:composerAttachments.imageResizeFailed"),
       };
     }
 

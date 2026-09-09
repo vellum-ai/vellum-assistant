@@ -80,20 +80,23 @@ afterEach(() => {
 const DOC = { surfaceId: "surf-1", conversationId: "conv-1" };
 const OTHER_DOC = { surfaceId: "surf-2", conversationId: "conv-2" };
 
+/** A file the user staged in the document slot. */
+const STAGED_ATTACHMENTS = [
+  {
+    kind: "uploaded" as const,
+    localId: "a1",
+    id: "srv-1",
+    filename: "f.txt",
+    mimeType: "text/plain",
+    sizeBytes: 1,
+    previewUrl: null,
+  },
+];
+
 function stageDocumentDraft() {
   useComposerStore.setState({
     documentInput: "unsent draft",
-    documentAttachments: [
-      {
-        kind: "uploaded",
-        localId: "a1",
-        id: "srv-1",
-        filename: "f.txt",
-        mimeType: "text/plain",
-        sizeBytes: 1,
-        previewUrl: null,
-      },
-    ],
+    documentAttachments: STAGED_ATTACHMENTS,
     documentAttachmentLastError: "Upload failed",
   });
 }
@@ -211,7 +214,9 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
     const onAddAttachmentFiles = lastComposerProps.onAddAttachmentFiles as (
       files: File[],
     ) => void;
-    onAddAttachmentFiles(files);
+    act(() => {
+      onAddAttachmentFiles(files);
+    });
   }
 
   test("stages every file while the target model can see images", () => {
@@ -292,7 +297,9 @@ describe("DocumentComposerPanel: document-slot lifecycle", () => {
     const { unmount } = render(
       <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
     );
-    stageDocumentDraft();
+    act(() => {
+      stageDocumentDraft();
+    });
 
     unmount();
 
@@ -309,7 +316,9 @@ describe("DocumentComposerPanel: document-slot lifecycle", () => {
     const { rerender } = render(
       <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
     );
-    stageDocumentDraft();
+    act(() => {
+      stageDocumentDraft();
+    });
 
     rerender(
       <DocumentComposerPanel assistantId="assistant-1" doc={OTHER_DOC} />,
@@ -326,7 +335,9 @@ describe("DocumentComposerPanel: document-slot lifecycle", () => {
     const { rerender } = render(
       <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
     );
-    useComposerStore.getState().setInput("still typing", "document");
+    act(() => {
+      useComposerStore.getState().setInput("still typing", "document");
+    });
 
     rerender(
       <DocumentComposerPanel assistantId="assistant-1" doc={{ ...DOC }} />,
@@ -400,18 +411,71 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
     ).toBe(true);
   });
 
-  test("keeps a draft typed since, staging only the files", () => {
+  test("holds the message while a draft typed since occupies the slot", () => {
+    // GIVEN a message held for this document and a newer draft in the slot
     useDocumentComposerReplyStore
       .getState()
       .stashFailedSend(FAILED_SEND_PAYLOAD);
     useComposerStore.getState().setInput("the next message", "document");
 
+    // WHEN the document is opened
     render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
 
+    // THEN the newer draft stands untouched and nothing of the held message
+    // is mixed into it, so the message keeps waiting whole
     expect(useComposerStore.getState().documentInput).toBe("the next message");
+    expect(useComposerStore.getState().documentAttachments).toEqual([]);
+    expect(
+      useDocumentComposerReplyStore.getState().failedSends.get("surf-1"),
+    ).toEqual(FAILED_SEND_PAYLOAD);
+  });
+
+  test("holds the message while files staged since occupy the slot", () => {
+    // GIVEN a message held for this document and newer files in the slot
+    useDocumentComposerReplyStore
+      .getState()
+      .stashFailedSend(FAILED_SEND_PAYLOAD);
+    useComposerStore.setState({ documentAttachments: STAGED_ATTACHMENTS });
+
+    // WHEN the document is opened
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    // THEN the held draft is not written over the empty text next to files it
+    // was never composed with, and the message keeps waiting whole
+    expect(useComposerStore.getState().documentInput).toBe("");
+    expect(useComposerStore.getState().documentAttachments).toEqual(
+      STAGED_ATTACHMENTS,
+    );
+    expect(
+      useDocumentComposerReplyStore.getState().failedSends.get("surf-1"),
+    ).toEqual(FAILED_SEND_PAYLOAD);
+  });
+
+  test("takes the held message once the occupied slot empties", () => {
+    // GIVEN a message left waiting while the slot held a draft
+    useDocumentComposerReplyStore
+      .getState()
+      .stashFailedSend(FAILED_SEND_PAYLOAD);
+    stageDocumentDraft();
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    // WHEN that draft leaves the slot, as a send or a clear leaves it
+    act(() => {
+      useComposerStore.getState().setInput("", "document");
+      useComposerStore.getState().fullReset("document");
+    });
+
+    // THEN the message is back in the composer, and nothing holds it any more
+    expect(useComposerStore.getState().documentInput).toBe(
+      "a note on the draft",
+    );
     expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
     expect(useComposerStore.getState().documentAttachments[0]).toMatchObject({
       id: "srv-1",
+      filename: "notes.txt",
     });
+    expect(
+      useDocumentComposerReplyStore.getState().failedSends.has("surf-1"),
+    ).toBe(false);
   });
 });

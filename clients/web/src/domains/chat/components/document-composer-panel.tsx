@@ -61,15 +61,28 @@ export function DocumentComposerPanel({
   }, [surfaceId]);
 
   // A send the daemon reports as failed is held under the surface it was
-  // composed for, and the panel showing that document takes it into an empty
-  // slot: the failure can arrive while the document is open or long after it
-  // was closed, and the message waits either way. A newer draft, typed or
-  // staged since, is never replaced.
+  // composed for, and the panel showing that document takes it once the whole
+  // document slot is empty: the failure can arrive while the document is open
+  // or long after it was closed, and the message waits either way. A draft
+  // typed or staged since is never replaced, and never carries half of the
+  // failed message into it; the slot empties when that draft is sent or
+  // cleared, and the message is taken then.
   const failedSend = useDocumentComposerReplyStore((s) =>
     surfaceId === null ? undefined : s.failedSends.get(surfaceId),
   );
+  const slotEmpty = useComposerStore(
+    (s) => s.documentInput.trim() === "" && s.documentAttachments.length === 0,
+  );
   useEffect(() => {
-    if (surfaceId === null || failedSend === undefined) {
+    if (surfaceId === null || failedSend === undefined || !slotEmpty) {
+      return;
+    }
+    const composer = useComposerStore.getState();
+    // Re-read at effect time: the slot may have been filled since this render.
+    if (
+      composer.documentInput.trim() !== "" ||
+      composer.documentAttachments.length > 0
+    ) {
       return;
     }
     const payload = useDocumentComposerReplyStore
@@ -78,12 +91,9 @@ export function DocumentComposerPanel({
     if (payload === null) {
       return;
     }
-    const composer = useComposerStore.getState();
-    if (composer.documentInput.trim() === "") {
-      composer.setInput(payload.content, "document");
-    }
+    composer.setInput(payload.content, "document");
     composer.restoreAttachmentsIfEmpty(payload.attachments, "document");
-  }, [surfaceId, failedSend]);
+  }, [surfaceId, failedSend, slotEmpty]);
 
   if (!assistantId) {
     return null;
