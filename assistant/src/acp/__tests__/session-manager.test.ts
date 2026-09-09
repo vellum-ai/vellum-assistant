@@ -2,7 +2,9 @@
  * Regression tests for AcpSessionManager state population — specifically
  * that `parentConversationId` is set on every session state at spawn time
  * and is therefore visible through `getStatus()` from t=0, plus the model a
- * spawn resolves, applies through the adapter, and publishes.
+ * spawn resolves, applies through the adapter, and publishes, the live switch
+ * that changes it mid-session, and the unsolicited updates an adapter sends
+ * when the user changes the model from the transcript.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -97,8 +99,14 @@ mock.module("../agent-process.js", () => ({
 // Installed before the manager is imported so its `getConfig` call resolves
 // through the stub, which is what drives the global-default rung.
 const config = await installAcpConfigStub();
-const { AcpSessionManager } = await import("../session-manager.js");
+const {
+  AcpModelSelectionUnsupportedError,
+  AcpSessionManager,
+  AcpSessionNotFoundError,
+} = await import("../session-manager.js");
 await initializeDb();
+
+type Manager = InstanceType<typeof AcpSessionManager>;
 
 beforeEach(() => {
   scriptedConfigOptions = [];
@@ -464,5 +472,194 @@ describe("AcpSessionManager: model selection at spawn", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+  });
+});
+
+/** The client handler the manager wired for a session, to drive updates. */
+function clientHandlerFor(
+  manager: Manager,
+  acpSessionId: string,
+): VellumAcpClientHandler {
+  const entry = (
+    manager as unknown as {
+      sessions: Map<string, { clientHandler: VellumAcpClientHandler }>;
+    }
+  ).sessions.get(acpSessionId);
+  if (!entry) {
+    throw new Error(`No ACP session registered for "${acpSessionId}"`);
+  }
+  return entry.clientHandler;
+}
+
+/**
+ * A running session whose adapter advertises the model selector and sits on
+ * `sonnet`, with the spawn events already drained so a test asserts only what
+ * its own action emitted.
+ */
+async function spawnSwitchable(conversationId: string): Promise<{
+  manager: Manager;
+  acpSessionId: string;
+  sent: AssistantEvent[];
+}> {
+  scriptedConfigOptions = [[modelOption("sonnet")]];
+  const manager = new AcpSessionManager(5);
+  const sent: AssistantEvent[] = [];
+  const { acpSessionId } = await manager.spawn(
+    "agent-model",
+    { command: "echo", args: ["hi"] },
+    "task",
+    "/tmp",
+    conversationId,
+    (msg) => sent.push(msg),
+  );
+  sent.length = 0;
+  return { manager, acpSessionId, sent };
+}
+
+describe("AcpSessionManager: live model switching", () => {
+  test("applies the model, publishes it, and remembers what the adapter confirmed", async () => {
+    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-set");
+    // The adapter resolves the alias it was handed to a full model id.
+    setConfigOptionResult = [modelOption("claude-opus-4-5")];
+
+    const state = await manager.setModel(acpSessionId, "opus");
+
+    expect(setConfigOptionCalls).toEqual([
+      { sessionId: "proto-agent-model", configId: "model", value: "opus" },
+    ]);
+    expect(state.model).toBe("claude-opus-4-5");
+    expect(state.availableModels).toEqual(MODEL_OPTION_MODELS);
+    expect(getAcpConversationModelPreference("conv-set", "agent-model")).toBe(
+      "claude-opus-4-5",
+    );
+    expect(sent).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        model: "claude-opus-4-5",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+    ]);
+  });
+
+  test("the prompt in flight keeps running", async () => {
+    cancelCalls.length = 0;
+    const { manager, acpSessionId } = await spawnSwitchable("conv-in-flight");
+    setConfigOptionResult = [modelOption("opus")];
+
+    await manager.setModel(acpSessionId, "opus");
+
+    expect(cancelCalls).toEqual([]);
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).status).toBe(
+      "running",
+    );
+  });
+
+  test("an unknown session id is a not-found error", async () => {
+    const manager = new AcpSessionManager(5);
+
+    await expect(
+      manager.setModel("no-such-session", "opus"),
+    ).rejects.toBeInstanceOf(AcpSessionNotFoundError);
+    expect(setConfigOptionCalls).toEqual([]);
+  });
+
+  test("an adapter with no model selector cannot be switched", async () => {
+    const manager = new AcpSessionManager(5);
+    const { acpSessionId } = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-unsupported",
+      () => {},
+    );
+
+    await expect(manager.setModel(acpSessionId, "opus")).rejects.toBeInstanceOf(
+      AcpModelSelectionUnsupportedError,
+    );
+    expect(setConfigOptionCalls).toEqual([]);
+  });
+
+  test("a value the adapter never offered is rejected without a round trip", async () => {
+    const { manager, acpSessionId, sent } =
+      await spawnSwitchable("conv-unknown-value");
+
+    await expect(manager.setModel(acpSessionId, "gpt-5")).rejects.toThrow(
+      'does not offer model "gpt-5"',
+    );
+    expect(setConfigOptionCalls).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(
+      getAcpConversationModelPreference("conv-unknown-value", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("an adapter refusal surfaces verbatim and leaves the session as it was", async () => {
+    const { manager, acpSessionId, sent } =
+      await spawnSwitchable("conv-refuse");
+    setConfigOptionResult = new Error(
+      "Invalid value for config option model: opus",
+    );
+
+    await expect(manager.setModel(acpSessionId, "opus")).rejects.toThrow(
+      "Invalid value for config option model: opus",
+    );
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.status).toBe("running");
+    expect(state.model).toBe("sonnet");
+    expect(sent).toEqual([]);
+    expect(
+      getAcpConversationModelPreference("conv-refuse", "agent-model"),
+    ).toBeUndefined();
+  });
+});
+
+describe("AcpSessionManager: unsolicited model updates", () => {
+  test("a model changed from the transcript updates state, publishes, and is remembered", async () => {
+    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-typed");
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("opus")],
+      },
+    });
+
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "opus",
+    );
+    expect(sent).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        model: "opus",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+    ]);
+    expect(getAcpConversationModelPreference("conv-typed", "agent-model")).toBe(
+      "opus",
+    );
+    // Reporting is not choosing: the adapter is never asked to set it back.
+    expect(setConfigOptionCalls).toEqual([]);
+  });
+
+  test("an update repeating the current model publishes but records no preference", async () => {
+    const { manager, acpSessionId, sent } =
+      await spawnSwitchable("conv-unchanged");
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("sonnet")],
+      },
+    });
+
+    expect(sent.map((e) => e.type)).toEqual(["acp_session_model_update"]);
+    expect(
+      getAcpConversationModelPreference("conv-unchanged", "agent-model"),
+    ).toBeUndefined();
   });
 });

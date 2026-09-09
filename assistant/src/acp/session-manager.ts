@@ -128,6 +128,21 @@ export class AcpSessionNotFoundError extends Error {
 }
 
 /**
+ * Thrown when a live model switch is asked of a session whose adapter
+ * advertises no model selector. Distinct from not-found on purpose: the
+ * session exists and is healthy, so callers map this to a conflict rather
+ * than pretending the session is gone.
+ */
+export class AcpModelSelectionUnsupportedError extends Error {
+  constructor(public readonly acpSessionId: string) {
+    super(
+      `ACP session "${acpSessionId}" runs an agent that advertises no model selector`,
+    );
+    this.name = "AcpModelSelectionUnsupportedError";
+  }
+}
+
+/**
  * Wraps failures from the resume-then-steer phase of `steerOrResume` so
  * transport callers can distinguish them (HTTP 424 with the actionable
  * resume hint) from plain steer failures (404). The message mirrors the
@@ -387,12 +402,8 @@ export class AcpSessionManager {
     // once the session is confirmed to be on it. Inherited rungs are already
     // recorded where they came from, and re-recording them here would freeze a
     // config default into the conversation.
-    if (options?.model && !modelWarning && state.model) {
-      rememberConversationModelPreference({
-        parentConversationId,
-        agentId,
-        model: state.model,
-      });
+    if (options?.model && !modelWarning) {
+      this.rememberModelChoice(entry);
     }
 
     this.sendSpawnedEvent(acpSessionId, entry);
@@ -532,6 +543,7 @@ export class AcpSessionManager {
       opts.parentConversationId,
       (configOptions) => {
         agentProcess.applyConfigOptionsUpdate(configOptions);
+        this.applyUnsolicitedConfigOptions(acpSessionId, configOptions);
       },
     );
 
@@ -603,6 +615,96 @@ export class AcpSessionManager {
       model: entry.state.model,
       availableModels: entry.state.availableModels ?? [],
     });
+  }
+
+  /**
+   * Switches a live session onto `model` and publishes what the adapter
+   * confirmed.
+   *
+   * Unlike the spawn pin, the value is checked against the selector the
+   * adapter advertised before the adapter is asked: a live switch comes from
+   * a picker built out of exactly those options, so anything else is a caller
+   * bug worth naming rather than a round trip that would fail. A genuine
+   * adapter refusal propagates verbatim and leaves the session on the model
+   * it was already running.
+   *
+   * The in-flight prompt is left alone: the adapter applies the new model to
+   * the next turn, and cancelling a running turn to change a model would cost
+   * the user the work in flight.
+   */
+  async setModel(
+    acpSessionId: string,
+    model: string,
+  ): Promise<AcpSessionState> {
+    const entry = this.sessions.get(acpSessionId);
+    if (!entry) {
+      throw new AcpSessionNotFoundError(acpSessionId);
+    }
+    const { state, modelConfigId } = entry;
+    if (!modelConfigId) {
+      throw new AcpModelSelectionUnsupportedError(acpSessionId);
+    }
+
+    const available = state.availableModels ?? [];
+    if (!available.some((option) => option.value === model)) {
+      throw new Error(
+        `ACP session "${acpSessionId}" does not offer model "${model}". ` +
+          `Available: ${available.map((option) => option.value).join(", ") || "none"}`,
+      );
+    }
+
+    const refreshed = await entry.process.setConfigOption(
+      state.acpSessionId,
+      modelConfigId,
+      model,
+    );
+    this.applyModelInfo(entry, refreshed);
+    this.rememberModelChoice(entry);
+    this.sendModelEvent(acpSessionId, entry);
+    return state;
+  }
+
+  /**
+   * Records the model a session is confirmed to be on as this conversation's
+   * choice for this agent. The value is the adapter's own, which may have
+   * resolved an alias to a full model id. No-op when the adapter reports no
+   * model, so a session with no selector never writes a preference.
+   */
+  private rememberModelChoice(entry: SessionEntry): void {
+    const { model } = entry.state;
+    if (!model) {
+      return;
+    }
+    rememberConversationModelPreference({
+      parentConversationId: entry.parentConversationId,
+      agentId: entry.state.agentId,
+      model,
+    });
+  }
+
+  /**
+   * Takes in a `config_option_update` the adapter sent unprompted, which is
+   * how a `/model` the user typed straight into the transcript reaches the
+   * daemon. Only a value that actually moved becomes the conversation's
+   * preference: adapters re-report the full option set for unrelated changes,
+   * and re-recording an unchanged model would freeze an inherited default
+   * into the conversation.
+   */
+  private applyUnsolicitedConfigOptions(
+    acpSessionId: string,
+    configOptions: SessionConfigOption[],
+  ): void {
+    const entry = this.sessions.get(acpSessionId);
+    if (!entry) {
+      return;
+    }
+    const previousModel = entry.state.model;
+    this.applyModelInfo(entry, configOptions);
+    this.sendModelEvent(acpSessionId, entry);
+
+    if (entry.state.model !== previousModel) {
+      this.rememberModelChoice(entry);
+    }
   }
 
   /**
