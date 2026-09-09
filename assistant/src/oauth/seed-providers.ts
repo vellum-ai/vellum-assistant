@@ -1329,6 +1329,329 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["email", "phone"],
     featureFlag: "stripe-link-oauth",
   },
+
+  pagerduty: {
+    provider: "pagerduty",
+    authorizeUrl: "https://identity.pagerduty.com/oauth/authorize",
+    tokenExchangeUrl: "https://identity.pagerduty.com/oauth/token",
+    refreshUrl: "https://identity.pagerduty.com/oauth/token",
+    pingUrl: "https://api.pagerduty.com/users/me",
+    baseUrl: "https://api.pagerduty.com",
+    displayLabel: "PagerDuty",
+    description: "On-call schedules, incidents, and escalation policies",
+    dashboardUrl: "https://developer.pagerduty.com/docs/app-registration",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/pagerduty",
+    // PagerDuty has two OAuth modes. Scoped OAuth grants the granular
+    // `<resource>.read`/`.write` scopes listed in availableScopes, but every
+    // authorize request must ALSO carry an account-region scope naming the
+    // customer's own subdomain (`as_account-us.<subdomain>`), which a shared
+    // managed app cannot know ahead of time. So the managed flow uses
+    // Classic User OAuth: the authorize endpoint takes no scope parameter and
+    // the token inherits the authorizing user's own PagerDuty permissions.
+    // Seed an empty default set rather than sending scopes the classic flow
+    // ignores (same shape as eventbrite and notion). The granular catalog
+    // stays below so a BYO app registered for Scoped OAuth can request it.
+    defaultScopes: [],
+    availableScopes: [
+      {
+        scope: "abilities.read",
+        description: "Read account abilities and feature availability",
+      },
+      {
+        scope: "addons.read",
+        description: "Read add-ons embedded in the PagerDuty UI",
+      },
+      {
+        scope: "addons.write",
+        description: "Manage add-ons embedded in the PagerDuty UI",
+      },
+      {
+        scope: "analytics.read",
+        description: "Read incident and response analytics",
+      },
+      {
+        scope: "analytics.write",
+        description: "Manage incident and response analytics",
+      },
+      {
+        scope: "audit_records.read",
+        description: "Read audit trail records",
+      },
+      {
+        scope: "change_events.read",
+        description: "Read change events such as deploys and config changes",
+      },
+      {
+        scope: "change_events.write",
+        description: "Manage change events such as deploys and config changes",
+      },
+      {
+        scope: "connections.read",
+        description: "Read third-party connections",
+      },
+      {
+        scope: "connections.write",
+        description: "Manage third-party connections",
+      },
+      {
+        scope: "contact_methods.read",
+        description: "Read users' contact methods",
+      },
+      {
+        scope: "contact_methods.write",
+        description: "Manage users' contact methods",
+      },
+      {
+        scope: "contextual_data.read",
+        description: "Read contextual data attached to incidents",
+      },
+      {
+        scope: "contextual_data.write",
+        description: "Manage contextual data attached to incidents",
+      },
+      {
+        scope: "custom_fields.read",
+        description: "Read custom fields on incidents",
+      },
+      {
+        scope: "custom_fields.write",
+        description: "Manage custom fields on incidents",
+      },
+      {
+        scope: "escalation_policies.read",
+        description: "Read escalation policies",
+      },
+      {
+        scope: "escalation_policies.write",
+        description: "Manage escalation policies",
+      },
+      {
+        scope: "event_orchestrations.read",
+        description: "Read event orchestration rules",
+      },
+      {
+        scope: "event_orchestrations.write",
+        description: "Manage event orchestration rules",
+      },
+      {
+        scope: "event_rules.read",
+        description: "Read event rules",
+      },
+      {
+        scope: "event_rules.write",
+        description: "Manage event rules",
+      },
+      {
+        scope: "extension_schemas.read",
+        description: "Read extension schemas",
+      },
+      {
+        scope: "extensions.read",
+        description: "Read service extensions",
+      },
+      {
+        scope: "extensions.write",
+        description: "Manage service extensions",
+      },
+      {
+        scope: "incident_types.read",
+        description: "Read incident types",
+      },
+      {
+        scope: "incident_types.write",
+        description: "Manage incident types",
+      },
+      {
+        scope: "incident_workflows.read",
+        description: "Read incident workflows",
+      },
+      {
+        scope: "incident_workflows.write",
+        description: "Manage incident workflows",
+      },
+      {
+        scope: "incidents.read",
+        description: "Read incidents, notes, and status updates",
+      },
+      {
+        scope: "incidents.write",
+        description: "Manage incidents, notes, and status updates",
+      },
+      {
+        scope: "instances.write",
+        description: "Manage incident workflow instances",
+      },
+      {
+        scope: "ip_allow_lists.read",
+        description: "Read IP allow lists",
+      },
+      {
+        scope: "ip_allow_lists.write",
+        description: "Manage IP allow lists",
+      },
+      {
+        scope: "licenses.read",
+        description: "Read account licenses",
+      },
+      {
+        scope: "notifications.read",
+        description: "Read notifications sent to users",
+      },
+      {
+        scope: "oauth_delegations.read",
+        description: "Read OAuth delegations",
+      },
+      {
+        scope: "oauth_delegations.write",
+        description: "Manage OAuth delegations",
+      },
+      {
+        scope: "oncalls.read",
+        description: "Read who is currently on call",
+      },
+      {
+        scope: "priorities.read",
+        description: "Read incident priority definitions",
+      },
+      {
+        scope: "recommendations.read",
+        description: "Read incident recommendations",
+      },
+      {
+        scope: "recommendations.write",
+        description: "Manage incident recommendations",
+      },
+      {
+        scope: "schedules.read",
+        description: "Read on-call schedules",
+      },
+      {
+        scope: "schedules.write",
+        description: "Manage on-call schedules",
+      },
+      {
+        scope: "services.read",
+        description: "Read technical services and their integrations",
+      },
+      {
+        scope: "services.write",
+        description: "Manage technical services and their integrations",
+      },
+      {
+        scope: "session_configurations.read",
+        description: "Read session configurations",
+      },
+      {
+        scope: "session_configurations.write",
+        description: "Manage session configurations",
+      },
+      {
+        scope: "sessions.read",
+        description: "Read incident response sessions",
+      },
+      {
+        scope: "sessions.write",
+        description: "Manage incident response sessions",
+      },
+      {
+        scope: "sre_agent.write",
+        description: "Manage SRE agent actions",
+      },
+      {
+        scope: "standards.read",
+        description: "Read service standards",
+      },
+      {
+        scope: "standards.write",
+        description: "Manage service standards",
+      },
+      {
+        scope: "status_dashboards.read",
+        description: "Read status dashboards",
+      },
+      {
+        scope: "status_pages.read",
+        description: "Read status pages and their posts",
+      },
+      {
+        scope: "status_pages.write",
+        description: "Manage status pages and their posts",
+      },
+      {
+        scope: "subscribers.read",
+        description: "Read status page and incident subscribers",
+      },
+      {
+        scope: "subscribers.write",
+        description: "Manage status page and incident subscribers",
+      },
+      {
+        scope: "tags.read",
+        description: "Read tags on users, teams, and escalation policies",
+      },
+      {
+        scope: "tags.write",
+        description: "Manage tags on users, teams, and escalation policies",
+      },
+      {
+        scope: "teams.read",
+        description: "Read teams and their membership",
+      },
+      {
+        scope: "teams.write",
+        description: "Manage teams and their membership",
+      },
+      {
+        scope: "templates.read",
+        description: "Read status update templates",
+      },
+      {
+        scope: "templates.write",
+        description: "Manage status update templates",
+      },
+      {
+        scope: "users.read",
+        description: "Read users and their profiles",
+      },
+      {
+        scope: "users.write",
+        description: "Manage users and their profiles",
+      },
+      {
+        scope: "vendors.read",
+        description: "Read vendor integrations",
+      },
+      {
+        scope: "webhook_subscriptions.read",
+        description: "Read webhook subscriptions",
+      },
+      {
+        scope: "webhook_subscriptions.write",
+        description: "Manage webhook subscriptions",
+      },
+      {
+        scope: "workflow_integrations.read",
+        description: "Read workflow integrations",
+      },
+    ],
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17341,
+    managedServiceConfigKey: "pagerduty-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "api.pagerduty.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App",
+    // /users/me nests the payload under a `user` key, so the identity paths
+    // are dotted rather than flat.
+    identityUrl: "https://api.pagerduty.com/users/me",
+    identityResponsePaths: ["user.email", "user.name"],
+  },
 };
 
 export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));

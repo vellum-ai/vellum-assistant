@@ -64,6 +64,37 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect(figma.defaultScopes).toContain("current_user:read");
   });
 
+  test("pagerduty uses classic user OAuth and requests no scopes", () => {
+    const pagerduty = PROVIDER_SEED_DATA.pagerduty;
+    expect(pagerduty).toBeDefined();
+    expect(pagerduty.managedServiceConfigKey).toBe("pagerduty-oauth");
+    expect("pagerduty-oauth" in ServicesSchema.shape).toBe(true);
+
+    // PagerDuty's Scoped OAuth requires an account-region scope naming the
+    // customer's own subdomain (`as_account-us.<subdomain>`), which a shared
+    // managed app cannot know. The managed flow therefore uses Classic User
+    // OAuth, whose authorize endpoint takes no scope parameter. Adding a
+    // default scope here would send scopes the classic flow ignores.
+    expect(pagerduty.defaultScopes).toEqual([]);
+
+    // The granular catalog still ships for BYO apps registered for Scoped
+    // OAuth, and must never carry an account-specific region scope.
+    const available = pagerduty.availableScopes;
+    expect(Array.isArray(available)).toBe(true);
+    const accountScoped = (Array.isArray(available) ? available : []).filter(
+      (entry) =>
+        typeof entry !== "string" && entry.scope.startsWith("as_account-"),
+    );
+    expect(accountScoped).toEqual([]);
+
+    // /users/me nests its payload under `user`, so the identity paths must be
+    // dotted or the connection cannot be labelled.
+    expect(pagerduty.identityResponsePaths).toEqual([
+      "user.email",
+      "user.name",
+    ]);
+  });
+
   test("structured availableScopes cover every default scope", () => {
     // A default scope absent from availableScopes is a typo the provider only
     // reports at authorization time, by rejecting the request.

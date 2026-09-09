@@ -182,6 +182,7 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
       "monday-oauth": managed,
       "stripe-link-oauth": managed,
       "figma-oauth": managed,
+      "pagerduty-oauth": managed,
       "eventbrite-oauth": managed,
       "calendly-oauth": managed,
     },
