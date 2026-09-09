@@ -1348,6 +1348,31 @@ export async function wakeAgentForOpportunity(
       persistedTailIndex += newMessages.length;
     };
 
+    /**
+     * Rebuild the loop's system prompt under whatever tool scope and per-turn
+     * stamps are in effect right now.
+     *
+     * A wake drives `agentLoop.run` itself, so the loop holds whatever prompt
+     * the conversation last synced. Sections gated on the turn's resolved tool
+     * surface would otherwise be inherited from the last app turn: a wake whose
+     * allowlist omits the subagent dispatch path would still be told to hand
+     * independent work to subagents, and an unrestricted wake following a
+     * restricted turn would be told not to. A conversation carrying a
+     * system-prompt override (a subagent fork) resolves it verbatim, so this is
+     * a no-op there.
+     */
+    const syncWakeLoopSystemPrompt = (): void => {
+      try {
+        conversation.syncLoopSystemPrompt();
+      } catch (err) {
+        // A prompt rebuild is a refinement, never a reason to lose the wake.
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to sync the loop system prompt; continuing",
+        );
+      }
+    };
+
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
@@ -1355,17 +1380,21 @@ export async function wakeAgentForOpportunity(
         return;
       }
       wakeToolScopeRestored = true;
-      if (!restoreWakeToolScope) {
-        return;
+      if (restoreWakeToolScope) {
+        try {
+          restoreWakeToolScope();
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: failed to restore tool allowlist; continuing",
+          );
+        }
       }
-      try {
-        restoreWakeToolScope();
-      } catch (err) {
-        log.warn(
-          { conversationId, source, err },
-          "agent-wake: failed to restore tool allowlist; continuing",
-        );
-      }
+      // The prompt is part of what the wake scoped, so it comes back with the
+      // rest rather than leaving the loop holding a wake-scoped prompt for
+      // whatever runs next. Runs even when no allowlist was applied, because
+      // the wake's per-turn stamps (call site, presence) move the gate too.
+      syncWakeLoopSystemPrompt();
     };
     const applyWakeAllowedTools = (): boolean => {
       if (!opts.allowedTools) {
@@ -1515,6 +1544,10 @@ export async function wakeAgentForOpportunity(
       if (opts.trustContext) {
         conversation.currentTurnTrustContext = opts.trustContext;
       }
+
+      // Rebuild the prompt under the allowlist and the stamps just applied,
+      // the way `runAgentLoopImpl` does for a normal turn.
+      syncWakeLoopSystemPrompt();
 
       let updatedHistory: Message[];
       try {
