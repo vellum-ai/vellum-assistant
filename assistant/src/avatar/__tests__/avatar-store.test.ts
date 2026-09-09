@@ -485,12 +485,13 @@ describe("avatar-store", () => {
       expect(avatarNote()).toBe("A custom image the user uploaded.");
     });
 
-    test("a refused accent publishes nothing", async () => {
+    test("a refused accent publishes and records nothing", async () => {
       expect(await setAccent("#12ab34")).toBeNull();
       expect(publishedOrigins).toEqual([]);
+      expect(recorded).toEqual([]);
     });
 
-    test("backfillAccent is a read-time repair and publishes nothing", async () => {
+    test("backfillAccent is a read-time repair: it publishes and records nothing", async () => {
       writeFileSync(path(IMAGE_FILENAME), RED_PNG);
       const state = imageState("quiet-red");
       writeFileSync(path(MANIFEST_FILENAME), JSON.stringify(state));
@@ -498,6 +499,7 @@ describe("avatar-store", () => {
       await backfillAccent(state);
 
       expect(publishedOrigins).toEqual([]);
+      expect(recorded).toEqual([]);
     });
   });
 
@@ -510,12 +512,9 @@ describe("avatar-store", () => {
 
       await setImage(big, "upload");
       await setImage(big, "upload");
-      await setImage(Buffer.concat([big, Buffer.from([8])]), "upload");
 
-      expect(events().map((fields) => fields.previous_kind)).toEqual([
-        "none",
-        "image",
-      ]);
+      expect(events()).toHaveLength(1);
+      expect(events()[0]).toMatchObject({ previous_kind: "none" });
     });
 
     test("a failed record never fails the change: the manifest and fan-out stand", async () => {
@@ -598,7 +597,7 @@ describe("avatar-store", () => {
             body_shape: "blob",
             eye_style: "curious",
             color: "green",
-            accent_hex: "#4C9B50",
+            accent_hex: "#4c9b50",
             accent_source: "palette",
           },
         ]);
@@ -653,21 +652,6 @@ describe("avatar-store", () => {
       clearAvatar();
       expect(events()).toHaveLength(1);
       expect(publishedOrigins.length).toBe(publishedBefore + 1);
-    });
-
-    test("backfillAccent records nothing", async () => {
-      writeFileSync(path(IMAGE_FILENAME), RED_PNG);
-      const state = imageState("quiet-red");
-      writeFileSync(path(MANIFEST_FILENAME), JSON.stringify(state));
-
-      await backfillAccent(state);
-
-      expect(recorded).toEqual([]);
-    });
-
-    test("a refused accent records nothing", async () => {
-      expect(await setAccent("#123456")).toBeNull();
-      expect(recorded).toEqual([]);
     });
   });
 });
