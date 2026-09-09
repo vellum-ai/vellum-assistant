@@ -42,6 +42,7 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   slack: publicAsset("/images/integrations/slack.svg"),
   slack_channel: publicAsset("/images/integrations/slack.svg"),
   spotify: publicAsset("/images/integrations/spotify.svg"),
+  stripe_link: publicAsset("/images/integrations/stripe.svg"),
   telegram: publicAsset("/images/integrations/telegram.svg"),
   todoist: publicAsset("/images/integrations/todoist.svg"),
   twitter: publicAsset("/images/integrations/x.svg"),

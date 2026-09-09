@@ -19,7 +19,7 @@ export interface CheckoutBonusOffer {
 }
 
 /**
- * Server-verified eligibility for the abandoned-checkout credit bonus.
+ * Server-verified eligibility for the abandoned-checkout extra-usage bonus.
  *
  * `cancelledAt` is the client-side cancel signal: the `Date.now()` of the most
  * recent definitive cancel (`?billing_status=cancel`, which the upgrade-cancel

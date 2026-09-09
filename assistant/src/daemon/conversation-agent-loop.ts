@@ -96,7 +96,7 @@ import {
   dispatchAgentEvent,
   type EventHandlerDeps,
   finalizePendingToolResultRow,
-  markHistoryStrippedBestEffort,
+  resetInjectionLedgersForStrip,
   settlePendingPartialFlush,
 } from "./conversation-agent-loop-handlers.js";
 import {
@@ -1081,6 +1081,7 @@ export async function runAgentLoopImpl(
     const applySuccessfulCompaction = async (
       result: Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>,
       compactedBasis?: Message[],
+      historyStripMarkerDurable = false,
     ) => {
       const provenanceContext = compactedBasis
         ? getSlackProvenanceContextForCompactionBasis(
@@ -1095,6 +1096,7 @@ export async function runAgentLoopImpl(
       await applyCompactionResult(ctx, result, onEvent, reqId, {
         slackContextCompactionWatermarkTs: slackWatermarkTs,
         cronRunId: turnCronRunId,
+        historyStripMarkerDurable,
       });
       slackChronologicalContext = projectSlackProvenanceAfterCompaction(
         provenanceContext,
@@ -1393,6 +1395,7 @@ export async function runAgentLoopImpl(
           isNonInteractive,
           modelProfileKey,
           latencyTracker,
+          injectionLedgerResets: state.injectionLedgerResets,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
@@ -2216,6 +2219,12 @@ export async function applyCompactionResult(
     slackContextCompactionWatermarkTs?: string | null;
     /** Firing's `cron_runs.id` stamped onto the compaction usage row. */
     cronRunId?: string | null;
+    /**
+     * Whether a history-stripped marker write for this strip already
+     * succeeded (the loop's `history_stripped` dispatch), so the
+     * memory-injection ledger reset needs no second marker write.
+     */
+    historyStripMarkerDurable?: boolean;
   } = {},
 ): Promise<void> {
   ctx.messages = result.messages;
@@ -2235,13 +2244,11 @@ export async function applyCompactionResult(
   ctx.contextSummary = result.summaryText;
   const compactedAt = Date.now();
   ctx.contextCompactedAt = compactedAt;
-  await ctx.graphMemory.onCompacted(result.compactedPersistedMessages);
   updateConversationContextWindow(
     ctx.conversationId,
     result.summaryText,
     ctx.contextCompactedMessageCount,
   );
-  markHistoryStrippedBestEffort(ctx.conversationId);
   if (options.slackContextCompactionWatermarkTs) {
     updateConversationSlackContextWatermark(
       ctx.conversationId,
@@ -2251,6 +2258,15 @@ export async function applyCompactionResult(
     ctx.slackContextCompactionWatermarkTs =
       options.slackContextCompactionWatermarkTs;
   }
+  // The ledgers reset only once the compaction commit above has landed: a
+  // commit that throws aborts the turn with the ledgers untouched, so a reload
+  // of the un-compacted history finds its frozen blocks still claimed. The
+  // compacted history is the summary plus the compactor's stripped tail, so
+  // the reset then runs even when the marker cannot be made durable.
+  await resetInjectionLedgersForStrip(ctx, result.compactedPersistedMessages, {
+    historyStripMarkerDurable: options.historyStripMarkerDurable,
+    historyAlreadyStripped: true,
+  });
   enqueueMemoryRetrospectiveOnCompaction(
     ctx.conversationId,
     ctx.trustContext?.trustClass,

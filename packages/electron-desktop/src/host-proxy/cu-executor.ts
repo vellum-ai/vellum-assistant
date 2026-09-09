@@ -41,6 +41,8 @@ export type CuResult = z.infer<typeof CU_RESULT_SCHEMA>;
 export interface CuExecutorDeps {
   logger: HostProxyLogger;
   resolveHelper: () => CuHelperClient;
+  /** Only enable on hosts whose native helper supports CGWindowID capture. */
+  supportsWindowCapture?: boolean;
 }
 
 export function cuExecutorConfig(
@@ -57,12 +59,30 @@ export function cuExecutorConfig(
       if (!toolName) {
         return { error: "Missing toolName" };
       }
+      const input = { ...((message.input as Record<string, unknown> | undefined) ?? {}) };
+      if (input.capture_window_id !== undefined) {
+        if (!deps.supportsWindowCapture) {
+          return { error: "Window-scoped observation is not supported by this desktop client." };
+        }
+        if (toolName !== "computer_use_observe") {
+          return { error: "capture_window_id is only supported for computer_use_observe." };
+        }
+        const windowId = input.capture_window_id;
+        if (typeof windowId !== "number" || !Number.isInteger(windowId) || windowId < 1 || windowId > 0xffffffff) {
+          return { error: "capture_window_id must be a positive 32-bit native window ID." };
+        }
+        if (input.captureWindowId !== undefined || input.captureDisplayId !== undefined) {
+          return { error: "Specify only one capture target." };
+        }
+        input.captureWindowId = windowId;
+        delete input.capture_window_id;
+      }
       return {
         params: {
           requestId,
           conversationId: (message.conversationId as string | undefined) ?? "",
           toolName,
-          input: (message.input as Record<string, unknown> | undefined) ?? {},
+          input,
           stepNumber: (message.stepNumber as number | undefined) ?? 1,
           ...(typeof message.reasoning === "string"
             ? { reasoning: message.reasoning }

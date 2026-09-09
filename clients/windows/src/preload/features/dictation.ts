@@ -38,9 +38,10 @@ const subscribe =
 
 /**
  * The Windows native helper's bridge: dictation plus the global voice mode
- * chord. `hotkey.fnPushToTalk` is deliberately absent (Windows has no Fn-key
- * contract); `setVoiceModeChord` registers the voice mode shortcut's
- * bare-modifier chord with the helper's keyboard hook instead.
+ * chord. `hotkey.setModifierHold` is deliberately absent (Windows has no
+ * Fn-key contract to build a voice key on); `setVoiceModeChord` registers the
+ * voice mode shortcut's bare-modifier chord with the helper's keyboard hook
+ * instead.
  */
 const dictation: CapabilityModule<BridgeCapabilityRegistry<VellumBridge>> = {
   id: "dictation",

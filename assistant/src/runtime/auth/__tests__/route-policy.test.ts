@@ -297,4 +297,69 @@ describe("ROUTES policy declarations", () => {
       expect(r.policy === null || typeof r.policy === "object").toBe(true);
     }
   });
+
+  test.each([
+    ["integrations_vercel_config_get", "settings.read"],
+    ["integrations_vercel_config_post", "settings.write"],
+    ["integrations_vercel_config_delete", "settings.write"],
+    ["integrations_a2a_config_get", "settings.read"],
+    ["integrations_a2a_config_post", "settings.write"],
+    ["integrations_a2a_config_delete", "settings.write"],
+  ] as const)(
+    "%s requires %s and actor principals",
+    async (operationId, scope) => {
+      const { ROUTES } = await import("../../routes/index.js");
+      const route = ROUTES.find((r) => r.operationId === operationId);
+      expect(route).toBeDefined();
+      expect(route!.policy).not.toBeNull();
+      expect(route!.policy!.requiredScopes).toEqual([scope]);
+      expect(route!.policy!.allowedPrincipalTypes).toEqual([
+        "actor",
+        "svc_gateway",
+        "svc_daemon",
+        "local",
+      ]);
+    },
+  );
+
+  test("vercel config GET denies a chat-only actor and POST denies without settings.write", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const getRoute = ROUTES.find(
+      (r) => r.operationId === "integrations_vercel_config_get",
+    );
+    const postRoute = ROUTES.find(
+      (r) => r.operationId === "integrations_vercel_config_post",
+    );
+    expect(getRoute?.policy).not.toBeNull();
+    expect(postRoute?.policy).not.toBeNull();
+
+    authDisabled = false;
+    const chatOnly = buildTestContext({
+      principalType: "actor",
+      scopes: ["chat.read", "chat.write"],
+    });
+    const getDenied = enforcePolicy(
+      getRoute!.endpoint,
+      getRoute!.policy!,
+      chatOnly,
+    );
+    expect(getDenied).not.toBeNull();
+    expect(getDenied!.status).toBe(403);
+
+    const postDenied = enforcePolicy(
+      postRoute!.endpoint,
+      postRoute!.policy!,
+      chatOnly,
+    );
+    expect(postDenied).not.toBeNull();
+    expect(postDenied!.status).toBe(403);
+
+    const settingsActor = buildTestContext({
+      principalType: "actor",
+      scopes: ["settings.write"],
+    });
+    expect(
+      enforcePolicy(postRoute!.endpoint, postRoute!.policy!, settingsActor),
+    ).toBeNull();
+  });
 });

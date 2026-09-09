@@ -14,9 +14,16 @@
  * captures are not needed by the re-injection caller, so only the messages
  * propagate.
  *
- * The base the loop hands in is the full injected history (the loop does not
- * pre-strip it), so the tail strip is what keeps injection idempotency a
- * property of the injection machinery rather than of the agent loop.
+ * The base the loop hands in matches the durable history the dispatcher
+ * committed: a compaction result, or a history the pipeline left uncompacted
+ * that the loop stripped of its injections when the dispatcher reset the
+ * memory ledgers (so no frozen memory block from an earlier turn survives into
+ * the re-injected history) and left injected when the reset was skipped (the
+ * ledgers then still claim those frozen blocks, so the pointers this
+ * re-injection emits for them point at blocks that are still there). The tail
+ * strip covers the per-turn blocks the compaction strip keeps
+ * (`<turn_context>` and its peers), so injection idempotency stays a property
+ * of the injection machinery rather than of the agent loop.
  *
  * Every per-turn input the live conversation can supply is self-resolved from
  * it (looked up by id) rather than threaded in by the loop:
@@ -81,11 +88,15 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
     config.llm,
     conversationId,
   );
-  // Clear any per-turn injection blocks the base already carries on its tail
-  // before re-injecting, so the continuation history holds a single copy of
-  // each block rather than double-stacking on the injected base the loop hands
-  // in.
+  // Clear any per-turn injection blocks the base still carries on its tail
+  // (the ones the compaction strip keeps in history) before re-injecting, so
+  // the continuation history holds a single copy of each block.
   const strippedHistory = stripTailInjectionsForReinjection(history);
+  // `reinjection`: the blocks this assembly attaches are never persisted
+  // (the captured blocks are dropped below, and every message in the base
+  // predates the compaction's `historyStrippedAt` marker), so the memory-v3
+  // sections injector's residency commit is withheld and the section store
+  // never claims a copy a restart cannot rehydrate.
   const result = await applyRuntimeInjections(strippedHistory, {
     isNonInteractive,
     modelProfile,
@@ -94,6 +105,7 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
     requestId,
     conversationId,
     trust,
+    reinjection: true,
   });
   // Write the re-injected history back onto the threaded context; the loop
   // reads it from there once the hook settles.

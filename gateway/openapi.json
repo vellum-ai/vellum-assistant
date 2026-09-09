@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.11.7",
+    "version": "0.11.8",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
@@ -1352,6 +1352,10 @@
                   },
                   "role": { "type": "string" },
                   "displayName": { "type": "string" },
+                  "contactId": {
+                    "description": "The contact the parked form targets, echoed back from the broadcast. The parked form is authoritative.",
+                    "type": "string"
+                  },
                   "verify": {
                     "description": "The form's 'mark verified' checkbox as the guardian left it. Omit only from clients that predate the checkbox; the parked command's flag is then used instead.",
                     "type": "boolean"
@@ -1395,7 +1399,7 @@
         "operationId": "contactsRecordSubmit",
         "summary": "Submit a contact-record form",
         "tags": ["contacts"],
-        "description": "Completes a contact_record_request the assistant broadcast: writes the contact record the guardian confirmed (display name and notes only, never a channel), then unblocks the waiting command. A cancelled submission unblocks it without writing.",
+        "description": "Completes a contact_record_request the assistant broadcast: writes the record the guardian confirmed, then unblocks the waiting command. A create or update writes display name and notes, never a channel; a merge moves the donor's channels to the survivor and deletes the donor. A cancelled submission unblocks the command without writing.",
         "requestBody": {
           "required": true,
           "content": {
@@ -1410,10 +1414,14 @@
                   "operation": {
                     "description": "Required unless cancelled is true",
                     "type": "string",
-                    "enum": ["create", "update", "delete"]
+                    "enum": ["create", "update", "delete", "merge"]
                   },
                   "contactId": {
-                    "description": "Required to update or delete",
+                    "description": "Required to update or delete, and the survivor of a merge",
+                    "type": "string"
+                  },
+                  "donorContactId": {
+                    "description": "The contact merged away. Required for a merge.",
                     "type": "string"
                   },
                   "displayName": { "type": "string" },

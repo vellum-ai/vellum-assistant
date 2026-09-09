@@ -24,6 +24,10 @@ import {
 } from "../../../../persistence/jobs-store.js";
 import { getLogger } from "../logging.js";
 import {
+  CLI_COMMAND_SLUG_PREFIX,
+  SKILL_SLUG_PREFIX,
+} from "./capability-slugs.js";
+import {
   getConsolidationLockPath,
   releaseLock,
   tryAcquireLock,
@@ -73,16 +77,14 @@ export interface IngestSummary {
 export const MAX_INGEST_PAGES_PER_CALL = 200;
 
 /**
- * Slug prefixes owned by synthetic capability entries. Mirrors
- * `SKILL_SLUG_PREFIX` (`substrate/skill-store.ts`) and
- * `CLI_COMMAND_SLUG_PREFIX` (`substrate/cli-command-store.ts`); the literals
- * are duplicated here because importing those modules would pull the
- * embedding-backend chain into every ingest caller (the page index lazy
- * imports them for the same reason). The page index drops concept pages
- * whose slugs collide with synthetic entries, so ingesting one would
- * persist an unreachable file.
+ * Slug prefixes owned by synthetic capability entries. The page index drops
+ * concept pages whose slugs collide with synthetic entries, so ingesting one
+ * would persist an unreachable file.
  */
-const RESERVED_SLUG_PREFIXES = ["skills/", "cli-commands/"] as const;
+const RESERVED_SLUG_PREFIXES = [
+  SKILL_SLUG_PREFIX,
+  CLI_COMMAND_SLUG_PREFIX,
+] as const;
 
 /** Thrown when the consolidation lock is held by another writer. */
 export class IngestLockedError extends Error {

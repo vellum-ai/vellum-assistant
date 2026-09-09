@@ -32,6 +32,7 @@ import { z } from "zod";
 import type {
   CompanionCapturePick,
   CompanionCaptureSources,
+  ScreenCaptureFrame,
   WatchCaptureTarget,
 } from "@vellumai/ipc-contract";
 
@@ -225,6 +226,13 @@ export interface CaptureSourceDeps {
    */
   listWindows: (includeOffscreen?: boolean) => Promise<HelperWindow[]>;
   listDisplays: () => CaptureDisplay[];
+  /**
+   * The display the pointer is on, which is what a gesture made from the
+   * keyboard means by "this screen". Never null in practice: every point on
+   * the desktop is on some display, and a pointer between two arrangements is
+   * nearest one of them.
+   */
+  pointerDisplayId: () => number;
   listChromeTabs: () => Promise<ChromeTab[]>;
   /**
    * Show the tab and bring its window forward; resolves to where Chrome says
@@ -234,6 +242,13 @@ export interface CaptureSourceDeps {
     chromeWindowId: number,
     tabIndex: number,
   ) => Promise<ChromeWindowPlacement | null>;
+  /**
+   * Bring the window to the front: out of the Dock if it is there, its app
+   * activated, and the window raised above the app's others. Resolves to
+   * whether the window itself was raised; an app that would not take the
+   * request is still activated.
+   */
+  raiseWindow: (windowId: number) => Promise<boolean>;
   /** The icon of the app at `appPath` as a data URL, or nothing. */
   iconFor: (appPath: string) => Promise<string | undefined>;
 }
@@ -274,12 +289,31 @@ export const defaultCaptureSourceDeps: CaptureSourceDeps = {
       primary: display.id === primaryId,
     }));
   },
+  pointerDisplayId: () =>
+    screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).id,
   listChromeTabs: async () =>
     parseChromeTabs(await runAppleScript(LIST_CHROME_TABS_SCRIPT)),
   activateChromeTab: async (chromeWindowId, tabIndex) =>
     parseChromeWindowPlacement(
       await runAppleScript(activateChromeTabScript(chromeWindowId, tabIndex)),
     ),
+  raiseWindow: async (windowId) => {
+    const answer = await getSharedCuHelper().call("captureSources.raise", {
+      windowId,
+    });
+    const { raised, reason } =
+      typeof answer === "object" && answer !== null
+        ? (answer as { raised?: unknown; reason?: unknown })
+        : {};
+    // The helper says why it left the window where it was, and this is the
+    // log someone reads first: the pick was made from here.
+    if (raised !== true && typeof reason === "string") {
+      log.warn(
+        `[companion] helper did not raise window ${windowId}: ${reason}`,
+      );
+    }
+    return raised === true;
+  },
   iconFor: readIcon,
 };
 
@@ -426,14 +460,80 @@ export function chromeWindowFor(
 }
 
 /**
+ * How long a pick waits for its window to come to the front before going
+ * ahead without it. The helper answers in milliseconds for an app that is
+ * answering at all, and gives up on one that is not within a few seconds of
+ * its own; the shared helper client's budget is a minute, sized for
+ * computer-use actions, and a pick left waiting that long would read as a
+ * dead button.
+ */
+export const RAISE_WAIT_MS = 5_000;
+
+/**
+ * Bring a picked window to the front, and carry on either way.
+ *
+ * The pick is what the user is about to talk about, so it belongs in front
+ * of whatever they were looking at when they picked it. The capture does not
+ * depend on it: a window the helper could not raise (an app refusing the
+ * request, a helper that is down, a helper still trying past `waitMs`) is
+ * still read where it is, so this never decides whether the pick resolves.
+ * A raise that lands after the wait lands on the window the session is
+ * reading anyway, or on a pick the generation guard in `companion-window`
+ * has already superseded, which is a window the user chose a moment ago.
+ */
+export const bringForward = async (
+  windowId: number,
+  deps: Pick<CaptureSourceDeps, "raiseWindow">,
+  waitMs = RAISE_WAIT_MS,
+): Promise<void> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<"expired">((resolve) => {
+    timer = setTimeout(() => resolve("expired"), waitMs);
+  });
+  try {
+    const raise = deps.raiseWindow(windowId);
+    const outcome = await Promise.race([raise, expiry]);
+    if (outcome === "expired") {
+      log.warn(
+        `[companion] window ${windowId} is still coming to the front after ${waitMs}ms; not waiting`,
+      );
+      // The late answer is only worth a line in the log, and its rejection
+      // is caught so it never surfaces as an unhandled one.
+      raise.then(
+        (raised) => {
+          if (!raised) {
+            log.warn(
+              `[companion] window ${windowId} would not come to the front`,
+            );
+          }
+        },
+        (err) =>
+          log.warn(
+            "[companion] could not bring the picked window forward:",
+            err,
+          ),
+      );
+    } else if (!outcome) {
+      log.warn(`[companion] window ${windowId} would not come to the front`);
+    }
+  } catch (err) {
+    log.warn("[companion] could not bring the picked window forward:", err);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+/**
  * Turn a pressed row into the target the session is told to read, or nothing
  * when it cannot be: a tab whose window Chrome no longer has, or a Chrome
  * that would not take the request.
  *
- * A display and a window are already targets. A tab is the window showing
- * it, which takes an activation round trip through Chrome and a fresh list
- * from the helper, since the window that shows it may not have been in front
- * (or on screen at all, if minimized) when the picker was drawn.
+ * A display is already a target. A window is one too, and comes to the front
+ * on the way. A tab is the window showing it, which takes an activation round
+ * trip through Chrome and a fresh list from the helper, since the window that
+ * shows it may not have been in front (or on screen at all, if minimized)
+ * when the picker was drawn; that window comes to the front as well, since
+ * Chrome's own activation is of the app and not always of the window.
  */
 export async function resolveCapturePick(
   pick: CompanionCapturePick,
@@ -442,7 +542,11 @@ export async function resolveCapturePick(
   if (pick.kind === "display") {
     return { kind: "display", displayId: pick.displayId };
   }
+  if (pick.kind === "pointerDisplay") {
+    return { kind: "display", displayId: deps.pointerDisplayId() };
+  }
   if (pick.kind === "window") {
+    await bringForward(pick.windowId, deps);
     return { kind: "window", windowId: pick.windowId };
   }
   let title = "";
@@ -480,6 +584,14 @@ export async function resolveCapturePick(
     log.warn("[companion] no Chrome window on screen for the picked tab");
     return null;
   }
+  // Raised after Chrome has finished its own activation (the script above
+  // returns once Chrome has processed it), never alongside it. When Chrome
+  // did bring this window forward, the raise finds it already restored and
+  // in front and changes nothing; when Chrome activated with another of its
+  // windows in front, which happens, this is what puts the tab's window
+  // there. Unconditional because the cheap case is a no-op and the check
+  // that would skip it (is this window frontmost now?) costs the same trip.
+  await bringForward(window.windowId, deps);
   return { kind: "window", windowId: window.windowId };
 }
 
@@ -497,4 +609,213 @@ export async function windowBoundsFor(
     (w) => w.windowId === windowId,
   );
   return window === undefined ? null : window.bounds;
+}
+
+const capturedFrameSchema = z.object({
+  jpegBase64: z.string().min(1),
+  width: z.number().int().nonnegative(),
+  height: z.number().int().nonnegative(),
+});
+
+/**
+ * The longest side a shared frame is encoded at. Wide enough that text on a
+ * shared window still reads, and no wider: the app resizes every attachment
+ * on its way up, and a display's worth of pixels crosses the bridge as JSON.
+ */
+const SHARED_FRAME_MAX_WIDTH = 1600;
+const SHARED_FRAME_MAX_HEIGHT = 1000;
+
+/**
+ * One frame of a display or a window at a given size, or nothing when the
+ * helper would not take it. The refusal is logged rather than thrown: both
+ * callers ask for frames they can do without, and `what` is how the line says
+ * which of them was asking.
+ */
+async function frameOf(
+  target: WatchCaptureTarget,
+  maxWidth: number,
+  maxHeight: number,
+  what: string,
+): Promise<ScreenCaptureFrame | null> {
+  const params =
+    target.kind === "display"
+      ? { displayId: target.displayId }
+      : { windowId: target.windowId };
+  try {
+    return capturedFrameSchema.parse(
+      await getSharedCuHelper().call("capture.frame", {
+        ...params,
+        maxWidth,
+        maxHeight,
+      }),
+    );
+  } catch (err) {
+    log.warn(`[companion] could not take a frame of ${what}:`, err);
+    return null;
+  }
+}
+
+/**
+ * One frame of a display or a window, as the helper takes it, or nothing
+ * when it could not: the window has gone, the display was unplugged, or
+ * Screen Recording is not granted. The refusal is logged rather than thrown,
+ * since the caller shares frames on a cadence and one missed frame is not an
+ * error the user needs to hear about.
+ */
+export async function captureTargetFrame(
+  target: WatchCaptureTarget,
+): Promise<ScreenCaptureFrame | null> {
+  return frameOf(
+    target,
+    SHARED_FRAME_MAX_WIDTH,
+    SHARED_FRAME_MAX_HEIGHT,
+    "the shared target",
+  );
+}
+
+/**
+ * The longest side a picker preview is encoded at.
+ *
+ * Sized for the tile it is drawn in rather than for reading: the picker asks
+ * for one of these per display and per window on the desktop, all at once,
+ * and each crosses the bridge as base64 in a JSON message. Twice the widest
+ * tile, so the preview still looks like the window on a Retina display, and
+ * no more.
+ */
+export const THUMBNAIL_MAX_WIDTH = 320;
+export const THUMBNAIL_MAX_HEIGHT = 200;
+
+/**
+ * How many previews the helper is asked for at once.
+ *
+ * Each capture is a round trip that sets up a ScreenCaptureKit filter over the
+ * window server's current content, so a desktop with twenty windows on it
+ * asked all at once is twenty of those in flight through the one helper the
+ * hotkeys, dictation and any computer-use action in progress also share. A
+ * handful at a time fills the grid in about the same wall clock and leaves the
+ * helper answering everything else.
+ */
+export const THUMBNAIL_CONCURRENCY = 4;
+
+let thumbnailsInFlight = 0;
+/** Previews asked for while the helper was already busy with its share. */
+const thumbnailQueue: (() => void)[] = [];
+
+const takeThumbnailSlot = (): Promise<void> => {
+  if (thumbnailsInFlight < THUMBNAIL_CONCURRENCY) {
+    thumbnailsInFlight += 1;
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    thumbnailQueue.push(() => {
+      thumbnailsInFlight += 1;
+      resolve();
+    });
+  });
+};
+
+const releaseThumbnailSlot = (): void => {
+  thumbnailsInFlight -= 1;
+  thumbnailQueue.shift()?.();
+};
+
+/**
+ * A preview of one thing the picker offers, as a JPEG data URL, or nothing
+ * when the helper would not take one.
+ *
+ * A data URL rather than the frame the share path returns, because the only
+ * thing waiting for it is an `img` in the picker: the shape it wants is the
+ * shape the app icons beside it already travel in.
+ *
+ * Nothing is cached. A preview is only true for the moment the picker is
+ * open, and the picker is opened by a press: a picture of a window as it
+ * looked the last time the user went looking would be a worse answer than a
+ * blank tile, since it is the one the user would pick by.
+ *
+ * A preview still queued when the card closes is taken anyway and answers
+ * nobody. Nothing holds it and the next press asks afresh, so the cost is one
+ * capture rather than a leak, and it is cheaper than a cancellation the
+ * renderer would have to reach back across the bridge to ask for.
+ */
+export async function captureSourceThumbnail(
+  target: WatchCaptureTarget,
+): Promise<string | null> {
+  await takeThumbnailSlot();
+  try {
+    const frame = await frameOf(
+      target,
+      THUMBNAIL_MAX_WIDTH,
+      THUMBNAIL_MAX_HEIGHT,
+      "a picker row",
+    );
+    return frame === null ? null : `data:image/jpeg;base64,${frame.jpegBase64}`;
+  } finally {
+    releaseThumbnailSlot();
+  }
+}
+
+/**
+ * Where a named control is on a shared surface, in screen points.
+ *
+ * A found element carries the frame the accessibility tree holds for it,
+ * which is exact: the point of asking at all is that nothing here estimates
+ * a position from a picture. A refusal carries names instead, so the caller
+ * can say what is on the surface rather than pointing at a guess. See
+ * `AXTargetMatch` for why a query fitting more than one control resolves to
+ * nothing.
+ */
+const locatedElementSchema = z.discriminatedUnion("found", [
+  z.object({
+    found: z.literal(true),
+    label: z.string(),
+    role: z.string(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+  }),
+  z.object({
+    found: z.literal(false),
+    reason: z.enum(["no-tree", "ambiguous", "no-match"]),
+    ambiguous: z.array(z.string()).optional(),
+    available: z.array(z.string()).optional(),
+    /**
+     * How many labels there were, which can be more than the list carries.
+     * The helper bounds what it sends so a page of ten thousand elements
+     * cannot become the payload, and the count is what keeps a caller saying
+     * "and N more" honest about the ones it never received.
+     */
+    candidateCount: z.number().optional(),
+  }),
+]);
+
+export type LocatedElement = z.infer<typeof locatedElementSchema>;
+
+/**
+ * Ask the helper which control on `target` `query` names.
+ *
+ * A window is read as itself. A display has no tree of its own, so the helper
+ * reads the frontmost window standing on it: someone sharing a screen and
+ * naming a control means the one they are looking at.
+ *
+ * Never throws. A helper that will not answer is reported as `no-tree`, the
+ * same as a window that has no tree, because the caller does the same thing
+ * with both: say so rather than draw.
+ */
+export async function locateOnTarget(
+  target: WatchCaptureTarget,
+  query: string,
+): Promise<LocatedElement> {
+  const params =
+    target.kind === "display"
+      ? { displayId: target.displayId }
+      : { windowId: target.windowId };
+  try {
+    return locatedElementSchema.parse(
+      await getSharedCuHelper().call("ax.locate", { ...params, query }),
+    );
+  } catch (err) {
+    log.warn(`[companion] could not locate ${JSON.stringify(query)}:`, err);
+    return { found: false, reason: "no-tree" };
+  }
 }

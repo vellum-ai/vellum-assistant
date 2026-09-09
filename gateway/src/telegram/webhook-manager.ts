@@ -1,10 +1,14 @@
+import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
+
 import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import { mutateConfigFile } from "../config-file-utils.js";
 import { credentialKey } from "../credential-key.js";
+import { registerWebhookIngressRoute } from "../db/webhook-ingress-route-store.js";
 import { fetchImpl } from "../fetch.js";
 import {
   arePlatformFeaturesEnabled,
+  isFeatureFlagEnabled,
   isPlatformMode,
 } from "../feature-flag-resolver.js";
 import { callTelegramApi } from "./api.js";
@@ -13,6 +17,8 @@ import { getLogger } from "../logger.js";
 const log = getLogger("webhook-manager");
 const TELEGRAM_CALLBACK_PATH = "webhooks/telegram";
 const TELEGRAM_CALLBACK_TYPE = "telegram";
+/** The registry and the gateway route hold the path with its leading slash; Django's callback registration takes it without. */
+const TELEGRAM_WEBHOOK_INGRESS_PATH = `/${TELEGRAM_CALLBACK_PATH}`;
 
 interface WebhookInfo {
   url: string;
@@ -104,10 +110,7 @@ async function registerManagedTelegramCallbackRoute(
   // Self-hosted assistants send their public ingress URL so the platform
   // can register a callback that points at this gateway. Platform pods may
   // also include it; Django ignores a client-provided base for those.
-  const ingressUrl = caches?.configFile
-    ?.getString("ingress", "publicBaseUrl")
-    ?.trim()
-    .replace(/\/+$/, "");
+  const ingressUrl = readIngressBaseUrl(caches);
 
   const requestBody: Record<string, string> = {
     assistant_id: assistantId,
@@ -154,6 +157,55 @@ async function registerManagedTelegramCallbackRoute(
   return callbackUrl;
 }
 
+/**
+ * The configured public ingress URL in the shape a path appends to.
+ *
+ * Normalized through the same helper the daemon's `hasIngressConfigured` reads
+ * this key with, so the two derivations cannot disagree about a padded or
+ * trailing-slashed value.
+ */
+function readIngressBaseUrl(caches?: WebhookManagerCaches): string | undefined {
+  return normalizePublicBaseUrl(
+    caches?.configFile?.getString("ingress", "publicBaseUrl"),
+  );
+}
+
+/**
+ * Claim `/webhooks/telegram` in the webhook ingress registry and return the
+ * Velay URL that claim makes reachable.
+ *
+ * The claim comes first because both admission layers in front of the route
+ * consult the registry: Velay drops an unadvertised path at the edge, and the
+ * bridge refuses one the registry does not hold. Handing Telegram a URL whose
+ * path is unclaimed would register a webhook that every delivery bounces off.
+ *
+ * Returns undefined when the tunnel has published no URL yet or the claim
+ * fails, which leaves the caller on the managed callback route.
+ */
+function resolveVelayTelegramWebhookUrl(
+  caches?: WebhookManagerCaches,
+): string | undefined {
+  const baseUrl = readIngressBaseUrl(caches);
+  if (!baseUrl) {
+    return undefined;
+  }
+
+  try {
+    registerWebhookIngressRoute({
+      path: TELEGRAM_WEBHOOK_INGRESS_PATH,
+      type: TELEGRAM_CALLBACK_TYPE,
+    });
+  } catch (err) {
+    log.error(
+      { err },
+      "Could not claim the Telegram webhook path in the ingress registry; falling back to the managed callback route",
+    );
+    return undefined;
+  }
+
+  return `${baseUrl}${TELEGRAM_WEBHOOK_INGRESS_PATH}`;
+}
+
 async function resolveExpectedTelegramWebhookUrl(
   caches?: WebhookManagerCaches,
 ): Promise<string | undefined> {
@@ -164,41 +216,123 @@ async function resolveExpectedTelegramWebhookUrl(
   // resolver declines makes setup report success while setWebhook never runs
   // (LUM-2899).
   //
-  //   1. Platform pods (`IS_PLATFORM`) always use the managed callback route
-  //      and never consult ingress at all — a pod has no self-owned ingress to
-  //      advertise. Its `ingress.publicBaseUrl` is written by the Velay tunnel
-  //      client, not by a user, and that address is only live while the tunnel
-  //      is: `clearManagedPublicBaseUrl` wipes the key when the tunnel drops,
-  //      but Telegram keeps delivering to whatever was last registered, so a
-  //      pod that resolved through this tier would be pointed at a dead
-  //      address until something triggered another reconciliation. The
-  //      platform callback route is the pod's stable inbound address.
-  //   2. An explicit `ingress.enabled: false` is a decision not to accept
+  //   1. Platform pods (`IS_PLATFORM`) with `velay-webhooks` off always use
+  //      the managed callback route and never consult ingress at all. A pod's
+  //      `ingress.publicBaseUrl` is written by the Velay tunnel client, not by
+  //      a user, and that address is only live while the tunnel is:
+  //      `clearManagedPublicBaseUrl` wipes the key when the tunnel drops, but
+  //      Telegram keeps delivering to whatever was last registered, so a pod
+  //      that resolved through the address alone would be pointed at a dead
+  //      one. The platform callback route is the pod's stable inbound address.
+  //   2. With the flag on, a pod points Telegram at its published Velay URL
+  //      and claims that path in the ingress registry first, so the tunnel
+  //      edge and the bridge both admit it. A pod with no published URL, or a
+  //      claim that fails, still falls back to the managed callback route.
+  //      Both the tunnel publishing a URL and the flag flipping re-run this
+  //      reconciliation, so a pod moves between the two addresses in either
+  //      direction without a restart.
+  //   3. An explicit `ingress.enabled: false` is a decision not to accept
   //      inbound webhooks at all; it precedes both tiers below and actively
   //      deregisters, so `reconcileTelegramWebhook` handles it before calling
   //      this resolver. Platform pods are exempt (see the comment there).
-  //   3. A configured public ingress URL wins (a self-hosted tunnel, or the
+  //   4. A configured public ingress URL wins (a self-hosted tunnel, or the
   //      Velay-published URL while the tunnel is registered).
-  //   4. Platform-connected local assistants holding vellum credentials fall
+  //   5. Platform-connected local assistants holding vellum credentials fall
   //      back to a managed platform callback route.
   //      `registerManagedTelegramCallbackRoute` self-gates on platform
   //      features and credential presence, so a gateway with no platform
   //      context resolves to undefined and reconciliation skips.
   if (isPlatformMode()) {
+    if (isFeatureFlagEnabled("velay-webhooks")) {
+      const velayUrl = resolveVelayTelegramWebhookUrl(caches);
+      if (velayUrl) {
+        return velayUrl;
+      }
+    }
     return registerManagedTelegramCallbackRoute(caches);
   }
 
-  let ingressUrl: string | undefined;
-  if (caches?.configFile) {
-    ingressUrl = caches.configFile.getString("ingress", "publicBaseUrl");
-  }
-
-  if (ingressUrl) {
-    const baseUrl = ingressUrl.replace(/\/+$/, "");
-    return `${baseUrl}/${TELEGRAM_CALLBACK_PATH}`;
+  const baseUrl = readIngressBaseUrl(caches);
+  if (baseUrl) {
+    return `${baseUrl}${TELEGRAM_WEBHOOK_INGRESS_PATH}`;
   }
 
   return registerManagedTelegramCallbackRoute(caches);
+}
+
+/** The request waiting to run, holding the caches of whoever asked last. */
+let pendingReconcile: { caches?: WebhookManagerCaches } | undefined;
+/** The drain currently running, so a second request latches instead of racing. */
+let reconcileDrain: Promise<void> | undefined;
+
+/**
+ * Reconcile the Telegram webhook, one reconciliation at a time.
+ *
+ * Every trigger routes through here because the address a reconciliation
+ * resolves depends on config that moves underneath it. A Velay rules refresh
+ * clears `ingress.publicBaseUrl` and republishes it moments later, and each
+ * write fires a config change. Run concurrently, the clear-time reconciliation
+ * resolves the managed callback route while the republish-time one resolves
+ * Velay, and whichever setWebhook lands last decides where Telegram delivers.
+ * A stale winner leaves the pod on the fallback address until some later
+ * trigger happens to correct it.
+ *
+ * So requests coalesce: one reconciliation runs, any that arrive during it
+ * collapse into a single rerun, and that rerun reads config again and settles
+ * on the address the churn ended at. A burst of triggers therefore costs at
+ * most two reconciliations, and the last one always sees the final state.
+ *
+ * The returned promise resolves when the drain finishes, so awaiting a call
+ * means the state it asked about has been reconciled.
+ */
+export function reconcileTelegramWebhook(
+  caches?: WebhookManagerCaches,
+): Promise<void> {
+  // The newest request wins the slot. An older latched request would resolve
+  // against config that has already moved on, which is the race itself.
+  pendingReconcile = { caches };
+  if (!reconcileDrain) {
+    reconcileDrain = drainReconcileRequests();
+  }
+  return reconcileDrain;
+}
+
+async function drainReconcileRequests(): Promise<void> {
+  let failure: unknown;
+  let failed = false;
+  let isRerun = false;
+
+  try {
+    while (pendingReconcile) {
+      const request = pendingReconcile;
+      pendingReconcile = undefined;
+      if (isRerun) {
+        // This run was latched while the config that decides the address was
+        // still moving, and the cache it reads through serves a snapshot.
+        // Re-read so the resolver sees where the churn settled.
+        request.caches?.configFile?.refreshNow();
+      }
+      try {
+        await reconcileTelegramWebhookNow(request.caches);
+      } catch (err) {
+        // Keep draining. A latched request describes newer config than the one
+        // that just failed, and dropping it would strand Telegram on whatever
+        // the failed run left registered.
+        failure = err;
+        failed = true;
+      }
+      isRerun = true;
+    }
+  } finally {
+    // Released here rather than off the returned promise, so the slot is free
+    // the moment the loop stops looking for work. A request that landed in
+    // between would otherwise latch onto a drain that has already finished.
+    reconcileDrain = undefined;
+  }
+
+  if (failed) {
+    throw failure;
+  }
 }
 
 /**
@@ -211,7 +345,7 @@ async function resolveExpectedTelegramWebhookUrl(
  * would be invisible to us, causing all deliveries to fail with 401.
  * setWebhook is idempotent, so calling it unconditionally is safe.
  */
-export async function reconcileTelegramWebhook(
+async function reconcileTelegramWebhookNow(
   caches?: WebhookManagerCaches,
 ): Promise<void> {
   // Resolve credentials from cache

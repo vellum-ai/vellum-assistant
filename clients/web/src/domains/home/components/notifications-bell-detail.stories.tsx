@@ -4,7 +4,7 @@
  * stories are where every body kind is seen at its real width.
  *
  * The decorator stands in for the popover the bell renders this into: the
- * same `w-96` box and padding as `notifications-bell.tsx`, so the footer's
+ * same 435px box and surface as `notifications-bell.tsx`, so the footer's
  * links are seen at the width they actually have to fit. The bell itself owns
  * the queries, so the props here are what the real bell passes down after
  * `useFeedItemEntityLinks` has resolved.
@@ -40,9 +40,9 @@ const meta = {
   component: NotificationsBellDetail,
   parameters: { layout: "padded" },
   args: {
-    // The bell's own content budget: five compact cards plus their gaps.
-    contentHeight: "397px",
-    contentMaxHeight: "calc(100dvh - 176px)",
+    // The bell's own content budget: six rows plus their gaps.
+    contentHeight: "400px",
+    contentMaxHeight: "calc(100dvh - 192px)",
     validConversationIds: FIXTURE_VALID_CONVERSATIONS,
     areConversationListsPending: false,
     entityLinks: [],
@@ -57,7 +57,7 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="w-96 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-2">
+      <div className="flex w-[435px] min-w-0 flex-col rounded-[var(--radius-xl)] bg-[var(--surface-lift)] shadow-[var(--shadow-popover)]">
         <Story />
       </div>
     ),

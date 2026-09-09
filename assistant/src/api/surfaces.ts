@@ -568,11 +568,12 @@ export type WatchRetroQuestionKind = z.infer<
 /**
  * One answer to a `pick` or `gate` question.
  *
- * **The first option is the default**, and that is the whole of the
- * preselection contract. There is no `selected` flag to disagree with the
+ * **The first option is the recommended one**, and that is the whole of the
+ * contract. There is no `selected` or `recommended` flag to disagree with the
  * ordering. On a `pick` it is the reading the recording supports; on a `gate`
- * it is the cautious answer, which is the one case where the default is
- * deliberately not the model's guess.
+ * it is the cautious answer, which is the one case where the recommendation
+ * is deliberately not the model's guess. The card marks it and selects
+ * nothing: the user answers a pick or a gate by tapping.
  */
 export const WatchRetroOptionSchema = z.object({
   id: coercedString(),
@@ -590,7 +591,7 @@ export const WatchRetroQuestionSchema = z.object({
   eyebrow: tolerantString(),
   /** `fill` only: the pre-filled value, so skipping keeps a working answer. */
   suggestion: tolerantString(),
-  /** `pick` and `gate`: the alternatives. First is the default. */
+  /** `pick` and `gate`: the alternatives. First is the recommended one. */
   options: recordArray(WatchRetroOptionSchema).optional().catch(undefined),
 });
 export type WatchRetroQuestion = z.infer<typeof WatchRetroQuestionSchema>;

@@ -82,6 +82,8 @@ mock.module("../persistence/embeddings/embedding-backend.js", () => ({
     vectors: [],
   }),
   geminiCacheExtras: () => [],
+  customCacheExtras: () => [],
+  durableEmbeddingCacheExtras: () => [],
   generateSparseEmbedding: () => ({ indices: [], values: [] }),
   getMemoryBackendStatus: async () => ({
     enabled: false,
