@@ -9,10 +9,14 @@
  * lists every attachment from the daemon, with exact totals and a Camera
  * Frames category of its own.
  *
- * `MIN_VERSION` is `0.11.10`, the first release expected to carry the route.
- * A 0.11.10 build cut before the route landed answers 404, and the consumer
- * reads a 404 as unsupported and falls back to the transcript path, so such a
- * build degrades to the old behavior rather than surfacing an error.
+ * `MIN_VERSION` is `0.11.11`, the first release expected to carry the route,
+ * since 0.11.10 shipped before it landed. A 0.11.11 build cut before the route
+ * landed answers 404, and the consumer reads a 404 as unsupported and falls
+ * back to the transcript path, so such a build degrades to the old behavior
+ * rather than surfacing an error. A dev build off `main` is stamped with the
+ * base version in `package.json`, so the daemon path stays dark on dev builds
+ * until the release bump moves that base to 0.11.11; pin `MIN_VERSION` locally
+ * to exercise it before then.
  *
  * Unscoped, since the panel lists the active assistant's conversation, which
  * is the assistant the identity store holds a version for. A caller that ever
@@ -25,7 +29,7 @@
  */
 import { useAssistantSupports } from "./utils";
 
-export const MIN_VERSION = "0.11.10";
+export const MIN_VERSION = "0.11.11";
 
 /**
  * Returns `true` when the active assistant serves the conversation attachment
