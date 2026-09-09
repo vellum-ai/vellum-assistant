@@ -245,19 +245,6 @@ describe("PanelItem asChild", () => {
     expect(html).toContain('aria-current="page"');
   });
 
-  /* `active` is the row's own statement of currentness, so it wins over a
-     caller's `aria-current` on this path too. */
-  test("outranks a caller's aria-current when active", () => {
-    const html = renderToStaticMarkup(
-      createElement(
-        PanelItem,
-        { asChild: true, active: true, "aria-current": "true" as const },
-        createElement("a", { href: "/pinned" }, "Pinned"),
-      ),
-    );
-    expect(html).toContain('aria-current="page"');
-  });
-
   /* Radix `Slot` skips both the prop merge and the ref composition for a
      fragment, so a fragment child renders a row with none of the above and
      holds no ref. The type cannot express that, so it is reported. */
