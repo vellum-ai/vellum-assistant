@@ -20,8 +20,10 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
   CHAT_INFO_T0,
+  clearTranscriptOwner,
   makeAppSummary,
   makeDocumentSummary,
+  seedTranscriptOwner,
 } from "@/domains/chat/components/chat-info.test-helper";
 import type {
   DisplayAttachment,
@@ -219,7 +221,7 @@ function seedChatInfoQueries(
   }
 }
 
-/** Installs `messages` as the rendered transcript. */
+/** Installs `messages` as the rendered transcript, under its owner. */
 function seedChatInfoTranscript(messages: DisplayMessage[]): void {
   useChatSessionStore.getState().seedSnapshot(CHAT_INFO_CONVERSATION_ID, {
     messages,
@@ -228,11 +230,13 @@ function seedChatInfoTranscript(messages: DisplayMessage[]): void {
     oldestMessageId: null,
     seq: 1,
   });
+  seedTranscriptOwner(CHAT_INFO_ASSISTANT_ID, CHAT_INFO_CONVERSATION_ID);
 }
 
 /** Drops the seeded transcript, so a story cannot leak into the next one. */
 function resetChatInfoTranscript(): void {
   useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  clearTranscriptOwner();
 }
 
 /**

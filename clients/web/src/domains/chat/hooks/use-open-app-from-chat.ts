@@ -4,6 +4,15 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
 
+/** Opens `appId` under `assistantId` in the viewer panel. */
+export async function openAppFromChat(
+  assistantId: string,
+  appId: string,
+): Promise<void> {
+  haptic.light();
+  await useViewerStore.getState().loadApp(assistantId, appId);
+}
+
 /**
  * Open an app in the viewer panel from inside the chat surface: the sidebar's
  * pinned-app click and the transcript's "Open App" affordance.
@@ -32,8 +41,8 @@ import { haptic } from "@/utils/haptics";
  * Single source of truth for the active assistant's apps, used by
  * `chat-layout.tsx` (sidebar) and `chat-route-content.tsx` (transcript).
  * Don't inline a copy. A surface that opens an app for some other assistant
- * (the chat-info panel opens the one its payload names) calls `loadApp`
- * directly instead.
+ * (the chat-info panel opens the one its payload names) calls
+ * {@link openAppFromChat} with that assistant.
  */
 export function useOpenAppFromChat(): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
@@ -43,8 +52,7 @@ export function useOpenAppFromChat(): (appId: string) => Promise<void> {
       if (!assistantId) {
         return;
       }
-      haptic.light();
-      await useViewerStore.getState().loadApp(assistantId, appId);
+      await openAppFromChat(assistantId, appId);
     },
     [assistantId],
   );

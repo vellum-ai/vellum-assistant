@@ -10,8 +10,8 @@
 
 import { useMemo } from "react";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
-import { useConversationStore } from "@/stores/conversation-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 export interface ConversationAttachmentEntry {
@@ -62,19 +62,19 @@ export function useConversationAttachments(target: {
   assistantId: string;
   conversationId: string;
 }): ConversationAttachments {
-  // The transcript holds whichever conversation is open and its snapshot names
-  // no conversation of its own, so a caller asking about a different one is
-  // answered with nothing rather than with the open conversation's files. With
-  // none open there is no other conversation to mistake these rows for.
-  const activeConversationId = useConversationStore.use.activeConversationId();
-  const isOtherConversation =
-    activeConversationId !== null &&
-    activeConversationId !== target.conversationId;
+  // The chat-session store names the conversation its snapshot was loaded for.
+  // The navigation selection flips a render before that snapshot is cleared, so
+  // gating on it would list the outgoing conversation's files under the new id.
+  const ownerAssistantId = useChatSessionStore.use.previousAssistantId();
+  const ownerConversationId = useChatSessionStore.use.previousConversationId();
+  const ownsTranscript =
+    ownerAssistantId === target.assistantId &&
+    ownerConversationId === target.conversationId;
 
   const messages = useTranscriptMessages();
 
   const entries = useMemo(() => {
-    if (isOtherConversation) {
+    if (!ownsTranscript) {
       return NO_ENTRIES;
     }
     const collected: ConversationAttachmentEntry[] = [];
@@ -111,7 +111,7 @@ export function useConversationAttachments(target: {
       }
     }
     return collected.length === 0 ? NO_ENTRIES : collected;
-  }, [messages, isOtherConversation]);
+  }, [messages, ownsTranscript]);
 
   return useMemo(
     () => ({

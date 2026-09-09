@@ -35,6 +35,7 @@ import {
   type ConversationFileAsset,
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
+import { openAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
@@ -107,9 +108,8 @@ export function ChatInfoPanel({
   // under the panel's own assistant, which need not be the active one.
   const handleOpenApp = useCallback(
     (appId: string) => {
-      haptic.light();
       useViewerStore.getState().closeChatInfo();
-      void useViewerStore.getState().loadApp(assistantId, appId);
+      void openAppFromChat(assistantId, appId);
     },
     [assistantId],
   );
