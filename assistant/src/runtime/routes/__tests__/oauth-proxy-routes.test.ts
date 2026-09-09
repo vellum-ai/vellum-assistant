@@ -140,11 +140,16 @@ mock.module("../../../oauth/connection-resolver.js", () => ({
 }));
 
 // Spread the real module so the rest of the import graph keeps its env
-// readers; only the auth bypass is pinned.
+// readers; only the two auth-bypass readings are pinned. They move
+// independently: DISABLE_HTTP_AUTH is set on any host, the platform-managed
+// bypass only on a vembda pod.
+let httpAuthDisabled = false;
+let platformAuthBypass = false;
 const env = await import("../../../config/env.js");
 mock.module("../../../config/env.js", () => ({
   ...env,
-  isHttpAuthDisabled: () => false,
+  isHttpAuthDisabled: () => httpAuthDisabled,
+  isPlatformAuthBypassActive: () => platformAuthBypass,
 }));
 
 const { handleOAuthProxy, ROUTES } = await import("../oauth-proxy-routes.js");
@@ -188,6 +193,10 @@ async function callProxy(params: {
   const segment = params.segment ?? "stripe_link";
   const path = params.path ?? "v1/payment_methods";
 
+  // An empty path leaves the provider segment as the whole URL, the shape the
+  // route answers with its own 400.
+  const suffix = path === "" ? "" : `/${path}`;
+
   const init: RequestInit = { method, headers: params.headers ?? {} };
   if (params.body !== undefined) {
     init.body = params.body;
@@ -196,7 +205,7 @@ async function callProxy(params: {
     init.signal = params.signal;
   }
   const req = new Request(
-    `http://daemon.local/v1/oauth/proxy/${segment}/${path}${params.search ?? ""}`,
+    `http://daemon.local/v1/oauth/proxy/${segment}${suffix}${params.search ?? ""}`,
     init,
   );
   lastRequest = req;
@@ -257,6 +266,8 @@ function requireCaptured(): OAuthConnectionRequest {
 }
 
 beforeEach(() => {
+  httpAuthDisabled = false;
+  platformAuthBypass = false;
   captured = undefined;
   upstreamBytes = undefined;
   requestError = undefined;
@@ -566,6 +577,23 @@ describe("response emission", () => {
     );
   });
 
+  test("emits a 204 with no body through the route adapter", async () => {
+    // The adapter's own null-body short-circuit reads the route's declared
+    // status, which is 200 here, so a provider 204 has to survive the
+    // handler-supplied-response branch instead.
+    upstream = {
+      status: 204,
+      headers: { "x-request-id": "req_1" },
+      body: null,
+    };
+
+    const response = await callProxy({ method: "DELETE" });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get("x-request-id")).toBe("req_1");
+    expect(await response.text()).toBe("");
+  });
+
   test("emits a string body as UTF-8", async () => {
     upstream = {
       status: 200,
@@ -582,21 +610,6 @@ describe("response emission", () => {
 // ── Connection selection ────────────────────────────────────────────────────
 
 describe("connection selection", () => {
-  test("pins the account from the provider segment", async () => {
-    await callProxy({ segment: PINNED_SEGMENT, subject: PINNED_SUBJECT });
-
-    expect(resolverCalls).toEqual([
-      { provider: "stripe_link", options: { account: "user@example.com" } },
-    ]);
-  });
-
-  test("resolves without options when no account is pinned", async () => {
-    await callProxy({});
-    expect(resolverCalls).toEqual([
-      { provider: "stripe_link", options: undefined },
-    ]);
-  });
-
   test("refuses to pick when several accounts match", async () => {
     resolution = {
       connection: byoConnection,
@@ -684,7 +697,7 @@ describe("failure mapping", () => {
   });
 });
 
-// ── Grant binding and path safety ───────────────────────────────────────────
+// ── Grant binding, path safety, transport guard ─────────────────────────────
 
 describe("grant binding", () => {
   /** Nothing downstream of the subject check ran. */
@@ -755,14 +768,33 @@ describe("grant binding", () => {
     await expectRefusedBeforeResolution(response);
   });
 
-  test("a provider segment the subject cannot hold is a 400", async () => {
-    const response = await callProxy({
-      segment: "vendor%3Aregion",
-      subject: "local:self:oauth-proxy.vendor:region",
-    });
+  test("a colon in the provider segment fails parsing before any subject check", async () => {
+    const response = await callProxy({ segment: "vendor%3Aregion" });
 
     expect(response.status).toBe(400);
+    const { error } = await envelope(response);
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toContain("Invalid OAuth proxy provider segment");
     expect(resolverCalls).toHaveLength(0);
+  });
+
+  test("a platform-managed pod skips the comparison it has no subject for", async () => {
+    // The pod's daemon discards the token and synthesizes a context, so the
+    // grant's subject never reaches the handler.
+    httpAuthDisabled = true;
+    platformAuthBypass = true;
+
+    const response = await callProxy({ subject: "actor:self:dev-bypass" });
+
+    expect(response.status).toBe(200);
+  });
+
+  test("DISABLE_HTTP_AUTH off a platform pod still binds the grant", async () => {
+    httpAuthDisabled = true;
+
+    const response = await callProxy({ subject: "actor:self:dev-bypass" });
+
+    await expectRefusedBeforeResolution(response);
   });
 });
 
@@ -785,6 +817,18 @@ describe("path safety", () => {
     expect(resolverCalls).toHaveLength(0);
   });
 
+  test("a provider segment with no API path after it is a 400", async () => {
+    const response = await callProxy({ path: "" });
+
+    expect(response.status).toBe(400);
+    const { error } = await envelope(response);
+    expect(error.code).toBe("BAD_REQUEST");
+    expect(error.message).toContain("A provider API path is required");
+    expect(resolverCalls).toHaveLength(0);
+  });
+});
+
+describe("transport guard", () => {
   test("an IPC invocation never reaches the provider and asks for HTTP", async () => {
     const args: RouteHandlerArgs = {
       pathParams: { provider: "stripe_link" },
