@@ -67,6 +67,12 @@ mock.module("@/runtime/browser", () => ({
   openUrl: async () => {},
   openUrlFinishedListener: () => () => {},
 }));
+// Real waits would hold the suite open for seconds.
+const actualTiming = await import("@/lib/auth/oauth-connect-timing");
+mock.module("@/lib/auth/oauth-connect-timing", () => ({
+  ...actualTiming,
+  CONNECTION_CONFIRM_WINDOW_MS: 40,
+}));
 
 // The hook reads the connections list through TanStack. Serve it from the same
 // mutable rows the SDK mock uses so a test can make a grant appear.
@@ -388,6 +394,29 @@ describe("useManagedOAuthConnect", () => {
         value: realStorage,
       });
     }
+  });
+
+  test("a confirmed authorization settles even when its row never arrives", async () => {
+    // The connections list does not model every provider the platform can
+    // authorize (Link by Stripe is absent from OAuthProviderEnum), so a flow
+    // whose callback reported success must not wait on a row forever.
+    const { result } = renderHook(() => useManagedOAuthConnect(OPTS));
+    act(() => result.current.connect());
+    await waitFor(() => expect(attemptFor()?.platformAssistantId).toBeTruthy());
+
+    act(() => {
+      window.dispatchEvent(
+        completionEvent(attemptFor()!.requestId, "connected"),
+      );
+    });
+
+    // Still looking for the account for now.
+    expect(result.current.status).toBe("attempting");
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    // No row ever appeared, so no details are invented.
+    expect(result.current.connection).toBeNull();
+    expect(attemptFor()).toBeUndefined();
   });
 
   test("dismiss is what ends an attempt", async () => {
