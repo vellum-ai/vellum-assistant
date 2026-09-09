@@ -121,6 +121,60 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect(figma.featureFlag).toBe("figma-oauth");
   });
 
+  test("shopify keeps its per-tenant URL templates", () => {
+    // Shopify has no global OAuth host: every endpoint lives on the
+    // merchant's own domain. Hardcoding any host here would send every
+    // merchant's authorization to the wrong store, so the {tenant_host}
+    // placeholder the platform substitutes must survive.
+    const shopify = PROVIDER_SEED_DATA.shopify;
+    expect(shopify).toBeDefined();
+    for (const url of [
+      shopify.authorizeUrl,
+      shopify.tokenExchangeUrl,
+      shopify.refreshUrl,
+      shopify.baseUrl,
+      shopify.identityUrl,
+    ]) {
+      expect(url).toContain("{tenant_host}");
+    }
+  });
+
+  test("shopify requests comma-separated scopes", () => {
+    // Shopify parses `scope` as a comma-separated list; the OAuth2 default
+    // space separator is read as one malformed scope and the whole
+    // authorization request is rejected.
+    expect(PROVIDER_SEED_DATA.shopify.scopeSeparator).toBe(",");
+  });
+
+  test("shopify does not request approval-gated scopes", () => {
+    // Shopify rejects the entire authorization request when the app cannot
+    // grant a requested scope -- the same failure that broke monday and
+    // Figma. These scopes all require Shopify's prior approval.
+    const gated = [
+      "read_all_orders",
+      "read_customer_payment_methods",
+      "read_own_subscription_contracts",
+      "write_own_subscription_contracts",
+      "read_shopify_payments_dispute_evidences",
+      "write_shopify_payments_dispute_evidences",
+    ];
+    for (const scope of gated) {
+      expect(PROVIDER_SEED_DATA.shopify.defaultScopes).not.toContain(scope);
+    }
+  });
+
+  test("shopify injects the Admin API's own auth header", () => {
+    // The Admin API reads X-Shopify-Access-Token and ignores an
+    // Authorization: Bearer header entirely, so a Bearer template here would
+    // make every proxied request unauthenticated.
+    const templates = PROVIDER_SEED_DATA.shopify.injectionTemplates;
+    expect(templates).toBeDefined();
+    const [template] = templates ?? [];
+    expect(template?.headerName).toBe("X-Shopify-Access-Token");
+    expect(template?.valuePrefix).toBe("");
+    expect(template?.hostPattern).toBe("*.myshopify.com");
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in
