@@ -12,6 +12,10 @@ import { isBinaryOAuthBody } from "./connection.js";
 const log = getLogger("platform-oauth-connection");
 const MAX_RETRIES = 3;
 
+/** Status range the `Response` constructor accepts for a final response. */
+const MIN_RESPONSE_STATUS = 200;
+const MAX_RESPONSE_STATUS = 599;
+
 export class CredentialRequiredError extends BackendError {
   constructor(
     message = "OAuth credential for this provider has expired or been revoked. The service needs to be reconnected.",
@@ -203,6 +207,20 @@ function decodePlatformProxyEnvelope(json: {
   body: unknown;
   body_encoding?: string | null;
 }): OAuthConnectionResponse {
+  // A status outside the range `Response` accepts cannot be emitted, and
+  // clamping it would attribute a status to the provider that it never sent,
+  // so an unusable envelope fails as a platform fault instead.
+  const { status } = json;
+  if (
+    !Number.isInteger(status) ||
+    status < MIN_RESPONSE_STATUS ||
+    status > MAX_RESPONSE_STATUS
+  ) {
+    throw new BackendError(
+      `Platform proxy returned an unusable response status: ${JSON.stringify(status)}`,
+    );
+  }
+
   let body = json.body;
   if (json.body_encoding === "base64") {
     if (typeof body !== "string") {
@@ -213,7 +231,7 @@ function decodePlatformProxyEnvelope(json: {
     body = Buffer.from(body, "base64");
   }
   return {
-    status: json.status,
+    status,
     headers: json.headers ?? {},
     body,
   };

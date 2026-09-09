@@ -571,6 +571,65 @@ describe("PlatformOAuthConnection", () => {
     expect(callCount).toBe(1);
   });
 
+  test("an out-of-range envelope status fails instead of being clamped", async () => {
+    const client = makeMockClient(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({ status: 700, headers: {}, body: { ok: true } }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    // 700 reaches `new Response(body, { status })` as a RangeError, which is
+    // not a mapped error, so the caller would see an opaque 500.
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(conn.request({ method: "GET", path: "/x" })).rejects.toThrow(
+      "Platform proxy returned an unusable response status: 700",
+    );
+  });
+
+  test("a missing envelope status fails", async () => {
+    const client = makeMockClient(
+      mock(async () => {
+        return new Response(JSON.stringify({ headers: {}, body: null }), {
+          status: 200,
+        });
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await expect(conn.request({ method: "GET", path: "/x" })).rejects.toThrow(
+      BackendError,
+    );
+  });
+
+  // The platform proxy rebuilds the query from the parsed record, so managed
+  // mode cannot carry a signed query string.
+  test("sends the parsed query and never rawQuery", async () => {
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
+        const parsed = JSON.parse(init?.body as string);
+        expect(parsed.request.query).toEqual({ a: "1" });
+        expect("rawQuery" in parsed.request).toBe(false);
+        expect("raw_query" in parsed.request).toBe(false);
+
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: null }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({ ...DEFAULT_OPTIONS, client });
+    await conn.request({
+      method: "GET",
+      path: "/x",
+      query: { a: "1" },
+      rawQuery: "?a=1&flag",
+    });
+  });
+
   // The platform proxy parses the response and follows redirects server-side,
   // so managed mode diverges from BYO on both flags by design.
   test("names rawResponseBody and manualRedirect as unhonored", () => {
