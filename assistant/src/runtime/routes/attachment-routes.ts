@@ -767,11 +767,12 @@ function handleListAttachmentsRoute({ queryParams }: RouteHandlerArgs) {
     throw new BadRequestError("conversationId is required");
   }
 
+  // An unset filter reaches here absent or empty, as the paging params do.
   const sightFramesRaw = queryParams?.sightFrames;
   let sightFrames: "only" | "exclude" | undefined;
   if (sightFramesRaw === "only" || sightFramesRaw === "exclude") {
     sightFrames = sightFramesRaw;
-  } else if (sightFramesRaw !== undefined) {
+  } else if (sightFramesRaw !== undefined && sightFramesRaw !== "") {
     throw new BadRequestError("sightFrames must be 'only' or 'exclude'");
   }
 
