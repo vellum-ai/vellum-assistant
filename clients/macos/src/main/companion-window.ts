@@ -90,6 +90,7 @@ import {
   windowBoundsFor,
 } from "./companion-capture-sources";
 import { setPointerOnCompanion } from "./companion-pointer";
+import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
@@ -1104,10 +1105,13 @@ const framesTheShare = (): boolean =>
  * a wheel event through a window that is taking the mouse, so the frame
  * steps aside instead: the renderer reports the first wheel event it
  * receives, the frame goes click-through with mouse-move forwarded so the
- * rest of that scroll reaches the app underneath, and the renderer takes the
- * mouse back on the first move it is forwarded. A hand that has moved the
- * pointer is pointing at something again; a hand that is scrolling does not
- * move it.
+ * rest of that scroll reaches the app underneath, and the frame takes the
+ * mouse back when the scroll ends. Two things say it has. The renderer
+ * reports the first move it is forwarded, since a hand that has moved the
+ * pointer is pointing at something again. The mac helper reports the scroll
+ * stopping, since a hand that scrolls and then presses without moving the
+ * pointer is one the renderer would never hear from, and the press would
+ * land on the app.
  *
  * Main's for the reason {@link annotating} is: it decides what a window main
  * opened does with the mouse.
@@ -1159,6 +1163,7 @@ const setAnnotating = (next: boolean): void => {
   }
   annotating = resolved;
   frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
   pushState();
 };
@@ -1176,6 +1181,11 @@ const setFrameScrolling = (next: boolean): void => {
     return;
   }
   frameScrolling = resolved;
+  if (resolved) {
+    watchFrameScroll(() => setFrameScrolling(false));
+  } else {
+    unwatchFrameScroll();
+  }
   applyFrameMouse();
 };
 
@@ -1579,6 +1589,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   // does not: this window's renderer has seen no scroll and would never ask
   // for a mouse it does not know it gave up.
   frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
 };
 

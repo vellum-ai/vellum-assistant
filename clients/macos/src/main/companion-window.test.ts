@@ -537,6 +537,12 @@ const {
   installCompanionWindow,
 } = await import("./companion-window");
 
+const {
+  __resetFrameScrollWatchForTesting,
+  frameScrollEnded,
+  provideFrameScrollWatch,
+} = await import("./frame-scroll-watch");
+
 installCompanionWindow();
 
 /**
@@ -544,6 +550,7 @@ installCompanionWindow();
  * size leaves it there. Put both axes back and forget the window's position.
  */
 beforeEach(() => {
+  __resetFrameScrollWatchForTesting();
   sizes.avatar = "small";
   sizes.options = "small";
   setCompanionSurfaceSize("avatar", "small");
@@ -3211,6 +3218,63 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:setFrameScrolling", false);
     expect(glow?.clickThrough).toBe(false);
     expect(state().annotating).toBe(true);
+  });
+
+  /**
+   * A hand that scrolls and then presses without moving the pointer never
+   * sends the renderer a move to ask with, and the press would land on the
+   * app. The desktop knows when the scroll stopped, so main asks the helper
+   * to watch for that while the frame is stepped aside, and takes the mouse
+   * back the moment it hears it.
+   */
+  test("the scroll ending takes the mouse back without a move", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(watches).toEqual([true]);
+    frameScrollEnded();
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
+    expect(state().annotating).toBe(true);
+    expect(watches).toEqual([true, false]);
+  });
+
+  /** The watch is up only while the frame is stepped aside, whichever way that ends. */
+  test("every way out of a scroll takes the watch down with it", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(watches).toEqual([true, false]);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(watches).toEqual([true, false, true, false]);
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(watches).toEqual([true, false, true, false, true, false]);
+
+    // A scroll that ended after the frame stopped waiting changes nothing.
+    frameScrollEnded();
+    expect(watches).toHaveLength(6);
+  });
+
+  /** Off the mode there is no watch to put up, and no scroll end to act on. */
+  test("a scroll ending with the mode off is nothing", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    frameScrollEnded();
+    expect(watches).toEqual([]);
+    expect(glow?.clickThrough).toBe(true);
   });
 
   /**

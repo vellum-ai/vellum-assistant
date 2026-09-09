@@ -29,9 +29,11 @@
  * **The app underneath stays scrollable.** This layer takes the wheel along
  * with the presses, and a window cannot hand on a wheel event it has taken,
  * so on the first one it asks main to make the frame click-through for the
- * rest of the scroll, and takes the mouse back on the first pointer move
- * main forwards afterwards (`setCompanionFrameScrolling`). Drawing is a mode
- * the user is in, not a lock on the surface they are sharing.
+ * rest of the scroll (`setCompanionFrameScrolling`). Main takes the mouse
+ * back when the scroll ends, which it hears from the desktop, and this layer
+ * asks for it back on the first pointer move main forwards afterwards, in
+ * case that comes first. Drawing is a mode the user is in, not a lock on the
+ * surface they are sharing.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -232,7 +234,10 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   /**
    * Take the mouse back after a scroll. Main forwards mouse-move while the
    * frame is stepped aside, so the first move to arrive is a hand that has
-   * stopped scrolling and is pointing at something again.
+   * stopped scrolling and is pointing at something again. Main also takes it
+   * back on its own when the desktop says the scroll has ended, so a press
+   * with no move before it still lands here; that path never reaches this
+   * layer, and the flag here is cleared by the next move either way.
    */
   const reclaim = (): void => {
     if (!scrolling.current) {
@@ -335,13 +340,13 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
       className="companion-share-annotation fixed inset-0 h-full w-full"
       style={
         {
+          cursor,
           "--companion-ink-hold": `${COMPANION_INK_HOLD_MS}ms`,
           "--companion-ink-fade": `${COMPANION_INK_FADE_MS}ms`,
         } as React.CSSProperties
       }
       data-testid="companion-share-annotation"
       role="presentation"
-      style={{ cursor }}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={handleUp}
