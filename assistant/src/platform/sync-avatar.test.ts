@@ -312,10 +312,40 @@ describe("syncAvatarToPlatform", () => {
     syncAvatarToPlatform();
     await settle();
 
+    expect(patches).toHaveLength(2);
     expect(patches[1].body).toEqual({
       avatar_base64: null,
       notification_avatar_base64: null,
     });
+  });
+
+  test("a 400 naming the notification avatar still clears the avatar", async () => {
+    mockState = NONE;
+    mockRasterPath = null;
+    respond = () =>
+      patches.length === 1
+        ? new Response('{"notification_avatar_base64":["Unknown field"]}', {
+            status: 400,
+          })
+        : new Response("{}", { status: 200 });
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    expect(patches[0].body).toEqual({
+      avatar_base64: null,
+      notification_avatar_base64: null,
+    });
+    expect(patches[1].body).toEqual({ avatar_base64: null });
+    // The removal key, so a later enqueue reads as already synced.
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toEndWith(
+      "|none",
+    );
+
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
   });
 
   test("an image avatar with a missing PNG is skipped, not cleared", async () => {
