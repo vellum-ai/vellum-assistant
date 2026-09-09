@@ -603,6 +603,19 @@ export interface PostModelCallInputContext {
    */
   readonly assistantTextSuppressed?: boolean;
   /**
+   * Whether the user has already been told the OUTCOME of this run's work,
+   * decided by the host so a hook cannot reach a different answer than the
+   * loop does.
+   *
+   * True when the last response that called any tool reported on the work
+   * before it: every one of its tool calls delivered a message to the user. A
+   * response that sends a message alongside other tool calls is a progress
+   * update, and a call the executor rejects (blank or non-string message)
+   * delivers nothing, so neither counts. Absent on a host that does not
+   * compute it, so a hook reads it as `=== true`.
+   */
+  readonly userToldOutcome?: boolean;
+  /**
    * The provider rejection that ended the call, on a rejection outcome. Absent
    * on a finalized reply. A hook that recovers from a specific rejection class
    * inspects this and may repair {@link messages} and set {@link decision} to
