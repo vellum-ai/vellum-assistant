@@ -20,9 +20,9 @@ afterEach(() => {
 });
 
 // Exhaustive semver truth-table lives in `utils.test.ts`. Here we verify the
-// boundary on each side of MIN_VERSION (0.11.11, the first release expected to
-// carry the attachment listing route) plus the conservative-on-unknown policy,
-// exercised through the public hook.
+// boundary on each side of MIN_VERSION (0.11.11, the lowest assistant version
+// whose attachment listing route this gate relies on) plus the
+// conservative-on-unknown policy, exercised through the public hook.
 describe("useSupportsAttachmentList", () => {
   test("reads false when the version is unknown", () => {
     expect(readGate(null)).toBe(false);

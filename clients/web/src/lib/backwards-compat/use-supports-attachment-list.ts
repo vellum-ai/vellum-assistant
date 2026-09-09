@@ -9,14 +9,14 @@
  * lists every attachment from the daemon, with exact totals and a Camera
  * Frames category of its own.
  *
- * `MIN_VERSION` is `0.11.11`, the first release expected to carry the route,
- * since 0.11.10 shipped before it landed. A 0.11.11 build cut before the route
- * landed answers 404, and the consumer reads a 404 as unsupported and falls
- * back to the transcript path, so such a build degrades to the old behavior
- * rather than surfacing an error. A dev build off `main` is stamped with the
- * base version in `package.json`, so the daemon path stays dark on dev builds
- * until the release bump moves that base to 0.11.11; pin `MIN_VERSION` locally
- * to exercise it before then.
+ * `MIN_VERSION` names the lowest assistant version whose route this gate
+ * relies on. A build that reports at least that version and still answers 404
+ * is read by the consumer as unsupported, so it falls back to the transcript
+ * path.
+ *
+ * A dev build stamps the base version in `package.json`, so a floor above that
+ * base leaves the daemon path off on every dev build until the base moves. A
+ * temporary local pin exercises it earlier.
  *
  * Unscoped, since the panel lists the active assistant's conversation, which
  * is the assistant the identity store holds a version for. A caller that ever
