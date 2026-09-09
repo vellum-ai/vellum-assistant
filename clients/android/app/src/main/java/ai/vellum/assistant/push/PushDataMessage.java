@@ -42,6 +42,7 @@ public final class PushDataMessage {
         }
     }
 
+    /** Never null on a natively rendered push: {@link #isDataOnly} requires it. */
     @Nullable
     public final String title;
     @Nullable
@@ -123,9 +124,8 @@ public final class PushDataMessage {
      * share a sender id, so the conversation id keeps their shortcuts, ranking,
      * and per-conversation settings apart.
      */
-    static String shortcutId(String senderId, @Nullable String conversationId) {
-        String suffix = conversationId == null ? senderId : senderId + ":" + conversationId;
-        return SHORTCUT_ID_PREFIX + suffix;
+    static String shortcutId(String senderId, String conversationId) {
+        return SHORTCUT_ID_PREFIX + senderId + ":" + conversationId;
     }
 
     /** Stable per-delivery id so a redelivery replaces its own notification. */
@@ -149,7 +149,8 @@ public final class PushDataMessage {
      * The seed chain {@code postForegroundRemotePush} walks: the delivery id,
      * then the Firebase message id it reads as {@code notification.id}, then
      * the source event with the copy. Hashing nothing would collapse unrelated
-     * deliveries onto a single notification id.
+     * deliveries onto a single notification id. Every rung is trimmed on both
+     * sides, so padded copy hashes to the same id here and there.
      */
     private String seed() {
         if (deliveryId != null) {

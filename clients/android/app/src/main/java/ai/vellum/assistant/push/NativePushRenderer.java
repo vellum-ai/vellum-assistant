@@ -3,6 +3,7 @@ package ai.vellum.assistant.push;
 import ai.vellum.assistant.AndroidNotificationChannelsPlugin;
 import ai.vellum.assistant.NativeFailureGuard;
 import ai.vellum.assistant.R;
+import ai.vellum.assistant.SelfHostedServer;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.PendingIntent;
@@ -20,6 +21,7 @@ import androidx.core.content.pm.ShortcutInfoCompat;
 import androidx.core.content.pm.ShortcutManagerCompat;
 import androidx.core.graphics.drawable.IconCompat;
 import com.google.firebase.messaging.RemoteMessage;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -36,9 +38,10 @@ import java.util.List;
 public final class NativePushRenderer {
     /**
      * How many conversations keep a launcher shortcut. Two is a product choice
-     * about how much of the launcher's shortcut list a notification may claim,
-     * not a budget the static New chat and Start voice entries share: those are
-     * manifest shortcuts, which a dynamic push can never evict.
+     * about how much of the launcher's shortcut list a notification may claim.
+     * The launcher's own budget counts the static New chat and Start voice
+     * entries towards the same total, but they are manifest shortcuts, so a
+     * dynamic push can only ever evict another dynamic one.
      */
     private static final int MAX_CONVERSATION_SHORTCUTS = 2;
 
@@ -60,8 +63,11 @@ public final class NativePushRenderer {
         return NotificationManagerCompat.from(context).areNotificationsEnabled();
     }
 
-    // canPost is the POST_NOTIFICATIONS check, which lint cannot follow across
-    // a method boundary.
+    /**
+     * Posts the notification. The caller checks {@link #canPost} first, which
+     * is the POST_NOTIFICATIONS check lint cannot follow across a method
+     * boundary.
+     */
     @SuppressLint("MissingPermission")
     public static void show(
         Context context,
@@ -69,9 +75,7 @@ public final class NativePushRenderer {
         PushDataMessage message,
         @Nullable Bitmap avatar
     ) {
-        if (!canPost(context)) {
-            return;
-        }
+        AndroidNotificationChannelsPlugin.ensureAlertsChannel(context, message.channelId);
         NotificationManagerCompat manager = NotificationManagerCompat.from(context);
 
         int notificationId = message.notificationId();
@@ -83,7 +87,7 @@ public final class NativePushRenderer {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(
             context,
-            AndroidNotificationChannelsPlugin.resolveChannelId(context, message.channelId)
+            AndroidNotificationChannelsPlugin.ALERTS_CHANNEL_ID
         )
             .setSmallIcon(R.drawable.ic_stat_notification)
             .setColor(ContextCompat.getColor(context, R.color.notification_icon_color))
@@ -156,11 +160,17 @@ public final class NativePushRenderer {
         Person person,
         @Nullable IconCompat icon
     ) {
-        Intent intent = PushTapIntents.shortcutIntent(context, message.conversationId);
+        String conversationId = message.conversationId;
+        if (
+            !publishesConversationShortcut(conversationId, SelfHostedServer.configured(context))
+        ) {
+            return null;
+        }
+        Intent intent = PushTapIntents.shortcutIntent(context, conversationId);
         if (intent == null) {
             return null;
         }
-        String shortcutId = PushDataMessage.shortcutId(sender.id, message.conversationId);
+        String shortcutId = PushDataMessage.shortcutId(sender.id, conversationId);
         // Trimming is housekeeping: a failure there must not cost this
         // notification the shortcut that gives it the conversation treatment.
         NativeFailureGuard.run(
@@ -184,6 +194,20 @@ public final class NativePushRenderer {
             false
         );
         return pushed ? shortcutId : null;
+    }
+
+    /**
+     * Whether this push earns a launcher shortcut. It needs a conversation to
+     * point at, and the install must not be self-hosted: the tap target is the
+     * app link for the baked cloud host, which MainActivity refuses while a
+     * self-hosted origin is configured, so the shortcut would only foreground
+     * the app and hand its VIEW intent to the bridge as an appUrlOpen.
+     */
+    static boolean publishesConversationShortcut(
+        @Nullable String conversationId,
+        @Nullable URI selfHostedServer
+    ) {
+        return conversationId != null && selfHostedServer == null;
     }
 
     /** Drops our oldest conversation shortcuts so the new one fits within the cap. */
