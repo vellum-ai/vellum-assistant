@@ -3,6 +3,11 @@
  * apps, files (daemon documents plus the attachments that are not camera
  * frames), and camera frames. Frames stay empty while attachments come from
  * the transcript, which cannot see the camera-frame tag.
+ *
+ * The two daemon queries wait for the org header and retry the statuses a
+ * restarting assistant answers with, so anything that settles failed here is a
+ * failure the panel can name, and it is named only once every source has
+ * settled.
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,10 +23,12 @@ import {
   type ConversationAttachmentEntry,
   useConversationAttachments,
 } from "@/domains/chat/hooks/use-conversation-attachments";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
-import { isExpectedDaemonTransientError } from "@/utils/daemon-errors";
+import { shouldRetryDaemonError } from "@/utils/daemon-errors";
+import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 export type ConversationFileAsset =
   | { kind: "document"; id: string; title: string; doc: DocumentSummary }
@@ -76,6 +83,29 @@ interface ConversationAssetsTarget {
 const NO_APPS: AppSummary[] = [];
 const NO_DOCUMENTS: DocumentSummary[] = [];
 
+/** How far one daemon query has got, in the terms the panel's status is built from. */
+type DaemonSourceState = "ready" | "unresolved" | "failed";
+
+/**
+ * A failed background refetch keeps the last data, so a source is failed or
+ * unresolved only while it has nothing to show. A dropped connection is not a
+ * failure either: TanStack refetches on reconnect, so that source is still on
+ * its way, unlike a status the daemon answered with.
+ */
+function daemonSourceState(query: {
+  data: unknown;
+  isError: boolean;
+  error: Error | null;
+}): DaemonSourceState {
+  if (query.data !== undefined) {
+    return "ready";
+  }
+  if (query.isError && !isTransientNetworkError(query.error)) {
+    return "failed";
+  }
+  return "unresolved";
+}
+
 /**
  * Ids are prefixed per kind so a document, an attachment, and a frame that
  * happen to share an underlying id can never collide as React keys.
@@ -122,11 +152,17 @@ export function useConversationAssets({
   refreshKey,
 }: ConversationAssetsTarget): ConversationAssets {
   const queryClient = useQueryClient();
+  // A request sent before the org header can be produced, or through a daemon
+  // restart, fails for a reason the conversation has nothing to do with. The
+  // gate and the retries keep both out of the settled failures below.
+  const isOrgReady = useIsOrgReady();
   const appsQuery = useQuery({
     ...appsGetOptions({
       path: { assistant_id: assistantId },
       query: { conversationId },
     }),
+    enabled: isOrgReady,
+    retry: shouldRetryDaemonError,
     select: (data) => data.apps,
   });
   const documentsQuery = useQuery({
@@ -134,6 +170,8 @@ export function useConversationAssets({
       path: { assistant_id: assistantId },
       query: { conversationId },
     }),
+    enabled: isOrgReady,
+    retry: shouldRetryDaemonError,
     select: (data) => data.documents,
   });
 
@@ -163,31 +201,23 @@ export function useConversationAssets({
   const apps = appsQuery.data ?? NO_APPS;
   const docs = documentsQuery.data ?? NO_DOCUMENTS;
 
-  // A failed background refetch keeps the last data, so a source is failed or
-  // unresolved only while it has nothing to show. The transcript counts as a
-  // source too: without it a conversation whose only assets are attachments
-  // would read ready and empty until the snapshot lands.
-  const appsUnresolved = appsQuery.data === undefined;
-  const documentsUnresolved = documentsQuery.data === undefined;
-  // The daemon's startup and auth races answer nothing yet rather than
-  // refusing: a 503 through `vellum wake` would otherwise leave every
-  // conversation header reporting a failure for the length of a restart.
-  const failed =
-    (appsQuery.isError &&
-      appsUnresolved &&
-      !isExpectedDaemonTransientError(appsQuery.error)) ||
-    (documentsQuery.isError &&
-      documentsUnresolved &&
-      !isExpectedDaemonTransientError(documentsQuery.error));
+  const appsState = daemonSourceState(appsQuery);
+  const documentsState = daemonSourceState(documentsQuery);
+  // The transcript counts as a source too: without it a conversation whose only
+  // assets are attachments would read ready and empty until the snapshot lands.
+  // Every source settles before one of them speaks for the panel, since a
+  // failure named while another source is still coming would be taken back the
+  // moment it lands.
+  const unresolved =
+    appsState === "unresolved" ||
+    documentsState === "unresolved" ||
+    !attachments.transcriptSettled;
+  const failed = appsState === "failed" || documentsState === "failed";
   let status: ConversationAssetsStatus = "ready";
-  if (failed) {
-    status = "error";
-  } else if (
-    appsUnresolved ||
-    documentsUnresolved ||
-    !attachments.transcriptSettled
-  ) {
+  if (unresolved) {
     status = "pending";
+  } else if (failed) {
+    status = "error";
   }
 
   const sortedApps = useMemo(

@@ -215,7 +215,6 @@ export function ChatInfoPanel({
       <ChatInfoFileGrid
         items={categoryLists[level]}
         assistantId={assistantId}
-        status={status}
         hasMore={level === "files" ? hasMoreFiles : hasMoreFrames}
         onLoadMore={level === "files" ? loadMoreFiles : loadMoreFrames}
         onOpen={handleOpenFile}

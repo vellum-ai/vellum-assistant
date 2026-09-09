@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import {
   cleanup,
   fireEvent,
@@ -44,6 +44,8 @@ const createObjectUrl = mock(
   (_obj: Blob | MediaSource): string => "blob:tool-image-mock",
 );
 const revokeObjectUrl = mock((_url: string): void => undefined);
+const realCreateObjectURL = globalThis.URL.createObjectURL;
+const realRevokeObjectURL = globalThis.URL.revokeObjectURL;
 globalThis.URL.createObjectURL = createObjectUrl;
 globalThis.URL.revokeObjectURL = revokeObjectUrl;
 
@@ -58,7 +60,7 @@ mock.module("@/runtime/native-file", () => ({
 
 // The strip's own wiring is what is under test, so the modal is a probe
 // reporting which attachment it was handed and at which position.
-mockAttachmentPreviewModal();
+const restorePreviewModal = mockAttachmentPreviewModal();
 
 const imagesModule =
   await import("@/domains/chat/components/chat-attachments/tool-result-images");
@@ -104,6 +106,15 @@ afterEach(() => {
   saveFileMock.mockClear();
   createObjectUrl.mockClear();
   revokeObjectUrl.mockClear();
+});
+
+// `mock.module` is process-global and the object-URL stubs are on the shared
+// global, so both go back before the next file loads.
+afterAll(() => {
+  globalThis.URL.createObjectURL = realCreateObjectURL;
+  globalThis.URL.revokeObjectURL = realRevokeObjectURL;
+  restorePreviewModal();
+  mock.restore();
 });
 
 describe("ToolResultImages referenced media", () => {

@@ -6,24 +6,19 @@
  * sized and laid out differently.
  *
  * Presentational: the panel owns the category, its items, and what opening a
- * tile does.
+ * tile does. A category that is ready and empty never reaches here: the panel
+ * sends it back to the top level.
  */
 
 import { Button } from "@vellumai/design-library";
 
-import { DetailShellNotice } from "@/components/detail-shell";
 import { ChatInfoFileTile } from "@/domains/chat/components/chat-info-file-tile";
-import type {
-  ConversationAssetsStatus,
-  ConversationFileAsset,
-} from "@/domains/chat/hooks/use-conversation-assets";
+import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import { useTranslation } from "@/i18n";
 
 interface ChatInfoFileGridProps {
   items: ConversationFileAsset[];
   assistantId: string;
-  /** How far the category's sources have got: an empty grid says so only once ready. */
-  status: ConversationAssetsStatus;
   /** Whether the category holds more than the loaded page. */
   hasMore: boolean;
   onLoadMore: () => void;
@@ -34,7 +29,6 @@ interface ChatInfoFileGridProps {
 export function ChatInfoFileGrid({
   items,
   assistantId,
-  status,
   hasMore,
   onLoadMore,
   onOpen,
@@ -43,13 +37,7 @@ export function ChatInfoFileGrid({
 
   return (
     <div className="flex flex-col gap-4">
-      {items.length === 0 ? (
-        status === "ready" && (
-          <DetailShellNotice>
-            {t("chatInfoPanel.categoryEmpty")}
-          </DetailShellNotice>
-        )
-      ) : (
+      {items.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {items.map((file) => (
             <ChatInfoFileTile

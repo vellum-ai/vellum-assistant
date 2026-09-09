@@ -10,13 +10,16 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { mockAttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 
-mockAttachmentPreviewModal();
+const restorePreviewModal = mockAttachmentPreviewModal();
 
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 
+// `mock.module` is process-global, so the real preview modal goes back before
+// the next file loads.
 afterAll(() => {
+  restorePreviewModal();
   mock.restore();
 });
 afterEach(() => {

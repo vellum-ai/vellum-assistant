@@ -111,6 +111,9 @@ export function ConversationAssetsPill({
   const ariaLabel = failedToLoad
     ? t("conversationAssets.ariaLabelUnavailable")
     : countedAriaLabel;
+  // The dot points at changes in a list the trigger could not load, and the
+  // name it sits beside no longer mentions them.
+  const showUnseenDot = hasUnseenChanges && !failedToLoad;
 
   // Same dot as the notifications bell in this header cluster: ringed in the
   // color of the surface behind it so the ring reads as a gap carved out of
@@ -131,7 +134,7 @@ export function ConversationAssetsPill({
       aria-hidden
     >
       <Layers />
-      {hasUnseenChanges ? (
+      {showUnseenDot ? (
         <span
           data-testid={ASSETS_PILL_UNSEEN_DOT_TESTID}
           className={cn(

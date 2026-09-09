@@ -178,6 +178,10 @@ const withChatInfoOpen: Decorator = function WithChatInfoOpen(Story) {
 const meta: Meta<typeof Harness> = {
   title: "Chat/ChatLayoutHeader",
   component: Harness,
+  // Opted out of the global `autodocs` tag. Every story seeds the same
+  // module-singleton chat-session store, so on a docs page that mounts them all
+  // the last transcript seeded would show up in every other story.
+  tags: ["!autodocs"],
   parameters: {
     layout: "fullscreen",
     chatInfo: {
