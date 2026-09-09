@@ -175,8 +175,12 @@ export async function setImage(
 
   const pngPath = join(avatarDir, AVATAR_IMAGE_FILENAME);
   const previous = readAvatarState();
+  // Capped at the upload's own size: a larger file cannot be identical, and
+  // the serving cap must not turn a big re-upload into a counted change.
   const previousBytes =
-    previous.kind === "image" ? readContainedAvatarRaster(pngPath) : null;
+    previous.kind === "image"
+      ? readContainedAvatarRaster(pngPath, pngBuffer.length)
+      : null;
   const pngTmp = `${pngPath}.${randomUUID()}.tmp`;
   writeFileSync(pngTmp, pngBuffer);
   renameSync(pngTmp, pngPath);

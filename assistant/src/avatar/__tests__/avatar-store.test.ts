@@ -505,6 +505,19 @@ describe("avatar-store", () => {
     const RED_ACCENT = { accent_hex: "#c81e1e", accent_source: "derived" };
     const events = () => recorded.map((entry) => entry.fields);
 
+    test("an identical re-upload above the raster serving cap is still not a change", async () => {
+      const big = Buffer.alloc(5 * 1024 * 1024 + 1, 7);
+
+      await setImage(big, "upload");
+      await setImage(big, "upload");
+      await setImage(Buffer.concat([big, Buffer.from([8])]), "upload");
+
+      expect(events().map((fields) => fields.previous_kind)).toEqual([
+        "none",
+        "image",
+      ]);
+    });
+
     test("a failed record never fails the change: the manifest and fan-out stand", async () => {
       recordFailure = new Error("no such table: telemetry_events");
 
