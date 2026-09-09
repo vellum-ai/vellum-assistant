@@ -5,8 +5,8 @@ import {
   isDbMigrationGateBypassed,
   isStartupComplete,
   resetReadinessForTest,
-  setDbMigrationFailed,
   setDbMigrating,
+  setDbMigrationFailed,
   setDbReady,
   setStartupComplete,
 } from "../daemon-readiness.js";

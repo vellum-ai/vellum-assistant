@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
+import { getDbMigrationReadiness } from "../../daemon/daemon-readiness.js";
 import { countConversations } from "../../persistence/conversation-queries.js";
 import { getMemoryJobCounts } from "../../persistence/jobs-store.js";
 import { rawMemoryAll } from "../../persistence/raw-query.js";
@@ -16,7 +17,6 @@ import {
   listProviders,
 } from "../../providers/registry.js";
 import { countSchedules } from "../../schedule/schedule-store.js";
-import { getDbMigrationReadiness } from "../../daemon/daemon-readiness.js";
 import { getDbPath } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
