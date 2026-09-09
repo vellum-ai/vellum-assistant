@@ -493,6 +493,64 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     expect(llm.callSites.recall.model).toBe(STALE);
   });
 
+  test("resolves a backup key to its vellum body only where backups materialize", () => {
+    const profiles = {
+      codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
+      // Ignored: backups are code-owned.
+      "balanced-backup": { provider: "chatgpt", model: "gpt-5.5" },
+    };
+    // Under the managed column (explicit or absent) the backup wins
+    // mainAgent with a vellum body, which still serves the model.
+    for (const defaultProvider of [{ provider: "vellum" }, undefined]) {
+      writeConfig({
+        llm: {
+          ...(defaultProvider ? { defaultProvider } : {}),
+          activeProfile: "balanced-backup",
+          callSites: { mainAgent: { profile: "codex", model: STALE } },
+          profiles,
+        },
+      });
+      repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+      const llm = readConfig().llm as Record<string, any>;
+      expect(llm.callSites.mainAgent.model).toBe(STALE);
+    }
+
+    // Under a chatgpt default the backup does not exist, so the rung is
+    // skipped and the subscription site profile wins.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        activeProfile: "balanced-backup",
+        callSites: { mainAgent: { profile: "codex", model: STALE } },
+        profiles,
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    const llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
+  });
+
+  test("leaves providerless pins on unknown call sites alone", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          // A site this migration does not know has no known winner chain.
+          futureSite: { model: STALE },
+          // Its own routing is still judged.
+          futureIdentitySite: { provider: "chatgpt", model: STALE_MINI },
+          // The profileless shipped sites anchor on balanced.
+          vision: { model: STALE },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    const llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.futureSite.model).toBe(STALE);
+    expect(llm.callSites.futureIdentitySite.model).toBe(REPLACEMENT_MINI);
+    expect(llm.callSites.vision.model).toBe(REPLACEMENT);
+  });
+
   test("leaves providerless call-site pins alone when the winner is not subscription-routed", () => {
     seedRows([{ name: "openai-key", provider: "openai", auth: API_KEY_AUTH }]);
     const config = {

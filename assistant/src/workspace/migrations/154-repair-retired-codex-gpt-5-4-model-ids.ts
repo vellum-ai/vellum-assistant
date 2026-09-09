@@ -247,14 +247,21 @@ const DEFAULT_PROFILE_KEYS = new Set([
   "latency-optimized",
 ]);
 
-// Frozen snapshot of `CODE_OWNED_PROFILE_NAMES`: resolution ignores a
-// workspace shadow of these names and always serves the code-owned body.
-const CODE_OWNED_PROFILE_NAMES = new Set([
-  "latency-optimized",
+// Frozen snapshot of `BACKUP_PROFILE_KEYS`: companions of the managed
+// (`vellum`) column only. They materialize as code-owned vellum bodies
+// under a vellum or absent default provider and are missing otherwise.
+const BACKUP_PROFILE_KEYS = new Set([
   "balanced-backup",
   "quality-optimized-backup",
   "cost-optimized-backup",
   "latency-optimized-backup",
+]);
+
+// Frozen snapshot of `CODE_OWNED_PROFILE_NAMES`: resolution ignores a
+// workspace shadow of these names and always serves the code-owned body.
+const CODE_OWNED_PROFILE_NAMES = new Set([
+  "latency-optimized",
+  ...BACKUP_PROFILE_KEYS,
 ]);
 
 // Frozen `OS_BETA_PROFILE_KEY`: a materialized managed stub of this name
@@ -271,7 +278,8 @@ type Route = boolean | "skipped" | "partial";
 
 // Frozen snapshot of `CALL_SITE_DEFAULTS[site].profile`: the intent a site
 // resolves through the default provider once every named rung is skipped.
-// A site absent here (`vision`, `workflowLeaf`) anchors on balanced.
+// The profileless sites (`vision`, `workflowLeaf`) anchor on balanced.
+const PROFILELESS_CALL_SITES = new Set(["vision", "workflowLeaf"]);
 const CALL_SITE_INTENTS: Record<string, string> = {
   mainAgent: "balanced",
   subagentSpawn: "balanced",
@@ -321,25 +329,25 @@ const CALL_SITE_INTENTS: Record<string, string> = {
  * Mirrors the resolver's single-winner chain: `llm.activeProfile` (mainAgent
  * only), then `llm.callSites[site].profile`, then the site's shipped intent
  * through `llm.defaultProvider`. A named rung the resolver would skip
- * (missing, disabled, incomplete) falls through to the next one.
+ * (missing, disabled, incomplete) falls through to the next one. A site
+ * this snapshot does not know (written by a newer assistant) has no known
+ * chain, so its pin is left alone.
  */
 function winnerIsSubscriptionRouted(
   site: string,
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
 ): boolean {
+  const intent = CALL_SITE_INTENTS[site];
+  if (intent === undefined && !PROFILELESS_CALL_SITES.has(site)) {
+    return false;
+  }
   const siteConfig = readObject(readObject(llm.callSites)?.[site]);
   const rungs =
     site === "mainAgent"
       ? [llm.activeProfile, siteConfig?.profile]
       : [siteConfig?.profile];
-  return chainRoute(
-    rungs,
-    0,
-    CALL_SITE_INTENTS[site] ?? "balanced",
-    llm,
-    lookup,
-  );
+  return chainRoute(rungs, 0, intent ?? "balanced", llm, lookup);
 }
 
 /** Route of the chain from rung `start` on, anchored by the shipped intent. */
@@ -365,8 +373,9 @@ function chainRoute(
 
 /**
  * Route of a named rung. A default key without a user-owned shadow resolves
- * to the default provider's column, a materialized OS Beta stub to its
- * code-owned vellum body; any other missing name is skipped.
+ * to the default provider's column; a backup key to its vellum body where
+ * the backups materialize; a materialized OS Beta stub to its code-owned
+ * vellum body; any other missing name is skipped.
  */
 function namedProfileRoute(
   name: unknown,
@@ -383,6 +392,9 @@ function namedProfileRoute(
       return stub.status === "disabled" ? "skipped" : false;
     }
   }
+  if (BACKUP_PROFILE_KEYS.has(name)) {
+    return backupsMaterialize(llm) ? false : "skipped";
+  }
   const shadow = userShadow(name, llm);
   if (shadow === null) {
     return DEFAULT_PROFILE_KEYS.has(name)
@@ -390,6 +402,15 @@ function namedProfileRoute(
       : "skipped";
   }
   return usableShadowRoute(shadow, llm, lookup, allowMix) ?? "skipped";
+}
+
+/**
+ * Whether the backup profiles exist: only under the managed column, which
+ * an absent `llm.defaultProvider` also resolves to.
+ */
+function backupsMaterialize(llm: Record<string, unknown>): boolean {
+  const defaultProvider = readObject(llm.defaultProvider);
+  return defaultProvider === null || defaultProvider.provider === "vellum";
 }
 
 /**
