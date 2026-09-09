@@ -80,13 +80,58 @@ function bunLinked(command: string): string {
 /** Manifest reads the probe performed since the last reset. */
 let manifestReads = 0;
 
+/** Package the pin names for each adapter binary. */
+const PINNED_PACKAGE: Record<string, string> = {
+  "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
+  "codex-acp": "@agentclientprotocol/codex-acp",
+};
+
+/** Default link owners: an installed pinned package owns its own bin. */
+function ownersFromVersions(
+  versions: Record<string, string>,
+): Record<string, string> {
+  const owners: Record<string, string> = {};
+  for (const [command, name] of Object.entries(PINNED_PACKAGE)) {
+    if (versions[name] !== undefined) {
+      owners[command] = name;
+    }
+  }
+  return owners;
+}
+
 /**
- * Point the version probe at an in-memory bun global tree. Keys are package
- * names; values are the `version` their manifest reports.
+ * `fs.realpath` over the fake bun tree: a `<bun>/bin/<name>` link resolves
+ * into the package that owns it, every other path resolves to itself. A
+ * binary missing from `owners` has a link that cannot be resolved.
  */
-function stubGlobalTree(versions: Record<string, string>): void {
+function fakeRealpath(
+  owners: Record<string, string>,
+): (path: string) => Promise<string> {
+  const binPrefix = `${BUN_ROOT}/bin/`;
+  return (path: string) => {
+    if (!path.startsWith(binPrefix)) {
+      return Promise.resolve(path);
+    }
+    const owner = owners[path.slice(binPrefix.length)];
+    if (owner === undefined) {
+      return Promise.reject(new Error("ENOENT"));
+    }
+    return Promise.resolve(`${GLOBAL_MODULES}/${owner}/dist/cli.js`);
+  };
+}
+
+/**
+ * Point the version probe at an in-memory bun global tree. `versions` maps a
+ * package name to the `version` its manifest reports; `owners` maps a binary
+ * name to the package its `<bun>/bin` link resolves into.
+ */
+function stubGlobalTree(
+  versions: Record<string, string>,
+  owners: Record<string, string> = ownersFromVersions(versions),
+): void {
   _setAdapterVersionProbeDepsForTests({
     bunInstallDir: () => BUN_ROOT,
+    realpath: fakeRealpath(owners),
     readFile: (path: string) => {
       manifestReads += 1;
       const name = path.slice(
@@ -208,13 +253,13 @@ describe("ensureAdapterInstalled", () => {
     expect(execFileMock).toHaveBeenCalledTimes(2);
   });
 
-  test("successful install is cached for the process lifetime", async () => {
+  test("a settled install is not cached: the next call probes again", async () => {
     execScripts.set(BUN_ADD_KEY, { stdout: "" });
 
     await ensureAdapterInstalled("claude-agent-acp");
     await ensureAdapterInstalled("claude-agent-acp");
 
-    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock).toHaveBeenCalledTimes(2);
   });
 
   test("concurrent calls dedupe to exactly one install", async () => {
@@ -363,6 +408,60 @@ describe("ensureAdapterInstalled - version pinning", () => {
     expect(result).toEqual({ installed: false });
     expect(manifestReads).toBe(0);
     expect(warnings().join(" ")).toContain("managed outside bun");
+  });
+
+  test("bun link owned by the pinned package at the pinned version: no install", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
+    stubGlobalTree(
+      { "@agentclientprotocol/codex-acp": "1.10.0" },
+      { "codex-acp": "@agentclientprotocol/codex-acp" },
+    );
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: false });
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  test("bun link owned by another package: reinstalls even when the pinned manifest matches", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
+    // Both packages are installed and both keep a manifest, but the link
+    // resolves into the other one, so the pinned manifest describes an
+    // executable no spawn would run.
+    stubGlobalTree(
+      {
+        "@agentclientprotocol/codex-acp": "1.10.0",
+        "@zed-industries/codex-acp": "0.4.0",
+      },
+      { "codex-acp": "@zed-industries/codex-acp" },
+    );
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CODEX_SPEC,
+    ]);
+  });
+
+  test("bun link that cannot be resolved: reinstalls the pin", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "1.10.0" }, {});
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CODEX_SPEC,
+    ]);
   });
 
   test("binary missing from PATH: installs without consulting the probe", async () => {
@@ -519,6 +618,9 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     });
     _setAdapterVersionProbeDepsForTests({
       bunInstallDir: () => BUN_ROOT,
+      realpath: fakeRealpath({
+        "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
+      }),
       readFile: () =>
         Promise.resolve(JSON.stringify({ version: installedVersion })),
     });
@@ -547,9 +649,12 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
 
   test("bun-managed adapter with an unreadable manifest: reinstalls the pin", async () => {
     which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
-    // Nothing under the pinned package's path: the binary came from another
-    // package that owns the same name.
-    stubGlobalTree({ "@zed-industries/codex-acp": "0.4.0" });
+    // The link resolves into the pinned package, but nothing is installed
+    // under its path, so the manifest read finds no version to trust.
+    stubGlobalTree(
+      { "@zed-industries/codex-acp": "0.4.0" },
+      { "codex-acp": "@agentclientprotocol/codex-acp" },
+    );
     execScripts.set(BUN_ADD_KEY, { stdout: "" });
 
     const result = await resolveAgentWithAutoInstall("codex");
@@ -586,7 +691,7 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     ).toHaveLength(1);
   });
 
-  test("pin check is probed once per command per process", async () => {
+  test("a no-install decision is not cached: the pin is re-checked per spawn", async () => {
     which.setWhich({
       bun: BUN_BIN,
       "claude-agent-acp": bunLinked("claude-agent-acp"),
@@ -596,8 +701,42 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     await resolveAgentWithAutoInstall("claude");
     await resolveAgentWithAutoInstall("claude");
 
-    expect(manifestReads).toBe(1);
+    expect(manifestReads).toBe(2);
     expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  test("an adapter replaced under a running daemon is caught on the next spawn", async () => {
+    let installedVersion = "1.10.0";
+    which.setWhich({ bun: BUN_BIN, "codex-acp": bunLinked("codex-acp") });
+    _setAdapterVersionProbeDepsForTests({
+      bunInstallDir: () => BUN_ROOT,
+      realpath: fakeRealpath({
+        "codex-acp": "@agentclientprotocol/codex-acp",
+      }),
+      readFile: () => {
+        manifestReads += 1;
+        return Promise.resolve(JSON.stringify({ version: installedVersion }));
+      },
+    });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const first = await resolveAgentWithAutoInstall("codex");
+
+    expect(first.resolved.ok).toBe(true);
+    expect(execFileMock).not.toHaveBeenCalled();
+
+    // `bun add -g ...@latest` outside the daemon replaces the executable.
+    installedVersion = "1.11.0";
+    const second = await resolveAgentWithAutoInstall("codex");
+
+    expect(second.resolved.ok).toBe(true);
+    expect(manifestReads).toBe(2);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CODEX_SPEC,
+    ]);
   });
 
   test("reinstall fails: keeps the resolved adapter and surfaces no failure message", async () => {

@@ -14,9 +14,11 @@
  * that pin on every resolution, not only on the missing-binary path, so the
  * daemon always drives the adapter version it was built against. The pin is
  * enforced against the executable PATH actually selects: a bun-linked binary
- * whose global manifest disagrees with the pin is reinstalled, while one
- * installed by npm or brew is left alone with a warning, since a bun install
- * would not change which binary spawns.
+ * is reinstalled unless the link resolves into the pinned package and that
+ * package's manifest reports the pinned version, while one installed by npm
+ * or brew is left alone with a warning, since a bun install would not change
+ * which binary spawns. The check runs on every resolution, never cached, so
+ * an adapter replaced under a running daemon is caught on the next spawn.
  *
  * Security boundaries (this is the ATL-808 fix):
  *  - Only commands present in `DEFAULT_AGENT_NPM_PACKAGES` are ever
@@ -37,9 +39,9 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve as resolvePath } from "node:path";
+import { join, resolve as resolvePath, sep } from "node:path";
 
 import {
   DEFAULT_AGENT_NPM_PACKAGES,
@@ -70,12 +72,18 @@ export interface AdapterInstallResult {
 }
 
 /**
- * Per-command install promises. Concurrent spawns for the same missing
- * binary dedupe to a single global install; successful results are cached for
- * the process lifetime. Failed installs are evicted so a later spawn can
- * retry (e.g. after the user fixes network or install permissions).
+ * In-flight install promises, keyed by command. Concurrent spawns for the same
+ * adapter dedupe to a single global install. Nothing is cached past settle:
+ * the adapter on disk can change under a running daemon (a user running the
+ * documented `bun add -g ...@latest`), so every spawn re-probes.
  */
 const installPromises = new Map<string, Promise<AdapterInstallResult>>();
+
+/**
+ * Commands already reported as managed outside bun. The pin check runs per
+ * spawn; the warning it can emit is worth saying once.
+ */
+const warnedOutsideBun = new Set<string>();
 
 /**
  * Run `execFile` with an AbortController-driven timeout. Returns the stdout
@@ -131,6 +139,8 @@ function sanitizedInstallEnv(): NodeJS.ProcessEnv {
 
 interface AdapterVersionProbeDeps {
   readFile: (path: string) => Promise<string>;
+  /** Resolve a path through symlinks, as `fs.realpath` does. */
+  realpath: (path: string) => Promise<string>;
   /**
    * Bun's global install root: `<root>/bin` holds the binaries `bun add
    * --global` links, `<root>/install/global/node_modules` the packages they
@@ -142,6 +152,7 @@ interface AdapterVersionProbeDeps {
 
 const REAL_PROBE_DEPS: AdapterVersionProbeDeps = {
   readFile: (path) => readFile(path, "utf8"),
+  realpath: (path) => realpath(path),
   // `bun add --global` honours BUN_INSTALL, and the installer env is a copy of
   // `process.env`, so the probe has to read the same override.
   bunInstallDir: () => process.env.BUN_INSTALL ?? join(homedir(), ".bun"),
@@ -154,25 +165,54 @@ function globalModulesDir(): string {
   return join(probeDeps.bunInstallDir(), "install", "global", "node_modules");
 }
 
+/** Where `bun add --global` links the bin a package exposes as `command`. */
+function bunLinkPath(command: string): string {
+  return join(probeDeps.bunInstallDir(), "bin", command);
+}
+
 /**
- * Whether `binaryPath` is the binary `bun add --global` links for `command`.
- * Only then does the pinned package's manifest describe the executable that a
- * spawn would actually run, and only then can a reinstall change what PATH
- * selects: an adapter installed by npm or brew keeps its place in PATH no
- * matter what bun writes.
+ * Whether `binaryPath` is the link `bun add --global` writes for `command`.
+ * Only then can a reinstall change what PATH selects: an adapter installed by
+ * npm or brew keeps its place in PATH no matter what bun writes.
  */
 function isBunManagedBinary(command: string, binaryPath: string): boolean {
-  const linked = join(probeDeps.bunInstallDir(), "bin", command);
-  return resolvePath(binaryPath) === resolvePath(linked);
+  return resolvePath(binaryPath) === resolvePath(bunLinkPath(command));
+}
+
+/**
+ * Whether the bun link for `command` resolves to an executable inside
+ * `packageName`'s directory in bun's global module tree. Bun gives one bin
+ * name to whichever package linked it last, so two installed packages
+ * exposing the same name (the pinned adapter and, say, the older
+ * `@zed-industries/codex-acp`) both keep a manifest while only one owns the
+ * link. Reading the pinned manifest alone would then report a version nothing
+ * spawns. Both sides go through realpath so a symlinked bun root cancels out
+ * instead of reinstalling forever. Anything that fails to resolve counts as
+ * not owned, so the caller reinstalls and bun re-links the bin.
+ */
+async function bunLinkOwnedBy(
+  command: string,
+  packageName: string,
+): Promise<boolean> {
+  try {
+    const target = await probeDeps.realpath(bunLinkPath(command));
+    const owner = await probeDeps.realpath(
+      join(globalModulesDir(), ...packageName.split("/")),
+    );
+    return target === owner || target.startsWith(owner + sep);
+  } catch {
+    return false;
+  }
 }
 
 /**
  * Version of the pinned adapter package as installed in bun's global tree, or
  * undefined when the manifest is missing or unreadable. Undefined is also what
- * an adapter installed from a different package looks like (the older
- * `@zed-industries/codex-acp` owns the same `codex-acp` binary name but writes
- * nothing under the pinned package's path), which is why callers treat it as a
- * mismatch rather than as "no opinion".
+ * an adapter installed from a different package looks like when that package
+ * writes nothing under the pinned package's path, which is why callers treat
+ * it as a mismatch rather than as "no opinion". The manifest only describes
+ * the executable a spawn runs once `bunLinkOwnedBy` confirms the bin link
+ * still resolves into this package.
  */
 export async function getInstalledAdapterVersion(
   command: string,
@@ -222,29 +262,29 @@ export function ensureAdapterInstalled(
     return inFlight;
   }
 
-  const promise = installToPin(bunPath, command, packageSpec, searchPath).then(
-    (result) => {
-      // Only a genuine failure is evicted, so a later spawn can retry. A
-      // decision NOT to install (pin already satisfied, adapter managed
-      // outside bun) is cached, which is what keeps the probe to one read per
-      // command per process.
-      if (result.error) {
-        installPromises.delete(command);
-      }
-      return result;
-    },
-  );
+  // Evicted once settled, whatever the outcome: the probe is a manifest read
+  // plus a realpath, cheap enough to repeat, and caching a no-install decision
+  // would pin the daemon to whatever the adapter looked like at first spawn.
+  const promise = installToPin(
+    bunPath,
+    command,
+    packageSpec,
+    searchPath,
+  ).finally(() => {
+    installPromises.delete(command);
+  });
   installPromises.set(command, promise);
   return promise;
 }
 
 /**
  * A binary missing from PATH always installs, unchanged. One already on PATH
- * installs only when it is the binary bun linked AND its globally installed
- * version differs from the pin, which covers both an outdated install and one
- * made from a different package name that owns the same binary. An adapter
- * that came from anywhere else stays put: PATH would keep selecting it, so a
- * bun install would change nothing but the disk.
+ * skips the install only when bun linked it, the link still resolves into the
+ * pinned package, and that package's manifest reports the pinned version. Any
+ * other bun-linked case installs, which covers an outdated install and one
+ * whose bin another package has taken over. An adapter that came from
+ * anywhere else stays put: PATH would keep selecting it, so a bun install
+ * would change nothing but the disk.
  */
 async function installToPin(
   bunPath: string,
@@ -256,16 +296,22 @@ async function installToPin(
   if (!binaryPath) {
     return runInstall(bunPath, command, packageSpec);
   }
-  const { version } = splitPackageSpec(packageSpec);
+  const { name, version } = splitPackageSpec(packageSpec);
   if (version === undefined) {
     return { installed: false };
   }
   if (!isBunManagedBinary(command, binaryPath)) {
-    log.warn(
-      { command, binaryPath, packageSpec },
-      "ACP adapter is managed outside bun; leaving it in place and skipping the version pin",
-    );
+    if (!warnedOutsideBun.has(command)) {
+      warnedOutsideBun.add(command);
+      log.warn(
+        { command, binaryPath, packageSpec },
+        "ACP adapter is managed outside bun; leaving it in place and skipping the version pin",
+      );
+    }
     return { installed: false };
+  }
+  if (!(await bunLinkOwnedBy(command, name))) {
+    return runInstall(bunPath, command, packageSpec);
   }
   if ((await getInstalledAdapterVersion(command)) === version) {
     return { installed: false };
@@ -406,6 +452,7 @@ async function enforcePin(
 /** @internal: exposed for tests only. */
 export function _resetAdapterInstallCacheForTests(): void {
   installPromises.clear();
+  warnedOutsideBun.clear();
   probeDeps = REAL_PROBE_DEPS;
 }
 
