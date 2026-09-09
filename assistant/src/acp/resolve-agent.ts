@@ -144,6 +144,15 @@ function normalizeAgentId(id: string): string {
 }
 
 /**
+ * The bundled id an alias resolves to, or the id itself when it names no
+ * alias. Callers that key durable state on an agent id use this so a spawn
+ * made as "claude code" and one made as "claude" share a single record.
+ */
+export function canonicalAgentId(id: string): string {
+  return AGENT_ID_ALIASES[normalizeAgentId(id)] ?? id;
+}
+
+/**
  * Resolve an id against user config first, then bundled defaults. Returns the
  * resolved entry plus a `source` label so callers can surface "user override
  * vs bundled default" without re-deriving it.

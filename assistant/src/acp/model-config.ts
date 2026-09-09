@@ -27,27 +27,34 @@ import type {
   SessionConfigSelectGroup,
   SessionConfigSelectOption,
 } from "@agentclientprotocol/sdk";
+import type { z } from "zod";
 
-/** A selectable model as reported by the adapter, flattened out of its group. */
-export type AcpModelOption = {
-  value: string;
-  label: string;
-  description?: string;
-  group?: string;
-};
+import type { AcpSessionModelUpdateEventSchema } from "../api/events/acp-session-model-update.js";
 
-export type AcpModelInfo = {
+/**
+ * A selectable model as reported by the adapter, flattened out of its group.
+ * Derived from the event schema so the published wire shape and the shape the
+ * daemon carries in memory cannot drift apart.
+ */
+export type AcpModelOption = z.infer<
+  typeof AcpSessionModelUpdateEventSchema
+>["availableModels"][number];
+
+/** What an adapter's config-option set says about the session's model. */
+type AcpModelInfo = {
   model?: string;
   availableModels: AcpModelOption[];
   modelConfigId?: string;
 };
 
-export type ResolveAcpModelInput = {
+type ResolveAcpModelInput = {
   requestedModel?: string;
   conversationPreference?: string;
   agentModel?: string;
   defaultModel?: string;
 };
+
+type ModelSelectOption = Extract<SessionConfigOption, { type: "select" }>;
 
 function isGroup(
   entry: SessionConfigSelectOption | SessionConfigSelectGroup,
@@ -68,16 +75,6 @@ function toModelOption(
 }
 
 /**
- * Extract current model, selectable models, and the config id to write back.
- * Returns `{ availableModels: [] }` when the adapter advertises no model
- * selector, which is how the whole feature degrades to invisible.
- */
-export type ModelSelectOption = Extract<
-  SessionConfigOption,
-  { type: "select" }
->;
-
-/**
  * The adapter's model selector, if it advertises one. `category` is UX-only
  * per the ACP spec, so a `model` id counts too; non-select options never do.
  */
@@ -91,6 +88,11 @@ export function findModelConfigOption(
   );
 }
 
+/**
+ * Extract current model, selectable models, and the config id to write back.
+ * Returns `{ availableModels: [] }` when the adapter advertises no model
+ * selector, which is how the whole feature degrades to invisible.
+ */
 export function deriveModelInfo(
   configOptions: SessionConfigOption[] | null | undefined,
 ): AcpModelInfo {

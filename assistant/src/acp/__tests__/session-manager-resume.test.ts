@@ -37,6 +37,14 @@ let promptThrowsSync = false;
 let resumeSessionGate: Promise<void> | null = null;
 /** Config options session/resume and session/load report back. */
 let resumeConfigOptions: SessionConfigOption[] = [];
+/**
+ * When set, session/load announces these through a `config_option_update`
+ * during its replay, the way an adapter reports what the reattached session
+ * is on before the load resolves.
+ */
+let replayConfigOptions: SessionConfigOption[] | null = null;
+/** When set, setConfigOption rejects with it (the adapter refusing a pin). */
+let setConfigOptionError: Error | null = null;
 /** Every `setConfigOption` the manager dispatched during a resume. */
 const setConfigOptionCalls: Array<{
   sessionId: string;
@@ -95,6 +103,9 @@ class FakeAcpAgentProcess {
     for (const text of replayChunks) {
       await this.emitChunk(text);
     }
+    if (replayConfigOptions) {
+      await this.emitConfigOptions(replayConfigOptions);
+    }
     return { configOptions: resumeConfigOptions };
   }
 
@@ -116,9 +127,20 @@ class FakeAcpAgentProcess {
     value: string | boolean,
   ): Promise<SessionConfigOption[]> {
     setConfigOptionCalls.push({ sessionId, configId, value });
+    if (setConfigOptionError) {
+      throw setConfigOptionError;
+    }
     return typeof value === "string"
       ? [modelOption(value)]
       : resumeConfigOptions;
+  }
+
+  /** Drives a config_option_update through the real client handler. */
+  async emitConfigOptions(configOptions: SessionConfigOption[]): Promise<void> {
+    await this.clientFactory(this).sessionUpdate({
+      sessionId: "proto-old",
+      update: { sessionUpdate: "config_option_update", configOptions },
+    });
   }
 
   /** Drives an agent_message_chunk through the real client handler. */
@@ -300,6 +322,8 @@ beforeEach(() => {
   prepareAgentEnvCommands = [];
   resumeSessionGate = null;
   resumeConfigOptions = [];
+  replayConfigOptions = null;
+  setConfigOptionError = null;
   setConfigOptionCalls.length = 0;
   resolveImpl = () => ({
     ok: true,
@@ -798,6 +822,55 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(
       getAcpConversationModelPreference("conv-1", "claude"),
     ).toBeUndefined();
+  });
+
+  test("a config_option_update replayed during session/load records no preference", async () => {
+    fakeCaps.loadSession = true;
+    // The reattached adapter announces its own default mid-replay, before
+    // the pin that puts the run back on what the row recorded.
+    replayConfigOptions = [modelOption("default")];
+    resumeConfigOptions = [modelOption("default")];
+    insertHistoryRow({ id: "resume-replay-model", model: "opus" });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-replay-model", () => {});
+
+    const state = manager.getStatus("resume-replay-model") as AcpSessionState;
+    expect(state.model).toBe("opus");
+    // Announcing a default is not the user choosing one.
+    expect(
+      getAcpConversationModelPreference("conv-1", "claude"),
+    ).toBeUndefined();
+  });
+
+  test("a resume the adapter refuses to re-pin keeps the recorded model on the row", async () => {
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOption("default")];
+    setConfigOptionError = new Error(
+      "Invalid value for config option model: claude-opus-4-5",
+    );
+    insertHistoryRow({
+      id: "resume-refused-model",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      model: "claude-opus-4-5",
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-refused-model", () => {});
+
+    // The adapter's own default replaced it in state; the record wins back.
+    expect(
+      (manager.getStatus("resume-refused-model") as AcpSessionState).model,
+    ).toBe("claude-opus-4-5");
+
+    await manager.steer("resume-refused-model", "keep going");
+    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(readHistoryRow("resume-refused-model")!.model).toBe(
+      "claude-opus-4-5",
+    );
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {

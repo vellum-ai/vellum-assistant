@@ -7,6 +7,7 @@ import type {
 
 import type { AssistantEvent } from "../../api/index.js";
 import { VellumAcpClientHandler } from "../client-handler.js";
+import { modelOption } from "./helpers/acp-model-option.js";
 
 const ACP_SESSION_ID = "acp-session-abc";
 const PARENT_CONVERSATION_ID = "conv-xyz";
@@ -792,17 +793,7 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
 });
 
 describe("VellumAcpClientHandler config_option_update", () => {
-  const MODEL_OPTION: SessionConfigOption = {
-    type: "select",
-    id: "model",
-    name: "Model",
-    category: "model",
-    currentValue: "sonnet",
-    options: [
-      { value: "sonnet", name: "Sonnet" },
-      { value: "opus", name: "Opus" },
-    ],
-  };
+  const MODEL_OPTION = modelOption("sonnet");
 
   const THOUGHT_OPTION: SessionConfigOption = {
     type: "boolean",
