@@ -1,8 +1,9 @@
 /**
- * Tests for the `01-parallel-tasks` system prompt section: it renders
- * unconditionally (no flag, no options dependency), sits beside
- * `01-parallel-tool-calls`, and scopes the guidance to independent tasks so a
- * single small request stays inline.
+ * Tests for the `01-parallel-tasks` system prompt section: it sits beside
+ * `01-parallel-tool-calls`, scopes the guidance to independent tasks so a
+ * single small request stays inline, and renders only for a turn that can act
+ * on it - one that can spawn subagents AND whose reply is not delivered to an
+ * external channel.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -29,8 +30,19 @@ const { buildSystemPrompt, ensurePromptFiles } =
   await import("../system-prompt.js");
 const { BUNDLED_SYSTEM_SECTIONS } =
   await import("../templates/system-sections.js");
+type ChannelCapabilities =
+  import("../../daemon/conversation-runtime-assembly.js").ChannelCapabilities;
 
 const HEADING = "Run Independent Tasks in Parallel";
+
+function channel(id: string): ChannelCapabilities {
+  return {
+    channel: id,
+    dashboardCapable: false,
+    supportsDynamicUi: false,
+    supportsVoiceInput: false,
+  };
+}
 
 describe("parallel-tasks system prompt section", () => {
   beforeEach(() => {
@@ -53,6 +65,27 @@ describe("parallel-tasks system prompt section", () => {
     expect(
       buildSystemPrompt({ canSpawnSubagents: true, hasNoClient: true }),
     ).toContain(HEADING);
+    // Every first-party client folds onto the `vellum` channel.
+    expect(
+      buildSystemPrompt({
+        canSpawnSubagents: true,
+        channelCapabilities: channel("vellum"),
+      }),
+    ).toContain(HEADING);
+  });
+
+  test("renders off for a channel-delivered turn", () => {
+    // A subagent's terminal summary is injected through the conversation's
+    // event sink, which app clients read and a channel does not, so a
+    // delegated answer would never reach the person who asked for it.
+    for (const id of ["slack", "telegram", "email", "plugin"]) {
+      const prompt = buildSystemPrompt({
+        canSpawnSubagents: true,
+        channelCapabilities: channel(id),
+      });
+      expect(prompt).not.toContain(HEADING);
+      expect(prompt).toContain("<use_parallel_tool_calls>");
+    }
   });
 
   test("renders off unless the turn states it can spawn", () => {

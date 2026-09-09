@@ -924,22 +924,30 @@ export function isToolActiveForContext(
   return true;
 }
 
-/** The spawn tool, carried by the bundled `subagent` skill. */
-const SUBAGENT_SPAWN_TOOL_NAME = "subagent_spawn";
-/** The tool that activates a skill, and so the route to the spawn tool. */
-const SKILL_LOAD_TOOL_NAME = "skill_load";
+/**
+ * Every name a turn has to reach before it can spawn a subagent.
+ *
+ * The spawn tool ships inside the bundled `subagent` skill, so it is never
+ * called by name: `skill_load` activates the skill and `skill_execute`
+ * dispatches to `subagent_spawn` inside it, which the executor gates as the
+ * resolved inner tool. All three are therefore required — any one of them
+ * missing leaves no callable path to a subagent.
+ */
+const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [
+  "skill_load",
+  "skill_execute",
+  "subagent_spawn",
+] as const;
 
 /**
  * Whether this turn could actually spawn a subagent, read off the resolved
  * tool surface rather than assumed.
  *
- * The spawn tool ships inside the bundled `subagent` skill, so on an ordinary
- * turn it is reachable rather than already present: the answer is yes when the
- * spawn tool is not excluded and the turn can still reach it, either because it
- * is on the surface already or because `skill_load` is. Both names run through
- * {@link isToolActiveForContext}, so a turn with tools disabled, a read-only
- * subagent pass, or a wire-scoped background run whose `allowedTools` omits
- * them all answer no, as does a workspace `tools.exclude` entry.
+ * Answers yes only when the whole dispatch path is callable: the skill loader,
+ * the dispatcher, and the spawn tool the dispatcher resolves to. Each name runs
+ * through {@link isToolActiveForContext}, so a turn with tools disabled, a
+ * read-only subagent pass, or a wire-scoped background run whose `allowedTools`
+ * omits one of them all answer no, as does a workspace `tools.exclude` entry.
  *
  * The system prompt's delegation guidance gates on this: telling a turn to hand
  * work to subagents it cannot spawn invites it to defer work it must do inline.
@@ -951,12 +959,9 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
   } catch {
     excluded = new Set<string>();
   }
-  if (excluded.has(SUBAGENT_SPAWN_TOOL_NAME)) {
-    return false;
-  }
-  const canReach = (name: string): boolean =>
-    !excluded.has(name) && isToolActiveForContext(name, ctx);
-  return canReach(SUBAGENT_SPAWN_TOOL_NAME) || canReach(SKILL_LOAD_TOOL_NAME);
+  return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
+    (name) => !excluded.has(name) && isToolActiveForContext(name, ctx),
+  );
 }
 
 /**

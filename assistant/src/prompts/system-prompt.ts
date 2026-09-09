@@ -420,10 +420,11 @@ export interface BuildSystemPromptOptions {
    */
   conversationId?: string;
   /**
-   * Whether the turn this prompt serves can actually spawn subagents, which
-   * gates the parallel-delegation section. Absent means no, so a prompt built
-   * outside a turn (a side-chain, a one-shot generator) never carries guidance
-   * it cannot act on.
+   * Whether the turn this prompt serves can actually spawn subagents, one of
+   * the two inputs to the parallel-delegation section's gate (the other is
+   * whether the turn is channel-delivered, read from `channelCapabilities`).
+   * Absent means no, so a prompt built outside a turn (a side-chain, a
+   * one-shot generator) never carries guidance it cannot act on.
    *
    * The live turn answers it from its resolved tool surface via
    * `canSpawnSubagentsForTurn` (workspace `tools.exclude`, a wire-scoped
@@ -431,6 +432,23 @@ export interface BuildSystemPromptOptions {
    * pass), rather than from a caller's assumption.
    */
   canSpawnSubagents?: boolean;
+}
+
+/**
+ * Whether this turn arrived on an external messaging surface (Slack, Telegram,
+ * email, a plugin channel) rather than the app itself.
+ *
+ * `resolveChannelCapabilities` folds every first-party client (macOS, web,
+ * iOS, CLI, the HTTP API) onto the `vellum` channel, and a prompt built
+ * outside a turn carries no capabilities at all, so those two cases are the
+ * app and everything else is a channel the gateway delivers to over a reply
+ * callback.
+ */
+function isExternalChannelTurn(
+  capabilities: ChannelCapabilities | undefined,
+): boolean {
+  const channel = capabilities?.channel;
+  return channel !== undefined && channel !== "vellum";
 }
 
 /**
@@ -499,12 +517,22 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const ctx = {
     ...options,
     hasNoClient,
-    // Off unless a caller states otherwise, and the caller that states it
+    // The delegation section's gate: the turn can spawn AND a subagent's
+    // answer would reach whoever asked.
+    //
+    // Off unless a caller states it can spawn, and the caller that states it
     // derives the answer from the turn's resolved tool surface rather than
     // assuming (`canSpawnSubagentsForTurn`). Guidance about handing work to
     // subagents is worth nothing to a turn that cannot spawn, and worse than
     // nothing when it makes that turn defer work it has to do inline.
-    canSpawnSubagents: options?.canSpawnSubagents === true,
+    //
+    // Off on an external channel for the second reason: a subagent's terminal
+    // summary reaches the parent through the conversation's event sink, which
+    // an app client reads and a channel does not, so a delegated answer would
+    // never be delivered to the person who asked for it.
+    delegateIndependentTasks:
+      options?.canSpawnSubagents === true &&
+      !isExternalChannelTurn(options?.channelCapabilities),
     isContainerized: getIsContainerized(),
     workspaceDir: getWorkspaceDir(),
     userSlug,

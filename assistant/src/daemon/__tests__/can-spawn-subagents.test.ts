@@ -1,7 +1,10 @@
 /**
  * `canSpawnSubagentsForTurn` reads the turn's resolved tool surface, which is
- * what gates the parallel-delegation system-prompt section. A turn that cannot
- * reach the spawn tool must not be told to hand work to subagents.
+ * one of the two inputs gating the parallel-delegation system-prompt section.
+ * A turn that cannot reach the spawn tool must not be told to hand work to
+ * subagents, and reaching it means the whole dispatch path: `skill_load`
+ * activates the bundled `subagent` skill and `skill_execute` dispatches to
+ * `subagent_spawn` inside it, so the bare spawn name alone is not a path.
  */
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
@@ -39,14 +42,13 @@ describe("canSpawnSubagentsForTurn", () => {
     expect(canSpawnSubagentsForTurn(ctx())).toBe(true);
   });
 
-  test("a workspace tools.exclude entry for the spawn tool answers no", () => {
-    withExclude(["subagent_spawn"]);
-    expect(canSpawnSubagentsForTurn(ctx())).toBe(false);
-  });
-
-  test("excluding the skill loader alone still leaves the spawn tool reachable", () => {
-    withExclude(["skill_load"]);
-    expect(canSpawnSubagentsForTurn(ctx())).toBe(true);
+  test("a workspace tools.exclude entry on any step of the path answers no", () => {
+    for (const name of ["subagent_spawn", "skill_execute", "skill_load"]) {
+      withExclude([name]);
+      expect(canSpawnSubagentsForTurn(ctx())).toBe(false);
+      getConfigSpy?.mockRestore();
+      getConfigSpy = undefined;
+    }
   });
 
   test("a turn with tools disabled answers no", () => {
@@ -56,7 +58,7 @@ describe("canSpawnSubagentsForTurn", () => {
     );
   });
 
-  test("a wire-scoped background run whose allowlist omits both answers no", () => {
+  test("a wire-scoped background run whose allowlist omits the path answers no", () => {
     withExclude([]);
     expect(
       canSpawnSubagentsForTurn(
@@ -65,11 +67,37 @@ describe("canSpawnSubagentsForTurn", () => {
     ).toBe(false);
   });
 
-  test("a background run that allowlists the spawn tool can spawn", () => {
+  test("an allowlist naming only the spawn tool answers no", () => {
+    // The spawn tool is never called by name: without the dispatcher there is
+    // no callable path to it, so the turn must not be told to delegate.
     withExclude([]);
     expect(
       canSpawnSubagentsForTurn(
         ctx({ subagentAllowedTools: new Set(["subagent_spawn"]) }),
+      ),
+    ).toBe(false);
+  });
+
+  test("an allowlist naming only the skill loader answers no", () => {
+    withExclude([]);
+    expect(
+      canSpawnSubagentsForTurn(
+        ctx({ subagentAllowedTools: new Set(["skill_load"]) }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a background run that allowlists the whole path can spawn", () => {
+    withExclude([]);
+    expect(
+      canSpawnSubagentsForTurn(
+        ctx({
+          subagentAllowedTools: new Set([
+            "skill_load",
+            "skill_execute",
+            "subagent_spawn",
+          ]),
+        }),
       ),
     ).toBe(true);
   });

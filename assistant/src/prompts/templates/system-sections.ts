@@ -294,8 +294,11 @@ When your user asks for several independent things at once, or adds new tasks wh
 `,
     // Off for a turn that cannot spawn: a tool-disabled side-chain or a
     // restricted-tool workflow leaf would otherwise be told to delegate work
-    // it can only do inline, and defer or refuse it instead.
-    enabled: "canSpawnSubagents",
+    // it can only do inline, and defer or refuse it instead. Off on an
+    // external channel too, where a subagent's answer reaches app clients
+    // through the conversation's event sink and never the channel. The
+    // conjunction is derived in `buildSystemPrompt`, which owns both inputs.
+    enabled: "delegateIndependentTasks",
   },
   {
     id: "01-progress-surface",
