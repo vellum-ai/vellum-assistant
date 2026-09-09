@@ -334,7 +334,7 @@ export function createFrontDoorStreamGate(
  * just above it.
  */
 export const ESCALATION_CONTINUATION_CONTENT =
-  "(You just told the caller you needed a moment to think. Now give them your full, careful answer to their previous question — do not repeat the holding phrase.)";
+  "(You just told the caller you needed a moment to think. Now answer their previous question out loud. Cover what they asked, but as a few spoken sentences rather than a written write-up: they are listening, not reading. Do not repeat the holding phrase.)";
 
 /**
  * Compact, registry-derived digest of the tools the ESCALATED leg can use.

@@ -59,6 +59,10 @@ import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import {
+  SPOKEN_REPLY_LENGTH_RULE,
+  SPOKEN_REPLY_PLAIN_TEXT_RULE,
+} from "./spoken-reply-rules.js";
+import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
   ESCALATE_VERDICT_TOKEN,
@@ -630,7 +634,7 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "CALL PROTOCOL RULES:",
     disclosureRule,
-    "1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.",
+    `1. ${SPOKEN_REPLY_LENGTH_RULE}`,
     ...(opts.isCallerGuardian
       ? [
           "2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.",
@@ -691,7 +695,7 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
-    `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
+    `11. ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
     `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
     `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
