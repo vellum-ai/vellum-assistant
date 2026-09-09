@@ -27,24 +27,22 @@ import type { WorkspaceMigration } from "./types.js";
  * every request. Both are swept in `llm.default`, `llm.callSites.*`, and
  * `llm.profiles.*`.
  *
- * A providerless call-site pin overlays the profile that wins that site
- * (a persisted per-conversation or schedule override, then
- * `llm.activeProfile` for mainAgent, then the site's `profile`, then the
- * site's shipped intent resolved through `llm.defaultProvider`). With the model outside the
- * allowlist a `chatgpt` winner no longer serves it, so the resolver implies
- * provider `openai` and a subscription-only workspace has no connection for
- * it; a winner pinning the subscription row keeps that pin and 400s. Such a
- * pin is repaired only when the winner is provably subscription-routed: a
- * standard profile bound to the subscription, or a mix whose every arm is.
- * A winner on an API-key or managed route still serves the model, and a mix
- * with any other arm is ambiguous and left alone. The chain skips the rungs
- * the resolver skips: a profile whose provider names no connection row, and
- * user-owned shadows of code-owned names, which resolution ignores. An
- * unusable mix arm skips the rung for the seeds that pick it, so such a mix
- * is subscription-routed only when the rest of the chain is too. Every
- * persisted override (an unexpired `inference_profile` on an interactive
- * conversation, or a schedule's) is the top rung for the turns it pins, so
- * the pin is repaired when any of them makes the chain subscription-routed.
+ * A providerless call-site pin overlays whichever profile wins that site
+ * for a turn. With the model outside the allowlist a subscription-routed
+ * winner no longer serves it, so the resolver implies provider `openai`
+ * and a subscription-only workspace has no connection for it; a winner
+ * pinning the subscription row keeps that pin and 400s. The winner is not
+ * fixed by config alone: a per-conversation pin, a schedule's pin, and the
+ * advisor profile each take the top rung for the turns they cover, and any
+ * selectable profile can be pinned after this one-time run. So the pin is
+ * repaired when any selectable profile in the workspace routes through the
+ * subscription (a default key resolving to the `chatgpt` column, or a
+ * usable user-owned profile bound to the subscription), the way resolution
+ * would honor it: shadows of code-owned names and managed stubs are
+ * ignored, and disabled, incomplete, or row-unresolvable profiles cannot
+ * win. A workspace with no such profile serves the model on every route
+ * it can select, and a call site this snapshot does not know (written by a
+ * newer assistant) is left alone.
  *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
@@ -96,19 +94,7 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       }
       return rows;
     };
-    let overrides: string[] | null | undefined;
     const lookup: ProviderLookup = {
-      overrides: () => {
-        if (overrides === undefined) {
-          overrides = readOverrideProfiles(workspaceDir);
-        }
-        if (overrides === null) {
-          throw new Error(
-            "conversations is not readable; retrying the model-ID repair on the next run",
-          );
-        }
-        return overrides;
-      },
       isSubscription: (provider) => {
         if (provider === CHATGPT_IDENTITY) {
           return true;
@@ -125,10 +111,18 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       isResolvable: (provider) =>
         KNOWN_PROVIDERS.has(provider) || entryRows().has(provider),
     };
-    const isSubscriptionProvider = lookup.isSubscription;
 
     const isBound = (fragment: Record<string, unknown>): boolean =>
-      fragmentIsSubscriptionBound(fragment, isSubscriptionProvider);
+      fragmentIsSubscriptionBound(fragment, lookup.isSubscription);
+
+    // Memoized: the answer is per workspace, and computing it may read rows.
+    let selectable: boolean | undefined;
+    const anySelectableSubscriptionProfile = (): boolean => {
+      if (selectable === undefined) {
+        selectable = hasSelectableSubscriptionProfile(llm, lookup);
+      }
+      return selectable;
+    };
 
     let changed = false;
 
@@ -140,7 +134,8 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
         const isRouted = (fragment: Record<string, unknown>): boolean =>
           isBound(fragment) ||
           (fragment.provider === undefined &&
-            winnerIsSubscriptionRouted(site, llm, lookup));
+            KNOWN_CALL_SITES.has(site) &&
+            anySelectableSubscriptionProfile());
         changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
     }
@@ -180,17 +175,15 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
 const CHATGPT_IDENTITY = "chatgpt";
 
 /**
- * Row-backed lookups. `isSubscription` answers whether a provider value
- * dispatches to the subscription; `isResolvable` mirrors the resolver's
- * `isResolvableProvider` gate (a known vendor or identity, or an existing
- * entry row), which skips a rung whose provider names no row; `overrides`
- * lists the persisted override profiles that top the chain for the turns
- * they pin. All throw on an unreadable DB so the run retries.
+ * Row-backed provider predicates. `isSubscription` answers whether a
+ * provider value dispatches to the subscription; `isResolvable` mirrors
+ * the resolver's `isResolvableProvider` gate (a known vendor or identity,
+ * or an existing entry row), which keeps a profile whose provider names no
+ * row from winning. Both throw on an unreadable DB so the run retries.
  */
 interface ProviderLookup {
   isSubscription: (provider: unknown) => boolean;
   isResolvable: (provider: string) => boolean;
-  overrides: () => string[];
 }
 
 // Frozen snapshot of `KNOWN_LLM_PROVIDERS`: the vendor and identity values
@@ -259,9 +252,9 @@ function fragmentIsSubscriptionBound(
   return isSubscriptionProvider(fragment.provider);
 }
 
-// Frozen snapshot of `DEFAULT_PROFILE_KEYS`: a reference to one of these
-// resolves to the default provider's catalog column unless a user-owned
-// shadow in `llm.profiles` stands in for it.
+// Frozen snapshot of `DEFAULT_PROFILE_KEYS`: each resolves to the default
+// provider's catalog column unless a usable user-owned shadow in
+// `llm.profiles` stands in for it.
 const DEFAULT_PROFILE_KEYS = new Set([
   "balanced",
   "quality-optimized",
@@ -269,199 +262,119 @@ const DEFAULT_PROFILE_KEYS = new Set([
   "latency-optimized",
 ]);
 
-// Frozen snapshot of `BACKUP_PROFILE_KEYS`: companions of the managed
-// (`vellum`) column only. They materialize as code-owned vellum bodies
-// under a vellum or absent default provider and are missing otherwise.
-const BACKUP_PROFILE_KEYS = new Set([
+// Frozen snapshot of `CODE_OWNED_PROFILE_NAMES`: resolution ignores a
+// workspace shadow of these names and serves the code-owned body, which
+// never routes through the subscription on its own (`latency-optimized`
+// is judged through the default provider like the other default keys).
+// Every other managed stub (a default key, a backup, `os-beta`) is likewise
+// its code-owned body: the default provider's column for a default key, a
+// vellum body otherwise.
+const CODE_OWNED_PROFILE_NAMES = new Set([
+  "latency-optimized",
   "balanced-backup",
   "quality-optimized-backup",
   "cost-optimized-backup",
   "latency-optimized-backup",
 ]);
 
-// Frozen snapshot of `CODE_OWNED_PROFILE_NAMES`: resolution ignores a
-// workspace shadow of these names and always serves the code-owned body.
-const CODE_OWNED_PROFILE_NAMES = new Set([
-  "latency-optimized",
-  ...BACKUP_PROFILE_KEYS,
+// Frozen snapshot of `LLMCallSiteEnum`: the sites whose resolution this
+// migration knows. A site outside it was written by a newer assistant.
+const KNOWN_CALL_SITES = new Set([
+  "mainAgent",
+  "subagentSpawn",
+  "heartbeatAgent",
+  "filingAgent",
+  "compactionAgent",
+  "callAgent",
+  "memoryExtraction",
+  "memoryConsolidation",
+  "memoryRetrieval",
+  "memoryV2Migration",
+  "memoryV2Sweep",
+  "memoryRouter",
+  "memoryV3SelectL2",
+  "memoryV2Consolidation",
+  "memoryRetrospective",
+  "recall",
+  "narrativeRefinement",
+  "patternScan",
+  "conversationSummarization",
+  "conversationStarters",
+  "replySuggestion",
+  "conversationTitle",
+  "commitMessage",
+  "identityIntro",
+  "emptyStateGreeting",
+  "notificationDecision",
+  "preferenceExtraction",
+  "approvalCopy",
+  "approvalConversation",
+  "trustRuleSuggestion",
+  "styleAnalyzer",
+  "inference",
+  "interactionClassifier",
+  "voiceProgressNarration",
+  "voiceFrontDoor",
+  "voiceContinuationLabel",
+  "inviteInstructionGenerator",
+  "skillCategoryInference",
+  "homeGreeting",
+  "homeSuggestedPrompts",
+  "vision",
+  "workflowLeaf",
 ]);
 
-// Frozen `OS_BETA_PROFILE_KEY`: a materialized managed stub of this name
-// resolves to its code-owned vellum body; with no stub the name is missing.
-const OS_BETA_PROFILE_KEY = "os-beta";
-
 /**
- * Outcome of one rung. `"skipped"` means the resolver passes over it;
- * `"partial"` is a mix whose usable arms all route through the
- * subscription while its unusable arms skip the rung, so the mix is
- * subscription-routed only when the rest of the chain is.
+ * Whether any profile a turn can select routes through the subscription:
+ * a default key whose effective body is the `chatgpt` column, or a usable
+ * user-owned profile bound to the subscription. Mix profiles add nothing
+ * of their own: their arms are selectable profiles in their own right.
  */
-type Route = boolean | "skipped" | "partial";
-
-// Frozen snapshot of `CALL_SITE_DEFAULTS[site].profile`: the intent a site
-// resolves through the default provider once every named rung is skipped.
-// The profileless sites (`vision`, `workflowLeaf`) anchor on balanced.
-const PROFILELESS_CALL_SITES = new Set(["vision", "workflowLeaf"]);
-const CALL_SITE_INTENTS: Record<string, string> = {
-  mainAgent: "balanced",
-  subagentSpawn: "balanced",
-  compactionAgent: "balanced",
-  patternScan: "balanced",
-  narrativeRefinement: "balanced",
-  callAgent: "balanced",
-  memoryConsolidation: "balanced",
-  identityIntro: "balanced",
-  emptyStateGreeting: "balanced",
-  memoryRouter: "cost-optimized",
-  memoryV3SelectL2: "balanced",
-  recall: "balanced",
-  conversationStarters: "balanced",
-  filingAgent: "cost-optimized",
-  memoryExtraction: "cost-optimized",
-  memoryRetrieval: "cost-optimized",
-  memoryRetrospective: "cost-optimized",
-  memoryV2Migration: "cost-optimized",
-  memoryV2Sweep: "cost-optimized",
-  memoryV2Consolidation: "balanced",
-  conversationSummarization: "cost-optimized",
-  conversationTitle: "cost-optimized",
-  approvalCopy: "cost-optimized",
-  approvalConversation: "cost-optimized",
-  trustRuleSuggestion: "cost-optimized",
-  styleAnalyzer: "cost-optimized",
-  inference: "cost-optimized",
-  heartbeatAgent: "cost-optimized",
-  commitMessage: "cost-optimized",
-  replySuggestion: "cost-optimized",
-  guardianQuestionCopy: "cost-optimized",
-  notificationDecision: "cost-optimized",
-  preferenceExtraction: "cost-optimized",
-  interactionClassifier: "latency-optimized",
-  voiceProgressNarration: "latency-optimized",
-  voiceFrontDoor: "latency-optimized",
-  voiceContinuationLabel: "cost-optimized",
-  inviteInstructionGenerator: "cost-optimized",
-  skillCategoryInference: "cost-optimized",
-  homeGreeting: "cost-optimized",
-  homeSuggestedPrompts: "cost-optimized",
-};
-
-/**
- * Whether the profile that wins `site` dispatches through the subscription.
- * Mirrors the resolver's single-winner chain: the turn's override profile,
- * then `llm.activeProfile` (mainAgent only), then
- * `llm.callSites[site].profile`, then the site's shipped intent through
- * `llm.defaultProvider`. A named rung the resolver would skip (missing,
- * disabled, incomplete) falls through to the next one. Each persisted
- * override is the top rung for the turns it pins, so the chain is checked
- * once per override and once without one. A site this snapshot does not
- * know (written by a newer assistant) has no known chain, so its pin is
- * left alone.
- */
-function winnerIsSubscriptionRouted(
-  site: string,
+function hasSelectableSubscriptionProfile(
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
 ): boolean {
-  const intent = CALL_SITE_INTENTS[site] ?? "balanced";
-  if (!(site in CALL_SITE_INTENTS) && !PROFILELESS_CALL_SITES.has(site)) {
-    return false;
-  }
-  const siteConfig = readObject(readObject(llm.callSites)?.[site]);
-  const configured =
-    site === "mainAgent"
-      ? [llm.activeProfile, siteConfig?.profile]
-      : [siteConfig?.profile];
-  if (chainRoute(configured, 0, intent, llm, lookup)) {
-    return true;
-  }
-  return lookup
-    .overrides()
-    .some((override) =>
-      chainRoute([override, ...configured], 0, intent, llm, lookup),
-    );
-}
-
-/** Route of the chain from rung `start` on, anchored by the shipped intent. */
-function chainRoute(
-  rungs: unknown[],
-  start: number,
-  intent: string,
-  llm: Record<string, unknown>,
-  lookup: ProviderLookup,
-): boolean {
-  for (let i = start; i < rungs.length; i++) {
-    const route = namedProfileRoute(rungs[i], llm, lookup, true);
-    if (route === "skipped") {
-      continue;
+  const profiles = readObject(llm.profiles);
+  const names = new Set([
+    ...DEFAULT_PROFILE_KEYS,
+    ...(profiles === null ? [] : Object.keys(profiles)),
+  ]);
+  for (const name of names) {
+    if (profileIsSubscriptionRouted(name, llm, lookup)) {
+      return true;
     }
-    if (route === "partial") {
-      return chainRoute(rungs, i + 1, intent, llm, lookup);
-    }
-    return route;
   }
-  return defaultIntentRoute(intent, llm, lookup);
+  return false;
 }
 
 /**
- * Route of a named rung. A default key without a user-owned shadow resolves
- * to the default provider's column; a backup key to its vellum body where
- * the backups materialize; a materialized OS Beta stub to its code-owned
- * vellum body; any other missing name is skipped.
+ * Whether the effective body of `name` routes through the subscription.
+ * Code-owned names and managed stubs resolve to code-owned bodies: a
+ * default key to the default provider's column, everything else to a
+ * vellum body. A user-owned shadow wins only when usable (enabled,
+ * complete, provider resolvable); an unusable shadow of a default key
+ * reverts to the column, and any other unusable profile cannot win.
  */
-function namedProfileRoute(
-  name: unknown,
+function profileIsSubscriptionRouted(
+  name: string,
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
-  allowMix: boolean,
-): Route {
-  if (typeof name !== "string" || name.length === 0) {
-    return "skipped";
-  }
-  if (name === OS_BETA_PROFILE_KEY) {
-    const stub = readObject(readObject(llm.profiles)?.[name]);
-    if (stub !== null && stub.source === "managed") {
-      return stub.status === "disabled" ? "skipped" : false;
-    }
-  }
-  if (BACKUP_PROFILE_KEYS.has(name)) {
-    return backupsMaterialize(llm) ? false : "skipped";
-  }
+): boolean {
   const shadow = userShadow(name, llm);
-  if (shadow === null) {
-    return DEFAULT_PROFILE_KEYS.has(name)
-      ? defaultProviderIsSubscription(llm, lookup.isSubscription)
-      : "skipped";
+  const usable =
+    shadow !== null &&
+    shadow.status !== "disabled" &&
+    !Array.isArray(shadow.mix) &&
+    typeof shadow.provider === "string" &&
+    typeof shadow.model === "string" &&
+    lookup.isResolvable(shadow.provider);
+  if (usable) {
+    return fragmentIsSubscriptionBound(shadow, lookup.isSubscription);
   }
-  return usableShadowRoute(shadow, llm, lookup, allowMix) ?? "skipped";
-}
-
-/**
- * Whether the backup profiles exist: only under the managed column, which
- * an absent `llm.defaultProvider` also resolves to.
- */
-function backupsMaterialize(llm: Record<string, unknown>): boolean {
-  const defaultProvider = readObject(llm.defaultProvider);
-  return defaultProvider === null || defaultProvider.provider === "vellum";
-}
-
-/**
- * Route of a shipped intent: a usable user-owned shadow wins, otherwise the
- * pure catalog column of the default provider stands (the anchor is
- * code-owned and always resolves). A partial mix is anchored by that same
- * column for the seeds that pick an unusable arm.
- */
-function defaultIntentRoute(
-  intent: string,
-  llm: Record<string, unknown>,
-  lookup: ProviderLookup,
-): boolean {
-  const shadow = userShadow(intent, llm);
-  const route =
-    shadow === null ? undefined : usableShadowRoute(shadow, llm, lookup, true);
-  return typeof route === "boolean"
-    ? route
-    : defaultProviderIsSubscription(llm, lookup.isSubscription);
+  return (
+    DEFAULT_PROFILE_KEYS.has(name) &&
+    defaultProviderIsSubscription(llm, lookup.isSubscription)
+  );
 }
 
 /**
@@ -478,47 +391,6 @@ function userShadow(
   }
   const shadow = readObject(readObject(llm.profiles)?.[name]);
   return shadow === null || shadow.source === "managed" ? null : shadow;
-}
-
-/**
- * Route of a user-owned shadow, or undefined when the resolver treats it as
- * unusable (disabled, incomplete, or a provider that names no connection
- * row). A mix (top level only; arms cannot nest) picks an arm by seed: any
- * arm on another route makes the mix ambiguous (false); an unusable arm
- * skips the rung for its seeds, so a mix of subscription and unusable arms
- * is `"partial"`, and one of only unusable arms is unusable itself.
- */
-function usableShadowRoute(
-  shadow: Record<string, unknown>,
-  llm: Record<string, unknown>,
-  lookup: ProviderLookup,
-  allowMix: boolean,
-): Route | undefined {
-  if (shadow.status === "disabled") {
-    return undefined;
-  }
-  if (Array.isArray(shadow.mix)) {
-    if (!allowMix || shadow.mix.length === 0) {
-      return false;
-    }
-    const arms = shadow.mix.map((arm) =>
-      namedProfileRoute(readObject(arm)?.profile, llm, lookup, false),
-    );
-    if (arms.some((route) => route !== true && route !== "skipped")) {
-      return false;
-    }
-    if (arms.every((route) => route === "skipped")) {
-      return undefined;
-    }
-    return arms.every((route) => route === true) ? true : "partial";
-  }
-  if (typeof shadow.provider !== "string" || typeof shadow.model !== "string") {
-    return undefined;
-  }
-  if (!lookup.isResolvable(shadow.provider)) {
-    return undefined;
-  }
-  return fragmentIsSubscriptionBound(shadow, lookup.isSubscription);
 }
 
 /**
@@ -541,70 +413,6 @@ function defaultProviderIsSubscription(
     defaultProvider.provider === "openai" &&
     isSubscriptionProvider(defaultProvider.connectionName)
   );
-}
-
-/**
- * Distinct persisted override profile names: an unexpired `inference_profile`
- * on an interactive conversation (background and scheduled conversations
- * ignore theirs) and every schedule's `inference_profile`. Null when the DB
- * is not readable; a missing table or column is an older schema with no
- * overrides of that kind.
- */
-function readOverrideProfiles(workspaceDir: string): string[] | null {
-  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
-  if (!existsSync(dbPath)) {
-    return [];
-  }
-  let db: Database;
-  try {
-    db = new Database(dbPath, { readonly: true });
-  } catch {
-    return null;
-  }
-  try {
-    const names = new Set<string>();
-    const columns = (table: string): Set<string> =>
-      new Set(
-        (
-          db.query(`PRAGMA table_info(${table})`).all() as Array<{
-            name: string;
-          }>
-        ).map((column) => column.name),
-      );
-    const conversationColumns = columns("conversations");
-    if (
-      conversationColumns.has("inference_profile") &&
-      conversationColumns.has("conversation_type") &&
-      conversationColumns.has("inference_profile_expires_at")
-    ) {
-      const rows = db
-        .query(
-          `SELECT DISTINCT inference_profile AS profile FROM conversations
-           WHERE inference_profile IS NOT NULL
-             AND conversation_type NOT IN ('background', 'scheduled')
-             AND (inference_profile_expires_at IS NULL OR inference_profile_expires_at > ?)`,
-        )
-        .all(Date.now()) as Array<{ profile: string }>;
-      for (const row of rows) {
-        names.add(row.profile);
-      }
-    }
-    if (columns("cron_jobs").has("inference_profile")) {
-      const rows = db
-        .query(
-          `SELECT DISTINCT inference_profile AS profile FROM cron_jobs WHERE inference_profile IS NOT NULL`,
-        )
-        .all() as Array<{ profile: string }>;
-      for (const row of rows) {
-        names.add(row.profile);
-      }
-    }
-    return [...names];
-  } catch {
-    return null;
-  } finally {
-    db.close();
-  }
 }
 
 /**

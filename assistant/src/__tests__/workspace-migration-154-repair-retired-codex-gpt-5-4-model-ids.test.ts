@@ -44,6 +44,10 @@ function readConfig(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(workspaceDir, "config.json"), "utf-8"));
 }
 
+function readLlm(): Record<string, any> {
+  return readConfig().llm as Record<string, any>;
+}
+
 function seedRows(
   rows: Array<{ name: string; provider: string; auth: string }>,
 ): void {
@@ -64,35 +68,16 @@ function seedRows(
   db.close();
 }
 
-function seedOverrides(args: {
-  conversations?: Array<{ type: string; profile: string; expiresAt?: number }>;
-  cronJobs?: string[];
-}): void {
-  mkdirSync(join(workspaceDir, "data", "db"), { recursive: true });
-  const db = new Database(join(workspaceDir, "data", "db", "assistant.db"));
-  db.run(`CREATE TABLE IF NOT EXISTS conversations (
-    id TEXT PRIMARY KEY,
-    conversation_type TEXT NOT NULL DEFAULT 'standard',
-    inference_profile TEXT,
-    inference_profile_expires_at INTEGER
-  )`);
-  db.run(`CREATE TABLE IF NOT EXISTS cron_jobs (
-    id TEXT PRIMARY KEY,
-    inference_profile TEXT
-  )`);
-  for (const [i, row] of (args.conversations ?? []).entries()) {
-    db.query(
-      `INSERT INTO conversations (id, conversation_type, inference_profile, inference_profile_expires_at) VALUES (?, ?, ?, ?)`,
-    ).run(`conv-${i}`, row.type, row.profile, row.expiresAt ?? null);
-  }
-  for (const [i, profile] of (args.cronJobs ?? []).entries()) {
-    db.query(`INSERT INTO cron_jobs (id, inference_profile) VALUES (?, ?)`).run(
-      `job-${i}`,
-      profile,
-    );
-  }
-  db.close();
-}
+const SUBSCRIPTION_ROW = {
+  name: "chatgpt-subscription",
+  provider: "chatgpt",
+  auth: SUBSCRIPTION_AUTH,
+};
+const API_KEY_ROW = {
+  name: "openai-key",
+  provider: "openai",
+  auth: API_KEY_AUTH,
+};
 
 beforeEach(() => {
   freshWorkspace();
@@ -141,9 +126,8 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
 
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
 
-    const llm = readConfig().llm as Record<string, any>;
+    const llm = readLlm();
     expect(llm.default.model).toBe(REPLACEMENT);
-    expect(llm.profiles.strayBinding.model).toBe(REPLACEMENT);
     expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
     expect(llm.callSites.recall.maxTokens).toBe(4096);
     // Non-exact matches and malformed leaves are untouched.
@@ -153,16 +137,13 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     expect(llm.profiles.codex.source).toBe("user");
     expect(llm.profiles.budget.model).toBe(REPLACEMENT_MINI);
     expect(llm.profiles.current.model).toBe("gpt-5.6-terra");
+    expect(llm.profiles.strayBinding.model).toBe(REPLACEMENT);
   });
 
   test("repairs entry-bound fragments whose row is the subscription", () => {
     seedRows([
       // Post-DB-migration-366 row shape.
-      {
-        name: "chatgpt-subscription",
-        provider: "chatgpt",
-        auth: SUBSCRIPTION_AUTH,
-      },
+      SUBSCRIPTION_ROW,
       // Pre-366 row shape: provider still openai, auth proves the route.
       { name: "legacy-sub", provider: "openai", auth: SUBSCRIPTION_AUTH },
     ]);
@@ -189,36 +170,25 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
 
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
 
-    const llm = readConfig().llm as Record<string, any>;
+    const llm = readLlm();
     expect(llm.default.model).toBe(REPLACEMENT);
     expect(llm.profiles.bound.model).toBe(REPLACEMENT);
     expect(llm.profiles.legacy.model).toBe(REPLACEMENT_MINI);
     expect(llm.profiles.pinned.model).toBe(REPLACEMENT);
   });
 
-  test("leaves API-key, other-vendor, providerless, and dangling fragments untouched", () => {
-    seedRows([
-      { name: "openai-key", provider: "openai", auth: API_KEY_AUTH },
-      {
-        name: "chatgpt-subscription",
-        provider: "chatgpt",
-        auth: SUBSCRIPTION_AUTH,
-      },
-    ]);
+  test("leaves API-key, other-vendor, and dangling fragments untouched", () => {
+    seedRows([API_KEY_ROW, SUBSCRIPTION_ROW]);
     const config = {
       llm: {
         // Explicit vendors keep the model: API-key OpenAI still serves it
         // and an openai-compatible endpoint may too.
         default: { provider: "openai", model: STALE },
         callSites: {
-          // A providerless call-site pin rides the winning profile, which
-          // may be an API-key or managed route.
-          recall: { model: STALE },
           vision: { provider: "openai-compatible", model: STALE_MINI },
         },
         profiles: {
           byok: { provider: "openai", model: STALE_MINI },
-          inherited: { model: STALE },
           keyBound: { provider: "openai-key", model: STALE },
           // Entry name with no row: nothing proves it is the subscription.
           dangling: { provider: "ghost", model: STALE },
@@ -241,347 +211,84 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     );
   });
 
-  test("repairs providerless call-site pins whose winner is subscription-routed", () => {
-    seedRows([
+  test("repairs providerless call-site pins when a selectable profile is subscription-routed", () => {
+    seedRows([API_KEY_ROW, SUBSCRIPTION_ROW]);
+    const callSites = {
+      mainAgent: { model: STALE },
+      recall: { model: STALE_MINI },
+      // A stale pin under a site profile that is not itself subscription-
+      // routed: another selectable profile can still be pinned over it.
+      heartbeatAgent: { profile: "byok", model: STALE },
+    };
+    const cases: Array<Record<string, unknown>> = [
+      // The default keys resolve to the chatgpt column.
+      { defaultProvider: { provider: "chatgpt" } },
+      // An openai default provider pinning the subscription row.
       {
-        name: "chatgpt-subscription",
-        provider: "chatgpt",
-        auth: SUBSCRIPTION_AUTH,
-      },
-    ]);
-    writeConfig({
-      llm: {
-        activeProfile: "codex",
-        defaultProvider: { provider: "chatgpt" },
-        callSites: {
-          // activeProfile wins mainAgent only.
-          mainAgent: { model: STALE },
-          // An explicit site profile on the chatgpt identity.
-          recall: { profile: "codex", model: STALE_MINI },
-          // A site profile bound to the subscription row.
-          heartbeatAgent: { profile: "bound", model: STALE },
-          // A legacy binding to the subscription row.
-          filingAgent: { profile: "legacyBound", model: STALE },
-          // No named rung: the default column of the chatgpt default provider.
-          compactionAgent: { model: STALE_MINI },
-          // A default key with no user shadow resolves through defaultProvider.
-          memoryRouter: { profile: "balanced", model: STALE },
-          // A missing site profile falls through to the default provider.
-          vision: { profile: "ghost", model: STALE },
-          // A mix whose every arm is subscription-routed.
-          memoryV2Sweep: { profile: "blend", model: STALE_MINI },
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "chatgpt-subscription",
         },
+      },
+      // A user-owned profile on the chatgpt identity, selected nowhere.
+      {
+        defaultProvider: { provider: "vellum" },
+        profiles: { codex: { provider: "chatgpt", model: "gpt-5.6-terra" } },
+      },
+      // A user-owned profile bound to the subscription row.
+      {
+        defaultProvider: { provider: "vellum" },
         profiles: {
-          codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
           bound: { provider: "chatgpt-subscription", model: "gpt-5.5" },
-          blend: {
-            mix: [
-              { profile: "codex", weight: 3 },
-              { profile: "bound", weight: 1 },
-            ],
-          },
+        },
+      },
+      // A legacy binding to the subscription row.
+      {
+        defaultProvider: { provider: "vellum" },
+        profiles: {
           legacyBound: {
             provider: "openai",
             provider_connection: "chatgpt-subscription",
             model: "gpt-5.5",
           },
-          balanced: { source: "managed" },
         },
       },
-    });
-
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-
-    const llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
-    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT);
-    expect(llm.callSites.filingAgent.model).toBe(REPLACEMENT);
-    expect(llm.callSites.compactionAgent.model).toBe(REPLACEMENT_MINI);
-    expect(llm.callSites.memoryRouter.model).toBe(REPLACEMENT);
-    expect(llm.callSites.vision.model).toBe(REPLACEMENT);
-    expect(llm.callSites.memoryV2Sweep.model).toBe(REPLACEMENT_MINI);
-  });
-
-  test("repairs providerless call-site pins under an openai default provider pinning the subscription row", () => {
-    seedRows([
+      // A user-owned shadow of a default key on the chatgpt identity under
+      // a vellum default provider.
       {
-        name: "chatgpt-subscription",
-        provider: "openai",
-        auth: SUBSCRIPTION_AUTH,
-      },
-    ]);
-    writeConfig({
-      llm: {
-        defaultProvider: {
-          provider: "openai",
-          connectionName: "chatgpt-subscription",
-        },
-        callSites: { recall: { model: STALE } },
-      },
-    });
-
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-
-    const llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
-  });
-
-  test("resolves a skipped named rung through the site's shipped intent", () => {
-    // A disabled site pin falls through to the site's intent, which a
-    // user-owned subscription shadow of that key wins even under a
-    // non-subscription default provider.
-    writeConfig({
-      llm: {
         defaultProvider: { provider: "vellum" },
-        callSites: {
-          heartbeatAgent: { profile: "off", model: STALE },
-          recall: { profile: "off", model: STALE },
-        },
-        profiles: {
-          off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
-          "cost-optimized": { provider: "chatgpt", model: "gpt-5.6-luna" },
-        },
+        profiles: { balanced: { provider: "chatgpt", model: "gpt-5.5" } },
       },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    let llm = readConfig().llm as Record<string, any>;
-    // heartbeatAgent ships the cost-optimized intent; recall ships balanced,
-    // whose catalog column is the vellum default provider's.
-    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT);
-    expect(llm.callSites.recall.model).toBe(STALE);
-
-    // The reverse: a user-owned API-key shadow of the intent wins over a
-    // chatgpt default provider.
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: {
-          recall: { model: STALE },
-          heartbeatAgent: { model: STALE_MINI },
-        },
-        profiles: {
-          balanced: { provider: "openai", model: "gpt-5.5" },
-        },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(STALE);
-    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
-  });
-
-  test("ignores user-owned shadows of code-owned profile names", () => {
-    // Resolution serves the code-owned body for these names, so a
-    // subscription shadow does not make the vellum column's winner
-    // subscription-routed, and an API-key shadow does not hide the chatgpt
-    // column's winner.
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "vellum" },
-        callSites: { voiceFrontDoor: { model: STALE } },
-        profiles: {
-          "latency-optimized": { provider: "chatgpt", model: "gpt-5.5" },
-        },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    let llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.voiceFrontDoor.model).toBe(STALE);
-
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: {
-          voiceFrontDoor: { model: STALE },
-          recall: { profile: "balanced-backup", model: STALE_MINI },
-        },
-        profiles: {
-          "latency-optimized": { provider: "openai", model: "gpt-5.5" },
-          "balanced-backup": { provider: "openai", model: "gpt-5.5" },
-        },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.voiceFrontDoor.model).toBe(REPLACEMENT);
-    // A backup shadow is ignored too, and the backup does not exist on the
-    // chatgpt column, so the rung is skipped in favor of the shipped intent.
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
-  });
-
-  test("skips a named rung whose provider names no connection row", () => {
-    seedRows([
+      // The advisor profile is one selectable profile among the rest.
       {
-        name: "chatgpt-subscription",
-        provider: "chatgpt",
-        auth: SUBSCRIPTION_AUTH,
-      },
-    ]);
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: { recall: { profile: "gone", model: STALE } },
-        profiles: { gone: { provider: "ghost", model: "gpt-5.5" } },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    let llm = readConfig().llm as Record<string, any>;
-    // The dangling rung is skipped, so the chatgpt default column wins.
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
-
-    // With the row present the profile is usable and its API-key route
-    // keeps the model.
-    seedRows([{ name: "ghost", provider: "openai", auth: API_KEY_AUTH }]);
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: { recall: { profile: "gone", model: STALE } },
-        profiles: { gone: { provider: "ghost", model: "gpt-5.5" } },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(STALE);
-  });
-
-  test("resolves a materialized OS Beta stub to its code-owned body", () => {
-    // The stub expands to the vellum body, which still serves the model.
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: { recall: { profile: "os-beta", model: STALE } },
-        profiles: { "os-beta": { source: "managed" } },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    let llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(STALE);
-
-    // A disabled stub, or no stub at all, skips the rung.
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: {
-          recall: { profile: "os-beta", model: STALE },
-          heartbeatAgent: { profile: "os-beta", model: STALE_MINI },
-        },
-        profiles: { "os-beta": { source: "managed", status: "disabled" } },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
-    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
-  });
-
-  test("anchors a mix with unusable arms on the rest of the chain", () => {
-    const profiles = {
-      codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
-      off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
-      blend: {
-        mix: [
-          { profile: "codex", weight: 1 },
-          { profile: "off", weight: 1 },
-        ],
-      },
-      allOff: {
-        mix: [
-          { profile: "off", weight: 1 },
-          { profile: "off", weight: 1 },
-        ],
-      },
-    };
-
-    // Seeds that pick the disabled arm skip the rung and land on the
-    // chatgpt default column, so every seed routes through the subscription.
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: {
-          recall: { profile: "blend", model: STALE },
-          heartbeatAgent: { profile: "allOff", model: STALE_MINI },
-        },
-        profiles,
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    let llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
-    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
-
-    // Under a vellum default those seeds still serve the model.
-    writeConfig({
-      llm: {
         defaultProvider: { provider: "vellum" },
-        callSites: { recall: { profile: "blend", model: STALE } },
-        profiles,
+        advisorProfile: "advisor",
+        profiles: { advisor: { provider: "chatgpt", model: "gpt-5.5" } },
       },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.recall.model).toBe(STALE);
-  });
+    ];
 
-  test("resolves a backup key to its vellum body only where backups materialize", () => {
-    const profiles = {
-      codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
-      // Ignored: backups are code-owned.
-      "balanced-backup": { provider: "chatgpt", model: "gpt-5.5" },
-    };
-    // Under the managed column (explicit or absent) the backup wins
-    // mainAgent with a vellum body, which still serves the model.
-    for (const defaultProvider of [{ provider: "vellum" }, undefined]) {
+    for (const llmCase of cases) {
       writeConfig({
         llm: {
-          ...(defaultProvider ? { defaultProvider } : {}),
-          activeProfile: "balanced-backup",
-          callSites: { mainAgent: { profile: "codex", model: STALE } },
-          profiles,
+          activeProfile: "byok",
+          ...llmCase,
+          callSites,
+          profiles: {
+            byok: { provider: "openai", model: "gpt-5.5" },
+            ...((llmCase.profiles as Record<string, unknown>) ?? {}),
+          },
         },
       });
       repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-      const llm = readConfig().llm as Record<string, any>;
-      expect(llm.callSites.mainAgent.model).toBe(STALE);
+      const llm = readLlm();
+      expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
+      expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
+      expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT);
     }
-
-    // Under a chatgpt default the backup does not exist, so the rung is
-    // skipped and the subscription site profile wins.
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        activeProfile: "balanced-backup",
-        callSites: { mainAgent: { profile: "codex", model: STALE } },
-        profiles,
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    const llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
   });
 
-  test("leaves providerless pins on unknown call sites alone", () => {
-    writeConfig({
-      llm: {
-        defaultProvider: { provider: "chatgpt" },
-        callSites: {
-          // A site this migration does not know has no known winner chain.
-          futureSite: { model: STALE },
-          // Its own routing is still judged.
-          futureIdentitySite: { provider: "chatgpt", model: STALE_MINI },
-          // The profileless shipped sites anchor on balanced.
-          vision: { model: STALE },
-        },
-      },
-    });
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    const llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.futureSite.model).toBe(STALE);
-    expect(llm.callSites.futureIdentitySite.model).toBe(REPLACEMENT_MINI);
-    expect(llm.callSites.vision.model).toBe(REPLACEMENT);
-  });
-
-  test("repairs providerless pins that a persisted subscription override would break", () => {
+  test("leaves providerless call-site pins alone when no selectable profile is subscription-routed", () => {
+    seedRows([API_KEY_ROW, SUBSCRIPTION_ROW]);
     const config = {
       llm: {
         activeProfile: "byok",
@@ -589,105 +296,121 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
         callSites: {
           mainAgent: { model: STALE },
           recall: { model: STALE_MINI },
+          voiceFrontDoor: { model: STALE },
+          heartbeatAgent: { profile: "off", model: STALE },
         },
         profiles: {
           byok: { provider: "openai", model: "gpt-5.5" },
-          codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
+          keyBound: { provider: "openai-key", model: "gpt-5.5" },
+          // Disabled, incomplete, or row-unresolvable profiles cannot win.
+          off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
+          partial: { provider: "chatgpt" },
+          gone: { provider: "ghost", model: "gpt-5.5" },
+          // A mix adds nothing beyond its arms.
+          blend: {
+            mix: [
+              { profile: "byok", weight: 1 },
+              { profile: "off", weight: 1 },
+            ],
+          },
+          // Shadows of code-owned names are ignored in favor of the
+          // code-owned body, and a materialized OS Beta stub is its vellum
+          // body.
+          "latency-optimized": { provider: "chatgpt", model: "gpt-5.5" },
+          "balanced-backup": { provider: "chatgpt", model: "gpt-5.5" },
+          "os-beta": { source: "managed" },
+          // A managed stub of a default key is the vellum column.
+          "cost-optimized": { source: "managed" },
         },
       },
     };
-
-    // An interactive conversation pinned to the subscription profile tops
-    // the chain for its turns on every site the loop resolves.
-    seedOverrides({ conversations: [{ type: "standard", profile: "codex" }] });
-    writeConfig(config);
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    let llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
-    expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
-
-    // A schedule's pin counts the same way.
-    rmSync(join(workspaceDir, "data"), { recursive: true, force: true });
-    seedOverrides({ cronJobs: ["codex"] });
-    writeConfig(config);
-    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    llm = readConfig().llm as Record<string, any>;
-    expect(llm.callSites.mainAgent.model).toBe(REPLACEMENT);
-
-    // Expired, background, scheduled, API-backed, and dangling pins do not.
-    rmSync(join(workspaceDir, "data"), { recursive: true, force: true });
-    seedOverrides({
-      conversations: [
-        { type: "standard", profile: "codex", expiresAt: 1 },
-        { type: "background", profile: "codex" },
-        { type: "scheduled", profile: "codex" },
-        { type: "standard", profile: "byok" },
-        { type: "standard", profile: "ghost" },
-      ],
-      cronJobs: ["byok"],
-    });
     writeConfig(config);
     const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+
     expect(readFileSync(join(workspaceDir, "config.json"), "utf-8")).toBe(
       before,
     );
   });
 
-  test("leaves providerless call-site pins alone when the winner is not subscription-routed", () => {
-    seedRows([{ name: "openai-key", provider: "openai", auth: API_KEY_AUTH }]);
-    const config = {
+  test("judges a disabled shadow of a default key by the column it reverts to", () => {
+    // A disabled user-owned shadow of a default key reverts to the default
+    // provider's column, so the chatgpt column still makes it selectable.
+    writeConfig({
       llm: {
-        activeProfile: "codex",
-        defaultProvider: { provider: "vellum" },
-        callSites: {
-          // activeProfile does not win non-mainAgent sites.
-          recall: { model: STALE },
-          // An API-key openai winner still serves the model.
-          heartbeatAgent: { profile: "byok", model: STALE },
-          // An entry-bound API-key winner.
-          filingAgent: { profile: "keyBound", model: STALE_MINI },
-          // A disabled chatgpt site profile falls through to the vellum
-          // default column.
-          compactionAgent: { profile: "off", model: STALE },
-          // A mix with an API-key arm is ambiguous.
-          memoryRouter: { profile: "blend", model: STALE },
-        },
+        defaultProvider: { provider: "chatgpt" },
+        callSites: { recall: { model: STALE } },
         profiles: {
-          codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
-          byok: { provider: "openai", model: "gpt-5.5" },
-          keyBound: { provider: "openai-key", model: "gpt-5.5" },
-          off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
-          blend: {
-            mix: [
-              { profile: "codex", weight: 1 },
-              { profile: "byok", weight: 1 },
-            ],
+          balanced: {
+            provider: "openai",
+            model: "gpt-5.5",
+            status: "disabled",
           },
+          "quality-optimized": { provider: "openai", model: "gpt-5.5" },
+          "cost-optimized": { provider: "openai", model: "gpt-5.5" },
         },
       },
-    };
-    writeConfig(config);
-    const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
-
+    });
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    expect(readLlm().callSites.recall.model).toBe(REPLACEMENT);
 
-    expect(readFileSync(join(workspaceDir, "config.json"), "utf-8")).toBe(
-      before,
-    );
+    // Usable API-backed shadows of every default key hide the column.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: { recall: { model: STALE } },
+        profiles: {
+          balanced: { provider: "openai", model: "gpt-5.5" },
+          "quality-optimized": { provider: "openai", model: "gpt-5.5" },
+          "cost-optimized": { provider: "openai", model: "gpt-5.5" },
+          "latency-optimized": { provider: "openai", model: "gpt-5.5" },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    // latency-optimized is code-owned, so its shadow is ignored and the
+    // column stays selectable.
+    expect(readLlm().callSites.recall.model).toBe(REPLACEMENT);
+  });
+
+  test("leaves providerless pins on unknown call sites alone", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          // A site this migration does not know may resolve differently on
+          // the newer assistant that wrote it.
+          futureSite: { model: STALE },
+          // Its own routing is still judged.
+          futureIdentitySite: { provider: "chatgpt", model: STALE_MINI },
+          vision: { model: STALE },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    const llm = readLlm();
+    expect(llm.callSites.futureSite.model).toBe(STALE);
+    expect(llm.callSites.futureIdentitySite.model).toBe(REPLACEMENT_MINI);
+    expect(llm.callSites.vision.model).toBe(REPLACEMENT);
   });
 
   test("leaves entry-name providers untouched when no DB file exists", () => {
     writeConfig({
       llm: {
-        profiles: { bound: { provider: "chatgpt-subscription", model: STALE } },
+        callSites: { recall: { model: STALE } },
+        profiles: {
+          bound: { provider: "chatgpt-subscription", model: STALE },
+          candidate: { provider: "chatgpt-subscription", model: "gpt-5.5" },
+        },
       },
     });
 
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
 
-    const llm = readConfig().llm as Record<string, any>;
+    const llm = readLlm();
     expect(llm.profiles.bound.model).toBe(STALE);
+    expect(llm.callSites.recall.model).toBe(STALE);
   });
 
   test("throws when an entry-name provider needs rows and the DB is unreadable", () => {
@@ -704,8 +427,7 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     expect(() =>
       repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir),
     ).toThrow();
-    const llm = readConfig().llm as Record<string, any>;
-    expect(llm.profiles.bound.model).toBe(STALE);
+    expect(readLlm().profiles.bound.model).toBe(STALE);
 
     // The identity form never needs the rows, so the same broken DB does
     // not block its repair.
@@ -713,8 +435,7 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
       llm: { default: { provider: "chatgpt", model: STALE } },
     });
     repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
-    const repaired = readConfig().llm as Record<string, any>;
-    expect(repaired.default.model).toBe(REPLACEMENT);
+    expect(readLlm().default.model).toBe(REPLACEMENT);
   });
 
   test("is idempotent and a no-op without the stale IDs", () => {
