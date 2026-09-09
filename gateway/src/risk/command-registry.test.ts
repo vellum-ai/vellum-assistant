@@ -1,3 +1,4 @@
+import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry/index.js";
@@ -418,6 +419,26 @@ describe("command-registry", () => {
 
       test("assistant oauth request is medium risk", () => {
         expect(oauthSpec.subcommands!.request.baseRisk).toBe("medium");
+      });
+
+      test("assistant oauth request as a channel bot escalates to high, keyed on the contract's map", () => {
+        const requestSpec = oauthSpec.subcommands!.request;
+        const botRule = requestSpec.argRules!.find(
+          (r) => r.id === "assistant-oauth-request:bot-provider",
+        );
+        expect(botRule).toBeDefined();
+        expect(botRule!.flags).toEqual(["--provider"]);
+        expect(botRule!.risk).toBe("high");
+        expect(requestSpec.argSchema?.valueFlags).toContain("--provider");
+        // Every bot provider the contract names matches; a person's
+        // integration does not. The rule is derived from the map, so a
+        // channel that gains a bot credential is covered without a list here.
+        const pattern = new RegExp(botRule!.valuePattern!);
+        for (const key of Object.values(CHANNEL_BOT_PROVIDER)) {
+          expect(pattern.test(key)).toBe(true);
+        }
+        expect(pattern.test("google")).toBe(false);
+        expect(pattern.test("slack")).toBe(false);
       });
 
       test("assistant oauth connect is low risk", () => {

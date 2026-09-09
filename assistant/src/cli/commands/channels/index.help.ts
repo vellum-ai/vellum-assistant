@@ -58,6 +58,13 @@ never printed or passed on the command line. Acting as a person through
 their OAuth integration is a different identity and stays on
 'assistant oauth request --provider <key>'.
 
+This command can do anything the bot's API allows, including sending,
+editing, deleting, uploading, and reacting, so it is classified high risk
+and asks for approval like any action with irreversible effects. Reads are
+not distinguished from writes: the effect is the endpoint's. Sending a
+message has its own door with its own record; use it rather than posting
+through this command.
+
 Arguments:
   <channel>  One of: slack, telegram, discord. A channel with no bot
              credential of its own (phone, vellum) is refused.
