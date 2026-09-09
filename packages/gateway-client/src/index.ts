@@ -17,7 +17,13 @@ export {
 
 export * from "./gateway-ipc-contracts.js";
 
-export { ipcCall, IpcCallError, PersistentIpcClient } from "./ipc-client.js";
+export {
+  ipcCall,
+  IpcCallError,
+  IpcConnectError,
+  isRetryableIpcConnectError,
+  PersistentIpcClient,
+} from "./ipc-client.js";
 
 // Outbound delivery contract (daemon → gateway) — Zod schemas + derived types
 export {
