@@ -41,6 +41,8 @@
     "modelSelectedAria": "Seleccionado",
     "modelSwitchFailed": "No se pudo cambiar el modelo. Inténtalo de nuevo.",
     "modelTriggerAria": "Modelo: {model}. Cambiar modelo",
+    "modelTriggerAriaUnset": "Modelo: predeterminado del agente. Cambiar modelo",
+    "modelUnset": "Predeterminado del agente",
     "objective": "Objetivo",
     "outputLabel": "Salida",
     "sendSteerAria": "Enviar instrucción de orientación",

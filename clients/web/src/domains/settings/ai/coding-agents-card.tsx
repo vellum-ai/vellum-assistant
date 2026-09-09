@@ -83,22 +83,34 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
 
   // A stored model that changes under the card (another client, an edited
   // config file) decides the row again. Without this the trigger stays on the
-  // custom row while the select shows a listed alias.
+  // custom row while the select shows a listed alias. An edit in progress
+  // outranks it: an empty custom draft cannot re-derive its own row, so
+  // resetting mid-edit would take the input away and blank the trigger.
+  const hasDraft = defaultModel !== serverDefaultModel;
   const [prevServerModel, setPrevServerModel] = useState(serverDefaultModel);
   if (prevServerModel !== serverDefaultModel) {
     setPrevServerModel(serverDefaultModel);
-    setCustomPicked(false);
+    if (!hasDraft) {
+      setCustomPicked(false);
+    }
   }
 
   const hasCustomValue =
     Boolean(defaultModel) && !isAcpSelectableModel(defaultModel);
   const showsCustomInput = customPicked || hasCustomValue;
-  const selectValue = showsCustomInput ? CUSTOM_SENTINEL : defaultModel;
+  // An empty draft matches no option, so the trigger falls back to the
+  // agent-default row rather than rendering blank.
+  const selectValue = showsCustomInput ? CUSTOM_SENTINEL : defaultModel || null;
 
   // Blank custom text means "no default", so clearing the input is the same
   // choice as picking the agent-default row.
   const nextDefaultModel = defaultModel?.trim() || null;
-  const saveDisabled = saving || nextDefaultModel === serverDefaultModel;
+  // An empty custom field is not a choice: saving it would erase a stored
+  // default the user never asked to clear. Clearing stays one row away.
+  const saveDisabled =
+    saving ||
+    nextDefaultModel === serverDefaultModel ||
+    (showsCustomInput && nextDefaultModel === null);
 
   const modelOptions = useMemo(
     (): SelectOption<string>[] => [

@@ -41,6 +41,8 @@
     "modelSelectedAria": "Selected",
     "modelSwitchFailed": "Could not switch the model. Please try again.",
     "modelTriggerAria": "Model: {model}. Change model",
+    "modelTriggerAriaUnset": "Model: agent default. Change model",
+    "modelUnset": "Agent default",
     "objective": "Objective",
     "outputLabel": "Output",
     "sendSteerAria": "Send steering instruction",
