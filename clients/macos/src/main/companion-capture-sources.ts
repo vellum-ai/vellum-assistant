@@ -779,6 +779,13 @@ const locatedElementSchema = z.discriminatedUnion("found", [
     reason: z.enum(["no-tree", "ambiguous", "no-match"]),
     ambiguous: z.array(z.string()).optional(),
     available: z.array(z.string()).optional(),
+    /**
+     * How many labels there were, which can be more than the list carries.
+     * The helper bounds what it sends so a page of ten thousand elements
+     * cannot become the payload, and the count is what keeps a caller saying
+     * "and N more" honest about the ones it never received.
+     */
+    candidateCount: z.number().optional(),
   }),
 ]);
 

@@ -5,6 +5,10 @@
  * Exits with code 1 if the catalog is stale (i.e. regenerating it would
  * produce a diff). Intended for use in CI to prevent catalog drift.
  *
+ * After editing any `skills/<name>/SKILL.md`, regenerate with
+ * `node scripts/skills/generate-catalog.mjs` and commit `skills/catalog.json`
+ * in the same change set so this check sees both.
+ *
  * Usage:
  *   node scripts/skills/check-catalog.mjs
  */

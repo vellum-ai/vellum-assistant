@@ -134,9 +134,6 @@
   "stepIndicator": {
     "ariaLabel": "Paso {current} de {total}"
   },
-  "googleCalendar": {
-    "authorizationFailed": "No se pudo iniciar la autorización de Google Calendar."
-  },
   "introductionScreen": {
     "greetingNamed": "¡Hola, {name}!",
     "greeting": "¡Hola!",

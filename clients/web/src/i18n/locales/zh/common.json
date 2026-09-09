@@ -781,12 +781,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 账户已连接。",
-    "authPopupClosed": "{name} 连接失败：授权弹窗已关闭。",
     "authorizationError": "{name} 错误：{code}",
     "authorizationFailed": "{name} 授权失败",
     "popupBlocked": "弹窗被阻止。请启用弹窗并重试。",
-    "popupClosed": "{name} 连接失败：弹窗已关闭。",
-    "startFailed": "启动 {name} 授权失败。"
+    "startFailed": "启动 {name} 授权失败。",
+    "startFailedWithReason": "启动 {name} 授权失败：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的浏览器阻止了助手尝试打开的页面。",

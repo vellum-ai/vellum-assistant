@@ -110,11 +110,10 @@ export interface PendingInteraction {
   /** When set, the host_bash request should be routed to this specific client. */
   targetClientId?: string;
   /**
-   * Snapshot of `targetClientId`'s `actorPrincipalId` taken at registration
-   * time. Persisted so the result-route same-actor check compares against
-   * a stable value rather than the live hub — the target client's SSE
-   * subscription may have briefly disconnected between dispatch and result
-   * submission, which would otherwise 403 a legitimate result.
+   * Actor principal captured at registration. Targeted requests snapshot the
+   * target client's actor so a brief SSE reconnect does not 403 a legitimate
+   * result. Untargeted requests snapshot the turn's source actor so a
+   * different principal cannot forge stdout/stderr/exitCode.
    */
   targetActorPrincipalId?: string;
 
