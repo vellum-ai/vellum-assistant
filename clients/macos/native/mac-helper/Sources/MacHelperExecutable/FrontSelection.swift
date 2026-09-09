@@ -101,6 +101,177 @@ enum FrontSelection {
     /// not the moment to keep raising it.
     private nonisolated(unsafe) static var promptedForTrust = false
 
+    /// What the focused control in the application in front is, for a paste
+    /// that is about to be sent there.
+    ///
+    /// A read of its own rather than a by-product of `read()`: that one is
+    /// asked once, at the top of a hold, and answers a question about text
+    /// the user highlighted. This one is asked at the end, when the words
+    /// exist and the only question left is whether anything will take them.
+    /// Nothing is copied and no keystroke is sent, so it costs one
+    /// Accessibility round trip.
+    struct Focus {
+        /// Whether the application in front reports a focused element at all.
+        let focused: Bool
+        /// Whether that element takes text. See `takesText`.
+        let takesText: Bool
+        let role: String?
+        var bundleId: String?
+        var trusted = true
+        /// Why the focused element could not be read, when it could not be.
+        /// Two very different things end up as `focused=false`, and only the
+        /// log can tell them apart afterwards: an application that says
+        /// nothing is focused, and one that did not answer in time.
+        var error: AXError?
+
+        var logLine: String {
+            "trusted=\(trusted) app=\(bundleId ?? "-") focused=\(focused) role=\(role ?? "-") takesText=\(takesText) err=\(error.map { String($0.rawValue) } ?? "-")"
+        }
+    }
+
+    /// Where a paste sent to the application in front would land.
+    ///
+    /// Untrusted reads as somewhere to paste. Without the Accessibility grant
+    /// this cannot see a text field that is genuinely there, and withholding
+    /// the words on a read that cannot see anything would turn a missing
+    /// permission into dictation that never types.
+    static func readFocus() -> Focus {
+        guard AXIsProcessTrusted() else {
+            return Focus(
+                focused: false,
+                takesText: true,
+                role: nil,
+                bundleId: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+                trusted: false
+            )
+        }
+        let bundleId = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, requestTimeoutSeconds)
+        var focusedRef: CFTypeRef?
+        let status = AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &focusedRef
+        )
+        guard status == .success,
+            let focusedValue = focusedRef,
+            CFGetTypeID(focusedValue) == AXUIElementGetTypeID()
+        else {
+            // **Only a conclusive answer withholds the paste.** `noValue` and
+            // `attributeUnsupported` are the application saying there is
+            // nothing focused, which is the whole case this read exists to
+            // find. Everything else is this side failing to ask: the 50ms
+            // timeout expiring as `cannotComplete`, the API off, an answer
+            // that is not an element. A failure to ask has not seen the text
+            // field it would be withholding from, so it answers the way an
+            // untrusted read does.
+            let conclusive = status == .noValue || status == .attributeUnsupported
+            return Focus(
+                focused: false,
+                takesText: !conclusive,
+                role: nil,
+                bundleId: bundleId,
+                error: status == .success ? nil : status
+            )
+        }
+        let focused = focusedValue as! AXUIElement
+        AXUIElementSetMessagingTimeout(focused, requestTimeoutSeconds)
+        let role = stringAttribute(focused, kAXRoleAttribute as CFString)
+        return Focus(
+            focused: true,
+            takesText: takesText(focused, role: role),
+            role: role,
+            bundleId: bundleId
+        )
+    }
+
+    /// Whether text pasted right now would land in this element.
+    ///
+    /// Settability decides it wherever the element will say. Yes is yes, and
+    /// **a settable-but-false answer is a no that nothing below overturns**:
+    /// a disabled or read-only text field has a text control's role and a
+    /// caret's attributes, and taking the role as a second opinion would hand
+    /// it a paste and call the words delivered.
+    ///
+    /// The rest is for the elements that will not say. A settability answer
+    /// the element did not give proves nothing either way, so the two weaker
+    /// marks get their turn: a text control's role, and a selected text
+    /// range, which is the generic sign of something with a caret in it and
+    /// catches the editors that answer to neither of the others.
+    private static func takesText(_ element: AXUIElement, role: String?) -> Bool {
+        if isDisabled(element) {
+            return false
+        }
+        switch settability(element) {
+        case .settable:
+            return true
+        case .fixed:
+            return false
+        case .unknown:
+            break
+        }
+        if let role, textControlRoles.contains(role) {
+            return true
+        }
+        var rangeRef: CFTypeRef?
+        return AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &rangeRef
+        ) == .success
+    }
+
+    /// What an element says about writing its text: that it can be written,
+    /// that it cannot, or nothing usable. The third is its own answer because
+    /// the two weaker marks in `takesText` are only worth asking once this
+    /// one has come back empty.
+    private enum Settability {
+        case settable
+        case fixed
+        case unknown
+    }
+
+    private static func settability(_ element: AXUIElement) -> Settability {
+        var conclusiveNos = 0
+        for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
+            var settable = DarwinBoolean(false)
+            let status = AXUIElementIsAttributeSettable(
+                element, attribute as CFString, &settable
+            )
+            if status == .success, settable.boolValue {
+                return .settable
+            }
+            // An attribute the element does not have is a no as firm as an
+            // attribute it has and will not let this process write: either
+            // way there is nothing here to put text into. Everything else is
+            // the ask failing rather than the element answering, the 50ms
+            // timeout expiring as `cannotComplete` above all, and proves
+            // nothing about the attribute it was asking after.
+            if status == .success
+                || status == .attributeUnsupported
+                || status == .noValue {
+                conclusiveNos += 1
+            }
+        }
+        // **Both, or neither.** The two attributes are independent and either
+        // one alone establishes editability, so a no from one beside a
+        // timeout from the other is not a no about the element. Calling it
+        // one would withhold the paste from an editor that was merely slow.
+        return conclusiveNos == 2 ? .fixed : .unknown
+    }
+
+    /// Whether the element says it is disabled. Only an explicit no counts: a
+    /// control that does not report the attribute is not claiming anything,
+    /// and this read never withholds a paste on silence.
+    private static func isDisabled(_ element: AXUIElement) -> Bool {
+        var enabledRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXEnabledAttribute as CFString, &enabledRef
+        ) == .success,
+            let enabled = enabledRef as? Bool
+        else {
+            return false
+        }
+        return !enabled
+    }
+
     /// The current selection, and how it was found.
     static func read() -> Outcome {
         var outcome = Outcome(trusted: AXIsProcessTrusted())
@@ -186,15 +357,13 @@ enum FrontSelection {
     /// web pages outside a contenteditable and read-only views do not. Asked
     /// rather than inferred from the role because a text view can be
     /// read-only and a web area can be an editor.
+    ///
+    /// An element that will not say reads as no here. This decides whether a
+    /// selection can be written back over, and writing over the user's text
+    /// on a guess is the mistake worth avoiding; `takesText` weighs the same
+    /// answer the other way, since what it risks is a paste going nowhere.
     private static func isEditable(_ element: AXUIElement) -> Bool {
-        for attribute in [kAXValueAttribute, kAXSelectedTextAttribute] {
-            var settable = DarwinBoolean(false)
-            if AXUIElementIsAttributeSettable(element, attribute as CFString, &settable) == .success,
-               settable.boolValue {
-                return true
-            }
-        }
-        return false
+        settability(element) == .settable
     }
 
     private static func isBlank(_ text: String) -> Bool {

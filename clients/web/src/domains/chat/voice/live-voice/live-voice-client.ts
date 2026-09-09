@@ -34,6 +34,7 @@ import {
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
   type LiveVoiceActivityServerFrame,
+  type LiveVoiceEntry,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
@@ -64,7 +65,9 @@ export const RETRYABLE_LIVE_VOICE_CLOSE_CODES: ReadonlySet<number> = new Set([
 
 /** Reason a live-voice session failed, surfaced via the `error` event. */
 export type LiveVoiceClientErrorReason =
-  "connection-failed" | "protocol-error" | "timeout";
+  | "connection-failed"
+  | "protocol-error"
+  | "timeout";
 
 export interface LiveVoiceClientError {
   readonly reason: LiveVoiceClientErrorReason;
@@ -137,6 +140,28 @@ export interface LiveVoiceTextTurnRejected {
  * frame: it could not persist this one, and it has already reclaimed the
  * attachment itself.
  */
+/**
+ * The client leg of one kept frame, sent with the `sight_frame` for the
+ * daemon's log. Durations rather than timestamps: the daemon's clock is not
+ * this one, and only this side can say how long its encode and upload took.
+ * Whole milliseconds, never negative. Mirrors `LiveVoiceSightFrameTiming` in
+ * the daemon's `live-voice/protocol.ts`.
+ */
+export interface LiveVoiceSightFrameTiming {
+  /** Why the frame was kept: a gate reason, or a source's own word for it. */
+  readonly reason: string;
+  /** From the arm that asked for this keep to the keep. Forced keeps only. */
+  readonly armToKeepMs?: number;
+  /** From the keep to a JPEG sized for upload. */
+  readonly keepToEncodedMs: number;
+  /** From the JPEG to an attachment id, which is the HTTP upload. */
+  readonly encodedToUploadedMs: number;
+  /** From the id to the send, which is the wait for older keeps to go first. */
+  readonly uploadedToSentMs: number;
+  /** The JPEG that was uploaded, in bytes. */
+  readonly bytes: number;
+}
+
 export interface LiveVoiceSightFrameRejected {
   readonly unsupported: boolean;
   /**
@@ -227,6 +252,11 @@ export interface LiveVoiceConnectArgs {
    * sent on the `start` frame. Omitted lets the daemon use its default.
    */
   bargeInMinSpeechMs?: number;
+  /**
+   * Which control asked for the session, sent on the `start` frame. Omitted
+   * means the daemon reports the session's entry point as unknown.
+   */
+  entry?: LiveVoiceEntry;
 }
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
@@ -256,6 +286,7 @@ export class LiveVoiceChannelClient {
   private turnDetection: LiveVoiceTurnDetectionMode | undefined;
   private silenceThresholdMs: number | undefined;
   private bargeInMinSpeechMs: number | undefined;
+  private entry: LiveVoiceEntry | undefined;
   // Set once an assistant running daemon code older than the `update_config`
   // frame rejects it with `unknown_type`. We then stop sending config updates
   // for this session so an older assistant is neither killed nor spammed by the
@@ -335,6 +366,7 @@ export class LiveVoiceChannelClient {
     turnDetection,
     silenceThresholdMs,
     bargeInMinSpeechMs,
+    entry,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") {
       return;
@@ -344,6 +376,7 @@ export class LiveVoiceChannelClient {
     this.turnDetection = turnDetection;
     this.silenceThresholdMs = silenceThresholdMs;
     this.bargeInMinSpeechMs = bargeInMinSpeechMs;
+    this.entry = entry;
 
     let url: string;
     try {
@@ -474,11 +507,20 @@ export class LiveVoiceChannelClient {
    * below keeps that out of the `update_config` bucket, an ungated sampler
    * would still be sending a frame every few seconds into a void.
    */
-  sightFrame(attachmentId: string): boolean {
+  sightFrame(
+    attachmentId: string,
+    timing?: LiveVoiceSightFrameTiming,
+  ): boolean {
     if (this.state !== "active") {
       return false;
     }
-    return this.trySend(JSON.stringify({ type: "sight_frame", attachmentId }));
+    return this.trySend(
+      JSON.stringify({
+        type: "sight_frame",
+        attachmentId,
+        ...(timing ? { timing } : {}),
+      }),
+    );
   }
 
   /**
@@ -563,6 +605,7 @@ export class LiveVoiceChannelClient {
       // session outright with `credentials_unavailable`, which is precisely
       // the outcome the text-only path exists to avoid.
       textInput: true,
+      ...(this.entry ? { entry: this.entry } : {}),
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
       ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
       ...(this.silenceThresholdMs !== undefined

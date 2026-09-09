@@ -155,6 +155,22 @@ export function SkillsReferenceComputerUseContent() {
               unsupported tools are not offered to the assistant.
             </li>
             <li>
+              <strong>Single-window observations on macOS.</strong> The observe tool accepts
+              <code> capture_window_id</code>, a current native CGWindowID, not a browser tab
+              or accessibility element ID. It captures only that window and its accessibility
+              tree, even behind another app, without secondary windows or a desktop fallback.
+              A compatible desktop app must explicitly advertise window-capture support;
+              older or unsupported clients are rejected before capture.
+            </li>
+            <li>
+              <strong>Observation-only scope.</strong> Window selection applies to one observe
+              call, not the whole session: later click, type, and scroll actions still return
+              normal desktop observations. Selection does not focus the window or restrict
+              later input to it. Cropped screenshot coordinates are window-relative, not
+              full-display coordinates; prefer accessibility element IDs and focus the
+              intended window before acting.
+            </li>
+            <li>
               <strong>Screen visibility.</strong> Be mindful of what&apos;s visible on screen.
               Screenshots are sent to the AI model.
             </li>

@@ -212,6 +212,87 @@ describe("live-voice sight_frame frame", () => {
       expect(result.error.frameType).toBe("sight_frame");
     }
   });
+
+  test("carries the client's timing through as sent", () => {
+    const timing = {
+      reason: "forced",
+      armToKeepMs: 40,
+      keepToEncodedMs: 30,
+      encodedToUploadedMs: 200,
+      uploadedToSentMs: 0,
+      bytes: 12345,
+    };
+    const result = validateLiveVoiceClientFrame({
+      type: "sight_frame",
+      attachmentId: "att-1",
+      timing,
+    });
+    expect(result).toEqual({
+      ok: true,
+      frame: { type: "sight_frame", attachmentId: "att-1", timing },
+    });
+  });
+
+  test("an ambient keep's timing has no arm", () => {
+    const timing = {
+      reason: "novel",
+      keepToEncodedMs: 30,
+      encodedToUploadedMs: 200,
+      uploadedToSentMs: 12,
+      bytes: 12345,
+    };
+    const result = validateLiveVoiceClientFrame({
+      type: "sight_frame",
+      attachmentId: "att-1",
+      timing,
+    });
+    expect(result).toEqual({
+      ok: true,
+      frame: { type: "sight_frame", attachmentId: "att-1", timing },
+    });
+  });
+
+  test("rejects a timing with a negative or fractional duration, naming the field", () => {
+    for (const bad of [
+      { keepToEncodedMs: -1 },
+      { encodedToUploadedMs: 1.5 },
+      { uploadedToSentMs: "0" },
+      { armToKeepMs: -5 },
+      { bytes: null },
+      { reason: "" },
+    ]) {
+      const result = validateLiveVoiceClientFrame({
+        type: "sight_frame",
+        attachmentId: "att-1",
+        timing: {
+          reason: "novel",
+          keepToEncodedMs: 30,
+          encodedToUploadedMs: 200,
+          uploadedToSentMs: 0,
+          bytes: 1,
+          ...bad,
+        },
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error.code).toBe("invalid_field");
+        expect(result.error.field).toBe("timing");
+        expect(result.error.frameType).toBe("sight_frame");
+      }
+    }
+  });
+
+  test("rejects a timing that is not an object", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "sight_frame",
+      attachmentId: "att-1",
+      timing: "fast",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.field).toBe("timing");
+    }
+  });
 });
 
 describe("live-voice camera frames kept mid-call", () => {

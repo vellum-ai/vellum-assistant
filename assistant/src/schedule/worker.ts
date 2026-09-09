@@ -11,7 +11,7 @@
  * user-facing traffic, and keep running during a main-thread freeze in the
  * daemon.
  */
-import { writeFileSync } from "node:fs";
+import { watch, writeFileSync } from "node:fs";
 
 import {
   initFeatureFlagOverrides,
@@ -20,12 +20,18 @@ import {
 import { getConfig } from "../config/loader.js";
 import { rehydratePlatformCredentials } from "../config/platform-rehydration.js";
 import { startConversationEvictor } from "../daemon/conversation-evictor.js";
+import { stopMcpServerManager } from "../mcp/manager.js";
+import { MCP_RELOAD_SIGNAL_FILE } from "../mcp/reload-signal.js";
+import {
+  restartConfiguredMcpServers,
+  startConfiguredMcpServers,
+} from "../mcp/startup.js";
 import { resetDb } from "../persistence/db-connection.js";
 import { registerWorkerPluginSurface } from "../plugins/worker-plugin-surface.js";
 import { disableStreamSeqStamping } from "../runtime/assistant-stream-state.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { getScheduleWorkerPidPath } from "../util/platform.js";
+import { getScheduleWorkerPidPath, getSignalsDir } from "../util/platform.js";
 import {
   cleanupWorkerPidFile,
   startWorkerPidFileGuard,
@@ -39,6 +45,80 @@ const TICK_INTERVAL_MS = 15_000;
 
 /** How often this process re-reads flag overrides from the gateway. */
 const FLAG_REFRESH_INTERVAL_MS = 60_000;
+
+/**
+ * How long startup waits for MCP servers before arming the tick.
+ *
+ * Connecting is worth waiting for: a schedule that fires first would fail its
+ * `mcp__*` calls as unknown tools. It is not worth waiting for without limit.
+ * `McpServerManager.start()` walks servers one at a time and allows each 30s to
+ * connect and 30s more to list its tools, so a handful of unreachable ones can
+ * hold the first tick for minutes, including the notify and script schedules
+ * that never touch MCP. Past this deadline the connect continues in the
+ * background and the tick starts without it.
+ */
+const MCP_STARTUP_GRACE_MS = 20_000;
+
+/**
+ * Rebuild this process's MCP connections whenever the daemon reports a reload.
+ *
+ * Watches the signals directory rather than config.json: a reload also follows
+ * an OAuth reauthentication and a plugin install, neither of which edits that
+ * file, and the daemon already funnels all of them through one reload that
+ * writes this signal. Restarts are serialized and coalesced, so a burst of
+ * writes (an editor saving config.json, several servers reauthenticating)
+ * rebuilds once rather than once per event.
+ *
+ * Never throws: a signals directory that cannot be watched leaves this process
+ * on the servers it connected at startup, which is where it already was.
+ */
+function watchForMcpReload(): void {
+  const signalsDir = getSignalsDir();
+  let restarting: Promise<unknown> | null = null;
+  let restartQueued = false;
+
+  const restart = (): void => {
+    if (restarting) {
+      // A reload landed mid-rebuild, so the rebuild in flight may have read
+      // the config as it stood before. Run once more after it, not once per
+      // event that arrived while it ran.
+      restartQueued = true;
+      return;
+    }
+    restarting = restartConfiguredMcpServers()
+      .then((toolCount) => {
+        log.info({ toolCount }, "MCP servers reloaded in schedule worker");
+      })
+      .catch((err: unknown) => {
+        log.warn({ err }, "MCP reload failed in schedule worker");
+      })
+      .finally(() => {
+        restarting = null;
+        if (restartQueued) {
+          restartQueued = false;
+          restart();
+        }
+      });
+  };
+
+  try {
+    const watcher = watch(signalsDir, (_eventType, filename) => {
+      if (String(filename ?? "") === MCP_RELOAD_SIGNAL_FILE) {
+        restart();
+      }
+    });
+    watcher.on("error", (err) => {
+      log.warn({ err, signalsDir }, "MCP reload watcher failed");
+    });
+    watcher.unref();
+    log.info({ dir: signalsDir }, "Watching for MCP reload signals");
+  } catch (err) {
+    log.warn(
+      { err, signalsDir },
+      "Failed to watch for MCP reload signals; MCP servers stay as connected at startup",
+    );
+  }
+}
 
 async function main(): Promise<void> {
   // Only the daemon stamps SSE seqs and writes the shared reservation file.
@@ -102,6 +182,36 @@ async function main(): Promise<void> {
     );
   }
 
+  // Connect this process's own MCP servers. The tool registry is per-process
+  // and MCP tools reach it only by connecting to each server and listing what
+  // it offers, so `initializeTools()` above leaves them out: it loads core
+  // built-ins and workspace tools from disk and nothing else. Without this an
+  // execute-mode schedule fails every `mcp__*` call as "Unknown tool" while the
+  // daemon, which does connect at boot, lists the same tool as registered.
+  //
+  // Connecting here rather than borrowing the daemon's connections is what
+  // keeps this process independent of the daemon's event loop, which is the
+  // reason it is a separate process at all.
+  //
+  // Bounded by MCP_STARTUP_GRACE_MS: unreachable servers must not hold the
+  // schedules that do not use them. The connect runs on past the deadline.
+  const mcpStartup = startConfiguredMcpServers(getConfig().mcp);
+  await Promise.race([
+    mcpStartup,
+    // Unref'd so a connect that beats the deadline leaves nothing pending.
+    new Promise((resolve) => {
+      setTimeout(resolve, MCP_STARTUP_GRACE_MS).unref();
+    }),
+  ]);
+
+  // React to an MCP reload in the daemon. The server set belongs to the config
+  // and the daemon owns the watcher that notices it change; this process holds
+  // its own connections to the same servers, so without this it keeps serving
+  // whatever was configured when it started, including servers since disabled
+  // or removed. Best-effort: a signals directory that cannot be watched leaves
+  // this process on its startup connections until it restarts.
+  watchForMcpReload();
+
   // Sweep idle conversations out of the in-memory pool. The daemon starts
   // this at startup; this process hosts conversations too, so without it
   // every scheduled run's conversation is retained for the process lifetime.
@@ -122,6 +232,13 @@ async function main(): Promise<void> {
       clearInterval(flagRefreshTimer);
     }
     disposePidGuard?.();
+    // Best-effort, deliberately not awaited: this process exits immediately on
+    // a signal by design, and the exit is what everything else here relies on.
+    // Starting the close still lets a stdio server see its stdin shut rather
+    // than only noticing when the pipe breaks.
+    void stopMcpServerManager().catch((err) => {
+      log.warn({ err }, "MCP server shutdown failed (non-fatal)");
+    });
     cleanupWorkerPidFile(pidPath);
     process.exit(0);
   };

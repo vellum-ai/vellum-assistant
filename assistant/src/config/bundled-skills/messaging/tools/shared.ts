@@ -106,6 +106,12 @@ export function extractEmail(address: string): string {
     .toLowerCase();
 }
 
+/** True when `value` contains a usable mailbox (has `@`, no spaces). */
+export function isMailboxAddress(value: string): boolean {
+  const email = extractEmail(value);
+  return email.includes("@") && !email.includes(" ");
+}
+
 /**
  * Resolve the messaging provider from user input.
  * If platform is specified, look it up directly.

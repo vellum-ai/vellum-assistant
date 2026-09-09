@@ -25,12 +25,16 @@ import {
   purgeConversationMemoryTables,
 } from "../conversation-memory-purge.js";
 import conversationDeleted from "../hooks/conversation-deleted.js";
+import { ensureMemoryV3PluginSchema } from "../v3/plugin-schema.js";
 import {
   relocatedMemoryRowCount as rowCount,
   seedRelocatedMemoryRow as seedRow,
 } from "./relocated-memory-test-rows.js";
 
 await initializeDb();
+// The memory-v3 plugin creates its own tables (init hook, or a store's
+// first use), not the global chain: stand them up as the init hook does.
+ensureMemoryV3PluginSchema();
 
 async function runHook(conversationId: string): Promise<void> {
   const hook = conversationDeleted as HookFunction<ConversationDeletedContext>;
@@ -55,6 +59,8 @@ describe("conversation memory purge", () => {
         "memory_segments",
         "memory_v2_activation_logs",
         "memory_v3_ever_injected",
+        "memory_v3_injected_sections",
+        "memory_v3_pools",
         "memory_v3_selections",
       ].sort(),
     );

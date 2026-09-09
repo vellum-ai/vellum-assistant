@@ -12,6 +12,7 @@ import {
 } from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
+import { signalMcpReloaded } from "../mcp/reload-signal.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -154,6 +155,11 @@ async function doReload(): Promise<McpReloadResult> {
     // to evict sessions.
 
     log.info({ serverCount, toolCount }, "MCP servers reloaded");
+    // Other processes hold their own connections to the same servers and have
+    // no watcher of their own; this is how they learn the set moved. Only on
+    // success: a reload that failed before the teardown left this process on
+    // its existing servers, so there is nothing for anyone to mirror.
+    signalMcpReloaded();
     return { success: true, serverCount, toolCount, servers };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);

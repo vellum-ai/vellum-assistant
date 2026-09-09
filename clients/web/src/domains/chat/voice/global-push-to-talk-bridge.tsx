@@ -20,6 +20,16 @@ import {
 import { getPushToTalkTarget } from "@/domains/chat/voice/push-to-talk-target";
 import { supportsKeyboardActivation } from "@/domains/chat/voice/keyboard-activation-host";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import {
+  armDictationOfferWatch,
+  clearDictationOffer,
+  setDictationOffer,
+  setUnplacedDictationOffer,
+} from "@/domains/chat/voice/dictation-offer-store";
+import {
+  findRunningFnClaimant,
+  type FnClaimant,
+} from "@/domains/chat/voice/fn-claimants";
 import { useVoiceKey } from "@/domains/chat/voice/use-voice-key";
 import { useVoiceModeHotkey } from "@/domains/chat/voice/use-voice-mode-hotkey";
 import {
@@ -33,6 +43,8 @@ import type { DictationPostResponse } from "@/generated/daemon/types.gen";
 import { supportsSelectionRewrite } from "@/lib/backwards-compat/selection-rewrite";
 import { subscribeToDictationOverlayStop } from "@/runtime/dictation-overlay";
 import { insertTextIntoFrontApp } from "@/runtime/text-insertion";
+import { isPopoutWindowLifetime } from "@/runtime/popout-window";
+import { frontmostApp } from "@/runtime/running-apps";
 import { useConversationStore } from "@/stores/conversation-store";
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -182,6 +194,12 @@ function showVoiceErrorToast(code: string): void {
  * be done, in the composer, so nothing said is lost. A paste the system turned
  * away says so once, with a stable id, and marks the recording so the overlay
  * shows the failure rather than a check.
+ *
+ * A front application with nowhere to put the words is not a failure and is
+ * not announced as one. Nothing is pasted, nothing is denied, and the user is
+ * not in the app to read a message about it: the words go up on the companion
+ * instead, where they can be copied, and into the composer behind that in
+ * case the surface is not on screen at all.
  */
 async function landInFrontApp(
   text: string,
@@ -196,7 +214,9 @@ async function landInFrontApp(
     return;
   }
 
-  if (frontAppInsertion.status === "automation-denied") {
+  if (frontAppInsertion.status === "no-text-field") {
+    setUnplacedDictationOffer(text);
+  } else if (frontAppInsertion.status === "automation-denied") {
     showVoiceErrorToast("dictation-automation-denied");
     useVoiceRecordingStore
       .getState()
@@ -247,6 +267,14 @@ export function GlobalPushToTalkBridge({
   // What the hold in progress began over. Read when its transcript lands,
   // which decides whether the words go to the cursor or to the assistant.
   const holdSelectionRef = useRef<Promise<HotkeySelection | null> | null>(null);
+  // Which other dictation app, if any, was running when the hold began, and
+  // so heard the same key. Asked at the start rather than at the end: it is
+  // the app that pasted first that the offer names, and one launched while
+  // the user was talking heard none of it.
+  const holdClaimantRef = useRef<Promise<FnClaimant | null> | null>(null);
+  // The application in front as the hold began, which is where a claimant
+  // pasted and so the only place "use" may undo.
+  const holdFrontAppRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
     if (!voiceStream) {
@@ -326,6 +354,19 @@ export function GlobalPushToTalkBridge({
       // so that transcript is still about what it was held over.
       if (holdTarget()?.start() === true) {
         holdSelectionRef.current = selection;
+        // Only the window that can publish an offer makes one. A pop-out can
+        // own the key (main routes the edges to the last focused window) but
+        // the companion mirror publishes from the main window alone, so an
+        // offer made here would be one nobody is ever shown. A pop-out pastes
+        // as it always did.
+        holdClaimantRef.current = isPopoutWindowLifetime()
+          ? null
+          : findRunningFnClaimant();
+        holdFrontAppRef.current = frontmostApp();
+        // A new hold is a new question. An offer still standing from the
+        // last one would otherwise outlive it, and be answered onto words
+        // the user has moved past.
+        clearDictationOffer();
       }
     },
     onHoldEnd: () => {
@@ -334,9 +375,18 @@ export function GlobalPushToTalkBridge({
         return;
       }
       holdTarget()?.stop();
+      // From here the other app's paste is the last edit, and the cleanup
+      // pass stands between this and the offer. Watch from now so a press in
+      // that gap is seen: after one, there is nothing safe left to replace.
+      if (holdClaimantRef.current !== null) {
+        armDictationOfferWatch();
+      }
     },
     onDoubleTap: () => {
-      toggleVoiceFromSurface((to, options) => navigateRef.current(to, options));
+      toggleVoiceFromSurface(
+        (to, options) => navigateRef.current(to, options),
+        "voice_key",
+      );
     },
   });
 
@@ -344,6 +394,10 @@ export function GlobalPushToTalkBridge({
     async (rawText: string): Promise<void> => {
       const pendingSelection = holdSelectionRef.current;
       holdSelectionRef.current = null;
+      const pendingClaimant = holdClaimantRef.current;
+      holdClaimantRef.current = null;
+      const pendingFrontApp = holdFrontAppRef.current;
+      holdFrontAppRef.current = null;
       const selection = pendingSelection ? await pendingSelection : null;
       if (selection !== null) {
         // Words over an editable selection may be asking for it changed. The
@@ -372,6 +426,7 @@ export function GlobalPushToTalkBridge({
         const taken = askVoiceFromSurface(
           (to, options) => navigateRef.current(to, options),
           ask,
+          "voice_key_ask",
         );
         console.info(
           `dictation: ask selectionChars=${selection.text.length} truncated=${selection.truncated} words=${rawText.length} taken=${taken}`,
@@ -400,6 +455,21 @@ export function GlobalPushToTalkBridge({
       console.info(
         `dictation: cleanup ${dictationResult ? dictationResult.mode : "skipped"} inChars=${rawText.length} outChars=${insertText.length} ms=${Date.now() - cleanupStartedAt}`,
       );
+      // Another dictation app heard the same key and has pasted by now.
+      // Pasting beside it would leave the sentence twice, so the words are
+      // offered on the companion instead, and land only if asked to.
+      const claimant = pendingClaimant ? await pendingClaimant : null;
+      if (claimant !== null) {
+        const offered = setDictationOffer(
+          claimant,
+          insertText,
+          pendingFrontApp ? await pendingFrontApp : null,
+        );
+        console.info(
+          `dictation: ${offered ? "offered" : "dropped"} instead of pasted, beside ${claimant.bundleId} chars=${insertText.length}`,
+        );
+        return;
+      }
       await landInFrontApp(insertText, assistantId);
     },
     [assistantId],

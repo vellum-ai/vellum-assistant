@@ -9,19 +9,14 @@
  * submitted.
  */
 
-import { CheckCircle, Loader2, X } from "lucide-react";
+import { CheckCircle, Loader2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import {
-  Button,
-  Card,
-  Input,
-  Textarea,
-  Typography,
-} from "@vellumai/design-library";
+import { Button, Card, Input, Typography } from "@vellumai/design-library";
 import { useTranslation } from "@/i18n";
 
 import type { PendingContactRecordRequestState } from "@/types/interaction-ui-types";
+import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 
 type ContactRecordOperation = PendingContactRecordRequestState["operation"];
 
@@ -131,108 +126,89 @@ export function ContactRecordCard({
   }
 
   return (
-    <Card className="flex flex-col gap-4 p-4">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex flex-col gap-1">
+    <Card.Root padding="md" className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <Typography
+          variant="title-medium"
+          className="text-[var(--content-emphasised)]"
+        >
+          {heading}
+        </Typography>
+        {request.description && (
           <Typography
-            variant="label-small-default"
-            className="text-[var(--content-primary)]"
+            variant="body-medium-lighter"
+            className="text-[var(--content-tertiary)]"
           >
-            {heading}
+            {request.description}
           </Typography>
-          {request.description && (
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-secondary)]"
-            >
-              {request.description}
-            </Typography>
-          )}
-          {(isDelete || isMerge) && (
-            <>
-              <Typography
-                variant="body-small-default"
-                className="text-[var(--content-secondary)]"
-              >
-                {isDelete
-                  ? t("contactRecordCard.deleteWarning")
-                  : t("contactRecordCard.mergeWarning", {
-                      donor: request.donorDisplayName ?? "",
-                      survivor: request.currentDisplayName ?? "",
-                    })}
-              </Typography>
-              {isDelete ? (
-                <ChannelList channels={request.channels} />
-              ) : (
-                <>
-                  <Typography
-                    variant="label-small-default"
-                    className="mt-2 text-[var(--content-secondary)]"
-                  >
-                    {t("contactRecordCard.mergeDonorChannels", {
-                      name: request.donorDisplayName ?? "",
-                    })}
-                  </Typography>
-                  <ChannelList channels={request.donorChannels} />
-                  <Typography
-                    variant="label-small-default"
-                    className="mt-2 text-[var(--content-secondary)]"
-                  >
-                    {t("contactRecordCard.mergeSurvivorChannels", {
-                      name: request.currentDisplayName ?? "",
-                    })}
-                  </Typography>
-                  <ChannelList channels={request.channels} />
-                </>
-              )}
-            </>
-          )}
-        </div>
-        {!accepted && (
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={isSubmitting}
-            className="shrink-0 text-[var(--content-tertiary)] hover:text-[var(--content-secondary)]"
-            aria-label={t("contactRecordCard.dismiss")}
+        )}
+        {(isDelete || isMerge) && (
+          <Typography
+            variant="body-medium-lighter"
+            className="text-[var(--content-tertiary)]"
           >
-            <X size={16} />
-          </button>
+            {isDelete
+              ? t("contactRecordCard.deleteWarning")
+              : t("contactRecordCard.mergeWarning", {
+                  donor: request.donorDisplayName ?? "",
+                  survivor: request.currentDisplayName ?? "",
+                })}
+          </Typography>
         )}
       </div>
 
-      {accepted ? (
-        // typography: off-scale, an inline status badge rather than prose
+      {isDelete && <ChannelList channels={request.channels} />}
+      {isMerge && (
+        <>
+          <ChannelList
+            channels={request.donorChannels}
+            label={t("contactRecordCard.mergeDonorChannels", {
+              name: request.donorDisplayName ?? "",
+            })}
+          />
+          <ChannelList
+            channels={request.channels}
+            label={t("contactRecordCard.mergeSurvivorChannels", {
+              name: request.currentDisplayName ?? "",
+            })}
+          />
+        </>
+      )}
 
-        <div className="flex items-center gap-2 text-sm text-[var(--color-success)]">
+      {accepted ? (
+        <div className="flex items-center gap-2 text-body-medium-default text-[var(--system-positive-strong)]">
           <CheckCircle size={16} />
           {t(ACCEPTED_LABEL[request.operation])}
         </div>
       ) : (
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {!isDelete && (
             <Input
+              label={t("contactRecordCard.nameLabel")}
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder={t("contactRecordCard.namePlaceholder")}
               disabled={isSubmitting}
+              fullWidth
               autoFocus
             />
           )}
           {!isDelete && !isMerge && (
-            <Textarea
+            <Input
+              label={t("contactRecordCard.notesLabel")}
+              type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder={t("contactRecordCard.notesPlaceholder")}
               disabled={isSubmitting}
-              rows={3}
+              fullWidth
             />
           )}
-          <div className="flex justify-end gap-2">
+          <div className="flex items-center justify-end gap-2">
             <Button
               type="button"
-              variant="ghost"
+              variant="outlined"
               onClick={onCancel}
               disabled={isSubmitting}
             >
@@ -253,7 +229,7 @@ export function ContactRecordCard({
           </div>
         </form>
       )}
-    </Card>
+    </Card.Root>
   );
 }
 
@@ -261,35 +237,63 @@ export function ContactRecordCard({
  * The channels a confirmation is about: what a delete takes away, what a merge
  * moves to the survivor. Two contacts can share a name, so these are also how
  * the guardian tells which record the card means.
+ *
+ * Each channel reads as a filled row carrying its own glyph, so the kind of
+ * address is legible before the address itself is read. `label` names the set
+ * on a merge, where two of these sit side by side and the rows alone would not
+ * say which contact they belong to.
  */
 function ChannelList({
   channels,
+  label,
 }: {
   channels?: Array<{ type: string; address: string }>;
+  label?: string;
 }) {
   const { t } = useTranslation("chat");
 
-  if (!channels || channels.length === 0) {
-    return (
-      <Typography
-        variant="body-small-default"
-        className="text-[var(--content-tertiary)]"
-      >
-        {t("contactRecordCard.noChannels")}
-      </Typography>
-    );
-  }
-
   return (
-    <ul className="mt-1 list-none">
-      {channels.map((channel) => (
-        <li
-          key={`${channel.type}:${channel.address}`}
-          className="text-body-small-default text-[var(--content-secondary)]"
+    <div className="flex flex-col gap-1">
+      {label && (
+        <Typography
+          variant="label-medium-default"
+          className="text-[var(--content-secondary)]"
         >
-          {channel.type}: {channel.address}
-        </li>
-      ))}
-    </ul>
+          {label}
+        </Typography>
+      )}
+      {!channels || channels.length === 0 ? (
+        <Typography
+          variant="body-medium-lighter"
+          className="text-[var(--content-tertiary)]"
+        >
+          {t("contactRecordCard.noChannels")}
+        </Typography>
+      ) : (
+        <ul className="flex list-none flex-col gap-2">
+          {channels.map((channel) => (
+            <li
+              key={`${channel.type}:${channel.address}`}
+              className="flex h-8 w-full items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-overlay)] px-2 py-1.5"
+            >
+              <ChannelIcon
+                channelId={channel.type}
+                className="size-5 shrink-0 text-[var(--content-secondary)]"
+              />
+              <span className="flex min-w-0 items-center gap-1 text-body-medium-default">
+                <span className="shrink-0 text-[var(--content-secondary)]">
+                  {t("contactRecordCard.channelType", {
+                    channel: getChannelLabel(channel.type),
+                  })}
+                </span>
+                <span className="truncate text-[var(--content-default)]">
+                  {channel.address}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

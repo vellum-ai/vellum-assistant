@@ -39,6 +39,13 @@ mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   }),
 }));
 
+// The decision hook refreshes the feed after every outcome, which needs a
+// query client the card has no provider for. The mocked mutation above never
+// settles, so no outcome (and no toast) is ever reached from here.
+mock.module("@/domains/home/hooks/use-home-feed-query", () => ({
+  useInvalidateHomeFeed: () => () => {},
+}));
+
 mock.module("@/stores/resolved-assistants-store", () => {
   const store = () => null;
   store.use = {
@@ -49,6 +56,7 @@ mock.module("@/stores/resolved-assistants-store", () => {
 
 const { HomeGuardianRequestCard } =
   await import("./home-guardian-request-card");
+const { useGuardianDecisionStore } = await import("../guardian-decision-store");
 
 function guardianItem(
   projection: Partial<FeedItemGuardianRequest>,
@@ -72,6 +80,7 @@ function guardianItem(
 
 beforeEach(() => {
   mutateCalls.length = 0;
+  useGuardianDecisionStore.getState().reset();
 });
 
 describe("HomeGuardianRequestCard", () => {

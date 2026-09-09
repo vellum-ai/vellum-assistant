@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  embeddingContentHashWithExtras,
   embeddingInputContentHash,
   type MultimodalEmbeddingInput,
   normalizeEmbeddingInput,
@@ -112,5 +113,28 @@ describe("embeddingInputContentHash", () => {
   test("returns a hex string", () => {
     const hash = embeddingInputContentHash("test");
     expect(hash).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe("embeddingContentHashWithExtras", () => {
+  test("matches the bare content hash when extras are empty", () => {
+    expect(embeddingContentHashWithExtras("hello")).toBe(
+      embeddingInputContentHash("hello"),
+    );
+    expect(embeddingContentHashWithExtras("hello", [])).toBe(
+      embeddingInputContentHash("hello"),
+    );
+  });
+
+  test("changes when extras change for identical text", () => {
+    const text = "hello";
+    const a = embeddingContentHashWithExtras(text, [
+      "url=http://127.0.0.1:4000/v1",
+    ]);
+    const b = embeddingContentHashWithExtras(text, [
+      "url=http://127.0.0.1:4001/v1",
+    ]);
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(embeddingInputContentHash(text));
   });
 });

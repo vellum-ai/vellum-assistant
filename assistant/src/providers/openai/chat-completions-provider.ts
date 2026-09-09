@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
@@ -9,12 +11,12 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { clampProviderString } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
+import { requestSupportsInlineAudio } from "../inline-audio-support.js";
 import {
   base64Source,
   mediaSourceByteLength,
   resolveMediaReferences,
 } from "../media-resolve.js";
-import { modelSupportsAudioInput } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -34,6 +36,11 @@ import {
   isUnparseableToolArgs,
   wrapUnparseableToolArgs,
 } from "../unparseable-tool-args.js";
+import {
+  salvageXmlToolCalls,
+  shouldSalvageXmlToolCalls,
+  splitXmlToolCallHoldback,
+} from "../xml-tool-call-salvage.js";
 import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
@@ -177,6 +184,12 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  with minimax-m3 on Fireworks). Off by default; scalars/arrays unaffected.
    *  See {@link coerceObjectParamsToJsonString}. */
   coerceObjectArgsToJsonString?: boolean;
+  /**
+   * Convert complete `<invoke>` XML in assistant text into `tool_use` blocks.
+   * Defaults to on for DeepSeek model ids and off otherwise. Set explicitly to
+   * override the model-id default.
+   */
+  salvageXmlToolCalls?: boolean;
   /** Drop `tool_choice` when thinking/reasoning is on the wire. Strict
    *  OpenAI-compatible reasoning upstreams (DeepSeek thinking mode) reject any
    *  explicit `tool_choice` with `Thinking mode does not support this
@@ -191,7 +204,7 @@ const log = getLogger("chat-completions");
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
  *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
  *  `params.reasoning_effort` casts through this union. */
-type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const REASONING_EFFORT_RANK: Record<ReasoningEffortWire, number> = {
   none: 0,
@@ -692,8 +705,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
   private assistantReasoningField:
-    "reasoning" | "reasoning_content" | undefined;
+    | "reasoning"
+    | "reasoning_content"
+    | undefined;
   private coerceObjectArgsToJsonString: boolean;
+  private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
 
   constructor(
@@ -722,6 +738,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.assistantReasoningField = options.assistantReasoningField;
     this.coerceObjectArgsToJsonString =
       options.coerceObjectArgsToJsonString ?? false;
+    this.salvageXmlToolCalls =
+      options.salvageXmlToolCalls ?? shouldSalvageXmlToolCalls(model);
     this.omitToolChoiceWhenReasoning =
       options.omitToolChoiceWhenReasoning ?? false;
   }
@@ -740,12 +758,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
     const logitBias = configObj?.logit_bias as
-      Record<string, number> | undefined;
+      | Record<string, number>
+      | undefined;
     const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
     const perRequestHeaders = configObj?.requestHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
 
     // Per-tool keys whose object schemas were rewritten to JSON strings for the
     // wire, to be decoded back on the response. Empty unless
@@ -756,7 +777,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       const openaiMessages = await this.toOpenAIMessages(
         messages,
         systemPrompt,
-        modelSupportsAudioInput(modelOverride ?? this.model),
+        requestSupportsInlineAudio(modelOverride ?? this.model),
       );
 
       recordProviderRequestDiagnostics({
@@ -812,6 +833,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         ) as OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"];
       }
 
+      const offeredToolNames = new Set((tools ?? []).map((t) => t.name));
+      let xmlToolCallSalvageEnabled = false;
+
       if (tools && tools.length > 0) {
         params.tools = tools.map((t) => {
           let parameters = t.input_schema as OpenAI.FunctionParameters;
@@ -844,6 +868,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
         // receive them; the generic openai-compatible adapter drops every
         // explicit value in thinking mode via `omitToolChoiceWhenReasoning`.
         const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
+        xmlToolCallSalvageEnabled =
+          this.salvageXmlToolCalls && toolChoice !== "none";
         if (toolChoice !== undefined) {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
@@ -862,6 +888,33 @@ export class OpenAIChatCompletionsProvider implements Provider {
       let reasoningText = "";
       let insideThinkBlock = false;
       let pendingContent = "";
+      let xmlHeld = "";
+
+      const emitVisibleText = (delta: string): void => {
+        if (!delta) {
+          return;
+        }
+        if (!xmlToolCallSalvageEnabled) {
+          contentText += delta;
+          onEvent?.({ type: "text_delta", text: delta });
+          return;
+        }
+        const split = splitXmlToolCallHoldback(xmlHeld + delta);
+        xmlHeld = split.held;
+        if (split.visible) {
+          contentText += split.visible;
+          onEvent?.({ type: "text_delta", text: split.visible });
+        }
+      };
+
+      const flushHeldXmlAsText = (): void => {
+        if (!xmlHeld) {
+          return;
+        }
+        contentText += xmlHeld;
+        onEvent?.({ type: "text_delta", text: xmlHeld });
+        xmlHeld = "";
+      };
 
       const flushPendingContent = (final: boolean): void => {
         while (pendingContent.length > 0) {
@@ -896,8 +949,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (openIdx >= 0) {
               const text = pendingContent.substring(0, openIdx);
               if (text) {
-                contentText += text;
-                onEvent?.({ type: "text_delta", text });
+                emitVisibleText(text);
               }
               insideThinkBlock = true;
               pendingContent = pendingContent.substring(
@@ -909,9 +961,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 : partialTagSuffix(pendingContent, "<think>");
               const safeLen = pendingContent.length - partial;
               if (safeLen > 0) {
-                const t = pendingContent.substring(0, safeLen);
-                contentText += t;
-                onEvent?.({ type: "text_delta", text: t });
+                emitVisibleText(pendingContent.substring(0, safeLen));
               }
               pendingContent =
                 partial > 0 ? pendingContent.substring(safeLen) : "";
@@ -940,6 +990,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ...(usageAttributionHeaders ?? {}),
           ...(perRequestHeaders ?? {}),
         };
+        const extraBody = this.buildRequestExtraBody(options);
+        if (extraBody) {
+          Object.assign(params, extraBody);
+        }
         const createStream = () =>
           this.client.chat.completions.create(params, {
             signal: timeoutSignal,
@@ -1020,8 +1074,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 pendingContent += choice.delta.content;
                 flushPendingContent(false);
               } else {
-                contentText += choice.delta.content;
-                onEvent?.({ type: "text_delta", text: choice.delta.content });
+                emitVisibleText(choice.delta.content);
               }
             }
 
@@ -1140,6 +1193,42 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       if (this.parseThinkTags && pendingContent) {
         flushPendingContent(true);
+      }
+
+      // DeepSeek (and any caller that sets salvageXmlToolCalls) may emit
+      // `<invoke>` XML as assistant text instead of native `tool_calls`.
+      // Convert complete offered-tool invokes into tool_use blocks so the
+      // agent loop can execute them. Native tool_calls win.
+      if (xmlToolCallSalvageEnabled && toolCallMap.size === 0) {
+        const salvaged = salvageXmlToolCalls(
+          contentText + xmlHeld,
+          offeredToolNames,
+        );
+        if (salvaged) {
+          contentText = salvaged.text;
+          xmlHeld = "";
+          log.info(
+            {
+              salvagedToolCount: salvaged.calls.length,
+              salvagedToolNames: salvaged.calls.map((call) => call.name),
+            },
+            "Converted XML-formatted assistant text into native tool calls",
+          );
+          for (const [index, call] of salvaged.calls.entries()) {
+            toolCallMap.set(index, {
+              id: `call_${randomUUID()}`,
+              name: call.name,
+              args: JSON.stringify(call.input),
+            });
+          }
+          if (finishReason === "stop" || finishReason === "unknown") {
+            finishReason = "tool_calls";
+          }
+        } else {
+          flushHeldXmlAsText();
+        }
+      } else {
+        flushHeldXmlAsText();
       }
 
       // Build content blocks
@@ -1360,6 +1449,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
     _options?: SendMessageOptions,
   ): Record<string, unknown> {
     return this.extraCreateParams;
+  }
+
+  /**
+   * Fields merged onto the `chat.completions.create` params object. The
+   * OpenAI Node SDK sends unknown body fields as-is, so hosted-Qwen
+   * `directions` reach the runtime proxy on the JSON body.
+   */
+  protected buildRequestExtraBody(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> | undefined {
+    return undefined;
   }
 
   /**

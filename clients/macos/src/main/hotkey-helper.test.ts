@@ -120,6 +120,8 @@ Object.defineProperty(process, "resourcesPath", {
   writable: true,
 });
 
+const { setPointerOnCompanion } = await import("./companion-pointer");
+
 const {
   __resetForTesting,
   __setPlatformForTesting,
@@ -150,15 +152,58 @@ const invokeSetModifierHold = (hold: unknown = CTRL_OPTION) =>
  */
 const registerHold = async (
   sender: FakeWebContents = defaultSender,
-  id = 1,
+  id?: number,
 ): Promise<unknown> => {
   const pending = invokeSetModifierHoldFrom(CTRL_OPTION, sender);
   await wait(5);
+  const request = lastChild?.stdin.writes.at(-1) ?? "";
+  const answered = id ?? (JSON.parse(request) as { id: number }).id;
+  lastChild?.stdout.emit(
+    "data",
+    Buffer.from(
+      `{"jsonrpc":"2.0","id":${answered},"result":{"enabled":true}}\n`,
+    ),
+  );
+  return pending;
+};
+
+const OPTION_CHORDS = {
+  kind: "chord",
+  modifiers: ["option"],
+  keys: ["s", "d"],
+};
+
+const invokeSetChords = (binding: unknown, sender: FakeWebContents) =>
+  handlers["vellum:helper:hotkey:setChords"](
+    { sender },
+    binding,
+  ) as Promise<unknown>;
+
+/**
+ * Arm the chords from `sender` and answer the helper's reply.
+ *
+ * The id is read back off the request rather than assumed: the fake child
+ * outlives a test, so which id a call gets depends on what ran before it.
+ */
+const registerChords = async (sender: FakeWebContents): Promise<unknown> => {
+  const pending = invokeSetChords(OPTION_CHORDS, sender);
+  await wait(5);
+  const request = lastChild?.stdin.writes.at(-1) ?? "";
+  const id = (JSON.parse(request) as { id: number }).id;
   lastChild?.stdout.emit(
     "data",
     Buffer.from(`{"jsonrpc":"2.0","id":${id},"result":{"enabled":true}}\n`),
   );
   return pending;
+};
+
+const emitChord = (key: string): void => {
+  lastChild?.stdout.emit(
+    "data",
+    Buffer.from(
+      `{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"chord","state":"down","key":"${key}"}}\n`,
+    ),
+  );
 };
 
 const invokeReadFrontSelection = () =>
@@ -192,6 +237,7 @@ beforeEach(() => {
   appState.appPath = "/repo/clients/macos";
   nextWebContentsId = 1;
   defaultSender = makeWebContents();
+  setPointerOnCompanion(false);
 });
 
 afterEach(() => {
@@ -514,6 +560,89 @@ describe("installHotkeyHelper", () => {
     );
   });
 
+  /**
+   * A chord binding is a different question from the hold's, and travels as
+   * its own registration: the modifiers that must be held, and the keys that
+   * mean something under them.
+   */
+  test("sends hotkey.chords to the helper process", async () => {
+    installHotkeyHelper();
+    expect(await registerChords(makeWebContents())).toEqual({
+      ok: true,
+      enabled: true,
+    });
+
+    const sent = lastChild?.stdin.writes.join("") ?? "";
+    expect(sent).toContain('"method":"hotkey.chords"');
+    expect(sent).toContain('"enable":true');
+    expect(sent).toContain('"modifiers":["option"]');
+    expect(sent).toContain('"keys":["s","d"]');
+  });
+
+  /**
+   * The window that armed them, whatever is focused. A hold's edges follow
+   * focus because a hold is a microphone the user pointed somewhere; a chord
+   * asks something of the session, which lives in one window, so a pop-out in
+   * front must not take a press meant for the call.
+   */
+  test("a chord goes to the window that armed it, not the focused one", async () => {
+    installHotkeyHelper();
+    const owner = makeWebContents();
+    const focused = makeWebContents();
+    expect(await registerChords(owner)).toEqual({ ok: true, enabled: true });
+    // The other window takes the hold's ownership, which does follow focus.
+    expect(await registerHold(focused)).toEqual({ ok: true, enabled: true });
+
+    emitChord("s");
+
+    const chord = { kind: "chord", state: "down", key: "s" };
+    expect(owner.send).toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      chord,
+    );
+    expect(focused.send).not.toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      chord,
+    );
+  });
+
+  /**
+   * A binding armed with nothing left to answer it is the helper going on
+   * taking presses that are the user's own again.
+   */
+  test("clears the chords when the window that armed them goes", async () => {
+    installHotkeyHelper();
+    const owner = makeWebContents();
+    expect(await registerChords(owner)).toEqual({ ok: true, enabled: true });
+    const before = lastChild?.stdin.writes.length ?? 0;
+
+    owner.emit("destroyed");
+    await wait(5);
+
+    const sent = lastChild?.stdin.writes.slice(before).join("") ?? "";
+    expect(sent).toContain('"method":"hotkey.chords"');
+    expect(sent).toContain('"enable":false');
+  });
+
+  /**
+   * And a chord that arrives anyway is dropped rather than handed to whoever
+   * is focused: the press asked something of a session that has gone.
+   */
+  test("drops a chord once the window that armed it has gone", async () => {
+    installHotkeyHelper();
+    const owner = makeWebContents();
+    const other = makeWebContents();
+    expect(await registerChords(owner)).toEqual({ ok: true, enabled: true });
+    expect(await registerHold(other)).toEqual({ ok: true, enabled: true });
+    owner.emit("destroyed");
+    await wait(5);
+    other.send.mockClear();
+
+    emitChord("s");
+
+    expect(other.send).not.toHaveBeenCalled();
+  });
+
   test("carries the reason a hold closed through to the owner", async () => {
     installHotkeyHelper();
     expect(await registerHold()).toEqual({ ok: true, enabled: true });
@@ -592,6 +721,173 @@ describe("installHotkeyHelper", () => {
     );
 
     expect(await pending).toBeNull();
+  });
+
+  test("asks the helper which of the named apps are running", async () => {
+    installHotkeyHelper();
+
+    const pending = handlers["vellum:helper:apps:running"](
+      { sender: defaultSender },
+      ["com.electron.wispr-flow", "com.example.other"],
+    ) as Promise<unknown>;
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"apps.running"');
+    expect(lastChild?.stdin.writes[0]).toContain('"com.electron.wispr-flow"');
+    // Only the claimant is asked about; the renderer does not enumerate the
+    // desktop through this.
+    expect(lastChild?.stdin.writes[0]).not.toContain('"com.example.other"');
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"running":["com.electron.wispr-flow"]}}\n',
+      ),
+    );
+
+    expect(await pending).toEqual(["com.electron.wispr-flow"]);
+  });
+
+  test("reads a helper that cannot say as no apps running", async () => {
+    installHotkeyHelper();
+
+    const pending = handlers["vellum:helper:apps:running"](
+      { sender: defaultSender },
+      ["com.electron.wispr-flow"],
+    ) as Promise<unknown>;
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"no workspace"}}\n',
+      ),
+    );
+
+    expect(await pending).toEqual([]);
+  });
+
+  test("asks nothing of the helper for an app outside the voice key's claimants", async () => {
+    installHotkeyHelper();
+
+    expect(
+      await (handlers["vellum:helper:apps:quit"](
+        { sender: defaultSender },
+        "com.example.editor",
+      ) as Promise<unknown>),
+    ).toBe(false);
+    expect(lastChild).toBeNull();
+    expect(
+      await (handlers["vellum:helper:apps:running"]({ sender: defaultSender }, [
+        "com.example.editor",
+      ]) as Promise<unknown>),
+    ).toEqual([]);
+    expect(lastChild).toBeNull();
+  });
+
+  test("reads the application in front from the helper", async () => {
+    installHotkeyHelper();
+
+    const pending = handlers["vellum:helper:apps:frontmost"]({
+      sender: defaultSender,
+    }) as Promise<unknown>;
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"apps.frontmost"');
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from(
+        '{"jsonrpc":"2.0","id":1,"result":{"bundleId":"com.example.editor"}}\n',
+      ),
+    );
+
+    expect(await pending).toBe("com.example.editor");
+  });
+
+  /**
+   * A press on the companion's own controls is not an edit in the user's
+   * document, and the offer those controls answer must survive being pressed.
+   */
+  test("keeps a press on the companion out of the input activity it forwards", async () => {
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+    setPointerOnCompanion(true);
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.activity"}\n'),
+    );
+    expect(defaultSender.send).not.toHaveBeenCalledWith(
+      "vellum:helper:input:activity",
+    );
+
+    setPointerOnCompanion(false);
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.activity"}\n'),
+    );
+    expect(defaultSender.send).toHaveBeenCalledWith(
+      "vellum:helper:input:activity",
+    );
+  });
+
+  /**
+   * The watch goes down with the helper the binding did, and the renderer
+   * asks for neither again.
+   */
+  test("restores the input watch after a helper crash", async () => {
+    __setSupervisorOptionsForTesting({ initialBackoffMs: 1, maxBackoffMs: 1 });
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    const watch = handlers["vellum:helper:input:setActivityWatch"](
+      { sender: defaultSender },
+      true,
+    ) as Promise<unknown>;
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":2,"result":{"enabled":true}}\n'),
+    );
+    expect(await watch).toBe(true);
+
+    lastChild?.emit("close", 1, null);
+    await wait(10);
+
+    const writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setActivityWatch"');
+    expect(writes).toContain('"enable":true');
+  });
+
+  test("forwards input activity to the window that holds the key", async () => {
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    const pending = handlers["vellum:helper:input:setActivityWatch"](
+      { sender: defaultSender },
+      true,
+    ) as Promise<unknown>;
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":2,"result":{"enabled":true}}\n'),
+    );
+    expect(await pending).toBe(true);
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.activity"}\n'),
+    );
+    expect(defaultSender.send).toHaveBeenCalledWith(
+      "vellum:helper:input:activity",
+    );
+  });
+
+  test("asks the helper to quit an app and reports whether it was asked", async () => {
+    installHotkeyHelper();
+
+    const pending = handlers["vellum:helper:apps:quit"](
+      { sender: defaultSender },
+      "com.electron.wispr-flow",
+    ) as Promise<unknown>;
+    expect(lastChild?.stdin.writes[0]).toContain('"method":"apps.quit"');
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","id":1,"result":{"asked":true}}\n'),
+    );
+
+    expect(await pending).toBe(true);
   });
 
   /**

@@ -83,7 +83,7 @@ export function useVoiceModeHotkey({
   );
 
   const toggleVoiceMode = useCallback(() => {
-    toggleVoiceFromSurface(navigate);
+    toggleVoiceFromSurface(navigate, "voice_key");
   }, [navigate]);
 
   useEffect(() => {

@@ -357,10 +357,17 @@ export class ConversationGraphMemory {
   }
 
   /**
-   * Notify that context compaction just happened.
-   * On the next turn, we'll re-run full context load.
+   * Notify that the durable history was injection-stripped: a compaction
+   * pipeline run (whether or not it summarized anything), an overflow-ladder
+   * rung, or `/clean`. Every injection ledger resets, since the frozen memory
+   * blocks it claims are gone from history, and the next turn re-runs the
+   * full context load. `compactedMessageCount` is 0 when nothing was
+   * summarized. Returns whether the memory-v3 section store cleared, the
+   * ledger whose residency the frozen-block strip and its pointers read: a
+   * store whose clear failed still claims its sections. The v2 activation
+   * row's clear is best-effort and its failure is logged only.
    */
-  async onCompacted(compactedMessageCount: number): Promise<void> {
+  async onCompacted(compactedMessageCount: number): Promise<boolean> {
     // Evict everything — compaction summarized all prior turns.
     // The tracker can't know exactly which turns were compacted,
     // so we conservatively clear everything and reload.
@@ -388,24 +395,19 @@ export class ConversationGraphMemory {
       );
     }
 
-    // Memory-v3's frozen-card dedup record resets at the same trigger: the
-    // cached card blocks those slugs rode were just stripped by compaction, so
-    // every slug must become re-injectable. Cleared unconditionally for the
-    // same crash-drift reason as v2's `everInjected` above.
-    try {
-      clearV3EverInjected(this.conversationId);
-    } catch (err) {
-      log.warn(
-        { err: err instanceof Error ? err.message : String(err) },
-        "Failed to clear memory-v3 everInjected on compaction (non-fatal)",
-      );
-    }
+    // Memory-v3's section record resets at the same trigger: the frozen
+    // section blocks it claims were just stripped from history, so every
+    // section must become re-injectable. Cleared unconditionally for the
+    // same crash-drift reason as v2's `everInjected` above. The store logs
+    // its own failure and reports it.
+    const cleared = clearV3EverInjected(this.conversationId);
 
     this.needsReload = true;
     log.info(
       { compactedMessageCount },
       "Compaction detected — will reload context on next turn",
     );
+    return cleared;
   }
 
   /**

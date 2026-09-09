@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 type TextInsertionStatus =
   | "inserted"
   | "vellum-focused"
+  | "no-text-field"
   | "automation-denied"
   | "blocked"
   | "unavailable";
@@ -78,12 +79,14 @@ mock.module("@/domains/chat/voice/use-voice-key", () => ({
 }));
 
 const askedTexts: string[] = [];
+const askedEntries: string[] = [];
 let nextAskTaken = true;
 const announceAskRefusedMock = mock(() => undefined);
 const toggleVoiceMock = mock(() => undefined);
 mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
-  askVoiceFromSurface: (_navigate: unknown, ask: string) => {
+  askVoiceFromSurface: (_navigate: unknown, ask: string, entry: string) => {
     askedTexts.push(ask);
+    askedEntries.push(entry);
     return nextAskTaken;
   },
   announceAskRefused: announceAskRefusedMock,
@@ -141,6 +144,22 @@ mock.module("@/domains/chat/voice/dictation-api", () => ({
   },
 }));
 
+mock.module("@/runtime/running-apps", () => ({
+  runningApps: async () => [],
+  quitApp: async () => true,
+  frontmostApp: async () => "com.example.editor",
+}));
+mock.module("@/runtime/input-activity", () => ({
+  setInputActivityWatch: async () => true,
+  subscribeToInputActivity: () => () => {},
+}));
+
+let runningClaimant: { bundleId: string; name: string } | null = null;
+mock.module("@/domains/chat/voice/fn-claimants", () => ({
+  FN_CLAIMANTS: [{ bundleId: "com.electron.wispr-flow", name: "Wispr Flow" }],
+  findRunningFnClaimant: async () => runningClaimant,
+}));
+
 mock.module("@/runtime/text-insertion", () => ({
   insertTextIntoFrontApp: async (text: string) => {
     insertedTexts.push(text);
@@ -158,6 +177,8 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 }));
 
 const { GlobalPushToTalkBridge } = await import("./global-push-to-talk-bridge");
+const { clearDictationOffer, useDictationOfferStore } =
+  await import("@/domains/chat/voice/dictation-offer-store");
 const { formatVoiceError } = await import("@/domains/chat/utils/chat");
 const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useVoiceRecordingStore } =
@@ -196,10 +217,13 @@ afterEach(() => {
   dictationCalls.length = 0;
   insertedTexts.length = 0;
   askedTexts.length = 0;
+  askedEntries.length = 0;
   nextAskTaken = true;
   announceAskRefusedMock.mockClear();
   toggleVoiceMock.mockClear();
   toastErrorMock.mockClear();
+  runningClaimant = null;
+  clearDictationOffer();
   useVoiceRecordingStore.getState().reset();
   useComposerStore.getState().setInput("");
   useComposerStore.getState().fullReset();
@@ -277,6 +301,63 @@ describe("GlobalPushToTalkBridge", () => {
       useConversationStore.getState().draftConversationIds.has(draftId ?? ""),
     ).toBe(true);
     expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
+  /**
+   * A hold that ends over something that does not take text keeps its words.
+   * Nothing failed, so nothing is announced as a failure; the words go up on
+   * the companion, on the same offer another app's paste puts them on and
+   * with the reason that says the only answer here is the clipboard.
+   */
+  test("offers the transcript when nothing in front takes text", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      reason: "no-text-field",
+      text: "onions, tomatoes, and a bag of rice",
+    });
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * The offer needs the companion surface to be on screen, and the user can
+   * turn that off. The composer is the floor under it either way, so the words
+   * are somewhere the user can reach even then.
+   */
+  test("still soft-lands those words in the composer", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(useComposerStore.getState().input).toBe(
+      "onions, tomatoes, and a bag of rice",
+    );
+  });
+
+  /**
+   * The overlay's error state says a paste was refused. Nothing was refused
+   * here and nothing was sent, so a check is the truthful thing for it to
+   * draw.
+   */
+  test("does not mark the recording as an insertion failure", async () => {
+    nextTextInsertionStatus = "no-text-field";
+    const voiceInput = renderBridge();
+
+    await act(async () => {
+      await voiceInput.onTranscript("onions, tomatoes, and a bag of rice");
+    });
+
+    expect(
+      useVoiceRecordingStore.getState().dictationInsertionError,
+    ).toBeNull();
   });
 
   test("uses stable toast IDs for repeated voice errors", () => {
@@ -370,6 +451,81 @@ test("a double tap of the voice key is Talk", () => {
   });
 
   expect(toggleVoiceMock).toHaveBeenCalledTimes(1);
+  // Named for the daemon's telemetry: the same macOS client also starts calls
+  // from the composer and the companion, and only the entry tells them apart.
+  expect(toggleVoiceMock).toHaveBeenCalledWith(
+    expect.any(Function),
+    "voice_key",
+  );
+});
+
+/**
+ * Another dictation app that heard the same key has pasted by the time the
+ * transcript lands. Pasting beside it would leave the sentence twice, so the
+ * words are offered on the companion instead.
+ */
+describe("a hold beside another dictation app", () => {
+  test("offers the words instead of pasting them", async () => {
+    runningClaimant = {
+      bundleId: "com.electron.wispr-flow",
+      name: "Wispr Flow",
+    };
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "Send me the files." };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("send me the files");
+    });
+
+    expect(insertedTexts).toEqual([]);
+    expect(useDictationOfferStore.getState().offer).toMatchObject({
+      app: { name: "Wispr Flow" },
+      text: "Send me the files.",
+      frontApp: "com.example.editor",
+    });
+  });
+
+  test("a new hold takes a standing offer down", async () => {
+    runningClaimant = {
+      bundleId: "com.electron.wispr-flow",
+      name: "Wispr Flow",
+    };
+    nextDictationResult = { mode: "dictation", text: "first" };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("first");
+    });
+    expect(useDictationOfferStore.getState().offer?.text).toBe("first");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+  });
+
+  test("pastes as usual when no such app is running", async () => {
+    nextTextInsertionStatus = "inserted";
+    nextDictationResult = { mode: "dictation", text: "Send me the files." };
+    const voiceInput = renderBridge("a1");
+
+    act(() => {
+      holdHandlers?.onHoldStart({ selection: null });
+    });
+    await act(async () => {
+      await voiceInput.onTranscript("send me the files");
+    });
+
+    expect(insertedTexts).toEqual(["Send me the files."]);
+    expect(useDictationOfferStore.getState().offer).toBeNull();
+  });
 });
 
 describe("a hold over a selection", () => {
@@ -390,6 +546,7 @@ describe("a hold over a selection", () => {
     expect(askedTexts).toEqual([
       "> the powerhouse\n> of the cell\n\nwhat does this mean",
     ]);
+    expect(askedEntries).toEqual(["voice_key_ask"]);
     expect(insertedTexts).toEqual([]);
     expect(toastErrorMock).not.toHaveBeenCalled();
   });

@@ -108,13 +108,12 @@ different, follow the CLI.
 > - `library_content:read` - published components and styles of files
 > - `library_assets:read` - data of individual published components and styles
 > - `team_library_content:read` - published components and styles of teams
-> - `selections:read` - most recent selection in files you can access
 >
 > Save your changes if there's a save button.
 
 Wait for the user to confirm scopes are set.
 
-**Narrower grants.** If the user does not want to enable all fourteen, have them
+**Narrower grants.** If the user does not want to enable all thirteen, have them
 enable only the ones they are comfortable with and pass that exact set on
 connect, which replaces the defaults entirely:
 

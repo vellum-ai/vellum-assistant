@@ -21,6 +21,40 @@ import { useBusSubscription } from "@/hooks/use-bus-subscription";
 type FeedItemStatus = HomeFeedMarkallPostData["body"]["to"];
 
 /**
+ * The feed's request options, fixed per assistant so the feed has one cache
+ * entry. `timeAwaySeconds` is a fetch-time side-channel (`useHomeFeedQuery`
+ * passes the live value via a ref), not a cache dimension, so the key uses a
+ * fixed placeholder.
+ */
+function useHomeFeedOptions(assistantId: string | null) {
+  return useMemo(
+    () => ({
+      path: { assistant_id: assistantId ?? "" },
+      query: { timeAwaySeconds: 0 },
+    }),
+    [assistantId],
+  );
+}
+
+/**
+ * Ask for the feed to be refetched, for a surface that changes what the feed
+ * projects without going through the feed's own mutations (a guardian
+ * decision, whose receipt the daemon writes back into the feed item). A
+ * no-op until the active assistant has resolved.
+ */
+export function useInvalidateHomeFeed(assistantId: string | null) {
+  const queryClient = useQueryClient();
+  const feedOpts = useHomeFeedOptions(assistantId);
+  const feedQueryKey = useMemo(() => homeFeedGetQueryKey(feedOpts), [feedOpts]);
+  return useCallback(() => {
+    if (!assistantId) {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: feedQueryKey });
+  }, [assistantId, queryClient, feedQueryKey]);
+}
+
+/**
  * React Query hook for the home feed.
  *
  * Tracks time-away via the layout-scoped event bus (`"app.hidden"` +
@@ -36,16 +70,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
   const hiddenAtRef = useRef<number | null>(null);
   const timeAwaySecondsRef = useRef(0);
 
-  // Stable query key — timeAwaySeconds is a fetch-time side-channel
-  // (passed via ref), not a cache dimension, so the key uses a fixed
-  // placeholder to keep a single cache entry per assistant.
-  const feedOpts = useMemo(
-    () => ({
-      path: { assistant_id: assistantId ?? "" },
-      query: { timeAwaySeconds: 0 },
-    }),
-    [assistantId],
-  );
+  const feedOpts = useHomeFeedOptions(assistantId);
   const feedQueryKey = useMemo(() => homeFeedGetQueryKey(feedOpts), [feedOpts]);
 
   useBusSubscription("app.hidden", () => {

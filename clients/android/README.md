@@ -480,14 +480,15 @@ wrong identity.
 Release builds enable resource shrinking and R8 optimization. Capacitor plugin
 annotations and methods are retained by `app/proguard-rules.pro`.
 
-## Google Play Internal Releases
+## Google Play Releases
 
 `.github/workflows/release-android.yaml` is the reusable Android release
-workflow. It builds a signed AAB, retains it as an artifact, and uploads it to
-the matching Play internal track through the Android Publisher API. The
-publisher uses Google's official Android Publisher client and repository-owned
-code, not an external Play publishing action. Production-track promotion
-remains manual.
+workflow. It builds a signed AAB, retains it as an artifact, and publishes it
+through the Android Publisher API. Dev and staging releases use their matching
+app's internal track. Production releases use the production track with a
+completed rollout, which submits the release for Play review and publishing.
+The publisher uses Google's official Android Publisher client and
+repository-owned code, not an external Play publishing action.
 When Firebase configuration is available, the workflow validates that it
 matches the selected flavor before including it in the build.
 
@@ -512,8 +513,8 @@ GitHub variables. `GCP_SERVICE_ACCOUNT` must match the environment's
 Never commit Firebase configuration, the keystore, or decoded secret material.
 The workflow removes restored files even when a build fails.
 
-`ANDROID_FIREBASE_CONFIG_B64` remains optional so signing and internal
-distribution do not depend on push setup. When it is absent, the workflow emits
+`ANDROID_FIREBASE_CONFIG_B64` remains optional so signing and Play distribution
+do not depend on push setup. When it is absent, the workflow emits
 a warning and the resulting AAB has no native push support. When it is present,
 malformed base64, invalid JSON, or a package mismatch fails the build.
 
@@ -524,7 +525,7 @@ distribution independently with these repository variables:
 |----------|------------------|
 | `ANDROID_DEV_RELEASE_ENABLED` | Dev releases |
 | `ANDROID_STAGING_RELEASE_ENABLED` | Staging releases |
-| `ANDROID_PRODUCTION_RELEASE_ENABLED` | Production releases |
+| `ANDROID_PRODUCTION_RELEASE_ENABLED` | Production releases to the Play production track |
 
 Set only `ANDROID_DEV_RELEASE_ENABLED` to `true` to test the dev app on its Play
 internal track. Leave the staging and production variables unset or set to
@@ -535,7 +536,7 @@ schedule.
 
 ### Manual Play Prerequisites
 
-Complete the following setup before enabling internal-track uploads:
+Complete the following setup before enabling Google Play publishing:
 
 1. Apply the platform Terraform stacks that enable the Android Publisher API
    in the dev, staging, and production GCP projects.
@@ -548,13 +549,16 @@ Complete the following setup before enabling internal-track uploads:
    upload a completed release.
 5. In Play Console, grant each environment's `GCP_SERVICE_ACCOUNT` access only
    to its matching app, with **View app information (read-only)** and
-   **Release apps to testing tracks**. Do not grant production publishing.
+   **Release apps to testing tracks**. For `ai.vellum.assistant`, also grant the
+   production environment's service account **Release to production, exclude
+   devices, and use Play App Signing**.
 6. Configure the repository and environment secrets above.
 7. Complete each Play listing, privacy policy, Data Safety form, content rating,
    and the declarations required for microphone and camera permissions.
 
-Before wider rollout, test the internal-track AAB on a physical device and
-verify its identity, web origin, authentication, keyboard, and file sharing.
+Before enabling `ANDROID_PRODUCTION_RELEASE_ENABLED`, test a signed production
+AAB on the production app's internal track using a physical device. Verify its
+identity, web origin, authentication, keyboard, and file sharing.
 
 ### Manual Firebase Prerequisites
 

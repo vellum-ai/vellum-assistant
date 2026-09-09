@@ -213,6 +213,20 @@ export interface TurnContext {
    */
   readonly slackActiveThreadFocusBlock?: string | null;
   /**
+   * True when an injector earlier in the chain has produced the
+   * `"replace-run-messages"` block this assembly swaps `runMessages` for: a
+   * transcript rendered from persisted rows (the default chain's Slack
+   * chronological transcript). The chain walker sets it on the context of
+   * every injector that runs after the replacing one, so it is set exactly
+   * when the replacement fires and never for a replacing injector that is
+   * absent, disabled with its plugin, or gated off for the turn. Content
+   * that lives only in message metadata, such as frozen memory blocks
+   * rehydrated onto earlier messages, is absent from that prompt, so an
+   * injector that would otherwise point at content already resident in
+   * history renders it again instead.
+   */
+  readonly replacesRunMessages?: boolean;
+  /**
    * When true, inject the `<non_interactive_context>` block so the model
    * knows no human is present to answer clarification questions.
    */

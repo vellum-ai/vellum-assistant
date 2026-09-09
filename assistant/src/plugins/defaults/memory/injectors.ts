@@ -49,7 +49,7 @@ import { searchPkbFiles } from "./v1/pkb/pkb-search.js";
 import { getPkbRoot } from "./v1/pkb/types.js";
 // V3 — delete with v3. Re-exported through `memoryInjectors` below so the
 // host registers them without importing `v3/` itself.
-import { memoryV3Injector, memoryV3SpotlightInjector } from "./v3/injector.js";
+import { memoryV3Injector, memoryV3PointerInjector } from "./v3/injector.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -428,8 +428,8 @@ export const memoryInjectors: Injector[] = [
   // `memory-v2-static` is FROZEN: `daemon/conversation-runtime-assembly.ts`
   // switches on it to capture the block into persisted message metadata.
   memoryV2StaticInjector,
-  // V3: delete with v3. The frozen net-new card block and its per-turn
-  // spotlight companion; both self-gate on `memory.v3.live`.
+  // V3: delete with v3. The frozen net-new section block and its per-turn
+  // pointer companion; both self-gate on `memory.v3.live`.
   memoryV3Injector,
-  memoryV3SpotlightInjector,
+  memoryV3PointerInjector,
 ];

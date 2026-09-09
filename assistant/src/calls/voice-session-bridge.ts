@@ -29,6 +29,7 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
+  newestPersistedSightFrame,
   pendingStandaloneImagePersist,
   SIGHT_FRAME_TURN_HOLD_MS,
 } from "../live-voice/live-voice-photo.js";
@@ -325,6 +326,8 @@ export interface VoiceTurnOptions {
   voiceTelemetry?: {
     sessionId: string;
     client?: ClientOs;
+    /** The control the session was started from (the start frame's `entry`). */
+    entry?: string;
   };
   /** Per-turn control prompt. Undefined uses the phone prompt; null disables it. */
   voiceControlPrompt?: string | null;
@@ -348,6 +351,37 @@ export interface VoiceTurnOptions {
   assistantId?: string;
   /** Guardian trust context for the caller. */
   trustContext?: TrustContext;
+  /**
+   * The actor principal this turn runs as, for host-proxy same-user binding.
+   *
+   * Host proxies resolve a target client by matching the turn's actor against
+   * the actor each client registered its SSE subscription under
+   * (`pickSameUserAutoResolve`). A turn with no actor matches nothing, so
+   * every `computer_use_*` / `host_bash` / `host_file` call it makes is
+   * refused however healthy the connected client is.
+   *
+   * Set only by the local live-voice path, whose upgrade the gateway pins to
+   * the bound guardian. A phone call leaves it unset: the caller is whoever
+   * dialled in, and an inbound caller must never resolve to a client on the
+   * owner's machine.
+   */
+  actorPrincipalId?: string;
+  /**
+   * Whether this turn resolved its own actor and found none, so the
+   * conversation's resting identity must not stand in for it.
+   *
+   * A live-voice turn whose guardian read failed knows the resting principal
+   * and knows it cannot vouch for it: the gateway may have admitted a
+   * guardian the daemon has not caught up with. Without this the host-proxy
+   * chain walks on to `currentTurnAuthContext` and `authContext`, which an
+   * ordinary text turn leaves populated, and hands the turn the previous
+   * occupant's desktop.
+   *
+   * A phone call sets neither this nor an actor: it never resolved one, and
+   * the resting identity is the machine owner's, which is the answer that
+   * path has always used.
+   */
+  actorFallbackSuppressed?: boolean;
   /** Whether this is an inbound call (no outbound task). */
   isInbound: boolean;
   /** The outbound call task, if any. */
@@ -770,6 +804,10 @@ export async function startVoiceTurn(
     conversationReadyAt: 0,
     admissionClearAt: 0,
     sightHoldMs: 0,
+    // The camera frame this turn reads as the current view, and how old it
+    // was when the turn's own message landed. Null when the conversation
+    // carries no frame.
+    newestSightFrame: null as { attachmentId: string; ageMs: number } | null,
     persistDoneAt: 0,
   };
   const eventSink: VoiceRunEventSink = {
@@ -1055,6 +1093,7 @@ export async function startVoiceTurn(
     pendingVoiceApprovals.clear();
     conversation.setChannelCapabilities(null);
     conversation.setTrustContext(null);
+    releaseActorStamp(undefined);
     conversation.setCommandIntent(null);
     conversation.setAssistantId("self");
     conversation.setVoiceCallControlPrompt(null);
@@ -1116,11 +1155,19 @@ export async function startVoiceTurn(
               // path already fills from the same `detectClientOs()` value, so
               // a voice turn reports its platform in the column existing turn
               // analytics read rather than one only voice knows about.
+              //
+              // `voice_entry` is voice's own: which control started the
+              // session the turn belongs to, so per-turn analytics can split
+              // the companion from the app without a join back to the
+              // session row.
               client: {
                 voice: true,
                 voice_session_id: opts.voiceTelemetry.sessionId,
                 ...(opts.voiceTelemetry.client
                   ? { os: opts.voiceTelemetry.client }
+                  : {}),
+                ...(opts.voiceTelemetry.entry
+                  ? { voice_entry: opts.voiceTelemetry.entry }
                   : {}),
               },
             }
@@ -1147,10 +1194,56 @@ export async function startVoiceTurn(
   // The exact values this turn installs, computed once: `restoreTurnState`
   // recognizes by identity whether a field still holds THIS turn's value —
   // a field a concurrent winner overwrote is the winner's to keep.
+  /**
+   * The actor-stamp generation this turn's own install left behind, or null
+   * before it has installed one.
+   *
+   * `restoreTurnState` reverts the other per-turn values by identity, which
+   * separates a concurrent winner's from this turn's only because they are
+   * objects. The actor principal is a string and two turns for the same
+   * guardian write the identical one, so the field cannot say who wrote it.
+   * The conversation counts every write to it (see
+   * `currentTurnActorStampGeneration`), including the direct ones ordinary
+   * message turns make in `conversation-routes` and `conversation-process`,
+   * so a count that has not moved is the proof this turn's stamp is still
+   * the one standing.
+   */
+  let installedActorStampGeneration: number | null = null;
+  /**
+   * Leave `next` behind as the actor stamp, but only while this turn's own
+   * stamp is still the one standing.
+   *
+   * The release on the way out and the revert on a race loss both come
+   * through here, because they are the same question asked twice: is the
+   * stamp on the conversation still mine to take back? `runAgentLoopImpl`
+   * gives up the processing claim before the turn-boundary commit is
+   * awaited, so a retry can take the conversation and stamp its own actor
+   * while this turn is still unwinding. Clearing then would strip an actor
+   * the retry route installs no auth-context fallback for, and its
+   * host-proxy calls would be refused, which is the failure the stamp exists
+   * to prevent.
+   */
+  const releaseActorStamp = (
+    next: string | undefined,
+    nextSuppressed = false,
+  ): void => {
+    if (
+      installedActorStampGeneration === null ||
+      conversation.currentTurnActorStampGeneration !==
+        installedActorStampGeneration
+    ) {
+      return;
+    }
+    conversation.currentTurnSourceActorPrincipalId = next;
+    conversation.currentTurnActorFallbackSuppressed = nextSuppressed;
+    installedActorStampGeneration = null;
+  };
   const voiceTurnValues = {
     assistantId: opts.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     callSessionId: voiceSessionId,
     trustContext: opts.trustContext ?? null,
+    actorPrincipalId: opts.actorPrincipalId ?? null,
+    actorFallbackSuppressed: opts.actorFallbackSuppressed === true,
     turnChannelContext,
     turnInterfaceContext,
     // Resolved from the channel, with no voice-specific override.
@@ -1175,6 +1268,12 @@ export async function startVoiceTurn(
     conversation.setAssistantId(voiceTurnValues.assistantId);
     conversation.callSessionId = voiceTurnValues.callSessionId;
     conversation.setTrustContext(voiceTurnValues.trustContext);
+    conversation.currentTurnSourceActorPrincipalId =
+      voiceTurnValues.actorPrincipalId ?? undefined;
+    conversation.currentTurnActorFallbackSuppressed =
+      voiceTurnValues.actorFallbackSuppressed;
+    installedActorStampGeneration =
+      conversation.currentTurnActorStampGeneration;
     conversation.setCommandIntent(null);
     conversation.setTurnChannelContext(voiceTurnValues.turnChannelContext);
     conversation.setTurnInterfaceContext?.(
@@ -1194,6 +1293,8 @@ export async function startVoiceTurn(
     assistantId: conversation.assistantId,
     callSessionId: conversation.callSessionId,
     trustContext: conversation.trustContext,
+    actorPrincipalId: conversation.currentTurnSourceActorPrincipalId,
+    actorFallbackSuppressed: conversation.currentTurnActorFallbackSuppressed,
     commandIntent: conversation.commandIntent,
     turnChannelContext: conversation.getTurnChannelContext?.() ?? null,
     turnInterfaceContext: conversation.getTurnInterfaceContext?.() ?? null,
@@ -1233,6 +1334,11 @@ export async function startVoiceTurn(
     ) {
       conversation.setTrustContext(snap.trustContext ?? null);
     }
+    // Through the same guard the release uses: see `releaseActorStamp`.
+    releaseActorStamp(
+      snap.actorPrincipalId ?? undefined,
+      snap.actorFallbackSuppressed,
+    );
     if ((conversation.commandIntent ?? null) === null) {
       conversation.setCommandIntent(snap.commandIntent ?? null);
     }
@@ -1324,6 +1430,26 @@ export async function startVoiceTurn(
     }
   }
   dispatch.persistDoneAt = Date.now();
+  // Read now, under the flag this turn holds, rather than after the sight
+  // hold: a frame can still land between the hold and the persist, when its
+  // acquire beats this turn's and the turn retries behind it. What the loop
+  // below reads is what the rows hold at this moment, so this is the frame the
+  // answer is about. One indexed row; a log-only read that fails must not
+  // take the turn down with it.
+  try {
+    const newestFrame = newestPersistedSightFrame(opts.conversationId);
+    if (newestFrame) {
+      dispatch.newestSightFrame = {
+        attachmentId: newestFrame.attachmentId,
+        ageMs: dispatch.persistDoneAt - newestFrame.capturedAt,
+      };
+    }
+  } catch (err) {
+    log.warn(
+      { err, turnId, conversationId: opts.conversationId },
+      "Could not read the newest camera frame for the dispatch timing log",
+    );
+  }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {
@@ -1750,6 +1876,7 @@ export async function startVoiceTurn(
         admissionWaitMs:
           dispatch.admissionClearAt - dispatch.conversationReadyAt,
         sightHoldMs: dispatch.sightHoldMs,
+        newestSightFrame: dispatch.newestSightFrame,
         persistMs:
           dispatch.persistDoneAt -
           dispatch.admissionClearAt -

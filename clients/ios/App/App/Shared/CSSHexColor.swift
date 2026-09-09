@@ -54,13 +54,18 @@ extension UIColor {
     var contrastingForeground: UIColor {
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard getRed(&r, green: &g, blue: &b, alpha: &a) else { return .white }
-        // WCAG relative luminance; the 0.179 threshold is where contrast
-        // against black and against white are equal.
+        // WCAG relative luminance; 0.179 is where contrast against pure black
+        // and against pure white are equal, which is exactly the pair this
+        // returns.
         //
         // `contrastForeground` in `clients/web/src/utils/avatar-tone.ts` is the
-        // source of truth for this derivation — the island is meant to match
-        // what the voice room renders — so the linearization cutoff is its
-        // 0.04045, not the 0.03928 the older WCAG 2.0 text quotes.
+        // source of truth for the derivation (the island is meant to match what
+        // the voice room renders), so the linearization cutoff is its 0.04045,
+        // not the 0.03928 the older WCAG 2.0 text quotes. The web ships a
+        // near-black rather than black, and measures the ratio against the two
+        // values it actually returns, so its crossover sits at 0.2017: a
+        // background between the two thresholds takes black here and white
+        // there. Aligning them is a design call about the island's glyph.
         let channels = [r, g, b].map { channel -> CGFloat in
             channel <= 0.04045 ? channel / 12.92 : pow((channel + 0.055) / 1.055, 2.4)
         }

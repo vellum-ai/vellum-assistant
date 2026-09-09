@@ -48,6 +48,18 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     );
     expect(gated).toEqual([]);
 
+    // `selections:read` is documented by Figma but not offered in the app's
+    // OAuth scope list, so requesting it fails the whole authorization. It
+    // stays in availableScopes for BYO apps that do have it.
+    expect(figma.defaultScopes).not.toContain("selections:read");
+    const availableScopes = figma.availableScopes;
+    expect(Array.isArray(availableScopes)).toBe(true);
+    if (Array.isArray(availableScopes)) {
+      expect(availableScopes.map(({ scope }) => scope)).toContain(
+        "selections:read",
+      );
+    }
+
     // GET /v1/me backs both the ping and the identity label.
     expect(figma.defaultScopes).toContain("current_user:read");
   });
@@ -78,6 +90,35 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect(PROVIDER_SEED_DATA.google.baseUrl).toBe(
       "https://www.googleapis.com",
     );
+  });
+
+  test("Link does not ship a Stripe publishable key to BYO installs", () => {
+    // Link's authorize endpoint needs a `key` param naming the Stripe account
+    // behind the client_id. Vellum's belongs only in the platform registry,
+    // where it pairs with the platform's own client. Seeding it here would
+    // send our merchant identity from every self-hosted install.
+    const link = PROVIDER_SEED_DATA.stripe_link;
+    expect(link).toBeDefined();
+    expect(link.managedServiceConfigKey).toBe("stripe-link-oauth");
+    expect(link.authorizeParams).toBeUndefined();
+    expect(JSON.stringify(link)).not.toContain("pk_live_");
+  });
+
+  test("Link identity falls back to phone when a wallet has no email", () => {
+    // /userinfo returns no id field, so email is the account handle and phone
+    // is the only backstop. Losing these paths breaks connection keying.
+    const link = PROVIDER_SEED_DATA.stripe_link;
+    expect(link.identityUrl).toBe("https://api.link.com/userinfo");
+    expect(link.identityResponsePaths).toEqual(["email", "phone"]);
+  });
+
+  test("figma ships behind the figma-oauth flag", () => {
+    // The provider is hidden from the providers list and the connect routes
+    // until the flag is enabled. Dropping featureFlag here would make Figma
+    // visible to every install with no other test noticing.
+    const figma = PROVIDER_SEED_DATA.figma;
+    expect(figma).toBeDefined();
+    expect(figma.featureFlag).toBe("figma-oauth");
   });
 
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {

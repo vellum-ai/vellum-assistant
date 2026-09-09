@@ -20,6 +20,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  CompanionAnnotationPhase,
+  CompanionAnnotationStroke,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCharacter,
@@ -28,11 +30,15 @@ import type {
   CompanionIntroAction,
   CompanionSurfaceState,
   ConnectivityState,
+  ScreenCaptureFrame,
   DeepLink,
   DictationOverlayHitRegion,
   DictationOverlayMessage,
   DictationOverlayState,
   DictationPartialEvent,
+  DictationOfferAnswer,
+  ChordBinding,
+  ChordRegistrationResult,
   DictationPartialsResult,
   DictationTranscribeResult,
   DownloadDoneEvent,
@@ -76,6 +82,7 @@ import type {
   VoiceActivityPhase,
   VoiceActivityStart,
   VoiceActivityState,
+  WatchCaptureTarget,
   WindowAttentionPayload,
 } from "@vellumai/ipc-contract";
 
@@ -139,6 +146,7 @@ declare global {
       };
       text?: {
         insertIntoFrontApp(text: string): Promise<TextInsertionResult>;
+        undoInFrontApp?(): Promise<TextInsertionResult>;
         openAutomationSettings(): Promise<void>;
       };
       hotkeys?: {
@@ -161,6 +169,15 @@ declare global {
         getState?(): Promise<HelperState>;
         restart?(): Promise<HelperRestartResult>;
         onState?(callback: (state: HelperState) => void): () => void;
+        apps?: {
+          running(bundleIds: readonly string[]): Promise<string[]>;
+          quit(bundleId: string): Promise<boolean>;
+          frontmost(): Promise<string | null>;
+        };
+        input?: {
+          setActivityWatch(enable: boolean): Promise<boolean>;
+          onActivity(callback: () => void): () => void;
+        };
         hotkey?: {
           setVoiceModeChord?(
             activator: VoiceModeChord | null,
@@ -168,6 +185,7 @@ declare global {
           setModifierHold?(
             hold: ModifierHold,
           ): Promise<ModifierHoldRegistrationResult>;
+          setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
           readFrontSelection?(): Promise<HotkeySelection | null>;
           onRegistrationChange?(
             callback: (active: boolean) => void,
@@ -389,7 +407,26 @@ declare global {
         startVoice?(): void;
         toggleWatch?(pick?: CompanionCapturePick): void;
         listCaptureSources?(): Promise<CompanionCaptureSources>;
+        setScreenShare?(pick?: CompanionCapturePick): void;
+        setAnnotating?(annotating: boolean): void;
+        toggleAnnotating?(): void;
+        annotateShare?(
+          phase: CompanionAnnotationPhase,
+          strokes: readonly CompanionAnnotationStroke[],
+          ink: string,
+        ): void;
+        sharedFrame?(target: WatchCaptureTarget): void;
+        captureScreen?(
+          target: WatchCaptureTarget,
+        ): Promise<ScreenCaptureFrame | null>;
+        captureSourceThumbnail?(
+          target: WatchCaptureTarget,
+        ): Promise<string | null>;
         answerWatchRetro?(open: boolean): void;
+        answerDictationOffer?(
+          answer: DictationOfferAnswer,
+          offerId: string,
+        ): void;
         activate?(): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
