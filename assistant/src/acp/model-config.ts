@@ -78,7 +78,7 @@ function toModelOption(
  * The adapter's model selector, if it advertises one. `category` is UX-only
  * per the ACP spec, so a `model` id counts too; non-select options never do.
  */
-export function findModelConfigOption(
+function findModelConfigOption(
   configOptions: SessionConfigOption[] | null | undefined,
 ): ModelSelectOption | undefined {
   return configOptions?.find(

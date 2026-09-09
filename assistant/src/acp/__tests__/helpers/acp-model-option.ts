@@ -21,6 +21,20 @@ export function modelOption(currentValue: string): SessionConfigOption {
   };
 }
 
+/**
+ * A selector that is not the model one, so a set carrying only this reads as
+ * an adapter that advertises no model selection.
+ */
+export function nonModelOption(): SessionConfigOption {
+  return {
+    type: "select",
+    id: "mode",
+    name: "Mode",
+    currentValue: "default",
+    options: [{ value: "default", name: "Default" }],
+  };
+}
+
 /** `modelOption`'s options as `deriveModelInfo` flattens them. */
 export const MODEL_OPTION_MODELS = [
   { value: "sonnet", label: "Sonnet" },

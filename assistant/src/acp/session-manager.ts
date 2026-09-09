@@ -173,6 +173,20 @@ export class AcpResumeError extends Error {
   }
 }
 
+/**
+ * Statuses a session is still live in. One list for every place that asks the
+ * question: the boot sweep over persisted rows, the in-memory liveness guard,
+ * and close().
+ */
+const ACP_LIVE_STATUSES = ["running", "initializing"] as const;
+
+/** Whether a status is one a session can still move from. */
+function isLiveAcpStatus(
+  status: AcpSessionState["status"],
+): status is (typeof ACP_LIVE_STATUSES)[number] {
+  return ACP_LIVE_STATUSES.some((live) => live === status);
+}
+
 /** Maximum number of update events kept in a session's ring buffer. */
 const MAX_BUFFER_EVENTS = 200;
 /** Maximum aggregate JSON size of a session's ring buffer, in bytes. */
@@ -221,11 +235,21 @@ interface SessionEntry {
    *  failed (nothing moved, so a later user pick of the same value is a
    *  genuine choice) and once a genuinely different model arrives. */
   lastManagerPinnedModel?: string;
+  /** Whether one of this manager's own `setConfigOption` calls is awaiting the
+   *  adapter. `lastManagerPinnedModel` cannot answer for that window: the
+   *  adapter may resolve the alias it was handed to a full model id, so an
+   *  echo landing mid-flight carries a value the manager never named. A
+   *  boolean suffices because switches are serialized per session. */
+  managerPinInFlight: boolean;
   /** Whether a pin has run against the adapter's own reported model. Until it
    *  has, an unsolicited update is the adapter announcing its default rather
    *  than the user choosing, and writing it as the conversation's preference
    *  would freeze that default in. */
   modelBaselineEstablished: boolean;
+  /** Model this run's history row recorded, kept only when a resume could not
+   *  put the adapter back on it. Read by `persistTerminal` alone, so the row
+   *  preserves the record while state stays on the model the run is really on. */
+  recordedModel?: string;
 }
 
 /** What a spawn or resume pin did about the model it was asked for. */
@@ -300,7 +324,7 @@ export class AcpSessionManager {
           stopReason: "daemon_restarted",
           completedAt: Date.now(),
         })
-        .where(inArray(acpSessionHistory.status, ["running", "initializing"]))
+        .where(inArray(acpSessionHistory.status, [...ACP_LIVE_STATUSES]))
         .run();
     } catch (err) {
       log.error(
@@ -481,6 +505,11 @@ export class AcpSessionManager {
     const info = deriveModelInfo(configOptions);
     entry.modelConfigId = info.modelConfigId;
     if (info.modelConfigId) {
+      if (info.model !== entry.state.model) {
+        // The run has moved off whatever a resume could not restore it to, so
+        // the row's record no longer describes it.
+        entry.recordedModel = undefined;
+      }
       entry.state.model = info.model;
       entry.state.availableModels = info.availableModels;
     }
@@ -506,11 +535,33 @@ export class AcpSessionManager {
     requestedModel: string | undefined,
     resolvedModel: string | undefined,
   ): Promise<ModelPinResult> {
+    const result = await this.applyModelPin(
+      entry,
+      configOptions,
+      requestedModel,
+      resolvedModel,
+    );
+    // Latched only once the round trip is done. The window while it is in
+    // flight belongs to `managerPinInFlight`, and by now the adapter has
+    // reported what the session is on, so anything unsolicited after this is
+    // a change rather than an opening announcement.
+    entry.modelBaselineEstablished = entry.modelConfigId !== undefined;
+    return result;
+  }
+
+  /**
+   * The pin itself: report what the adapter says, then put it on
+   * `resolvedModel` if that is somewhere else. Split from the baseline latch
+   * above so the latch cannot be reached before the round trip settles.
+   */
+  private async applyModelPin(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+    requestedModel: string | undefined,
+    resolvedModel: string | undefined,
+  ): Promise<ModelPinResult> {
     const { state } = entry;
     this.applyModelInfo(entry, configOptions);
-    // The adapter has reported what it is on, so anything unsolicited from
-    // here is a change rather than its opening announcement.
-    entry.modelBaselineEstablished = entry.modelConfigId !== undefined;
 
     if (!resolvedModel || resolvedModel === state.model) {
       return { applied: true };
@@ -558,10 +609,17 @@ export class AcpSessionManager {
    * the user chose. Spawn, resume, and `setModel` each decide their own
    * preference write, and a second one from the notification would freeze an
    * inherited default into the conversation. Switches are serialized per
-   * session, so one marker covers every call in flight.
+   * session, so one flag covers every call in flight.
    *
-   * A refused call clears the marker: nothing moved, so a later `/model` onto
-   * the same value is a genuine choice rather than this call's echo.
+   * Two markers, because the echo can land on either side of the answer. The
+   * in-flight flag covers the round trip whatever the notification carries:
+   * the adapter may resolve `opus` to `claude-opus-4-5` and report that,
+   * which the value marker would never match. The value marker then covers
+   * the echo that arrives after the call resolved.
+   *
+   * A refused call clears the value marker: nothing moved, so a later
+   * `/model` onto the same value is a genuine choice rather than this call's
+   * echo.
    */
   private async setConfigOptionAsManager(
     entry: SessionEntry,
@@ -569,6 +627,7 @@ export class AcpSessionManager {
     value: string,
   ): Promise<SessionConfigOption[]> {
     entry.lastManagerPinnedModel = value;
+    entry.managerPinInFlight = true;
     try {
       return await entry.process.setConfigOption(
         entry.state.acpSessionId,
@@ -578,6 +637,8 @@ export class AcpSessionManager {
     } catch (err) {
       entry.lastManagerPinnedModel = undefined;
       throw err;
+    } finally {
+      entry.managerPinInFlight = false;
     }
   }
 
@@ -669,6 +730,7 @@ export class AcpSessionManager {
       command: basename(opts.agentConfig.command),
       credentialDigest: opts.agentConfig.credentialDigest,
       modelSwitchQueue: Promise.resolve(),
+      managerPinInFlight: false,
       modelBaselineEstablished: false,
     };
 
@@ -806,8 +868,7 @@ export class AcpSessionManager {
   private isEntryLive(acpSessionId: string, entry: SessionEntry): boolean {
     return (
       this.sessions.get(acpSessionId) === entry &&
-      (entry.state.status === "running" ||
-        entry.state.status === "initializing")
+      isLiveAcpStatus(entry.state.status)
     );
   }
 
@@ -871,6 +932,11 @@ export class AcpSessionManager {
    * options by notification, and a `session/load` replay during a resume, are
    * both announcing a default rather than relaying a choice.
    *
+   * That first announcement is also what arms the baseline for an adapter
+   * whose selector never appeared in a `session/new` or `session/resume`
+   * response, so a `/model` the user types after it is remembered instead of
+   * being swallowed as another opening announcement forever.
+   *
    * A session past its terminal transition takes nothing from a late
    * notification at all: its history row is already written, so mutating
    * state or emitting here would leave clients and history disagreeing about
@@ -885,10 +951,17 @@ export class AcpSessionManager {
       return;
     }
     const previousModel = entry.state.model;
+    const hadBaseline = entry.modelBaselineEstablished;
     this.applyModelInfo(entry, configOptions);
 
     if (this.clearVanishedModelSelector(acpSessionId, entry)) {
       return;
+    }
+    // A selector seen here for the first time arms the baseline, so the next
+    // change the adapter reports is read as a choice rather than swallowed as
+    // another opening announcement.
+    if (!hadBaseline && entry.modelConfigId !== undefined) {
+      entry.modelBaselineEstablished = true;
     }
 
     this.sendModelEvent(acpSessionId, entry);
@@ -897,8 +970,9 @@ export class AcpSessionManager {
       return;
     }
     if (
-      entry.state.model === entry.lastManagerPinnedModel ||
-      !entry.modelBaselineEstablished
+      !hadBaseline ||
+      entry.managerPinInFlight ||
+      entry.state.model === entry.lastManagerPinnedModel
     ) {
       return;
     }
@@ -1153,15 +1227,23 @@ export class AcpSessionManager {
       recordedModel,
     );
     if (recordedModel && !applied) {
-      // `applyModelInfo` has already put the adapter's default on the state,
-      // and the next terminal upsert would write that over the row. Keep the
-      // record instead: the run is the same one, on a model it could not be
-      // put back on.
+      // State keeps the adapter's own answer, so the model event, the status
+      // projection and the panel all name the model the run is really on.
+      // Only the terminal upsert keeps the record, and only until something
+      // moves the run off it. The baseline goes back down with it: the
+      // manager just failed to control this session's model, so the adapter's
+      // next announcement is a report rather than a choice the user made.
+      entry.recordedModel = recordedModel;
+      entry.modelBaselineEstablished = false;
       log.warn(
-        { acpSessionId, agentId: row.agentId, model: recordedModel },
-        "ACP resume could not restore the recorded model; keeping the record",
+        {
+          acpSessionId,
+          agentId: row.agentId,
+          recordedModel,
+          model: state.model,
+        },
+        "ACP resume could not restore the recorded model; running on the agent's own model",
       );
-      state.model = recordedModel;
     }
 
     this.sendSpawnedEvent(acpSessionId, entry);
@@ -1399,10 +1481,7 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
-    if (
-      entry.state.status === "running" ||
-      entry.state.status === "initializing"
-    ) {
+    if (isLiveAcpStatus(entry.state.status)) {
       entry.state.status = "cancelled";
       entry.state.completedAt = Date.now();
     }
@@ -1518,7 +1597,9 @@ export class AcpSessionManager {
       parentToolUseId: entry.state.parentToolUseId ?? null,
       authErrorCode: entry.state.authErrorCode ?? null,
       authErrorCredential: entry.state.authErrorCredential ?? null,
-      model: entry.state.model ?? null,
+      // The record wins only while a resume could not put the run back on it;
+      // anything that moves the model afterwards clears it.
+      model: entry.recordedModel ?? entry.state.model ?? null,
       usedTokens: usage?.usedTokens ?? null,
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,

@@ -334,6 +334,22 @@ describe("canonicalAgentId", () => {
   test("passes an id that names no alias through untouched", () => {
     expect(canonicalAgentId("my-custom-agent")).toBe("my-custom-agent");
   });
+
+  test("a config entry keyed as the alias keeps its own id", () => {
+    config.setConfig({
+      agents: { "claude code": { command: "my-claude", args: [] } },
+    });
+
+    // The resolver runs this entry rather than the bundled claude, so its
+    // durable state is its own.
+    expect(canonicalAgentId("claude code")).toBe("claude code");
+  });
+
+  test("an alias with no config entry of its own still folds", () => {
+    config.setConfig({ agents: { other: { command: "other", args: [] } } });
+
+    expect(canonicalAgentId("claude code")).toBe("claude");
+  });
 });
 
 // ---------------------------------------------------------------------------
