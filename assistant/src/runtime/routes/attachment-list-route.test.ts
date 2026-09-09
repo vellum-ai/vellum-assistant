@@ -89,6 +89,14 @@ function setLinkId(attachmentId: string, linkId: string): void {
     .run();
 }
 
+function setContent(messageId: string, content: string): void {
+  getDb()
+    .update(messages)
+    .set({ content })
+    .where(eq(messages.id, messageId))
+    .run();
+}
+
 /** The grouped row the agent loop writes for a turn's tool results. */
 function toolResultContent(toolUseId: string): string {
   return JSON.stringify([
@@ -367,6 +375,31 @@ describe("GET /v1/attachments", () => {
 
     expect(result.attachments.map((a) => a.id)).toEqual([photo]);
     expect(result.total).toBe(1);
+  });
+
+  test("lists rows whose stored content is not a JSON array", async () => {
+    const conversation = createConversation("Legacy bodies");
+
+    const plainPhoto = await newAttachment("plain.png");
+    const plain = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(plain.id, plainPhoto, 0);
+    setCreatedAt(plain.id, 1000);
+    setContent(plain.id, "first photo");
+
+    const refPhoto = await newAttachment("ref.png");
+    const refRow = await addMessage(conversation.id, "user", "placeholder", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(refRow.id, refPhoto, 0);
+    setCreatedAt(refRow.id, 2000);
+    setContent(refRow.id, JSON.stringify({ ref: "x" }));
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments.map((a) => a.id)).toEqual([refPhoto, plainPhoto]);
+    expect(result.total).toBe(2);
   });
 
   test("lists an attachment carried twice once, under the newest carrier", async () => {
