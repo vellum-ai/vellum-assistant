@@ -112,6 +112,15 @@ describe("PROVIDER_SEED_DATA managed mode wiring", () => {
     expect(link.identityResponsePaths).toEqual(["email", "phone"]);
   });
 
+  test("figma ships behind the figma-oauth flag", () => {
+    // The provider is hidden from the providers list and the connect routes
+    // until the flag is enabled. Dropping featureFlag here would make Figma
+    // visible to every install with no other test noticing.
+    const figma = PROVIDER_SEED_DATA.figma;
+    expect(figma).toBeDefined();
+    expect(figma.featureFlag).toBe("figma-oauth");
+  });
+
   test("every managedServiceConfigKey resolves to a ServicesSchema key", () => {
     // Cross-repo invariant: a provider with managedServiceConfigKey but no
     // matching ServicesSchema entry silently falls back to BYO mode in

@@ -1,4 +1,5 @@
 import Foundation
+import MacHelperCore
 
 /// Computes a compact diff between two formatted AX tree snapshots.
 /// Returns a human-readable summary of what changed (elements added, removed, value changes, focus changes).
@@ -95,14 +96,12 @@ enum AXTreeDiff {
                 let curr = unmatchedCurr[i]
 
                 var elementChanges: [String] = []
-                let label = curr.title ?? curr.role
+                let label = AXLabel.singleLine(curr.title ?? curr.role)
 
                 if prev.value != curr.value {
-                    let oldVal = prev.value ?? "(empty)"
-                    let newVal = curr.value ?? "(empty)"
-                    let truncOld = oldVal.count > 30 ? String(oldVal.prefix(30)) + "..." : oldVal
-                    let truncNew = newVal.count > 30 ? String(newVal.prefix(30)) + "..." : newVal
-                    elementChanges.append("value: \"\(truncOld)\" → \"\(truncNew)\"")
+                    let oldVal = prev.value.map { AXLabel.singleLine($0, max: 30) } ?? "(empty)"
+                    let newVal = curr.value.map { AXLabel.singleLine($0, max: 30) } ?? "(empty)"
+                    elementChanges.append("value: \"\(oldVal)\" → \"\(newVal)\"")
                 }
                 if prev.isFocused != curr.isFocused {
                     elementChanges.append(curr.isFocused ? "gained focus" : "lost focus")
@@ -111,7 +110,9 @@ enum AXTreeDiff {
                     elementChanges.append(curr.isEnabled ? "enabled" : "disabled")
                 }
                 if prev.title != curr.title {
-                    elementChanges.append("title: \"\(prev.title ?? "(none)")\" → \"\(curr.title ?? "(none)")\"")
+                    let was = prev.title.map { AXLabel.singleLine($0) } ?? "(none)"
+                    let now = curr.title.map { AXLabel.singleLine($0) } ?? "(none)"
+                    elementChanges.append("title: \"\(was)\" → \"\(now)\"")
                 }
 
                 if !elementChanges.isEmpty {
@@ -122,14 +123,14 @@ enum AXTreeDiff {
             // Extra in prev = removed
             for i in paired..<unmatchedPrev.count {
                 let snap = unmatchedPrev[i]
-                let label = snap.title ?? snap.role
+                let label = AXLabel.singleLine(snap.title ?? snap.role)
                 changes.append("- Removed: [\(snap.id)] \(label)")
             }
 
             // Extra in curr = added
             for i in paired..<unmatchedCurr.count {
                 let snap = unmatchedCurr[i]
-                let label = snap.title ?? snap.role
+                let label = AXLabel.singleLine(snap.title ?? snap.role)
                 changes.append("+ Added: [\(snap.id)] \(label)")
             }
         }

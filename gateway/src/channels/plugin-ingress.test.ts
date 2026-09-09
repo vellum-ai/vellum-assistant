@@ -11,9 +11,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "bun:test";
 
 import {
+  MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+  PLUGIN_WEBHOOK_PATH_PREFIX,
+} from "../velay/path-utils.js";
+import {
   PLUGIN_INGRESS_MANIFEST_RELPATH,
   PLUGIN_WEBHOOK_PATH_PATTERN,
-  PLUGIN_WEBHOOK_PREFIX,
   PluginIngressCache,
   discoverPluginIngress,
   ingressRoutePaths,
@@ -90,13 +93,13 @@ describe("PLUGIN_WEBHOOK_PATH_PATTERN", () => {
 describe("pluginWebhookPath", () => {
   it("composes under the reserved namespace", () => {
     expect(pluginWebhookPath("meeting-bot", "realtime")).toBe(
-      `${PLUGIN_WEBHOOK_PREFIX}/meeting-bot/realtime`,
+      `${PLUGIN_WEBHOOK_PATH_PREFIX}meeting-bot/realtime`,
     );
   });
 
   it("normalizes a leading slash rather than emitting a double slash", () => {
     expect(pluginWebhookPath("acme", "/hook")).toBe(
-      `${PLUGIN_WEBHOOK_PREFIX}/acme/hook`,
+      `${PLUGIN_WEBHOOK_PATH_PREFIX}acme/hook`,
     );
   });
 });
@@ -468,6 +471,19 @@ describe("parsePluginIngressManifest", () => {
     ).toThrow();
   });
 
+  it("does not bound the declared path on its own", () => {
+    // What a path costs depends on the plugin directory name it composes
+    // under, which this schema never sees, so the length is decided at
+    // discovery instead.
+    const path = "x".repeat(400);
+
+    const manifest = parsePluginIngressManifest({
+      routes: [{ path, kind: "http", description: "d" }],
+    });
+
+    expect(manifest.routes[0]!.path).toBe(path);
+  });
+
   it("rejects query strings and fragments", () => {
     for (const path of ["hook?x=1", "hook#frag"]) {
       expect(() =>
@@ -629,6 +645,90 @@ describe("discoverPluginIngress", () => {
     expect(plugins).toEqual([]);
     expect(problems).toHaveLength(1);
   });
+
+  it("accepts a long declared path under a short plugin name", () => {
+    // The declared half says nothing on its own: 400 characters composed under
+    // a one-character plugin name sits well inside the registry's bound.
+    const workspaceDir = makeWorkspace();
+    const path = "x".repeat(400);
+    writeManifest(
+      workspaceDir,
+      "p",
+      JSON.stringify({ routes: [{ path, kind: "http", description: "d" }] }),
+    );
+
+    const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+    expect(problems).toEqual([]);
+    expect(ingressRoutePaths(plugins[0]!)).toEqual([
+      pluginWebhookPath("p", path),
+    ]);
+  });
+
+  it("accepts a composition that fills the registry's bound exactly", () => {
+    const workspaceDir = makeWorkspace();
+    const plugin = "meeting-bot";
+    const path = "x".repeat(
+      MAX_WEBHOOK_INGRESS_PATH_LENGTH -
+        `${pluginWebhookPath(plugin, "")}/`.length,
+    );
+    writeManifest(
+      workspaceDir,
+      plugin,
+      JSON.stringify({ routes: [{ path, kind: "http", description: "d" }] }),
+    );
+
+    expect(`${pluginWebhookPath(plugin, path)}/`).toHaveLength(
+      MAX_WEBHOOK_INGRESS_PATH_LENGTH,
+    );
+    const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+    expect(problems).toEqual([]);
+    expect(plugins.map((p) => p.plugin)).toEqual([plugin]);
+  });
+
+  it("reports an oversized composition as a declaration problem", () => {
+    // One character past the bound: the registry would hold no row for the
+    // route, so the plugin's author is told rather than the route silently
+    // going unserved.
+    const workspaceDir = makeWorkspace();
+    const plugin = "meeting-bot";
+    const path = "x".repeat(
+      MAX_WEBHOOK_INGRESS_PATH_LENGTH -
+        `${pluginWebhookPath(plugin, "")}/`.length +
+        1,
+    );
+    writeManifest(
+      workspaceDir,
+      plugin,
+      JSON.stringify({ routes: [{ path, kind: "http", description: "d" }] }),
+    );
+
+    const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+    expect(plugins).toEqual([]);
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.plugin).toBe(plugin);
+    expect(problems[0]?.reason).toContain("composed public path");
+  });
+
+  it("reports a composition the registry would not claim as a declaration problem", () => {
+    // The schema admits both of these and the composition is short enough, but
+    // a URL parser rewrites the non-ASCII one and treats the backslash as a
+    // separator, so the registry refuses both. Discovery has to refuse them
+    // too, or the resolver reports a route servable that no row can back.
+    for (const path of ["hooks\\admin", "café"]) {
+      const workspaceDir = makeWorkspace();
+      writeManifest(
+        workspaceDir,
+        "meeting-bot",
+        JSON.stringify({ routes: [{ path, kind: "http", description: "d" }] }),
+      );
+
+      const { plugins, problems } = discoverPluginIngress({ workspaceDir });
+      expect(plugins).toEqual([]);
+      expect(problems).toHaveLength(1);
+      expect(problems[0]?.plugin).toBe("meeting-bot");
+      expect(problems[0]?.reason).toContain("webhook registry claims");
+    }
+  });
 });
 
 describe("PluginIngressCache", () => {
@@ -656,5 +756,32 @@ describe("PluginIngressCache", () => {
     expect(cache.get({ force: true }).plugins.map((p) => p.plugin)).toEqual([
       "meeting-bot",
     ]);
+  });
+
+  it("announces a refresh that found different declarations", () => {
+    const workspaceDir = makeWorkspace();
+    const cache = new PluginIngressCache({ workspaceDir, ttlMs: 10_000 });
+    let announced = 0;
+    const unsubscribe = cache.onChange(() => {
+      announced += 1;
+    });
+    cache.get();
+    expect(announced).toBe(0);
+
+    writeManifest(workspaceDir, "meeting-bot", VALID);
+    cache.get({ force: true });
+    expect(announced).toBe(1);
+
+    // A re-scan that read the same manifests is not a change.
+    cache.get({ force: true });
+    expect(announced).toBe(1);
+
+    unsubscribe();
+    rmSync(join(workspaceDir, "plugins", "meeting-bot"), {
+      recursive: true,
+      force: true,
+    });
+    cache.get({ force: true });
+    expect(announced).toBe(1);
   });
 });

@@ -9,7 +9,14 @@ import {
   ingressDeclarationDigest,
   resolvePluginIngress,
 } from "../../channels/plugin-ingress-approvals.js";
-import { PLUGIN_INGRESS_MANIFEST_RELPATH } from "../../channels/plugin-ingress.js";
+import {
+  PLUGIN_INGRESS_MANIFEST_RELPATH,
+  type IngressRoute,
+} from "../../channels/plugin-ingress.js";
+import {
+  reconcilePluginWebhookRoutes,
+  watchPluginIngressForWebhookRoutes,
+} from "../../channels/plugin-webhook-route-sync.js";
 import {
   getGatewayDb,
   initGatewayDb,
@@ -19,7 +26,15 @@ import {
   approvePluginIngress,
   getPluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
-import { pluginIngressApprovals } from "../../db/schema.js";
+import {
+  pluginIngressApprovals,
+  webhookIngressRoutes,
+} from "../../db/schema.js";
+import {
+  listWebhookIngressRoutes,
+  reconcilePluginWebhookIngressRoutes,
+  registerWebhookIngressRoute,
+} from "../../db/webhook-ingress-route-store.js";
 import {
   createChannelIngressApproveHandler,
   createChannelIngressListHandler,
@@ -45,7 +60,9 @@ const ROUTES = [
 const approve = createChannelIngressApproveHandler(() =>
   resolvePluginIngress({ workspaceDir }),
 );
-const revoke = createChannelIngressRevokeHandler();
+const revoke = createChannelIngressRevokeHandler(() =>
+  resolvePluginIngress({ workspaceDir }),
+);
 const list = createChannelIngressListHandler(() =>
   resolvePluginIngress({ workspaceDir }),
 );
@@ -80,6 +97,7 @@ beforeEach(async () => {
   resetGatewayDb();
   await initGatewayDb();
   getGatewayDb().delete(pluginIngressApprovals).run();
+  getGatewayDb().delete(webhookIngressRoutes).run();
 
   workspaceDir = mkdtempSync(join(tmpdir(), "channel-ingress-"));
   created.push(workspaceDir);
@@ -159,6 +177,115 @@ describe("approve", () => {
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
   });
 
+  it("claims both accepted spellings of every route it approves", async () => {
+    // Velay forwards only paths this assistant has claimed, and matches them
+    // exactly, so a grant that wrote no row for the trailing-slash spelling
+    // leaves a request the gateway would answer rejected at the edge.
+    const routes = [ROUTES[0]!, { ...ROUTES[0]!, path: "events/inbound" }];
+    writePlugin("meeting-bot", routes);
+
+    const res = await approve(
+      approveRequest({ digest: ingressDeclarationDigest(routes) }),
+      "meeting-bot",
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => [r.path, r.type, r.source])
+        .sort(),
+    ).toEqual([
+      ["/webhooks/plugins/meeting-bot/events/inbound", "plugin", "meeting-bot"],
+      [
+        "/webhooks/plugins/meeting-bot/events/inbound/",
+        "plugin",
+        "meeting-bot",
+      ],
+      ["/webhooks/plugins/meeting-bot/realtime", "plugin", "meeting-bot"],
+      ["/webhooks/plugins/meeting-bot/realtime/", "plugin", "meeting-bot"],
+    ]);
+  });
+
+  it("claims paths for a grant that was recorded before the registry existed", async () => {
+    // Nothing ever wrote that grant's rows and no second approval is coming
+    // for it, so only a reconcile can give it any reach. Approving anything
+    // reconciles the whole set, which is what picks it up.
+    writePlugin("meeting-bot");
+    approvePluginIngress({
+      plugin: "meeting-bot",
+      digest: ingressDeclarationDigest(ROUTES),
+    });
+    expect(listWebhookIngressRoutes()).toEqual([]);
+    writePlugin("notes");
+
+    const res = await approve(
+      new Request("http://gateway/v1/channel-ingress/notes/approve", {
+        method: "POST",
+        body: JSON.stringify({ digest: ingressDeclarationDigest(ROUTES) }),
+      }),
+      "notes",
+    );
+
+    expect(res.status).toBe(200);
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual([
+      "/webhooks/plugins/meeting-bot/realtime",
+      "/webhooks/plugins/meeting-bot/realtime/",
+      "/webhooks/plugins/notes/realtime",
+      "/webhooks/plugins/notes/realtime/",
+    ]);
+  });
+
+  it("leaves a settle that failed for the watcher to retry", async () => {
+    // The grant is persisted before its rows are claimed, and no declaration
+    // change follows an approval, so a settle that throws would strand the
+    // approved routes unless the failure arms the poll's retry.
+    writePlugin("meeting-bot");
+    const resolve = () => resolvePluginIngress({ workspaceDir });
+    // Start from a settled registry, so the retry below is this failure's.
+    expect(reconcilePluginWebhookRoutes(resolve)).toBe(true);
+
+    let calls = 0;
+    const approveThenFail = createChannelIngressApproveHandler(() => {
+      calls += 1;
+      if (calls > 1) {
+        throw new Error("transient");
+      }
+      return resolve();
+    });
+
+    const res = await approveThenFail(
+      approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
+      "meeting-bot",
+    );
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "Internal server error" });
+    expect(getPluginIngressApproval("meeting-bot")).toBeDefined();
+    expect(listWebhookIngressRoutes()).toEqual([]);
+
+    const unwatch = watchPluginIngressForWebhookRoutes({
+      subscribe: () => () => {},
+      resolve,
+      refresh: () => {},
+      pollIntervalMs: 10,
+    });
+    await new Promise((done) => setTimeout(done, 40));
+    unwatch();
+
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => r.path)
+        .sort(),
+    ).toEqual([
+      "/webhooks/plugins/meeting-bot/realtime",
+      "/webhooks/plugins/meeting-bot/realtime/",
+    ]);
+  });
+
   it("rejects a body that is not JSON", async () => {
     writePlugin("meeting-bot");
 
@@ -191,9 +318,55 @@ describe("revoke", () => {
     expect(await res.json()).toMatchObject({ revoked: false });
   });
 
+  async function approveWithClaimedPath(): Promise<void> {
+    writePlugin("meeting-bot");
+    await approve(
+      approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
+      "meeting-bot",
+    );
+    expect(listWebhookIngressRoutes()).toHaveLength(2);
+  }
+
+  it("drops the paths the grant claimed", async () => {
+    await approveWithClaimedPath();
+
+    const res = await revoke(revokeRequest(), "meeting-bot");
+
+    expect(await res.json()).toMatchObject({ revoked: true });
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
+  it("keeps the paths approval never gated", async () => {
+    // A `signer: "vellum"` route is served whether or not a grant stands, so
+    // an allowlist that dropped it would block a route the gateway answers.
+    const mixed: IngressRoute[] = [
+      ROUTES[0]!,
+      {
+        path: "platform",
+        kind: "http",
+        signer: "vellum",
+        handshake: "signed-headers",
+        description: "platform callback",
+      },
+    ];
+    writePlugin("meeting-bot", mixed);
+    await approve(
+      approveRequest({ digest: ingressDeclarationDigest(mixed) }),
+      "meeting-bot",
+    );
+    expect(listWebhookIngressRoutes()).toHaveLength(4);
+
+    await revoke(revokeRequest(), "meeting-bot");
+
+    expect(listWebhookIngressRoutes().map((r) => r.path)).toEqual([
+      "/webhooks/plugins/meeting-bot/platform",
+      "/webhooks/plugins/meeting-bot/platform/",
+    ]);
+  });
+
   it("revokes a grant whose declaration has become unreadable", async () => {
     // A grant must be withdrawable even when the manifest that justified it
-    // can no longer be parsed, or a broken plugin would keep its ingress.
+    // cannot be parsed, or a broken plugin would keep its ingress.
     approvePluginIngress({ plugin: "meeting-bot", digest: "a".repeat(32) });
     writePlugin("meeting-bot", [{ path: "/absolute", kind: "http" }]);
 
@@ -201,6 +374,63 @@ describe("revoke", () => {
 
     expect(await res.json()).toMatchObject({ revoked: true });
     expect(getPluginIngressApproval("meeting-bot")).toBeUndefined();
+  });
+});
+
+describe("webhook route reconciliation", () => {
+  // Approve and revoke both settle the whole registry against what the gate
+  // would serve, so either drives these. Revoking a source that holds no grant
+  // is the smallest trigger that changes nothing else.
+  const reconcile = () =>
+    revoke(
+      new Request("http://gateway/v1/channel-ingress/notes/revoke", {
+        method: "POST",
+      }),
+      "notes",
+    );
+
+  it("releases the paths of a plugin that is not installed", async () => {
+    // An approval outlives the plugin it was granted for, because uninstalling
+    // does not revoke. What decides is the declaration, and an absent plugin
+    // makes none.
+    approvePluginIngress({ plugin: "gone", digest: "a".repeat(32) });
+    // A reconcile is the only writer of plugin rows, so it is also how the
+    // registry comes to hold one for a plugin that is now absent.
+    reconcilePluginWebhookIngressRoutes([
+      { path: "/webhooks/plugins/gone/events", source: "gone" },
+    ]);
+
+    await reconcile();
+
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
+  it("releases the paths of an approval the declaration has outgrown", async () => {
+    // An edited manifest carries a different digest, which leaves the source
+    // pending. The grant then covers a declaration nobody makes, and the
+    // source name alone is not enough to keep a path claimed.
+    writePlugin("meeting-bot");
+    await approve(
+      approveRequest({ digest: ingressDeclarationDigest(ROUTES) }),
+      "meeting-bot",
+    );
+    writePlugin("meeting-bot", [{ ...ROUTES[0]!, path: "realtime/v2" }]);
+
+    await reconcile();
+
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
+  it("leaves rows another subsystem registered alone", async () => {
+    registerWebhookIngressRoute({
+      path: "/webhooks/telegram",
+      type: "telegram",
+      source: "meeting-bot",
+    });
+
+    await reconcile();
+
+    expect(listWebhookIngressRoutes().map((r) => r.type)).toEqual(["telegram"]);
   });
 });
 

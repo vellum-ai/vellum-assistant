@@ -86,6 +86,7 @@ import {
   LiveVoiceChannelClient,
   RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
+  type LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
   LiveVoiceAudioCapture,
@@ -725,9 +726,14 @@ export function useLiveVoice(
    * reconnect gap is right to drop, since the fresh session is the one that
    * would persist it and the moment it belonged to has passed.
    */
-  const sightFrame = useCallback((attachmentId: string): boolean => {
-    return sessionRef.current?.client.sightFrame(attachmentId) ?? false;
-  }, []);
+  const sightFrame = useCallback(
+    (attachmentId: string, timing?: LiveVoiceSightFrameTiming): boolean => {
+      return (
+        sessionRef.current?.client.sightFrame(attachmentId, timing) ?? false
+      );
+    },
+    [],
+  );
 
   const createPlayer = useCallback(
     () =>
@@ -890,14 +896,6 @@ export function useLiveVoice(
         onChunk: (buf) => handleChunk(session, buf),
         onAmplitude: (amplitude) =>
           handleAmplitude(session, amplitude, teardown),
-        // Full-duplex capture runs without AGC. Barge-in is decided on the
-        // daemon by comparing mean absolute amplitude against a threshold on
-        // the absolute 16-bit scale, and AGC is a moving gain in front of that
-        // fixed number: it lifts a quiet room's noise floor toward the level
-        // speech reaches in a loud one, so ordinary room noise clears the gate
-        // and cancels the reply. Every other consumer of this capture pipeline
-        // is half-duplex and keeps the default (JARVIS-1694).
-        autoGainControl: false,
       });
       session.capture = capture;
       sessionRef.current = session;

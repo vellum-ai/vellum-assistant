@@ -97,6 +97,9 @@ function makeDeps(opts: {
     recreateCollectionsAtDim: mock(async () => {}),
     ensureCollections: mock(async () => {}),
     enqueueReembed: mock(() => {}),
+    customEmbeddingSpaceIdentity: mock(() => null),
+    readCustomEmbeddingSpace: mock(() => null),
+    writeCustomEmbeddingSpace: mock(() => {}),
   };
 }
 
@@ -289,6 +292,77 @@ describe("reconcileEmbeddingIdentity", () => {
     expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
   });
 
+  test("noop records a first-seen custom endpoint without re-embedding", async () => {
+    const deps = makeDeps({
+      decision: { kind: "noop" },
+      committedDim: 1536,
+      probeDim: 1536,
+    });
+    deps.customEmbeddingSpaceIdentity = mock(
+      () => "custom\0text-embedding-3-small\0url=http://127.0.0.1:4000/v1",
+    );
+
+    const outcome = await reconcileEmbeddingIdentity(
+      fakeConfig("custom"),
+      deps,
+    );
+
+    expect(outcome).toEqual({ action: "noop", dim: 1536 });
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
+    expect(deps.writeCustomEmbeddingSpace).toHaveBeenCalledWith(
+      "custom\0text-embedding-3-small\0url=http://127.0.0.1:4000/v1",
+    );
+    expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
+  });
+
+  test("noop reembeds when the custom endpoint changes at the same dimension", async () => {
+    const deps = makeDeps({
+      decision: { kind: "noop" },
+      committedDim: 1536,
+      probeDim: 1536,
+    });
+    deps.customEmbeddingSpaceIdentity = mock(
+      () => "custom\0text-embedding-3-small\0url=http://127.0.0.1:4001/v1",
+    );
+    deps.readCustomEmbeddingSpace = mock(
+      () => "custom\0text-embedding-3-small\0url=http://127.0.0.1:4000/v1",
+    );
+
+    const outcome = await reconcileEmbeddingIdentity(
+      fakeConfig("custom"),
+      deps,
+    );
+
+    expect(outcome).toEqual({ action: "reembed-space", dim: 1536 });
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(1);
+    expect(deps.writeCustomEmbeddingSpace).toHaveBeenCalledWith(
+      "custom\0text-embedding-3-small\0url=http://127.0.0.1:4001/v1",
+    );
+    expect(deps.recreateCollectionsAtDim).toHaveBeenCalledTimes(0);
+    expect(deps.persistVectorSize).toHaveBeenCalledTimes(0);
+  });
+
+  test("noop does not reembed when the custom endpoint is unchanged", async () => {
+    const identity =
+      "custom\0text-embedding-3-small\0url=http://127.0.0.1:4000/v1";
+    const deps = makeDeps({
+      decision: { kind: "noop" },
+      committedDim: 1536,
+      probeDim: 1536,
+    });
+    deps.customEmbeddingSpaceIdentity = mock(() => identity);
+    deps.readCustomEmbeddingSpace = mock(() => identity);
+
+    const outcome = await reconcileEmbeddingIdentity(
+      fakeConfig("custom"),
+      deps,
+    );
+
+    expect(outcome).toEqual({ action: "noop", dim: 1536 });
+    expect(deps.enqueueReembed).toHaveBeenCalledTimes(0);
+    expect(deps.writeCustomEmbeddingSpace).toHaveBeenCalledTimes(0);
+  });
+
   test("passes committed + probe dims and configured provider into the decision", async () => {
     const deps = makeDeps({
       decision: { kind: "noop" },
@@ -409,6 +483,9 @@ function driveBranch(
     })),
     readConceptPageCollectionDim: mock(async () => committedDim),
     decideEmbeddingReconcile: mock(() => decision),
+    customEmbeddingSpaceIdentity: mock(() => null),
+    readCustomEmbeddingSpace: mock(() => null),
+    writeCustomEmbeddingSpace: mock(() => {}),
   };
 }
 

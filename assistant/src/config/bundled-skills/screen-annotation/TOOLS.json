@@ -3,7 +3,7 @@
   "tools": [
     {
       "name": "screen_point_at",
-      "description": "Point at something on the screen the user is sharing with the call: draws a ring around it, with a short caption beside it. Replaces whatever is currently drawn.\n\nCoordinates are fractions of the shared surface, 0 to 1, measured against the picture of that surface you were last shown. Give the bounds of the thing itself; the ring is drawn around them.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
+      "description": "Point at something on the screen the user is sharing with the call: draws a ring around it, with a short caption beside it. Replaces whatever is currently drawn.\n\nName what to point at with `target`, written the way the control's own label is written: \"color balance\", \"Send\", \"Search\". The name is looked up on the surface itself, so the ring lands on the control rather than near it. Prefer this always. A name the surface does not carry draws nothing and comes back with the names it does carry, to point again with or to say out loud.\n\nGive `x`/`y`/`width`/`height` only for something with no label to find it by: a region of an image, a spot on a canvas, a plugin's own drawing. They are fractions of the shared surface, 0 to 1, measured against the picture you were last shown, and they are a guess at where the thing is rather than a reading of it.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
       "category": "screen-annotation",
       "risk": "low",
       "input_schema": {
@@ -15,14 +15,31 @@
             "maxItems": 4,
             "items": {
               "type": "object",
+              "description": "One thing to point at: either `target` naming it, or all four bounds giving its rectangle. Naming is exact; bounds are estimated, so name it whenever it has a name. One or the other, never both and never part of either.",
+              "oneOf": [
+                {
+                  "description": "Named, and found on the surface.",
+                  "required": ["target"]
+                },
+                {
+                  "description": "Measured off the last picture, for something with no name to find it by. All four bounds or none.",
+                  "required": ["x", "y", "width", "height"]
+                }
+              ],
               "properties": {
+                "target": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "description": "The control's label, written the way the label itself is written: \"color balance\", \"Send\". Looked up on the surface, so it lands exactly. Leave out only when the thing has no label."
+                },
                 "x": {
                   "type": "number",
-                  "description": "Left edge, as a fraction of the shared surface's width (0 to 1)."
+                  "description": "Left edge as a fraction of the shared surface's width (0 to 1). Only for something `target` cannot name."
                 },
                 "y": {
                   "type": "number",
-                  "description": "Top edge, as a fraction of the shared surface's height (0 to 1)."
+                  "description": "Top edge as a fraction of the shared surface's height (0 to 1). Only for something `target` cannot name."
                 },
                 "width": {
                   "type": "number",
@@ -37,8 +54,7 @@
                   "maxLength": 80,
                   "description": "A short imperative for what to do with it, e.g. \"Click Share\". Say the rest out loud."
                 }
-              },
-              "required": ["x", "y", "width", "height"]
+              }
             }
           },
           "target_client_id": {

@@ -86,6 +86,20 @@ const ASSISTANT_REPLY_CHANNELS = [
   "platform",
 ] as const satisfies readonly NotificationChannel[];
 
+/**
+ * Delivery scope for `schedule.result` signals. Wider than
+ * {@link ASSISTANT_REPLY_CHANNELS} by one channel, and the difference is the
+ * point: an unseen chat reply is already sitting in a conversation the user
+ * opened, so a push is the only thing it can add. A scheduled run's output has
+ * no such home — nobody is looking at the run's conversation — so `vellum`
+ * carries it into the notification center where it persists, and `platform`
+ * pushes it.
+ */
+const SCHEDULE_RESULT_CHANNELS = [
+  "vellum",
+  "platform",
+] as const satisfies readonly NotificationChannel[];
+
 // ── System prompt ──────────────────────────────────────────────────────
 
 function buildSystemPrompt(
@@ -224,23 +238,28 @@ function buildUserPrompt(signal: NotificationSignal): string {
 // ── Tool definition ────────────────────────────────────────────────────
 
 /**
- * Spec for the per-channel notification title. Mirrors the conversation title
- * prompt (`persistence/conversation-title-service.ts`), which gets clean
- * noun-phrase headlines out of this same model profile.
+ * Spec for the per-channel notification title. The title is the one line a
+ * reader sees in the notification bell, where a row that only reports shows
+ * nothing else, so it has to say what happened on its own rather than name a
+ * topic the body then explains. Same length discipline as the conversation
+ * title prompt (`persistence/conversation-title-service.ts`), which shares
+ * this model profile and the `normalizeTitle` clamp.
  */
 const TITLE_FIELD_DESCRIPTION = [
-  "Scannable headline naming the TOPIC of this notification, not a summary of it.",
+  "Scannable headline saying WHAT HAPPENED or WHAT IS NEEDED, so it stands on its own without the body.",
   "Rules:",
-  "- 2 to 5 words. Longer titles are unacceptable, ruthlessly compress",
+  "- 2 to 6 words. Longer titles are unacceptable, ruthlessly compress",
   "- 40 characters absolute maximum, longer titles get truncated and look broken",
-  "- A noun phrase naming the topic, never a sentence, question, or greeting (e.g. 'Platform Standup', 'Nightly Backup Failure')",
-  "- Do NOT restate, summarize, or echo the body. The title and the body must carry different information",
+  "- Lead with the outcome as a short clause: a past-tense verb for something done ('Prepared a wedding schedule', 'Nightly backup failed'), a need for something waiting on the reader ('Needs an answer on the venue')",
+  "- Sentence case, never Title Case",
+  "- Do NOT restate the body word for word. The body adds the detail the title leaves out: numbers, names, what to do next",
   "- No quotes, no markdown, no trailing punctuation",
-  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Missing Context' are forbidden. Extract a topic from the words that ARE present",
+  "- Never describe missing or thin context. Titles like 'Notification', 'Update', 'Activity complete', 'Missing context' are forbidden. Say what was done from the words that ARE present",
   "Examples:",
-  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform Standup', NOT 'Standup Starts In 5 Minutes'",
-  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly Backup Failure', NOT 'Nightly Backup Job Failed On db-primary'",
-  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Q3 Pricing Deck', NOT 'Alice Replied About The Pricing Deck'",
+  "- Body 'Your 9am standup with the platform team starts in 5 minutes' -> 'Platform standup in 5 minutes', NOT 'Platform Standup'",
+  "- Body 'The nightly backup job failed on db-primary at 02:14' -> 'Nightly backup failed', NOT 'Nightly Backup Failure'",
+  "- Body 'Alice replied about the Q3 pricing deck and wants your notes' -> 'Alice wants notes on the Q3 deck', NOT 'Q3 Pricing Deck'",
+  "- Body 'Recapped the 12 emails that needed a reply and deleted 6 newsletters' -> 'Recapped 12 emails, deleted 6', NOT 'Inbox Recap'",
 ].join("\n");
 
 function buildDecisionTool(availableChannels: NotificationChannel[]) {
@@ -904,6 +923,24 @@ export async function evaluateSignal(
       ),
       body: requestedBody,
       reasoningSummary: "assistant_reply pass-through",
+    });
+  }
+
+  // Schedule-result pass-through: the body is the run's own reply, which is
+  // the whole point of the notification — a briefing, a digest, a report. The
+  // classifier rewrites bodies into short alerts, which would throw away the
+  // content the user set the schedule up to receive. Routing has nothing to
+  // decide either: the user asked for this cadence, so it goes to the inbox
+  // and to push, and `enforceRoutingIntent` still narrows it afterwards.
+  if (signal.sourceEventName === "schedule.result" && requestedBody) {
+    return buildPassThroughDecision({
+      signal,
+      availableChannels,
+      selectedChannels: SCHEDULE_RESULT_CHANNELS.filter((ch) =>
+        availableChannels.includes(ch),
+      ),
+      body: requestedBody,
+      reasoningSummary: "schedule_result pass-through",
     });
   }
 

@@ -30,7 +30,6 @@ import {
   setCompanionContext,
   setCompanionDictation,
 } from "@/runtime/companion-surface";
-import { supportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
 import { supportsWatchCaptureTarget } from "@/lib/backwards-compat/watch-capture-target";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -41,10 +40,8 @@ import {
   stopWatch,
   useWatchStore,
 } from "@/domains/chat/watch/watch-controller";
-import {
-  isLiveVoiceSessionActive,
-  useLiveVoiceStore,
-} from "@/domains/chat/voice/live-voice/live-voice-store";
+import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useDictationOfferStore } from "@/domains/chat/voice/dictation-offer-store";
 import { useWatchRetroStore } from "@/domains/chat/watch/watch-retro";
@@ -134,7 +131,7 @@ function currentContext(): CompanionContext {
     // frames land in lives in this window, and the surface draws the share as
     // on only once that session is one that takes them.
     screenShare: screenShareTarget(),
-    screenShareEnabled: screenShareEnabled(),
+    screenShareEnabled: liveVoiceCanBeShownTheScreen(),
     // Who owns the call the share belongs to, so main can refuse marks that
     // came from anywhere else. Read through the same gate as the target: a
     // share that cannot flow has no conversation worth naming.
@@ -168,25 +165,11 @@ function currentOffer(): CompanionDictationOffer | undefined {
 }
 
 /**
- * Whether the running call can be shown the screen: a session is up, on an
- * assistant that understands `sight_frame`, and has not latched the frame as
- * unsupported. The same conjunction the share hook runs, read as a snapshot.
- */
-function screenShareEnabled(): boolean {
-  const session = useLiveVoiceStore.getState();
-  return (
-    isLiveVoiceSessionActive(session.state) &&
-    !session.sightFramesUnsupported &&
-    supportsSightStream(session.assistantId)
-  );
-}
-
-/**
  * What the call is being shown, or nothing. Withheld unless the share can
  * flow, so the surface never draws a share of a session that takes no frames.
  */
 function screenShareTarget(): CompanionContext["screenShare"] {
-  if (!screenShareEnabled()) {
+  if (!liveVoiceCanBeShownTheScreen()) {
     return undefined;
   }
   return useLiveVoiceStore.getState().screenShareTarget ?? undefined;
@@ -200,7 +183,7 @@ function screenShareTarget(): CompanionContext["screenShare"] {
  * is nothing for one to own.
  */
 function callConversationId(): CompanionContext["callConversationId"] {
-  if (!screenShareEnabled()) {
+  if (!liveVoiceCanBeShownTheScreen()) {
     return undefined;
   }
   return useLiveVoiceStore.getState().conversationId ?? undefined;
@@ -250,7 +233,7 @@ function dictationTail(): string {
 /** The share as the surface would draw it, as one comparable value. */
 function screenShareKey(): string {
   const target = screenShareTarget();
-  const enabled = screenShareEnabled();
+  const enabled = liveVoiceCanBeShownTheScreen();
   return `${enabled ? "on" : "off"}:${callConversationId() ?? ""}:${target === undefined ? "" : `${target.kind}:${target.kind === "display" ? target.displayId : target.windowId}`}`;
 }
 

@@ -170,6 +170,10 @@ import {
   isPluginWebhookSocketData,
 } from "./http/routes/plugin-webhook-websocket.js";
 import { resolveCachedPluginIngress } from "./channels/plugin-ingress-approvals.js";
+import {
+  reconcilePluginWebhookRoutes,
+  watchPluginIngressForWebhookRoutes,
+} from "./channels/plugin-webhook-route-sync.js";
 import { PLUGIN_WEBHOOK_PATH_PATTERN } from "./channels/plugin-ingress.js";
 import {
   createChannelPermissionOverridesListHandler,
@@ -403,6 +407,14 @@ async function main() {
   initTrustRuleCache();
   initAdmissionPolicyCache();
 
+  // Plugin rows in the webhook registry are derived from the declarations the
+  // ingress gate currently serves, so startup recomputes them from what is
+  // installed and approved right now rather than trusting whatever the last
+  // run left behind. Anything that moved while the gateway was down settles
+  // here, and the watch below keeps them settling while it runs.
+  reconcilePluginWebhookRoutes();
+  watchPluginIngressForWebhookRoutes();
+
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
   // Handlers read dynamic credentials and config.json values from these
@@ -414,9 +426,14 @@ async function main() {
     configFile: configFileCache,
   });
   // Velay only sees a webhook route on the next tunnel connect, so a registry
-  // write asks for one.
+  // write asks for one. With the flag off the advertised rules are a constant,
+  // so a write changes nothing worth reconnecting for; registry maintenance
+  // must never touch the tunnel in that state. A flag flip re-advertises via
+  // the flag-change handler, which picks up any rows written while off.
   onWebhookIngressRoutesChanged(() => {
-    velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
+    if (isFeatureFlagEnabled("velay-webhooks")) {
+      velayTunnelClient?.requestRulesRefresh("webhook-routes-changed");
+    }
   });
 
   // ── Integration readiness flags ──
@@ -898,22 +915,27 @@ async function main() {
     },
 
     // ── Vercel control plane ──
+    // The dedicated proxy mints a gateway service token, so the daemon
+    // never sees the caller's scopes. Edge-scoped auth is the check.
     {
       path: "/v1/integrations/vercel/config",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => vercelControlPlaneProxy.handleGetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleSetVercelConfig(req),
     },
     {
       path: "/v1/integrations/vercel/config",
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => vercelControlPlaneProxy.handleDeleteVercelConfig(req),
     },
 

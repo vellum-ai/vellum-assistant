@@ -46,36 +46,37 @@ const REASON_TEXT_KEYS = {
   warmup: "frameGateHud.reasonWarmup",
   featureless: "frameGateHud.reasonFeatureless",
   first: "frameGateHud.reasonFirst",
-  "rate-floor": "frameGateHud.reasonRateFloor",
   moving: "frameGateHud.reasonMoving",
+  settling: "frameGateHud.reasonSettling",
   heartbeat: "frameGateHud.reasonHeartbeat",
   novel: "frameGateHud.reasonNovel",
   unchanged: "frameGateHud.reasonUnchanged",
   forced: "frameGateHud.reasonForced",
+  answered: "frameGateHud.reasonAnswered",
 } as const satisfies Record<FrameGateReason, string>;
 
 const STEP_LABEL_KEYS = {
   warmup: "frameGateHud.stepWarmup",
   featureless: "frameGateHud.stepFeatureless",
   first: "frameGateHud.stepFirst",
-  "rate-floor": "frameGateHud.stepRateFloor",
   moving: "frameGateHud.stepMoving",
+  settling: "frameGateHud.stepSettling",
   heartbeat: "frameGateHud.stepHeartbeat",
   novel: "frameGateHud.stepNovel",
   unchanged: "frameGateHud.stepUnchanged",
   forced: "frameGateHud.stepForced",
+  answered: "frameGateHud.stepAnswered",
 } as const satisfies Record<FrameGateReason, string>;
 
 const SLIDER_LABEL_KEYS = {
   noveltyThreshold: "frameGateHud.noveltyThresholdLabel",
   settleThreshold: "frameGateHud.settleThresholdLabel",
   minDetail: "frameGateHud.minDetailLabel",
-  minIntervalMs: "frameGateHud.minIntervalLabel",
+  forcedNoveltyThreshold: "frameGateHud.forcedNoveltyThresholdLabel",
   maxIntervalMs: "frameGateHud.maxIntervalLabel",
 } as const satisfies Record<FrameGateOverrideKey, string>;
 
 const SURFACE_LABEL_KEYS = {
-  composer: "frameGateHud.surfaceComposer",
   voice: "frameGateHud.surfaceVoice",
 } as const satisfies Record<FrameGateDebugSurface, string>;
 
@@ -97,7 +98,7 @@ const SECONDS_FORMAT = new Intl.NumberFormat(undefined, {
 });
 
 function formatThreshold(key: FrameGateOverrideKey, value: number): string {
-  if (key === "minIntervalMs" || key === "maxIntervalMs") {
+  if (key === "maxIntervalMs") {
     return SECONDS_FORMAT.format(value / 1000);
   }
   return SCORE_FORMAT.format(value);

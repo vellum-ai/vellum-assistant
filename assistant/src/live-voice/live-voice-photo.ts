@@ -90,6 +90,7 @@ import {
   getMessageById,
   MessageInsertPreconditionError,
   recordConversationPersistedSeq,
+  selectNewestSightFrameCapture,
 } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -134,6 +135,29 @@ const SIGHT_FRAME_MESSAGE_CONTENT = "(camera frame)";
 export interface LiveVoicePhotoResult {
   readonly ok: boolean;
   readonly messageId?: string;
+  /**
+   * Where the daemon's half of a persist went, on the ordinary success path.
+   * Absent on failure and on the recovery path that reports a row the write
+   * threw after landing, where the marks say nothing about the row.
+   */
+  readonly timing?: LiveVoicePhotoPersistTiming;
+}
+
+/**
+ * The daemon leg of one standalone image, as durations between its marks.
+ *
+ * Together with the client leg a `sight_frame` can carry (see
+ * `LiveVoiceSightFrameTiming` in `protocol.ts`) and the session's own
+ * distance-from-speech-onset, this is what says which leg a frame that missed
+ * its turn was lost in.
+ */
+export interface LiveVoicePhotoPersistTiming {
+  /** Behind this conversation's earlier standalone images. */
+  readonly queueWaitMs: number;
+  /** Polling for the processing flag, which a running turn holds. */
+  readonly flagWaitMs: number;
+  /** Materializing the attachment and inserting the row. */
+  readonly writeMs: number;
 }
 
 /**
@@ -175,8 +199,9 @@ async function enqueueStandaloneImagePersist(
   attachmentId: string,
   kind: "photo" | "sight_frame",
   content: string,
-  job: () => Promise<LiveVoicePhotoResult>,
+  job: (queueWaitMs: number) => Promise<LiveVoicePhotoResult>,
 ): Promise<LiveVoicePhotoResult> {
+  const queuedAtMs = Date.now();
   let queue = standaloneImageQueues.get(conversationId);
   if (!queue) {
     queue = {
@@ -215,7 +240,7 @@ async function enqueueStandaloneImagePersist(
       );
       return { ok: false };
     }
-    return job();
+    return job(Date.now() - queuedAtMs);
   });
   // The tail must survive a failed job, or one rejection would strand every
   // image queued behind it.
@@ -265,6 +290,33 @@ export const SIGHT_FRAME_TURN_HOLD_MS = 800;
  * Settles, never rejects: the caller is choosing how long to wait, not whether
  * the image landed.
  */
+/** The newest camera frame a conversation's rows carry. */
+export interface NewestSightFrame {
+  readonly attachmentId: string;
+  /** When the row carrying it was written, in wall-clock milliseconds. */
+  readonly capturedAt: number;
+}
+
+/**
+ * The camera frame a turn launching now would read as the current view, or
+ * null when the conversation carries none.
+ *
+ * For the turn's own log: which frame the answer is about is otherwise
+ * invisible, and the failure this instruments is exactly a turn reading the
+ * frame before the one the question was asked about. Read from the rows, the
+ * same source retention ranks frames by, so a frame that landed is counted
+ * and a frame still in flight is not. One indexed row, since it runs on every
+ * voice turn.
+ */
+export function newestPersistedSightFrame(
+  conversationId: string,
+): NewestSightFrame | null {
+  const newest = selectNewestSightFrameCapture(conversationId);
+  return newest === null
+    ? null
+    : { attachmentId: newest.attachmentId, capturedAt: newest.createdAt };
+}
+
 export function pendingStandaloneImagePersist(
   conversationId: string,
 ): Promise<void> | null {
@@ -672,13 +724,14 @@ function persistStandaloneImage(
     attachmentId,
     kind,
     persistOptions.content,
-    () =>
+    (queueWaitMs) =>
       writeStandaloneImage(
         conversationId,
         attachmentId,
         kind,
         incarnation,
         persistOptions,
+        queueWaitMs,
       ),
   );
 }
@@ -718,6 +771,7 @@ async function writeStandaloneImage(
     | "insertPrecondition"
     | "onUndiscardedAttachments"
   >,
+  queueWaitMs: number,
 ): Promise<LiveVoicePhotoResult> {
   const { content } = persistOptions;
   // The id the row is inserted under, so a failure can ask whether the insert
@@ -768,7 +822,9 @@ async function writeStandaloneImage(
     // A turn holds the lock for its whole run. Waiting rather than queueing:
     // the conversation's queue drains into a turn, which is the one thing this
     // must not cause.
+    const flagWaitStartedAtMs = Date.now();
     const owner = await acquireProcessingFlag(conversation);
+    const flagAcquiredAtMs = Date.now();
     if (owner === null) {
       log.warn(
         { conversationId, attachmentId, kind },
@@ -828,7 +884,15 @@ async function writeStandaloneImage(
 
       announcePersistedImage(conversationId, content, persisted.id);
 
-      return { ok: true, messageId: persisted.id };
+      return {
+        ok: true,
+        messageId: persisted.id,
+        timing: {
+          queueWaitMs,
+          flagWaitMs: flagAcquiredAtMs - flagWaitStartedAtMs,
+          writeMs: Date.now() - flagAcquiredAtMs,
+        },
+      };
     } finally {
       // Only this job's own hold is released. A turn that claimed the flag
       // away mid-write owns it now, and clearing there would free a turn that

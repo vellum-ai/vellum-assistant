@@ -97,9 +97,9 @@ describe("frame gate debug, disabled", () => {
     });
 
     for (let i = 0; i < 10; i++) {
-      recordFrameGateDecision("composer", decision(), i);
+      recordFrameGateDecision("voice", decision(), i);
     }
-    recordFrameGateKeep("composer", jpeg());
+    recordFrameGateKeep("voice", jpeg());
     flushFrames();
 
     expect(isFrameGateDebugEnabled()).toBe(false);
@@ -117,17 +117,17 @@ describe("frame gate debug, enabled", () => {
   });
 
   test("fills the ring, the counters and the latest slot", () => {
-    recordFrameGateDecision("composer", decision({ reason: "warmup" }), 1);
-    recordFrameGateDecision("composer", decision({ reason: "moving" }), 2);
+    recordFrameGateDecision("voice", decision({ reason: "warmup" }), 1);
+    recordFrameGateDecision("voice", decision({ reason: "moving" }), 2);
     recordFrameGateDecision(
-      "composer",
+      "voice",
       decision({ keep: true, reason: "novel", novelty: 0.9 }),
       3,
     );
     flushFrames();
 
     const snapshot = getFrameGateDebugSnapshot();
-    expect(snapshot.surface).toBe("composer");
+    expect(snapshot.surface).toBe("voice");
     expect(snapshot.total).toBe(3);
     expect(snapshot.latest?.reason).toBe("novel");
     expect(snapshot.latest?.keep).toBe(true);
@@ -145,7 +145,7 @@ describe("frame gate debug, enabled", () => {
 
   test("the ring is capped and holds the newest decisions", () => {
     for (let i = 1; i <= 200; i++) {
-      recordFrameGateDecision("composer", decision(), i);
+      recordFrameGateDecision("voice", decision(), i);
     }
     flushFrames();
 
@@ -163,51 +163,24 @@ describe("frame gate debug, enabled", () => {
     });
 
     for (let i = 1; i <= 20; i++) {
-      recordFrameGateDecision("composer", decision(), i);
+      recordFrameGateDecision("voice", decision(), i);
     }
     expect(woken).toBe(0);
     flushFrames();
     expect(woken).toBe(1);
 
-    recordFrameGateDecision("composer", decision(), 21);
+    recordFrameGateDecision("voice", decision(), 21);
     flushFrames();
     expect(woken).toBe(2);
 
     unsubscribe();
   });
 
-  test("the snapshot follows whichever surface fed the gate last", () => {
-    recordFrameGateDecision("voice", decision(), 1);
-    flushFrames();
-    expect(getFrameGateDebugSnapshot().surface).toBe("voice");
-
-    recordFrameGateDecision("composer", decision(), 2);
-    flushFrames();
-    expect(getFrameGateDebugSnapshot().surface).toBe("composer");
-
-    recordFrameGateDecision("voice", decision(), 3);
-    flushFrames();
-    expect(getFrameGateDebugSnapshot().surface).toBe("voice");
-  });
-
-  test("counters and rings are kept per surface", () => {
-    recordFrameGateDecision("voice", decision({ reason: "moving" }), 1);
-    recordFrameGateDecision("voice", decision({ reason: "moving" }), 2);
-    recordFrameGateDecision("composer", decision({ reason: "warmup" }), 3);
-    flushFrames();
-
-    const snapshot = getFrameGateDebugSnapshot();
-    expect(snapshot.surface).toBe("composer");
-    expect(snapshot.total).toBe(1);
-    expect(snapshot.reasonCounts.moving).toBe(0);
-    expect(snapshot.reasonCounts.warmup).toBe(1);
-  });
-
   test("the keep strip evicts the oldest frame and revokes its URL", () => {
     for (let i = 0; i < 8; i++) {
-      recordFrameGateKeep("composer", jpeg());
+      recordFrameGateKeep("voice", jpeg());
     }
-    recordFrameGateDecision("composer", decision({ keep: true }), 1);
+    recordFrameGateDecision("voice", decision({ keep: true }), 1);
     flushFrames();
 
     const snapshot = getFrameGateDebugSnapshot();
@@ -236,15 +209,15 @@ describe("frame gate live options", () => {
         noveltyThreshold: 1.5,
         settleThreshold: 0.3,
         minDetail: 40,
-        minIntervalMs: 500,
+        forcedNoveltyThreshold: 0.5,
         maxIntervalMs: 90_000,
       }),
     );
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(500);
+    expect(FRAME_GATE_LIVE_OPTIONS.forcedNoveltyThreshold).toBe(0.5);
 
     syncFrameGateDebugOptions(
       false,
-      overridesWith({ noveltyThreshold: 1.5, minIntervalMs: 500 }),
+      overridesWith({ noveltyThreshold: 1.5, forcedNoveltyThreshold: 0.5 }),
     );
     expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
       ...DEFAULT_FRAME_GATE_OPTIONS,
@@ -264,46 +237,21 @@ describe("frame gate live options", () => {
       overridesWith({
         noveltyThreshold: Number.NaN,
         minDetail: 5_000,
-        minIntervalMs: -10,
+        forcedNoveltyThreshold: -1,
       }),
     );
     expect(FRAME_GATE_LIVE_OPTIONS.noveltyThreshold).toBe(
       DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
     );
     expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(60);
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(0);
-  });
-
-  test("a crossed interval pair reaches the gate ordered", () => {
-    // The gate reads the floor before the heartbeat, so a floor above the
-    // ceiling would leave the ceiling unreachable whatever the readout draws.
-    syncFrameGateDebugOptions(
-      true,
-      overridesWith({ minIntervalMs: 20_000, maxIntervalMs: 4_000 }),
-    );
-
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBeLessThanOrEqual(
-      FRAME_GATE_LIVE_OPTIONS.maxIntervalMs,
-    );
-    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(20_000);
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(20_000);
-  });
-
-  test("an ordered interval pair reaches the gate untouched", () => {
-    syncFrameGateDebugOptions(
-      true,
-      overridesWith({ minIntervalMs: 2_000, maxIntervalMs: 45_000 }),
-    );
-
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(2_000);
-    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(45_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.forcedNoveltyThreshold).toBe(0);
   });
 
   test("turning the readout off gives every held thumbnail back", () => {
     syncFrameGateDebugOptions(true, defaultFrameGateOverrides());
-    recordFrameGateKeep("composer", jpeg());
     recordFrameGateKeep("voice", jpeg());
-    recordFrameGateDecision("composer", decision(), 1);
+    recordFrameGateKeep("voice", jpeg());
+    recordFrameGateDecision("voice", decision(), 1);
     flushFrames();
 
     syncFrameGateDebugOptions(false, defaultFrameGateOverrides());

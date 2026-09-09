@@ -130,12 +130,15 @@ export function ProfileCreateModelFirst({
   const { t } = useTranslation("settings");
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
   const developerMode = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const hostedInference =
+    useAssistantFeatureFlagStore.use.vellumHostedInference();
   const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
 
   const resolverInput = useMemo<ModelFirstInput>(
     () => ({
       connections: editor.effectiveConnections,
       developerMode,
+      hostedInference,
       activeAssistantIsSelfHosted,
       labelFor: (provider) => PROVIDER_DISPLAY_NAMES[provider] ?? provider,
       defaultEntryMetaLabel,
@@ -143,6 +146,7 @@ export function ProfileCreateModelFirst({
     [
       editor.effectiveConnections,
       developerMode,
+      hostedInference,
       activeAssistantIsSelfHosted,
       defaultEntryMetaLabel,
     ],
