@@ -72,12 +72,21 @@ export interface AdapterInstallResult {
 }
 
 /**
- * In-flight install promises, keyed by command. Concurrent spawns for the same
- * adapter dedupe to a single global install. Nothing is cached past settle:
- * the adapter on disk can change under a running daemon (a user running the
- * documented `bun add -g ...@latest`), so every spawn re-probes.
+ * In-flight install promises, keyed by command AND the search path the probe
+ * ran on. Concurrent spawns for the same adapter on the same PATH dedupe to a
+ * single global install, while two agents whose `env.PATH` selects different
+ * binaries each get their own decision: one PATH reaching an externally
+ * managed adapter must not exempt another PATH reaching an outdated
+ * bun-linked one. Nothing is cached past settle: the adapter on disk can
+ * change under a running daemon (a user running the documented `bun add -g
+ * ...@latest`), so every spawn re-probes.
  */
 const installPromises = new Map<string, Promise<AdapterInstallResult>>();
+
+/** Key for `installPromises`: the command plus the PATH the probe will use. */
+function inFlightKey(command: string, searchPath?: string): string {
+  return `${command}\u0000${searchPath ?? ""}`;
+}
 
 /**
  * Commands already reported as managed outside bun. The pin check runs per
@@ -173,10 +182,33 @@ function bunLinkPath(command: string): string {
 /**
  * Whether `binaryPath` is the link `bun add --global` writes for `command`.
  * Only then can a reinstall change what PATH selects: an adapter installed by
- * npm or brew keeps its place in PATH no matter what bun writes.
+ * npm or brew keeps its place in PATH no matter what bun writes. A lexical
+ * comparison is not enough, since a PATH entry reaching bun's global bin dir
+ * through a symlinked directory makes `Bun.which` report an aliased pathname
+ * for the very binary bun linked, so both sides go through realpath. A
+ * selected binary that cannot be resolved is left to the ownership check
+ * rather than exempted; a bun link that cannot be resolved means bun linked
+ * nothing here, so the selection really is external.
  */
-function isBunManagedBinary(command: string, binaryPath: string): boolean {
-  return resolvePath(binaryPath) === resolvePath(bunLinkPath(command));
+async function isBunManagedBinary(
+  command: string,
+  binaryPath: string,
+): Promise<boolean> {
+  const linkPath = bunLinkPath(command);
+  if (resolvePath(binaryPath) === resolvePath(linkPath)) {
+    return true;
+  }
+  let selected: string;
+  try {
+    selected = await probeDeps.realpath(binaryPath);
+  } catch {
+    return true;
+  }
+  try {
+    return selected === (await probeDeps.realpath(linkPath));
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -257,7 +289,8 @@ export function ensureAdapterInstalled(
     return Promise.resolve({ installed: false });
   }
 
-  const inFlight = installPromises.get(command);
+  const key = inFlightKey(command, searchPath);
+  const inFlight = installPromises.get(key);
   if (inFlight) {
     return inFlight;
   }
@@ -271,9 +304,9 @@ export function ensureAdapterInstalled(
     packageSpec,
     searchPath,
   ).finally(() => {
-    installPromises.delete(command);
+    installPromises.delete(key);
   });
-  installPromises.set(command, promise);
+  installPromises.set(key, promise);
   return promise;
 }
 
@@ -300,7 +333,7 @@ async function installToPin(
   if (version === undefined) {
     return { installed: false };
   }
-  if (!isBunManagedBinary(command, binaryPath)) {
+  if (!(await isBunManagedBinary(command, binaryPath))) {
     if (!warnedOutsideBun.has(command)) {
       warnedOutsideBun.add(command);
       log.warn(

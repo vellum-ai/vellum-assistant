@@ -77,6 +77,14 @@ function bunLinked(command: string): string {
   return `${BUN_ROOT}/bin/${command}`;
 }
 
+/** A PATH entry that reaches bun's global bin dir through a symlinked dir. */
+const BUN_ALIAS_ROOT = "/home/tester/bun-alias";
+
+/** The same bun-linked binary, named through the aliased directory. */
+function aliasLinked(command: string): string {
+  return `${BUN_ALIAS_ROOT}/bin/${command}`;
+}
+
 /** Manifest reads the probe performed since the last reset. */
 let manifestReads = 0;
 
@@ -101,14 +109,19 @@ function ownersFromVersions(
 
 /**
  * `fs.realpath` over the fake bun tree: a `<bun>/bin/<name>` link resolves
- * into the package that owns it, every other path resolves to itself. A
+ * into the package that owns it, every other path resolves to itself. The
+ * alias bin dir is a symlink to the real one, so it resolves identically. A
  * binary missing from `owners` has a link that cannot be resolved.
  */
 function fakeRealpath(
   owners: Record<string, string>,
 ): (path: string) => Promise<string> {
   const binPrefix = `${BUN_ROOT}/bin/`;
-  return (path: string) => {
+  const aliasPrefix = `${BUN_ALIAS_ROOT}/bin/`;
+  return (rawPath: string) => {
+    const path = rawPath.startsWith(aliasPrefix)
+      ? `${binPrefix}${rawPath.slice(aliasPrefix.length)}`
+      : rawPath;
     if (!path.startsWith(binPrefix)) {
       return Promise.resolve(path);
     }
@@ -275,6 +288,40 @@ describe("ensureAdapterInstalled", () => {
     expect(b.installed).toBe(true);
     expect(c.installed).toBe(true);
     expect(execFileMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("concurrent calls on different PATHs each get their own decision", async () => {
+    const BREW_BIN_DIR = "/opt/homebrew/bin";
+    const BUN_BIN_DIR = `${BUN_ROOT}/bin`;
+    which.setWhich((cmd, options) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd !== "codex-acp") {
+        return null;
+      }
+      return options?.PATH === BREW_BIN_DIR
+        ? `${BREW_BIN_DIR}/codex-acp`
+        : bunLinked("codex-acp");
+    });
+    // Outdated in bun's tree: the bun-managed PATH must reinstall even though
+    // the brew PATH resolves first and decides not to.
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "0.4.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const [external, bunManaged] = await Promise.all([
+      ensureAdapterInstalled("codex-acp", BREW_BIN_DIR),
+      ensureAdapterInstalled("codex-acp", BUN_BIN_DIR),
+    ]);
+
+    expect(external).toEqual({ installed: false });
+    expect(bunManaged).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CODEX_SPEC,
+    ]);
   });
 
   test("different commands install independently", async () => {
@@ -462,6 +509,34 @@ describe("ensureAdapterInstalled - version pinning", () => {
       "--global",
       CODEX_SPEC,
     ]);
+  });
+
+  test("bun bin dir reached through a symlinked dir: still bun-managed", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": aliasLinked("codex-acp") });
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "0.4.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: true });
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    expect(execFileMock.mock.calls[0][1]).toEqual([
+      "add",
+      "--global",
+      CODEX_SPEC,
+    ]);
+    expect(warnings().join(" ")).not.toContain("managed outside bun");
+  });
+
+  test("aliased bun bin dir at the pinned version: no install", async () => {
+    which.setWhich({ bun: BUN_BIN, "codex-acp": aliasLinked("codex-acp") });
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "1.10.0" });
+
+    const result = await ensureAdapterInstalled("codex-acp");
+
+    expect(result).toEqual({ installed: false });
+    expect(execFileMock).not.toHaveBeenCalled();
+    expect(warnings().join(" ")).not.toContain("managed outside bun");
   });
 
   test("binary missing from PATH: installs without consulting the probe", async () => {

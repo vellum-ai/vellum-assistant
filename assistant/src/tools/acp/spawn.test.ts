@@ -143,8 +143,10 @@ mock.module("../../acp/index.js", () => ({
 }));
 
 const { executeAcpSpawn } = await import("./spawn.js");
-const { _resetAdapterInstallCacheForTests } =
-  await import("../../acp/auto-install.js");
+const {
+  _resetAdapterInstallCacheForTests,
+  _setAdapterVersionProbeDepsForTests,
+} = await import("../../acp/auto-install.js");
 const { ACP_CLAUDE_OAUTH_MISSING_CODE } =
   await import("../../acp/prepare-agent-env.js");
 const { ACP_CLAUDE_AUTH_REQUIRED_CODE, AcpAuthRequiredError } =
@@ -170,6 +172,13 @@ beforeEach(() => {
   resetExecFileStub();
   spawnMock.mockClear();
   _resetAdapterInstallCacheForTests();
+  // Keep the pin probe off the real filesystem: the binaries these tests put
+  // on PATH are fictional, and a real `~/.bun` on the host would otherwise
+  // decide whether they count as bun-managed.
+  _setAdapterVersionProbeDepsForTests({
+    bunInstallDir: () => "/home/tester/.bun",
+    realpath: (path: string) => Promise.resolve(path),
+  });
   config.setConfig({ agents: DEFAULT_TEST_AGENTS });
   // Default: every command (including bun and the adapters) on PATH, so
   // spawns resolve directly with no install.
