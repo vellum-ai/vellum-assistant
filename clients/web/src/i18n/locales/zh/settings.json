@@ -473,30 +473,6 @@
     "tryAgain": "重试",
     "viewPlans": "查看套餐"
   },
-  "codingAgentsCard": {
-    "agentDefaultOption": "使用代理的默认模型",
-    "configUpdateFailedToast": "更新助手配置失败。请重试。",
-    "customModelHint": "按输入内容原样保存，因此别名或编程代理能识别的完整模型 id 都可以使用。",
-    "customModelLabel": "模型",
-    "customModelOption": "自定义模型",
-    "customModelPlaceholder": "claude-opus-4-1",
-    "modelLabel": "默认模型",
-    "modelOptions": {
-      "best": "最佳可用",
-      "default": "默认",
-      "fable": "Fable",
-      "fable1m": "Fable（1M 上下文）",
-      "haiku": "Haiku",
-      "opus": "Opus",
-      "opus1m": "Opus（1M 上下文）",
-      "opusplan": "Opus 计划模式",
-      "sonnet": "Sonnet",
-      "sonnet1m": "Sonnet（1M 上下文）"
-    },
-    "savedToast": "编程代理设置已保存。",
-    "subtitle": "选择新的编程代理会话启动时使用的模型。列表中是 Claude 的模型，其他编程代理会回退到各自的默认模型。",
-    "title": "编程代理"
-  },
   "communityPage": {
     "communityHubDescription": "社区分享的展示、指南和项目。",
     "communityHubTitle": "社区中心",

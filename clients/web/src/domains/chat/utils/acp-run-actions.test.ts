@@ -1,5 +1,5 @@
 /**
- * Tests for the ACP run actions (stop / steer / set-model).
+ * Tests for the ACP run actions (stop / steer).
  *
  * The ACP routes are excluded from the generated daemon SDK, so the actions
  * call `client.post` directly. Mock the daemon client to assert the request
@@ -16,7 +16,6 @@ interface PostCall {
 
 const calls: PostCall[] = [];
 let nextData: unknown = undefined;
-let nextError: unknown = undefined;
 let nextOk = true;
 let nextStatus = 200;
 
@@ -26,7 +25,6 @@ mock.module("@/generated/daemon/client.gen", () => ({
       calls.push(options);
       return {
         data: nextData,
-        error: nextError,
         response: { ok: nextOk, status: nextStatus },
       };
     },
@@ -36,14 +34,12 @@ mock.module("@/generated/daemon/client.gen", () => ({
 const { useResolvedAssistantsStore } =
   await import("@/stores/resolved-assistants-store");
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
-const { stopAcpRun, steerAcpRun, switchAcpRunModel } =
+const { stopAcpRun, steerAcpRun } =
   await import("@/domains/chat/utils/acp-run-actions");
-const { ApiError } = await import("@/utils/api-errors");
 
 beforeEach(() => {
   calls.length = 0;
   nextData = undefined;
-  nextError = undefined;
   nextOk = true;
   nextStatus = 200;
   useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
@@ -140,40 +136,6 @@ describe("steerAcpRun", () => {
     nextData = { acpSessionId: "acp-1", steered: false, approvalPending: true };
     const res = await steerAcpRun("acp-1", "resume");
     expect(res.approvalPending).toBe(true);
-  });
-});
-
-describe("switchAcpRunModel", () => {
-  test("POSTs the set-model route with the chosen value and returns the selection", async () => {
-    nextData = {
-      acpSessionId: "acp-1",
-      model: "haiku",
-      availableModels: [{ value: "haiku", label: "Haiku" }],
-    };
-
-    const res = await switchAcpRunModel("acp-1", "haiku");
-
-    expect(calls[0]!.url).toBe(
-      "/v1/assistants/{assistant_id}/acp/{id}/set-model",
-    );
-    expect(calls[0]!.path).toEqual({ assistant_id: "asst-1", id: "acp-1" });
-    expect(calls[0]!.body).toEqual({ model: "haiku" });
-    expect(res.model).toBe("haiku");
-    expect(res.availableModels).toEqual([{ value: "haiku", label: "Haiku" }]);
-  });
-
-  test("throws the daemon's own message for a rejected value", async () => {
-    nextOk = false;
-    nextStatus = 400;
-    nextError = {
-      error: { code: "bad_request", message: "Model not offered" },
-    };
-
-    const err = await switchAcpRunModel("acp-1", "nope").catch((e) => e);
-
-    expect(err).toBeInstanceOf(ApiError);
-    expect((err as InstanceType<typeof ApiError>).status).toBe(400);
-    expect((err as Error).message).toBe("Model not offered");
   });
 });
 
