@@ -4,7 +4,8 @@
  * A stock third-party CLI points its API base here and presents a grant minted
  * by `oauth_proxy_grant`. The route trades that grant for the credential the
  * resolved connection holds, so the CLI never sees a provider token and can
- * reach nothing but that connection's own API base.
+ * reach nothing but that connection's own API base, for the one provider and
+ * account the grant's subject names.
  *
  * Wire semantics (path fidelity, header stripping, error mapping) live in
  * `oauth-proxy-passthrough.ts`; this module is the wiring around them.
@@ -63,14 +64,18 @@ export async function handleOAuthProxy(
     args.pathParams?.provider ?? "",
   );
 
-  // A grant names one provider in its subject. The bypass is the one
+  // A grant names one provider and, when it pinned one, one account. The
+  // subject is re-derived from this request's own segment, so rewriting or
+  // dropping `@account` no longer matches the grant. The bypass is the one
   // `enforcePolicy` honors: platform pods discard the token and build a
   // synthetic context rather than one derived from the grant.
   if (
     !isHttpAuthDisabled() &&
-    args.headers?.["x-vellum-subject"] !== proxyGrantSubject(provider)
+    args.headers?.["x-vellum-subject"] !== proxyGrantSubject(provider, account)
   ) {
-    throw new ForbiddenError("This grant was minted for a different provider");
+    throw new ForbiddenError(
+      "This grant was minted for a different provider or account",
+    );
   }
 
   if (!getProvider(provider)) {
@@ -164,7 +169,9 @@ const BINARY_BODY = {
 const ERROR_RESPONSES: Record<string, { description: string }> = {
   "400": { description: "Malformed provider segment or proxied path" },
   "402": { description: "The managed account is out of balance" },
-  "403": { description: "The grant was minted for a different provider" },
+  "403": {
+    description: "The grant was minted for a different provider or account",
+  },
   "404": { description: "Unknown provider" },
   "405": { description: "The resolved connection rejects this method" },
   "409": { description: "Several accounts are connected and none was pinned" },
@@ -183,7 +190,7 @@ export const ROUTES: RouteDefinition[] = METHODS.map((method) => ({
   rawRequestBody: true,
   summary: `Proxy a ${method} request through an OAuth connection`,
   description:
-    "Forwards the remainder path, query, headers, and body to the provider's API base through the connection resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.",
+    "Forwards the remainder path, query, headers, and body to the provider's API base through the connection resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and it is honored only for the provider and account its subject names.",
   tags: ["oauth"],
   ...(carriesBody(method) ? { requestBody: BINARY_BODY } : {}),
   responseBody: BINARY_BODY,

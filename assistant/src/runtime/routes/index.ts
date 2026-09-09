@@ -120,6 +120,7 @@ import { ROUTES as OAUTH_COMMANDS_ROUTES } from "./oauth-commands-routes.js";
 import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_LIFECYCLE_ROUTES } from "./oauth-lifecycle-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
+import { ROUTES as OAUTH_PROXY_GRANT_ROUTES } from "./oauth-proxy-grant-routes.js";
 import { ROUTES as OAUTH_PROXY_ROUTES } from "./oauth-proxy-routes.js";
 import { ROUTES as ONBOARDING_CHECKIN_ROUTES } from "./onboarding-checkin-routes.js";
 import { ROUTES as PLATFORM_ROUTES } from "./platform-routes.js";
@@ -271,6 +272,7 @@ export const ROUTES: RouteDefinition[] = [
   ...OAUTH_LIFECYCLE_ROUTES,
   ...OAUTH_COMMANDS_ROUTES,
   ...OAUTH_PROXY_ROUTES,
+  ...OAUTH_PROXY_GRANT_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
   ...ONBOARDING_CHECKIN_ROUTES,
   ...PLATFORM_ROUTES,
