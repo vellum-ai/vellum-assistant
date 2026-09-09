@@ -65,3 +65,19 @@ export const AppsLevel: Story = {
     },
   },
 };
+
+/** The same drill-in for Documents & Images, where the tiles wrap into a grid. */
+export const FilesLevel: Story = {
+  args: {
+    payload: {
+      assistantId: CHAT_INFO_ASSISTANT_ID,
+      conversationId: CHAT_INFO_CONVERSATION_ID,
+      category: "files",
+    },
+  },
+};
+
+/** The top level at the width the phone designs are drawn for. */
+export const CompactPhone: Story = {
+  globals: { viewport: { value: "sbCompactPhone", isRotated: false } },
+};

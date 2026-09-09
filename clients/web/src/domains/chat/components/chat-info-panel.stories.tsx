@@ -13,6 +13,9 @@
  * so that row has nothing to build from until frames come from the daemon's
  * attachment list.
  *
+ * The last three stories are the states the sources put the panel in: still
+ * loading, loaded and empty, and one source down.
+ *
  * The frame is the shipped drawer, so a story opens at its 400px default and
  * the rows fit what that width holds. Drag the drawer's left edge to walk the
  * fit rule out to the mock's wider column.
@@ -33,6 +36,7 @@ import {
   CHAT_INFO_ASSISTANT_ID,
   CHAT_INFO_CONVERSATION_ID,
   type ChatInfoStoryConversation,
+  failChatInfoDocuments,
   inChatInfoConversation,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
@@ -131,6 +135,37 @@ export const Mobile: Story = {
 /** The same strips on the narrowest phone the app runs on. */
 export const NarrowPhone: Story = {
   globals: { viewport: { value: "sbNarrowPhone", isRotated: false } },
+};
+
+/**
+ * The sources have not answered yet. The transcript's own files are on screen
+ * from the first paint, and the panel says nothing about what it is missing:
+ * a notice here reads as an answer the loaded panel then replaces.
+ */
+export const Loading: Story = {
+  parameters: { chatInfo: { pendingSources: true } },
+};
+
+/** A conversation that really holds nothing, once every source has said so. */
+export const Empty: Story = {
+  parameters: {
+    chatInfo: { appCount: 0, documentCount: 0, attachments: [] },
+  },
+};
+
+/**
+ * The documents source is down with nothing cached under it. The notice heads
+ * the body, above the categories that did load.
+ */
+export const LoadFailed: Story = {
+  parameters: {
+    chatInfo: {
+      appCount: 3,
+      documentCount: 0,
+      attachments: [],
+      afterSeed: failChatInfoDocuments,
+    },
+  },
 };
 
 /**

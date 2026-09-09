@@ -6,7 +6,7 @@
  * Geometry, surface, and border belong to the caller, so every story wears the
  * Chat Info file tile's box and they differ only in what the box has to draw.
  */
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { Loader2 } from "lucide-react";
 import { fn } from "storybook/test";
 
@@ -15,14 +15,23 @@ import {
   SAMPLE_PREVIEWS,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
+import { CHAT_INFO_FILE_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-file-tile";
 
-/** The Chat Info file tile's box: 135x84 on the panel's own surface. */
-const TILE_CLASS = "h-[84px] w-[135px] rounded-lg bg-[var(--surface-base)]";
+/** The Chat Info file tile's box, at its 84px height on the panel's surface. */
+const TILE_CLASS = "h-[84px] w-full rounded-lg bg-[var(--surface-base)]";
+
+/** The tile's width, which the box fills; only the tile's height is a literal. */
+const atTileWidth: Decorator = (Story) => (
+  <div style={{ width: CHAT_INFO_FILE_TILE_WIDTH_PX }}>
+    <Story />
+  </div>
+);
 
 const meta: Meta<typeof AttachmentPreviewBox> = {
   title: "Chat/AttachmentPreviewBox",
   component: AttachmentPreviewBox,
   parameters: { layout: "centered" },
+  decorators: [atTileWidth],
   args: {
     className: TILE_CLASS,
     kind: "image",

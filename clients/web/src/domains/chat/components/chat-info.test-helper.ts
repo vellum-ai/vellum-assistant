@@ -1,29 +1,22 @@
 /**
- * Fixtures and the shared harness for the Chat Info tests and stories: the two
- * daemon summaries the panel lists, the assets it renders as tiles, the
- * transcript rows those assets come from, the query client its hooks read, the
- * modules a suite hands `mock.module`, and the browser APIs happy-dom leaves
- * out.
+ * Fixtures and the shared harness for the Chat Info suites: the two daemon
+ * summaries the panel lists, the assets it renders as tiles, the transcript
+ * rows those assets come from, the query client its hooks read, the modules a
+ * suite hands `mock.module`, and the browser APIs happy-dom leaves out.
  *
  * Every asset goes through `toConversationFileAssets`, the mapping the hook
  * itself runs, so a fixture cannot drift from the ids and shapes the panel
  * receives in the app.
  *
- * Kept free of any test-runner import so `.stories.tsx` files can use it, the
- * way `utils/conversation-list.test-helper.ts` already is. A `mock.module`
- * call is process-global, so it stays in the suite; only the module body it
- * installs lives here.
+ * Kept free of any test-runner import so `chat-info-story-fixtures.tsx` can
+ * build on it, the way `utils/conversation-list.test-helper.ts` already is. A
+ * `mock.module` call is process-global, so it stays in the suite; only the
+ * module body it installs lives here.
  */
 
 import { QueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import {
-  makeDisplayAttachment,
-  makeSamplePreview,
-  SAMPLE_PREVIEWS,
-} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
-import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import {
   type ConversationFileAsset,
   toConversationFileAssets,
@@ -40,7 +33,6 @@ import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
 import * as appHtmlCache from "@/utils/app-html-cache";
-import { decodeBase64Payload } from "@/utils/base64";
 
 /** Fixed epoch ms, so nothing built here depends on the clock. */
 export const CHAT_INFO_T0 = 1_760_000_000_000;
@@ -48,10 +40,17 @@ export const CHAT_INFO_T0 = 1_760_000_000_000;
 /** The drawer body's column on the desktop mock: 3 app tiles, 4 file tiles. */
 export const CHAT_INFO_DRAWER_WIDTH_PX = 569;
 
-/** The narrowest phone the app runs on, screen width and all. */
+/**
+ * The narrowest phone the app's designs are drawn for, screen width and all.
+ * `sbCompactPhone` is the Storybook viewport at the same width.
+ */
 export const CHAT_INFO_NARROW_PHONE_PX = 402;
 
-/** The suite pins i18next to English, which is the locale the tile formats in. */
+/**
+ * The locale a suite pins both of the axes a formatter resolves to: i18next's
+ * active language, and the host language `formatLocale()` prefers over it when
+ * the two share a primary language. Pin the host one with `stubHostLanguage`.
+ */
 export const CHAT_INFO_TEST_LOCALE = "en";
 
 /** The shared app builder, under the defaults every Chat Info fixture wants. */
@@ -277,13 +276,14 @@ export function makePendingChatInfoQueryClient(): QueryClient {
 export function seedQueryFailure(
   client: QueryClient,
   queryKey: readonly unknown[],
+  message = "assistant unreachable",
 ): void {
   client
     .getQueryCache()
     .build(client, { queryKey })
     .setState({
       status: "error",
-      error: new Error("assistant unreachable"),
+      error: new Error(message),
       errorUpdatedAt: Date.now(),
       fetchStatus: "idle",
     });
@@ -339,84 +339,4 @@ export function seedTranscriptMessages(
 export function clearTranscriptMessages(): void {
   useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   clearTranscriptOwner();
-}
-
-/** Metadata only: the tile has to fetch these bytes before it can draw them. */
-const STORY_LAZY_ATTACHMENT = makeDisplayAttachment({
-  id: "ferry-deck",
-  filename: "ferry-deck.png",
-  sizeBytes: 190_464,
-});
-
-/**
- * The files the Chat Info stories are shown against: two daemon documents, an
- * image the transcript carries inline, one whose bytes the tile fetches, and a
- * PDF. `Object.values` gives the set as one category's items.
- */
-export const CHAT_INFO_STORY_FILES = {
-  tripNotes: makeDocumentAsset(
-    makeDocumentSummary({
-      surfaceId: "surface-trip-notes",
-      title: "Trip Notes",
-      wordCount: 842,
-    }),
-  ),
-  packingList: makeDocumentAsset(
-    makeDocumentSummary({
-      surfaceId: "surface-packing-list",
-      title: "Packing List",
-      wordCount: 214,
-    }),
-  ),
-  inlineImage: makeFileAsset(
-    makeDisplayAttachment({
-      id: "harbour-at-dawn",
-      filename: "harbour-at-dawn.png",
-      sizeBytes: 184_320,
-      previewUrl: makeSamplePreview(240, 150),
-    }),
-  ),
-  lazyImage: makeFileAsset(STORY_LAZY_ATTACHMENT),
-  pdf: makeFileAsset(
-    makeDisplayAttachment({
-      id: "coast-guide",
-      filename: "coast-guide.pdf",
-      mimeType: "application/pdf",
-      sizeBytes: 2_097_152,
-    }),
-  ),
-};
-
-/** One Live session: `count` captures three minutes apart, newest first. */
-export function chatInfoStoryFrames(count: number): ConversationFileAsset[] {
-  return Array.from({ length: count }, (_, index) =>
-    makeFrameAsset(
-      makeDisplayAttachment({
-        id: `camera-frame-${index + 1}`,
-        filename: `camera-frame-${index + 1}.jpg`,
-        mimeType: "image/jpeg",
-        sizeBytes: 98_304 + index * 2_048,
-        previewUrl: SAMPLE_PREVIEWS[index % SAMPLE_PREVIEWS.length]!,
-      }),
-      CHAT_INFO_T0 - index * 180_000,
-    ),
-  );
-}
-
-/**
- * A story client holding the bytes the daemon would return for the one story
- * file with no inline preview, under the same key the preview modal fetches
- * with, so its tile draws the fetched path with no daemon behind it.
- */
-export function makeSeededChatInfoStoryClient(
-  assistantId: string,
-): QueryClient {
-  const client = makeChatInfoQueryClient();
-  client.setQueryData(
-    attachmentContentQueryKey(assistantId, STORY_LAZY_ATTACHMENT.id),
-    new Blob([decodeBase64Payload(SAMPLE_PREVIEWS[2]!)!], {
-      type: "image/png",
-    }),
-  );
-  return client;
 }

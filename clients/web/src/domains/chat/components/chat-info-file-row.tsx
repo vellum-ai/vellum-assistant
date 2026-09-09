@@ -17,7 +17,7 @@ import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversatio
 
 export type ChatInfoFileCategory = "files" | "frames";
 
-export interface ChatInfoFileRowProps {
+interface ChatInfoFileRowProps {
   category: ChatInfoFileCategory;
   title: string;
   /** The category's exact total, which may exceed `items.length` when paged. */

@@ -1,5 +1,7 @@
 /**
- * Fixtures and the seeded-conversation decorator for the Chat Info stories.
+ * Everything the Chat Info stories are built from: the asset sets they show,
+ * the client that answers their queries, the seeded-conversation decorator, and
+ * the two page frames the rows are read inside.
  *
  * The panel reads its assets through the real hooks, so a story has to fill
  * the two sources those hooks go to: the query cache holds the conversation's
@@ -13,39 +15,167 @@
  */
 
 import type { Decorator } from "@storybook/react-vite";
-import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { DETAIL_SHELL_BODY_INSET_PX } from "@/components/detail-shell";
+import {
+  makeDisplayAttachment,
+  makePreviewableImages,
+  makeSamplePreview,
+  SAMPLE_PREVIEWS,
+} from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import {
   attachmentRows,
+  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_NARROW_PHONE_PX,
   CHAT_INFO_T0,
   clearTranscriptMessages,
   makeAppSummary,
   makeChatInfoQueryClient,
+  makeDocumentAsset,
   makeDocumentSummary,
-  makeSeededChatInfoStoryClient,
+  makeFileAsset,
+  makeFrameAsset,
+  makePendingChatInfoQueryClient,
   seedChatInfoConversation,
+  seedQueryFailure,
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
+import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
+import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { decodeBase64Payload } from "@/utils/base64";
 
 export const CHAT_INFO_ASSISTANT_ID = "story-assistant";
 export const CHAT_INFO_CONVERSATION_ID = "story-conversation";
 
-const storyClient = makeSeededChatInfoStoryClient(CHAT_INFO_ASSISTANT_ID);
+/** Metadata only: the tile has to fetch these bytes before it can draw them. */
+const STORY_LAZY_ATTACHMENT = makeDisplayAttachment({
+  id: "ferry-deck",
+  filename: "ferry-deck.png",
+  sizeBytes: 190_464,
+});
 
 /**
- * The client a tile story reads: it answers every query from what
- * {@link makeSeededChatInfoStoryClient} holds, so no story reaches the daemon.
+ * The files the Chat Info stories are shown against: two daemon documents, an
+ * image the transcript carries inline, one whose bytes the tile fetches, and a
+ * PDF. `Object.values` gives the set as one category's items.
  */
-export const withChatInfoStoryClient: Decorator = (Story) => (
-  <QueryClientProvider client={storyClient}>
+export const CHAT_INFO_STORY_FILES = {
+  tripNotes: makeDocumentAsset(
+    makeDocumentSummary({
+      surfaceId: "surface-trip-notes",
+      title: "Trip Notes",
+      wordCount: 842,
+    }),
+  ),
+  packingList: makeDocumentAsset(
+    makeDocumentSummary({
+      surfaceId: "surface-packing-list",
+      title: "Packing List",
+      wordCount: 214,
+    }),
+  ),
+  inlineImage: makeFileAsset(
+    makeDisplayAttachment({
+      id: "harbour-at-dawn",
+      filename: "harbour-at-dawn.png",
+      sizeBytes: 184_320,
+      previewUrl: makeSamplePreview(240, 150),
+    }),
+  ),
+  lazyImage: makeFileAsset(STORY_LAZY_ATTACHMENT),
+  pdf: makeFileAsset(
+    makeDisplayAttachment({
+      id: "coast-guide",
+      filename: "coast-guide.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 2_097_152,
+    }),
+  ),
+};
+
+/** One Live session: `count` captures three minutes apart, newest first. */
+export function chatInfoStoryFrames(count: number): ConversationFileAsset[] {
+  return Array.from({ length: count }, (_, index) =>
+    makeFrameAsset(
+      makeDisplayAttachment({
+        id: `camera-frame-${index + 1}`,
+        filename: `camera-frame-${index + 1}.jpg`,
+        mimeType: "image/jpeg",
+        sizeBytes: 98_304 + index * 2_048,
+        previewUrl: SAMPLE_PREVIEWS[index % SAMPLE_PREVIEWS.length]!,
+      }),
+      CHAT_INFO_T0 - index * 180_000,
+    ),
+  );
+}
+
+function makeSeededChatInfoStoryClient(assistantId: string): QueryClient {
+  const client = makeChatInfoQueryClient();
+  client.setQueryData(
+    attachmentContentQueryKey(assistantId, STORY_LAZY_ATTACHMENT.id),
+    new Blob([decodeBase64Payload(SAMPLE_PREVIEWS[2]!)!], {
+      type: "image/png",
+    }),
+  );
+  return client;
+}
+
+/**
+ * The client the tile, row, and grid stories read. It holds the bytes the
+ * daemon would return for the one story file with no inline preview, under the
+ * same key the preview modal fetches with, so that tile draws the fetched path
+ * with no daemon behind it.
+ */
+export const CHAT_INFO_STORY_CLIENT = makeSeededChatInfoStoryClient(
+  CHAT_INFO_ASSISTANT_ID,
+);
+
+/** Serves every query from `client`, so no story reaches the daemon. */
+export function withChatInfoStoryClient(client: QueryClient): Decorator {
+  return function WithChatInfoStoryClient(Story) {
+    return (
+      <QueryClientProvider client={client}>
+        <Story />
+      </QueryClientProvider>
+    );
+  };
+}
+
+/** The drawer body's column on the desktop mock, inside `DetailShell`'s lift surface and body inset. */
+export const inChatInfoDrawerColumn: Decorator = (Story) => (
+  <div
+    className="bg-[var(--surface-lift)]"
+    style={{ padding: DETAIL_SHELL_BODY_INSET_PX }}
+  >
+    <div style={{ width: CHAT_INFO_DRAWER_WIDTH_PX }}>
+      <Story />
+    </div>
+  </div>
+);
+
+/**
+ * A phone page at the shell's body inset, which the strip's negative margin
+ * cancels so the tiles run to the screen edge and the last one is cut off, as
+ * in the mobile mock. Read it at the `sbCompactPhone` viewport, the width this
+ * page is drawn for.
+ */
+export const inChatInfoPhonePage: Decorator = (Story) => (
+  <div
+    className="bg-[var(--surface-lift)]"
+    style={{
+      maxWidth: CHAT_INFO_NARROW_PHONE_PX,
+      padding: DETAIL_SHELL_BODY_INSET_PX,
+    }}
+  >
     <Story />
-  </QueryClientProvider>
+  </div>
 );
 
 /** Name, icon, and preview lines for each app a story can ask for. */
@@ -160,6 +290,26 @@ export interface ChatInfoStoryConversation {
   appCount: number;
   documentCount: number;
   attachments: DisplayAttachment[];
+  /** Leaves both daemon queries unresolved, on a client whose queries never run. */
+  pendingSources?: boolean;
+  /** Runs on the seeded client, to leave one source in a state the daemon would. */
+  afterSeed?: (
+    client: QueryClient,
+    conversation: ChatInfoStoryConversation,
+  ) => void;
+}
+
+/** An `afterSeed` that leaves the documents source failed with nothing cached. */
+export function failChatInfoDocuments(
+  client: QueryClient,
+  { assistantId, conversationId }: ChatInfoStoryConversation,
+): void {
+  const queryKey = documentsGetQueryKey({
+    path: { assistant_id: assistantId },
+    query: { conversationId },
+  });
+  client.removeQueries({ queryKey });
+  seedQueryFailure(client, queryKey);
 }
 
 /** A worked-in trip conversation, the set most stories are shown against. */
@@ -240,8 +390,14 @@ export const inChatInfoConversation: Decorator =
           | Partial<ChatInfoStoryConversation>
           | undefined),
       };
-      const created = makeChatInfoQueryClient();
-      seedChatInfoQueries(created, conversation);
+      let created: QueryClient;
+      if (conversation.pendingSources) {
+        created = makePendingChatInfoQueryClient();
+      } else {
+        created = makeChatInfoQueryClient();
+        seedChatInfoQueries(created, conversation);
+      }
+      conversation.afterSeed?.(created, conversation);
       seedChatInfoTranscript(conversation);
       return created;
     });

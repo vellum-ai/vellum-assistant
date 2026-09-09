@@ -20,6 +20,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 
+import { seedQueryFailure } from "@/domains/chat/components/chat-info.test-helper";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
   attachmentContentQueryKey,
@@ -99,19 +100,6 @@ function renderObjectUrl(
     },
   );
   return { ...rendered, client };
-}
-
-/** Park a failed fetch in the cache, the state a remounting surface reads. */
-function seedFailure(client: QueryClient, queryKey: readonly unknown[]): void {
-  client
-    .getQueryCache()
-    .build(client, { queryKey })
-    .setState({
-      status: "error",
-      error: new Error("Failed to load attachment content"),
-      errorUpdatedAt: Date.now(),
-      fetchStatus: "idle",
-    });
 }
 
 const STORED: Attachment = { id: "att-1", previewUrl: null };
@@ -202,7 +190,11 @@ describe("useAttachmentObjectUrl", () => {
   test("reports a failed fetch as an error the caller can fall back from", () => {
     const { result } = renderObjectUrl(STORED, {
       seed: (client) =>
-        seedFailure(client, attachmentContentQueryKey("asst-1", "att-1")),
+        seedQueryFailure(
+          client,
+          attachmentContentQueryKey("asst-1", "att-1"),
+          "Failed to load attachment content",
+        ),
     });
 
     expect(result.current.isError).toBe(true);

@@ -18,13 +18,12 @@ import {
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
   CHAT_INFO_ASSISTANT_ID,
-  withChatInfoStoryClient,
-} from "@/domains/chat/components/chat-info-story-fixtures";
-import {
+  CHAT_INFO_STORY_CLIENT,
   CHAT_INFO_STORY_FILES,
   chatInfoStoryFrames,
-  makeFileAsset,
-} from "@/domains/chat/components/chat-info.test-helper";
+  withChatInfoStoryClient,
+} from "@/domains/chat/components/chat-info-story-fixtures";
+import { makeFileAsset } from "@/domains/chat/components/chat-info.test-helper";
 
 import { ChatInfoFileTile } from "./chat-info-file-tile";
 
@@ -55,7 +54,7 @@ const meta: Meta<typeof ChatInfoFileTile> = {
   title: "Chat/ChatInfoFileTile",
   component: ChatInfoFileTile,
   parameters: { layout: "centered" },
-  decorators: [withChatInfoStoryClient],
+  decorators: [withChatInfoStoryClient(CHAT_INFO_STORY_CLIENT)],
   args: {
     file: tripNotes,
     assistantId: CHAT_INFO_ASSISTANT_ID,
