@@ -38,6 +38,7 @@ import {
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { deriveFailureError } from "./failure-error.js";
+import type { AcpModelInfo } from "./model-config.js";
 import { deriveModelInfo, resolveAcpModel } from "./model-config.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
 import { canonicalAgentId, formatResolveFailure } from "./resolve-agent.js";
@@ -479,18 +480,39 @@ export class AcpSessionManager {
     };
   }
 
-  /**
-   * Records what the adapter says about the session's model. `modelConfigId`
-   * doubles as the "this adapter has a model selector" flag, so state is left
-   * untouched when there is none: a resumed session keeps the model its
-   * history row recorded instead of having it wiped by an adapter that never
-   * reports one.
-   */
+  /** Records what a config-option set says about the session's model. */
   private applyModelInfo(
     entry: SessionEntry,
     configOptions: SessionConfigOption[],
   ): void {
+    this.recordModelInfo(entry, deriveModelInfo(configOptions));
+  }
+
+  /**
+   * Records the model state a `session/new`, `session/load`, or
+   * `session/resume` response reports. The response is authoritative when it
+   * names a selector, or when nothing has announced one yet; otherwise the
+   * selector a `config_option_update` announced while the call was open
+   * stands, because an omitted optional field is not a removal.
+   */
+  private applyOpeningModelInfo(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+  ): void {
     const info = deriveModelInfo(configOptions);
+    if (info.modelConfigId || entry.modelConfigId === undefined) {
+      this.recordModelInfo(entry, info);
+    }
+  }
+
+  /**
+   * Writes what the adapter reports onto the entry. `modelConfigId` doubles
+   * as the "this adapter has a model selector" flag, so state is left
+   * untouched when there is none: a resumed session keeps the model its
+   * history row recorded instead of having it wiped by an adapter that never
+   * reports one.
+   */
+  private recordModelInfo(entry: SessionEntry, info: AcpModelInfo): void {
     entry.modelConfigId = info.modelConfigId;
     if (info.modelConfigId) {
       entry.state.model = info.model;
@@ -569,7 +591,7 @@ export class AcpSessionManager {
     resolvedModel: string | undefined,
   ): Promise<ModelPinResult> {
     const { state } = entry;
-    this.applyModelInfo(entry, configOptions);
+    this.applyOpeningModelInfo(entry, configOptions);
 
     if (!resolvedModel || resolvedModel === state.model) {
       return { applied: true };
