@@ -322,7 +322,9 @@ export type HostProxyCapability = (typeof HOST_PROXY_CAPABILITIES)[number];
  * `supportsHostProxy(id)` type predicate.
  *
  * Extend this literal type AND the `supportsHostProxy` implementation
- * below in lock-step when adding a new host-capable client.
+ * below in lock-step when adding a new host-capable client. The capability
+ * matrix in `assistant/src/cli/commands/clients.help.ts` restates this for
+ * the assistant and has to move with it.
  */
 export type HostProxyInterfaceId = "macos" | "windows" | "linux";
 

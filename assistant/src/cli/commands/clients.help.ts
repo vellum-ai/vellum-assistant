@@ -2,21 +2,33 @@
 
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
+/**
+ * The capability matrix in `helpText` mirrors `supportsHostProxy` in
+ * `assistant/src/channels/types.ts`. Update both in lock-step: this text is
+ * what the assistant reads when deciding which client can unblock a task, so
+ * a stale entry here sends users to install a client that cannot help.
+ */
 export const clientsHelp: CliCommandHelp = {
   name: "clients",
   description: "Discover and manage connected clients",
   helpText: `
 Clients are the applications currently connected to the assistant -
-macOS desktop, iOS, web, Chrome extension, or CLI. Each client has a
-set of capabilities (e.g. host_bash, host_file) that determine which
-tools the assistant can route through it.
+macOS, Windows or Linux desktop, iOS, Android, web, Chrome extension,
+or CLI. Each client has a set of capabilities (e.g. host_bash,
+host_file) that determine which tools the assistant can route through
+it.
 
-Host capabilities (host_bash, host_file, host_cu, host_app_control)
-require a desktop or mobile client. When a task needs one and no such
-client is connected, say so and share the download page without
-waiting to be asked: https://www.vellum.ai/downloads (macOS, Windows,
-Linux, iOS, Android). Browser automation is also available as a Chrome
-extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+Host capabilities come only from a native desktop client. macOS, Windows
+and Linux provide host_bash, host_file, host_cu, host_browser and
+host_ui_snapshot; host_app_control, host_cu_window_capture and
+host_cu_annotate are macOS-only. The Chrome extension provides
+host_browser and nothing else. Web, iOS and Android clients provide no
+host capabilities at all, so never offer a mobile app to unblock one.
+
+When a task needs a host capability and no connected client offers it,
+say so and share the download page for a platform that does, without
+waiting to be asked: https://www.vellum.ai/downloads
+Chrome extension (host_browser only): https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 
 Examples:
   $ assistant clients list                             List all connected clients
