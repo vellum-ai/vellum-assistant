@@ -233,7 +233,7 @@ export function HostingOptionsCloudHostingContent() {
           <p className="mb-4 text-stone-600 dark:text-stone-400">
             The distinction is between tools that run on the
             assistant&apos;s computer (the cloud container) versus tools
-            that run on yours (your Mac, through the desktop app):
+            that run on yours (your Mac or Windows PC, through the desktop app):
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-stone-600 dark:text-stone-400">
             <li>

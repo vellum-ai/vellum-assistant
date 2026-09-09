@@ -46,7 +46,7 @@ export function DeveloperGuideGetStartedContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Contributors</strong> working on the assistant
-              runtime, the macOS or iOS clients, the gateway, the CLI,
+              runtime, the macOS, Windows, or iOS clients, the gateway, the CLI,
               or the platform web app.
             </li>
             <li>
@@ -128,6 +128,9 @@ export function DeveloperGuideGetStartedContent() {
             </li>
             <li>
               <code>clients/macos/</code>: the macOS desktop app
+            </li>
+            <li>
+              <code>clients/windows/</code>: the Windows desktop app
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
