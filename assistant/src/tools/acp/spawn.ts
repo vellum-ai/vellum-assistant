@@ -126,7 +126,7 @@ export async function executeAcpSpawn(
       cwd,
       context.conversationId,
       sendToClient,
-      context.toolUseId,
+      { parentToolUseId: context.toolUseId },
     );
 
     // Claude Code-only resume hint; empty for other adapters. Keyed off the

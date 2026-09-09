@@ -6,12 +6,18 @@
 import { randomUUID } from "node:crypto";
 import { basename } from "node:path";
 
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
+import { getConfig } from "../config/loader.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
+import {
+  getAcpConversationModelPreference,
+  upsertAcpConversationModelPreference,
+} from "../persistence/acp-model-preference.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -32,6 +38,11 @@ import {
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { deriveFailureError } from "./failure-error.js";
+import {
+  type AcpModelInfo,
+  deriveModelInfo,
+  resolveAcpModel,
+} from "./model-config.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
 import { formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
@@ -61,6 +72,46 @@ function claudeAuthRequiredCode(
     isClaudeAuthFailureMessage(failureMessage)
     ? ACP_CLAUDE_AUTH_REQUIRED_CODE
     : undefined;
+}
+
+/**
+ * The model this conversation last chose for this agent, if any. Best-effort:
+ * a lookup that fails leaves the run to the next rung of the ladder rather
+ * than sinking the spawn.
+ */
+function readConversationModelPreference(
+  parentConversationId: string,
+  agentId: string,
+): string | undefined {
+  try {
+    return getAcpConversationModelPreference(parentConversationId, agentId);
+  } catch (err) {
+    log.warn(
+      { parentConversationId, agentId, err },
+      "Failed to read the ACP conversation model preference",
+    );
+    return undefined;
+  }
+}
+
+/**
+ * Remembers an explicit model choice for this conversation. Best-effort: the
+ * session is already running on the model, so a failed write costs only the
+ * inheritance the next run would have had.
+ */
+function rememberConversationModelPreference(preference: {
+  parentConversationId: string;
+  agentId: string;
+  model: string;
+}): void {
+  try {
+    upsertAcpConversationModelPreference(preference);
+  } catch (err) {
+    log.warn(
+      { ...preference, err },
+      "Failed to record the ACP conversation model preference",
+    );
+  }
 }
 
 /**
@@ -124,6 +175,10 @@ interface SessionEntry {
    *  rather than needing a sweep to retire it. Absent for agents that use no
    *  Claude credential. */
   credentialDigest?: string;
+  /** Config id of the adapter's model selector, absent when it advertises
+   *  none. Both the id to write a model back through and the flag that says
+   *  this session has a model to publish at all. */
+  modelConfigId?: string;
 }
 
 /**
@@ -231,6 +286,10 @@ export class AcpSessionManager {
    *
    * The prompt is fired in the background — results stream via sessionUpdate
    * callbacks and completion/error messages are sent when the prompt finishes.
+   *
+   * `modelWarning` comes back when the adapter refused the model the session
+   * was asked for: the run is live on the adapter's own default, and the
+   * caller relays the reason rather than treating the spawn as failed.
    */
   async spawn(
     agentId: string,
@@ -239,8 +298,12 @@ export class AcpSessionManager {
     cwd: string,
     parentConversationId: string,
     sendToVellum: (msg: AssistantEvent) => void,
-    parentToolUseId?: string,
-  ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
+    options?: { parentToolUseId?: string; model?: string },
+  ): Promise<{
+    acpSessionId: string;
+    protocolSessionId: string;
+    modelWarning?: string;
+  }> {
     this.assertCapacity();
 
     const acpSessionId = randomUUID();
@@ -263,11 +326,24 @@ export class AcpSessionManager {
       cwd,
       startedAt: Date.now(),
       sendToVellum,
-      parentToolUseId,
+      parentToolUseId: options?.parentToolUseId,
       task,
     });
     const { process: agentProcess, state } = entry;
 
+    // Resolved before the adapter is asked for anything, so the ladder is
+    // walked once against the config and conversation the spawn was made in.
+    const resolvedModel = resolveAcpModel({
+      requestedModel: options?.model,
+      conversationPreference: readConversationModelPreference(
+        parentConversationId,
+        agentId,
+      ),
+      agentModel: agentConfig.model,
+      defaultModel: getConfig().acp.defaultModel,
+    });
+
+    let configOptions: SessionConfigOption[] = [];
     try {
       log.info({ acpSessionId, agentId }, "ACP spawning child process");
       agentProcess.spawn(cwd);
@@ -277,8 +353,9 @@ export class AcpSessionManager {
       );
       await agentProcess.initialize();
       log.info({ acpSessionId, agentId }, "ACP creating session");
-      const { sessionId: acpProtocolSessionId } =
-        await agentProcess.createSession(cwd);
+      const created = await agentProcess.createSession(cwd);
+      const acpProtocolSessionId = created.sessionId;
+      configOptions = created.configOptions;
       state.acpSessionId = acpProtocolSessionId;
       state.status = "running";
       log.info(
@@ -300,7 +377,26 @@ export class AcpSessionManager {
       throw err;
     }
 
+    const modelWarning = await this.pinSessionModel(
+      entry,
+      configOptions,
+      resolvedModel,
+    );
+
+    // Only an explicit request becomes the conversation's preference, and only
+    // once the session is confirmed to be on it. Inherited rungs are already
+    // recorded where they came from, and re-recording them here would freeze a
+    // config default into the conversation.
+    if (options?.model && !modelWarning && state.model) {
+      rememberConversationModelPreference({
+        parentConversationId,
+        agentId,
+        model: state.model,
+      });
+    }
+
     this.sendSpawnedEvent(acpSessionId, entry);
+    this.sendModelEvent(acpSessionId, entry);
 
     // Fire prompt in the background — don't await
     entry.currentPrompt = this.firePromptInBackground(
@@ -310,7 +406,75 @@ export class AcpSessionManager {
       task,
     );
 
-    return { acpSessionId, protocolSessionId: state.acpSessionId };
+    return {
+      acpSessionId,
+      protocolSessionId: state.acpSessionId,
+      ...(modelWarning ? { modelWarning } : {}),
+    };
+  }
+
+  /**
+   * Records what the adapter says about the session's model. `modelConfigId`
+   * doubles as the "this adapter has a model selector" flag, so state is left
+   * untouched when there is none: a resumed session keeps the model its
+   * history row recorded instead of having it wiped by an adapter that never
+   * reports one.
+   */
+  private applyModelInfo(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+  ): AcpModelInfo {
+    const info = deriveModelInfo(configOptions);
+    entry.modelConfigId = info.modelConfigId;
+    if (info.modelConfigId) {
+      entry.state.model = info.model;
+      entry.state.availableModels = info.availableModels;
+    }
+    return info;
+  }
+
+  /**
+   * Puts a session on `resolvedModel` and records what the adapter reports
+   * back. The value crosses the wire unvalidated: the adapter's own resolver
+   * accepts aliases and full ids and rejects everything else, and duplicating
+   * that judgement here would refuse values it would have taken. A refusal
+   * leaves the run on the adapter's default and comes back as the message to
+   * relay, because a session that is live and working is worth more than one
+   * that never started over a model name.
+   */
+  private async pinSessionModel(
+    entry: SessionEntry,
+    configOptions: SessionConfigOption[],
+    resolvedModel: string | undefined,
+  ): Promise<string | undefined> {
+    const { state, process: agentProcess } = entry;
+    const info = this.applyModelInfo(entry, configOptions);
+    if (!resolvedModel || resolvedModel === info.model) {
+      return undefined;
+    }
+    if (!info.modelConfigId) {
+      log.info(
+        { acpSessionId: state.id, agentId: state.agentId, resolvedModel },
+        "ACP agent advertises no model selector; running on its own model",
+      );
+      return undefined;
+    }
+
+    try {
+      const refreshed = await agentProcess.setConfigOption(
+        state.acpSessionId,
+        info.modelConfigId,
+        resolvedModel,
+      );
+      this.applyModelInfo(entry, refreshed);
+      return undefined;
+    } catch (err) {
+      log.warn(
+        { acpSessionId: state.id, agentId: state.agentId, resolvedModel, err },
+        "ACP agent refused the requested model; running on its own model",
+      );
+      return err instanceof Error ? err.message : String(err);
+    }
   }
 
   /**
@@ -420,6 +584,24 @@ export class AcpSessionManager {
       parentConversationId: entry.parentConversationId,
       parentToolUseId: entry.parentToolUseId,
       task: entry.task,
+    });
+  }
+
+  /**
+   * Publishes the session's model selection. Silent for adapters with no
+   * model selector: the client renders nothing rather than an empty picker.
+   * A separate frame from `acp_session_spawned`, which carries a fixed subset
+   * older clients parse.
+   */
+  private sendModelEvent(acpSessionId: string, entry: SessionEntry): void {
+    if (!entry.modelConfigId) {
+      return;
+    }
+    entry.sendToVellum({
+      type: "acp_session_model_update",
+      acpSessionId,
+      model: entry.state.model,
+      availableModels: entry.state.availableModels ?? [],
     });
   }
 
@@ -560,6 +742,11 @@ export class AcpSessionManager {
     );
     const { process: agentProcess, state } = entry;
 
+    // The terminal upsert rewrites every column, so a model left unseeded
+    // would be NULLed by a resumed run that never touched one. It is also
+    // what the pin after reattach puts the fresh adapter process back on.
+    state.model = row.model ?? undefined;
+
     // Seed the latest usage snapshot from the persisted columns. A fresh
     // usage_update during the resumed run overwrites this; if none fires the
     // prior snapshot is re-persisted on terminal transition. Pre-migration
@@ -602,6 +789,7 @@ export class AcpSessionManager {
     // Seed before the child process spawns so no live update can fire first.
     entry.clientHandler.seedSeq(maxSeq);
 
+    let configOptions: SessionConfigOption[] = [];
     try {
       log.info(
         { acpSessionId, agentId: row.agentId },
@@ -611,14 +799,20 @@ export class AcpSessionManager {
       await agentProcess.initialize();
       if (agentProcess.supportsSessionResume) {
         // session/resume reattaches without replaying history.
-        await agentProcess.resumeSession(row.acpSessionId, row.cwd);
+        ({ configOptions } = await agentProcess.resumeSession(
+          row.acpSessionId,
+          row.cwd,
+        ));
       } else if (agentProcess.supportsLoadSession) {
         // session/load replays the full history as session/update
         // notifications before resolving; suppress forwarding so the
         // conversation and ring buffer don't receive duplicates.
         entry.clientHandler.beginReplaySuppression();
         try {
-          await agentProcess.loadSession(row.acpSessionId, row.cwd);
+          ({ configOptions } = await agentProcess.loadSession(
+            row.acpSessionId,
+            row.cwd,
+          ));
         } finally {
           entry.clientHandler.endReplaySuppression();
         }
@@ -647,7 +841,13 @@ export class AcpSessionManager {
       throw err;
     }
 
+    // A fresh adapter process starts on its own default, so the run the user
+    // resumes is put back on the model its history row recorded. No preference
+    // is written: resuming is not choosing.
+    await this.pinSessionModel(entry, configOptions, row.model ?? undefined);
+
     this.sendSpawnedEvent(acpSessionId, entry);
+    this.sendModelEvent(acpSessionId, entry);
   }
 
   /**
@@ -1000,6 +1200,7 @@ export class AcpSessionManager {
       parentToolUseId: entry.state.parentToolUseId ?? null,
       authErrorCode: entry.state.authErrorCode ?? null,
       authErrorCredential: entry.state.authErrorCredential ?? null,
+      model: entry.state.model ?? null,
       usedTokens: usage?.usedTokens ?? null,
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,
