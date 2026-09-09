@@ -1039,19 +1039,8 @@ export class AnthropicProvider implements Provider {
       const effectiveModel =
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
-      // Effort support is per-model on the Anthropic wire, not family-wide:
-      // Haiku and Sonnet 4.5 reject `output_config.effort` with a 400
-      // ("This model does not support the effort parameter"), while every
-      // other cataloged Claude model accepts it (Opus 4.5 included — verified
-      // 2026-09-09 by probing each model with a minimal effort request). The
-      // catalog's `effortUnsupported` capability drives the Sonnet 4.5
-      // exclusion; the isHaiku check stays as the family-level gate for
-      // uncataloged Haiku ids. Profiles keep their internal effort setting —
-      // only the wire param is omitted. OpenRouter `anthropic/*` models
-      // delegate to this provider, and the helper normalizes their dotted
-      // ids, so the exclusion covers that path too.
-      const supportsEffort =
-        !isHaiku && !isEffortUnsupportedModel(effectiveModel);
+      // Effort support is per-model: Haiku and Sonnet 4.5 reject the param (see isEffortUnsupportedModel).
+      const supportsEffort = !isEffortUnsupportedModel(effectiveModel);
       // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
       // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
       // for this model" — model-wide, not effort-conditional (verified
