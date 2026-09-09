@@ -677,7 +677,12 @@ export interface ViewerActions {
    * panels are dismissed when the viewer returns to chat, and holding
    * their payloads keeps the previous conversation's data alive -
    * `activeMessageFiles` in particular retains decoded attachment blob/data
-   * URLs. Leaves `mainView` alone; this is a memory concern, not navigation.
+   * URLs.
+   *
+   * Leaves `mainView` alone except for `"chat-info"`, which it restores to
+   * the view the panel was opened from: that panel is the conversation's own,
+   * so a switch that takes its payload has to take the view with it rather
+   * than leave an empty panel on screen.
    */
   clearTranscriptPanelPayloads: () => void;
 
@@ -1066,7 +1071,13 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
         get().closeChannelTranscript();
         return true;
       case "chat-info":
-        get().closeChatInfo();
+        // Alone among the overlays, this one's second level lives in the
+        // store, so Escape and Android Back pop the drill-in before the panel.
+        if (get().activeChatInfo?.category != null) {
+          get().setChatInfoCategory(null);
+        } else {
+          get().closeChatInfo();
+        }
         return true;
       default:
         return false;
@@ -1313,11 +1324,16 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   clearTranscriptPanelPayloads: () => {
+    const { mainView, viewBeforeChatInfo } = get();
     set({
       activeMessageFiles: null,
       activeActivitySteps: null,
       activeToolDetail: null,
       activeChatInfo: null,
+      // The chat-info panel is about the conversation itself, so the switch
+      // that drops its payload has to settle its view too. The other three
+      // are reached from a transcript row and are already off screen.
+      mainView: mainView === "chat-info" ? viewBeforeChatInfo : mainView,
     });
   },
 

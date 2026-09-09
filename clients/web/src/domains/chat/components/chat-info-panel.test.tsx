@@ -9,7 +9,15 @@
  * level renders, and the sequence each tile runs when it is opened.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -24,7 +32,6 @@ import * as appHtmlCache from "@/utils/app-html-cache";
 import type * as ConversationAssetsModule from "@/domains/chat/hooks/use-conversation-assets";
 import type * as ElementSizeModule from "@/hooks/use-element-size";
 import type * as IsMobileModule from "@/hooks/use-is-mobile";
-import type * as OpenAppModule from "@/domains/chat/hooks/use-open-app-from-chat";
 import type { AppSummary } from "@/types/app-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
 import type { DocumentSummary } from "@/types/document-types";
@@ -88,27 +95,24 @@ mock.module(
 );
 
 const assetsRef = { value: null as ConversationAssets | null };
+const assetsTargets: ConversationAssetsModule.ConversationAssetsTarget[] = [];
 mock.module(
   "@/domains/chat/hooks/use-conversation-assets",
   (): Partial<typeof ConversationAssetsModule> => ({
-    useConversationAssets: () => assetsRef.value!,
+    useConversationAssets: (target) => {
+      assetsTargets.push(target);
+      return assetsRef.value!;
+    },
   }),
 );
 
 const calls: string[] = [];
-const openApp = mock(async (_appId: string): Promise<void> => {
-  calls.push("openApp");
-});
-mock.module(
-  "@/domains/chat/hooks/use-open-app-from-chat",
-  (): Partial<typeof OpenAppModule> => ({
-    useOpenAppFromChat: () => openApp,
-  }),
-);
 
 const { ChatInfoPanel } =
   await import("@/domains/chat/components/chat-info-panel");
 const { useViewerStore } = await import("@/stores/viewer-store");
+const { useUnseenDocumentChangesStore } =
+  await import("@/domains/chat/unseen-document-changes-store");
 const { appsGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
 const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
@@ -223,6 +227,11 @@ function makeAssets(
 const closeChatInfo = mock((): void => {
   calls.push("closeChatInfo");
 });
+const loadApp = mock(
+  async (_assistantId: string, _appId: string): Promise<void> => {
+    calls.push("loadApp");
+  },
+);
 const loadDocument = mock(
   async (_assistantId: string, _surfaceId: string): Promise<void> => {
     calls.push("loadDocument");
@@ -270,18 +279,27 @@ async function renderChatInfo(
 beforeEach(() => {
   assetsRef.value = makeAssets();
   calls.length = 0;
-  openApp.mockClear();
+  assetsTargets.length = 0;
+  useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
+  loadApp.mockClear();
   closeChatInfo.mockClear();
   loadDocument.mockClear();
   loadMoreFiles.mockClear();
   loadMoreFrames.mockClear();
   onClose.mockClear();
   onSelectCategory.mockClear();
-  useViewerStore.setState({ closeChatInfo, loadDocument });
+  useViewerStore.setState({ closeChatInfo, loadApp, loadDocument });
 });
 
 afterEach(() => {
   cleanup();
+  useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
+});
+
+// `mock.module` is process-global in this runner, so the module graph is put
+// back before the next file loads.
+afterAll(() => {
+  mock.restore();
 });
 
 // ---------------------------------------------------------------------------
@@ -323,13 +341,48 @@ describe("ChatInfoPanel top level", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  test("leaves the panel before opening an app", async () => {
+  test("leaves the panel before opening an app, under the payload's assistant", async () => {
     await renderChatInfo();
 
     fireEvent.click(screen.getByLabelText("Open App 1"));
 
-    expect(calls).toEqual(["closeChatInfo", "openApp"]);
-    expect(openApp).toHaveBeenCalledWith("app-1");
+    expect(calls).toEqual(["closeChatInfo", "loadApp"]);
+    expect(loadApp).toHaveBeenCalledWith(ASSISTANT_ID, "app-1");
+  });
+
+  test("reads the assets of the conversation its payload names", async () => {
+    await renderChatInfo();
+
+    expect(assetsTargets[0]).toEqual({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+    });
+  });
+
+  test("clears the conversation's unseen dot while it is open", async () => {
+    useUnseenDocumentChangesStore
+      .getState()
+      .markDocumentChanged(CONVERSATION_ID, TRIP_NOTES.surfaceId);
+
+    await renderChatInfo();
+
+    expect(useUnseenDocumentChangesStore.getState().changedDocuments).toEqual(
+      {},
+    );
+  });
+
+  test("clears a change that lands while it is already open", async () => {
+    await renderChatInfo();
+
+    await act(async () => {
+      useUnseenDocumentChangesStore
+        .getState()
+        .markDocumentChanged(CONVERSATION_ID, PACKING_LIST.surfaceId);
+    });
+
+    expect(useUnseenDocumentChangesStore.getState().changedDocuments).toEqual(
+      {},
+    );
   });
 
   test("leaves the panel before opening a document", async () => {
@@ -386,5 +439,8 @@ describe("ChatInfoPanel See All level", () => {
 
     expect(screen.getByText("Chat Info")).toBeDefined();
     expect(screen.queryByLabelText("Back to chat info")).toBeNull();
+    // Settled in the store too, so a refilled category cannot drill back in
+    // on its own and See All on it is not a silent no-op.
+    expect(onSelectCategory).toHaveBeenCalledWith(null);
   });
 });

@@ -5,9 +5,8 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
 
 /**
- * Open an app in the viewer panel from inside the chat surface — sidebar
- * pinned-app click, transcript "Open App" affordance, conversation assets
- * pill.
+ * Open an app in the viewer panel from inside the chat surface: the sidebar's
+ * pinned-app click and the transcript's "Open App" affordance.
  *
  * Opening an app is a *view* action, so the app lands full-width:
  * `loadApp` sets `mainView` to `"app"` and nothing here upgrades it. That
@@ -30,9 +29,11 @@ import { haptic } from "@/utils/haptics";
  * Returns a stable async callback `(appId: string) => Promise<void>` safe
  * to drop into deps arrays.
  *
- * Single source of truth, used by `chat-layout.tsx` (sidebar),
- * `chat-route-content.tsx` (transcript) and
- * `use-chat-header-registration.tsx` (assets pill). Don't inline a copy.
+ * Single source of truth for the active assistant's apps, used by
+ * `chat-layout.tsx` (sidebar) and `chat-route-content.tsx` (transcript).
+ * Don't inline a copy. A surface that opens an app for some other assistant
+ * (the chat-info panel opens the one its payload names) calls `loadApp`
+ * directly instead.
  */
 export function useOpenAppFromChat(): (appId: string) => Promise<void> {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();

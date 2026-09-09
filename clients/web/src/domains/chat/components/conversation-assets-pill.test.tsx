@@ -15,7 +15,14 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import * as motionReact from "motion/react";
 
 import type { DocumentSummary } from "@/types/document-types";
@@ -123,7 +130,16 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
     unmount: () => view.unmount(),
     /** Swap the prop on the already-mounted pill, as the chat header does. */
     switchConversation: (conversationId: string) => {
+      // Every real switch drops the transcript panel payloads before the
+      // header re-renders; the store settles the view from there.
+      act(() => {
+        useViewerStore.getState().clearTranscriptPanelPayloads();
+      });
       view.rerender(pill(conversationId));
+    },
+    /** Drop the conversation's last asset, as a delete would. */
+    emptyAssets: () => {
+      seedConversation(client, [], CONVERSATION_ID);
     },
   };
 }
@@ -178,7 +194,9 @@ describe("desktop pill", () => {
     expect(screen.getByRole("button", { name: SEEN_LABEL })).toBeTruthy();
   });
 
-  test("opening the panel clears the conversation and sets mainView to chat-info", () => {
+  // The dot survives the click here: the panel is what clears it, and this
+  // suite renders the trigger alone.
+  test("opening the panel sets mainView to chat-info", () => {
     markUnseen();
     renderPill();
 
@@ -192,8 +210,7 @@ describe("desktop pill", () => {
         category: null,
       },
     });
-    expect(unseenConversations()).toEqual([]);
-    expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
+    expect(unseenConversations()).toEqual([CONVERSATION_ID]);
   });
 
   test("clicking while open closes the panel", () => {
@@ -216,8 +233,20 @@ describe("desktop pill", () => {
     const trigger = screen.getByRole("button", { name: SEEN_LABEL });
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
 
-    fireEvent.click(trigger);
+    // Store-first, so the attribute tracks the view however it was opened,
+    // not just the trigger's own click.
+    act(() => {
+      useViewerStore.getState().openChatInfo({
+        assistantId: ASSISTANT_ID,
+        conversationId: CONVERSATION_ID,
+      });
+    });
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
+
+    act(() => {
+      useViewerStore.getState().closeChatInfo();
+    });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 });
 
@@ -236,24 +265,23 @@ describe("narrow window with a mouse", () => {
     );
   });
 
-  test("opening the panel clears the conversation", () => {
+  test("opening the panel sets mainView to chat-info", () => {
     markUnseen();
     renderPill();
 
     fireEvent.click(screen.getByRole("button", { name: UNSEEN_LABEL }));
 
     expect(chatInfoState().mainView).toBe("chat-info");
-    expect(unseenConversations()).toEqual([]);
   });
 });
 
 describe("conversation switch while the panel is open", () => {
   /**
    * The chat header renders one unkeyed pill and swaps `conversationId` on it,
-   * so the open panel would otherwise survive the switch. The pill settles the
-   * store on that swap: the incoming conversation's assets are never put on
-   * screen unasked, and its changes stay marked unseen until the user opens
-   * the panel.
+   * so the open panel would otherwise survive the switch. The store settles it
+   * from `clearTranscriptPanelPayloads`, which every switch runs: the incoming
+   * conversation's assets are never put on screen unasked, and its changes
+   * stay marked unseen until the user opens the panel.
    */
   test("closes the panel and keeps the incoming dot", () => {
     markUnseen(OTHER_CONVERSATION_ID, OTHER_SURFACE_ID);
@@ -271,6 +299,25 @@ describe("conversation switch while the panel is open", () => {
     expect(screen.getByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeTruthy();
     expect(screen.getByRole("button", { name: UNSEEN_LABEL })).toBeTruthy();
     expect(unseenConversations()).toEqual([OTHER_CONVERSATION_ID]);
+  });
+});
+
+describe("the last asset leaving while the panel is open", () => {
+  test("hides the trigger and takes the panel with it", async () => {
+    const { emptyAssets } = renderPill();
+
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+    expect(chatInfoState().mainView).toBe("chat-info");
+
+    emptyAssets();
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button")).toBeNull();
+    });
+    expect(chatInfoState()).toEqual({
+      mainView: "chat",
+      activeChatInfo: null,
+    });
   });
 });
 

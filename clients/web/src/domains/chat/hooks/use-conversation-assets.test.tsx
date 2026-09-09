@@ -8,7 +8,7 @@
  * suite mocks it.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook } from "@testing-library/react";
 
@@ -26,8 +26,11 @@ mock.module(
   }),
 );
 
-const { useConversationAssets, toConversationFileAssets } =
-  await import("@/domains/chat/hooks/use-conversation-assets");
+const {
+  useConversationAssetCounts,
+  useConversationAssets,
+  toConversationFileAssets,
+} = await import("@/domains/chat/hooks/use-conversation-assets");
 const { makeDisplayAttachment } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
 const {
@@ -118,9 +121,69 @@ function renderAssets({
   return { ...view, client };
 }
 
+function renderCounts({
+  apps = [],
+  documents = [],
+}: {
+  apps?: AppSummary[];
+  documents?: DocumentSummary[];
+} = {}) {
+  const client = makeQueryClient();
+  seedConversation(client, apps, documents);
+
+  return renderHook(
+    () =>
+      useConversationAssetCounts({
+        assistantId: ASSISTANT_ID,
+        conversationId: CONVERSATION_ID,
+      }),
+    {
+      wrapper: ({ children }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    },
+  );
+}
+
 afterEach(() => {
   cleanup();
   messagesRef.value = [];
+});
+
+// `mock.module` is process-global in this runner, so the module graph is put
+// back before the next file loads.
+afterAll(() => {
+  mock.restore();
+});
+
+describe("useConversationAssetCounts", () => {
+  test("totals every category without building the tile model", () => {
+    messagesRef.value = [
+      {
+        id: "msg-1",
+        role: "user",
+        attachments: [
+          makeDisplayAttachment({ id: "att-1" }),
+          makeDisplayAttachment({ id: "att-2" }),
+        ],
+      },
+    ];
+
+    const { result } = renderCounts({
+      apps: [makeApp("a", 1_000), makeApp("b", 2_000)],
+      documents: [makeDocument("doc-1", 1_000)],
+    });
+
+    expect(result.current.counts).toEqual({ apps: 2, files: 3, frames: 0 });
+    expect(result.current.count).toBe(5);
+    expect(result.current).not.toHaveProperty("files");
+  });
+
+  test("counts nothing for a conversation with no assets", () => {
+    const { result } = renderCounts();
+
+    expect(result.current.count).toBe(0);
+  });
 });
 
 describe("useConversationAssets", () => {

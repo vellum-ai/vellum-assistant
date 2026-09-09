@@ -589,6 +589,8 @@ describe("openProcessDetail", () => {
   });
 });
 
+const SAMPLE_CHAT_INFO = { assistantId: "a1", conversationId: "c1" };
+
 describe("closeActiveOverlay", () => {
   it("closes a tool detail overlay and restores its prior view", () => {
     getState().openToolDetail(SAMPLE_TOOL);
@@ -620,6 +622,18 @@ describe("closeActiveOverlay", () => {
 
     expect(getState().closeActiveOverlay()).toBe(true);
     expect(getState().mainView).toBe("app");
+    expect(getState().activeChatInfo).toBeNull();
+  });
+
+  it("pops the chat-info drill-in before closing the panel", () => {
+    getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat-info");
+    expect(getState().activeChatInfo?.category).toBeNull();
+
+    expect(getState().closeActiveOverlay()).toBe(true);
+    expect(getState().mainView).toBe("chat");
     expect(getState().activeChatInfo).toBeNull();
   });
 
@@ -886,8 +900,6 @@ describe("openMessageFiles / toggleMessageFiles / closeMessageFiles", () => {
 // Chat info panel
 // ---------------------------------------------------------------------------
 
-const SAMPLE_CHAT_INFO = { assistantId: "a1", conversationId: "c1" };
-
 describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", () => {
   it("opens the panel at the top level and records the prior view", () => {
     getState().openChatInfo(SAMPLE_CHAT_INFO);
@@ -935,10 +947,25 @@ describe("openChatInfo / toggleChatInfo / closeChatInfo / setChatInfoCategory", 
     });
   });
 
-  it("clearTranscriptPanelPayloads drops the chat-info payload on a conversation switch", () => {
+  it("clearTranscriptPanelPayloads settles the chat-info view on a conversation switch", () => {
+    useViewerStore.setState({ mainView: "app" });
     getState().openChatInfo({ ...SAMPLE_CHAT_INFO, category: "apps" });
+
     getState().clearTranscriptPanelPayloads();
-    expect(getState().activeChatInfo).toBeNull();
+
+    const state = getState();
+    expect(state.activeChatInfo).toBeNull();
+    expect(state.mainView).toBe("app");
+  });
+
+  it("toggling to another conversation keeps the view the panel was opened from", () => {
+    useViewerStore.setState({ mainView: "app" });
+    getState().openChatInfo(SAMPLE_CHAT_INFO);
+    getState().toggleChatInfo({ ...SAMPLE_CHAT_INFO, conversationId: "c2" });
+
+    expect(getState().viewBeforeChatInfo).toBe("app");
+    getState().closeChatInfo();
+    expect(getState().mainView).toBe("app");
   });
 
   it("toggle treats the same conversation id under another assistant as a new target", () => {

@@ -10,15 +10,12 @@
 
 import { Layers } from "lucide-react";
 import { useReducedMotion } from "motion/react";
-import { useCallback, useLayoutEffect } from "react";
+import { useCallback, useEffect, useLayoutEffect } from "react";
 
 import { Button } from "@vellumai/design-library";
 
-import { useConversationAssets } from "@/domains/chat/hooks/use-conversation-assets";
-import {
-  useHasUnseenDocumentChanges,
-  useUnseenDocumentChangesStore,
-} from "@/domains/chat/unseen-document-changes-store";
+import { useConversationAssetCounts } from "@/domains/chat/hooks/use-conversation-assets";
+import { useHasUnseenDocumentChanges } from "@/domains/chat/unseen-document-changes-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { chatInfoTargetKey, useViewerStore } from "@/stores/viewer-store";
@@ -28,6 +25,18 @@ export const ASSETS_PILL_UNSEEN_DOT_TESTID = "assets-pill-unseen-dot";
 
 /** Bounded attention pulse defined in `src/index.css`. */
 export const ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS = "unseen-dot-pulse";
+
+/** Dismiss the chat-info panel when it is the one this trigger owns. */
+function closeOwnedChatInfo(targetKey: string): void {
+  const state = useViewerStore.getState();
+  if (
+    state.mainView === "chat-info" &&
+    state.activeChatInfo !== null &&
+    chatInfoTargetKey(state.activeChatInfo) === targetKey
+  ) {
+    state.closeChatInfo();
+  }
+}
 
 export interface ConversationAssetsPillProps {
   assistantId: string;
@@ -41,7 +50,7 @@ export function ConversationAssetsPill({
   conversationId,
   refreshKey,
 }: ConversationAssetsPillProps) {
-  const { count } = useConversationAssets({
+  const { count } = useConversationAssetCounts({
     assistantId,
     conversationId,
     refreshKey,
@@ -55,53 +64,37 @@ export function ConversationAssetsPill({
     activeChatInfo !== null &&
     chatInfoTargetKey(activeChatInfo) === targetKey;
 
-  // The chat header swaps `conversationId` on this same mounted pill, so an
-  // open panel would otherwise carry over and list the incoming conversation's
-  // assets without the user asking to see them, leaving that conversation's
-  // changes marked unseen behind a panel that is already open.
-  // `clearTranscriptPanelPayloads` drops the payload on a switch; this settles
-  // `mainView` too. Layout effect: the outgoing conversation's panel must never
-  // paint over the incoming conversation, not even for one frame.
+  // The panel this pill opened must not outlive the pill's target: the chat
+  // header swaps `conversationId` on this same mounted pill, and an assistant
+  // switch unmounts it. `clearTranscriptPanelPayloads` settles the store on a
+  // conversation switch, so this covers the paths that do not run it. Layout
+  // effect: the outgoing panel must never paint over the incoming
+  // conversation, not even for one frame.
   useLayoutEffect(() => {
-    const state = useViewerStore.getState();
-    if (
-      state.mainView === "chat-info" &&
-      state.activeChatInfo !== null &&
-      chatInfoTargetKey(state.activeChatInfo) !== targetKey
-    ) {
-      state.closeChatInfo();
-    }
-    // The pill leaving (an assistant switch clears the conversation before
-    // the next one resolves) must take its panel with it, or the store keeps
-    // showing a target no control owns.
     return () => {
-      const current = useViewerStore.getState();
-      if (
-        current.mainView === "chat-info" &&
-        current.activeChatInfo !== null &&
-        chatInfoTargetKey(current.activeChatInfo) === targetKey
-      ) {
-        current.closeChatInfo();
-      }
+      closeOwnedChatInfo(targetKey);
     };
   }, [targetKey]);
+
+  // Zero assets hides the trigger, and a panel with no control to dismiss it
+  // is a trap; the last asset leaving takes the panel with it.
+  useEffect(() => {
+    if (count === 0) {
+      closeOwnedChatInfo(targetKey);
+    }
+  }, [count, targetKey]);
 
   // The header cluster only has room for a labelled pill on a roomy window.
   const isMobile = useIsMobile();
   const { t } = useTranslation("chat");
   const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
-  const clearConversation =
-    useUnseenDocumentChangesStore.use.clearConversation();
 
-  // Opening the panel is the user looking at the assets, so whatever changed
-  // is no longer unseen.
+  // The panel clears the unseen dot, since it is the surface that shows what
+  // changed and it opens from other entry points too.
   const handleClick = useCallback(() => {
-    if (!isOpen) {
-      clearConversation(conversationId);
-    }
     useViewerStore.getState().toggleChatInfo({ assistantId, conversationId });
-  }, [assistantId, clearConversation, conversationId, isOpen]);
+  }, [assistantId, conversationId]);
 
   if (count === 0) {
     return null;
