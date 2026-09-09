@@ -119,29 +119,3 @@ export function readHistoryRow(id: string): HistoryRow | null {
     )
     .get(id) as HistoryRow | null;
 }
-
-/**
- * Seeds a conversation's model preference for an agent.
- *
- * Written directly rather than through the store so a suite can set up the
- * state a spawn inherits without depending on the write path it is testing.
- */
-export function insertModelPreferenceRow(row: {
-  parentConversationId: string;
-  agentId?: string;
-  model: string;
-  updatedAt?: number;
-}): void {
-  getSqlite()
-    .query(
-      `INSERT OR REPLACE INTO acp_conversation_model_preference (
-         parent_conversation_id, agent_id, model, updated_at
-       ) VALUES (?, ?, ?, ?)`,
-    )
-    .run(
-      row.parentConversationId,
-      row.agentId ?? "claude",
-      row.model,
-      row.updatedAt ?? 1234,
-    );
-}
