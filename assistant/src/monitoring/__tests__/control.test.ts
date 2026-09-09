@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import * as realLogger from "../../util/logger.js";
+import { isProcessAlive } from "../../util/process-liveness.js";
 import * as realPlatform from "../../util/platform.js";
 
 let tmpDir: string;
@@ -40,6 +41,7 @@ const {
   MonitoringWorkerSpawnError,
   probeMonitoringWorker,
   stopMonitoringWorkerProcess,
+  stopMonitoringAndWait,
 } = await import("../control.js");
 
 function stubProcessKill(
@@ -236,6 +238,40 @@ describe("stopMonitoringWorkerProcess", () => {
       expect(signalled).toEqual([[4321, "SIGTERM"]]);
     } finally {
       process.kill = original;
+    }
+  });
+});
+
+describe("stopMonitoringAndWait", () => {
+  test("is a no-op when the monitor is not running", async () => {
+    await stopMonitoringAndWait(200);
+  });
+
+  test("waits until the monitor process exits", async () => {
+    const child = Bun.spawn(["sleep", "30"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    writeFileSync(pidPath, String(child.pid));
+    await stopMonitoringAndWait(2_000);
+    expect(isProcessAlive(child.pid!)).toBe(false);
+  });
+
+  test("returns after timeout if the process ignores SIGTERM", async () => {
+    const child = Bun.spawn(["bash", "-c", "trap '' TERM; sleep 30"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    writeFileSync(pidPath, String(child.pid));
+    await Bun.sleep(50);
+    const started = Date.now();
+    await stopMonitoringAndWait(300);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(250);
+    expect(isProcessAlive(child.pid!)).toBe(true);
+    try {
+      process.kill(child.pid!, "SIGKILL");
+    } catch {
+      // already gone
     }
   });
 });

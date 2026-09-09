@@ -11,8 +11,8 @@
  *
  * `getAllWorkspaceGitServices()` is process-local. The daemon's registry is
  * invisible here, so this process registers the default workspace before
- * starting the timer. Git `index.lock` (plus stale-lock cleanup) serializes
- * against the daemon's turn-boundary commits.
+ * starting the timer. A cross-process repo lock serializes the full git
+ * transaction against the daemon's turn-boundary and shutdown commits.
  */
 
 import { getLogger } from "../util/logger.js";

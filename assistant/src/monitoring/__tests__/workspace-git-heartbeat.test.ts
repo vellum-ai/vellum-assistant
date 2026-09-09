@@ -54,4 +54,17 @@ describe("workspace git heartbeat on the monitoring worker", () => {
     expect(worker).toContain("await workspaceGitHeartbeat?.stop()");
     expect(lifecycle).not.toContain("startWorkspaceHeartbeatService");
   });
+
+  test("daemon shutdown stops the monitor before flushing workspace git", () => {
+    const shutdown = readFileSync(
+      join(SRC_ROOT, "daemon/shutdown-handlers.ts"),
+      "utf8",
+    );
+    expect(shutdown).not.toContain("stopWorkspaceHeartbeatService");
+    const monitorStop = shutdown.indexOf("stopMonitoringAndWait");
+    const firstCommit = shutdown.indexOf("commitAllPendingWorkspaceChanges");
+    expect(monitorStop).toBeGreaterThan(-1);
+    expect(firstCommit).toBeGreaterThan(-1);
+    expect(monitorStop).toBeLessThan(firstCommit);
+  });
 });

@@ -15,6 +15,7 @@ import {
   spawnWorkerProcess,
   type SpawnWorkerProcessOptions,
   stopWorkerProcess,
+  stopWorkerProcessAndWait,
   WorkerProcessSpawnError,
   type WorkerProcessStatus,
 } from "../util/worker-process.js";
@@ -58,12 +59,52 @@ export async function spawnMonitoringWorkerProcess(
 }
 
 /**
+ * How long daemon shutdown waits for the resource monitor to exit after
+ * SIGTERM. The monitor awaits in-flight workspace git add/commit on that
+ * signal. This is a slice of the daemon's 30s force-exit budget; leftover
+ * git is then serialized by the workspace repo lock.
+ */
+export const MONITOR_SHUTDOWN_WAIT_MS = 10_000;
+
+/**
  * Send SIGTERM to the monitor process if it is actually running. Returns the
  * status observed before signalling. Only throws if `process.kill` itself fails
  * (e.g. EPERM) — a not-running monitor is a no-op.
  */
 export function stopMonitoringWorkerProcess(): WorkerProcessStatus {
   return stopWorkerProcess(getMonitoringPidPath());
+}
+
+/**
+ * SIGTERM the monitor and wait until it exits or `timeoutMs` elapses.
+ * Never throws. Used on daemon shutdown so in-flight heartbeat git can
+ * finish before this process flushes workspace commits.
+ */
+export async function stopMonitoringAndWait(
+  timeoutMs: number = MONITOR_SHUTDOWN_WAIT_MS,
+): Promise<void> {
+  try {
+    const result = await stopWorkerProcessAndWait(
+      getMonitoringPidPath(),
+      timeoutMs,
+    );
+    if (!result.signalled) {
+      return;
+    }
+    if (result.exited) {
+      log.info(
+        { pid: result.pid },
+        "Resource monitor process exited after SIGTERM",
+      );
+      return;
+    }
+    log.warn(
+      { pid: result.pid, timeoutMs },
+      "Resource monitor still running after SIGTERM wait; continuing shutdown",
+    );
+  } catch (err) {
+    log.warn({ err }, "Failed to stop resource monitor process (non-fatal)");
+  }
 }
 
 /**

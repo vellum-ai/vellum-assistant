@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -14,6 +15,10 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getWorkspaceConfigPath } from "../util/platform.js";
+import {
+  acquireWorkspaceGitRepoLock,
+  getWorkspaceGitRepoLockPath,
+} from "../workspace/git-repo-lock.js";
 import {
   _getConsecutiveFailures,
   _getInitConsecutiveFailures,
@@ -57,6 +62,7 @@ describe("WorkspaceGitService", () => {
 
       expect(service.isInitialized()).toBe(true);
       expect(existsSync(join(testDir, ".git"))).toBe(true);
+      expect(existsSync(join(testDir, "workspace-git.lock"))).toBe(false);
     });
 
     test("creates .gitignore with proper exclusions", async () => {
@@ -72,6 +78,8 @@ describe("WorkspaceGitService", () => {
       expect(content).toContain("*.log");
       expect(content).toContain("*.sock");
       expect(content).toContain("*.pid");
+      expect(content).toContain("daemon-startup.lock");
+      expect(content).toContain("workspace-git.lock");
       expect(content).toContain("session-token");
       expect(content).toContain("node_modules/");
       expect(content).toContain("/embedding-models/");
@@ -522,6 +530,31 @@ describe("WorkspaceGitService", () => {
       expect(trackedFiles()).not.toContain("gone-a.txt");
       expect(trackedFiles()).not.toContain("gone-b.txt");
       expect(trackedFiles()).not.toContain("gone-c.txt");
+    });
+
+    test("batched rename stages origin and destination even when they split", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "old-name.txt"), "moved");
+      await service.commitChanges("Seed rename source");
+
+      renameSync(join(testDir, "old-name.txt"), join(testDir, "new-name.txt"));
+      for (const name of ["x0.txt", "x1.txt", "x2.txt", "x3.txt"]) {
+        writeFileSync(join(testDir, name), name);
+      }
+
+      await withStageBatchSize(2, async () => {
+        await service.commitChanges("Rename across batches");
+      });
+
+      expect(trackedFiles()).toContain("new-name.txt");
+      expect(trackedFiles()).not.toContain("old-name.txt");
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(status).toBe("");
     });
   });
 
@@ -1207,7 +1240,7 @@ describe("WorkspaceGitService", () => {
         cwd: testDir,
       });
       const gitignoreContent =
-        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.jsonl\n*.sock\n*.pid\ndaemon-startup.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n!data/apps/*/icon.png\n!conversations/**\n";
+        "# Runtime state - excluded from git tracking\ndata/db/\ndata/qdrant/\ndata/monitoring/\ndata/apps/*/records/\ndata/apps/*/dist/\ndata/apps/*.preview\n/embedding-models/\n/external/\n/bin/\n/plugins-data/\nnode_modules/\n__pycache__/\n.venv/\nlogs/\n*.log\n*.jsonl\n*.sock\n*.pid\ndaemon-startup.lock\nworkspace-git.lock\nsession-token\n*.sqlite*\n*.db\n*.db-*\n.DS_Store\n*.zip\n*.tar\n*.gz\n*.tgz\n*.bz2\n*.xz\n*.7z\n*.rar\n*.dmg\n*.iso\n*.png\n*.jpg\n*.jpeg\n*.gif\n*.webp\n*.heic\n*.bmp\n*.tiff\n*.mp3\n*.wav\n*.m4a\n*.flac\n*.ogg\n*.mp4\n*.mov\n*.avi\n*.mkv\n*.webm\n*.pdf\n*.gguf\n*.onnx\n*.safetensors\n*.pt\n*.pth\n!data/avatar/**\n!data/sounds/**\n!data/apps/*/icon.png\n!conversations/**\n";
       writeFileSync(join(testDir, ".gitignore"), gitignoreContent);
       writeFileSync(join(testDir, "file.txt"), "content");
       execFileSync("git", ["add", "-A"], { cwd: testDir });
@@ -1294,6 +1327,18 @@ describe("WorkspaceGitService", () => {
 
       // .log files should be ignored
       expect(status.untracked).not.toContain("test.log");
+    });
+
+    test("ignores the workspace git repo lock file", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "workspace-git.lock"), "held");
+      const status = await service.getStatus();
+      expect(status.untracked).not.toContain("workspace-git.lock");
+      execFileSync("git", ["check-ignore", "-q", "workspace-git.lock"], {
+        cwd: testDir,
+      });
     });
 
     test("tracks non-ignored files", async () => {
@@ -2574,6 +2619,60 @@ describe("WorkspaceGitService", () => {
       expect(subjects).toContain("Compacted workspace history");
       expect(subjects).toContain("current change");
       expect(subjects).not.toContain("aging change");
+    });
+  });
+
+  describe("cross-process repo lock", () => {
+    test("commitIfDirty skips when the repo lock is held past the deadline", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+      writeFileSync(join(testDir, "held.txt"), "dirty");
+
+      const release = await acquireWorkspaceGitRepoLock(
+        getWorkspaceGitRepoLockPath(testDir),
+      );
+      try {
+        const result = await service.commitIfDirty(
+          () => ({ message: "should skip" }),
+          { deadlineMs: Date.now() + 80 },
+        );
+        expect(result.committed).toBe(false);
+      } finally {
+        await release();
+      }
+
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(status).toContain("held.txt");
+    });
+
+    test("two service instances serialize commits on the same workspace", async () => {
+      const first = new WorkspaceGitService(testDir);
+      const second = new WorkspaceGitService(testDir);
+      await first.ensureInitialized();
+      await second.ensureInitialized();
+
+      writeFileSync(join(testDir, "a.txt"), "a");
+      writeFileSync(join(testDir, "b.txt"), "b");
+
+      await Promise.all([
+        first.commitChanges("from first instance"),
+        second.commitChanges("from second instance"),
+      ]);
+
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(status).toBe("");
+      const tracked = execFileSync("git", ["ls-files"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      });
+      expect(tracked).toContain("a.txt");
+      expect(tracked).toContain("b.txt");
     });
   });
 });
