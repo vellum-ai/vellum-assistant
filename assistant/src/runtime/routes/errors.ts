@@ -118,6 +118,19 @@ export class RangeNotSatisfiableError extends RouteError {
   }
 }
 
+/**
+ * This route can only be served over HTTP. Carries the daemon's existing
+ * `BINARY_UNSUPPORTED_OVER_IPC` signal so the gateway's IPC proxy retries over
+ * HTTP instead of failing the caller (see `sendResult` in
+ * `assistant/src/ipc/assistant-server.ts`).
+ */
+export class HttpTransportRequiredError extends RouteError {
+  constructor(message: string) {
+    super(message, "BINARY_UNSUPPORTED_OVER_IPC", 421);
+    this.name = "HttpTransportRequiredError";
+  }
+}
+
 export class FailedDependencyError extends RouteError {
   constructor(message: string, details?: unknown) {
     super(message, "FAILED_DEPENDENCY", 424, details);

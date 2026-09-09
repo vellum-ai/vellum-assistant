@@ -24317,6 +24317,275 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/oauth/proxy/{provider}/{path}:
+    delete:
+      operationId: oauth_proxy_by_provider_by_path_delete
+      summary: Proxy a DELETE request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: &a1
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    get:
+      operationId: oauth_proxy_by_provider_by_path_get
+      summary: Proxy a GET request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    head:
+      operationId: oauth_proxy_by_provider_by_path_head
+      summary: Proxy a HEAD request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    patch:
+      operationId: oauth_proxy_by_provider_by_path_patch
+      summary: Proxy a PATCH request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: *a1
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    post:
+      operationId: oauth_proxy_by_provider_by_path_post
+      summary: Proxy a POST request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: *a1
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    put:
+      operationId: oauth_proxy_by_provider_by_path_put
+      summary: Proxy a PUT request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: *a1
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
   /v1/oauth/request:
     post:
       operationId: oauth_request_post

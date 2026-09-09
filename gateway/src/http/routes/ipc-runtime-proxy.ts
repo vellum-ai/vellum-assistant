@@ -47,7 +47,11 @@ const VELLUM_HEADER_PREFIX = "x-vellum-";
  *
  * Once the header is present, the proxy commits to serving the request
  * over IPC: path mismatches return 404 and errors return proper status
- * codes rather than falling through.
+ * codes rather than falling through, except for the daemon's
+ * retry-over-HTTP signal, which also returns `null`.
+ *
+ * `req` is never consumed, so a caller holding it can still read its body
+ * on either `null` path.
  */
 export async function tryIpcProxy(
   req: Request,
@@ -177,7 +181,9 @@ export async function tryIpcProxy(
     const contentType = req.headers.get("content-type") ?? "";
     if (contentType.includes("application/json") || contentType === "") {
       try {
-        const parsed = (await req.json()) as Record<string, unknown>;
+        // A clone: a route that answers with the retry-over-HTTP signal sends
+        // this same request on to the HTTP proxy, which needs an unread body.
+        const parsed = (await req.clone().json()) as Record<string, unknown>;
         if (parsed && typeof parsed === "object") {
           body = parsed;
         }

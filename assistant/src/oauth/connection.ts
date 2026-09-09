@@ -19,6 +19,18 @@ export interface OAuthConnectionRequest {
   baseUrl?: string;
   /** Optional abort signal to cancel the request. */
   signal?: AbortSignal;
+  /**
+   * When true the connection returns the response body as raw bytes with no
+   * JSON parsing, for callers that must preserve the provider's exact payload.
+   * Mirrors `RouteDefinition.rawRequestBody` on the inbound side.
+   */
+  rawResponseBody?: boolean;
+  /**
+   * When true the connection returns a 3xx response as-is, `Location` header
+   * intact, rather than following it. For callers that must surface the
+   * provider's own redirect instead of an upstream hop the caller never made.
+   */
+  manualRedirect?: boolean;
 }
 
 export interface OAuthConnectionResponse {

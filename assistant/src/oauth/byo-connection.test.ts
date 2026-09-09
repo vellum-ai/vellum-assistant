@@ -505,6 +505,105 @@ describe("BYOOAuthConnection", () => {
       expect(Buffer.from(result.body as Uint8Array).equals(binary)).toBe(true);
     });
 
+    test("returns the provider's exact bytes when rawResponseBody is set", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const raw = Buffer.from(
+        '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+        "utf8",
+      );
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(raw, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/payment_methods",
+        rawResponseBody: true,
+      });
+
+      expect(Buffer.isBuffer(result.body)).toBe(true);
+      expect((result.body as Buffer).equals(raw)).toBe(true);
+    });
+
+    test("parses JSON when rawResponseBody is unset", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const raw = Buffer.from(
+        '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+        "utf8",
+      );
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(raw, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/payment_methods",
+      });
+
+      // The lossy path every existing caller still gets: the duplicate key
+      // collapses and the oversized integer rounds.
+      expect(result.body).toEqual({ id: "pm_2", amount: 9007199254740992 });
+    });
+
+    test("returns a 302 verbatim when manualRedirect is set", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      const redirectFetch = mock((_url: string, _init: RequestInit) =>
+        Promise.resolve(
+          new Response("moved", {
+            status: 302,
+            headers: {
+              location: "https://files.example.com/blob/abc",
+              "content-type": "text/plain",
+            },
+          }),
+        ),
+      );
+      globalThis.fetch = redirectFetch as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "POST",
+        path: "/files",
+        body: { name: "report" },
+        manualRedirect: true,
+      });
+
+      expect(redirectFetch.mock.calls[0][1].redirect).toBe("manual");
+      expect(result.status).toBe(302);
+      expect(result.headers["location"]).toBe(
+        "https://files.example.com/blob/abc",
+      );
+      expect(result.body).toBe("moved");
+      // One upstream call: the redirect was surfaced, not walked.
+      expect(redirectFetch).toHaveBeenCalledTimes(1);
+    });
+
+    test("follows redirects when manualRedirect is unset", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({ method: "GET", path: "/messages" });
+
+      expect((mockFetch.mock.calls[0][1] as RequestInit).redirect).toBe(
+        "follow",
+      );
+    });
+
     test("returns response headers", async () => {
       await setupCredential("google");
       const conn = createConnection();

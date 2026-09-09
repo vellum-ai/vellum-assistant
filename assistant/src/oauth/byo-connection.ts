@@ -113,6 +113,9 @@ export class BYOOAuthConnection implements OAuthConnection {
                 ? Buffer.from(binaryBody)
                 : (rawBody ?? JSON.stringify(req.body)))
             : undefined,
+          // Following a redirect would replay a POST as a GET against a URL
+          // the caller never asked for, and hide the 3xx from them.
+          redirect: req.manualRedirect === true ? "manual" : "follow",
           signal: req.signal
             ? AbortSignal.any([
                 req.signal,
@@ -129,7 +132,7 @@ export class BYOOAuthConnection implements OAuthConnection {
           throw err;
         }
 
-        return buildResponse(resp);
+        return buildResponse(resp, req.rawResponseBody === true);
       },
       { connectionId: this.id },
     );
@@ -158,7 +161,10 @@ function redactTelegramBotTokenFromUrl(url: string, token: string): string {
   );
 }
 
-async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {
+async function buildResponse(
+  resp: Response,
+  rawResponseBody: boolean,
+): Promise<OAuthConnectionResponse> {
   const headers: Record<string, string> = {};
   resp.headers.forEach((value, key) => {
     headers[key] = value;
@@ -168,6 +174,10 @@ async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {
   return {
     status: resp.status,
     headers,
-    body: decodeOAuthResponseBytes(raw, headers["content-type"] ?? ""),
+    // Raw bytes skip the decode: parsing and re-serializing JSON would rewrite
+    // whitespace, drop duplicate keys, and round integers past 2^53.
+    body: rawResponseBody
+      ? raw
+      : decodeOAuthResponseBytes(raw, headers["content-type"] ?? ""),
   };
 }

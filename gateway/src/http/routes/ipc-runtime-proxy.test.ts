@@ -108,6 +108,26 @@ mock.module("../../auth/token-exchange.js", () => ({
   validateEdgeToken: validateEdgeTokenMock,
 }));
 
+// Stub the HTTP transport so the fall-through path can be observed without a
+// real upstream. Reassigned per test; the module indirection is what makes
+// interception reliable on every platform (see `src/fetch.ts`).
+type FetchFn = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+let fetchMock: ReturnType<typeof mock<FetchFn>> = mock(
+  async () => new Response(),
+);
+
+mock.module("../../fetch.js", () => ({
+  fetchImpl: (...args: Parameters<FetchFn>) => fetchMock(...args),
+}));
+
+// The HTTP proxy mints a service token for the daemon on every request.
+const { initSigningKey } = await import("../../auth/token-service.js");
+initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
+
 // ---------------------------------------------------------------------------
 // Import modules under test (after all mocks are registered)
 // ---------------------------------------------------------------------------
@@ -119,6 +139,7 @@ const { matchRoute, refreshRouteSchema } =
 await refreshRouteSchema();
 
 const { tryIpcProxy } = await import("./ipc-runtime-proxy.js");
+const { createRuntimeProxyHandler } = await import("./runtime-proxy.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,6 +148,9 @@ const { tryIpcProxy } = await import("./ipc-runtime-proxy.js");
 function makeConfig(overrides?: { runtimeProxyRequireAuth?: boolean }) {
   return {
     runtimeProxyRequireAuth: false,
+    // Read only by the HTTP proxy, which a couple of tests drive end to end.
+    assistantRuntimeBaseUrl: "http://localhost:7821",
+    runtimeTimeoutMs: 30_000,
     ...overrides,
   } as unknown as import("../../config.js").GatewayConfig;
 }
@@ -274,6 +298,52 @@ describe("tryIpcProxy", () => {
     const result = await tryIpcProxy(req, makeConfig());
 
     expect(result).toBeNull();
+  });
+
+  test("leaves a JSON body readable so the HTTP proxy can forward it", async () => {
+    // The IPC attempt parses the body to build its params. Consuming the
+    // caller's own request would make the retry-over-HTTP path throw
+    // "Body already used" and turn every non-GET fallback into a 500.
+    ipcCallAssistantMock.mockImplementation((method: string) => {
+      if (method === "get_route_schema") return Promise.resolve(ROUTE_SCHEMA);
+      return Promise.reject(
+        new IpcHandlerError(
+          "Binary/streaming responses are not supported over the IPC transport; use HTTP",
+          421,
+          "BINARY_UNSUPPORTED_OVER_IPC",
+        ),
+      );
+    });
+
+    let forwarded: { url: string; method: string; body: string } | undefined;
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        forwarded = {
+          url: String(input),
+          method: init?.method ?? "GET",
+          body: new TextDecoder().decode(init?.body as ArrayBuffer),
+        };
+        return new Response("forwarded", { status: 200 });
+      },
+    );
+
+    const payload = JSON.stringify({ message: "hello" });
+    const handler = createRuntimeProxyHandler(makeConfig());
+    const response = await handler(
+      makeRequest("/v1/acp/test-id/steer", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: payload,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("forwarded");
+    expect(forwarded).toEqual({
+      url: "http://localhost:7821/v1/acp/test-id/steer",
+      method: "POST",
+      body: payload,
+    });
   });
 
   test("only forwards X-Vellum-* headers", async () => {
