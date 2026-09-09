@@ -14,7 +14,6 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getWorkspaceConfigPath } from "../util/platform.js";
-import { setConfig } from "./helpers/set-config.js";
 import {
   _getConsecutiveFailures,
   _getInitConsecutiveFailures,
@@ -26,6 +25,7 @@ import {
   isDeadlineExpired,
   WorkspaceGitService,
 } from "../workspace/git-service.js";
+import { setConfig } from "./helpers/set-config.js";
 
 describe("WorkspaceGitService", () => {
   let testDir: string;
