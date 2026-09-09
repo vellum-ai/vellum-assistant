@@ -146,8 +146,10 @@ import { initializeDb } from "../../../persistence/db-init.js";
 import { FailedDependencyError, NotFoundError } from "../errors.js";
 
 const { ROUTES } = await import("../acp-routes.js");
-const { _resetAdapterInstallCacheForTests } =
-  await import("../../../acp/auto-install.js");
+const {
+  _resetAdapterInstallCacheForTests,
+  _setAdapterVersionProbeDepsForTests,
+} = await import("../../../acp/auto-install.js");
 
 await initializeDb();
 
@@ -193,6 +195,13 @@ beforeEach(() => {
   steerOrResumeMock.mockClear();
   steerOrResumeImpl = defaultSteerOrResumeImpl;
   _resetAdapterInstallCacheForTests();
+  // Keep the pin probe off the real filesystem: the binaries these tests put
+  // on PATH are fictional, and a real `~/.bun` on the host would otherwise
+  // decide whether they count as bun-managed.
+  _setAdapterVersionProbeDepsForTests({
+    bunInstallDir: () => "/home/tester/.bun",
+    realpath: (path: string) => Promise.resolve(path),
+  });
   config.setConfig({});
   which.setWhich((cmd) => `/usr/local/bin/${cmd}`);
   approvalBehavior = "allow";
@@ -593,7 +602,7 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 

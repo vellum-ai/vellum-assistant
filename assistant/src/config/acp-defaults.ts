@@ -33,15 +33,36 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
 });
 
 /**
- * Single source of truth for adapter binary → npm package name. Automatic
- * installation and the resolver's install hints use this map, so a new
- * adapter only needs one entry here.
+ * Single source of truth for adapter binary → pinned npm package spec.
+ * Automatic installation and the resolver's install hints use this map, so a
+ * new adapter only needs one entry here.
  *
  * Keyed by command name (not agent id) so the mapping follows the binary
  * regardless of how a user's config aliases an agent.
+ *
+ * Values are `name@version` specs, not bare names: the adapters gate features
+ * the daemon depends on (session config options carrying the model list), so
+ * every install and every install hint names the exact version the daemon was
+ * built against. Use `splitPackageSpec` when a consumer needs the bare name.
  */
 export const DEFAULT_AGENT_NPM_PACKAGES: Readonly<Record<string, string>> =
   Object.freeze({
-    "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-    "codex-acp": "@agentclientprotocol/codex-acp",
+    "claude-agent-acp": "@agentclientprotocol/claude-agent-acp@0.75.1",
+    "codex-acp": "@agentclientprotocol/codex-acp@1.10.0",
   });
+
+/**
+ * Split an npm package spec into its name and version. Handles scoped names,
+ * whose leading `@` is not a version separator, and bare names with no
+ * version.
+ */
+export function splitPackageSpec(spec: string): {
+  name: string;
+  version?: string;
+} {
+  const separator = spec.lastIndexOf("@");
+  if (separator <= 0) {
+    return { name: spec };
+  }
+  return { name: spec.slice(0, separator), version: spec.slice(separator + 1) };
+}

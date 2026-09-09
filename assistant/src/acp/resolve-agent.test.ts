@@ -56,7 +56,9 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.agent.command).toBe("codex-acp");
-    expect(result.agent.description).toContain("@agentclientprotocol/codex-acp");
+    expect(result.agent.description).toContain(
+      "@agentclientprotocol/codex-acp",
+    );
   });
 
   test("falls back to default profile for claude when no user entry", () => {
@@ -191,7 +193,7 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
     expect(result.command).toBe("claude-agent-acp");
   });
@@ -240,7 +242,9 @@ describe("resolveAcpAgent", () => {
     if (result.reason !== "binary_not_found") {
       return;
     }
-    expect(result.hint).toBe("bun add -g @agentclientprotocol/codex-acp");
+    expect(result.hint).toBe(
+      "bun add -g @agentclientprotocol/codex-acp@1.10.0",
+    );
   });
 
   test("binary preflight honors agent.env.PATH override (matches spawn env)", () => {
@@ -332,7 +336,7 @@ describe("resolveAcpAgent - missing binary", () => {
     }
     expect(result.command).toBe("claude-agent-acp");
     expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
   });
 
@@ -351,7 +355,7 @@ describe("resolveAcpAgent - missing binary", () => {
       return;
     }
     expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/claude-agent-acp",
+      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
     );
   });
 });
@@ -430,7 +434,9 @@ describe("listAcpAgents", () => {
     const codex = result.agents.find((a) => a.id === "codex");
     expect(codex?.available).toBe(false);
     expect(codex?.unavailableReason).toBe("'codex-acp' is not on PATH");
-    expect(codex?.setupHint).toBe("bun add -g @agentclientprotocol/codex-acp");
+    expect(codex?.setupHint).toBe(
+      "bun add -g @agentclientprotocol/codex-acp@1.10.0",
+    );
   });
 
   test("aliases are resolution sugar, not catalog entries", () => {

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_ACP_AGENT_PROFILES,
   DEFAULT_AGENT_NPM_PACKAGES,
+  splitPackageSpec,
 } from "./acp-defaults.js";
 
 describe("DEFAULT_ACP_AGENT_PROFILES", () => {
@@ -42,11 +43,19 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
 });
 
 describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
-  test("is keyed by command name with the canonical npm package", () => {
+  test("is keyed by command name with the pinned npm package spec", () => {
     expect(DEFAULT_AGENT_NPM_PACKAGES).toEqual({
-      "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-      "codex-acp": "@agentclientprotocol/codex-acp",
+      "claude-agent-acp": "@agentclientprotocol/claude-agent-acp@0.75.1",
+      "codex-acp": "@agentclientprotocol/codex-acp@1.10.0",
     });
+  });
+
+  test("every spec pins an exact version", () => {
+    for (const spec of Object.values(DEFAULT_AGENT_NPM_PACKAGES)) {
+      const { name, version } = splitPackageSpec(spec);
+      expect(name.startsWith("@agentclientprotocol/")).toBe(true);
+      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+    }
   });
 
   test("every default profile's command has a matching npm package", () => {
@@ -57,5 +66,28 @@ describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
 
   test("is frozen at runtime so mutation throws in strict mode", () => {
     expect(Object.isFrozen(DEFAULT_AGENT_NPM_PACKAGES)).toBe(true);
+  });
+});
+
+describe("splitPackageSpec", () => {
+  test("splits a scoped spec without eating the scope's leading @", () => {
+    expect(splitPackageSpec("@agentclientprotocol/codex-acp@1.10.0")).toEqual({
+      name: "@agentclientprotocol/codex-acp",
+      version: "1.10.0",
+    });
+  });
+
+  test("splits an unscoped spec", () => {
+    expect(splitPackageSpec("codex-acp@1.10.0")).toEqual({
+      name: "codex-acp",
+      version: "1.10.0",
+    });
+  });
+
+  test("reports no version for a bare name, scoped or not", () => {
+    expect(splitPackageSpec("@agentclientprotocol/codex-acp")).toEqual({
+      name: "@agentclientprotocol/codex-acp",
+    });
+    expect(splitPackageSpec("codex-acp")).toEqual({ name: "codex-acp" });
   });
 });
