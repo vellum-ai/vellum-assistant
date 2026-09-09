@@ -16,10 +16,8 @@
     "modelLabel": "Модель",
     "modelMenuTitle": "Выбрать модель",
     "modelNextTurnHint": "Применяется со следующего хода.",
-    "modelSelectedAria": "Выбрано",
     "modelSwitchFailed": "Не удалось сменить модель. Повторите попытку.",
     "modelTriggerAria": "Модель: {model}. Сменить модель",
-    "modelTriggerAriaUnset": "Модель: по умолчанию агента. Сменить модель",
     "modelUnset": "По умолчанию агента"
   },
   "activityStepsPanel": {

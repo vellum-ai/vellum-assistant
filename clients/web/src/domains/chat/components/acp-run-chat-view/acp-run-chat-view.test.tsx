@@ -532,7 +532,7 @@ describe("AcpRunChatView metrics grid", () => {
     // "Model: . Change model" and leaves the value row empty.
     expect(
       screen.getByRole("button", {
-        name: "Model: agent default. Change model",
+        name: "Model: Agent default. Change model",
       }).textContent,
     ).toContain("Agent default");
   });

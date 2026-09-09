@@ -87,7 +87,11 @@ interface PanelItemFrameProps {
    * @default "row"
    */
   shape?: "row" | "pill";
-  /** Selected state. Sets `aria-current="page"` automatically. */
+  /**
+   * Selected state. Sets `aria-current="page"` automatically. A row whose
+   * currentness is not navigation (the chosen row of a menu, say) passes its
+   * own `aria-current` instead, which this outranks.
+   */
   active?: boolean;
   /**
    * Active-state color treatment.
@@ -479,13 +483,16 @@ function PanelItemContentRow({
   marqueeOnHover = false,
   className,
   "aria-label": ariaLabel,
+  "aria-current": ariaCurrentProp,
   trigger = false,
   ref,
   onClick,
   onKeyDown,
   ...rest
 }: PanelItemContentProps) {
-  const ariaCurrent = active ? ("page" as const) : undefined;
+  // Destructured rather than left to `rest`, which the explicit attribute
+  // below would overwrite with `undefined` on every unselected row.
+  const ariaCurrent = active ? ("page" as const) : ariaCurrentProp;
   const resolvedAriaLabel =
     ariaLabel ?? (typeof label === "string" ? label : undefined);
 

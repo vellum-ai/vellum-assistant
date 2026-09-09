@@ -28,6 +28,11 @@ import { useTranslation } from "@/i18n";
 import { useAssistantScopedSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
 import { captureError } from "@/lib/sentry/capture-error";
 
+/** A model the picker does not list: the value the custom row carries. */
+function isCustomModel(model: string | null): boolean {
+  return Boolean(model) && !isAcpSelectableModel(model);
+}
+
 /**
  * Picks the model every new coding-agent session starts on, saved as
  * `acp.defaultModel`.
@@ -78,8 +83,12 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
     serverDefaultModel,
   );
   // Sticks the custom row to the trigger while its input is still empty,
-  // which is the one moment the draft cannot say so for itself.
-  const [customPicked, setCustomPicked] = useState(false);
+  // which is the one moment the draft cannot say so for itself. Seeded from
+  // the stored value, so a user who clears a stored custom model to retype it
+  // keeps the field they are typing in.
+  const [customPicked, setCustomPicked] = useState(() =>
+    isCustomModel(serverDefaultModel),
+  );
 
   // A stored model that changes under the card (another client, an edited
   // config file) decides the row again. Without this the trigger stays on the
@@ -91,22 +100,18 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
   if (prevServerModel !== serverDefaultModel) {
     setPrevServerModel(serverDefaultModel);
     if (!hasDraft) {
-      setCustomPicked(false);
+      setCustomPicked(isCustomModel(serverDefaultModel));
     }
   }
 
-  const hasCustomValue =
-    Boolean(defaultModel) && !isAcpSelectableModel(defaultModel);
+  const hasCustomValue = isCustomModel(defaultModel);
   const showsCustomInput = customPicked || hasCustomValue;
-  // An empty draft matches no option, so the trigger falls back to the
-  // agent-default row rather than rendering blank.
-  const selectValue = showsCustomInput ? CUSTOM_SENTINEL : defaultModel || null;
+  const selectValue = showsCustomInput ? CUSTOM_SENTINEL : defaultModel;
 
-  // Blank custom text means "no default", so clearing the input is the same
-  // choice as picking the agent-default row.
   const nextDefaultModel = defaultModel?.trim() || null;
   // An empty custom field is not a choice: saving it would erase a stored
-  // default the user never asked to clear. Clearing stays one row away.
+  // default the user never asked to clear. Clearing goes through the
+  // agent-default row.
   const saveDisabled =
     saving ||
     nextDefaultModel === serverDefaultModel ||
@@ -189,7 +194,10 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
             <Input
               label={t("codingAgentsCard.customModelLabel")}
               value={defaultModel ?? ""}
-              onChange={(e) => setDraftDefaultModel(e.target.value)}
+              onChange={(e) => {
+                setCustomPicked(true);
+                setDraftDefaultModel(e.target.value);
+              }}
               placeholder={t("codingAgentsCard.customModelPlaceholder")}
               fullWidth
             />

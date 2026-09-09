@@ -289,6 +289,20 @@ describe("CodingAgentsCard", () => {
     expect(saveButton().disabled).toBe(true);
   });
 
+  // Clearing the field to retype it is still an edit on the custom row. The
+  // row derived from the value alone would vanish mid-edit, snap the trigger
+  // back to the agent default, and re-arm Save against the stored value.
+  test("keeps the custom row while a stored custom model is cleared", () => {
+    daemonConfigData = { acp: { defaultModel: "gpt-5-codex" } };
+    renderCard();
+
+    fireEvent.change(customInput(), { target: { value: "" } });
+
+    expect(customInput().value).toBe("");
+    expect(modelTrigger().textContent).toContain("Custom model");
+    expect(saveButton().disabled).toBe(true);
+  });
+
   // The empty draft is the one state the row cannot re-derive from its value,
   // so a config refresh landing mid-edit must not decide the row again.
   test("keeps an in-progress custom row when the stored model changes", async () => {

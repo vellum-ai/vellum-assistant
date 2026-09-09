@@ -84,6 +84,15 @@ function ariaDisabled(name: string): string | null {
   return screen.getByRole("button", { name }).getAttribute("aria-disabled");
 }
 
+/** Open the menu the way a pointer does, which is what the trigger answers. */
+function pressTrigger(trigger: HTMLElement): void {
+  fireEvent.pointerDown(trigger, {
+    button: 0,
+    ctrlKey: false,
+    pointerType: "mouse",
+  });
+}
+
 /** A switch whose answer the test hands back when it chooses to. */
 function deferredSwitch() {
   let settle!: (result: {
@@ -133,11 +142,7 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
-    fireEvent.pointerDown(screen.getByRole("button", { name: TRIGGER_NAME }), {
-      button: 0,
-      ctrlKey: false,
-      pointerType: "mouse",
-    });
+    pressTrigger(screen.getByRole("button", { name: TRIGGER_NAME }));
 
     expect(screen.getByRole("menuitem", { name: /Sonnet/ })).toBeTruthy();
   });
@@ -152,14 +157,17 @@ describe("AcpModelStatCard on a live run", () => {
 
     // Radix labels the menu from its trigger, so the surface is found by role.
     expect(screen.getByRole("menu")).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /Sonnet/ })).toBeTruthy();
-    // The check is decorative, so the selected row says so in its name rather
-    // than in a colour only a sighted user can read.
+    // The check is decorative, so the row is named by its label alone and says
+    // it is the current choice through `aria-current`.
     expect(
-      screen.getByRole("menuitem", { name: "Opus Selected" }),
-    ).toBeTruthy();
+      screen
+        .getByRole("menuitem", { name: "Opus" })
+        .getAttribute("aria-current"),
+    ).toBe("true");
     expect(
-      screen.queryByRole("menuitem", { name: /Sonnet Selected/ }),
+      screen
+        .getByRole("menuitem", { name: "Sonnet" })
+        .getAttribute("aria-current"),
     ).toBeNull();
     expect(screen.getByText("Applies from the next turn.")).toBeTruthy();
   });
@@ -173,7 +181,7 @@ describe("AcpModelStatCard on a live run", () => {
     render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
 
     const trigger = screen.getByRole("button", {
-      name: "Model: agent default. Change model",
+      name: "Model: Agent default. Change model",
     });
     expect(trigger.textContent).toContain("Agent default");
   });
@@ -263,11 +271,7 @@ describe("AcpModelStatCard on a live run", () => {
     render(<AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} />);
     const trigger = screen.getByRole("button", { name: TRIGGER_NAME });
     trigger.focus();
-    fireEvent.pointerDown(trigger, {
-      button: 0,
-      ctrlKey: false,
-      pointerType: "mouse",
-    });
+    pressTrigger(trigger);
     fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
     // Radix hands focus back from a timeout after the surface unmounts.
     await act(async () => {
@@ -287,6 +291,36 @@ describe("AcpModelStatCard on a live run", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: TRIGGER_NAME }),
     );
+  });
+
+  // `aria-disabled` alone still opens the menu, which would offer rows marked
+  // for the model the daemon is already replacing, and drop the pick on the
+  // floor. The trigger refuses the press and keeps the focus it was handed.
+  test("refuses to open while a switch is in flight", async () => {
+    const e = entry();
+    seed(e);
+    const { onSwitchModel, settle } = deferredSwitch();
+
+    render(<AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} />);
+    const trigger = screen.getByRole("button", { name: TRIGGER_NAME });
+    trigger.focus();
+    pressTrigger(trigger);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sonnet" }));
+    // Radix hands focus back from a timeout after the surface unmounts.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const pending = screen.getByRole("button", { name: PENDING_TRIGGER_NAME });
+    pressTrigger(pending);
+
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(pending);
+
+    await act(async () => {
+      settle({ model: "sonnet", availableModels: OPTIONS });
+    });
+    expect(onSwitchModel).toHaveBeenCalledTimes(1);
   });
 
   test("ignores the answer to a switch the panel has already moved off", async () => {
@@ -398,9 +432,16 @@ describe("AcpModelStatCard on a touch surface", () => {
     // The sheet row has room for the supporting line, and the command still
     // names the row on its own.
     expect(screen.getByText("Most capable")).toBeTruthy();
-    // The check lives in the anchored menu's trailing column, which the sheet
-    // has none of, so the selected state rides the row's name in both.
-    expect(screen.getByRole("button", { name: /Opus Selected/ })).toBeTruthy();
+    // The sheet marks the current choice the way the menu does, so the two
+    // presentations tell a screen reader the same thing.
+    expect(
+      screen.getByRole("button", { name: "Opus" }).getAttribute("aria-current"),
+    ).toBe("true");
+    expect(
+      screen
+        .getByRole("button", { name: "Sonnet" })
+        .getAttribute("aria-current"),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Sonnet" }));
 
     expect(onSwitchModel).toHaveBeenCalledWith("acp-1", "sonnet");
