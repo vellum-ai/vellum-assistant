@@ -382,12 +382,16 @@ type GlowWindow = {
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
+/** The BrowserWindow options the frame was last opened with. */
+let glowOptions: Record<string, unknown> | undefined;
 
 const openGlow = (options: {
   position?: { x: number; y: number } | (() => { x: number; y: number });
   width: number;
   height: number;
+  browserWindow?: Record<string, unknown>;
 }): GlowWindow => {
+  glowOptions = options.browserWindow;
   const at =
     typeof options.position === "function"
       ? options.position()
@@ -1530,6 +1534,20 @@ describe("the light a watch session puts on the display", () => {
       }),
     );
     expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+  });
+
+  test("is allowed to cover the menu bar, so it is the whole display", () => {
+    // macOS holds a window to the work area unless told otherwise, and a
+    // frame a menu bar short of the display draws every fraction measured
+    // against the display's picture low by that much.
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(glowOptions?.enableLargerThanScreen).toBe(true);
   });
 
   test("is placed again when the picked display changes shape", () => {
