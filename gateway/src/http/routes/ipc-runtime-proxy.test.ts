@@ -86,7 +86,7 @@ mock.module("../../ipc/assistant-client.js", () => ({
   ipcCallAssistant: ipcCallAssistantMock,
 }));
 
-// Stub validateEdgeToken — default: auth passes. The rest of the module
+// Stub validateEdgeToken; by default auth passes. The rest of the module
 // (notably toDaemonSubject, which the proxy uses to derive the forwarded
 // subject header) keeps its real implementation.
 const actualTokenExchange = await import("../../auth/token-exchange.js");
