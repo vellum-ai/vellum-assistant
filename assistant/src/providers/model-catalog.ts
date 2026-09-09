@@ -2688,16 +2688,16 @@ export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
   );
 }
 
-/** Whether the model rejects `output_config.effort` on the native Anthropic Messages wire (Haiku family and `supportsEffort: false` models; OpenRouter dotted ids normalized). */
-export function isEffortUnsupportedModel(modelId: string): boolean {
+/** Whether the model accepts `output_config.effort` on the native Anthropic Messages wire (Haiku family and `supportsEffort: false` models do not; OpenRouter dotted ids normalized). */
+export function isEffortSupported(modelId: string): boolean {
   if (modelId.includes("haiku")) {
-    return true;
+    return false;
   }
   const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
   const normalize = (id: string): string =>
     stripDateSuffix(id.replace(/^[^/]*\//, "").replace(/\./g, "-"));
   const normalized = normalize(modelId);
-  return PROVIDER_CATALOG.some((p) =>
+  return !PROVIDER_CATALOG.some((p) =>
     p.models.some(
       (m) =>
         m.supportsEffort === false &&

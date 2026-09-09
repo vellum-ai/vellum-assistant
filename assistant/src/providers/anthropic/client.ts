@@ -17,7 +17,7 @@ import {
 } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
-import { isEffortUnsupportedModel } from "../model-catalog.js";
+import { isEffortSupported } from "../model-catalog.js";
 import {
   couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
@@ -1039,8 +1039,8 @@ export class AnthropicProvider implements Provider {
       const effectiveModel =
         (restConfig as Record<string, unknown>).model?.toString() ?? this.model;
       const isHaiku = effectiveModel.includes("haiku");
-      // Effort support is per-model: Haiku and Sonnet 4.5 reject the param (see isEffortUnsupportedModel).
-      const supportsEffort = !isEffortUnsupportedModel(effectiveModel);
+      // Effort support is per-model: Haiku and Sonnet 4.5 reject the param (see isEffortSupported).
+      const supportsEffort = isEffortSupported(effectiveModel);
       // opus-4-7 / opus-4-8 / opus-5 and sonnet-5 reject `temperature`,
       // `top_p`, and `top_k` with a 400 "`temperature`/`top_p` is deprecated
       // for this model" — model-wide, not effort-conditional (verified
