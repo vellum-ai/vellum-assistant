@@ -111,3 +111,58 @@ describe("canSpawnSubagentsForTurn", () => {
     ).toBe(true);
   });
 });
+
+describe("an execution-gated wake's allowlist", () => {
+  /**
+   * `isToolActiveForContext` skips the allowlist in execution mode by design:
+   * that mode keeps the full surface on the wire for provider-cache parity and
+   * rejects the call in the executor instead. The delegation gate is asking a
+   * different question, so it checks the allowlist itself.
+   */
+  test("the memory retrospective's shape cannot spawn", () => {
+    withExclude([]);
+    expect(
+      canSpawnSubagentsForTurn(
+        ctx({
+          subagentToolGateMode: "execution",
+          // The wake's real list: `skill_load` is on it, the dispatcher and the
+          // spawn tool are not, so a spawn is denied at execution.
+          subagentAllowedTools: new Set([
+            "remember",
+            "scaffold_managed_skill",
+            "skill_load",
+            "find_similar_skills",
+          ]),
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("a remember-only execution-mode wake cannot spawn", () => {
+    withExclude([]);
+    expect(
+      canSpawnSubagentsForTurn(
+        ctx({
+          subagentToolGateMode: "execution",
+          subagentAllowedTools: new Set(["remember"]),
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("an execution-mode allowlist naming the whole path can spawn", () => {
+    withExclude([]);
+    expect(
+      canSpawnSubagentsForTurn(
+        ctx({
+          subagentToolGateMode: "execution",
+          subagentAllowedTools: new Set([
+            "skill_load",
+            "skill_execute",
+            "subagent_spawn",
+          ]),
+        }),
+      ),
+    ).toBe(true);
+  });
+});

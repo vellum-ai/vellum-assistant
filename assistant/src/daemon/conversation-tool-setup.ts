@@ -959,8 +959,21 @@ export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
   } catch {
     excluded = new Set<string>();
   }
+  // A run carrying an allowlist is checked against it here whatever its gate
+  // mode. `isToolActiveForContext` skips the allowlist under
+  // `subagentToolGateMode === "execution"` by design, because that mode keeps
+  // the full surface on the wire for cache parity and rejects the call in the
+  // executor instead. That is the right answer to "is this tool on the wire"
+  // and the wrong one to "could this turn actually spawn": the memory
+  // retrospective wake runs in execution mode with an allowlist that names
+  // `skill_load` but neither the dispatcher nor the spawn tool, so the spawn
+  // is denied after the prompt has already told the model to delegate.
+  const allowlist = ctx.subagentAllowedTools;
   return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
-    (name) => !excluded.has(name) && isToolActiveForContext(name, ctx),
+    (name) =>
+      !excluded.has(name) &&
+      (allowlist === undefined || allowlist.has(name)) &&
+      isToolActiveForContext(name, ctx),
   );
 }
 
