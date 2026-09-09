@@ -33,13 +33,16 @@ public class AndroidPushRegistrationPlugin extends Plugin {
 
     @PluginMethod
     public void unregister(PluginCall call) {
-        // The conversation shortcuts carry the previous account's titles and
-        // avatars, so they leave with its token.
-        NativeFailureGuard.run(
-            "Unable to remove the Android conversation shortcuts",
-            () -> NativePushRenderer.clearConversationShortcuts(getContext())
-        );
-        invokeSafely(call, plugin -> plugin.unregister(call));
+        invokeSafely(call, plugin -> {
+            plugin.unregister(call);
+            // The conversation shortcuts carry the previous account's titles
+            // and avatars, so they leave with its token, and only once the
+            // token is actually on its way out.
+            NativeFailureGuard.run(
+                "Unable to remove the Android conversation shortcuts",
+                () -> NativePushRenderer.clearConversationShortcuts(getContext())
+            );
+        });
     }
 
     @PluginMethod
@@ -49,8 +52,12 @@ public class AndroidPushRegistrationPlugin extends Plugin {
 
     @PluginMethod
     public void setForegroundHandler(PluginCall call) {
-        foregroundHandler = Boolean.TRUE.equals(call.getBoolean("active", false));
+        setForegroundHandler(Boolean.TRUE.equals(call.getBoolean("active", false)));
         call.resolve();
+    }
+
+    static void setForegroundHandler(boolean active) {
+        foregroundHandler = active;
     }
 
     public static boolean hasForegroundHandler() {

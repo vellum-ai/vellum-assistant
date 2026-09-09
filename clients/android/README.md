@@ -400,7 +400,10 @@ failures retry on resume.
 `AndroidPushRegistration.getCapabilities` advertises
 `native-notification-render` on token registration. The platform sends
 data-only pushes only to tokens that claim it, so a build that cannot render
-one natively must never claim it.
+one natively must never claim it. The claim is deliberately not gated on
+`push-avatar-sender`: that flag is the platform's own switch for the data-only
+shape, while the capability says which tokens could render one, so a shell that
+can render natively says so whether the flag is on or off.
 
 `SafeMessagingService` routes each push to exactly one renderer. A push whose
 payload carries a Firebase notification block, or a data-only push the web
@@ -420,33 +423,43 @@ name is the message line, and the conversation title is the header. Without a
 sender it matches what Firebase would have rendered. `vellum-alerts` is the only
 channel a payload may name: it is created if it is missing, because from API 26
 posting to a channel that does not exist is a silent no-op, and any other name
-falls back to it. Existing is not enough, since the voice session channel and
-Firebase's own fallback both exist and both post silently. The notification id
-walks the same seed chain the web layer hashes, the delivery id then the
-Firebase message id then the source event with the copy, so a delivery both
-paths see collapses onto one entry.
+posts here anyway and is logged once. Existing is not enough, since the voice
+session channel and Firebase's own fallback both exist and both post silently.
+The notification id walks the same seed chain the web layer hashes: the
+`delivery_id`, then the Firebase message id, then the composite of the source
+event with the copy. Every rung is trimmed on both sides, so padded copy cannot
+split one delivery in two. A payload carrying no `delivery_id` therefore keys on
+the Firebase message id, which is per-delivery, so it does not collapse onto the
+conversation either.
 
 Each conversation notification also publishes a long-lived dynamic shortcut,
 which is what gives Android the conversation treatment. The shortcut intent is
 the conversation's own app link, never the push's identifiers, so a tap opens
 the thread from a cold or a warm start and a week-old shortcut cannot replay a
-stale delivery. Two conversations keep a shortcut at a time: a product cap on
-how much of the launcher's list a notification may claim, not a budget shared
-with the static New chat and Start voice entries, which are manifest shortcuts
-a dynamic push can never evict. The shortcuts leave with the token on
-`AndroidPushRegistration.unregister`, so the next account does not inherit the
-previous one's conversation titles and avatars.
+stale delivery. That link names the baked cloud host, and `MainActivity` refuses
+an app link while a self-hosted origin is configured, so a self-hosted install
+publishes no shortcut at all rather than one that only foregrounds the app. Two
+conversations keep a shortcut at a time: a product cap on how much of the
+launcher's list a notification may claim. The launcher's own budget counts the
+static New chat and Start voice entries towards the same total, but they are
+manifest shortcuts, so a dynamic push can only ever evict another dynamic one.
+The shortcuts leave with the token on `AndroidPushRegistration.unregister`, once
+that unregister has actually reached the push plugin, so the next account does
+not inherit the previous one's conversation titles and avatars.
 
 `AvatarCache` keeps the sender avatars on disk under the cache directory, eight
 at a time, evicted least-recently-used, each file re-hashed against the name it
-is filed under before it is drawn. The avatar is resolved once the renderer
+is filed under before it is drawn, and deleted when it no longer hashes to that
+name or has grown past the 512 KB cap. The avatar is resolved once the renderer
 confirms a notification can be posted at all, and before it is posted: the cache
 first, then an HTTPS download verified against the pushed sha256. The download
-runs inside `onMessageReceived` with 3 s connect and read timeouts plus a 4 s
-total budget for the body, since the per-read timeout restarts on every chunk.
-All of that is deliberately shorter than the 8 s an iOS notification-service
-extension gets, because the Firebase callback window is much tighter. A miss
-just posts without an avatar.
+runs inside `onMessageReceived` with a 3 s connect timeout, a 2 s read timeout,
+and a 3 s total budget for the body, since the per-read timeout restarts on
+every chunk. The budget is only read between chunks and Android fixes the socket
+timeout when the connection is made, so the read that crosses the budget still
+runs its own timeout out: a connect, the budget, and that last read bound a
+responding host at 8 s. The local cache read carries the cap but no deadline,
+having no host to trickle it. A miss just posts without an avatar.
 
 ### Device QA checklist
 
@@ -469,6 +482,8 @@ push from a lower environment. Verify:
   New chat or Start voice.
 - Signing out clears our conversation shortcuts and leaves New chat and Start
   voice in place.
+- A push arriving while a self-hosted origin is configured posts its banner and
+  publishes no launcher shortcut.
 - On API 24 or 25 the notification plays the default sound.
 - A push naming an unknown channel still arrives, on `vellum-alerts`.
 

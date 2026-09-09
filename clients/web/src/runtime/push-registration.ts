@@ -123,6 +123,8 @@ let currentAssistantId: string | null = null;
 let lastRegistered: RegisteredToken | null = null;
 let foregroundPushHandler: ((push: PushNotificationSchema) => void) | null =
   null;
+let foregroundHandlerQueue = Promise.resolve();
+let foregroundHandlerFailureReported = false;
 const pendingUpserts = new Set<Promise<void>>();
 let androidUpsertQueue = Promise.resolve();
 
@@ -173,6 +175,11 @@ export function isRemotePushSupported(): boolean {
  * The platform sends data-only FCM messages only to tokens claiming
  * `native-notification-render`, so an older shell whose plugin lacks the
  * method must report nothing and keep receiving notification-block pushes.
+ *
+ * The claim is deliberately not gated on `push-avatar-sender`: that flag is the
+ * platform's own switch for the data-only shape, while this says which tokens
+ * could render one. A shell that can render natively says so whether the flag
+ * is on or off.
  */
 async function readAndroidCapabilities(): Promise<string[]> {
   if (!Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)) {
@@ -318,26 +325,60 @@ async function deleteRegisteredToken(
 }
 
 /**
- * Install or clear the handler for pushes that arrive while the app is on
- * screen, and tell the Android shell which it is. The native renderer posts a
- * data-only push itself whenever no handler is live, so a push arriving on a
- * route that has torn this down reaches the user instead of a no-op.
+ * Tell the Android shell whether the web layer holds a foreground handler.
+ *
+ * @returns false only when the shell rejected, and so still believes whatever
+ *   it believed before.
  */
-export function setForegroundPushHandler(
-  handler: ((push: PushNotificationSchema) => void) | null,
-): void {
-  foregroundPushHandler = handler;
+async function announceForegroundHandler(active: boolean): Promise<boolean> {
   if (
     Capacitor.getPlatform() !== "android" ||
     !Capacitor.isPluginAvailable(ANDROID_PUSH_REGISTRATION_PLUGIN)
   ) {
-    return;
+    return true;
   }
-  void AndroidPushRegistration.setForegroundHandler({
-    active: handler !== null,
-  }).catch(() => {
-    // An older shell has no such method, and its renderer already treats every
-    // data-only push as its own.
+  try {
+    await AndroidPushRegistration.setForegroundHandler({ active });
+    return true;
+  } catch (err) {
+    if (!foregroundHandlerFailureReported) {
+      // An older shell has no such method, and its renderer already treats
+      // every data-only push as its own. Once is enough to say so.
+      foregroundHandlerFailureReported = true;
+      captureError(err, {
+        context: "push_foreground_handler",
+        level: "warning",
+        bestEffort: true,
+      });
+    }
+    return false;
+  }
+}
+
+/**
+ * Install or clear the handler for pushes that arrive while the app is on
+ * screen, and tell the Android shell which it is. The native renderer posts a
+ * data-only push itself whenever no handler is live, so a push arriving on a
+ * route that has torn this down reaches the user instead of a no-op.
+ *
+ * The two moves are serialized, and each is ordered so a push landing part-way
+ * through still finds a renderer: the handler goes in before the shell hears
+ * one is live, and the shell hears one is gone before the handler comes out.
+ * A rejected call keeps the handler, since a shell that believes the web
+ * renders while the web does not is the one pairing that drops a push.
+ */
+export function setForegroundPushHandler(
+  handler: ((push: PushNotificationSchema) => void) | null,
+): void {
+  foregroundHandlerQueue = foregroundHandlerQueue.then(async () => {
+    if (handler !== null) {
+      foregroundPushHandler = handler;
+      await announceForegroundHandler(true);
+      return;
+    }
+    if (await announceForegroundHandler(false)) {
+      foregroundPushHandler = null;
+    }
   });
 }
 
@@ -536,12 +577,19 @@ export function hasSessionConfirmedRemotePushRegistration(
   );
 }
 
+/** Test-only: whether a foreground handler is currently installed. */
+export function __hasForegroundPushHandlerForTests(): boolean {
+  return foregroundPushHandler !== null;
+}
+
 /** Test-only: reset module + persisted state between cases. */
 export function __resetPushRegistrationStateForTests(): void {
   listenersRegistered = false;
   currentAssistantId = null;
   lastRegistered = null;
   foregroundPushHandler = null;
+  foregroundHandlerQueue = Promise.resolve();
+  foregroundHandlerFailureReported = false;
   pendingUpserts.clear();
   androidUpsertQueue = Promise.resolve();
   persistedRegistration.remove();

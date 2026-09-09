@@ -318,6 +318,29 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(scheduled?.body).toBe("Standup notes are up");
   });
 
+  /**
+   * The Android shell trims every field it hashes into a notification id, so
+   * padded copy must not seed a second id and show the delivery twice. The
+   * expected id is the one PushDataMessageTest pins for the same push.
+   */
+  test("a padded data-only push hashes to the id the Android shell derives", async () => {
+    nativeAndroid = true;
+    postForegroundRemotePush({
+      id: "   ",
+      data: {
+        title: "  Weekly review  ",
+        body: "\tReady when you are.\n",
+        source_event_name: " remote_push ",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const scheduled = scheduleMock.mock.calls[0]?.[0].notifications[0];
+    expect(scheduled?.title).toBe("Weekly review");
+    expect(scheduled?.body).toBe("Ready when you are.");
+    expect(scheduled?.id).toBe(126856326);
+  });
+
   test("a concurrent waiter retries after scheduling fails", async () => {
     nativeAndroid = true;
     let rejectFirst!: (error: Error) => void;

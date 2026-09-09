@@ -678,17 +678,22 @@ export function postForegroundRemotePush(
     typeof notification.data === "object" && notification.data !== null
       ? (notification.data as Record<string, unknown>)
       : {};
-  const text = (value: unknown): string | undefined =>
-    typeof value === "string" ? value : undefined;
-  const deliveryId = text(data.delivery_id) ?? notification.id;
+  // Trimmed, and blank read as absent, because the Android shell trims every
+  // field it hashes into a notification id (PushDataMessage.trimmed): padded
+  // copy that seeded two different ids would show the same delivery twice.
+  const text = (value: unknown): string | undefined => {
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    return trimmed === "" ? undefined : trimmed;
+  };
+  const deliveryId = text(data.delivery_id) ?? text(notification.id);
   const sourceEventName = text(data.source_event_name) ?? "remote_push";
   const conversationId = extractPushConversationId(data);
 
   void postLocalNotification({
     // A data-only push carries no notification block, so the copy the OS
     // would have rendered lives in `data`.
-    title: notification.title ?? text(data.title) ?? "Vellum",
-    body: notification.body ?? text(data.body) ?? "",
+    title: text(notification.title) ?? text(data.title) ?? "Vellum",
+    body: text(notification.body) ?? text(data.body) ?? "",
     sourceEventName,
     deliveryId,
     correlationId: deliveryId,

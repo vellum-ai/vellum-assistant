@@ -132,20 +132,6 @@ public class PushDataMessageTest {
         );
     }
 
-    @Test
-    public void theShortcutIdFallsBackToTheAssistantWithoutAConversation() {
-        Map<String, String> data = alertData();
-        data.remove("conversationId");
-
-        PushDataMessage message = message(data);
-
-        assertNull(message.conversationId);
-        assertEquals(
-            "vellum-conversation:assistant-1",
-            PushDataMessage.shortcutId("assistant-1", message.conversationId)
-        );
-    }
-
     /** Pruning has to tell our conversation shortcuts from the launcher's own. */
     @Test
     public void everyShortcutIdCarriesTheOwnershipPrefix() {
@@ -217,6 +203,24 @@ public class PushDataMessageTest {
                 "chat.assistant_turn_complete:Weekly review:Ready when you are."
             ),
             message(data).notificationId()
+        );
+    }
+
+    /**
+     * Both sides trim every rung before hashing, so padding in the payload
+     * cannot split one delivery across a native and a web notification.
+     */
+    @Test
+    public void theFallbackSeedIgnoresPaddingTheWayTheWebLayerDoes() {
+        Map<String, String> padded = alertData();
+        padded.remove("delivery_id");
+        padded.put("title", "  Weekly review  ");
+        padded.put("body", "\tReady when you are.\n");
+        padded.put("source_event_name", " remote_push ");
+
+        assertEquals(
+            126856326,
+            PushDataMessage.of(padded, false, "   ").notificationId()
         );
     }
 }

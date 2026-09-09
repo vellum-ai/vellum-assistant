@@ -1,7 +1,10 @@
 package ai.vellum.assistant.push;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
+import java.net.URI;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -50,6 +53,26 @@ public class NativePushRendererTest {
         );
 
         assertEquals(Collections.singletonList(MIDDLE), stale);
+    }
+
+    /**
+     * A shortcut's tap target is the baked cloud app link, which MainActivity
+     * refuses while a self-hosted origin is configured, so the notification
+     * claims no shortcut at all rather than one that only foregrounds the app.
+     */
+    @Test
+    public void publishesNoConversationShortcutAgainstASelfHostedOrigin() {
+        URI selfHosted = URI.create("https://vellum.internal.example.com");
+
+        assertTrue(NativePushRenderer.publishesConversationShortcut("conversation-1", null));
+        assertFalse(
+            "self-hosted",
+            NativePushRenderer.publishesConversationShortcut("conversation-1", selfHosted)
+        );
+        assertFalse(
+            "no conversation to point at",
+            NativePushRenderer.publishesConversationShortcut(null, null)
+        );
     }
 
     /** The launcher's own entries are not ours to remove on logout. */

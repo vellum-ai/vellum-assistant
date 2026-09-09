@@ -22,7 +22,7 @@ import org.junit.rules.TemporaryFolder;
 public class AvatarCacheTest {
     private static final String VELLUM_SHA256 =
         "2fc2a6dd013e7ab41c5a54ab8a254031ff329aa42c5815ac420f1facfe2542d1";
-    private static final long BUDGET_MILLIS = 4_000;
+    private static final long NO_DEADLINE = 0;
 
     @Rule
     public final TemporaryFolder folder = new TemporaryFolder();
@@ -32,7 +32,7 @@ public class AvatarCacheTest {
         byte[] bytes = new byte[512 * 1024];
         bytes[bytes.length - 1] = 7;
 
-        byte[] read = AvatarCache.readCapped(new ByteArrayInputStream(bytes), BUDGET_MILLIS);
+        byte[] read = AvatarCache.readCapped(new ByteArrayInputStream(bytes), NO_DEADLINE);
 
         assertEquals(bytes.length, read.length);
         assertEquals(7, read[read.length - 1]);
@@ -42,7 +42,7 @@ public class AvatarCacheTest {
     public void rejectsAPayloadOverTheCap() throws IOException {
         byte[] bytes = new byte[512 * 1024 + 1];
 
-        assertNull(AvatarCache.readCapped(new ByteArrayInputStream(bytes), BUDGET_MILLIS));
+        assertNull(AvatarCache.readCapped(new ByteArrayInputStream(bytes), NO_DEADLINE));
     }
 
     /**
@@ -53,6 +53,14 @@ public class AvatarCacheTest {
     @Test
     public void givesUpOnAHostThatTricklesPastTheTotalBudget() throws IOException {
         assertNull(AvatarCache.readCapped(tricklingStream(10), 50));
+    }
+
+    /** A local file has no host to trickle it, so its read runs to the end. */
+    @Test
+    public void readsToTheEndWithoutADeadline() throws IOException {
+        byte[] read = AvatarCache.readCapped(tricklingStream(10, 5), NO_DEADLINE);
+
+        assertEquals(5, read.length);
     }
 
     @Test
@@ -115,6 +123,18 @@ public class AvatarCacheTest {
         assertNull(cache.verified(VELLUM_SHA256));
     }
 
+    /** An over-cap file is never served, so leaving it filed wastes the slot forever. */
+    @Test
+    public void dropsACachedAvatarBiggerThanTheCap() throws IOException {
+        File directory = folder.newFolder("oversized");
+        AvatarCache cache = new AvatarCache(directory);
+        File file = new File(directory, VELLUM_SHA256 + ".png");
+        Files.write(file.toPath(), new byte[512 * 1024 + 1]);
+
+        assertNull(cache.verified(VELLUM_SHA256));
+        assertFalse("deleted", file.exists());
+    }
+
     @Test
     public void keepsTheEightNewestAvatarsAndSweepsAbandonedWrites() throws IOException {
         File directory = folder.newFolder("prune");
@@ -148,7 +168,13 @@ public class AvatarCacheTest {
 
     /** A host answering one byte per call, slowly enough to burn the budget. */
     private static InputStream tricklingStream(long millisPerRead) {
+        return tricklingStream(millisPerRead, Integer.MAX_VALUE);
+    }
+
+    private static InputStream tricklingStream(long millisPerRead, int bytes) {
         return new InputStream() {
+            private int served;
+
             @Override
             public int read() {
                 return 0;
@@ -162,6 +188,10 @@ public class AvatarCacheTest {
                     Thread.currentThread().interrupt();
                     throw new IOException(exception);
                 }
+                if (served == bytes) {
+                    return -1;
+                }
+                served++;
                 buffer[offset] = 1;
                 return 1;
             }

@@ -34,10 +34,17 @@ public final class AvatarCache {
     // than the 8 s an iOS notification-service extension gets, and a cached
     // avatar is a handful of kilobytes, so a stalled host has to give up fast.
     private static final int CONNECT_TIMEOUT_MILLIS = 3_000;
-    private static final int READ_TIMEOUT_MILLIS = 3_000;
+    // Bounds the response head and each body read alike.
+    private static final int READ_TIMEOUT_MILLIS = 2_000;
     // The read timeout restarts on every chunk, so the body also gets a total
     // deadline: a host trickling bytes must not cost the whole notification.
-    private static final long READ_BUDGET_MILLIS = 4_000;
+    // The deadline is only read between chunks, and Android fixes the socket
+    // timeout when the connection is made, so the read that crosses it still
+    // runs its full timeout out: a connect, the budget, and that last read
+    // bound a responding host at 8 s.
+    private static final long READ_BUDGET_MILLIS = 3_000;
+    // A local file has no host trickling it, so its read carries no deadline.
+    private static final long NO_DEADLINE = 0;
     private static final int MAX_FILES = 8;
     // A write that never finished belongs to a call that is long gone.
     private static final long TEMPORARY_MAX_AGE_MILLIS = 60_000;
@@ -86,8 +93,8 @@ public final class AvatarCache {
 
     /**
      * Cached bytes whose digest still matches the name they are filed under, so
-     * a truncated or tampered file is dropped rather than drawn. A hit is also
-     * an eviction touch.
+     * an oversized, truncated, or tampered file is deleted rather than drawn. A
+     * hit is also an eviction touch.
      */
     @Nullable
     byte[] verified(@Nullable String hash) {
@@ -96,6 +103,12 @@ public final class AvatarCache {
             return null;
         }
         File file = new File(directory, name + EXTENSION);
+        if (file.length() > MAX_BYTES) {
+            // Too big to have been one of ours. Left in place it would sit in
+            // the eviction list forever, re-read and refused on every push.
+            file.delete();
+            return null;
+        }
         byte[] bytes = read(file);
         if (bytes == null) {
             return null;
@@ -186,7 +199,7 @@ public final class AvatarCache {
     @Nullable
     private static byte[] read(File file) {
         try (FileInputStream input = new FileInputStream(file)) {
-            return readCapped(input, READ_BUDGET_MILLIS);
+            return readCapped(input, NO_DEADLINE);
         } catch (IOException exception) {
             return null;
         }
@@ -218,14 +231,23 @@ public final class AvatarCache {
         }
     }
 
+    /**
+     * Bytes up to {@link #MAX_BYTES}, or null once the payload passes the cap
+     * or the budget runs out. A budget of {@link #NO_DEADLINE} reads to the end
+     * of the stream. Package-private so a test can burn a budget quickly.
+     */
     @Nullable
     static byte[] readCapped(InputStream stream, long budgetMillis) throws IOException {
+        boolean deadlined = budgetMillis > NO_DEADLINE;
         long deadline = System.nanoTime() + budgetMillis * 1_000_000L;
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         int read = stream.read(chunk);
         while (read != -1) {
-            if (buffer.size() + read > MAX_BYTES || System.nanoTime() - deadline >= 0) {
+            if (
+                buffer.size() + read > MAX_BYTES
+                    || (deadlined && System.nanoTime() - deadline >= 0)
+            ) {
                 return null;
             }
             buffer.write(chunk, 0, read);
