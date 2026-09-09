@@ -137,6 +137,8 @@
     "closePreviewAria": "Close preview",
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
+    "legacyUnavailable": "Preview unavailable. The file content was not preserved in chat history.",
+    "loadFailed": "Failed to load preview.",
     "nextAttachmentAria": "Next attachment",
     "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",

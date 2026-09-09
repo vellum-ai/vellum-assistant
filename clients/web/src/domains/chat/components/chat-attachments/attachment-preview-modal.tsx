@@ -135,9 +135,9 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   // what `unavailable` covers still has a file behind it, so it falls through
   // to the card that names it.
   const previewError = legacyId
-    ? "Preview unavailable — file content was not preserved in chat history."
+    ? t("attachmentPreviewModal.legacyUnavailable")
     : isError && !unavailable
-      ? "Failed to load preview."
+      ? t("attachmentPreviewModal.loadFailed")
       : null;
 
   const currentIndex = useMemo(() => {

@@ -129,7 +129,7 @@ describe("AttachmentPreviewModal content loading", () => {
 
     expect(
       screen.getByText(
-        "Preview unavailable — file content was not preserved in chat history.",
+        "Preview unavailable. The file content was not preserved in chat history.",
       ),
     ).toBeDefined();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
@@ -142,7 +142,9 @@ describe("AttachmentPreviewModal content loading", () => {
     renderModal(ATTACHMENT, () => undefined, null);
 
     expect(
-      screen.queryByText(/file content was not preserved in chat history/),
+      screen.queryByText(
+        "Preview unavailable. The file content was not preserved in chat history.",
+      ),
     ).toBeNull();
     expect(screen.queryByText("Failed to load preview.")).toBeNull();
     expect(screen.getAllByText("photo.png").length).toBeGreaterThan(0);

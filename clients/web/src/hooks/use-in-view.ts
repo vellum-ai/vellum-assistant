@@ -20,7 +20,6 @@ export function useInView(
   ref: RefObject<Element | null>,
   {
     threshold = 0,
-    rootMargin,
   }: {
     /**
      * Fraction of the element that must be showing to count as visible. The
@@ -28,8 +27,6 @@ export function useInView(
      * already see this, so don't show them a second copy of it".
      */
     threshold?: number;
-    /** Grows the viewport the element is tested against, e.g. `"200px"` to start loading just before it scrolls in. */
-    rootMargin?: string;
   } = {},
 ): boolean {
   const [inView, setInView] = useState(false);
@@ -47,7 +44,7 @@ export function useInView(
         }
         setInView(entry.isIntersecting);
       },
-      { threshold, rootMargin },
+      { threshold },
     );
     observer.observe(el);
     return () => {
@@ -57,7 +54,7 @@ export function useInView(
       // last "visible" answer behind and suppress the floating copy forever.
       setInView(false);
     };
-  }, [ref, threshold, rootMargin]);
+  }, [ref, threshold]);
 
   return inView;
 }
