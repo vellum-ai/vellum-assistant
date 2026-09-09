@@ -1385,6 +1385,50 @@ describe("a send that outlives its owner", () => {
     expect(isAwaitingReply("conv-a")).toBe(true);
   });
 
+  test("a completion after the hook moved on leaves the new document's send in flight", async () => {
+    const settleFirst = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    // The second document's own send, left in flight under a mock of its own
+    // while the first one is still out.
+    const settleSecond = deferPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    expect(result.current.status).toBe("sending");
+
+    await act(async () => {
+      settleFirst(sentResult("conv-a"));
+      await submittedFirst;
+    });
+
+    // The first document's send is over on a composer that has moved on, so
+    // it says nothing about the status: reporting idle here would re-enable
+    // the send button while the second document's POST is still out, and let
+    // the unchanged draft go out a second time.
+    expect(result.current.status).toBe("sending");
+
+    await act(async () => {
+      settleSecond(sentResult("conv-b"));
+      await submittedSecond;
+    });
+    expect(result.current.status).toBe("sent");
+  });
+
   test("a completion after the assistant changed under the document leaves the new draft alone", async () => {
     const settle = deferPostChatMessage();
     useComposerStore.getState().setInput("for the first assistant", "document");

@@ -122,7 +122,14 @@ export async function linkDocumentConversationIfNeeded(
  * place.
  *
  * Matches on surface id, so it also moves a document left pointing at a draft
- * id an earlier attempt minted past without managing to link.
+ * id an earlier attempt minted past without managing to link. That match is
+ * only safe for a caller that has just checked the active assistant is still
+ * the one its link went out under: the incoming assistant can have the same
+ * document open against a conversation of its own, and a surface-keyed write
+ * would hand it the outgoing assistant's row. The one caller is
+ * `use-document-composer-submit.ts`, which runs that check immediately
+ * before. A caller that cannot make it re-keys by conversation id instead,
+ * the way {@link rekeyOpenedDocumentConversation} does.
  */
 export function markOpenedDocumentLinked(
   surfaceId: string,
@@ -162,6 +169,14 @@ export function markOpenedDocumentLinked(
  * open against `oldConversationId` (match is on conversation id, not surface
  * id: the caller doesn't know which document, if any, was open against the
  * draft).
+ *
+ * The open document is checked again once the link resolves rather than
+ * trusted from before the await. `use-send-message.ts` calls this
+ * fire-and-forget, so nothing upstream drops a call whose assistant changed
+ * mid-flight, and the user can switch assistants and reopen the same surface
+ * under the incoming one while the link is out. Writing the minted id then
+ * would point the incoming assistant's document at a row belonging to the
+ * assistant the user left.
  */
 export async function rekeyOpenedDocumentConversation(
   assistantId: string,
@@ -184,6 +199,16 @@ export async function rekeyOpenedDocumentConversation(
   if (!linked) {
     return false;
   }
-  markOpenedDocumentLinked(opened.surfaceId, newConversationId);
+  const current = useViewerStore.getState().openedDocumentState;
+  if (
+    current?.source !== "document" ||
+    current.surfaceId !== opened.surfaceId ||
+    current.conversationId !== oldConversationId
+  ) {
+    return false;
+  }
+  useViewerStore
+    .getState()
+    .relinkOpenedDocumentConversation(oldConversationId, newConversationId);
   return true;
 }

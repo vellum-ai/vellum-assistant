@@ -308,6 +308,38 @@ describe("rekeyOpenedDocumentConversation", () => {
     expect(useViewerStore.getState().openedDocumentState).toBe(OPENED_DOC);
     expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
   });
+
+  test("leaves the store alone when the same surface reopens on another conversation mid-link", async () => {
+    let settleLink: () => void = () => {};
+    const pendingLink = new Promise<{ data: { success: boolean } }>(
+      (resolve) => {
+        settleLink = () => resolve({ data: { success: true } });
+      },
+    );
+    documentsByIdConversationsPostMock.mockImplementationOnce(
+      async () => pendingLink,
+    );
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    const rekeying = rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-draft",
+      "conv-minted",
+    );
+
+    // Switching assistants and reopening the same document puts the surface
+    // on a conversation belonging to the incoming assistant. The minted id
+    // this link was for belongs to the assistant the user left.
+    const reopened = {
+      ...OPENED_DOC,
+      conversationId: "conv-incoming-assistant",
+    } as const;
+    useViewerStore.setState({ openedDocumentState: reopened });
+    settleLink();
+
+    await expect(rekeying).resolves.toBe(false);
+    expect(useViewerStore.getState().openedDocumentState).toBe(reopened);
+  });
 });
 
 describe("markOpenedDocumentLinked", () => {

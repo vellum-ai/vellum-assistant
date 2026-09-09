@@ -367,6 +367,14 @@
   "documentAssetActions": {
     "pdfDownloadFailed": "Не удалось скачать PDF"
   },
+  "documentComposer": {
+    "assistantRepliedToast": "Ассистент ответил",
+    "messageSentToast": "Сообщение отправлено",
+    "sendFailed": "Не удалось отправить сообщение. Повторите попытку.",
+    "sent": "Отправлено",
+    "viewConversation": "Открыть разговор",
+    "viewReply": "Открыть ответ"
+  },
   "documentViewerPage": {
     "exportFailed": "Не удалось экспортировать PDF"
   },

@@ -433,13 +433,15 @@ export function useDocumentComposerSubmit({
       // host, hands the slot to the next draft, and a late completion
       // clearing it would wipe text the user typed for a message this send
       // never carried. "Sent" is that composer's micro-state for the same
-      // reason: on anyone else's composer this send is over without a trace.
+      // reason, and a send that no longer owns the slot leaves `status`
+      // untouched rather than reporting idle: the owner may have a send of
+      // its own in flight, and idle would re-enable its composer mid-send.
       const ownsSlot = isMountedRef.current && ownsSlotNow();
       if (ownsSlot) {
         useComposerStore.getState().setInput("", "document");
         useComposerStore.getState().resetAttachments("document");
+        setStatus("sent");
       }
-      setStatus(ownsSlot ? "sent" : "idle");
       toast.info(t("documentComposer.messageSentToast"), {
         action: {
           label: t("documentComposer.viewConversation"),
