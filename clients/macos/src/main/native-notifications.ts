@@ -21,7 +21,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { app } from "electron";
 
-import { ensureNotificationAvatarFile } from "@vellumai/electron-desktop/notification-avatar-file";
+import { resolveNotificationAvatarPath } from "@vellumai/electron-desktop/notification-avatar-path";
 import {
   CATEGORY_ACTIONS,
   createElectronNotification,
@@ -33,6 +33,7 @@ import {
 
 import log from "./logger";
 import {
+  ensureNotifierDelegate,
   getNotifier,
   isNotifierSupported,
   registerNotifierCategories,
@@ -78,13 +79,15 @@ const categoryIdForActions = (actions: readonly CategoryAction[]): string =>
  * category needs no second edit here.
  */
 export const registerNativeNotificationCategories = (): void => {
-  const categories: NotifierCategory[] = NOTIFICATION_CATEGORIES.map(
-    (category) => {
-      const actions = CATEGORY_ACTIONS[category].map((action) => action.text);
-      return { categoryId: categoryIdForLabels(actions), actions };
-    },
-  );
-  registerNotifierCategories(categories);
+  // Keyed by identifier: two categories with the same ordered labels mint the
+  // same one, and the same definition with it, so they register once.
+  const byId = new Map<string, NotifierCategory>();
+  for (const category of NOTIFICATION_CATEGORIES) {
+    const actions = CATEGORY_ACTIONS[category].map((action) => action.text);
+    const categoryId = categoryIdForLabels(actions);
+    byId.set(categoryId, { categoryId, actions });
+  }
+  registerNotifierCategories([...byId.values()]);
 };
 
 export const createNativeNotificationFactory = (): {
@@ -97,9 +100,19 @@ export const createNativeNotificationFactory = (): {
     // avatar as the icon. A notification with no sender has nothing to gain
     // from it, so Electron's presenter takes it, which is also what makes the
     // `push-avatar-sender` flag a kill switch.
-    const senderImage = options.sender;
-    if (!senderImage) {
-      return createElectronNotification(options);
+    const sender = options.sender;
+    if (!sender) {
+      const notification = createElectronNotification(options);
+      return {
+        on: notification.on.bind(notification) as NotificationLike["on"],
+        show: () => {
+          notification.show();
+          // Electron's presenter takes the notification center's delegate when
+          // it is built and drops responses for identifiers it does not own,
+          // so the addon's proxy goes straight back in front of it.
+          ensureNotifierDelegate();
+        },
+      };
     }
 
     const listeners: Listeners = {};
@@ -108,25 +121,24 @@ export const createNativeNotificationFactory = (): {
     }) as NotificationLike["on"];
 
     const resolveSender = (): NotifierRequest["sender"] => {
-      try {
-        return {
-          id: senderImage.id,
-          name: senderImage.name,
-          // The addon reads the avatar from disk: Intents takes image data,
-          // not a buffer over IPC.
-          avatarPngPath: ensureNotificationAvatarFile(
-            app.getPath("userData"),
-            senderImage.avatarPng,
-            senderImage.avatarHash,
-          ),
-          // Groups every notification from one assistant into a single
-          // conversation in Notification Center.
-          conversationId: senderImage.id,
-        };
-      } catch (error) {
-        log.warn("[notifications] could not stage the sender avatar:", error);
+      // The addon reads the avatar from disk: Intents takes image data, not a
+      // buffer over IPC.
+      const avatarPngPath = resolveNotificationAvatarPath(
+        sender,
+        app.getPath("userData"),
+        log,
+      );
+      if (!avatarPngPath) {
         return undefined;
       }
+      return {
+        id: sender.id,
+        name: sender.name,
+        avatarPngPath,
+        // Groups every notification from one assistant into a single
+        // conversation in Notification Center.
+        conversationId: sender.id,
+      };
     };
 
     const show = (): void => {
@@ -135,15 +147,15 @@ export const createNativeNotificationFactory = (): {
         listeners.failed?.(undefined, "Native notifier unavailable");
         return;
       }
-      const sender = resolveSender();
+      const resolved = resolveSender();
       const request: NotifierRequest = {
         id: randomUUID(),
-        title: sender ? sender.name : options.title,
-        ...(sender ? { subtitle: options.title } : {}),
+        title: resolved ? resolved.name : options.title,
+        ...(resolved ? { subtitle: options.title } : {}),
         body: options.body,
         categoryId: categoryIdForActions(options.actions),
         actions: options.actions.map((action) => action.text),
-        ...(sender ? { sender } : {}),
+        ...(resolved ? { sender: resolved } : {}),
       };
       try {
         notifier.show(request, (event) => {
@@ -169,10 +181,6 @@ export const createNativeNotificationFactory = (): {
             // An action without a readable index is dropped: defaulting could
             // route an ambiguous press as e.g. a tool-call "Allow".
             listeners.action?.(undefined, event.actionIndex);
-          } else if (event.kind === "dismiss") {
-            // The addon emits `dismiss` as a notification's final event so it
-            // can release the callback. Nothing downstream acts on one, and
-            // Electron has no matching event to map it onto.
           }
         });
       } catch (error) {

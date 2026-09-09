@@ -222,7 +222,10 @@ buttons never render. `src/main/index.ts` registers every action set through
 `registerCategories` at startup instead, deriving the set from the shared
 `NOTIFICATION_CATEGORIES` and `CATEGORY_ACTIONS` pair so it covers every set
 the app can post, and the addon unions its own set with whatever the
-notification center already holds rather than replacing it. An identifier that
+notification center already holds rather than replacing it. That union is a
+read-modify-write, and Electron's own post path does the same one under no
+shared lock, so the addon re-reads what landed and re-applies once when its
+categories were written over. An identifier that
 is still unregistered when a notification is posted cannot be repaired in that
 same runloop turn, so the notification goes out with no category and the
 `shown` event carries the reason.
@@ -235,18 +238,21 @@ renderer's Web Notification API all do. Three consequences:
 - The client must pass `isSupported` to `configureNotifications` alongside
   `create`. The shared module otherwise falls back to
   `electron.Notification.isSupported()`, and that call alone builds the
-  presenter.
+  presenter, at whatever moment the first notification arrives.
 - The notifications permission probe in `src/main/permissions-service.ts` goes
   through the addon's `requestAuthorization()` whenever the addon is loaded.
   Constructing an `electron.Notification` there hands the presenter the
   delegate and strands clicks on notifications already on screen.
 - The addon installs its own delegate, holds a strong reference to the one it
-  displaced, forwards every response it does not own there, and re-asserts
-  itself on the way into `show` and `requestAuthorization`. Electron builds its
-  presenter at most once, so a sender-less notification moves the delegate a
-  single time and the addon's next post takes it back, keeping Electron's
-  presenter as the delegate it forwards to. `restoreDelegate()` hands the seat
-  back at `before-quit`.
+  displaced, and forwards every response it does not own there. Electron's
+  presenter discards responses for identifiers it does not own, so the addon
+  has to be in front of it before anything the addon posted can be clicked:
+  `src/main/index.ts` builds Electron's presenter deliberately at startup, with
+  nothing on screen, then calls the addon's `ensureDelegate()`, which leaves the
+  addon's proxy in front and Electron's presenter as the delegate it forwards
+  to for the life of the process. `show`, `requestAuthorization`, and every
+  sender-less post through Electron re-assert it too. `restoreDelegate()` hands
+  the seat back at `before-quit`.
 
 **Rebuild:**
 
@@ -257,9 +263,12 @@ bash scripts/build-notifier.sh   # also runs as part of `bun run setup` and `bun
 It compiles against the headers for the Electron version pinned in
 `package.json` and writes `resources/notifier/<arch>/vellum-notifier.node`,
 which `electron-builder` packs to `bin/notifier/` and `scripts/afterSign.js`
-re-signs with `inherit.plist`. `ELECTRON_TARGET_ARCH` picks the architecture
-(arm64 by default, the same default `pack.sh` and
-`electron-builder.config.cjs` use). The script fails when the compiled slice is
+re-signs with `inherit.plist`. `ELECTRON_TARGET_ARCH` picks the architecture,
+defaulting to the host's so a local `bun run setup` on any Mac builds an addon
+that machine's Electron can load. `pack.sh` exports the variable (arm64 unless
+it is already set, the same default `electron-builder.config.cjs` uses), so a
+pack builds the addon for the app it is packaging rather than for the builder.
+The script fails when the compiled slice is
 not the one that was asked for, and `afterSign.js` fails again when the packed
 addon is not the architecture being packaged, because a mismatched addon does
 not load and the app quietly falls back to plain notifications.

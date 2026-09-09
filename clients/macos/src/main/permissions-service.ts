@@ -133,6 +133,10 @@ const settingsPaneUrl = (kind: PermissionKind): string => {
 // the outcome is called unknown.
 const NOTIFICATION_PROMPT_TIMEOUT_MS = 30_000;
 
+// The probe posts a real notification, so the user reads this on whichever
+// path delivered it.
+const NOTIFICATION_CONFIRMATION_BODY = "Notifications are enabled.";
+
 /**
  * Runs `probe` and resolves whatever it settles on, or `null` once `timeoutMs`
  * passes with no answer. The first settle wins, so a probe that answers twice
@@ -169,7 +173,7 @@ const postNativeNotificationConfirmation = (): void => {
       {
         id: randomUUID(),
         title: "Vellum",
-        body: "Notifications are enabled.",
+        body: NOTIFICATION_CONFIRMATION_BODY,
         categoryId: "",
         actions: [],
       },
@@ -393,7 +397,7 @@ export class PermissionsService {
       (settle) => {
         const notification = new Notification({
           title: "Vellum",
-          body: "Notifications are enabled.",
+          body: NOTIFICATION_CONFIRMATION_BODY,
           silent: false,
         });
         notification.once("show", () => settle("granted"));

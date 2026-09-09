@@ -38,6 +38,7 @@ mock.module("./logger", () => ({
 const {
   __resetNotifierForTesting,
   __setNotifierForTesting,
+  ensureNotifierDelegate,
   getNotifier,
   isNotifierSupported,
   registerNotifierCategories,
@@ -47,6 +48,7 @@ const {
 
 interface FakeNotifier extends Notifier {
   authorizationCalls: number;
+  ensureCalls: number;
   restoreCalls: number;
   registered: NotifierCategory[][];
 }
@@ -54,6 +56,7 @@ interface FakeNotifier extends Notifier {
 const fakeNotifier = (overrides: Partial<Notifier> = {}): FakeNotifier => {
   const fake: FakeNotifier = {
     authorizationCalls: 0,
+    ensureCalls: 0,
     restoreCalls: 0,
     registered: [],
     isSupported: () => true,
@@ -63,6 +66,9 @@ const fakeNotifier = (overrides: Partial<Notifier> = {}): FakeNotifier => {
     },
     registerCategories: (categories) => {
       fake.registered.push(categories);
+    },
+    ensureDelegate: () => {
+      fake.ensureCalls += 1;
     },
     restoreDelegate: () => {
       fake.restoreCalls += 1;
@@ -292,7 +298,7 @@ describe("isNotifierSupported", () => {
   });
 });
 
-describe("notifier categories and delegate handback", () => {
+describe("notifier categories and delegate seat", () => {
   beforeEach(() => {
     __resetNotifierForTesting();
     warnings.length = 0;
@@ -301,6 +307,7 @@ describe("notifier categories and delegate handback", () => {
   test("do nothing when the addon is unavailable", () => {
     expect(() => {
       registerNotifierCategories([{ categoryId: "a", actions: [] }]);
+      ensureNotifierDelegate();
       restoreNotifierDelegate();
     }).not.toThrow();
   });
@@ -310,18 +317,34 @@ describe("notifier categories and delegate handback", () => {
     __setNotifierForTesting(notifier);
 
     registerNotifierCategories([{ categoryId: "a", actions: ["Allow"] }]);
+    ensureNotifierDelegate();
     restoreNotifierDelegate();
 
     expect(notifier.registered).toEqual([
       [{ categoryId: "a", actions: ["Allow"] }],
     ]);
+    expect(notifier.ensureCalls).toBe(1);
     expect(notifier.restoreCalls).toBe(1);
+  });
+
+  // A packed addon built before the export loads fine and simply has no
+  // re-assertion to make, so the call is a no-op rather than a throw.
+  test("skip the re-assertion on an addon without the export", () => {
+    const notifier = fakeNotifier();
+    delete notifier.ensureDelegate;
+    __setNotifierForTesting(notifier);
+
+    expect(() => ensureNotifierDelegate()).not.toThrow();
+    expect(warnings.length).toBe(0);
   });
 
   test("swallow an addon that throws", () => {
     __setNotifierForTesting(
       fakeNotifier({
         registerCategories: () => {
+          throw new Error("addon exploded");
+        },
+        ensureDelegate: () => {
           throw new Error("addon exploded");
         },
         restoreDelegate: () => {
@@ -331,7 +354,8 @@ describe("notifier categories and delegate handback", () => {
     );
 
     registerNotifierCategories([]);
+    ensureNotifierDelegate();
     restoreNotifierDelegate();
-    expect(warnings.length).toBe(2);
+    expect(warnings.length).toBe(3);
   });
 });

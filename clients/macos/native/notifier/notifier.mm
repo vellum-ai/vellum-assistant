@@ -12,13 +12,14 @@
 // NotificationPresenterMac claims
 // `UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it
 // is constructed (by `new Notification()`, by `Notification.isSupported()`, or
-// by the renderer's Web Notification API). This addon installs its own
-// delegate, holds a strong reference to whichever delegate it displaced, and
-// forwards every response it does not own to that delegate. `Show` and
-// `RequestAuthorization` re-assert the delegate on the way in, and the JS side
-// routes its notification permission probe through `requestAuthorization`
-// rather than `electron.Notification`, so no path in the app can build the
-// presenter without the addon taking the seat straight back.
+// by the renderer's Web Notification API), and it drops responses for
+// identifiers it does not own. This addon installs its own delegate, holds a
+// strong reference to whichever delegate it displaced, and forwards every
+// response it does not own to that delegate. `Show` and `RequestAuthorization`
+// re-assert the delegate on the way in, and `EnsureDelegate` exposes the same
+// re-assertion to JavaScript: the app builds Electron's presenter once at
+// startup, with nothing on screen, and calls it, so the addon's proxy sits in
+// front of the presenter for the life of the process.
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
@@ -284,12 +285,31 @@ void RestoreDelegate() {
 bool g_applyingCategories = false;
 bool g_categoriesDirty = false;
 
+// `verify` re-reads the written set once and re-applies when the addon's
+// categories are missing from it, and is false on that repair pass so a center
+// that keeps dropping them cannot spin.
+void ApplyCategories(bool verify = true);
+
+// Ends one application, re-running it for a request that arrived mid-flight or,
+// failing that, for a write that did not land.
+void FinishApplyingCategories(bool repair) {
+  g_applyingCategories = false;
+  if (g_categoriesDirty) {
+    g_categoriesDirty = false;
+    ApplyCategories();
+  } else if (repair) {
+    ApplyCategories(false);
+  }
+}
+
 // Hands the notification center the union of what it already holds and every
 // category this addon has registered. Replacing the set instead would drop
 // categories registered by anything else in the process. The union is a
-// read-modify-write straddling an asynchronous fetch, so two applications that
-// overlapped could each write back a set missing the other's categories.
-void ApplyCategories() {
+// read-modify-write straddling an asynchronous fetch, and Electron's own
+// `CocoaNotification::Show` does the same read-modify-write under no shared
+// lock, so an application that interleaves with one of those can be written
+// back over. The verification pass below is what catches that.
+void ApplyCategories(bool verify) {
   if (g_applyingCategories) {
     g_categoriesDirty = true;
     return;
@@ -310,13 +330,29 @@ void ApplyCategories() {
     // ordered action set, so a collision means the same buttons either way.
     [merged addEntriesFromDictionary:ours];
     [center setNotificationCategories:[NSSet setWithArray:merged.allValues]];
-    dispatch_async(dispatch_get_main_queue(), ^{
-      g_applyingCategories = false;
-      if (g_categoriesDirty) {
-        g_categoriesDirty = false;
-        ApplyCategories();
+    if (!verify) {
+      dispatch_async(dispatch_get_main_queue(), ^{
+        FinishApplyingCategories(false);
+      });
+      return;
+    }
+    [center getNotificationCategoriesWithCompletionHandler:^(
+                NSSet<UNNotificationCategory *> *written) {
+      NSMutableSet<NSString *> *writtenIds = [NSMutableSet set];
+      for (UNNotificationCategory *category in written) {
+        [writtenIds addObject:category.identifier];
       }
-    });
+      BOOL dropped = NO;
+      for (NSString *identifier in ours) {
+        if (![writtenIds containsObject:identifier]) {
+          dropped = YES;
+          break;
+        }
+      }
+      dispatch_async(dispatch_get_main_queue(), ^{
+        FinishApplyingCategories(dropped);
+      });
+    }];
   }];
 }
 
@@ -522,6 +558,19 @@ Napi::Value IsSupported(const Napi::CallbackInfo &info) {
   // an unbundled run (a bare `electron main.js`) reports unsupported rather
   // than taking the whole app down on the first post.
   return Napi::Boolean::New(info.Env(), IsBundled());
+}
+
+// Puts this addon's delegate back in front of whoever holds the notification
+// center's seat. The app calls this once at startup, after deliberately
+// building Electron's presenter, and again after every notification Electron
+// posts, so a response to a notification this addon posted is never routed to
+// a presenter that discards it.
+Napi::Value EnsureDelegate(const Napi::CallbackInfo &info) {
+  Napi::Env env = info.Env();
+  if (IsBundled()) {
+    EnsureDelegateInstalled();
+  }
+  return env.Undefined();
 }
 
 // Returns the notification center's delegate to whoever held it before this
@@ -754,6 +803,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               Napi::Function::New(env, RequestAuthorization));
   exports.Set("registerCategories",
               Napi::Function::New(env, RegisterCategories));
+  exports.Set("ensureDelegate", Napi::Function::New(env, EnsureDelegate));
   exports.Set("restoreDelegate",
               Napi::Function::New(env, RestoreDelegateBinding));
   exports.Set("show", Napi::Function::New(env, Show));

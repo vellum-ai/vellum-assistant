@@ -2159,7 +2159,17 @@ jobs:
             echo "::error::The provisioning profile does not grant com.apple.developer.usernotifications.communication. Enable Communication Notifications on the $EXPECTED_BUNDLE_ID App ID in the Apple Developer portal, regenerate the profile, and update the MAC_PROVISIONING_PROFILE secret."
             exit 1
           fi
-          APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          # A macOS profile carries the app id under
+          # com.apple.application-identifier; the bare key is the iOS shape,
+          # which some older exports still use.
+          APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          if [ -z "$APPLICATION_ID" ]; then
+            APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          fi
+          if [ -z "$APPLICATION_ID" ]; then
+            echo "::error::The provisioning profile carries no application-identifier entitlement, so the bundle id it authorizes cannot be read. Re-export the .provisionprofile for the $EXPECTED_BUNDLE_ID App ID and update the MAC_PROVISIONING_PROFILE secret."
+            exit 1
+          fi
           case "$APPLICATION_ID" in
             *".$EXPECTED_BUNDLE_ID") ;;
             *)

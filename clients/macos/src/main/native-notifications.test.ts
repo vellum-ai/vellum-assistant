@@ -59,6 +59,7 @@ interface Call {
 
 const calls: Call[] = [];
 const registered: NotifierCategory[][] = [];
+let delegateReassertions = 0;
 let notifierSupported = true;
 let notifierPresent = true;
 let showThrows = false;
@@ -66,6 +67,9 @@ let showThrows = false;
 mock.module("./notifier", () => ({
   registerNotifierCategories: (categories: NotifierCategory[]) => {
     registered.push(categories);
+  },
+  ensureNotifierDelegate: () => {
+    delegateReassertions += 1;
   },
   isNotifierSupported: () => notifierPresent && notifierSupported,
   getNotifier: () =>
@@ -130,6 +134,7 @@ beforeEach(() => {
   registered.length = 0;
   warnings.length = 0;
   electronNotifications.length = 0;
+  delegateReassertions = 0;
   notifierSupported = true;
   notifierPresent = true;
   showThrows = false;
@@ -197,6 +202,27 @@ describe("createNativeNotificationFactory", () => {
         ],
       },
     ]);
+  });
+
+  // Electron's presenter claims the notification center's delegate and drops
+  // responses for identifiers it does not own, so a post through it that left
+  // the seat there would strand clicks on notifications the addon posted.
+  test("puts the addon's delegate back in front after Electron posts", () => {
+    const notification = createNativeNotificationFactory().create(
+      options({ sender: undefined }),
+    );
+    expect(delegateReassertions).toBe(0);
+
+    notification.show();
+
+    expect(electronNotifications.length).toBe(1);
+    expect(delegateReassertions).toBe(1);
+  });
+
+  test("leaves the delegate alone for a notification the addon posts", () => {
+    createNativeNotificationFactory().create(options()).show();
+
+    expect(delegateReassertions).toBe(0);
   });
 
   test("keeps a sender-less notification off the addon even when the addon is gone", () => {

@@ -15,18 +15,20 @@ if ! command -v xcrun >/dev/null 2>&1; then
   exit 1
 fi
 
-# The packaged app's architecture comes from ELECTRON_TARGET_ARCH, defaulting
-# to arm64 in pack.sh and electron-builder.config.cjs. The addon follows the
-# same variable rather than the host's architecture: electron-builder packs
-# whatever is under resources/notifier, so a host-shaped addon in an arm64 pack
-# ships an app that quietly falls back to plain notifications.
-# `lipo -archs` names the x64 slice x86_64.
-ARCH="${ELECTRON_TARGET_ARCH:-arm64}"
-case "$ARCH" in
-  arm64) EXPECTED_SLICE=arm64 ;;
-  x64)   EXPECTED_SLICE=x86_64 ;;
+# The packaged app's architecture comes from ELECTRON_TARGET_ARCH, which pack.sh
+# exports so a pack always builds the addon for the app it is packing:
+# electron-builder packs whatever is under resources/notifier, so a host-shaped
+# addon in an arm64 pack ships an app that quietly falls back to plain
+# notifications. Unset, the architecture is the host's, because a local
+# `bun run setup` builds an addon for the Electron running on this machine.
+# `uname -m` reports x86_64 on Intel, which is also what `lipo -archs` calls
+# the x64 slice.
+REQUESTED_ARCH="${ELECTRON_TARGET_ARCH:-$(uname -m)}"
+case "$REQUESTED_ARCH" in
+  arm64)      ARCH=arm64; EXPECTED_SLICE=arm64 ;;
+  x64|x86_64) ARCH=x64;   EXPECTED_SLICE=x86_64 ;;
   *)
-    echo "build-notifier: unsupported ELECTRON_TARGET_ARCH: $ARCH (use arm64 or x64)" >&2
+    echo "build-notifier: unsupported architecture: $REQUESTED_ARCH (use arm64 or x64)" >&2
     exit 1
     ;;
 esac

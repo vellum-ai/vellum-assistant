@@ -121,7 +121,7 @@ jobs:
           cat > "$RUNNER_TEMP/smoke-notifier.js" <<'JS'
           const addon = { exports: {} };
           process.dlopen(addon, process.argv[2]);
-          const exported = ["isSupported", "requestAuthorization", "registerCategories", "restoreDelegate", "show"];
+          const exported = ["isSupported", "requestAuthorization", "registerCategories", "ensureDelegate", "restoreDelegate", "show"];
           for (const name of exported) {
             if (typeof addon.exports[name] !== "function") {
               console.error(`vellum-notifier: missing export ${name}`);
@@ -133,8 +133,15 @@ jobs:
           JS
           # build-notifier.sh writes one architecture and clears the rest, so
           # the addon is whatever it left behind. Resolving it that way keeps
-          # the smoke load honest about the arch the build actually produced.
-          ADDON="$(ls resources/notifier/*/vellum-notifier.node)"
+          # the smoke load honest about the arch the build actually produced,
+          # and a second arch directory has to fail here rather than be smoke
+          # loaded as a two-line path.
+          ADDONS=(resources/notifier/*/vellum-notifier.node)
+          if [ "${#ADDONS[@]}" -ne 1 ] || [ ! -f "${ADDONS[0]}" ]; then
+            echo "::error::expected exactly one built notifier addon under resources/notifier, found: ${ADDONS[*]}"
+            exit 1
+          fi
+          ADDON="${ADDONS[0]}"
           ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron \
             "$RUNNER_TEMP/smoke-notifier.js" \
             "$ADDON"

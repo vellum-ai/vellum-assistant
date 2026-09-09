@@ -8,7 +8,7 @@ import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
-import { ensureNotificationAvatarFile } from "@vellumai/electron-desktop/notification-avatar-file";
+import { resolveNotificationAvatarPath } from "@vellumai/electron-desktop/notification-avatar-path";
 import {
   configureNotifications,
   installNotifications,
@@ -105,32 +105,6 @@ export const createHelperToastFactory = (
     return client;
   };
 
-  /**
-   * The toast's image, or null when there is no sender or the file could not
-   * be written. A cache failure must not cost the user the notification, so it
-   * falls back to the app-icon toast.
-   */
-  const resolveAvatarPath = (
-    options: NotificationCreateOptions,
-  ): string | null => {
-    if (!options.sender) {
-      return null;
-    }
-    try {
-      return ensureNotificationAvatarFile(
-        app.getPath("userData"),
-        options.sender.avatarPng,
-        options.sender.avatarHash,
-      );
-    } catch (error) {
-      log.warn(
-        "[notifications] Could not store the notification avatar:",
-        error,
-      );
-      return null;
-    }
-  };
-
   return (options) => {
     const token = `toast-${nextToken++}`;
     const listeners: Record<string, ToastListener> = {};
@@ -153,7 +127,11 @@ export const createHelperToastFactory = (
           const actions = options.actions.map((action) => ({
             text: action.text,
           }));
-          const avatarPath = resolveAvatarPath(options);
+          const avatarPath = resolveNotificationAvatarPath(
+            options.sender,
+            app.getPath("userData"),
+            log,
+          );
           // With an avatar in the image slot the assistant is the sender, so
           // its name is the toast title and the conversation title drops to
           // the subtitle.
