@@ -108,6 +108,30 @@ export function lumaGridFromRgba(
   }
 }
 
+/** A mean colour, as red, green and blue in 0-255. */
+export type Tint = readonly [red: number, green: number, blue: number];
+
+/**
+ * The mean colour of an RGBA readback.
+ *
+ * What the luma grid throws away. The gate compares shape and is meant to,
+ * but a source that keeps flat views (a screen) has no shape to compare, and
+ * two flat views of one brightness can still be two colours.
+ */
+export function tintFromRgba(rgba: Uint8ClampedArray): Tint {
+  const cells = rgba.length / 4;
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  for (let cell = 0; cell < cells; cell++) {
+    const offset = cell * 4;
+    red += rgba[offset]!;
+    green += rgba[offset + 1]!;
+    blue += rgba[offset + 2]!;
+  }
+  return [red / cells, green / cells, blue / cells];
+}
+
 export interface FrameSampler {
   /**
    * Begin sampling `video`. Starting an already-started sampler retargets it:
@@ -302,6 +326,13 @@ export interface FrameGridProducer {
    * it, so there is nothing to copy.
    */
   gridFrom(source: FrameSource): FrameGrid | null;
+  /**
+   * The mean colour of the last frame {@link gridFrom} reduced, or null
+   * before any. Read from the same pixels, so it costs no second draw, and
+   * computed only when asked, so a source that compares shape alone pays
+   * nothing for it.
+   */
+  tintOfLastGrid(): Tint | null;
 }
 
 /**
@@ -384,14 +415,20 @@ export function createFrameGridProducer(): FrameGridProducer {
     ).data;
   }
 
+  let lastPixels: Uint8ClampedArray | null = null;
+
   return {
     gridFrom(source) {
       const pixels = readGridPixels(source);
       if (!pixels) {
         return null;
       }
+      lastPixels = pixels;
       lumaGridFromRgba(pixels, scratchGrid);
       return scratchGrid;
+    },
+    tintOfLastGrid() {
+      return lastPixels === null ? null : tintFromRgba(lastPixels);
     },
   };
 }

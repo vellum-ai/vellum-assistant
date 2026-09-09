@@ -30,6 +30,7 @@ import {
   FRAME_GRID_CELLS,
   type FrameGrid,
 } from "@/lib/camera/frame-gate";
+import type { Tint } from "@/lib/camera/frame-sampler";
 import type {
   ScreenCaptureFrame,
   WatchCaptureTarget,
@@ -52,13 +53,23 @@ function frameOf(view: string): ScreenCaptureFrame {
  * other (past the ambient bar), and a name with a `+` on it is that view with
  * a small change in it: past the bar a question lowers the gate to, and short
  * of the ambient one. The same name is the same picture, byte for byte, which
- * is what a screen capture of an unchanged screen is. `light` and `dark` are
- * two blank pages: no structure at all, and the gate cannot tell them apart.
+ * is what a screen capture of an unchanged screen is. `light`, `dark`,
+ * `red` and `green` are blank pages: no structure at all, so the gate cannot
+ * tell any of them apart, and the last two are one brightness in two
+ * colours, so nor could their luma.
  */
+const FLAT_VIEWS: Record<string, { luma: number; tint: Tint }> = {
+  light: { luma: 235, tint: [235, 235, 235] },
+  dark: { luma: 30, tint: [30, 30, 30] },
+  red: { luma: 80, tint: [200, 30, 30] },
+  green: { luma: 80, tint: [30, 200, 30] },
+};
+
 function gridFor(view: string): FrameGrid {
   const grid = new Uint8Array(FRAME_GRID_CELLS);
-  if (view === "light" || view === "dark") {
-    grid.fill(view === "light" ? 235 : 30);
+  const flat = FLAT_VIEWS[view];
+  if (flat !== undefined) {
+    grid.fill(flat.luma);
     return grid;
   }
   const name = view.replace("+", "");
@@ -119,8 +130,13 @@ mock.module("@/domains/chat/voice/live-voice/annotate-shared-frame", () => ({
 }));
 
 mock.module("@/lib/camera/still-frame-grid", () => ({
-  stillFrameGrid: async (bytes: Uint8Array) =>
-    gridFor(new TextDecoder().decode(bytes)),
+  stillFrameGrid: async (bytes: Uint8Array) => {
+    const view = new TextDecoder().decode(bytes);
+    return {
+      grid: gridFor(view),
+      tint: FLAT_VIEWS[view]?.tint ?? [128, 128, 128],
+    };
+  },
 }));
 
 mock.module(
@@ -482,6 +498,22 @@ describe("useLiveVoiceScreenShare: cadence", () => {
     speak(false);
     await flush();
     expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+  });
+
+  /** The gate reads luma alone, and these two are one luma in two colours. */
+  test("two blank pages of one brightness in two colours are two views", async () => {
+    show("red");
+    renderShare();
+    share(WINDOW);
+    await flush();
+    show("green");
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-2",
+      expect.objectContaining({ reason: "forced" }),
+    );
   });
 
   /**

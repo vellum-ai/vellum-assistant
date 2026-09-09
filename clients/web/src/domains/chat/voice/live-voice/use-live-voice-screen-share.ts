@@ -82,7 +82,7 @@ import {
   DEFAULT_FRAME_GATE_OPTIONS,
   type FrameGateOptions,
 } from "@/lib/camera/frame-gate";
-import { createFrameGridProducer } from "@/lib/camera/frame-sampler";
+import { createFrameGridProducer, type Tint } from "@/lib/camera/frame-sampler";
 import { stillFrameGrid } from "@/lib/camera/still-frame-grid";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
@@ -163,28 +163,30 @@ export const SCREEN_SHARE_PICTURE_WAIT_MS = 3_000;
 
 /**
  * Below this much structure a screen is flat, and flat screens are compared
- * by their light rather than by their shape.
+ * by their colour rather than by their shape.
  *
- * The gate normalizes every grid before comparing, which is what makes it
- * blind to a camera's exposure and is exactly wrong for a blank page: a
- * blank light page and a blank dark page normalize to the same nothing, so
- * the gate reads no change where the user sees a whole new view. The camera
- * refuses such frames outright; a screen keeps them (see
- * {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}), so it has to tell them apart
- * some other way, and the only thing left to compare is their mean luma.
- * The floor is the camera's own featureless floor, and the shift is well
- * past anything a screen's own rendering drifts by.
+ * The gate reads luma alone and normalizes every grid before comparing,
+ * which is what makes it blind to a camera's exposure and is exactly wrong
+ * for a blank page: a blank light page and a blank dark page normalize to
+ * the same nothing, and a red page and a green page of one brightness were
+ * the same before that, so the gate reads no change where the user sees a
+ * whole new view. The camera refuses such frames outright; a screen keeps
+ * them (see {@link SCREEN_SHARE_FRAME_GATE_OPTIONS}), so it has to tell
+ * them apart some other way, and what is left to compare is their mean
+ * colour. The floor is the camera's own featureless floor, and the shift,
+ * on any one channel, is well past anything a screen's own rendering drifts
+ * by.
  */
 export const SCREEN_SHARE_FLAT_DETAIL = DEFAULT_FRAME_GATE_OPTIONS.minDetail;
-export const SCREEN_SHARE_FLAT_LUMA_SHIFT = 32;
+export const SCREEN_SHARE_FLAT_TINT_SHIFT = 32;
 
-/** Mean luma of a grid, 0-255. */
-function meanLuma(grid: Uint8Array): number {
-  let sum = 0;
-  for (const cell of grid) {
-    sum += cell;
-  }
-  return sum / grid.length;
+/** The largest difference between two tints on any one channel. */
+function tintShift(a: Tint, b: Tint): number {
+  return Math.max(
+    Math.abs(a[0] - b[0]),
+    Math.abs(a[1] - b[1]),
+    Math.abs(a[2] - b[2]),
+  );
 }
 
 export function useLiveVoiceScreenShare(): void {
@@ -240,9 +242,9 @@ export function useLiveVoiceScreenShare(): void {
       readonly grid: Uint8Array;
       readonly atMs: number;
       readonly seq: number;
-      /** Structure and light, for telling two flat screens apart. */
+      /** Structure and colour, for telling two flat screens apart. */
       readonly detail: number;
-      readonly meanLuma: number;
+      readonly tint: Tint;
       /**
        * The ask this frame answered, when it was a forced keep: the arm it
        * spent, to be given back if the frame is lost. The ask still stands
@@ -257,6 +259,7 @@ export function useLiveVoiceScreenShare(): void {
     type Picture = {
       readonly bytes: Uint8Array<ArrayBuffer>;
       readonly grid: Uint8Array;
+      readonly tint: Tint;
       readonly requestedAtMs: number;
       readonly run: number;
     };
@@ -397,7 +400,7 @@ export function useLiveVoiceScreenShare(): void {
       drawing: SharedDrawing | null,
       askedAtMs: number | null,
     ): void => {
-      const { bytes, grid, requestedAtMs, run } = picture;
+      const { bytes, grid, tint, requestedAtMs, run } = picture;
       const stale = (): boolean => cancelled || generation !== run;
       const nowMs = performance.now();
       judgedSeq += 1;
@@ -418,18 +421,17 @@ export function useLiveVoiceScreenShare(): void {
           gate.armForcedKeep(askedAtMs);
         }
         const decision = gate.offer(grid, nowMs, requestedAtMs);
-        // A flat screen whose light changed is a new view the gate cannot
+        // A flat screen whose colour changed is a new view the gate cannot
         // see; see `SCREEN_SHARE_FLAT_DETAIL`. Adopted, so the gate's
         // history is what it would be for a keep, and taken as the answer
         // to an open question, since the ask stands for a change and this
         // is one.
-        const light = meanLuma(grid);
         const flatChange =
           !decision.keep &&
           baseline !== null &&
           (decision.detail < SCREEN_SHARE_FLAT_DETAIL ||
             baseline.detail < SCREEN_SHARE_FLAT_DETAIL) &&
-          Math.abs(light - baseline.meanLuma) >= SCREEN_SHARE_FLAT_LUMA_SHIFT;
+          tintShift(tint, baseline.tint) >= SCREEN_SHARE_FLAT_TINT_SHIFT;
         if (!decision.keep && !flatChange) {
           console.debug("[live-voice screen share] frame skipped:", {
             reason: decision.reason,
@@ -466,7 +468,7 @@ export function useLiveVoiceScreenShare(): void {
         atMs: nowMs,
         seq: judgedSeq,
         detail,
-        meanLuma: meanLuma(picture.grid),
+        tint,
         spentArmMs,
       };
       if (drawing !== null) {
@@ -531,14 +533,19 @@ export function useLiveVoiceScreenShare(): void {
       if (stale()) {
         return;
       }
+      // The bound runs from when the picture was asked for, not from when
+      // its turn came: time spent queued behind a stalled answer is time
+      // this answer has already had, and a picture already in hand wins
+      // the race whatever is left.
+      const remainingMs = Math.max(
+        0,
+        SCREEN_SHARE_PICTURE_WAIT_MS - (performance.now() - requestedAtMs),
+      );
       let timer: ReturnType<typeof setTimeout> | null = null;
       const frame = await Promise.race([
         picture,
         new Promise<"late">((resolve) => {
-          timer = setTimeout(
-            () => resolve("late"),
-            SCREEN_SHARE_PICTURE_WAIT_MS,
-          );
+          timer = setTimeout(() => resolve("late"), remainingMs);
         }),
       ]);
       if (timer !== null) {
@@ -564,7 +571,7 @@ export function useLiveVoiceScreenShare(): void {
         );
         return;
       }
-      const grid = await stillFrameGrid(bytes, grids);
+      const still = await stillFrameGrid(bytes, grids);
       if (stale()) {
         return;
       }
@@ -573,7 +580,7 @@ export function useLiveVoiceScreenShare(): void {
       // gate cannot read is not sent unjudged: that is the second frame of
       // one view this file exists to stop, and a share that visibly sends
       // nothing is the honest shape of a broken decode.
-      if (grid === null) {
+      if (still === null) {
         if (drawing === null) {
           console.warn(
             "[live-voice screen share] frame could not be judged; skipped",
@@ -596,7 +603,13 @@ export function useLiveVoiceScreenShare(): void {
       // Copied out of the producer's reused grid, which the next picture
       // draws over.
       judge(
-        { bytes, grid: new Uint8Array(grid), requestedAtMs, run },
+        {
+          bytes,
+          grid: new Uint8Array(still.grid),
+          tint: still.tint,
+          requestedAtMs,
+          run,
+        },
         drawing,
         askedAtMs,
       );
