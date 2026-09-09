@@ -30,12 +30,25 @@ mock.module("@/runtime/hotkey", () => ({
 }));
 
 const handleCallChord = mock((_key: string) => {});
-/** The binding as the real module shapes it, by the one answer it varies on. */
-const callChords = (canBeShownTheScreen: boolean): ChordBinding => ({
+/**
+ * Stand-ins for the two bindings the real builder returns, one per answer it
+ * is asked. Sentinels rather than a copy of the builder: what this hook owns is
+ * which answer it asks with and when, and the keys are the builder's own test.
+ */
+const ALL_CHORDS: ChordBinding = {
   kind: "chord",
   modifiers: ["option"],
-  keys: canBeShownTheScreen ? ["s", "d", "m", "a"] : ["m", "a"],
-});
+  keys: ["all"],
+};
+const MUTE_CHORDS: ChordBinding = {
+  kind: "chord",
+  modifiers: ["option"],
+  keys: ["mutes"],
+};
+const callChords = mock(
+  (canBeShownTheScreen: boolean): ChordBinding =>
+    canBeShownTheScreen ? ALL_CHORDS : MUTE_CHORDS,
+);
 mock.module("@/domains/chat/voice/live-voice/call-chords", () => ({
   handleCallChord,
   callChords,
@@ -71,6 +84,7 @@ describe("the call's chords", () => {
     canBeShownTheScreen = false;
     setChordBinding.mockClear();
     handleCallChord.mockClear();
+    callChords.mockClear();
     useLiveVoiceStore.getState().setState("idle");
   });
 
@@ -91,7 +105,8 @@ describe("the call's chords", () => {
 
     setCall(true);
 
-    expect(armedWith()).toEqual(callChords(true));
+    expect(callChords).toHaveBeenLastCalledWith(true);
+    expect(armedWith()).toBe(ALL_CHORDS);
   });
 
   /**
@@ -105,7 +120,8 @@ describe("the call's chords", () => {
       useLiveVoiceStore.getState().setState("listening");
     });
 
-    expect(armedWith()).toEqual(callChords(false));
+    expect(callChords).toHaveBeenLastCalledWith(false);
+    expect(armedWith()).toBe(MUTE_CHORDS);
   });
 
   test("adds the share and the pen when the call can be shown the screen", () => {
@@ -121,7 +137,8 @@ describe("the call's chords", () => {
       useLiveVoiceStore.getState().setState("speaking");
     });
 
-    expect(armedWith()).toEqual(callChords(true));
+    expect(callChords).toHaveBeenLastCalledWith(true);
+    expect(armedWith()).toBe(ALL_CHORDS);
   });
 
   /**
