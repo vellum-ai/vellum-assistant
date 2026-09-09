@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
+import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -24,6 +25,32 @@ function clearProcessingWhenSettled(conversationId: string): void {
   useConversationStore
     .getState()
     .removeProcessingConversationId(conversationId);
+}
+
+/**
+ * Move the send carrying the event's nonce under the conversation the event
+ * arrived for, and its processing marker with it. On the legacy
+ * `conversationKey` path the send is listed under the key it went out with,
+ * and the daemon runs it under the row it minted for that key, so the first
+ * event that names both the nonce and the row moves the entry before any
+ * terminal could pass it by.
+ */
+function rekeyByNonce(
+  conversationId: string,
+  clientMessageId: string | undefined,
+): void {
+  if (clientMessageId === undefined) {
+    return;
+  }
+  const previousConversationId = useDocumentComposerReplyStore
+    .getState()
+    .rekeyReplyByNonce(clientMessageId, conversationId);
+  if (previousConversationId === null) {
+    return;
+  }
+  useConversationStore
+    .getState()
+    .transferProcessingConversationId(previousConversationId, conversationId);
 }
 
 /**
@@ -95,6 +122,7 @@ export function DocumentComposerReplyWatcher() {
       if (!event.conversationId) {
         return;
       }
+      rekeyByNonce(event.conversationId, event.clientMessageId);
       useDocumentComposerReplyStore
         .getState()
         .markReplyRunning(event.conversationId, event.clientMessageId);
@@ -106,6 +134,7 @@ export function DocumentComposerReplyWatcher() {
     // response can return after the running turn has already handed off. A
     // requeue is that same ack after a rolled-back dequeue, so it re-flags.
     if (event.type === "message_queued" || event.type === "message_requeued") {
+      rekeyByNonce(event.conversationId, event.clientMessageId);
       useDocumentComposerReplyStore
         .getState()
         .markReplyQueued(event.conversationId, event.clientMessageId);
@@ -115,6 +144,7 @@ export function DocumentComposerReplyWatcher() {
     // The daemon took the send off the queue for a turn, so it is running and
     // the terminal that ends that turn is its reply.
     if (event.type === "message_dequeued") {
+      rekeyByNonce(event.conversationId, event.clientMessageId);
       useDocumentComposerReplyStore
         .getState()
         .clearReplyQueued(event.conversationId, event.clientMessageId);
@@ -129,6 +159,7 @@ export function DocumentComposerReplyWatcher() {
       if (!clientMessageId) {
         return;
       }
+      rekeyByNonce(conversationId, clientMessageId);
       useDocumentComposerReplyStore
         .getState()
         .stopAwaitingReply(conversationId, clientMessageId);
@@ -154,12 +185,18 @@ export function DocumentComposerReplyWatcher() {
     if (!conversationId) {
       return;
     }
-    // An `error` that names a message is that message's alone, a queued
-    // member the daemon could not persist while the batch it was dequeued
-    // with runs on, so only the send carrying that nonce ends. An `error`
-    // naming no message is the turn's, and ends every send running in it.
-    if (event.type === "error" && event.clientMessageId !== undefined) {
+    // The scope says the error is one message's, a queued member the daemon
+    // could not persist while the batch it was dequeued with runs on; the
+    // nonce, when the sender supplied one, says which. Without it nothing here
+    // can be the failed message for certain, and the running sends are still
+    // owed their own terminals. An error the daemon scopes to no message is
+    // the turn's, and ends every send running in it.
+    if (event.type === "error" && isMessageScopedError(event)) {
       const { clientMessageId } = event;
+      if (clientMessageId === undefined) {
+        return;
+      }
+      rekeyByNonce(conversationId, clientMessageId);
       const replyStore = useDocumentComposerReplyStore.getState();
       const pending = replyStore.pendingReplies.get(conversationId) ?? [];
       // A nonce naming none of these sends is another client's message, and

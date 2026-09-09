@@ -91,6 +91,7 @@ function publishConversationError(conversationId: string) {
 function publishStreamError(
   conversationId: string | undefined,
   clientMessageId?: string,
+  scope?: "message" | "turn",
 ) {
   act(() => {
     publish("sse.event", {
@@ -101,6 +102,7 @@ function publishStreamError(
         message: "Something went wrong.",
         ...(conversationId ? { conversationId } : {}),
         ...(clientMessageId ? { clientMessageId } : {}),
+        ...(scope ? { scope } : {}),
       },
     });
   });
@@ -1152,6 +1154,148 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
       expect(awaiting("conv-1")).toBe(false);
       expect(processing("conv-1")).toBe(false);
+    });
+  });
+
+  describe("an error scoped to a message", () => {
+    test("settles nothing when the scope names no send", () => {
+      // GIVEN two sends the daemon dequeued into one turn
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      acknowledgeRunning("conv-1", "cm-1");
+      acknowledgeRunning("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // WHEN a legacy client's batch member fails, so nothing names which
+      publishStreamError("conv-1", undefined, "message");
+
+      // THEN the turn runs on, and both sends are still owed their terminals
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(nonces("conv-1")).toEqual(["cm-1", "cm-2"]);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("settles nothing when the nonce names another client's message", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      acknowledgeRunning("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-someone-else", "message");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(nonces("conv-1")).toEqual(["cm-1"]);
+      expect(processing("conv-1")).toBe(true);
+    });
+  });
+
+  describe("a send listed under the key it went out with", () => {
+    test("the echo moves the send onto the row it names", () => {
+      // GIVEN a legacy send listed under the client key its POST went out
+      // with, before the response names the row the daemon minted
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("draft-key", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("draft-key");
+      render(<DocumentComposerReplyWatcher />);
+
+      // WHEN the daemon echoes the send back under that row
+      publishUserMessageEcho("conv-server", "cm-1");
+
+      // THEN the wait and its marker moved, and the send is running there
+      expect(awaiting("draft-key")).toBe(false);
+      expect(processing("draft-key")).toBe(false);
+      expect(nonces("conv-server")).toEqual(["cm-1"]);
+      expect(acknowledgedFlags("conv-server")).toEqual([true]);
+      expect(processing("conv-server")).toBe(true);
+
+      // The turn's terminal reaches the send it now stands under.
+      publishMessageComplete("conv-server");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-server")).toBe(false);
+      expect(processing("conv-server")).toBe(false);
+    });
+
+    test("the queue ack moves the send and parks it", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("draft-key", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("draft-key");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-server", "cm-1");
+
+      expect(awaiting("draft-key")).toBe(false);
+      expect(nonces("conv-server")).toEqual(["cm-1"]);
+      expect(queuedFlags("conv-server")).toEqual([true]);
+      expect(processing("conv-server")).toBe(true);
+
+      publishMessageDequeued("conv-server", "cm-1");
+      publishMessageComplete("conv-server");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-server")).toBe(false);
+      expect(processing("conv-server")).toBe(false);
+    });
+
+    test("a deletion moves the send and ends its wait", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("draft-key", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("draft-key");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueuedDeleted("conv-server", "cm-1");
+
+      // The message never runs, so no reply is coming for it under either id.
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("draft-key")).toBe(false);
+      expect(awaiting("conv-server")).toBe(false);
+      expect(processing("draft-key")).toBe(false);
+      expect(processing("conv-server")).toBe(false);
+    });
+
+    test("a scoped error moves the send and ends only that one", () => {
+      // GIVEN a send already running on the row, and a second listed under
+      // the key its own POST went out with
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-server", "cm-0");
+      acknowledgeRunning("conv-server", "cm-0");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("draft-key", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("draft-key");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-server", "cm-1", "message");
+
+      // THEN the moved send ends silently and the running one keeps the
+      // activity up
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("draft-key")).toBe(false);
+      expect(nonces("conv-server")).toEqual(["cm-0"]);
+      expect(processing("conv-server")).toBe(true);
+
+      publishMessageComplete("conv-server");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-server")).toBe(false);
+      expect(processing("conv-server")).toBe(false);
     });
   });
 

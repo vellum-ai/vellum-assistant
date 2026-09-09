@@ -507,6 +507,93 @@ describe("clearReplyQueued", () => {
   });
 });
 
+describe("rekeyReplyByNonce", () => {
+  test("moves the send under the row the daemon answered on", () => {
+    // GIVEN a send listed under the client key its POST went out with
+    getState().startAwaitingReply("draft-key", "cm-1");
+
+    // WHEN a stream event names that nonce under the row the daemon minted
+    const previous = getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    // THEN the wait moves onto the row, and the key it left is reported
+    expect(previous).toBe("draft-key");
+    expect(noncesFor("conv-server")).toEqual(["cm-1"]);
+  });
+
+  test("carries the acknowledged and queued flags across", () => {
+    getState().startAwaitingReply("draft-key", "cm-1");
+    getState().markReplyQueued("draft-key", "cm-1");
+
+    getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    expect(acknowledgedFlags("conv-server")).toEqual([true]);
+    expect(queuedFlags("conv-server")).toEqual([true]);
+  });
+
+  test("the emptied key drops off", () => {
+    getState().startAwaitingReply("draft-key", "cm-1");
+
+    getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    expect(getState().pendingReplies.has("draft-key")).toBe(false);
+  });
+
+  test("joins the tail of the row's own sends", () => {
+    getState().startAwaitingReply("conv-server", "cm-1");
+    getState().startAwaitingReply("draft-key", "cm-2");
+
+    getState().rekeyReplyByNonce("cm-2", "conv-server");
+
+    expect(noncesFor("conv-server")).toEqual(["cm-1", "cm-2"]);
+  });
+
+  test("leaves the key's other sends where they are", () => {
+    getState().startAwaitingReply("draft-key", "cm-1");
+    getState().startAwaitingReply("draft-key", "cm-2");
+
+    getState().rekeyReplyByNonce("cm-2", "conv-server");
+
+    expect(noncesFor("draft-key")).toEqual(["cm-1"]);
+    expect(noncesFor("conv-server")).toEqual(["cm-2"]);
+  });
+
+  test("is a no-op for a send already under the row", () => {
+    getState().startAwaitingReply("conv-server", "cm-1");
+    const before = getState().pendingReplies;
+
+    const previous = getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    expect(previous).toBeNull();
+    expect(getState().pendingReplies).toBe(before);
+  });
+
+  test("is a no-op for a nonce nothing is waiting under", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    const before = getState().pendingReplies;
+
+    const previous = getState().rekeyReplyByNonce("cm-other", "conv-server");
+
+    expect(previous).toBeNull();
+    expect(getState().pendingReplies).toBe(before);
+  });
+
+  test("drops the stray entry when the row already lists the nonce", () => {
+    // GIVEN the same send listed twice: once under the key, once under the
+    // row the response already moved it to
+    getState().startAwaitingReply("draft-key", "cm-1");
+    getState().startAwaitingReply("conv-server", "cm-1");
+    getState().markReplyRunning("conv-server", "cm-1");
+
+    const previous = getState().rekeyReplyByNonce("cm-1", "conv-server");
+
+    // THEN the row keeps the one it holds, and the key's copy goes
+    expect(previous).toBe("draft-key");
+    expect(getState().pendingReplies.has("draft-key")).toBe(false);
+    expect(noncesFor("conv-server")).toEqual(["cm-1"]);
+    expect(acknowledgedFlags("conv-server")).toEqual([true]);
+  });
+});
+
 describe("acknowledgeReply", () => {
   test("a response saying the send is running makes it settleable", () => {
     getState().startAwaitingReply("conv-1", "cm-1");

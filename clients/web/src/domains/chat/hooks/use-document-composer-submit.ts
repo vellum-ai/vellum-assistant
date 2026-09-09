@@ -550,8 +550,12 @@ export function useDocumentComposerSubmit({
       // The assistant is the source of truth for the id: a legacy
       // `conversationKey` send for a fresh draft comes back with the row the
       // daemon minted rather than the key that went out, so the wait moves
-      // onto it, under the same nonce. An id that did not move leaves the wait
-      // raised before the POST exactly as it stands, the watcher's to end.
+      // onto it, under the same nonce. It moves only while it still sits
+      // under the key: the watcher moves it itself off the first stream event
+      // that names the nonce and the row, and may have settled it since, and
+      // a send listed again for a turn that is over would toast on the next
+      // unrelated completion. An id that did not move leaves the wait raised
+      // before the POST exactly as it stands, the watcher's to end.
       if (sameAssistant && conversationId !== targetConversationId) {
         // The mark follows the wait onto the answered row, and only while
         // something is still pending on the row it went up for: a conversation
@@ -564,8 +568,8 @@ export function useDocumentComposerSubmit({
           useDocumentComposerReplyStore
             .getState()
             .stopAwaitingReply(targetConversationId, clientMessageId);
+          raiseReplyWait(conversationId);
         }
-        raiseReplyWait(conversationId);
         if (waiting) {
           useConversationStore
             .getState()

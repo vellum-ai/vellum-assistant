@@ -106,6 +106,19 @@ export interface DocumentComposerReplyActions {
    */
   clearReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /**
+   * Move the send carrying `clientMessageId` under `conversationId`, and
+   * report the conversation it moved from. A send listed under the client key
+   * the POST went out with moves under the row the daemon answers on as soon
+   * as a stream event names both the nonce and the row, keeping its
+   * acknowledged and queued flags and joining the tail of that row's list.
+   * Returns null when the nonce is already under `conversationId`, or listed
+   * nowhere.
+   */
+  rekeyReplyByNonce: (
+    clientMessageId: string,
+    conversationId: string,
+  ) => string | null;
+  /**
    * The daemon answered the POST for the send carrying `clientMessageId`,
    * queued or running as `queued` says. Stands in for the stream's own
    * acknowledgment only while that has not arrived: the response can reach
@@ -313,6 +326,37 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
       });
+    },
+
+    rekeyReplyByNonce: (clientMessageId, conversationId) => {
+      const previous = [...get().pendingReplies].find(
+        ([id, pending]) =>
+          id !== conversationId &&
+          pending.some((p) => carriesNonce(p, clientMessageId)),
+      );
+      if (!previous) {
+        return null;
+      }
+      const [previousConversationId, previousPending] = previous;
+      const index = previousPending.findIndex((p) =>
+        carriesNonce(p, clientMessageId),
+      );
+      const moved = previousPending[index];
+      set((s) => {
+        const target = s.pendingReplies.get(conversationId) ?? [];
+        const listed = target.some((p) => carriesNonce(p, clientMessageId));
+        return {
+          pendingReplies: withPending(
+            withPending(s.pendingReplies, previousConversationId, [
+              ...previousPending.slice(0, index),
+              ...previousPending.slice(index + 1),
+            ]),
+            conversationId,
+            listed ? target : [...target, moved],
+          ),
+        };
+      });
+      return previousConversationId;
     },
 
     acknowledgeReply: (conversationId, clientMessageId, queued) => {

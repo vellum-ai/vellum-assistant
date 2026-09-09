@@ -3,6 +3,7 @@ import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { messageMatchesKey } from "@/domains/chat/utils/message-identity";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
@@ -20,20 +21,18 @@ function resolveErrorDetail(event: ErrorEvent): string {
 }
 
 /**
- * `scope` marks what kind of error this is. `"message"` is one message's
- * failure rather than the turn's: a queued batch member the daemon could not
- * persist while the batch it was dequeued with runs on, so the turn on screen
- * keeps streaming and only that send is marked failed. A `clientMessageId` is
- * the correlation handle for that send, and on its own it marks the error
- * message-scoped too, for senders that supply the nonce without the scope.
- * Everything else is the turn's terminal error.
+ * `isMessageScopedError` is the one place that decides what an error belongs
+ * to. A message-scoped error is one message's failure rather than the turn's:
+ * a queued batch member the daemon could not persist while the batch it was
+ * dequeued with runs on, so the turn on screen keeps streaming and only that
+ * send is marked failed. Everything else is the turn's terminal error.
  */
 export function handleStreamError(
   event: ErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
   const { clientMessageId } = event;
-  if (event.scope === "message" || clientMessageId) {
+  if (isMessageScopedError(event)) {
     handleMessageScopedError(event, clientMessageId, ctx);
     return;
   }

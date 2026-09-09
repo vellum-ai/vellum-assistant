@@ -1379,6 +1379,39 @@ describe("when the reply wait goes up", () => {
     );
   });
 
+  test("a response naming another row lists nothing once the watcher settled the send", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    const nonce = sentOptions(0).clientMessageId as string;
+    expect(isAwaitingReply("conv-key")).toBe(true);
+
+    // GIVEN the stream named the nonce under the row the daemon minted, so the
+    // watcher moved the send there, and the turn then finished before the
+    // POST answered.
+    useDocumentComposerReplyStore
+      .getState()
+      .stopAwaitingReply("conv-key", nonce);
+    useConversationStore.getState().removeProcessingConversationId("conv-key");
+
+    // WHEN the response names that row.
+    await act(async () => {
+      settle(sentResult("conv-minted"));
+      await submitted;
+    });
+
+    // THEN nothing is listed for a turn that is over, under either id, and no
+    // mark comes back up for it.
+    expect(result.current.status).toBe("sent");
+    expect(isAwaitingReply("conv-key")).toBe(false);
+    expect(isAwaitingReply("conv-minted")).toBe(false);
+    expect(isProcessing("conv-minted")).toBe(false);
+  });
+
   test("a retry the daemon dedupes never raises a second wait", async () => {
     let calls = 0;
     postChatMessageMock = mock(
