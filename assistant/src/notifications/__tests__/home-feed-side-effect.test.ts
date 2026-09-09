@@ -919,6 +919,33 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls[0]!.noteworthy).toBe(true);
   });
 
+  test("a mapped source event carries its feed category", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      contextPayload: { title: "Nightly briefing", body: "Three things." },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item?.category).toBe("scheduling");
+    expect(appendCalls[0]!.category).toBe("scheduling");
+  });
+
+  test("an unmapped source event carries no category instead of falling back to system", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "user.send_notification",
+      contextPayload: { title: "Tool share", body: "Body" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item).not.toBeNull();
+    expect("category" in item!).toBe(false);
+    expect("category" in appendCalls[0]!).toBe(false);
+  });
+
   test("credential.health_alert is noteworthy regardless of source channel", async () => {
     conversationRow = { conversationType: "background" };
     const signal = makeSignal({
