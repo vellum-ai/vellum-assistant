@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { createApp } from "../../../apps/app-store.js";
+import { createApp, getAppDirPath } from "../../../apps/app-store.js";
 import { writeAppSourceFingerprint } from "../../../apps/source-fingerprint.js";
 import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import { runCliCommand } from "./cli-test-harness.js";
@@ -46,6 +46,7 @@ mock.module("../../../ipc/cli-client.js", () => ({
 const { registerAppsCommand } = await import("../apps.js");
 
 let workspaceDir: string;
+let previousWorkspaceDir: string | undefined;
 
 function freshWorkspace(): string {
   return join(
@@ -54,7 +55,12 @@ function freshWorkspace(): string {
   );
 }
 
+function uniqueAppName(prefix: string): string {
+  return `${prefix} ${Math.random().toString(36).slice(2, 8)}`;
+}
+
 beforeEach(() => {
+  previousWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   workspaceDir = freshWorkspace();
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
   lastIpcCall = null;
@@ -72,6 +78,11 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+  if (previousWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
+  }
 });
 
 function parseJson(stdout: string): Record<string, unknown> {
@@ -80,8 +91,9 @@ function parseJson(stdout: string): Record<string, unknown> {
 
 describe("assistant apps inspect", () => {
   test("reports never_compiled for a new workspace app", async () => {
-    createApp({
-      name: "Budget",
+    const name = uniqueAppName("Inspect Fresh");
+    const created = createApp({
+      name,
       schemaJson: "{}",
       htmlDefinition: "<h1>Budget</h1>",
     });
@@ -89,7 +101,7 @@ describe("assistant apps inspect", () => {
     const result = await runCliCommand(registerAppsCommand, [
       "apps",
       "inspect",
-      "Budget",
+      created.id,
       "--json",
     ]);
 
@@ -101,12 +113,14 @@ describe("assistant apps inspect", () => {
   });
 
   test("reports stale after source changes since the last fingerprint", async () => {
+    const name = uniqueAppName("Inspect Stale");
     const created = createApp({
-      name: "Budget",
+      name,
       schemaJson: "{}",
       htmlDefinition: "<h1>Budget</h1>",
     });
-    const appDir = join(workspaceDir, "data", "apps", created.dirName ?? "");
+    const appDir = getAppDirPath(created.id);
+    expect(appDir.length).toBeGreaterThan(0);
     mkdirSync(join(appDir, "src"), { recursive: true });
     writeFileSync(join(appDir, "src", "main.tsx"), "export const n = 1;\n");
     mkdirSync(join(appDir, "dist"), { recursive: true });
@@ -117,12 +131,15 @@ describe("assistant apps inspect", () => {
     const result = await runCliCommand(registerAppsCommand, [
       "apps",
       "inspect",
-      "Budget",
+      created.id,
       "--json",
     ]);
 
     expect(result.exitCode).toBe(0);
     const body = parseJson(result.stdout);
+    const app = body.app as { id: string; source: string };
+    expect(app.id).toBe(created.id);
+    expect(app.source).toBe(appDir);
     const compile = body.compile as {
       status: string;
       modified: string[];
@@ -147,8 +164,9 @@ describe("assistant apps inspect", () => {
 
 describe("assistant apps refresh", () => {
   test("sends apps_refresh IPC for a workspace app", async () => {
+    const name = uniqueAppName("Refresh");
     const created = createApp({
-      name: "Budget",
+      name,
       schemaJson: "{}",
       htmlDefinition: "<h1>Budget</h1>",
     });
@@ -156,7 +174,7 @@ describe("assistant apps refresh", () => {
     const result = await runCliCommand(registerAppsCommand, [
       "apps",
       "refresh",
-      "Budget",
+      created.id,
       "--json",
     ]);
 
@@ -194,8 +212,9 @@ describe("assistant apps refresh", () => {
   });
 
   test("exits 1 when compile fails", async () => {
-    createApp({
-      name: "Budget",
+    const name = uniqueAppName("Refresh Fail");
+    const created = createApp({
+      name,
       schemaJson: "{}",
       htmlDefinition: "<h1>Budget</h1>",
     });
@@ -203,8 +222,8 @@ describe("assistant apps refresh", () => {
       ok: true,
       result: {
         ok: true,
-        appId: "app-1",
-        name: "Budget",
+        appId: created.id,
+        name,
         compiled: false,
         compile_duration_ms: 8,
         compile_errors: [{ text: "Could not resolve foo" }],
@@ -214,7 +233,7 @@ describe("assistant apps refresh", () => {
     const result = await runCliCommand(registerAppsCommand, [
       "apps",
       "refresh",
-      "Budget",
+      created.id,
       "--json",
     ]);
 

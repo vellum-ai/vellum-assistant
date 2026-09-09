@@ -1,10 +1,24 @@
 /**
  * Tests for the IPC-only `apps_refresh` method.
+ *
+ * `mock.module` is process-global in Bun. Stubs delegate to the real
+ * implementations unless this file's tests are running, so a batched
+ * `bun test` invocation cannot leak `/tmp/apps/budget` into inspect.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-const compileApp = mock(async () => ({
+import type { CompileResult } from "../../../bundler/app-compiler.js";
+
+let mockActive = false;
+beforeAll(() => {
+  mockActive = true;
+});
+afterAll(() => {
+  mockActive = false;
+});
+
+const compileApp = mock(async (): Promise<CompileResult> => ({
   ok: true,
   errors: [],
   warnings: [],
@@ -17,18 +31,54 @@ const getApp = mock((id: string) =>
 const getAppDirPath = mock(() => "/tmp/apps/budget");
 const isPluginAppId = mock((id: string) => id.startsWith("plugins~"));
 
+const realAppStore = { ...(await import("../../../apps/app-store.js")) };
+const realCompiler = { ...(await import("../../../bundler/app-compiler.js")) };
+const realNotify = {
+  ...(await import("../../../daemon/app-change-notify.js")),
+};
+
 mock.module("../../../apps/app-store.js", () => ({
-  getApp,
-  getAppDirPath,
-  isPluginAppId,
+  ...realAppStore,
+  getApp: (...args: Parameters<typeof realAppStore.getApp>) => {
+    if (!mockActive) {
+      return realAppStore.getApp(...args);
+    }
+    return getApp(...args);
+  },
+  getAppDirPath: (...args: Parameters<typeof realAppStore.getAppDirPath>) => {
+    if (!mockActive) {
+      return realAppStore.getAppDirPath(...args);
+    }
+    return getAppDirPath(...args);
+  },
+  isPluginAppId: (...args: Parameters<typeof realAppStore.isPluginAppId>) => {
+    if (!mockActive) {
+      return realAppStore.isPluginAppId(...args);
+    }
+    return isPluginAppId(...args);
+  },
 }));
 
 mock.module("../../../bundler/app-compiler.js", () => ({
-  compileApp,
+  ...realCompiler,
+  compileApp: (...args: Parameters<typeof realCompiler.compileApp>) => {
+    if (!mockActive) {
+      return realCompiler.compileApp(...args);
+    }
+    return compileApp(...args);
+  },
 }));
 
 mock.module("../../../daemon/app-change-notify.js", () => ({
-  notifyAppSurfacesChanged,
+  ...realNotify,
+  notifyAppSurfacesChanged: (
+    ...args: Parameters<typeof realNotify.notifyAppSurfacesChanged>
+  ) => {
+    if (!mockActive) {
+      return realNotify.notifyAppSurfacesChanged(...args);
+    }
+    return notifyAppSurfacesChanged(...args);
+  },
 }));
 
 const { handleAppsRefresh, APPS_IPC_METHODS } = await import(
@@ -48,7 +98,7 @@ describe("apps_refresh IPC", () => {
       errors: [],
       warnings: [],
       durationMs: 11,
-    });
+    } satisfies CompileResult);
 
     const result = await handleAppsRefresh({
       body: { appId: "app-1" },

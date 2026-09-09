@@ -12,6 +12,7 @@ import { resolveAppQuery } from "../apps/resolve-app.js";
 import { getWorkspacePluginsDir } from "../util/platform.js";
 
 let workspaceDir: string;
+let previousWorkspaceDir: string | undefined;
 
 function freshWorkspace(): string {
   return join(
@@ -37,12 +38,18 @@ function bundleApp(pluginDir: string, app: string): void {
 }
 
 beforeEach(() => {
+  previousWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
   workspaceDir = freshWorkspace();
   process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
 });
 
 afterEach(() => {
   rmSync(workspaceDir, { recursive: true, force: true });
+  if (previousWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
+  }
 });
 
 describe("resolveAppQuery", () => {

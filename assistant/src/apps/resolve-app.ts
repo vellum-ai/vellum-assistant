@@ -5,7 +5,7 @@
 
 import { basename } from "node:path";
 
-import { listAllApps, type EnumeratedApp } from "./app-store.js";
+import { type EnumeratedApp, listAllApps } from "./app-store.js";
 
 export type ResolveAppQueryResult =
   | { readonly ok: true; readonly app: EnumeratedApp }
