@@ -39,6 +39,9 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
     "internal.write",
   ]),
   local_v1: new Set<Scope>(["local.all"]),
+  // Mirrors the daemon profile a short-lived OAuth passthrough grant is
+  // minted with; the gateway resolves it on the IPC fast path.
+  oauth_proxy_v1: new Set<Scope>(["oauth.proxy"]),
   // Managed speech relay only (ATL-1033): the daemon's relay-dial token must
   // not open any other edge-scoped route.
   speech_relay_v1: new Set<Scope>(["speech.relay"]),

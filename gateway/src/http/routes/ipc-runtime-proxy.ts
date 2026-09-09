@@ -15,7 +15,10 @@
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
-import { validateEdgeToken } from "../../auth/token-exchange.js";
+import {
+  toDaemonSubject,
+  validateEdgeToken,
+} from "../../auth/token-exchange.js";
 import type { TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import {
@@ -147,15 +150,19 @@ export async function tryIpcProxy(
     }
   });
 
-  // Override caller-supplied identity headers with values derived from the
-  // verified JWT claims. The daemon's IPC adapter (`injectLocalActorHeader`)
-  // preserves any inbound `x-vellum-actor-principal-id`, so without this
-  // step a malicious client could spoof another user's principal id by
-  // setting the header explicitly. Mirrors the HTTP adapter's behavior in
+  // Override caller-supplied identity headers (`x-vellum-actor-principal-id`,
+  // `x-vellum-principal-type`, `x-vellum-subject`) with values derived from
+  // the verified JWT claims. The daemon's IPC adapter
+  // (`injectLocalActorHeader`) preserves any inbound
+  // `x-vellum-actor-principal-id`, so without this step a malicious client
+  // could spoof another user's principal id by setting the header explicitly.
+  // Mirrors the HTTP adapter's behavior in
   // `assistant/src/runtime/routes/http-adapter.ts`.
   delete headers["x-vellum-actor-principal-id"];
   delete headers["x-vellum-principal-type"];
+  delete headers["x-vellum-subject"];
   if (claims) {
+    headers["x-vellum-subject"] = toDaemonSubject(claims.sub);
     const sub = parseSub(claims.sub);
     if (sub.ok) {
       headers["x-vellum-principal-type"] = sub.principalType;
