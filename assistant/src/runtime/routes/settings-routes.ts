@@ -1,5 +1,5 @@
 /**
- * Route handlers for settings, identity/avatar, voice config,
+ * Route handlers for settings, identity, voice config,
  * OAuth connect, workspace files, tools, and diagnostics env vars.
  */
 
@@ -9,7 +9,6 @@ import { basename, join } from "node:path";
 import { normalizePublicBaseUrl } from "@vellumai/service-contracts/ingress";
 import { z } from "zod";
 
-import { setImage } from "../../avatar/avatar-store.js";
 import {
   getPlatformBaseUrl,
   setIngressPublicBaseUrl,
@@ -67,13 +66,11 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../../tools/schema-transforms.js";
-import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
-import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { resolveWorkspacePath } from "./workspace-utils.js";
@@ -94,44 +91,6 @@ function handleVoiceConfigUpdate({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError(result.reason);
   }
   return { ok: true, activationKey: result.value };
-}
-
-// ---------------------------------------------------------------------------
-// Avatar generation
-// ---------------------------------------------------------------------------
-
-async function handleGenerateAvatar({ body = {}, headers }: RouteHandlerArgs) {
-  const { description } = body as { description?: string };
-  if (!description?.trim()) {
-    throw new BadRequestError("Description is required.");
-  }
-
-  log.info({ description }, "Generating avatar via HTTP request");
-
-  try {
-    const result = await generateAvatarImage(description);
-
-    if (result.isError || !result.pngBuffer) {
-      throw new InternalError(result.content);
-    }
-
-    // Route through the store so traits sidecars are cleared and the manifest
-    // is recorded as an AI-sourced image atomically.
-    await setImage(result.pngBuffer, "ai");
-
-    const avatarPath = getAvatarImagePath();
-
-    publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
-
-    return { ok: true, avatarPath };
-  } catch (err) {
-    if (err instanceof InternalError || err instanceof BadRequestError) {
-      throw err;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ error: message }, "Avatar generation failed unexpectedly");
-    throw new InternalError(message);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -915,22 +874,6 @@ export const ROUTES: RouteDefinition[] = [
       activationKey: z.string(),
     }),
     handler: handleVoiceConfigUpdate,
-  },
-  {
-    operationId: "settings_avatar_generate_post",
-    endpoint: "settings/avatar/generate",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Generate avatar",
-    description: "Generate an AI avatar image from a text description.",
-    tags: ["settings"],
-    requestBody: z.object({
-      description: z.string(),
-    }),
-    handler: handleGenerateAvatar,
   },
   {
     operationId: "settings_client_put",

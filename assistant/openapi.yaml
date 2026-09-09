@@ -30344,27 +30344,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/settings/avatar/generate:
-    post:
-      operationId: settings_avatar_generate_post
-      summary: Generate avatar
-      description: Generate an AI avatar image from a text description.
-      tags:
-        - settings
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                description:
-                  type: string
-              required:
-                - description
-      responses:
-        "200":
-          description: Successful response
   /v1/settings/client:
     put:
       operationId: settings_client_put
