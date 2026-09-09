@@ -33964,6 +33964,67 @@ paths:
                   required:
                     - type
                     - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: avatar_changed
+                    fields:
+                      type: object
+                      properties:
+                        action:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        previous_kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        body_shape:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        eye_style:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        color:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        accent_hex:
+                          type: string
+                          minLength: 1
+                          maxLength: 7
+                        accent_source:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        client_os:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                      required:
+                        - action
+                        - kind
+                        - previous_kind
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
               type: object
       responses:
         "200":
