@@ -260,6 +260,15 @@ export function useDocumentComposerSubmit({
         assistantId,
         targetConversationId,
       );
+      // Nothing has gone out yet, and no await stands between here and the
+      // POST, so this is the last point the send can still be dropped whole.
+      // It comes ahead of the writes the link leads to because those are
+      // keyed by surface id alone: the incoming assistant can have the same
+      // document open, and pointing it at this send's conversation would hand
+      // the next send a row belonging to the assistant the user left.
+      if (assistantChanged()) {
+        return;
+      }
       if (linked) {
         // The mint left the draft id behind for a row under another id, so
         // the mark comes off only once the document is linked to that row and
@@ -273,11 +282,6 @@ export function useDocumentComposerSubmit({
         // id: with the link in place it can carry the id a later submit
         // resolves (see `resolveDocumentConversationId`'s fallback order).
         markOpenedDocumentLinked(doc.surfaceId, targetConversationId);
-      }
-      // Nothing has gone out yet, and no await stands between here and the
-      // POST, so this is the last point the send can still be dropped whole.
-      if (assistantChanged()) {
-        return;
       }
       if (requireLink && !linked) {
         // An assistant that mints conversations also has the link route, so a
@@ -334,6 +338,15 @@ export function useDocumentComposerSubmit({
       // would raise a wait for a turn that already finished and the next
       // unrelated completion would fire the reply toast.
       armReplyWaiter(targetConversationId, clientMessageId);
+      // The sidebar's processing mark goes up with the wait, for the same
+      // reason: the daemon can broadcast `message_queued`, run the turn ahead
+      // of it and finish this message before the POST answers, and the
+      // watcher takes this mark down with the wait it ends. Raised off the
+      // response instead, it would go up after the watcher had already tried
+      // to remove it and stand until an unrelated reconciliation.
+      useConversationStore
+        .getState()
+        .addProcessingConversationId(targetConversationId, snapshot);
 
       const result = await postChatMessage(
         assistantId,
@@ -344,10 +357,14 @@ export function useDocumentComposerSubmit({
 
       if (!result.ok) {
         // The daemon answered and refused the message: nothing is persisted
-        // and no turn will run, so the wait this attempt raised comes back
-        // down and the next attempt goes out as a fresh send rather than a
-        // duplicate the daemon would dedupe against nothing.
+        // and no turn will run, so the wait this attempt raised and the mark
+        // that went up with it both come back down, and the next attempt goes
+        // out as a fresh send rather than a duplicate the daemon would dedupe
+        // against nothing.
         disarmReplyWaiter();
+        useConversationStore
+          .getState()
+          .removeProcessingConversationId(targetConversationId);
         pendingClientMessageRef.current = null;
         if (ownsSlotNow()) {
           setStatus("error");
@@ -367,13 +384,30 @@ export function useDocumentComposerSubmit({
       pendingClientMessageRef.current = null;
 
       const conversationId = result.conversationId;
-      // A reply wait and a processing marker both watch the assistant's own
-      // SSE connection, which a switch to another assistant replaced: raised
-      // for the outgoing one, neither can be taken down by anything but an
-      // unrelated completion. A move to another document keeps both, since
-      // the reply toast is meant to outlive closing the document.
+      // A reply wait and a processing mark both watch the assistant's own SSE
+      // connection, which a switch to another assistant replaced: moving
+      // either onto the row the daemon answered with would leave it on a
+      // connection nothing is listening to. A move to another document moves
+      // both, since the reply toast is meant to outlive closing the document.
       const sameAssistant = !assistantChanged();
       if (sameAssistant) {
+        if (conversationId !== targetConversationId) {
+          // The mark follows the wait onto the answered row, and only while
+          // that wait is still up: one the watcher has already ended took the
+          // mark down with it, and a turn that is over must not come back as
+          // processing under another id.
+          const waiting = useDocumentComposerReplyStore
+            .getState()
+            .awaitingReplyConversationIds.has(targetConversationId);
+          if (waiting) {
+            useConversationStore
+              .getState()
+              .transferProcessingConversationId(
+                targetConversationId,
+                conversationId,
+              );
+          }
+        }
         // The assistant is the source of truth for the id: a legacy
         // `conversationKey` send for a fresh draft comes back with the row
         // the daemon minted rather than the key that went out, so the wait
@@ -394,11 +428,6 @@ export function useDocumentComposerSubmit({
       }
       persistDocumentConversationId(doc, assistantId, conversationId);
 
-      if (sameAssistant) {
-        useConversationStore
-          .getState()
-          .addProcessingConversationId(conversationId, snapshot);
-      }
       // Only the document and assistant this send started under own the
       // shared `"document"` slot. Switching either one mid-flight, on any
       // host, hands the slot to the next draft, and a late completion

@@ -247,6 +247,12 @@ function isAwaitingReply(conversationId: string): boolean {
     .awaitingReplyConversationIds.has(conversationId);
 }
 
+function isProcessing(conversationId: string): boolean {
+  return useConversationStore
+    .getState()
+    .processingConversationIds.has(conversationId);
+}
+
 function isQueuedReply(conversationId: string): boolean {
   return useDocumentComposerReplyStore
     .getState()
@@ -1098,6 +1104,116 @@ describe("when the reply wait goes up", () => {
   });
 });
 
+describe("the sidebar processing mark", () => {
+  test("the mark is up before the send resolves", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // The daemon can queue this message behind a running turn, run it and
+    // finish it before the POST answers, and the watcher takes the mark down
+    // with the wait it ends, so the mark has to be up by the time the message
+    // goes out.
+    expect(isProcessing("conv-existing")).toBe(true);
+
+    await act(async () => {
+      settle(sentResult("conv-existing"));
+      await submitted;
+    });
+
+    expect(isProcessing("conv-existing")).toBe(true);
+  });
+
+  test("a send the daemon answered and refused takes the mark back down", async () => {
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => ({
+        ok: false,
+        status: 500,
+        error: { detail: "boom" },
+      }),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // Nothing is persisted and no turn will run, so the sidebar has nothing
+    // to show as processing.
+    expect(isProcessing("conv-existing")).toBe(false);
+  });
+
+  test("a turn the watcher ended while the send was in flight stays ended", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // What the watcher does when the whole turn runs and completes before the
+    // POST answers: it ends the wait and takes the mark down with it.
+    useDocumentComposerReplyStore.getState().stopAwaitingReply("conv-existing");
+    useConversationStore
+      .getState()
+      .removeProcessingConversationId("conv-existing");
+
+    await act(async () => {
+      settle(sentResult("conv-existing"));
+      await submitted;
+    });
+
+    // The response says nothing about a turn that is already over, so it must
+    // not put the conversation back on the sidebar as processing.
+    expect(isProcessing("conv-existing")).toBe(false);
+    expect(isAwaitingReply("conv-existing")).toBe(false);
+  });
+
+  test("a mark moved onto the row the daemon answered with keeps its snapshot", async () => {
+    queryClient.setQueryData(
+      conversationListQueryKey(ASSISTANT_ID),
+      listPage([
+        {
+          conversationId: "conv-key",
+          title: "t",
+          createdAt: 1,
+          lastMessageAt: 2,
+          latestAssistantMessageAt: 555,
+        },
+      ]),
+    );
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> =>
+        sentResult("conv-minted"),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The legacy `conversationKey` path answers with the row the daemon
+    // minted rather than the key that went out, and the mark follows the wait
+    // onto it with the snapshot the graduation sweep compares against.
+    expect(isProcessing("conv-key")).toBe(false);
+    expect(isProcessing("conv-minted")).toBe(true);
+    expect(
+      useConversationStore.getState().processingSnapshots.get("conv-minted"),
+    ).toBe(555);
+  });
+});
+
 describe("idempotency nonce", () => {
   test("the POST carries a client message id", async () => {
     useComposerStore.getState().setInput("hello", "document");
@@ -1417,6 +1533,45 @@ describe("a send that outlives its owner", () => {
     ).toBe(true);
   });
 
+  test("an assistant switch while the document is being linked leaves the incoming assistant's document alone", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    useConversationStore.setState({
+      draftConversationIds: new Set(["conv-draft"]),
+    });
+    useViewerStore.setState({ openedDocumentState: OPENED_DRAFT_DOC });
+    const settleLink = deferDocumentLink();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(
+      ASSISTANT_ID,
+      "conv-draft",
+    );
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() =>
+      expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1),
+    );
+
+    // The user switches assistants and reopens the same document, which is
+    // the incoming assistant's from here.
+    rerender({ assistantId: "assistant-2" });
+
+    await act(async () => {
+      settleLink();
+      await submitted;
+    });
+
+    // The link landed, for the assistant the user left. Both writes it leads
+    // to are keyed by surface id alone, so running them now would point the
+    // document the incoming assistant has open at the outgoing one's row and
+    // hand that row to its next send.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(openedConversationId()).toBe("conv-draft");
+    expect(getEditChatConversationId("assistant-2", SURFACE_ID)).toBeNull();
+  });
+
   test("a document switch while the document is being linked still sends", async () => {
     const settleLink = deferDocumentLink();
     useComposerStore.getState().setInput("about the first doc", "document");
@@ -1453,7 +1608,7 @@ describe("a send that outlives its owner", () => {
     expect(isAwaitingReply(sentConversationId)).toBe(true);
   });
 
-  test("a send that lands after an assistant switch arms no wait and marks nothing processing", async () => {
+  test("a send that lands after an assistant switch moves neither the wait nor the mark onto the answered row", async () => {
     const settle = deferPostChatMessage();
     useComposerStore.getState().setInput("for the first assistant", "document");
     const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
@@ -1473,13 +1628,12 @@ describe("a send that outlives its owner", () => {
       await submitted;
     });
 
-    // Both the wait and the processing marker watch the outgoing assistant's
-    // SSE connection, which is not the one the client is on any more: only an
+    // Both went up before the POST, under the id the send went out on, and
+    // neither moves onto the row the daemon answered with: that row's turn
+    // runs on an SSE connection the client has left, where nothing but an
     // unrelated completion could ever take them down.
     expect(isAwaitingReply("conv-minted")).toBe(false);
-    expect(useConversationStore.getState().processingConversationIds.size).toBe(
-      0,
-    );
+    expect(isProcessing("conv-minted")).toBe(false);
   });
 
   test("a refused send after an assistant switch reports the error without disabling the new composer", async () => {

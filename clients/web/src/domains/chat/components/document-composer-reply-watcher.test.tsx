@@ -142,6 +142,25 @@ function publishMessageDequeued(conversationId: string) {
   });
 }
 
+function publishMessageRequeued(
+  conversationId: string,
+  clientMessageId?: string,
+) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-requeued-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "message_requeued",
+        conversationId,
+        requestId: `req-${conversationId}`,
+        position: 1,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      },
+    });
+  });
+}
+
 function publishMessageQueuedDeleted(
   conversationId: string,
   clientMessageId?: string,
@@ -463,6 +482,62 @@ describe("DocumentComposerReplyWatcher", () => {
 
       expect(queued("conv-1")).toBe(false);
       expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a message_requeued for the awaited send re-flags the wait a dequeue cleared", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-1");
+      publishMessageDequeued("conv-1");
+
+      expect(queued("conv-1")).toBe(false);
+
+      publishMessageRequeued("conv-1", "cm-1");
+
+      expect(queued("conv-1")).toBe(true);
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a message_requeued naming another client's message is ignored", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageRequeued("conv-1", "cm-someone-else");
+
+      expect(queued("conv-1")).toBe(false);
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a rolled-back dequeue leaves the competing turn's terminal absorbed", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-1");
+      publishMessageDequeued("conv-1");
+      publishMessageRequeued("conv-1", "cm-1");
+
+      expect(queued("conv-1")).toBe(true);
+
+      // The turn that retook the processing lock finishes first.
+      publishGenerationHandoff("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
     });
 
     test("a message_queued_deleted naming the awaited send ends the wait silently", () => {
