@@ -1,5 +1,17 @@
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
 import { captureError } from "@/lib/sentry/capture-error";
+import { toApiError } from "@/utils/api-errors";
+
+/**
+ * Every reader of the attachment bytes lands here, so this is the one place
+ * an attachment fetch failure is reported.
+ */
+function reportAttachmentFetchFailure(error: unknown): void {
+  captureError(error, {
+    context: "fetchAttachmentContentBlob",
+    bestEffort: true,
+  });
+}
 
 /**
  * Fetch an attachment's stored bytes from the daemon content endpoint.
@@ -15,7 +27,7 @@ export async function fetchAttachmentContentBlob(
   }
 
   try {
-    const { data, error } = await attachmentsByIdContentGet({
+    const { data, error, response } = await attachmentsByIdContentGet({
       path: { assistant_id: assistantId, id: attachmentId },
       parseAs: "blob",
       throwOnError: false,
@@ -23,14 +35,18 @@ export async function fetchAttachmentContentBlob(
     if (!error && data instanceof Blob) {
       return data;
     }
+    // `throwOnError: false` hands HTTP failures back as a value, so the status
+    // has to be attached here for the transient filter to read it.
+    if (response && !response.ok) {
+      reportAttachmentFetchFailure(toApiError(error, response));
+    } else {
+      reportAttachmentFetchFailure(
+        error ?? new Error("Attachment content response carried no blob"),
+      );
+    }
     return null;
   } catch (err) {
-    // Every reader of the attachment bytes lands here, so this is the one
-    // place the failure is reported.
-    captureError(err, {
-      context: "fetchAttachmentContentBlob",
-      bestEffort: true,
-    });
+    reportAttachmentFetchFailure(err);
     return null;
   }
 }
