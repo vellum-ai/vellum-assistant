@@ -8,9 +8,20 @@
  * never inspects a tile, so the real Chat Info tiles would only add mocks.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+import { DETAIL_SHELL_BODY_INSET_PX } from "@/components/detail-shell";
+import { CHAT_INFO_APP_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-app-tile";
+import { CHAT_INFO_FILE_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-file-tile";
 import type * as ElementSizeModule from "@/hooks/use-element-size";
 import type * as IsMobileModule from "@/hooks/use-is-mobile";
 
@@ -38,11 +49,10 @@ mock.module(
 const { ChatInfoSection, fitTileCount } =
   await import("@/domains/chat/components/chat-info-section");
 
-/** The mock's tile widths: apps and files or camera frames. */
-const APP_TILE_WIDTH = 184;
-const FILE_TILE_WIDTH = 135;
 /** The drawer's body width on the desktop mock. */
 const DRAWER_WIDTH = 569;
+/** What a 402px phone leaves once the body takes its inset off both edges. */
+const NARROW_COLUMN_WIDTH = 402 - DETAIL_SHELL_BODY_INSET_PX * 2;
 
 const SEE_ALL_ARIA = "See all apps";
 const TILE_TESTID = "section-tile";
@@ -102,26 +112,33 @@ afterEach(() => {
   cleanup();
 });
 
+afterAll(() => {
+  mock.restore();
+});
+
 describe("fitTileCount", () => {
   test.each([
-    [DRAWER_WIDTH, APP_TILE_WIDTH, 3],
-    [DRAWER_WIDTH, FILE_TILE_WIDTH, 4],
-    [378, APP_TILE_WIDTH, 2],
-    [378, FILE_TILE_WIDTH, 2],
-    [0, FILE_TILE_WIDTH, 1],
-    [100, FILE_TILE_WIDTH, 1],
+    [DRAWER_WIDTH, CHAT_INFO_APP_TILE_WIDTH_PX, 3],
+    [DRAWER_WIDTH, CHAT_INFO_FILE_TILE_WIDTH_PX, 4],
+    [378, CHAT_INFO_APP_TILE_WIDTH_PX, 2],
+    [378, CHAT_INFO_FILE_TILE_WIDTH_PX, 2],
+    [0, CHAT_INFO_FILE_TILE_WIDTH_PX, 1],
+    [100, CHAT_INFO_FILE_TILE_WIDTH_PX, 1],
   ])("fits %p / %p tiles on one line", (rowWidth, tileWidth, expected) => {
     expect(fitTileCount(rowWidth, tileWidth)).toBe(expected);
   });
 
   test("a wider gutter fits fewer tiles on the same row", () => {
-    expect(fitTileCount(DRAWER_WIDTH, APP_TILE_WIDTH, 40)).toBe(2);
+    expect(fitTileCount(DRAWER_WIDTH, CHAT_INFO_APP_TILE_WIDTH_PX, 40)).toBe(2);
   });
 });
 
 describe("ChatInfoSection", () => {
   test("truncates a roomy row to the tiles that fit and offers See All", () => {
-    renderSection({ items: makeItems(5), tileWidth: APP_TILE_WIDTH });
+    renderSection({
+      items: makeItems(5),
+      tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
+    });
 
     expect(tiles()).toHaveLength(3);
     expect(tiles()[0]?.getAttribute("data-layout")).toBe("fitted");
@@ -129,7 +146,10 @@ describe("ChatInfoSection", () => {
   });
 
   test("shows every tile and no See All when the category fits", () => {
-    renderSection({ items: makeItems(4), tileWidth: FILE_TILE_WIDTH });
+    renderSection({
+      items: makeItems(4),
+      tileWidth: CHAT_INFO_FILE_TILE_WIDTH_PX,
+    });
 
     expect(tiles()).toHaveLength(4);
     expect(seeAll()).toBeNull();
@@ -139,7 +159,7 @@ describe("ChatInfoSection", () => {
     renderSection({
       items: makeItems(4),
       count: 12,
-      tileWidth: FILE_TILE_WIDTH,
+      tileWidth: CHAT_INFO_FILE_TILE_WIDTH_PX,
     });
 
     expect(tiles()).toHaveLength(4);
@@ -150,7 +170,7 @@ describe("ChatInfoSection", () => {
     isMobileRef.value = true;
     const { container } = renderSection({
       items: makeItems(5),
-      tileWidth: APP_TILE_WIDTH,
+      tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
     });
 
     const strip = container.querySelector(
@@ -165,14 +185,14 @@ describe("ChatInfoSection", () => {
   });
 
   test("counts the strip's reclaimed right inset toward the narrow-window fit", () => {
-    // A 402px phone leaves a 362px column; the strip shows 382px of tiles.
+    // The strip shows the column plus the inset it reclaims on the right.
     isMobileRef.value = true;
-    widthRef.value = 362;
+    widthRef.value = NARROW_COLUMN_WIDTH;
 
     const fitted = renderSection({
       items: makeItems(2),
       count: 2,
-      tileWidth: APP_TILE_WIDTH,
+      tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
     });
     expect(seeAll()).toBeNull();
     // Nothing runs past the edge, so the strip claims no trailing inset.
@@ -182,7 +202,7 @@ describe("ChatInfoSection", () => {
     const overflowing = renderSection({
       items: makeItems(3),
       count: 3,
-      tileWidth: APP_TILE_WIDTH,
+      tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
     });
     expect(seeAll()).not.toBeNull();
     expect(
@@ -194,7 +214,7 @@ describe("ChatInfoSection", () => {
     let seeAllCalls = 0;
     renderSection({
       items: makeItems(5),
-      tileWidth: APP_TILE_WIDTH,
+      tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
       onSeeAll: () => {
         seeAllCalls += 1;
       },
@@ -209,7 +229,7 @@ describe("ChatInfoSection", () => {
     renderSection({
       items: makeItems(4),
       count: 12,
-      tileWidth: FILE_TILE_WIDTH,
+      tileWidth: CHAT_INFO_FILE_TILE_WIDTH_PX,
     });
 
     expect(screen.getByText("Apps")).not.toBeNull();

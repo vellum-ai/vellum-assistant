@@ -25,7 +25,10 @@ import { useState } from "react";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
-import { DetailShell } from "@/components/detail-shell";
+import {
+  DetailShell,
+  DetailShellTitleWithCount,
+} from "@/components/detail-shell";
 import { useTranslation } from "@/i18n";
 import { StreamingShimmerText } from "@/domains/chat/components/streaming-shimmer-text";
 import {
@@ -148,34 +151,16 @@ export function ActivityStepsPanel({
             {stepDetailTitle}
           </Typography>
         ) : (
-          // Timeline level, per Figma: title · N steps — inline at the same
-          // size, separated by a 3px midline dot, count in the secondary tone.
-          <span className="flex min-w-0 items-center gap-1.5 py-0.5">
-            <Typography
-              variant="title-medium"
-              className="min-w-0 shrink truncate leading-snug text-[var(--content-default)]"
-            >
-              {isRunning ? (
+          <DetailShellTitleWithCount
+            title={
+              isRunning ? (
                 <StreamingShimmerText>{title}</StreamingShimmerText>
               ) : (
                 title
-              )}
-            </Typography>
-            {cardData.stepCount ? (
-              <>
-                <span
-                  aria-hidden
-                  className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-                />
-                <Typography
-                  variant="title-medium"
-                  className="shrink-0 whitespace-nowrap leading-snug text-[var(--content-secondary)]"
-                >
-                  {cardData.stepCount}
-                </Typography>
-              </>
-            ) : null}
-          </span>
+              )
+            }
+            count={cardData.stepCount}
+          />
         )
       }
       closeLabel={t("activityStepsPanel.closeSteps")}
