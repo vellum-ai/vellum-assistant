@@ -15,7 +15,7 @@ import { unlinkSync } from "node:fs";
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { ipcCall, PersistentIpcClient } from "../ipc-client.js";
+import { ipcCall, IpcConnectError, PersistentIpcClient } from "../ipc-client.js";
 import { ChannelDeliveryError, deliverChannelReply } from "../http-delivery.js";
 import type { Logger } from "../types.js";
 
@@ -159,14 +159,26 @@ describe("ipc-client", () => {
     });
 
     test("returns undefined when socket does not exist", async () => {
-      const log = createTestLogger();
-      const result = await ipcCall(
-        "/tmp/nonexistent-socket.sock",
-        "test_method",
-        undefined,
-        log,
-      );
-      expect(result).toBeUndefined();
+      const uncaught: unknown[] = [];
+      const onUncaught = (err: unknown) => {
+        uncaught.push(err);
+      };
+      process.on("uncaughtException", onUncaught);
+      process.on("unhandledRejection", onUncaught);
+      try {
+        const log = createTestLogger();
+        const result = await ipcCall(
+          "/tmp/nonexistent-socket.sock",
+          "test_method",
+          undefined,
+          log,
+        );
+        expect(result).toBeUndefined();
+        expect(uncaught).toHaveLength(0);
+      } finally {
+        process.off("uncaughtException", onUncaught);
+        process.off("unhandledRejection", onUncaught);
+      }
     });
 
     test("forwards params in the request", async () => {
@@ -333,6 +345,68 @@ describe("ipc-client", () => {
       const client = new PersistentIpcClient(socketPath, 100);
       try {
         await expect(client.call("slow_method")).rejects.toThrow("timed out");
+      } finally {
+        client.destroy();
+      }
+    });
+
+    test("throws IpcConnectError without an uncaught exception when the socket is missing", async () => {
+      const uncaught: unknown[] = [];
+      const onUncaught = (err: unknown) => {
+        uncaught.push(err);
+      };
+      process.on("uncaughtException", onUncaught);
+      process.on("unhandledRejection", onUncaught);
+
+      const client = new PersistentIpcClient(
+        socketPath,
+        1_000,
+        createTestLogger(),
+        { connectRetryBackoffsMs: [] },
+      );
+      try {
+        await expect(client.call("any_method")).rejects.toBeInstanceOf(
+          IpcConnectError,
+        );
+        expect(uncaught).toHaveLength(0);
+      } finally {
+        client.destroy();
+        process.off("uncaughtException", onUncaught);
+        process.off("unhandledRejection", onUncaught);
+      }
+    });
+
+    test("retries a missing socket until the gateway binds", async () => {
+      const log = createTestLogger();
+      server = createServer((conn) => {
+        let buf = "";
+        conn.on("data", (chunk) => {
+          buf += chunk.toString();
+          const idx = buf.indexOf("\n");
+          if (idx !== -1) {
+            const req = JSON.parse(buf.slice(0, idx));
+            conn.write(
+              JSON.stringify({ id: req.id, result: "ready" }) + "\n",
+            );
+          }
+        });
+      });
+
+      const client = new PersistentIpcClient(socketPath, 5_000, log, {
+        connectRetryBackoffsMs: [50, 100, 200],
+      });
+      try {
+        const callPromise = client.call("ping");
+        await new Promise((r) => setTimeout(r, 80));
+        await new Promise<void>((resolve) => {
+          server.listen(socketPath, () => resolve());
+        });
+        await expect(callPromise).resolves.toBe("ready");
+        expect(
+          log.messages.some(
+            (m) => m.msg === "Persistent IPC connect failed, retrying",
+          ),
+        ).toBe(true);
       } finally {
         client.destroy();
       }

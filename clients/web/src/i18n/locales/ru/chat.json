@@ -55,6 +55,8 @@
     "unnamedAssistant": "Безымянный ассистент"
   },
   "attachmentPreviewModal": {
+    "legacyUnavailable": "Предпросмотр недоступен. Содержимое файла не сохранилось в истории чата.",
+    "loadFailed": "Не удалось загрузить предпросмотр.",
     "pdfLoadFailed": "Не удалось показать этот PDF"
   },
   "attachmentTile": {
@@ -237,6 +239,26 @@
     "endOtherVoiceSession": "Завершить и начать здесь",
     "goToVoiceSession": "Перейти к ней"
   },
+  "chatInfoPanel": {
+    "appsTitle": "Приложения",
+    "backAria": "Назад к информации о диалоге",
+    "backTooltip": "Информация о диалоге",
+    "closeAria": "Закрыть информацию о диалоге",
+    "empty": "В этом диалоге пока нет материалов",
+    "filesTitle": "Документы и изображения",
+    "framesTitle": "Кадры с камеры",
+    "loadFailed": "Не удалось загрузить материалы",
+    "loadMore": "Загрузить ещё",
+    "openAppAria": "Открыть {name}",
+    "openDocumentAria": "Открыть {name}",
+    "previewAttachmentAria": "Предпросмотр {filename}",
+    "previewFrameAria": "Предпросмотр кадра с камеры",
+    "seeAll": "Показать все",
+    "seeAllAppsAria": "Показать все приложения",
+    "seeAllFilesAria": "Показать все документы и изображения",
+    "seeAllFramesAria": "Показать все кадры с камеры",
+    "title": "Информация о диалоге"
+  },
   "compactionTab": {
     "compactedMessages": "сжато: {count}",
     "compactedPreserved": "Сжато / сохранено",
@@ -336,9 +358,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}",
+    "ariaLabelUnavailable": "Ресурсы диалога, не удалось загрузить",
     "ariaLabelUnseen": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}} (есть невидимые изменения)",
-    "heading": "Ресурсы",
-    "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}"
+    "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}",
+    "labelUnavailable": "Не удалось загрузить ресурсы"
   },
   "conversationStarterDock": {
     "caption": "Подсказки:"

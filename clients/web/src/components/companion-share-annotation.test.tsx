@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  test,
+} from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { CompanionAnnotationStroke } from "@vellumai/ipc-contract";
 
@@ -20,6 +28,7 @@ const {
   CompanionShareAnnotation,
   COMPANION_INK_FADE_MS,
   COMPANION_INK_HOLD_MS,
+  pencilCursor,
 } = await import("./companion-share-annotation");
 
 /**
@@ -41,6 +50,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  jest.useRealTimers();
 });
 
 const layerOf = (container: HTMLElement): Element => {
@@ -186,9 +196,12 @@ describe("drawing on what the call is shown", () => {
   /**
    * The mark is a gesture rather than an annotation layer: it has been sent,
    * and a circle still sitting on the user's screen a minute later is one
-   * they have to clear up themselves.
+   * they have to clear up themselves. But it stays for the sentence that goes
+   * with it: a mark gone before the user has finished saying "this one" is a
+   * drawing that looks like it failed.
    */
-  test("the mark fades and is taken away once it has been sent", async () => {
+  test("the mark stays through the hold, then fades and is taken away", () => {
+    jest.useFakeTimers();
     const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
@@ -197,12 +210,34 @@ describe("drawing on what the call is shown", () => {
     expect(
       container.querySelector(".companion-share-ink-spent"),
     ).not.toBeNull();
-    await act(async () => {
-      await new Promise((resolve) =>
-        setTimeout(resolve, COMPANION_INK_HOLD_MS + COMPANION_INK_FADE_MS + 20),
+    // The hold is a few seconds, not a beat: long enough to say what the
+    // mark is about.
+    expect(COMPANION_INK_HOLD_MS).toBeGreaterThanOrEqual(4000);
+    act(() => {
+      jest.advanceTimersByTime(
+        COMPANION_INK_HOLD_MS + COMPANION_INK_FADE_MS - 1,
       );
     });
+    expect(container.querySelector("polyline")).not.toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
     expect(container.querySelector("polyline")).toBeNull();
+  });
+
+  /**
+   * The stylesheet fades the mark on the layer's own numbers, so the element
+   * cannot be dropped mid-fade or sit invisible after it.
+   */
+  test("tells the stylesheet how long the hold and the fade are", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container) as HTMLElement;
+    expect(layer.style.getPropertyValue("--companion-ink-hold")).toBe(
+      `${COMPANION_INK_HOLD_MS}ms`,
+    );
+    expect(layer.style.getPropertyValue("--companion-ink-fade")).toBe(
+      `${COMPANION_INK_FADE_MS}ms`,
+    );
   });
 
   /**
@@ -276,5 +311,27 @@ describe("drawing on what the call is shown", () => {
       clientY: 500,
     });
     expect(sent.filter((one) => one.phase === "released")).toHaveLength(1);
+  });
+});
+
+/**
+ * The pointer is the one thing on screen that can say the mode took: the
+ * surface under it is someone else's app, and nothing on that app changes.
+ */
+describe("the pointer while drawing is on", () => {
+  test("is a pencil, drawn in the ink the mark will be", () => {
+    const cursor = pencilCursor(INK);
+    expect(cursor.startsWith('url("data:image/svg+xml,')).toBe(true);
+    expect(cursor).toContain(encodeURIComponent(`stroke="${INK}"`));
+  });
+
+  test("points from the pencil's tip and falls back to a crosshair", () => {
+    expect(pencilCursor(INK).endsWith(") 2 22, crosshair")).toBe(true);
+  });
+
+  test("hangs on the drawing layer", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container);
+    expect(layer.getAttribute("style")).toContain("data:image/svg+xml");
   });
 });

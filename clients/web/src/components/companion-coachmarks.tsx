@@ -20,10 +20,18 @@
 
 import { Fragment } from "react";
 
+import { seedFor } from "@/components/companion-coachmark-path";
+import {
+  arrowPath,
+  enclosurePath,
+  HAND_ARROW,
+  HAND_ENCLOSURE,
+} from "@/components/companion-coachmark-shapes";
 import { useWindowBox } from "@/components/companion-window-box";
 import type {
   CompanionCoachmark,
   CompanionCoachmarkPoint,
+  CompanionCoachmarkRegion,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -65,9 +73,6 @@ const CAPTION_GAP_PX = 10;
  */
 const POINTER_LENGTH_PX = 52;
 
-/** How wide the arrowhead is drawn, in the same pixels. */
-const POINTER_WIDTH_PX = 22;
-
 /**
  * How far short of the point the tip stops.
  *
@@ -80,6 +85,29 @@ const POINTER_GAP_PX = 10;
 
 /** Everything an arrow occupies on the side its tail hangs from. */
 const POINTER_REACH_PX = POINTER_LENGTH_PX + POINTER_GAP_PX;
+
+/**
+ * How far outside its bounds the loop is drawn, in the window's pixels.
+ *
+ * The promise the mark makes: the control the user is being sent to is
+ * exactly as visible as it was before anything was drawn on it. A loop traced
+ * on the bounds would be a ring through the thing rather than around it.
+ */
+const RING_PADDING_PX = 10;
+
+/**
+ * Room for the stroke itself outside that, in the same pixels.
+ *
+ * The halo is drawn at nine pixels and centred on the path, so half of it
+ * hangs outside the widest point the loop reaches. Without this the SVG's own
+ * box would clip its edge, which reads as a ring with a flat side.
+ *
+ * The same nine pixels are why the standoff above is what it is: half of them
+ * hang inside the line too, and the line is at its nearest to the bounds at a
+ * corner, where `CORNER_CLEARANCE` of the standoff survives. Ten pixels of
+ * standoff keeps about eight of them there, which the halo clears.
+ */
+const RING_MARGIN_PX = 8;
 
 /** Which side of a mark its caption hangs from. */
 export interface CaptionPlacement {
@@ -175,6 +203,58 @@ function markKey(mark: CompanionCoachmark): string {
 }
 
 /**
+ * The loop, drawn around what it encloses in the companion's own hand.
+ *
+ * Built in the window's pixels rather than as fractions of it, for the reason
+ * the arrow is: a curve shaped by percentages of a surface is a different
+ * curve on every surface, and what a mark has to stay is recognisable. Only
+ * where it sits is placed by fraction, which is the part that has to be
+ * exact.
+ *
+ * The hand is seeded off the anchor, so the same control is looped the same
+ * way every time it is pointed at. Pointing at one thing twice in a
+ * conversation must not shimmer.
+ */
+function Enclosure({
+  mark,
+  box,
+}: {
+  mark: CompanionCoachmarkRegion;
+  box: { width: number; height: number };
+}) {
+  // A mark can be thinner than a pixel on a small window, and a loop around
+  // nothing is still a loop worth drawing: what it says is "here".
+  const width = Math.max(mark.width * box.width, 1);
+  const height = Math.max(mark.height * box.height, 1);
+  const room = RING_PADDING_PX + RING_MARGIN_PX;
+  const d = enclosurePath(
+    { width, height },
+    {
+      strength: HAND_ENCLOSURE,
+      seed: seedFor(mark.x, mark.y),
+      padding: RING_PADDING_PX,
+    },
+  );
+  return (
+    <svg
+      className="companion-coachmark"
+      data-testid="companion-coachmark"
+      aria-hidden="true"
+      viewBox={`${-room} ${-room} ${width + room * 2} ${height + room * 2}`}
+      width={width + room * 2}
+      height={height + room * 2}
+      style={{
+        left: Math.round(mark.x * box.width - room),
+        top: Math.round(mark.y * box.height - room),
+      }}
+    >
+      <path className="companion-coachmark-halo" d={d} />
+      <path className="companion-coachmark-ink" d={d} />
+    </svg>
+  );
+}
+
+/**
  * The arrow, with its tip on the point and its tail on the caption's side.
  *
  * Drawn in the window's own pixels rather than as fractions of it: a head
@@ -183,7 +263,10 @@ function markKey(mark: CompanionCoachmark): string {
  * placed by fraction, which is the part that has to be exact.
  *
  * The shaft is drawn once and turned, so the two directions cannot drift
- * apart.
+ * apart, and its hand is seeded off the point for the reason the loop's is.
+ * The head is turned to sit on the end of the curve, so the arrow points
+ * where the stroke was actually going rather than straight up a shaft that
+ * leans.
  */
 function Pointer({
   mark,
@@ -194,43 +277,46 @@ function Pointer({
   above: boolean;
   box: { width: number; height: number };
 }) {
+  const arrow = arrowPath({
+    length: POINTER_LENGTH_PX,
+    approach: above ? "above" : "below",
+    strength: HAND_ARROW,
+    seed: seedFor(mark.x, mark.y),
+    gap: POINTER_GAP_PX,
+  });
   return (
     <svg
       className="companion-coachmark-pointer"
       data-testid="companion-coachmark-pointer"
       data-above={above ? "" : undefined}
       aria-hidden="true"
-      viewBox={`0 0 ${POINTER_WIDTH_PX} ${POINTER_LENGTH_PX}`}
-      width={POINTER_WIDTH_PX}
-      height={POINTER_LENGTH_PX}
+      viewBox={`0 0 ${arrow.width} ${arrow.height}`}
+      width={arrow.width}
+      height={arrow.height}
       style={{
         // Half a head to the left of the tip, so the shaft runs through it.
-        left: Math.round(mark.x * box.width - POINTER_WIDTH_PX / 2),
-        // Below the point when the tail hangs below, above it when above, so
-        // the tip is on the point either way.
-        top: Math.round(
-          mark.y * box.height + (above ? -POINTER_REACH_PX : POINTER_GAP_PX),
-        ),
-        transform: above ? "rotate(180deg)" : undefined,
+        left: Math.round(mark.x * box.width - arrow.width / 2),
+        // The gap the tip stops short by is inside the path, so the box is
+        // hung straight off the point: below it when the tail hangs below,
+        // and a whole box above it when the tail hangs above, which is what
+        // puts the turned tip back on the point.
+        top: Math.round(mark.y * box.height - (above ? arrow.height : 0)),
+        // Through the variable the entrance composes with, never as a plain
+        // transform: the keyframe's implicit end state is this element's own
+        // transform, so an arrow that set one here would animate into its
+        // rotation rather than arriving already turned.
+        ...(above
+          ? { ["--companion-coachmark-turn" as string]: "rotate(180deg)" }
+          : {}),
       }}
     >
-      <path className="companion-coachmark-pointer-halo" d={POINTER_PATH} />
-      <path className="companion-coachmark-pointer-ink" d={POINTER_PATH} />
+      <path className="companion-coachmark-halo" d={arrow.shaft} />
+      <path className="companion-coachmark-halo" d={arrow.head} />
+      <path className="companion-coachmark-ink" d={arrow.shaft} />
+      <path className="companion-coachmark-ink" d={arrow.head} />
     </svg>
   );
 }
-
-/**
- * An arrow pointing at the top of its box: a shaft up the middle and a head
- * on the end, as one stroked outline so the halo beneath it is one shape.
- */
-const POINTER_PATH = [
-  `M ${POINTER_WIDTH_PX / 2} ${POINTER_LENGTH_PX}`,
-  `L ${POINTER_WIDTH_PX / 2} 6`,
-  `M 3 15`,
-  `L ${POINTER_WIDTH_PX / 2} 3`,
-  `L ${POINTER_WIDTH_PX - 3} 15`,
-].join(" ");
 
 export function CompanionCoachmarks({
   marks,
@@ -256,16 +342,7 @@ export function CompanionCoachmarks({
           // still be a node between them and the surface they measure from.
           <Fragment key={markKey(mark)}>
             {mark.kind === "region" ? (
-              <div
-                className="companion-coachmark"
-                data-testid="companion-coachmark"
-                style={{
-                  left: percent(mark.x),
-                  top: percent(mark.y),
-                  width: percent(mark.width),
-                  height: percent(mark.height),
-                }}
-              />
+              <Enclosure mark={mark} box={box} />
             ) : (
               <Pointer mark={mark} above={above} box={box} />
             )}

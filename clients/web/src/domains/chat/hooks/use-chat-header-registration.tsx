@@ -6,14 +6,15 @@
  * Owns:
  * - `headerSupplements` computation and slot registration
  * - `topBarRightSlot` (ChannelThreadControl or ChannelSourceLinkPill, plus
- *   ConversationAssetsPill + InChatPluginPill) computation and registration
+ *   the ConversationAssetsPill Chat Info trigger + InChatPluginPill)
+ *   computation and registration
  * - Slack conversation display derivation for the header label and the
  *   source-thread link
  * - Settling the channel drawer when the sidecar target changes, so a
  *   conversation switch or a lost binding never leaves a stale thread open
  */
 
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
@@ -33,9 +34,7 @@ import { useChannelSidecar } from "@/domains/chat/channel-sidecar/use-channel-si
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { InChatPluginPill } from "@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill";
 import { useSupportsInchatPluginEdit } from "@/lib/backwards-compat/use-supports-inchat-plugin-edit";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useViewerStore } from "@/stores/viewer-store";
-import { haptic } from "@/utils/haptics";
 import type { Conversation } from "@/types/conversation-types";
 
 export interface UseChatHeaderRegistrationOptions {
@@ -186,18 +185,7 @@ export function useChatHeaderRegistration({
     };
   }, [headerSupplements, setHeaderSupplements]);
 
-  // Top bar right slot — ConversationAssetsPill
-  const handleOpenAppFromChat = useOpenAppFromChat();
-  const handleOpenDocument = useCallback(
-    (surfaceId: string) => {
-      haptic.light();
-      if (assistantId) {
-        void useViewerStore.getState().loadDocument(assistantId, surfaceId);
-      }
-    },
-    [assistantId],
-  );
-
+  // Top bar right slot - ConversationAssetsPill
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationId || !assistantId) {
       return null;
@@ -216,8 +204,6 @@ export function useChatHeaderRegistration({
           assistantId={assistantId}
           conversationId={activeConversation.conversationId}
           refreshKey={assetsRefreshKey}
-          onOpenApp={handleOpenAppFromChat}
-          onOpenDocument={handleOpenDocument}
         />
         {supportsPluginPill ? (
           <InChatPluginPill
@@ -231,8 +217,6 @@ export function useChatHeaderRegistration({
     activeConversation?.conversationId,
     assistantId,
     assetsRefreshKey,
-    handleOpenAppFromChat,
-    handleOpenDocument,
     supportsPluginPill,
     channelSourceLinkHref,
     channelHeaderChannelId,

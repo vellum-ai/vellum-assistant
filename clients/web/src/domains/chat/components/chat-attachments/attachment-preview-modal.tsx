@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
@@ -11,7 +10,6 @@ import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
@@ -21,6 +19,7 @@ import {
   classifyAttachment,
   formatAttachmentSize,
 } from "@/domains/chat/components/chat-attachments/utils";
+import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
 import { baseMimeType, extensionOf } from "@/domains/chat/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -62,19 +61,24 @@ interface AttachmentPreviewModalProps {
   /** Full list of sibling attachments for gallery navigation. When provided
    *  with more than one entry, prev/next arrows and a position counter render. */
   siblingAttachments?: DisplayAttachment[];
+  /** The active attachment's position in `siblingAttachments`. Given by callers
+   *  whose list can hold two attachments with the same id, which the id lookup
+   *  below cannot tell apart. Honoured only while it still points at
+   *  `attachment`; otherwise, and when omitted, the position is looked up by
+   *  id. */
+  currentIndex?: number;
   /** Called when the user navigates to a different attachment via the gallery
-   *  arrows. The parent swaps the active `attachment` prop in response. */
-  onNavigate?: (attachment: DisplayAttachment) => void;
+   *  arrows. The parent swaps the active `attachment` prop in response, and
+   *  carries the position back so a duplicated id stays resolved. */
+  onNavigate?: (attachment: DisplayAttachment, index: number) => void;
 }
 
 /**
  * Full-screen preview modal for chat attachments. Handles images, videos, and
  * a non-previewable fallback card. When `previewUrl` is missing but
- * `assistantId` is provided, the modal lazily fetches the attachment content
- * from the backend, converts it to a blob URL, and revokes the URL on
- * cleanup. Dismissable via backdrop click, close button, or Escape key.
- *
- * Async fetch pattern modeled on `app/admin/AttachmentLightbox.tsx`.
+ * `assistantId` is provided, the bytes come from `useAttachmentObjectUrl`, so a
+ * thumbnail that has already fetched them hands this a cache hit rather than a
+ * second request. Dismissable via backdrop click, close button, or Escape key.
  */
 export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   open,
@@ -82,6 +86,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   attachment,
   assistantId,
   siblingAttachments,
+  currentIndex: givenIndex,
   onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -113,80 +118,42 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     return () => unregisterBackOwner();
   }, [open, registerBackOwner, unregisterBackOwner]);
 
-  // Synthetic IDs from the text-parsing history fallback
-  // (parseAttachmentSummariesFromContent) can never resolve against the
-  // daemon's content endpoint, so we never fetch them — we show a clear message
-  // instead of a misleading network error.
-  const isRehydrated =
-    !attachment.previewUrl && attachment.id.startsWith("rehydrated:");
-
-  // Fetch content from the daemon only when there's no inline previewUrl and we
-  // have a real, resolvable id to fetch with.
-  const shouldFetch =
-    open &&
-    !attachment.previewUrl &&
-    !!assistantId &&
-    !!attachment.id &&
-    !isRehydrated;
-
-  const { data: blob, isError } = useQuery({
-    // The attachment id is stable and unique, so it is the cache key — reopening
-    // the same attachment reuses the fetched blob instead of refetching.
-    queryKey: ["attachmentContent", assistantId, attachment.id],
-    queryFn: async () => {
-      const data = await fetchAttachmentContentBlob(
-        assistantId!,
-        attachment.id,
-      );
-      if (!data) {
-        throw new Error("Failed to load file");
-      }
-      return data;
-    },
-    enabled: shouldFetch,
-    staleTime: Infinity,
-    retry: false,
-  });
-
-  // Hold the fetched blob as an object URL for the media/text renderers, and
-  // revoke it when the blob changes or the modal unmounts.
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setObjectUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setObjectUrl(url);
-    return () => {
-      URL.revokeObjectURL(url);
-      setObjectUrl(null);
-    };
-  }, [blob]);
-
-  const effectiveUrl = attachment.previewUrl ?? objectUrl;
+  const {
+    url: effectiveUrl,
+    isError,
+    unavailable,
+    legacyId,
+    isPending,
+  } = useAttachmentObjectUrl(assistantId, attachment, open);
 
   // A full-size image whose bytes the browser can't decode (e.g. HEIC on
   // Chromium, even after fetching the stored original) falls through to the
   // non-image fallback card instead of rendering the broken-image glyph.
   const [decodeFailedUrl, setDecodeFailedUrl] = useState<string | null>(null);
 
-  // Loading until there's a usable URL: covers the fetch and the one-render gap
-  // between the blob arriving and its object URL being created.
-  const isLoadingPreview = shouldFetch && !objectUrl && !isError;
-
-  const previewError = isRehydrated
-    ? "Preview unavailable — file content was not preserved in chat history."
-    : isError
-      ? "Failed to load preview."
+  // Only a synthetic history id means the bytes were never kept. The rest of
+  // what `unavailable` covers still has a file behind it, so it falls through
+  // to the card that names it.
+  const previewError = legacyId
+    ? t("attachmentPreviewModal.legacyUnavailable")
+    : isError && !unavailable
+      ? t("attachmentPreviewModal.loadFailed")
       : null;
 
   const currentIndex = useMemo(() => {
     if (!siblingAttachments || siblingAttachments.length <= 1) {
       return -1;
     }
+    // The hint is only good while it still points at the attachment that was
+    // opened; a list that has shifted under the modal falls back to the id.
+    if (
+      givenIndex !== undefined &&
+      siblingAttachments[givenIndex] === attachment
+    ) {
+      return givenIndex;
+    }
     return siblingAttachments.findIndex((a) => a.id === attachment.id);
-  }, [siblingAttachments, attachment.id]);
+  }, [siblingAttachments, attachment, givenIndex]);
 
   const hasGallery =
     currentIndex !== -1 &&
@@ -200,7 +167,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     const prevIndex =
       (currentIndex - 1 + siblingAttachments.length) %
       siblingAttachments.length;
-    onNavigate(siblingAttachments[prevIndex]!);
+    onNavigate(siblingAttachments[prevIndex]!, prevIndex);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const goToNext = useCallback(() => {
@@ -208,7 +175,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       return;
     }
     const nextIndex = (currentIndex + 1) % siblingAttachments.length;
-    onNavigate(siblingAttachments[nextIndex]!);
+    onNavigate(siblingAttachments[nextIndex]!, nextIndex);
   }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   // Touch-first navigation (primarily iOS): swipe left/right to change item.
@@ -288,7 +255,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     TEXT_PREVIEW_EXTENSIONS.has(extension);
 
   const renderContent = () => {
-    if (isLoadingPreview) {
+    if (isPending) {
       return (
         <div className="flex items-center justify-center py-24">
           <Loader2 className="h-8 w-8 animate-spin text-white/70" />

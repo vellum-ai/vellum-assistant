@@ -133,6 +133,8 @@
     "closePreviewAria": "Cerrar vista previa",
     "downloadAria": "Descargar {filename}",
     "downloadLabel": "Descargar",
+    "legacyUnavailable": "Vista previa no disponible. El contenido del archivo no se conservó en el historial del chat.",
+    "loadFailed": "No se pudo cargar la vista previa.",
     "nextAttachmentAria": "Adjunto siguiente",
     "pdfLoadFailed": "No se pudo mostrar este PDF",
     "previewAria": "Vista previa de {filename}",
@@ -376,6 +378,26 @@
     "newChat": "Chat nuevo",
     "untitled": "Sin título"
   },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Volver a la información del chat",
+    "backTooltip": "Información del chat",
+    "closeAria": "Cerrar la información del chat",
+    "empty": "Aún no hay recursos en este chat",
+    "filesTitle": "Documentos e imágenes",
+    "framesTitle": "Fotogramas de la cámara",
+    "loadFailed": "No se pudieron cargar los recursos",
+    "loadMore": "Cargar más",
+    "openAppAria": "Abrir {name}",
+    "openDocumentAria": "Abrir {name}",
+    "previewAttachmentAria": "Vista previa de {filename}",
+    "previewFrameAria": "Vista previa del fotograma de la cámara",
+    "seeAll": "Ver todo",
+    "seeAllAppsAria": "Ver todas las apps",
+    "seeAllFilesAria": "Ver todos los documentos e imágenes",
+    "seeAllFramesAria": "Ver todos los fotogramas de la cámara",
+    "title": "Información del chat"
+  },
   "chatLayout": {
     "navigationAria": "Navegación"
   },
@@ -613,9 +635,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
+    "ariaLabelUnavailable": "Recursos de la conversación, no se pudieron cargar",
     "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)",
-    "heading": "Recursos",
-    "label": "{count, plural, one {# recurso} other {# recursos}}"
+    "label": "{count, plural, one {# recurso} other {# recursos}}",
+    "labelUnavailable": "No se pudieron cargar los recursos"
   },
   "conversationRow": {
     "untitled": "Sin título"

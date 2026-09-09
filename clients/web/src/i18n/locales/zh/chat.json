@@ -133,6 +133,8 @@
     "closePreviewAria": "关闭预览",
     "downloadAria": "下载 {filename}",
     "downloadLabel": "下载",
+    "legacyUnavailable": "预览不可用。文件内容未保存在聊天记录中。",
+    "loadFailed": "无法加载预览。",
     "nextAttachmentAria": "下一个附件",
     "pdfLoadFailed": "无法显示此 PDF",
     "previewAria": "{filename} 的预览",
@@ -376,6 +378,26 @@
     "newChat": "新建聊天",
     "untitled": "无标题"
   },
+  "chatInfoPanel": {
+    "appsTitle": "应用",
+    "backAria": "返回聊天信息",
+    "backTooltip": "聊天信息",
+    "closeAria": "关闭聊天信息",
+    "empty": "此聊天中还没有内容",
+    "filesTitle": "文档与图片",
+    "framesTitle": "相机帧",
+    "loadFailed": "无法加载内容",
+    "loadMore": "加载更多",
+    "openAppAria": "打开 {name}",
+    "openDocumentAria": "打开 {name}",
+    "previewAttachmentAria": "预览 {filename}",
+    "previewFrameAria": "预览相机帧",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部应用",
+    "seeAllFilesAria": "查看全部文档与图片",
+    "seeAllFramesAria": "查看全部相机帧",
+    "title": "聊天信息"
+  },
   "chatLayout": {
     "navigationAria": "导航"
   },
@@ -613,9 +635,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
+    "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
-    "heading": "资产",
-    "label": "{count, plural, one {# 个资产} other {# 个资产}}"
+    "label": "{count, plural, one {# 个资产} other {# 个资产}}",
+    "labelUnavailable": "无法加载资产"
   },
   "conversationRow": {
     "untitled": "无标题"

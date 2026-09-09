@@ -47,11 +47,23 @@ describe("a mark on the shared surface", () => {
         ink={INK}
       />,
     );
+    // The loop is a stroke rather than a box, so it is placed and sized in the
+    // window's own pixels: what a fraction has to reach is the same fraction
+    // of the window, with the room the stroke needs added around it on every
+    // side. The room cancels out, which is what this pins.
     const mark = markOf(container);
-    expect(mark?.style.left).toBe("25%");
-    expect(mark?.style.top).toBe("50%");
-    expect(mark?.style.width).toBe("10%");
-    expect(mark?.style.height).toBe("20%");
+    const room =
+      (Number(mark?.getAttribute("width")) - 0.1 * window.innerWidth) / 2;
+    expect(room).toBeGreaterThan(0);
+    expect(mark?.style.left).toBe(
+      `${Math.round(0.25 * window.innerWidth - room)}px`,
+    );
+    expect(mark?.style.top).toBe(
+      `${Math.round(0.5 * window.innerHeight - room)}px`,
+    );
+    expect(Number(mark?.getAttribute("height"))).toBe(
+      0.2 * window.innerHeight + room * 2,
+    );
   });
 
   test("takes no mouse events, so the press lands on the app underneath", () => {
@@ -339,6 +351,31 @@ describe("an arrow at a place on the shared surface", () => {
       TALL,
     );
     expect(placement.above).toBe(true);
+  });
+
+  /**
+   * And it turns through the variable the entrance composes with, not through
+   * a transform of its own.
+   *
+   * The keyframe declares only a `from`, so an element's own transform is the
+   * animation's end state: an arrow that set `rotate(180deg)` directly would
+   * spend its whole entrance rotating into place rather than arriving turned.
+   * The static result looks identical, which is why this is pinned here
+   * rather than left to the eye.
+   */
+  test("the turned arrow rotates through the entrance's own variable", () => {
+    const { container } = render(
+      <CompanionCoachmarks
+        marks={[{ kind: "point" as const, x: 0.5, y: 0.99 }]}
+        ink={INK}
+      />,
+    );
+    const pointer = pointerOf(container);
+    expect(pointer?.dataset.above).toBe("");
+    expect(pointer?.style.getPropertyValue("--companion-coachmark-turn")).toBe(
+      "rotate(180deg)",
+    );
+    expect(pointer?.style.transform).toBe("");
   });
 
   /** A point keeps clear of its own arrow when its caption is placed. */

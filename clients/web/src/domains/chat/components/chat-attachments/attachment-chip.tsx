@@ -1,25 +1,14 @@
-import {
-  Archive,
-  Code2,
-  FileAudio,
-  File as FileIcon,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileType2,
-  FileVideo,
-  X,
-} from "lucide-react";
-import type { FC, MouseEventHandler, ReactNode } from "react";
+import { X } from "lucide-react";
+import type { FC, MouseEventHandler } from "react";
 
 import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
 
 import {
+  ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   middleTruncate,
-  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 
 interface AttachmentChipProps {
@@ -37,19 +26,6 @@ interface AttachmentChipProps {
   pressGuard?: MouseEventHandler<HTMLElement>;
 }
 
-const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
-  image: <FileImage className="h-4 w-4" />,
-  video: <FileVideo className="h-4 w-4" />,
-  audio: <FileAudio className="h-4 w-4" />,
-  pdf: <FileType2 className="h-4 w-4" />,
-  code: <Code2 className="h-4 w-4" />,
-  archive: <Archive className="h-4 w-4" />,
-  spreadsheet: <FileSpreadsheet className="h-4 w-4" />,
-  document: <FileText className="h-4 w-4" />,
-  text: <FileText className="h-4 w-4" />,
-  file: <FileIcon className="h-4 w-4" />,
-};
-
 export const AttachmentChip: FC<AttachmentChipProps> = ({
   id,
   filename,
@@ -62,6 +38,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
 }) => {
   const { t } = useTranslation("chat");
   const kind = classifyAttachment(mimeType, filename);
+  const Icon = ATTACHMENT_ICON_BY_KIND[kind];
   const displayName = middleTruncate(filename);
   const hasPreview = kind === "image" && previewUrl !== null;
   const isClickable = hasPreview && onPreview != null;
@@ -100,7 +77,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
             className="h-full w-full object-cover"
           />
         ) : (
-          ICON_BY_KIND[kind]
+          <Icon className="h-4 w-4" />
         )}
       </div>
       <span className="min-w-0 max-w-[156px] truncate text-body-small-default leading-4 text-[var(--content-secondary)]">

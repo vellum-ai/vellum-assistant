@@ -1133,3 +1133,59 @@ describe("frame gate settle dwell", () => {
     expect(gate.offer(scene({ seed: 1 }), 220).reason).toBe("first");
   });
 });
+
+describe("frame gate adopt", () => {
+  test("the adopted frame is what the next offer is judged against", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
+
+    // A frame the caller sent on its own, of a different view. Nothing was
+    // offered, so without this the gate still thinks the call is looking at
+    // the first scene.
+    gate.adopt(scene({ seed: 2 }), 100);
+    // The view the call was just given is not news.
+    expect(gate.offer(scene({ seed: 2 }), 200).reason).toBe("unchanged");
+    // And the view it had before is, again.
+    expect(gate.offer(scene({ seed: 1 }), 300).reason).toBe("novel");
+  });
+
+  test("stands in for the first keep when nothing has been kept yet", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.adopt(scene({ seed: 3 }), 0);
+    const next = gate.offer(scene({ seed: 3 }), 10);
+    expect(next.keep).toBe(false);
+    expect(next.reason).toBe("unchanged");
+    expect(next.novelty).not.toBeNull();
+  });
+
+  test("restarts the heartbeat, as a keep does", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 4 }), 0);
+    gate.adopt(scene({ seed: 4 }), 800);
+    // 1s past the first keep, but only 200ms past the adopted one.
+    expect(gate.offer(scene({ seed: 4 }), 1_000).reason).toBe("unchanged");
+    expect(gate.offer(scene({ seed: 4 }), 1_800).reason).toBe("heartbeat");
+  });
+
+  test("spends a standing arm, since the call was given a frame of the moment", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 5 }), 0);
+    gate.armForcedKeep(100);
+    gate.adopt(scene({ seed: 5 }), 150);
+    // With the arm standing this would be `answered`; spent, the same frame is
+    // plain `unchanged`, and a small change is judged at the ambient bar.
+    expect(gate.offer(scene({ seed: 5 }), 200).reason).toBe("unchanged");
+  });
+
+  test("rejects a grid of the wrong size, exactly as an offer does", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(() => gate.adopt(new Uint8Array(64), 0)).toThrow(
+      /expects 256 cells, received 64/,
+    );
+  });
+});

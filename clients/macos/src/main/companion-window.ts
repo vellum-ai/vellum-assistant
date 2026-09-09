@@ -1444,12 +1444,11 @@ const surfaceBounds = async (
   share: WatchCaptureTarget,
 ): Promise<Rectangle | null> => {
   // The frame's own rectangle, because that is the one the marks are drawn
-  // on, and it is not always the one the share names. A frame asked for a
-  // display's whole bounds is held to that display's work area, which begins
-  // a menu bar lower and ends a menu bar shorter, so a fraction measured
-  // against the display and drawn into the frame lands low by exactly that
-  // much. Deriving the surface twice is what let the two disagree; asking the
-  // frame is what keeps them the same rectangle by construction.
+  // on. It is placed on the share's bounds, and `placeWatchFrame` asks for
+  // the whole display rather than its work area, so the two should agree;
+  // asking the frame rather than deriving the surface a second time is what
+  // keeps them the same rectangle by construction, whatever the window
+  // system did with the request.
   const frame = getFloatingWindow(WATCH_FRAME_KIND);
   if (frame !== null) {
     return frame.getBounds();
@@ -1508,6 +1507,15 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       minimizable: false,
       maximizable: false,
       backgroundColor: "#00000000",
+      // **The frame must be the surface, to the pixel.** Without this macOS
+      // holds a window to the display's work area: asked for the whole
+      // display it comes back a menu bar lower and a menu bar shorter, and
+      // says nothing. The assistant measures its marks against a picture of
+      // the whole display, and a fraction of that drawn into the shorter
+      // window lands low by the menu bar's height at the top, shrinking to
+      // nothing at the foot. The menu bar draws over the top of the window
+      // either way; `frameInsetTop` is what keeps the rim clear of it.
+      enableLargerThanScreen: true,
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
