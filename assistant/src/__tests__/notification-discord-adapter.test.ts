@@ -32,7 +32,10 @@ mock.module("../messaging/providers/discord/api.js", () => ({
 const { acknowledgedSend } =
   await import("../messaging/providers/send-result.js");
 const actualSend = await import("../messaging/providers/discord/send.js");
+const actualDiscordSend =
+  await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
+  ...actualDiscordSend,
   ...actualSend,
   sendDiscordReply: async (
     target: { channelId: string },

@@ -158,6 +158,13 @@ describe("describeSlackReactionEmoji", () => {
     );
   });
 
+  test("a character spelling is the character, never a name", () => {
+    expect(describeSlackReactionEmoji("🎉")).toEqual({
+      emojiKind: "unicode",
+      emojiName: "🎉",
+    });
+  });
+
   test("a name Slack's list lacks is the workspace's own", () => {
     expect(describeSlackReactionEmoji("blob_wave")).toEqual({
       emojiKind: "shortcode",

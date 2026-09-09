@@ -13,7 +13,10 @@ import type {
   MessageAudience,
   StreamOp,
 } from "@vellumai/gateway-client";
-import type { ReactionEmojiIdentity } from "@vellumai/service-contracts/reactions";
+import {
+  classifyReactionEmojiSpelling,
+  type ReactionEmojiIdentity,
+} from "@vellumai/service-contracts/reactions";
 import { slackEmojiCharacter } from "@vellumai/slack-text";
 
 import type { AssistantActivityPhase } from "../../../api/index.js";
@@ -443,9 +446,11 @@ export function describeSlackReactionEmoji(
 ): ReactionEmojiIdentity {
   const bareName = slackReactionName(emoji);
   const character = slackEmojiCharacter(bareName);
+  // A spelling Slack's list lacks is a workspace name, or the character
+  // itself; the contract's grammar tells those apart.
   return character !== undefined
     ? { emojiKind: "unicode", emojiName: character }
-    : { emojiKind: "shortcode", emojiName: bareName };
+    : classifyReactionEmojiSpelling(bareName);
 }
 
 /** How Slack spells each activity phase on an agent session. */

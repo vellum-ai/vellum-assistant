@@ -33,7 +33,9 @@ mock.module("../config/env.js", () => ({
 const deliveries: Array<{ transport: string; to: string; text: string }> = [];
 
 const realSlackSend = await import("../messaging/providers/slack/send.js");
+const actualSlackSend = await import("../messaging/providers/slack/send.js");
 mock.module("../messaging/providers/slack/send.js", () => ({
+  ...actualSlackSend,
   ...realSlackSend,
   sendSlackReply: async (chatId: string, text: string) => {
     deliveries.push({ transport: "slack", to: chatId, text });
@@ -59,7 +61,10 @@ mock.module("../messaging/providers/discord/api.js", () => ({
 }));
 
 const realDiscordSend = await import("../messaging/providers/discord/send.js");
+const actualDiscordSend =
+  await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
+  ...actualDiscordSend,
   ...realDiscordSend,
   sendDiscordReply: async (target: { channelId: string }, text: string) => {
     deliveries.push({ transport: "discord", to: target.channelId, text });
