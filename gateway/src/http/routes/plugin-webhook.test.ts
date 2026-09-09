@@ -1754,7 +1754,11 @@ describe("twilio verification and form-encoded inbound", () => {
     // signature covers that spelling rather than the one on the wire here.
     const injected =
       "https://platform.example.test/v1/gateway/callbacks/cb-1";
-    const params = { MessageSid: "SM9004", From: "+15551234567", Body: "hi" };
+    const params: Record<string, string> = {
+      MessageSid: "SM9004",
+      From: "+15551234567",
+      Body: "hi",
+    };
     const signature = createHmac("sha1", TWILIO_AUTH_TOKEN)
       .update(
         `${injected}${Object.keys(params)
