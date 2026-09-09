@@ -1570,6 +1570,14 @@ export interface CoachmarkUnresolved {
   target: string;
   reason: "no-tree" | "ambiguous" | "no-match";
   candidates: readonly string[];
+  /**
+   * How many labels the surface carried, which can be more than `candidates`
+   * holds. The host bounds the list at the point it reads the accessibility
+   * tree, since a web page is ten thousand elements and any of them can be
+   * carrying a paragraph of `aria-label`. The count is what lets the reader
+   * say how many names it is not showing.
+   */
+  candidateCount?: number;
 }
 
 /**

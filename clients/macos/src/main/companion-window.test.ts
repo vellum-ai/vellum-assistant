@@ -3434,6 +3434,33 @@ describe("companion window: pointing at what is shared", () => {
     expect(state().coachmarks).toBeUndefined();
   });
 
+  /**
+   * The host bounds the names it sends, so what arrives can be the short
+   * version of a surface that carried hundreds. The count travels with it,
+   * which is what lets the answer say how many it is not naming.
+   */
+  test("how many names there were survives the bounded list", async () => {
+    located = {
+      found: false,
+      reason: "no-match",
+      available: ["color balance", "cropping"],
+      candidateCount: 312,
+    };
+    await shareAndSee(WINDOW);
+
+    expect(
+      await showCompanionCoachmarks([{ target: "white balance" }], CALL),
+    ).toEqual({
+      kind: "unresolved",
+      unresolved: {
+        target: "white balance",
+        reason: "no-match",
+        candidates: ["color balance", "cropping"],
+        candidateCount: 312,
+      },
+    });
+  });
+
   /** Two controls answering to one name is refused rather than guessed at. */
   test("a name fitting more than one control draws nothing", async () => {
     located = {

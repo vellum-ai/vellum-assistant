@@ -1391,6 +1391,9 @@ const placeOnNamedTarget = async (
       target: request.target,
       reason: located.reason,
       candidates: located.ambiguous ?? located.available ?? [],
+      ...(located.candidateCount === undefined
+        ? {}
+        : { candidateCount: located.candidateCount }),
     };
   }
   const bounds = await surfaceBounds(share);

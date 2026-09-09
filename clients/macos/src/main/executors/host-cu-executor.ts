@@ -117,10 +117,12 @@ const UNRESOLVED = (unresolved: CoachmarkUnresolved): string => {
     return `The shared surface exposes no accessibility information, so nothing on it can be found by name. Give bounds for "${target}" instead, measured against the picture you were last shown.`;
   }
   const shown = candidates.slice(0, CANDIDATES_SHOWN).join(", ");
+  // Counted off what the surface carried rather than off what arrived: the
+  // host bounds the list before it crosses, so `candidates` is already the
+  // short version of a page that had hundreds.
+  const total = unresolved.candidateCount ?? candidates.length;
   const rest =
-    candidates.length > CANDIDATES_SHOWN
-      ? ` (and ${candidates.length - CANDIDATES_SHOWN} more)`
-      : "";
+    total > CANDIDATES_SHOWN ? ` (and ${total - CANDIDATES_SHOWN} more)` : "";
   if (reason === "ambiguous") {
     return `More than one thing on the shared surface answers to "${target}": ${shown}${rest}. A name is matched whole, so there is no wording of "${target}" that picks one of them out. Point at a nearby control whose name is its own, or say where the thing is out loud.`;
   }

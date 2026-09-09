@@ -50,4 +50,20 @@ public enum AXLabel {
         guard line.count > max else { return line }
         return line.prefix(max - 1) + "…"
     }
+
+    /// The first `limit` of `labels`, each one line of at most `each`
+    /// characters.
+    ///
+    /// For a list of names sent somewhere to be chosen between. The tree they
+    /// were read from can be a web page: ten thousand elements, any number of
+    /// them carrying a paragraph of `aria-label` apiece. Sent whole, that is a
+    /// payload nothing reading it can act on, so the list is bounded where it
+    /// is produced rather than where it is read.
+    ///
+    /// The order it was given is kept, since a tree is read in the order its
+    /// elements are laid out. How many there were is the caller's to carry
+    /// separately: this decides only how many travel.
+    public static func shortlist(_ labels: [String], limit: Int, each: Int) -> [String] {
+        labels.prefix(limit).map { singleLine($0, max: each) }
+    }
 }
