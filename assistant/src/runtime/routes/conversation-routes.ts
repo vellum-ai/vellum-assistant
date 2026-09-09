@@ -2256,8 +2256,12 @@ export async function handleSendMessage(
   const sendRequestId = uuidv7();
 
   const queueSend = async (content: string) => {
-    // Queue the message so it's processed when the current turn completes
-    const requestId = uuidv7();
+    // Queue the message so it's processed when the current turn completes.
+    // The send's own id, not a fresh one: an interrupting send is answered
+    // `202` before this can run, and a fallback that minted its own would
+    // persist the row and emit its queue events under an id the client was
+    // never told, so nothing it holds would correlate.
+    const requestId = sendRequestId;
     const enqueueResult = conversation.enqueueMessage({
       content,
       attachments,

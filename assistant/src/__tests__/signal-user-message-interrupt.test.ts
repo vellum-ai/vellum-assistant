@@ -53,8 +53,13 @@ mock.module("../daemon/conversation-store.js", () => ({
 }));
 
 const backgroundDispatches: string[] = [];
+/** Set to make the direct dispatch refuse, as it does when it loses the lock. */
+let backgroundDispatchError: Error | null = null;
 mock.module("../daemon/process-message.js", () => ({
   processMessageInBackground: async (_id: string, content: string) => {
+    if (backgroundDispatchError) {
+      throw backgroundDispatchError;
+    }
     backgroundDispatches.push(content);
   },
   resolveTurnChannel: (c: string) => c,
@@ -114,6 +119,7 @@ beforeEach(() => {
   enqueued.length = 0;
   drainKicks.length = 0;
   backgroundDispatches.length = 0;
+  backgroundDispatchError = null;
 });
 
 afterEach(() => {
@@ -147,6 +153,36 @@ describe("CLI signal send after an interrupt", () => {
     expect(backgroundDispatches).toEqual([]);
     // Nothing is running to drain it, so the enqueue kicks one itself.
     expect(drainKicks).toEqual(["signal_send_idle"]);
+  });
+
+  test("queues a released send that loses the conversation before it dispatches", async () => {
+    // `released` proves the interrupted turn let go, not that this send got the
+    // conversation: an idle waiter registered earlier can take it on the same
+    // transition. The direct dispatch then refuses, and the CLI's message must
+    // land on the queue rather than be lost to an internal error.
+    const { CONVERSATION_BUSY_MESSAGE } =
+      await import("../daemon/conversation-messaging.js");
+    interruptOutcome = "released";
+    conversationProcessing = true;
+    processingAfterInterrupt = false;
+    backgroundDispatchError = new Error(CONVERSATION_BUSY_MESSAGE);
+
+    await sendSignal("answer me");
+
+    expect(backgroundDispatches).toEqual([]);
+    expect(enqueued).toEqual(["answer me"]);
+    expect(drainKicks).toEqual(["signal_send_idle"]);
+  });
+
+  test("still surfaces a dispatch failure that is not the busy race", async () => {
+    interruptOutcome = "released";
+    backgroundDispatchError = new Error("disk on fire");
+
+    // The signal handler catches and reports; what matters is that a genuine
+    // failure is not silently turned into a queued message.
+    await sendSignal("hello");
+
+    expect(enqueued).toEqual([]);
   });
 
   test("queues on `declined`, which is what the flag-off path answers", async () => {

@@ -863,7 +863,7 @@ describe("host-proxy preactivation across an interrupt", () => {
       processing: boolean;
       owner: number;
       abortController: AbortController | null;
-      enqueueMessage: () => {
+      enqueueMessage: (options: { requestId?: string }) => {
         queued: boolean;
         requestId: string;
         rejected?: boolean;
@@ -874,11 +874,15 @@ describe("host-proxy preactivation across an interrupt", () => {
     // A turn that never releases, so the handover gives up and falls back to
     // the queue, which is full.
     conv.abortController = new AbortController();
-    conv.enqueueMessage = () => ({
-      queued: false,
-      requestId: crypto.randomUUID(),
-      rejected: true,
-    });
+    let enqueuedRequestId: string | undefined;
+    conv.enqueueMessage = (options: { requestId?: string }) => {
+      enqueuedRequestId = options.requestId;
+      return {
+        queued: false,
+        requestId: options.requestId ?? crypto.randomUUID(),
+        rejected: true,
+      };
+    };
 
     const events: Array<Record<string, unknown>> = [];
     const subscription = assistantEventHub.subscribe({
@@ -895,6 +899,7 @@ describe("host-proxy preactivation across an interrupt", () => {
     expect(response.status).toBe(202);
 
     // The hub wraps each event in an envelope; the payload is `message`.
+    const accepted = (await response.json()) as { requestId?: string };
     const reported = await waitFor(() => {
       for (const envelope of events) {
         const message = envelope.message as Record<string, unknown> | undefined;
@@ -905,9 +910,14 @@ describe("host-proxy preactivation across an interrupt", () => {
       return undefined;
     });
     // Correlated by the id the 202 carried, so the client can fail the
-    // optimistic row it is already showing and offer the retry.
-    expect(typeof reported.requestId).toBe("string");
+    // optimistic row it is already showing and offer the retry. The fallback
+    // must not mint an id of its own: the client was told this one.
+    expect(reported.requestId).toBe(accepted.requestId);
     expect(reported.category).toBe("queue_drain_failed");
+    // The fallback enqueue must carry the id the 202 handed out, not one of its
+    // own: the row it persists and the queue events it emits are what the
+    // client correlates against what it was told.
+    expect(enqueuedRequestId).toBe(accepted.requestId);
 
     subscription.dispose();
     conv.processing = false;

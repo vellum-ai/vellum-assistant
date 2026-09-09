@@ -19,6 +19,7 @@ import { v7 as uuidv7 } from "uuid";
 import { getConfig } from "../config/loader.js";
 import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
 import { interruptRunningTurn } from "../daemon/conversation-interrupt.js";
+import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -123,12 +124,14 @@ async function dispatchUserMessage(params: {
       })
     : "released";
 
-  // Every outcome but `released` queues, whatever the flag now reads. A `busy`
-  // that comes back after the interrupted turn has already ended is the case
-  // this must not treat as idle: its history carries a durable `tool_use` the
-  // repair could not answer, and running the message here would persist a user
-  // row after it. The idle kick below is what gets the queued message drained.
-  if (interruptOutcome !== "released") {
+  /**
+   * Put the message on the queue and make sure something will drain it.
+   *
+   * Reached whenever this send cannot run now: any outcome but `released`, and
+   * also a `released` that loses the conversation again before the dispatch
+   * below can take it.
+   */
+  const queueSignalMessage = (): { accepted: boolean } => {
     for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
       const att = resolvedAttachments[i];
       if (att.filePath && !att.data) {
@@ -198,13 +201,39 @@ async function dispatchUserMessage(params: {
       }
     }
     return { accepted: !result.rejected };
+  };
+
+  // Every outcome but `released` queues, whatever the flag now reads. A `busy`
+  // that comes back after the interrupted turn has already ended is the case
+  // this must not treat as idle: its history carries a durable `tool_use` the
+  // repair could not answer, and running the message here would persist a user
+  // row after it. The idle kick inside is what gets the queued message drained.
+  if (interruptOutcome !== "released") {
+    return queueSignalMessage();
   }
 
-  await processMessageInBackground(conversationId, params.content, {
-    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
-    sourceChannel: params.sourceChannel,
-    sourceInterface: params.sourceInterface,
-  });
+  try {
+    await processMessageInBackground(conversationId, params.content, {
+      attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+      sourceChannel: params.sourceChannel,
+      sourceInterface: params.sourceInterface,
+    });
+  } catch (err) {
+    if (isConversationBusyError(err)) {
+      // `released` proves the interrupted turn let go, not that this send got
+      // the conversation: an idle waiter registered earlier (channel
+      // admission, an agent wake) can take it on the same transition. The
+      // dispatch then refuses, and without this the CLI's message would be
+      // lost to an internal error. Queue it, exactly as the HTTP route does
+      // when it loses the same race.
+      log.info(
+        { conversationId },
+        "Conversation was claimed again before the released send could dispatch; queueing instead",
+      );
+      return queueSignalMessage();
+    }
+    throw err;
+  }
   return { accepted: true };
 }
 
