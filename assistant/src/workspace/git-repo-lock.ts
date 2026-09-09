@@ -16,14 +16,13 @@
 import {
   closeSync,
   constants as fsConstants,
-  mkdirSync,
   openSync,
   readFileSync,
   renameSync,
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { getLogger } from "../util/logger.js";
@@ -242,8 +241,6 @@ export async function acquireWorkspaceGitRepoLock(
   lockPath: string,
   options?: { deadlineMs?: number },
 ): Promise<() => Promise<void>> {
-  mkdirSync(dirname(lockPath), { recursive: true, mode: 0o700 });
-
   let attempt = 0;
   while (true) {
     if (deadlineExpired(options?.deadlineMs)) {
