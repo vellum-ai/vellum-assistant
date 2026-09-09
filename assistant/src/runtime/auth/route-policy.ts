@@ -114,7 +114,7 @@ export function enforcePolicy(
   }
 
   if (!policy) {
-    // No policy declared — unprotected endpoint (e.g. health, debug)
+    // An endpoint with no policy declared is unprotected (e.g. health, debug).
     return null;
   }
 

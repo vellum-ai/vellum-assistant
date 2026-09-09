@@ -110,7 +110,7 @@ const STRIPPED_HEAD_RESPONSE_HEADERS = new Set(
  * A grant is a live credential for this daemon, and a client that keeps
  * `Authorization` across hosts (`curl --location-trusted`, a hand-rolled
  * redirect loop) would hand it to the provider on the very first hop. Under
- * a name no HTTP client follows, the target is still readable and no longer
+ * a name no HTTP client follows, the target stays readable and is not
  * reachable by accident. The 3xx status itself is preserved.
  */
 export const PROXY_LOCATION_HEADER = "x-vellum-proxy-location";

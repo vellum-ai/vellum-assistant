@@ -452,7 +452,7 @@ describe("requireEdgeAuthWithScope — JWT mode", () => {
 });
 
 // =========================================================================
-// Single-route grants — the OAuth passthrough grant a third-party CLI holds
+// The OAuth passthrough grant a third-party CLI holds is a single-route grant.
 //
 // The grant is a valid edge token: signature, audience, expiry and policy
 // epoch all check out. Every gateway edge route would otherwise accept it,
