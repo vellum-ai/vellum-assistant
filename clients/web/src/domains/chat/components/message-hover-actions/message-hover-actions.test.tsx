@@ -34,6 +34,7 @@ describe("MessageHoverActions", () => {
     );
 
     expect(html).not.toContain('title="Copy"');
+    expect(html).not.toContain('title="Read aloud"');
     expect(html).toContain('title="Inspect"');
   });
 
@@ -105,5 +106,35 @@ describe("MessageHoverActions", () => {
     );
 
     expect(html).not.toContain('title="Retry"');
+  });
+
+  test("renders copy and read aloud for a copyable message", () => {
+    const message: DisplayMessage = {
+      id: "m7",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody("hello"),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    expect(html).toContain('title="Copy"');
+    expect(html).toContain('title="Read aloud"');
+  });
+
+  test("omits copy and read aloud when the message has no text", () => {
+    const message: DisplayMessage = {
+      id: "m8",
+      role: "assistant",
+      timestamp: Date.UTC(2026, 0, 2, 12, 34),
+      ...textBody(""),
+    };
+    const html = renderToStaticMarkup(
+      <MessageHoverActions message={message} />,
+    );
+
+    expect(html).not.toContain('title="Copy"');
+    expect(html).not.toContain('title="Read aloud"');
   });
 });
