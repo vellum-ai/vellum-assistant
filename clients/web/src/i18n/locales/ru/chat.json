@@ -13,12 +13,7 @@
     "pastePlaceholder": "Ключ"
   },
   "acpRunChatView": {
-    "modelLabel": "Модель",
-    "modelMenuTitle": "Выбрать модель",
-    "modelNextTurnHint": "Применяется со следующего хода.",
-    "modelSwitchFailed": "Не удалось сменить модель. Повторите попытку.",
-    "modelTriggerAria": "Модель: {model}. Сменить модель",
-    "modelUnset": "По умолчанию агента"
+    "modelLabel": "Модель"
   },
   "activityStepsPanel": {
     "backAria": "Назад ко всем шагам",

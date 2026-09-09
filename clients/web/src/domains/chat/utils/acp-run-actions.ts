@@ -1,5 +1,5 @@
 /**
- * Imperative actions for ACP runs: stop (cancel), steer, and model switching.
+ * Imperative actions for ACP runs: stop (cancel) and steer.
  *
  * The daemon's `/v1/acp/*` routes are excluded from the generated web SDK
  * (see `scripts/transform-daemon-spec.ts`), so these call the daemon client
@@ -7,12 +7,8 @@
  */
 
 import { client } from "@/generated/daemon/client.gen";
-import {
-  useAcpRunStore,
-  type AcpModelOption,
-} from "@/domains/chat/acp-run-store";
+import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { toApiError } from "@/utils/api-errors";
 
 /** Response of `POST /v1/acp/:id/steer`. Hand-maintained to match the daemon's action response shape. */
 export interface SteerAcpRunResponse {
@@ -69,44 +65,6 @@ export async function stopAcpRun(acpSessionId: string): Promise<void> {
     }
     throw err;
   }
-}
-
-/**
- * Response of `POST /v1/acp/:id/set-model`. Hand-maintained to match the
- * daemon's response shape. `availableModels` is the adapter's refreshed set,
- * so a switch that shifts the offered list is reflected in one write.
- */
-export interface SwitchAcpRunModelResponse {
-  acpSessionId: string;
-  model?: string;
-  availableModels: AcpModelOption[];
-}
-
-/**
- * Switch a live ACP run onto one of the models its adapter advertises. The
- * adapter applies it to the next turn, so a turn already streaming finishes on
- * the model it started with.
- *
- * A rejection is wrapped as an `ApiError` so callers can surface the daemon's
- * own verdict (a value outside the offered list, an adapter with no selector)
- * rather than generic retry copy.
- */
-export async function switchAcpRunModel(
-  acpSessionId: string,
-  model: string,
-): Promise<SwitchAcpRunModelResponse> {
-  const { data, error, response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/acp/{id}/set-model" as KnownDaemonUrl,
-    path: { assistant_id: activeAssistantId(), id: acpSessionId },
-    body: { model } as Record<string, unknown>,
-  });
-  if (!response) {
-    throw new Error("Failed to switch ACP run model");
-  }
-  if (!response.ok) {
-    throw toApiError(error, response);
-  }
-  return data as unknown as SwitchAcpRunModelResponse;
 }
 
 /** Send a steering instruction to a running (or resumable) ACP run. */

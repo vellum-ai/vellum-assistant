@@ -176,27 +176,6 @@ export const WithTrailingContent: Story = {
 };
 
 /**
- * `selected` marks the row a list of choices is currently on. Both surfaces
- * draw the check and set `aria-current`, so flipping `presentation` cannot
- * leave the sheet saying nothing about a choice the menu shows.
- */
-export const WithSelectedItem: Story = {
-  args: { title: "Choose model" },
-  parameters: { controls: { disable: true } },
-  render: (args) => (
-    <ActionMenu.Root {...rootArgs(args)}>
-      <ActionMenu.Trigger asChild>
-        <Button variant="outlined">Model</Button>
-      </ActionMenu.Trigger>
-      <ActionMenu.Content title={args.title}>
-        <ActionMenu.Item label="Opus" description="Most capable" selected />
-        <ActionMenu.Item label="Sonnet" description="Fast and capable" />
-      </ActionMenu.Content>
-    </ActionMenu.Root>
-  ),
-};
-
-/**
  * Open state driven from outside, for a caller that already tracks it (a row
  * that reveals its trigger while the menu is open, say). The surface reports
  * its own dismissals back through `onOpenChange`.

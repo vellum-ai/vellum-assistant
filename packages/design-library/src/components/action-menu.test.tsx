@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { renderToStaticMarkup } from "react-dom/server";
 
-import { ActionMenu, actionMenuDestructiveClasses } from "./action-menu";
+import { actionMenuDestructiveClasses } from "./action-menu";
 
 const presentations = ["anchored", "sheet"] as const;
 
@@ -35,43 +34,5 @@ describe("ActionMenu destructive tone", () => {
     expect(actionMenuDestructiveClasses.anchored).toContain(
       "data-[highlighted]:text-[var(--system-negative-hover)]",
     );
-  });
-});
-
-/**
- * `Root` is a context provider in both presentations, so a row renders without
- * the surface around it. The sheet's row is the one that renders outside a
- * portal, which is what static markup can reach; the anchored row's copy of
- * this is asserted where both surfaces are driven end to end.
- */
-function renderSheetItem(selected: boolean): string {
-  return renderToStaticMarkup(
-    <ActionMenu.Root presentation="sheet">
-      <ActionMenu.Item
-        label="Opus"
-        description="Most capable"
-        selected={selected}
-      />
-    </ActionMenu.Root>,
-  );
-}
-
-describe("ActionMenu selected item", () => {
-  test("marks the chosen row current and draws the check", () => {
-    const html = renderSheetItem(true);
-    expect(html).toContain('aria-current="true"');
-    expect(html).toContain("lucide-check");
-  });
-
-  test("names the row from its label, the mark being decorative", () => {
-    // The label alone, so a supporting line and the check both stay out of
-    // what the row announces.
-    expect(renderSheetItem(true)).toContain('aria-label="Opus"');
-  });
-
-  test("leaves an unchosen row unmarked", () => {
-    const html = renderSheetItem(false);
-    expect(html).not.toContain("aria-current");
-    expect(html).not.toContain("lucide-check");
   });
 });

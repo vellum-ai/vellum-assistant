@@ -48,10 +48,7 @@ import {
   type AcpFileChange,
 } from "@/domains/chat/components/acp-run-chat-view/acp-chat-tool-card";
 import { AcpChatUserTurn } from "@/domains/chat/components/acp-run-chat-view/acp-chat-user-turn";
-import {
-  AcpModelStatCard,
-  useShowsAcpModelCard,
-} from "@/domains/chat/components/acp-run-chat-view/acp-model-stat-card";
+import { AcpModelStatCard } from "@/domains/chat/components/acp-run-chat-view/acp-model-stat-card";
 import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/command-output-view";
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
@@ -62,11 +59,7 @@ import {
   formatNumber,
 } from "@/domains/chat/components/metric-card";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
-import {
-  steerAcpRun,
-  stopAcpRun,
-  switchAcpRunModel,
-} from "@/domains/chat/utils/acp-run-actions";
+import { steerAcpRun, stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { acpRunStatusBadge, isActiveAcpStatus } from "@/utils/acp-run-status";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -101,12 +94,10 @@ export interface AcpRunChatViewProps {
   entry: AcpRunEntry;
   onClose: () => void;
   /**
-   * The active assistant, from the surface that mounted the panel. `entry`
-   * carries no assistant of its own: the ACP run store is populated from the
-   * parent conversation's stream. Threaded to every markdown block so
-   * workspace file references resolve against the right workspace, and read
-   * by the model gate, which closes when the active assistant does not
-   * support switching.
+   * Assistant that owns the run's parent conversation. `entry` carries no id
+   * of its own: the ACP run store is populated from that conversation's
+   * stream. Threaded to every markdown block so workspace file references
+   * resolve against the right workspace.
    */
   assistantId?: string | null;
 }
@@ -123,9 +114,9 @@ export function AcpRunChatView({
   const { t } = useTranslation("chat");
   const isRunning = isActiveAcpStatus(entry.status);
 
-  // The grid sizes itself from the tiles it renders, so the column count and
-  // the tile read one predicate rather than each deciding for itself.
-  const showsModelCard = useShowsAcpModelCard(entry, assistantId);
+  // The tile renders only for a run the daemon reported a model for. Old
+  // assistants report none, so nothing has to gate on their version.
+  const { model } = entry;
   // A run reports its token counts from its first usage event, so a fresh run
   // has no usage to show yet and its tiles would read a made-up zero.
   const showsUsage =
@@ -276,7 +267,7 @@ export function AcpRunChatView({
             data-testid="acp-chat-conversation"
             className="flex h-full flex-col gap-4 overflow-y-auto px-5 py-5"
           >
-            {(showsUsage || showsModelCard) && (
+            {(showsUsage || model !== undefined) && (
               <div
                 className={cn(
                   "grid gap-3",
@@ -315,14 +306,11 @@ export function AcpRunChatView({
                     />
                   </>
                 )}
-                {showsModelCard && (
+                {model !== undefined && (
                   // Beside the token tiles the model takes a row of its own: a
                   // model id in half of a 400px panel has nowhere to render.
                   <div className={showsUsage ? "col-span-2" : undefined}>
-                    <AcpModelStatCard
-                      entry={entry}
-                      onSwitchModel={switchAcpRunModel}
-                    />
+                    <AcpModelStatCard model={model} />
                   </div>
                 )}
               </div>

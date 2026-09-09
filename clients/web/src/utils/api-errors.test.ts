@@ -1,16 +1,12 @@
 /**
- * Tests for `badRequestMessage` and `rejectionMessage`, the rules deciding
- * when a failed daemon call should be reported in the server's own words
- * rather than the call site's fallback copy.
+ * Tests for `badRequestMessage` — the rule deciding when a failed daemon call
+ * should be reported in the server's own words rather than the call site's
+ * fallback copy.
  */
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  ApiError,
-  badRequestMessage,
-  rejectionMessage,
-} from "@/utils/api-errors";
+import { ApiError, badRequestMessage } from "@/utils/api-errors";
 
 describe("badRequestMessage", () => {
   test("returns the server's message for a 400", () => {
@@ -22,12 +18,8 @@ describe("badRequestMessage", () => {
   });
 
   test("ignores every other status, so internal detail can't leak", () => {
-    expect(
-      badRequestMessage(new ApiError(500, "boom: db offline")),
-    ).toBeUndefined();
-    expect(
-      badRequestMessage(new ApiError(404, "no such profile")),
-    ).toBeUndefined();
+    expect(badRequestMessage(new ApiError(500, "boom: db offline"))).toBeUndefined();
+    expect(badRequestMessage(new ApiError(404, "no such profile"))).toBeUndefined();
   });
 
   test("ignores the synthesized status fallback — it reads as noise to a user", () => {
@@ -41,28 +33,5 @@ describe("badRequestMessage", () => {
     expect(badRequestMessage(new Error("network"))).toBeUndefined();
     expect(badRequestMessage("nope")).toBeUndefined();
     expect(badRequestMessage(undefined)).toBeUndefined();
-  });
-});
-
-describe("rejectionMessage", () => {
-  test("returns the server's message for a 400 and for a 409", () => {
-    expect(rejectionMessage(new ApiError(400, "Unknown model: gpt-5."))).toBe(
-      "Unknown model: gpt-5.",
-    );
-    expect(
-      rejectionMessage(new ApiError(409, "This session has no model option.")),
-    ).toBe("This session has no model option.");
-  });
-
-  test("ignores every other status, so internal detail can't leak", () => {
-    expect(
-      rejectionMessage(new ApiError(500, "boom: db offline")),
-    ).toBeUndefined();
-    expect(rejectionMessage(new ApiError(404, "no such run"))).toBeUndefined();
-  });
-
-  test("ignores the synthesized status fallback and non-HTTP failures", () => {
-    expect(rejectionMessage(new ApiError(409, "HTTP 409"))).toBeUndefined();
-    expect(rejectionMessage(new Error("network"))).toBeUndefined();
   });
 });
