@@ -777,6 +777,12 @@ const ConfigGetResponseSchema = z
       })
       .passthrough()
       .optional(),
+    acp: z
+      .object({
+        defaultModel: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough()
   .meta({ id: "ConfigGetResponse" });
@@ -883,6 +889,12 @@ const ConfigPatchRequestSchema = z
           .passthrough()
           .nullable()
           .optional(),
+      })
+      .passthrough()
+      .optional(),
+    acp: z
+      .object({
+        defaultModel: z.string().nullable().optional(),
       })
       .passthrough()
       .optional(),
