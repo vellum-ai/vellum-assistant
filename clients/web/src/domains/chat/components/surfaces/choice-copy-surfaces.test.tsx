@@ -31,11 +31,9 @@ import { CopyBlockSurface } from "@/domains/chat/components/surfaces/copy-block-
 import { OAuthConnectSurface } from "@/domains/chat/components/surfaces/oauth-connect-surface";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import type {
-  ManagedOAuthConnectClient,
-  ManagedOAuthConnectOptions,
-  ManagedOAuthConnectResult,
-} from "@/domains/chat/api/managed-oauth";
-import { assistantsOauthConnectionsListQueryKey } from "@/generated/api/@tanstack/react-query.gen";
+  UseManagedOAuthConnectOptions,
+  UseManagedOAuthConnectResult,
+} from "@/hooks/use-managed-oauth-connect";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import type { Surface } from "@/domains/chat/types/types";
 
@@ -56,10 +54,12 @@ function renderWithQueryClient(ui: ReactElement) {
   });
   const invalidateQueries = mock(() => Promise.resolve());
   client.invalidateQueries = invalidateQueries as never;
-  return {
-    invalidateQueries,
-    ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>),
-  };
+  // `wrap` keeps the provider in place on a rerender: dropping it would remount
+  // the card rather than re-render it, which is a different assertion.
+  const wrap = (node: ReactElement) => (
+    <QueryClientProvider client={client}>{node}</QueryClientProvider>
+  );
+  return { invalidateQueries, wrap, ...render(wrap(ui)) };
 }
 
 function makeSurface(overrides: Partial<Surface>): Surface {
@@ -68,23 +68,6 @@ function makeSurface(overrides: Partial<Surface>): Surface {
     surfaceType: "choice",
     data: {},
     ...overrides,
-  };
-}
-
-function makeConnectedResult(
-  scopesGranted: string[],
-): ManagedOAuthConnectResult {
-  return {
-    status: "connected",
-    connection: {
-      id: "conn-1",
-      provider: "google",
-      status: "ACTIVE",
-      connected: true,
-      account_label: "user@example.com",
-      scopes_granted: scopesGranted,
-      expires_at: null,
-    } as OAuthConnection,
   };
 }
 
@@ -236,49 +219,101 @@ describe("CopyBlockSurface", () => {
 });
 
 describe("OAuthConnectSurface", () => {
-  test("starts managed OAuth and submits the connected account", async () => {
-    const onAction = mock(() => {});
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(async () => makeConnectedResult(["gmail.readonly"])),
-    };
+  const CONNECTION: OAuthConnection = {
+    id: "conn-1",
+    provider: "google",
+    status: "ACTIVE",
+    connected: true,
+    account_label: "user@example.com",
+    scopes_granted: ["gmail.readonly"],
+    expires_at: null,
+  } as OAuthConnection;
 
-    const { getByRole, queryByText, invalidateQueries } = renderWithQueryClient(
+  /**
+   * A stand-in for the connect flow. Tests drive `status` directly, which is
+   * what the card actually renders from: the real hook derives it from the
+   * connections list rather than from the authorization window.
+   */
+  function stubConnect(overrides: Partial<UseManagedOAuthConnectResult> = {}) {
+    const connect = mock(() => {});
+    const dismiss = mock(() => {});
+    const options: UseManagedOAuthConnectOptions[] = [];
+    const useConnect = (opts: UseManagedOAuthConnectOptions) => {
+      options.push(opts);
+      return {
+        connect,
+        dismiss,
+        status: "idle" as const,
+        connection: null,
+        errorMessage: null,
+        ...overrides,
+      };
+    };
+    return { connect, dismiss, options, useConnect };
+  }
+
+  const OAUTH_SURFACE = {
+    surfaceType: "oauth_connect" as const,
+    title: "Connect Google",
+    data: {
+      providerKey: "google",
+      displayName: "Google",
+      description: "Connect Gmail for this task.",
+      connectLabel: "Connect Google Account",
+      requestedScopes: ["gmail.readonly"],
+    },
+  };
+
+  test("starts the connect flow with the surface's provider and scopes", () => {
+    const stub = stubConnect();
+    const { getByRole } = renderWithQueryClient(
       <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          title: "Connect Google",
-          data: {
-            providerKey: "google",
-            displayName: "Google",
-            description: "Connect Gmail for this task.",
-            connectLabel: "Connect Google Account",
-            requestedScopes: ["gmail.readonly"],
-          },
-        })}
+        surface={makeSurface(OAUTH_SURFACE)}
         assistantId="assistant-1"
         assistantDisplayName="Assistant"
-        oauthClient={oauthClient}
-        onAction={onAction}
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
+        onAction={mock(() => {})}
       />,
     );
 
-    expect(queryByText("gmail.readonly")).toBeNull();
-    expect(queryByText("Connect Google Account")).toBeNull();
-    expect(
-      getByRole("button", { name: "About assistant approval" }),
-    ).toBeTruthy();
-
     fireEvent.click(getByRole("button", { name: "Connect" }));
 
+    expect(stub.connect).toHaveBeenCalled();
+    expect(stub.options[0]).toMatchObject({
+      assistantId: "assistant-1",
+      providerKey: "google",
+      providerLabel: "Google",
+      requestedScopes: ["gmail.readonly"],
+    });
+  });
+
+  test("an observed connection submits the connect action once", async () => {
+    const onAction =
+      mock<
+        (
+          surfaceId: string,
+          actionId: string,
+          data?: Record<string, unknown>,
+        ) => void
+      >();
+    const stub = stubConnect({ status: "connected", connection: CONNECTION });
+    // A fresh inline `onAction` each render, as a parent that does not
+    // memoize its callback would produce. That changes the reporting effect's
+    // dependencies, which is what a resubmission guard has to survive.
+    const card = () => (
+      <OAuthConnectSurface
+        surface={makeSurface({ ...OAUTH_SURFACE, surfaceId: "surface-once" })}
+        assistantId="assistant-1"
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
+        onAction={(...args) => onAction(...args)}
+      />
+    );
+    const { rerender, wrap } = renderWithQueryClient(card());
+
     await waitFor(() => {
-      expect(oauthClient.connect).toHaveBeenCalledWith({
-        assistantId: "assistant-1",
-        providerKey: "google",
-        providerLabel: "Google",
-        requestedScopes: ["gmail.readonly"],
-      });
-      expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
+      expect(onAction).toHaveBeenCalledWith("surface-once", "connect", {
         status: "connected",
         providerKey: "google",
         providerLabel: "Google",
@@ -288,252 +323,147 @@ describe("OAuthConnectSurface", () => {
       });
     });
 
-    // A successful connect refreshes the connections list so a just-connected
-    // account no longer reads as unconnected wherever the list is mounted.
-    await waitFor(() => {
-      expect(invalidateQueries).toHaveBeenCalledWith({
-        queryKey: assistantsOauthConnectionsListQueryKey({
-          path: { assistant_id: "assistant-1" },
-        }),
-      });
-    });
+    // A re-render must not resubmit: one authorization is one surface action.
+    rerender(wrap(card()));
+    expect(onAction).toHaveBeenCalledTimes(1);
   });
 
-  test("omits requestedScopes when the surface data carries none", async () => {
-    const connect = mock(async (_options: ManagedOAuthConnectOptions) =>
-      makeConnectedResult([]),
-    );
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect,
-    };
+  test("two mounted copies of one surface report the connection once", async () => {
+    // The transcript keeps its card while the voice room renders its own copy
+    // of the same surface, and both read the one provider-keyed attempt.
+    const onAction = mock(() => {});
+    const stub = stubConnect({ status: "connected", connection: CONNECTION });
+    const surface = makeSurface({ ...OAUTH_SURFACE, surfaceId: "surface-two" });
 
+    renderWithQueryClient(
+      <>
+        <OAuthConnectSurface
+          surface={surface}
+          assistantId="assistant-1"
+          useConnect={stub.useConnect}
+          fetchProvider={async () => null}
+          onAction={onAction}
+        />
+        <OAuthConnectSurface
+          surface={surface}
+          assistantId="assistant-1"
+          useConnect={stub.useConnect}
+          fetchProvider={async () => null}
+          onAction={onAction}
+        />
+      </>,
+    );
+
+    await waitFor(() => expect(onAction).toHaveBeenCalled());
+    expect(onAction).toHaveBeenCalledTimes(1);
+  });
+
+  test("a card that unmounts releases its report claim", async () => {
+    // A completed surface renders as a static summary, so this card mounting
+    // again means the submission never took and reporting is the point.
+    const onAction = mock(() => {});
+    const stub = stubConnect({ status: "connected", connection: CONNECTION });
+    const surface = makeSurface({
+      ...OAUTH_SURFACE,
+      surfaceId: "surface-retry",
+    });
+    const card = (
+      <OAuthConnectSurface
+        surface={surface}
+        assistantId="assistant-1"
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
+        onAction={onAction}
+      />
+    );
+
+    const first = renderWithQueryClient(card);
+    await waitFor(() => expect(onAction).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    renderWithQueryClient(card);
+    await waitFor(() => expect(onAction).toHaveBeenCalledTimes(2));
+  });
+
+  test("dismiss stays available while an authorization is open", () => {
+    const onAction = mock(() => {});
+    const stub = stubConnect({ status: "attempting" });
     const { getByRole } = renderWithQueryClient(
       <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: { providerKey: "google", displayName: "Google" },
-        })}
+        surface={makeSurface(OAUTH_SURFACE)}
         assistantId="assistant-1"
-        oauthClient={oauthClient}
-        onAction={mock(() => {})}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Connect" }));
-
-    await waitFor(() => expect(connect).toHaveBeenCalledTimes(1));
-    expect(connect.mock.calls[0]?.[0]?.requestedScopes).toBeUndefined();
-  });
-
-  test("reports scopesGranted from the resulting connection, not the request", async () => {
-    // The platform decides what was actually granted; the action payload must
-    // reflect the connection's scopes_granted so the model can verify the
-    // grant includes what it asked for.
-    const onAction = mock(() => {});
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(async () =>
-        makeConnectedResult(["gmail.readonly", "tasks", "calendar"]),
-      ),
-    };
-
-    const { getByRole } = renderWithQueryClient(
-      <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: {
-            providerKey: "google",
-            displayName: "Google",
-            requestedScopes: ["tasks"],
-          },
-        })}
-        assistantId="assistant-1"
-        oauthClient={oauthClient}
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
         onAction={onAction}
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "Connect" }));
+    // The authorization window cannot be observed, so dismissing is the user's
+    // only exit and must never be disabled while waiting.
+    const dismissButton = getByRole("button", { name: "Dismiss" });
+    expect((dismissButton as HTMLButtonElement).disabled).toBe(false);
 
-    await waitFor(() => {
-      expect(onAction).toHaveBeenCalledWith("surface-1", "connect", {
-        status: "connected",
-        providerKey: "google",
-        providerLabel: "Google",
-        connectionId: "conn-1",
-        accountLabel: "user@example.com",
-        scopesGranted: ["gmail.readonly", "tasks", "calendar"],
-      });
-    });
-  });
-
-  test("does not submit the surface action after the card unmounts mid-connect", async () => {
-    // A remounted card can await the same deduped OAuth promise; only the
-    // still-mounted instance may report the result, so one authorization
-    // submits one surface action. Simulate the losing (unmounted) instance:
-    // it must NOT call onAction when the shared promise later resolves.
-    const onAction = mock(() => {});
-    let resolveConnect!: (result: ManagedOAuthConnectResult) => void;
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(
-        () =>
-          new Promise<ManagedOAuthConnectResult>((resolve) => {
-            resolveConnect = resolve;
-          }),
-      ),
-    };
-
-    const { getByRole, unmount, invalidateQueries } = renderWithQueryClient(
-      <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: { providerKey: "google", displayName: "Google" },
-        })}
-        assistantId="assistant-1"
-        oauthClient={oauthClient}
-        onAction={onAction}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Connect" }));
-    await waitFor(() => expect(oauthClient.connect).toHaveBeenCalledTimes(1));
-
-    // The transcript re-render replaced this instance while OAuth was in flight.
-    unmount();
-    resolveConnect(makeConnectedResult([]));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(onAction).not.toHaveBeenCalled();
-    // The unmounted (losing) instance must not refresh the cache either.
-    expect(invalidateQueries).not.toHaveBeenCalled();
-  });
-
-  test("does not double the verb when displayName already includes 'Connect'", () => {
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(async () => ({ status: "cancelled" as const })),
-    };
-
-    const { getByText, queryByText } = renderWithQueryClient(
-      <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: {
-            providerKey: "google",
-            displayName: "Connect Gmail",
-          },
-        })}
-        assistantId="assistant-1"
-        oauthClient={oauthClient}
-        onAction={mock(() => {})}
-      />,
-    );
-
-    expect(getByText("Connect Gmail")).toBeTruthy();
-    expect(queryByText("Connect Connect Gmail")).toBeNull();
-    // The description fallback resolves through the same normalized label,
-    // so it must not double the verb either.
-    expect(
-      getByText("Connect Gmail so I can use it for this task.", {
-        exact: false,
-      }),
-    ).toBeTruthy();
-  });
-
-  test("lets the user cancel without opening OAuth", () => {
-    const onAction = mock(() => {});
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(async () => ({ status: "cancelled" as const })),
-    };
-
-    const { getByRole, invalidateQueries } = renderWithQueryClient(
-      <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: {
-            providerKey: "linear",
-            displayName: "Linear",
-          },
-        })}
-        assistantId="assistant-1"
-        oauthClient={oauthClient}
-        onAction={onAction}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Dismiss" }));
-
-    expect(oauthClient.connect).not.toHaveBeenCalled();
+    fireEvent.click(dismissButton);
+    expect(stub.dismiss).toHaveBeenCalled();
     expect(onAction).toHaveBeenCalledWith("surface-1", "cancel", {
       status: "cancelled",
-      providerKey: "linear",
-      providerLabel: "Linear",
+      providerKey: "google",
+      providerLabel: "Google",
     });
-    expect(invalidateQueries).not.toHaveBeenCalled();
   });
 
-  test("does not refresh the connections cache on a cancelled connect", async () => {
+  test("an open authorization emits no action on its own", () => {
     const onAction = mock(() => {});
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(async () => ({ status: "cancelled" as const })),
-    };
-
-    const { getByRole, invalidateQueries } = renderWithQueryClient(
+    const stub = stubConnect({ status: "attempting" });
+    renderWithQueryClient(
       <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: { providerKey: "google", displayName: "Google" },
-        })}
+        surface={makeSurface(OAUTH_SURFACE)}
         assistantId="assistant-1"
-        oauthClient={oauthClient}
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
         onAction={onAction}
       />,
     );
 
-    fireEvent.click(getByRole("button", { name: "Connect" }));
-    await waitFor(() =>
-      expect(onAction).toHaveBeenCalledWith("surface-1", "cancel", {
-        status: "cancelled",
-        providerKey: "google",
-        providerLabel: "Google",
-      }),
-    );
-
-    expect(invalidateQueries).not.toHaveBeenCalled();
-  });
-
-  test("does not refresh the connections cache on a failed connect", async () => {
-    const onAction = mock(() => {});
-    const oauthClient: ManagedOAuthConnectClient = {
-      fetchProvider: mock(async () => null),
-      connect: mock(async () => ({
-        status: "error" as const,
-        message: "Authorization failed.",
-      })),
-    };
-
-    const { getByRole, findByText, invalidateQueries } = renderWithQueryClient(
-      <OAuthConnectSurface
-        surface={makeSurface({
-          surfaceType: "oauth_connect",
-          data: { providerKey: "google", displayName: "Google" },
-        })}
-        assistantId="assistant-1"
-        oauthClient={oauthClient}
-        onAction={onAction}
-      />,
-    );
-
-    fireEvent.click(getByRole("button", { name: "Connect" }));
-    // Error surfaces its message and never emits a surface action.
-    expect(await findByText("Authorization failed.")).toBeTruthy();
-
+    // Waiting says nothing about what the user decided.
     expect(onAction).not.toHaveBeenCalled();
-    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  test("a failed authorization shows its message and emits no action", () => {
+    const onAction = mock(() => {});
+    const stub = stubConnect({ errorMessage: "Google authorization failed" });
+    const { getByText } = renderWithQueryClient(
+      <OAuthConnectSurface
+        surface={makeSurface(OAUTH_SURFACE)}
+        assistantId="assistant-1"
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
+        onAction={onAction}
+      />,
+    );
+
+    expect(getByText("Google authorization failed")).toBeTruthy();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  test("missing configuration disables connecting", () => {
+    const stub = stubConnect();
+    const { getByRole } = renderWithQueryClient(
+      <OAuthConnectSurface
+        surface={makeSurface({
+          surfaceType: "oauth_connect",
+          data: { providerKey: "" },
+        })}
+        assistantId="assistant-1"
+        useConnect={stub.useConnect}
+        fetchProvider={async () => null}
+        onAction={mock(() => {})}
+      />,
+    );
+
+    expect(
+      (getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });
 

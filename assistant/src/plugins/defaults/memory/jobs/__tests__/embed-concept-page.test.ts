@@ -67,6 +67,7 @@ mock.module(
       indices: [text.length % 100],
       values: [1],
     }),
+    durableEmbeddingCacheExtras: () => [],
     // Other exports from the real module — stubbed so adjacent imports
     // (e.g. via transitive `db.ts` → `indexer.ts`) don't crash on missing
     // names when the mock replaces the module wholesale.

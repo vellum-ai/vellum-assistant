@@ -1668,6 +1668,153 @@ describe("ProfileEditorModal edit mode — catalog-absent bound model", () => {
   });
 });
 
+describe("ProfileEditorModal modalities", () => {
+  const lmStudio = {
+    ...makeConnection("lm-studio", "openai-compatible"),
+    models: [{ id: "llama-3.1", displayName: "Llama 3.1" }],
+  } as unknown as ProviderConnection;
+
+  async function seedSupportingAssistant() {
+    const { MIN_VERSION } =
+      await import("@/lib/backwards-compat/profile-input-modalities");
+    const { useAssistantIdentityStore } =
+      await import("@/stores/assistant-identity-store");
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("test-asst", MIN_VERSION, ASSISTANT_ID);
+  }
+
+  test("shows Modalities for an openai-compatible profile and persists an image override", async () => {
+    await seedSupportingAssistant();
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+
+    renderEdit(
+      {
+        name: "local-llm",
+        label: "Local LLM",
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        provider_connection: "lm-studio",
+        status: "active",
+      },
+      (name, entry) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      },
+      [lmStudio],
+    );
+
+    const modalitiesTrigger = getButton("Modalities");
+    expect(modalitiesTrigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(modalitiesTrigger);
+    expect(modalitiesTrigger.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      document.querySelector('button[role="switch"][aria-label="Enable Text"]'),
+    ).toBeNull();
+    expect(
+      document.querySelector(
+        'button[role="switch"][aria-label="Enable Video"]',
+      ),
+    ).toBeNull();
+
+    const enableImage = document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Enable Image"]',
+    );
+    const supportImage = document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Model supports Image"]',
+    );
+    if (!enableImage || !supportImage) {
+      throw new Error("expected Image modality switches");
+    }
+    expect(supportImage.disabled).toBe(true);
+    fireEvent.click(enableImage);
+    expect(supportImage.disabled).toBe(false);
+    fireEvent.click(supportImage);
+
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.inputModalities).toEqual({
+      image: { enabled: true, supported: true },
+    });
+  });
+
+  test("hides Modalities on an assistant that predates the field", async () => {
+    renderEdit(
+      {
+        name: "local-llm",
+        label: "Local LLM",
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        provider_connection: "lm-studio",
+        status: "active",
+      },
+      () => Promise.resolve(),
+      [lmStudio],
+    );
+
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (b) => b.textContent?.trim() === "Modalities",
+      ),
+    ).toBe(false);
+  });
+
+  test("clears a stored override when the free-text model id changes", async () => {
+    await seedSupportingAssistant();
+    const saveCalls: { name: string; entry: Record<string, unknown> }[] = [];
+
+    renderEdit(
+      {
+        name: "local-llm",
+        label: "Local LLM",
+        provider: "openai-compatible",
+        model: "qwen2.5-vl",
+        provider_connection: "lm-studio",
+        status: "active",
+        inputModalities: { image: { enabled: true, supported: true } },
+      },
+      (name, entry) => {
+        saveCalls.push({ name, entry: entry as Record<string, unknown> });
+        return Promise.resolve();
+      },
+      [lmStudio],
+    );
+
+    fireEvent.click(getButton("Modalities"));
+    const enableImage = document.querySelector<HTMLButtonElement>(
+      'button[role="switch"][aria-label="Enable Image"]',
+    );
+    expect(enableImage?.getAttribute("aria-checked")).toBe("true");
+
+    selectModel("Llama 3.1");
+    fireEvent.click(getSaveBtn());
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    expect(saveCalls[0].entry.inputModalities).toBeNull();
+  });
+
+  test("hides Modalities for a cataloged Anthropic model", async () => {
+    await seedSupportingAssistant();
+    renderEdit({
+      name: "opus",
+      label: "Opus",
+      provider: "anthropic",
+      model: "claude-opus-4-8",
+      provider_connection: "anthropic-personal",
+      status: "active",
+    });
+
+    expect(
+      Array.from(document.querySelectorAll("button")).some(
+        (b) => b.textContent?.trim() === "Modalities",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("ProfileEditorModal — Top P wiring", () => {
   // Anthropic opus → visibility.topP is true, so the control renders.
   const balancedProfile = {

@@ -154,6 +154,14 @@ export {
   REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
 } from "./constants/document-tools.js";
 export {
+  PERSONALITY_AXIS_IDS,
+  PERSONALITY_DIRECTION_AXES,
+  PERSONALITY_SLIDER_DEFAULT,
+  PERSONALITY_SLIDERS_PATH,
+  type PersonalityAxisId,
+  type PersonalityDirectionAxis,
+} from "./constants/personality-sliders.js";
+export {
   MIN_INPUT_RESERVE_TOKENS,
   type ProfileConfigIssue,
   validateInferenceProfileConfig,

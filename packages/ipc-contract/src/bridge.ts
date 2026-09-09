@@ -24,6 +24,8 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  ChordBinding,
+  ChordRegistrationResult,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
   CompanionCoachmark,
@@ -236,10 +238,11 @@ export interface VellumBridge {
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
     /**
-     * The global voice bindings. macOS exposes the held modifier set the
-     * voice key rides on (`setModifierHold`); Windows exposes the voice mode
-     * shortcut's bare-modifier chord (`setVoiceModeChord`) plus
-     * registration-state events. Absent on shells with no global trigger.
+     * The global keyboard bindings. macOS exposes the held modifier set the
+     * voice key rides on (`setModifierHold`) and the chords a call answers
+     * (`setChords`); Windows exposes the voice mode shortcut's bare-modifier
+     * chord (`setVoiceModeChord`) plus registration-state events. Absent on
+     * shells with no global trigger.
      */
     hotkey?: {
       setVoiceModeChord?(
@@ -252,6 +255,17 @@ export interface VellumBridge {
       setModifierHold?(
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult>;
+      /**
+       * Watch for a modifier set pressed with one of a few keys, or clear the
+       * binding with `off`. Absent on shells whose helper cannot watch the
+       * raw keyboard.
+       *
+       * Events come back to the window that registered them rather than to
+       * whichever one the user last focused, since the binding is armed by
+       * the window that can answer it and a chord means nothing anywhere
+       * else.
+       */
+      setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
       /**
        * What is highlighted in the application in front, or `null` when
        * nothing is. Absent on shells whose helper cannot read it.
@@ -647,6 +661,16 @@ export interface VellumBridge {
      * as having nothing to offer, the bargain `setScreenShare` makes.
      */
     setAnnotating?(annotating: boolean): void;
+    /**
+     * The same mode, flipped rather than set, for a press that has to be its
+     * own way back and no view of which way that is.
+     *
+     * The keyboard's version of the control above: the mode is main's, so
+     * main is the side that can say what turning it over means. A renderer
+     * deciding from the last pushed state would answer with the mode as it
+     * was when that push left.
+     */
+    toggleAnnotating?(): void;
     /**
      * A mark the user is drawing over the shared surface, from the frame's
      * own window: `drawing` while the hand is still on it, `released` when it

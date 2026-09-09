@@ -86,6 +86,7 @@ const MACOS_ONLY_SURFACE = [
   "helper.apps.quit",
   "helper.apps.running",
   "helper.hotkey.readFrontSelection",
+  "helper.hotkey.setChords",
   "helper.hotkey.setModifierHold",
   "helper.input.onActivity",
   "helper.input.setActivityWatch",

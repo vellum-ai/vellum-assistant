@@ -1,4 +1,6 @@
 import type {
+  ChordBinding,
+  ChordRegistrationResult,
   HotkeySelection,
   ModifierHold,
   ModifierHoldRegistrationResult,
@@ -78,6 +80,36 @@ export async function readFrontSelection(): Promise<HotkeySelection | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether this host can watch for a chord anywhere on the desktop.
+ *
+ * The same answer `supportsModifierHold` gives and for the same reason: the
+ * DOM sees a chord only in a focused window, and the press this binding exists
+ * for is made in some other application.
+ */
+export function supportsChords(): boolean {
+  return (
+    isElectron() &&
+    typeof window.vellum?.helper?.hotkey?.setChords === "function"
+  );
+}
+
+/**
+ * Arm a chord binding on the host, or clear it with `off`.
+ *
+ * Refused off a host that cannot watch one, so a caller reads an absent
+ * binding and a rejected one the same way: no chord is coming either way.
+ */
+export async function setChordBinding(
+  binding: ChordBinding,
+): Promise<ChordRegistrationResult> {
+  const set = window.vellum?.helper?.hotkey?.setChords;
+  if (!isElectron() || typeof set !== "function") {
+    return { ok: false, reason: "host cannot watch a chord" };
+  }
+  return set(binding);
 }
 
 export function subscribeToHotkeyEvents(

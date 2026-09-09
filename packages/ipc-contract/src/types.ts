@@ -268,8 +268,13 @@ export type VoiceModeChord =
  * keys are still down and `up` when they are not, so the two edges are a
  * span, and something that has to run for exactly as long as the keys are
  * held can run across it.
+ *
+ * `chord` is a modifier set and a key pressed together, reported once as a
+ * `down` and never bracketed: a chord is over the moment it happens, and what
+ * it asks for takes no time. The host takes the press, so it reaches nothing
+ * else.
  */
-export type HotkeyEventKind = "voiceModeChord" | "modifierHold";
+export type HotkeyEventKind = "voiceModeChord" | "modifierHold" | "chord";
 
 /**
  * Why a `modifierHold` closed.
@@ -307,6 +312,11 @@ export interface HotkeyEvent {
   state: HotkeyEventState;
   /** Only on a `modifierHold` `up`. */
   reason?: ModifierHoldUpReason;
+  /**
+   * Which key was pressed. Only on a `chord`, as the character the key
+   * carries unmodified on the user's own layout.
+   */
+  key?: string;
 }
 
 /** Whether a helper took a binding, or why it did not. */
@@ -325,6 +335,30 @@ export type ModifierHold =
   | { kind: "modifierOnly"; modifiers: KeyboardModifier[] };
 
 export type ModifierHoldRegistrationResult = HotkeyRegistrationResult;
+
+/**
+ * The chords a host watches for: every modifier of the set held together, and
+ * one of `keys` pressed under them. `off` is a binding nothing is asking for.
+ *
+ * Keys are the characters on their keycaps, so the letter the user sees is the
+ * letter that answers on every layout, and the host resolves a press through
+ * the layout rather than through what the key would have typed (Option+S types
+ * "ß" and is still the S key).
+ *
+ * A press that matches belongs to the app, so the host takes it rather than
+ * letting it reach whatever is in front. That is why a binding is armed for
+ * exactly as long as something can answer it: outside that, the keys are the
+ * user's own and their application's.
+ *
+ * Exactly the modifiers named, too. Another one joining makes it a different
+ * shortcut, which is what keeps this out of the way of the ones the user
+ * already has.
+ */
+export type ChordBinding =
+  | { kind: "off" }
+  | { kind: "chord"; modifiers: KeyboardModifier[]; keys: readonly string[] };
+
+export type ChordRegistrationResult = HotkeyRegistrationResult;
 
 // ---------------------------------------------------------------------------
 // System permissions
@@ -1537,7 +1571,75 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * and the host-proxy executor words it, and the file that words it says in as
  * many words that it must not reach into the windows for anything.
  */
-export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+export type CoachmarkRefusal =
+  | "unshared"
+  | "not-this-call"
+  | "stale-surface"
+  | "superseded";
+
+/**
+ * One thing to point at: a control named, or a rectangle given.
+ *
+ * **Naming is the one to reach for.** The accessibility tree holds the exact
+ * frame of every labelled control on the surface, so a name resolves to where
+ * the thing actually is; a rectangle is a guess at it, measured off a picture
+ * that has been scaled and compressed on its way to whoever is guessing. The
+ * rectangle form remains for what the tree cannot name (a canvas, an image,
+ * a plugin's own drawing), where there is nothing to resolve against.
+ */
+export type CoachmarkRequest =
+  | { target: string; caption?: string }
+  | CompanionCoachmark;
+
+/** Whether a request named a control or gave bounds outright. */
+export const namesATarget = (
+  request: CoachmarkRequest,
+): request is { target: string; caption?: string } => "target" in request;
+
+/**
+ * A mark that went up, and what it turned out to be.
+ *
+ * `matched` is the label the surface actually uses, which is not always the
+ * one that was asked for: a control found by a forgiving comparison is
+ * reported under its own name so the caller can say the same word the user
+ * can see.
+ */
+export interface PlacedCoachmark extends CompanionCoachmark {
+  matched?: string;
+}
+
+/**
+ * Why a named control could not be turned into a mark.
+ *
+ * Each carries the labels that were on the surface, because the answer to all
+ * three is the same shape: say what is there instead of drawing at a guess.
+ * `ambiguous` lists the ones that fit, the others everything there was.
+ */
+export interface CoachmarkUnresolved {
+  target: string;
+  reason: "no-tree" | "ambiguous" | "no-match";
+  candidates: readonly string[];
+  /**
+   * How many labels the surface carried, which can be more than `candidates`
+   * holds. The host bounds the list at the point it reads the accessibility
+   * tree, since a web page is ten thousand elements and any of them can be
+   * carrying a paragraph of `aria-label`. The count is what lets the reader
+   * say how many names it is not showing.
+   */
+  candidateCount?: number;
+}
+
+/**
+ * What became of a set of marks.
+ *
+ * Three outcomes rather than a nullable refusal, because a named control that
+ * does not resolve is neither a placement nor a refusal of the surface: the
+ * share is fine and the caller simply named something that is not there.
+ */
+export type CoachmarkResult =
+  | { kind: "placed"; marks: readonly PlacedCoachmark[] }
+  | { kind: "refused"; refusal: CoachmarkRefusal }
+  | { kind: "unresolved"; unresolved: CoachmarkUnresolved };
 
 /**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
@@ -1600,13 +1702,21 @@ export interface CompanionCaptureSources {
 }
 
 /**
- * The press on one row of the picker: the source with its decoration removed.
+ * What to capture, as the side asking for it can say it.
  *
- * What the surface hands back to main. A tab is still a tab here, since only
- * main can turn one into a window; the other two are already targets.
+ * Three of these are a press on one row of the picker: the source with its
+ * decoration removed. A tab is still a tab here, since only main can turn one
+ * into a window; the other two are already targets.
+ *
+ * `pointerDisplay` is the fourth and comes from no row at all. It is what a
+ * keyboard gesture means by "this screen", named as the question rather than
+ * as an answer because the answer is the pointer's, and the pointer is main's
+ * to read at the moment the press lands. A renderer that resolved it first
+ * would be handing over where the mouse was a round trip ago.
  */
 export type CompanionCapturePick =
   | { kind: "display"; displayId: number }
+  | { kind: "pointerDisplay" }
   | { kind: "window"; windowId: number }
   | { kind: "tab"; chromeWindowId: number; tabIndex: number };
 

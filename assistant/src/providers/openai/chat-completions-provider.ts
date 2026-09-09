@@ -11,12 +11,12 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { clampProviderString } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
+import { requestSupportsInlineAudio } from "../inline-audio-support.js";
 import {
   base64Source,
   mediaSourceByteLength,
   resolveMediaReferences,
 } from "../media-resolve.js";
-import { modelSupportsAudioInput } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -705,7 +705,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
   private assistantReasoningField:
-    "reasoning" | "reasoning_content" | undefined;
+    | "reasoning"
+    | "reasoning_content"
+    | undefined;
   private coerceObjectArgsToJsonString: boolean;
   private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
@@ -756,12 +758,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
     const logitBias = configObj?.logit_bias as
-      Record<string, number> | undefined;
+      | Record<string, number>
+      | undefined;
     const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
     const perRequestHeaders = configObj?.requestHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
 
     // Per-tool keys whose object schemas were rewritten to JSON strings for the
     // wire, to be decoded back on the response. Empty unless
@@ -772,7 +777,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       const openaiMessages = await this.toOpenAIMessages(
         messages,
         systemPrompt,
-        modelSupportsAudioInput(modelOverride ?? this.model),
+        requestSupportsInlineAudio(modelOverride ?? this.model),
       );
 
       recordProviderRequestDiagnostics({
@@ -985,6 +990,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ...(usageAttributionHeaders ?? {}),
           ...(perRequestHeaders ?? {}),
         };
+        const extraBody = this.buildRequestExtraBody(options);
+        if (extraBody) {
+          Object.assign(params, extraBody);
+        }
         const createStream = () =>
           this.client.chat.completions.create(params, {
             signal: timeoutSignal,
@@ -1440,6 +1449,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
     _options?: SendMessageOptions,
   ): Record<string, unknown> {
     return this.extraCreateParams;
+  }
+
+  /**
+   * Fields merged onto the `chat.completions.create` params object. The
+   * OpenAI Node SDK sends unknown body fields as-is, so hosted-Qwen
+   * `directions` reach the runtime proxy on the JSON body.
+   */
+  protected buildRequestExtraBody(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> | undefined {
+    return undefined;
   }
 
   /**

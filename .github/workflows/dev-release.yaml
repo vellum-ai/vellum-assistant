@@ -834,6 +834,25 @@ jobs:
       environment: dev
     secrets: inherit
 
+  # ── Web SPA (production preview channel) ─────────────────────────────
+  # Publishes the preview UI into the PRODUCTION bucket under `/preview/` on
+  # every hourly dev release, leaving the stable root index.html untouched. The
+  # bundle self-identifies via VITE_CHANNEL=preview; its version is the commit
+  # SHA. Gating matches deploy-web-spa above. The ref guard matches the other
+  # production-preview jobs so a release-branch dispatch cannot publish here.
+  deploy-web-spa-preview:
+    name: Deploy Web SPA (production /preview)
+    needs: [ci-web, register-preview-release]
+    if: ${{ !cancelled() && github.ref_name == 'main' && needs.ci-web.result == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
+    with:
+      environment: production
+      channel: preview
+    secrets: inherit
+
   publish-production-preview-image-tags:
     needs: [compute-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
@@ -1304,7 +1323,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates, deploy-web-spa]
+    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates, deploy-web-spa, deploy-web-spa-preview]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1339,6 +1358,7 @@ jobs:
           ELECTRON_RESULT: ${{ needs.build-electron.result }}
           UPDATES_RESULT: ${{ needs.upload-electron-updates.result }}
           SPA_RESULT: ${{ needs.deploy-web-spa.result }}
+          PREVIEW_SPA_RESULT: ${{ needs.deploy-web-spa-preview.result }}
         run: |
           set -euo pipefail
 
@@ -1466,7 +1486,7 @@ jobs:
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
           # When the release registered but the Electron build, the Electron
-          # update feed upload, or the web SPA deploy did not succeed, swap the
+          # update feed upload, or either web SPA publish did not succeed, swap the
           # header emoji and append a warning so the notification surfaces the
           # failure instead of looking fully green. The warnings are
           # independent — any subset can fire (e.g. a build-electron failure
@@ -1496,6 +1516,15 @@ jobs:
             SPA_WARNING=""
           fi
 
+          # `skipped` is quiet: the job skips off main, and a ci-web failure is
+          # already covered by the dev SPA warning above.
+          if [ "${PREVIEW_SPA_RESULT}" != "success" ] && [ "${PREVIEW_SPA_RESULT}" != "skipped" ]; then
+            HEADER_EMOJI="⚠️"
+            PREVIEW_SPA_WARNING=$(jq -n --arg result "$PREVIEW_SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Preview web SPA was not published* (result: " + $result + "). The dev release shipped but prod `/preview/` is unchanged. See the workflow run for details.") } }')
+          else
+            PREVIEW_SPA_WARNING=""
+          fi
+
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
@@ -1521,6 +1550,10 @@ jobs:
 
           if [ -n "$SPA_WARNING" ]; then
             BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$SPA_WARNING" '. += [$warn]')
+          fi
+
+          if [ -n "$PREVIEW_SPA_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$PREVIEW_SPA_WARNING" '. += [$warn]')
           fi
 
           # Attachment blocks: the actual commit list, chunked into sections to
@@ -2304,7 +2337,6 @@ jobs:
 
   release-windows:
     needs: [compute-version, register-release, build-chrome-extension]
-    if: vars.WINDOWS_DEV_RELEASE_ENABLED == 'true'
     permissions:
       contents: read
       id-token: write

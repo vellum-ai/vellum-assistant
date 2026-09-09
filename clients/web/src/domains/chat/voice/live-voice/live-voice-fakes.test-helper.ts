@@ -26,6 +26,7 @@ import type {
   LiveVoiceClientEventMap,
   LiveVoiceClientEventName,
   LiveVoiceConnectArgs,
+  LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import type {
   LiveVoiceAudioCaptureOptions,
@@ -347,7 +348,9 @@ export function makeControlsSpies() {
     // Defaults to delivered. The reconnect-gap case (false) is asserted by the
     // tests that care, so the common path stays uncluttered.
     attachImage: mock((_attachmentId: string) => true),
-    sightFrame: mock((_attachmentId: string) => true),
+    sightFrame: mock(
+      (_attachmentId: string, _timing?: LiveVoiceSightFrameTiming) => true,
+    ),
   } satisfies LiveVoiceSessionControls;
 }
 

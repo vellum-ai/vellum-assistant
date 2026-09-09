@@ -84,14 +84,21 @@ import {
   isLiveVoiceUserSpeaking,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { createSightCapture } from "@/domains/chat/voice/live-voice/sight-capture";
+import {
+  createSightCapture,
+  type SightKeepOrigin,
+} from "@/domains/chat/voice/live-voice/sight-capture";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
   isVisionModeOn,
   useVisionModeVariant,
 } from "@/hooks/use-vision-mode-flag";
 import { useSupportsSightStream } from "@/lib/backwards-compat/use-supports-sight-stream";
-import { type FrameGate, createFrameGate } from "@/lib/camera/frame-gate";
+import {
+  type FrameGate,
+  type FrameGateDecision,
+  createFrameGate,
+} from "@/lib/camera/frame-gate";
 import {
   FRAME_GATE_LIVE_OPTIONS,
   recordFrameGateDecision,
@@ -198,6 +205,12 @@ export function useVoiceRoomSight(
   // cannot close over a render's value.
   const heldRef = useRef<VoiceRoomSightFrame | null>(null);
   const gateRef = useRef<FrameGate | null>(null);
+  /**
+   * When the gate was last armed for a question, so the keep that answers it
+   * can report how long the answer took. Read by the sampler's continuation,
+   * which is why it is a ref rather than a render's value.
+   */
+  const armedAtRef = useRef<number | null>(null);
   /**
    * The running native poll, so a change it cannot see can reach the sample it
    * has on the bridge.
@@ -466,6 +479,15 @@ export function useVoiceRoomSight(
     const gate = createFrameGate(FRAME_GATE_LIVE_OPTIONS);
     gate.reset(performance.now());
     gateRef.current = gate;
+    /**
+     * Why a keep was made, for the timing it reports. A forced keep is the
+     * one an arm asked for, so it carries when the arm was taken; every other
+     * keep is the cadence's own.
+     */
+    const keepOrigin = (decision: FrameGateDecision): SightKeepOrigin =>
+      decision.reason === "forced" && armedAtRef.current !== null
+        ? { reason: decision.reason, armedAtMs: armedAtRef.current }
+        : { reason: decision.reason };
 
     let stopSampling: () => void;
     if (video) {
@@ -478,6 +500,7 @@ export function useVoiceRoomSight(
           }
           void sight.capture({
             assistantId,
+            keep: keepOrigin(decision),
             produceFrame: (filename) => captureVideoFrame(video, filename),
             onShared,
           });
@@ -499,6 +522,7 @@ export function useVoiceRoomSight(
           // frame the transcript ends up with is the one the gate said yes to.
           void sight.capture({
             assistantId,
+            keep: keepOrigin(decision),
             produceFrame: async (filename) =>
               new File([sample], filename, { type: "image/jpeg" }),
             onShared,
@@ -578,7 +602,9 @@ export function useVoiceRoomSight(
     if (muted) {
       return;
     }
-    gateRef.current?.armForcedKeep(performance.now());
+    const armedAtMs = performance.now();
+    armedAtRef.current = armedAtMs;
+    gateRef.current?.armForcedKeep(armedAtMs);
     // The browser sampler needs no nudge: its next candidate frame is one
     // video frame away and will consume the arm on its own.
     nativeSourceRef.current?.sampleNow();
@@ -592,7 +618,8 @@ export function useVoiceRoomSight(
   // needs the sample it is holding refused rather than the cadence broken.
   //
   // The frame on screen is the old camera's view, and the exposure warmup plus
-  // the gate's rate floor put the replacement seconds away, so leaving it up
+  // the wait for the new view to settle put the replacement a moment away, so
+  // leaving it up
   // would show the user's own face as what the call is being shown of the room
   // in front of them. On mount nothing is held and this is a no-op.
   //
