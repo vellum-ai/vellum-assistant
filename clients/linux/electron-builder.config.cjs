@@ -34,6 +34,10 @@ module.exports = {
   },
   extraResources: [
     { from: "resources/bun", to: "bun" },
+    {
+      from: `resources/native-helper/${targetArch}`,
+      to: `native-helper/${targetArch}`,
+    },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.png", to: "icon.png" },

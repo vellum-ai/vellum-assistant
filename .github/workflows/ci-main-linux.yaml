@@ -84,9 +84,44 @@ jobs:
       - name: Run tests
         run: bun run test:ci
 
+  native:
+    name: Native Helper (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/linux
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      # The runner ships rustup; third-party Rust actions are not on this
+      # repository's allowed-actions list.
+      - name: Setup Rust
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            clients/linux/native/linux-helper/target
+          key: linux-helper-${{ hashFiles('clients/linux/native/linux-helper/Cargo.lock') }}
+
+      - name: Format, lint and test the helper crate
+        run: bun scripts/build-native-helper.ts --check
+
+      - name: Build the helper (x64)
+        run: bun scripts/build-native-helper.ts --arch x64
+
   checks:
     name: Type Check, Build & Test
-    needs: [typecheck, build, test]
+    needs: [typecheck, build, test, native]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -95,11 +130,13 @@ jobs:
           TYPECHECK: ${{ needs.typecheck.result }}
           BUILD: ${{ needs.build.result }}
           TEST: ${{ needs.test.result }}
+          NATIVE: ${{ needs.native.result }}
         run: |
           echo "Type Check: $TYPECHECK"
           echo "Build:      $BUILD"
           echo "Test:       $TEST"
-          for r in "$TYPECHECK" "$BUILD" "$TEST"; do
+          echo "Native:     $NATIVE"
+          for r in "$TYPECHECK" "$BUILD" "$TEST" "$NATIVE"; do
             if [ "$r" != "success" ]; then
               echo "::error::At least one Linux electron CI job failed."
               exit 1

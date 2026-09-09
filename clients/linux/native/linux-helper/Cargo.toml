@@ -1,0 +1,20 @@
+[package]
+name = "vellum-linux-helper"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.98.1"
+license = "MIT"
+publish = false
+
+[dependencies]
+inventory = "=0.3.24"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+tracing = "=0.1.44"
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter"] }
+zbus = "=5.19.0"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
