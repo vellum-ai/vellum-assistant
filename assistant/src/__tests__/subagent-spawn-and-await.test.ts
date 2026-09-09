@@ -327,8 +327,19 @@ function broadcastStatuses(events: AssistantEvent[]): string[] {
 function registerFakeParent(parentConversationId: string): {
   enqueuedCount: () => number;
   messages: () => string[];
+  /**
+   * What `hasActiveChildren` answered at each delivery. The real
+   * `Conversation.hasInFlightWork()` folds that in, and the notify path skips
+   * its stale-instance rebuild when it is true, so this is the value that
+   * decides whether a reloaded parent gets the continuation on a fresh
+   * instance. Wire it with `watchChildrenOf`.
+   */
+  inFlightAtDelivery: () => boolean[];
+  watchChildrenOf: (manager: SubagentManager) => void;
 } {
   const enqueued: string[] = [];
+  const inFlight: boolean[] = [];
+  let watched: SubagentManager | undefined;
   setConversation(
     parentConversationId,
     asConversation({
@@ -338,12 +349,22 @@ function registerFakeParent(parentConversationId: string): {
       assistantId: undefined,
       enqueueMessage: (options: { content: string }) => {
         enqueued.push(options.content);
+        if (watched) {
+          inFlight.push(watched.hasActiveChildren(parentConversationId));
+        }
         teardownOrder.push("notify");
         return { rejected: false, queued: true, requestId: "req-fake" };
       },
     }),
   );
-  return { enqueuedCount: () => enqueued.length, messages: () => enqueued };
+  return {
+    enqueuedCount: () => enqueued.length,
+    messages: () => enqueued,
+    inFlightAtDelivery: () => inFlight,
+    watchChildrenOf: (manager: SubagentManager) => {
+      watched = manager;
+    },
+  };
 }
 
 describe("SubagentManager.spawnAndAwait", () => {
@@ -997,6 +1018,48 @@ describe("SubagentManager run budgets", () => {
     await new Promise((resolve) => setTimeout(resolve, 120));
 
     expect(parent.messages().join("\n")).toContain("stopped at its budget");
+    clearConversations();
+  });
+
+  test("a completing child is not in-flight work when it notifies its parent", async () => {
+    // The notify path rebuilds a stale idle parent so the continuation runs on
+    // the current provider, prompt, and credentials, and it skips that rebuild
+    // when the parent has in-flight work. `hasInFlightWork()` folds in this
+    // parent's active children, so a child still reading as in-flight at
+    // delivery would pin its own continuation to the instance a reload has
+    // already replaced.
+    const cfg = makeConfig();
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      messages: [
+        { role: "assistant", content: [{ type: "text", text: "done" }] },
+      ],
+    };
+
+    const manager = new SubagentManager();
+    parent.watchChildrenOf(manager);
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(parent.enqueuedCount()).toBe(1);
+    expect(parent.inFlightAtDelivery()).toEqual([false]);
+    clearConversations();
+  });
+
+  test("a budget-stopped child is not in-flight work when its notice is delivered", async () => {
+    // The deferred notification runs from the teardown, where the marker that
+    // held the parent against eviction is still set unless delivery clears it.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 40 };
+
+    const manager = new SubagentManager();
+    parent.watchChildrenOf(manager);
+    await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 140));
+
+    expect(parent.messages().join("\n")).toContain("stopped at its budget");
+    expect(parent.inFlightAtDelivery()).toEqual([false]);
     clearConversations();
   });
 

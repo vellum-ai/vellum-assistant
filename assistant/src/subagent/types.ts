@@ -225,6 +225,13 @@ export interface SubagentState {
   isFork: boolean;
   /** Error message if status is 'failed'. */
   error?: string;
+  /**
+   * Which budget stopped this run, when a `maxRuntimeMs` or `maxToolCalls`
+   * ceiling did. Absent otherwise. Durable history, not a delivery latch: the
+   * repeat-spawn guard reads it to tell a run that burned its allowance apart
+   * from one the user cancelled, both of which record status `aborted`.
+   */
+  budgetStopReason?: string;
   /** Timestamps (epoch ms). */
   createdAt: number;
   startedAt?: number;

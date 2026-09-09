@@ -87,6 +87,7 @@ import { getDb } from "../persistence/db-connection.js";
 import { resolveMessageContentBlocks } from "../persistence/message-content-file.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateAddSubagentBudgetStopReason } from "../persistence/migrations/377-add-subagent-budget-stop-reason.js";
 import {
   type SubagentRecord,
   upsertSubagentRecord,
@@ -115,6 +116,7 @@ import { executeSubagentStatus } from "../tools/subagent/status.js";
 // exist from a prior run.
 migrateCreateSubagentsTable();
 migrateAddSubagentParentToolUseId(getDb());
+migrateAddSubagentBudgetStopReason(getDb());
 
 // Load tool definitions from the bundled skill TOOLS.json
 const toolsJson = JSON.parse(

@@ -758,6 +758,12 @@ function repeatSpawnGuardResult(
   } else if (recent.assistant.count >= LOOP_GUARD_ASSISTANT_LIMIT) {
     scope = "across this assistant";
     tally = recent.assistant;
+  } else if (
+    recent.conversation.budgetStopped >= LOOP_GUARD_CONVERSATION_LIMIT
+  ) {
+    return budgetStopGuardResult(recent.conversation, "in this conversation");
+  } else if (recent.assistant.budgetStopped >= LOOP_GUARD_ASSISTANT_LIMIT) {
+    return budgetStopGuardResult(recent.assistant, "across this assistant");
   } else if (conversationInFlight >= LOOP_GUARD_IN_FLIGHT_CONVERSATION_LIMIT) {
     return inFlightGuardResult(conversationInFlight, "this conversation");
   } else if (assistantInFlight >= LOOP_GUARD_IN_FLIGHT_ASSISTANT_LIMIT) {
@@ -776,6 +782,36 @@ function repeatSpawnGuardResult(
       `${tally.count} near-identical subagents already completed ${scope} in the last ${hours} hours${cost}. ` +
       "Repeating an objective rarely returns a different answer: read what the earlier run produced with subagent_read, " +
       "or narrow the objective to what is actually still missing. " +
+      "If the repetition is intentional, call subagent_spawn again with confirm_repeat: true.",
+    isError: false,
+  };
+}
+
+/**
+ * The result handed back when copies of this objective keep being stopped at
+ * their budget.
+ *
+ * Separate from the completed-run message because the advice differs: there is
+ * no finished answer to read, and the run did not fail for a reason a retry
+ * addresses. It burned its whole allowance, and spawning it again spends the
+ * same allowance to reach the same ceiling, so the objective itself has to get
+ * smaller.
+ */
+function budgetStopGuardResult(
+  tally: SimilarSpawnTally,
+  scope: string,
+): ToolExecutionResult {
+  const hours = LOOP_GUARD_WINDOW_MS / 3_600_000;
+  const cost =
+    tally.budgetStoppedCost > 0
+      ? `, spending about $${tally.budgetStoppedCost.toFixed(2)}`
+      : "";
+  return {
+    content:
+      `${tally.budgetStopped} near-identical subagents were stopped at their budget ${scope} in the last ${hours} hours${cost}. ` +
+      "Each one ran out its whole allowance without finishing, so spawning it again buys the same ceiling. " +
+      "Narrow the objective to one concrete question, file, or decision, or raise the budget deliberately. " +
+      "Partial output from those runs is readable with subagent_read. " +
       "If the repetition is intentional, call subagent_spawn again with confirm_repeat: true.",
     isError: false,
   };

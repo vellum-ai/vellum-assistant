@@ -418,11 +418,14 @@ interface ManagedSubagent {
   /** Cleared when the run settles; fires the `maxRuntimeMs` stop. */
   runtimeTimer?: ReturnType<typeof setTimeout>;
   /**
-   * Which budget stopped this child, set when the ceiling is hit and consumed
-   * by the run's teardown, which is the first moment the child's output is on
-   * disk for the parent the notification sends to read it.
+   * One-shot delivery latch for the budget-stop notification: which budget
+   * stopped this child, set when the ceiling is hit and consumed by the run's
+   * teardown, which is the first moment the child's output is on disk for the
+   * parent the notification sends to read it. Cleared once delivered, and by a
+   * user stop that means nobody wants to hear it. Distinct from the durable
+   * `state.budgetStopReason`, which is history and is never cleared.
    */
-  budgetStopReason?: string;
+  pendingBudgetStopNotice?: string;
 }
 
 export interface SubagentNotificationInfo {
@@ -1134,6 +1137,10 @@ export class SubagentManager {
         throw err;
       }
     } finally {
+      // First, before anything below delivers to the parent. The notify path
+      // rebuilds a stale parent only when it has no in-flight work, and this
+      // child counts as in-flight work, so clearing later would route the
+      // deferred budget notification to the instance a reload has replaced.
       managed.runInFlight = false;
       this.clearRuntimeBudget(managed);
       // A run already terminal by the time the loop unwound had its record
@@ -1261,7 +1268,13 @@ export class SubagentManager {
       // hit and this firing, so there is nothing to stop and nothing to report.
       return;
     }
-    managed.budgetStopReason = reason;
+    // Durable: the repeat guard reads it to tell a run that burned its ceiling
+    // apart from one the user cancelled, so a consult that keeps hitting the
+    // same wall stops reading as a fresh retry. Never cleared.
+    managed.state.budgetStopReason = reason;
+    this.persistState(managed.state);
+    // Transient: consumed by the teardown that delivers the notification.
+    managed.pendingBudgetStopNotice = reason;
     log.warn({ subagentId: id, reason }, "Subagent stopped at its budget");
   }
 
@@ -1279,12 +1292,12 @@ export class SubagentManager {
     managed: ManagedSubagent,
     finalText: string,
   ): void {
-    const reason = managed.budgetStopReason;
+    const reason = managed.pendingBudgetStopNotice;
     if (!reason) {
       return;
     }
     // One notification per run, whichever teardown path reaches here.
-    managed.budgetStopReason = undefined;
+    managed.pendingBudgetStopNotice = undefined;
     const { id, label } = managed.state.config;
     const prefix = subagentTerminalPrefix(managed.state);
     const trimmed = finalText.trim();
@@ -1443,7 +1456,7 @@ export class SubagentManager {
       if (opts?.userCancelled) {
         const managed = this.subagents.get(childId);
         if (managed) {
-          managed.budgetStopReason = undefined;
+          managed.pendingBudgetStopNotice = undefined;
         }
       }
       if (this.abort(childId, parentSendToClient)) {
@@ -1915,6 +1928,7 @@ export class SubagentManager {
         sendResultToUser: state.config.sendResultToUser ?? null,
         parentToolUseId: state.config.parentToolUseId ?? null,
         status: state.status,
+        budgetStopReason: state.budgetStopReason ?? null,
         error: state.error ?? null,
         createdAt: state.createdAt,
         startedAt: state.startedAt ?? null,
@@ -2124,6 +2138,13 @@ export class SubagentManager {
     finalText?: string,
     deniedTools?: string[],
   ): void {
+    // Delivery is teardown's last parent-facing step, and the notify path
+    // rebuilds a stale parent only when it has no in-flight work. This child
+    // counts as in-flight work, so holding the marker here would route the
+    // continuation to the stale instance, on the provider, prompt, and
+    // credentials a reload has already replaced. Eviction protection has done
+    // its job by now: what follows touches the child, not the parent.
+    managed.runInFlight = false;
     const { config } = managed.state;
     const isFork = managed.state.isFork;
     // Forks default to internal/silent unless explicitly shared; regular
