@@ -1330,6 +1330,175 @@ export const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["email", "phone"],
     featureFlag: "stripe-link-oauth",
   },
+  shopify: {
+    provider: "shopify",
+    // Shopify is per-tenant: every OAuth endpoint lives on the merchant's own
+    // myshopify.com domain, so these carry a {tenant_host} placeholder the
+    // platform fills in from the shop domain the user supplies at connect
+    // time. There is no global Shopify authorization host to point at.
+    authorizeUrl: "https://{tenant_host}/admin/oauth/authorize",
+    tokenExchangeUrl: "https://{tenant_host}/admin/oauth/access_token",
+    // Requesting `expiring=1` at token exchange yields a short-lived access
+    // token plus a refresh token, which is refreshed against the same
+    // per-shop endpoint.
+    refreshUrl: "https://{tenant_host}/admin/oauth/access_token",
+    pingUrl: "https://{tenant_host}/admin/api/2025-07/shop.json",
+    baseUrl: "https://{tenant_host}",
+    displayLabel: "Shopify",
+    description: "Products, orders, customers, and inventory",
+    dashboardUrl: "https://shopify.dev/dashboard",
+    clientIdPlaceholder: null,
+    logoUrl: "https://cdn.simpleicons.org/shopify",
+    // Shopify parses `scope` as a comma-separated list. A space-separated
+    // list is read as one malformed scope and the request is rejected.
+    scopeSeparator: ",",
+    // Admin API scopes only: Storefront, Customer Account and Shop APIs are
+    // buyer-facing surfaces an assistant has no use for. Every scope here is
+    // grantable without Shopify approval -- the approval-gated ones
+    // (read_all_orders, customer payment methods, subscription contracts,
+    // dispute evidence) are deliberately absent, because Shopify rejects the
+    // whole authorization request if the app cannot grant a requested scope.
+    // A write_* grant implies its read_* counterpart, so the response may
+    // name only the write scope.
+    defaultScopes: [
+      "read_products",
+      "write_products",
+      "read_orders",
+      "write_orders",
+      "read_draft_orders",
+      "write_draft_orders",
+      "read_customers",
+      "write_customers",
+      "read_inventory",
+      "read_locations",
+      "read_fulfillments",
+      "read_discounts",
+      "write_discounts",
+      "read_price_rules",
+      "read_content",
+    ],
+    availableScopes: [
+      {
+        scope: "read_products",
+        description: "Read products, variants, and collections",
+      },
+      {
+        scope: "write_products",
+        description: "Create and update products, variants, and collections",
+      },
+      {
+        scope: "read_orders",
+        description: "Read orders, transactions, and abandoned checkouts",
+      },
+      {
+        scope: "write_orders",
+        description: "Create and update orders and fulfillments",
+      },
+      { scope: "read_draft_orders", description: "Read draft orders" },
+      {
+        scope: "write_draft_orders",
+        description: "Create and update draft orders",
+      },
+      {
+        scope: "read_customers",
+        description: "Read customers, segments, and companies",
+      },
+      {
+        scope: "write_customers",
+        description: "Create and update customers and segments",
+      },
+      {
+        scope: "read_inventory",
+        description: "Read inventory levels and items",
+      },
+      {
+        scope: "write_inventory",
+        description: "Adjust inventory levels and items",
+      },
+      { scope: "read_locations", description: "Read store locations" },
+      { scope: "read_fulfillments", description: "Read fulfillment services" },
+      {
+        scope: "write_fulfillments",
+        description: "Create and update fulfillment services",
+      },
+      { scope: "read_discounts", description: "Read discounts" },
+      { scope: "write_discounts", description: "Create and update discounts" },
+      { scope: "read_price_rules", description: "Read price rules" },
+      {
+        scope: "write_price_rules",
+        description: "Create and update price rules",
+      },
+      {
+        scope: "read_content",
+        description: "Read articles, blogs, comments, and pages",
+      },
+      {
+        scope: "write_content",
+        description: "Create and update articles, blogs, and pages",
+      },
+      { scope: "read_files", description: "Read files uploaded to the store" },
+      { scope: "write_files", description: "Upload and update files" },
+      { scope: "read_gift_cards", description: "Read gift cards" },
+      {
+        scope: "write_gift_cards",
+        description: "Create and update gift cards",
+      },
+      { scope: "read_returns", description: "Read returns" },
+      { scope: "write_returns", description: "Create and update returns" },
+      { scope: "read_markets", description: "Read markets" },
+      { scope: "read_locales", description: "Read shop locales" },
+      {
+        scope: "read_shipping",
+        description: "Read shipping and delivery carrier services",
+      },
+      { scope: "read_analytics", description: "Read analytics and reports" },
+      {
+        scope: "read_marketing_events",
+        description: "Read marketing events and activities",
+      },
+      { scope: "read_order_edits", description: "Read order edits" },
+      {
+        scope: "write_order_edits",
+        description: "Create and apply order edits",
+      },
+      {
+        scope: "read_metaobjects",
+        description: "Read metaobjects and their definitions",
+      },
+      {
+        scope: "write_metaobjects",
+        description: "Create and update metaobjects",
+      },
+      { scope: "read_translations", description: "Read translated content" },
+      {
+        scope: "read_shopify_payments_payouts",
+        description: "Read Shopify Payments payouts and balance",
+      },
+      {
+        scope: "read_shopify_payments_disputes",
+        description: "Read Shopify Payments disputes",
+      },
+    ],
+    loopbackPort: 17341,
+    managedServiceConfigKey: "shopify-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "*.myshopify.com",
+        injectionType: "header",
+        headerName: "X-Shopify-Access-Token",
+        valuePrefix: "",
+      },
+    ],
+    appType: "App",
+    setupNotes: [
+      "Shopify OAuth is per-shop: the authorize, token and API endpoints all live on the merchant's own myshopify.com domain, so connecting requires the shop domain (for example your-store.myshopify.com) alongside the usual credentials.",
+      "The Admin API authenticates with the X-Shopify-Access-Token header rather than an Authorization Bearer header.",
+    ],
+    // The Admin API's shop endpoint nests its payload under "shop"; the
+    // myshopify domain is the stable, human-recognisable handle.
+    identityUrl: "https://{tenant_host}/admin/api/2025-07/shop.json",
+    identityResponsePaths: ["shop.myshopify_domain", "shop.name"],
+  },
 };
 
 export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));

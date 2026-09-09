@@ -39,6 +39,7 @@ const BUNDLED_LOGO_URLS: Record<string, string> = {
   outlook: publicAsset("/images/integrations/outlook.png"),
   salesforce: publicAsset("/images/integrations/salesforce.svg"),
   sanity: publicAsset("/images/integrations/sanity.svg"),
+  shopify: publicAsset("/images/integrations/shopify.svg"),
   slack: publicAsset("/images/integrations/slack.svg"),
   slack_channel: publicAsset("/images/integrations/slack.svg"),
   spotify: publicAsset("/images/integrations/spotify.svg"),
