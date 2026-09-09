@@ -1531,6 +1531,14 @@ export async function wakeAgentForOpportunity(
         conversation.currentTurnTrustContext = opts.trustContext;
       }
 
+      // Rebuild the loop's prompt under the stamps just set, the way
+      // `runAgentLoopImpl` does for a normal turn. The loop holds whatever
+      // prompt the conversation last synced, so a wake on a conversation that
+      // already ran a tool-gated turn would otherwise carry that turn's
+      // `01-send-user-message` section while the pin above withholds the tool,
+      // telling the wake to reply through a tool it does not have.
+      conversation.syncLoopSystemPrompt();
+
       let updatedHistory: Message[];
       try {
         ({ history: updatedHistory } = await conversation.agentLoop.run({
@@ -1619,6 +1627,10 @@ export async function wakeAgentForOpportunity(
         conversation.currentTurnTrustContext = priorTurnTrust;
         conversation.currentTurnSendUserMessageActive =
           priorSendUserMessageActive;
+        // The prompt is part of what the wake stamped, so restore it with the
+        // rest rather than leaving the loop holding a wake-scoped prompt for
+        // whatever runs next.
+        conversation.syncLoopSystemPrompt();
       }
 
       // The loop swallows provider rejections into a graceful no-output
