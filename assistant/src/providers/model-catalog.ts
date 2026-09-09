@@ -77,6 +77,17 @@ export interface CatalogModel {
   supportsToolUse?: boolean;
   pricing?: CatalogModelPricing;
   /**
+   * When true, the model rejects `output_config.effort` on the native
+   * Anthropic Messages wire with a 400 ("This model does not support the
+   * effort parameter" — verified 2026-09-09 for Haiku 4.5 and Sonnet 4.5;
+   * every other cataloged Claude model accepts it). The Anthropic client
+   * consults this via {@link isEffortUnsupportedModel} and omits the effort
+   * param for these models; profiles keep their internal effort setting.
+   * Daemon-only: not projected into the client catalog (see
+   * scripts/sync-llm-catalog.ts).
+   */
+  effortUnsupported?: boolean;
+  /**
    * Upper bound for `reasoning_effort` accepted by this model's upstream API.
    * Used by providers (e.g. Fireworks) to clamp Vellum's `xhigh`/`max` tiers
    * down to whatever the model documents. Omit to inherit the provider
@@ -340,6 +351,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 64000,
         supportsThinking: true,
         adaptiveThinkingUnsupported: true,
+        effortUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -374,6 +386,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 64000,
         supportsThinking: true,
         adaptiveThinkingUnsupported: true,
+        effortUnsupported: true,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -2682,6 +2695,30 @@ export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
       (m) =>
         m.adaptiveThinkingUnsupported === true &&
         (m.id === modelId || stripDateSuffix(m.id) === normalized),
+    ),
+  );
+}
+
+/**
+ * Whether the given model rejects `output_config.effort` on the native
+ * Anthropic Messages wire, driven by the `effortUnsupported` capability in
+ * the catalog. Matches the model ID across every provider (same pattern as
+ * {@link isAdaptiveThinkingOnlyModel}) and the undated aliases Anthropic
+ * serves for dated catalog IDs. OpenRouter `anthropic/claude-*` models
+ * delegate to the native Anthropic wire under dotted ids (e.g.
+ * `anthropic/claude-sonnet-4.5`), so the provider prefix and version dot
+ * are normalized away before comparing.
+ */
+export function isEffortUnsupportedModel(modelId: string): boolean {
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalize = (id: string): string =>
+    stripDateSuffix(id.replace(/^[^/]*\//, "").replace(/\./g, "-"));
+  const normalized = normalize(modelId);
+  return PROVIDER_CATALOG.some((p) =>
+    p.models.some(
+      (m) =>
+        m.effortUnsupported === true &&
+        (m.id === modelId || normalize(m.id) === normalized),
     ),
   );
 }
