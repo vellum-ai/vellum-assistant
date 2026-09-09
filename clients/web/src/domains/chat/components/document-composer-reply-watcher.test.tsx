@@ -182,6 +182,12 @@ function publishMessageQueuedDeleted(
   });
 }
 
+function setActiveAssistant(assistantId: string | null) {
+  act(() => {
+    useResolvedAssistantsStore.getState().setActiveAssistantId(assistantId);
+  });
+}
+
 function awaiting(conversationId: string): boolean {
   return useDocumentComposerReplyStore
     .getState()
@@ -640,6 +646,58 @@ describe("DocumentComposerReplyWatcher", () => {
 
       expect(toastSuccessMock).toHaveBeenCalledTimes(1);
       expect(awaiting("conv-1")).toBe(false);
+    });
+  });
+
+  describe("assistant switches", () => {
+    test("switching to another assistant drops the wait", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+
+      expect(awaiting("conv-1")).toBe(false);
+
+      // The outgoing assistant's stream is detached, so a terminal seen for
+      // conv-1 afterwards belongs to some unrelated turn.
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
+    test("a pass through no active assistant leaves the wait up", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // A reload drops the active id before settling on the same assistant.
+      setActiveAssistant(null);
+      setActiveAssistant("assistant-1");
+
+      expect(awaiting("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("a switch by way of no active assistant drops the wait", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant(null);
+      setActiveAssistant("assistant-2");
+
+      expect(awaiting("conv-1")).toBe(false);
+    });
+
+    test("an unmounted watcher leaves the wait alone", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      const { unmount } = render(<DocumentComposerReplyWatcher />);
+
+      unmount();
+      setActiveAssistant("assistant-2");
+
+      expect(awaiting("conv-1")).toBe(true);
     });
   });
 });

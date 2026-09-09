@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
@@ -94,11 +95,38 @@ function consumeQueuedTerminal(conversationId: string): boolean {
  * this subscription survives closing the document (`MobileDocumentOverlay`
  * returning `null`) or navigating off the standalone document route while a
  * reply is still in flight. Neither host stays mounted for the life of the
- * chat session, so the watcher cannot live inside either one.
+ * chat session, so the watcher cannot live inside either one. Being the one
+ * mount that outlives every route, it is also where the waits are dropped on
+ * an assistant switch.
  */
 export function DocumentComposerReplyWatcher() {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
+
+  // One SSE connection follows the active assistant, so a wait held across a
+  // switch never sees its reply and would toast on an unrelated turn. The
+  // active assistant can change on routes that mount no conversation view
+  // (the standalone document route), where nothing else resets per-assistant
+  // chat state.
+  useEffect(() => {
+    let ownerAssistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    return useResolvedAssistantsStore.subscribe((state) => {
+      const { activeAssistantId } = state;
+      // No active assistant is a transient state during a reload, not a move
+      // to a different one.
+      if (
+        activeAssistantId === null ||
+        activeAssistantId === ownerAssistantId
+      ) {
+        return;
+      }
+      if (ownerAssistantId !== null) {
+        useDocumentComposerReplyStore.getState().clearAwaitingReplies();
+      }
+      ownerAssistantId = activeAssistantId;
+    });
+  }, []);
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;

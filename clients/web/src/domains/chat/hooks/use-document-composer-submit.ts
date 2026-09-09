@@ -51,6 +51,8 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
 import { useTranslation } from "@/i18n";
 
 export type DocumentComposerSendStatus = "idle" | "sending" | "sent" | "error";
@@ -88,79 +90,46 @@ export function useDocumentComposerSubmit({
     };
   }, []);
 
-  // Who the `"document"` slot belongs to right now, and the state of the
-  // attempt in flight: its idempotency nonce, and the conversation it already
-  // put on the reply watcher's list. A send reads all three as it resolves,
-  // by which point the hook may point at another document or another
-  // assistant. Ownership is a count rather than the (assistant, surface) pair
-  // it stands for, because every transition drops the draft and hands the slot
-  // to a fresh one: an A to B to A round trip leaves a different owner in
-  // place even though the pair matches the one an earlier send captured. The
-  // nonce survives a thrown send so the retry carries the same id, which lets
-  // the daemon dedupe the case where it accepted the message and only the
-  // response was lost. The nonce is tied to the exact content/attachment
-  // snapshot it was minted for: a retry only reuses it when the payload is
-  // unchanged, since the daemon dedupes on `(conversation, clientMessageId)`
-  // back to the ORIGINAL payload, and reusing it against an edited draft would
-  // have the daemon answer the old message while the hook cleared the new
-  // edits.
+  // Who the `"document"` slot belongs to right now, and the idempotency nonce
+  // of the attempt in flight. A send reads both as it resolves, by which point
+  // the hook may point at another document or another assistant. Ownership is
+  // a count rather than the (assistant, surface) pair it stands for, because
+  // every transition drops the draft and hands the slot to a fresh one: an A
+  // to B to A round trip leaves a different owner in place even though the
+  // pair matches the one an earlier send captured. The nonce survives a thrown
+  // send so the retry carries the same id, which lets the daemon dedupe the
+  // case where it accepted the message and only the response was lost. The
+  // nonce is tied to the exact content/attachment snapshot it was minted for:
+  // a retry only reuses it when the payload is unchanged, since the daemon
+  // dedupes on `(conversation, clientMessageId)` back to the ORIGINAL payload,
+  // and reusing it against an edited draft would have the daemon answer the
+  // old message while the hook cleared the new edits. The nonce also carries
+  // the conversation the message went toward, so a retry the daemon dedupes
+  // does not raise a second wait for a turn that may already be over. Which
+  // wait is this message's is not mirrored here at all: the reply store keeps
+  // the nonce each wait was raised under, and an attempt only takes down a
+  // wait that carries its own.
   const surfaceId = doc?.surfaceId ?? null;
   const ownerGenerationRef = useRef(0);
   const currentAssistantIdRef = useRef(assistantId);
   const pendingClientMessageRef = useRef<{
     clientMessageId: string;
     snapshot: string;
+    targetConversationId: string;
   } | null>(null);
-  const armedReplyConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
     currentAssistantIdRef.current = assistantId;
     ownerGenerationRef.current += 1;
     // The draft is cleared when either half of the owner changes, so the next
-    // send is a different message: its own nonce, its own wait. A wait an
-    // earlier attempt armed stays up, since that message may still be on its
-    // way to a reply.
+    // send is a different message with a nonce of its own. A wait an earlier
+    // attempt raised stays up, since that message may still be on its way to
+    // a reply.
     pendingClientMessageRef.current = null;
-    armedReplyConversationIdRef.current = null;
     // The composer on screen belongs to the incoming owner and has sent
     // nothing, so it starts enabled instead of inheriting the outgoing
     // attempt's "sending".
     setStatus("idle");
   }, [assistantId, surfaceId]);
-
-  /** Take back down the wait this attempt raised, if it raised one. */
-  const disarmReplyWaiter = useCallback(() => {
-    const armed = armedReplyConversationIdRef.current;
-    if (armed === null) {
-      return;
-    }
-    useDocumentComposerReplyStore.getState().stopAwaitingReply(armed);
-    armedReplyConversationIdRef.current = null;
-  }, []);
-
-  // Put `conversationId` on the reply watcher's list for the attempt in
-  // flight, moving the wait when that attempt turns out to target a different
-  // conversation. The wait carries the nonce the attempt is sending under, so
-  // the watcher can tell stream events that echo it apart from events about
-  // any other message in the conversation. A retry that resolves the same
-  // conversation rides the wait the first attempt raised instead of raising a
-  // second one, and a conversation already being waited on keeps the wait it
-  // has: the list is a set, so an earlier send's entry covers this one too and
-  // is not this attempt's to take back down.
-  const armReplyWaiter = useCallback(
-    (conversationId: string, clientMessageId: string) => {
-      if (armedReplyConversationIdRef.current === conversationId) {
-        return;
-      }
-      disarmReplyWaiter();
-      const replyStore = useDocumentComposerReplyStore.getState();
-      if (replyStore.awaitingReplyConversationIds.has(conversationId)) {
-        return;
-      }
-      replyStore.startAwaitingReply(conversationId, clientMessageId);
-      armedReplyConversationIdRef.current = conversationId;
-    },
-    [disarmReplyWaiter],
-  );
 
   // Auto-fade the "Sent" micro-state.
   useEffect(() => {
@@ -181,10 +150,9 @@ export function useDocumentComposerSubmit({
     // here, `pickConversationIdWireField` inside `postChatMessage`), so an
     // attempt that outlives a switch to another assistant would be framed
     // against the wrong one. Switching also clears the draft, hands the
-    // shared slot to the incoming assistant, and resets this attempt's nonce
-    // and wait, so an attempt that finds the assistant changed has nothing
-    // left to send, to take back down, or to say on a composer that is not
-    // the one it started on.
+    // shared slot to the incoming assistant, and resets this attempt's
+    // nonce, so an attempt that finds the assistant changed has nothing left
+    // to send, or to say on a composer that is not the one it started on.
     const assistantChanged = () =>
       currentAssistantIdRef.current !== assistantId;
     const ownsSlotNow = () => ownerGenerationRef.current === ownerGeneration;
@@ -204,6 +172,16 @@ export function useDocumentComposerSubmit({
 
     setStatus("sending");
     try {
+      // Both gates below read `false` while the identity store has no version
+      // yet, and the legacy branch that answers then sends a client-minted id
+      // the daemon has never seen. Waiting for a resolved version keeps a cold
+      // start from framing the send that way. Scoped to `assistantId`, so a
+      // switch in progress waits for the incoming assistant's identity rather
+      // than settling for the outgoing one's.
+      await whenAssistantVersionKnownFor(assistantId);
+      if (assistantChanged()) {
+        return;
+      }
       const resolvedId = resolveDocumentConversationId(doc, assistantId);
       // A fresh client-minted id (never sent to the server) can't be sent as
       // a strict-lookup `conversationId` on assistants >= 0.8.6, which 404s
@@ -214,8 +192,9 @@ export function useDocumentComposerSubmit({
       // support.
       const isFreshDraft =
         useConversationStore.getState().draftConversationIds.has(resolvedId);
-      // Read before the first await, so both gates below are framed against
-      // the assistant this attempt started under.
+      // Unscoped, matching the read `postChatMessage` makes when it picks its
+      // own wire field: the two have to agree on one version, and that read
+      // has no owner to scope to.
       const requireLink = supportsServerMintedConversation();
       const useServerMint = isFreshDraft && requireLink;
 
@@ -292,6 +271,24 @@ export function useDocumentComposerSubmit({
         return;
       }
 
+      // `requireLink` decided whether a row was minted for this send, and
+      // `postChatMessage` picks its own wire field off the same store the
+      // moment it runs. Both reads are synchronous against one snapshot, so
+      // this is the one point that can guarantee the POST goes out under the
+      // frame the row was minted (or not minted) under. Only a version that
+      // flips after the bounded wait above reaches here, and a clean failure
+      // beats a strict lookup of an id the daemon never minted.
+      const expectedWireField = requireLink
+        ? "conversationId"
+        : "conversationKey";
+      if (pickConversationIdWireField() !== expectedWireField) {
+        if (ownsSlotNow()) {
+          setStatus("error");
+        }
+        toast.error(t("documentComposer.sendFailed"));
+        return;
+      }
+
       // The current `latestAssistantMessageAt` snapshot, seeded the same way
       // `use-send-message.ts` seeds it: without a snapshot, the graduation
       // sweep that clears the sidebar's processing indicator would compare a
@@ -312,26 +309,66 @@ export function useDocumentComposerSubmit({
       // sending the new payload) whenever the draft moved on. Attachment ids
       // are stable upload-row ids, so the snapshot is exact for that set.
       const payloadSnapshot = `${content}\u0000${attachmentIds.join("\u0000")}`;
-      let clientMessageId: string;
-      if (
+      const sameMessage =
         pendingClientMessageRef.current?.snapshot === payloadSnapshot &&
         pendingClientMessageRef.current.clientMessageId
-      ) {
-        clientMessageId = pendingClientMessageRef.current.clientMessageId;
-      } else {
-        clientMessageId = crypto.randomUUID();
-      }
+          ? pendingClientMessageRef.current
+          : null;
+      const clientMessageId = sameMessage
+        ? sameMessage.clientMessageId
+        : crypto.randomUUID();
+      // A retry of a message that already went toward this conversation rides
+      // whatever wait that earlier attempt raised, even one the watcher has
+      // since ended: the daemon dedupes the retry back to the message it
+      // already holds, so a second wait would stand for a turn that is over
+      // and the next unrelated completion would fire the reply toast.
+      const retryOfSameTarget =
+        sameMessage?.targetConversationId === targetConversationId;
       pendingClientMessageRef.current = {
         clientMessageId,
         snapshot: payloadSnapshot,
+        targetConversationId,
       };
 
-      // Armed before the POST, not off its response. The daemon dedupes a
+      /** Give the nonce back, unless the slot has moved on to another one. */
+      const releaseClientMessageId = () => {
+        if (
+          ownsSlotNow() &&
+          pendingClientMessageRef.current?.clientMessageId === clientMessageId
+        ) {
+          pendingClientMessageRef.current = null;
+        }
+      };
+
+      // Put `conversationId` on the reply watcher's list under the nonce this
+      // send is carrying, so the watcher can tell stream events that echo it
+      // apart from events about any other message in the conversation. A
+      // conversation already being waited on keeps the wait it has: the list
+      // is a set, so an earlier send's entry covers this one too.
+      const raiseReplyWait = (conversationId: string) => {
+        const replyStore = useDocumentComposerReplyStore.getState();
+        if (replyStore.awaitingReplyConversationIds.has(conversationId)) {
+          return;
+        }
+        replyStore.startAwaitingReply(conversationId, clientMessageId);
+      };
+      // Whether the wait on `conversationId` is this message's: raised under
+      // its nonce, by this attempt or an earlier one. Any other wait there is
+      // another message's, and not this attempt's to take back down.
+      const ownsReplyWait = (conversationId: string) =>
+        useDocumentComposerReplyStore
+          .getState()
+          .awaitingReplyClientMessageIds.get(conversationId) ===
+        clientMessageId;
+
+      // Raised before the POST, not off its response. The daemon dedupes a
       // retry on `(conversation, clientMessageId)` and answers a duplicate
-      // exactly as it answers a fresh accept, so arming off the response
-      // would raise a wait for a turn that already finished and the next
+      // exactly as it answers a fresh accept, so raising off the response
+      // would put up a wait for a turn that already finished and the next
       // unrelated completion would fire the reply toast.
-      armReplyWaiter(targetConversationId, clientMessageId);
+      if (!retryOfSameTarget) {
+        raiseReplyWait(targetConversationId);
+      }
       // The sidebar's processing mark goes up with the wait, for the same
       // reason: the daemon can broadcast `message_queued`, run the turn ahead
       // of it and finish this message before the POST answers, and the
@@ -354,12 +391,17 @@ export function useDocumentComposerSubmit({
         // and no turn will run, so the wait this attempt raised and the mark
         // that went up with it both come back down, and the next attempt goes
         // out as a fresh send rather than a duplicate the daemon would dedupe
-        // against nothing.
-        disarmReplyWaiter();
+        // against nothing. A refused message can never be replied to, so its
+        // wait ends even on a composer the slot has moved past.
+        if (ownsReplyWait(targetConversationId)) {
+          useDocumentComposerReplyStore
+            .getState()
+            .stopAwaitingReply(targetConversationId);
+        }
         useConversationStore
           .getState()
           .removeProcessingConversationId(targetConversationId);
-        pendingClientMessageRef.current = null;
+        releaseClientMessageId();
         if (ownsSlotNow()) {
           setStatus("error");
         }
@@ -375,7 +417,7 @@ export function useDocumentComposerSubmit({
 
       // The daemon holds the message, queued or not, so the nonce has done
       // its job and the next send is a new message.
-      pendingClientMessageRef.current = null;
+      releaseClientMessageId();
 
       const conversationId = result.conversationId;
       // A reply wait and a processing mark both watch the assistant's own SSE
@@ -384,35 +426,37 @@ export function useDocumentComposerSubmit({
       // connection nothing is listening to. A move to another document moves
       // both, since the reply toast is meant to outlive closing the document.
       const sameAssistant = !assistantChanged();
-      if (sameAssistant) {
-        if (conversationId !== targetConversationId) {
-          // The mark follows the wait onto the answered row, and only while
-          // that wait is still up: one the watcher has already ended took the
-          // mark down with it, and a turn that is over must not come back as
-          // processing under another id.
-          const waiting = useDocumentComposerReplyStore
+      // The assistant is the source of truth for the id: a legacy
+      // `conversationKey` send for a fresh draft comes back with the row the
+      // daemon minted rather than the key that went out, so the wait moves
+      // onto it, under the same nonce. An id that did not move leaves the wait
+      // raised before the POST exactly as it stands, the watcher's to end.
+      // Whether the daemon parked this message behind a turn already running
+      // is not read off this response: the watcher learns that from the
+      // `message_queued` stream event, which arrives in order against the
+      // terminal events it has to outrank.
+      if (sameAssistant && conversationId !== targetConversationId) {
+        // The mark follows the wait onto the answered row, and only while that
+        // wait is still up: one the watcher has already ended took the mark
+        // down with it, and a turn that is over must not come back as
+        // processing under another id.
+        const waiting = useDocumentComposerReplyStore
+          .getState()
+          .awaitingReplyConversationIds.has(targetConversationId);
+        if (ownsReplyWait(targetConversationId)) {
+          useDocumentComposerReplyStore
             .getState()
-            .awaitingReplyConversationIds.has(targetConversationId);
-          if (waiting) {
-            useConversationStore
-              .getState()
-              .transferProcessingConversationId(
-                targetConversationId,
-                conversationId,
-              );
-          }
+            .stopAwaitingReply(targetConversationId);
         }
-        // The assistant is the source of truth for the id: a legacy
-        // `conversationKey` send for a fresh draft comes back with the row
-        // the daemon minted rather than the key that went out, so the wait
-        // moves onto it, under the same nonce. Whether the daemon parked this
-        // message behind a turn already running is not read off this response:
-        // the watcher learns that from the `message_queued` stream event,
-        // which arrives in order against the terminal events it has to
-        // outrank.
-        armReplyWaiter(conversationId, clientMessageId);
-        // The watcher owns the wait from here; the next send arms its own.
-        armedReplyConversationIdRef.current = null;
+        raiseReplyWait(conversationId);
+        if (waiting) {
+          useConversationStore
+            .getState()
+            .transferProcessingConversationId(
+              targetConversationId,
+              conversationId,
+            );
+        }
       }
 
       if (isFreshDraft && !useServerMint) {
@@ -460,23 +504,15 @@ export function useDocumentComposerSubmit({
       });
     } catch {
       // Ambiguous, unlike an answered rejection: the daemon may have accepted
-      // the message and only the response was lost. The nonce and the armed
-      // wait both stay put, so the retry is a duplicate the daemon can dedupe
-      // and the reply it may already be generating still raises the toast.
+      // the message and only the response was lost. The nonce and the wait
+      // both stay put, so the retry is a duplicate the daemon can dedupe and
+      // the reply it may already be generating still raises the toast.
       if (ownsSlotNow()) {
         setStatus("error");
       }
       toast.error(t("documentComposer.sendFailed"));
     }
-  }, [
-    armReplyWaiter,
-    assistantId,
-    disarmReplyWaiter,
-    doc,
-    navigate,
-    queryClient,
-    t,
-  ]);
+  }, [assistantId, doc, navigate, queryClient, t]);
 
   return { status, submit };
 }

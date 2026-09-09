@@ -13,7 +13,10 @@
  * link that stops the first turn from running without the document. Ownership
  * covers the round trip too (away to another assistant and back), alongside
  * the full slot reset that frees the composer's preview URLs and the
- * "View conversation" action going quiet under another assistant.
+ * "View conversation" action going quiet under another assistant. The version
+ * the send is framed against is covered as well: the wait for an identity
+ * that has not hydrated, and a version that flips mid-flight failing the send
+ * rather than posting under a frame the row was never minted for.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -326,7 +329,12 @@ beforeEach(() => {
     awaitingReplyClientMessageIds: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
-  useAssistantIdentityStore.setState({ version: null });
+  // Below the server-mint floor, so the legacy path is the default and the
+  // send's bounded wait for a resolved version settles immediately.
+  useAssistantIdentityStore.setState({
+    version: "0.8.5",
+    assistantId: ASSISTANT_ID,
+  });
   useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
   composerResets.length = 0;
   window.sessionStorage.clear();
@@ -386,8 +394,8 @@ describe("conversation id resolution", () => {
       await result.current.submit();
     });
 
-    // No server-mint support (no identity version set): the freshly minted
-    // draft id is sent directly as the wire `conversationId`.
+    // No server-mint support (the assistant is below the mint floor): the
+    // freshly minted draft id is sent directly as the wire `conversationId`.
     const sentConversationId = postChatMessageMock.mock.calls[0]?.[1] as string;
     expect(sentConversationId).toBeTruthy();
     expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1);
@@ -514,6 +522,96 @@ describe("conversation id resolution", () => {
     expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBe(
       secondAttemptId,
     );
+  });
+});
+
+describe("the version the send is framed against", () => {
+  test("a version that hydrates while the send waits takes the mint path", async () => {
+    // GIVEN an identity store with no version yet, where a synchronous read
+    // would report an assistant that cannot mint a conversation.
+    useAssistantIdentityStore.setState({ version: null, assistantId: null });
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    // WHEN the version hydrates past the mint floor while the send waits on it.
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    act(() => {
+      useAssistantIdentityStore.setState({
+        version: "0.9.0",
+        assistantId: ASSISTANT_ID,
+      });
+    });
+    await act(async () => {
+      await submitted;
+    });
+
+    // THEN the send is framed against the version that landed: the assistant
+    // mints the row and the message goes out against it, rather than a
+    // client-side draft id the daemon has never heard of.
+    expect(conversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("sent");
+  });
+
+  test("a version that flips while the document is being linked fails the send instead of posting a stale frame", async () => {
+    // GIVEN an assistant below the mint floor, so the send is framed for the
+    // legacy `conversationKey` path against a fresh client-minted draft id.
+    const settleLink = deferDocumentLink();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() =>
+      expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1),
+    );
+
+    // WHEN the version hydrates past the mint floor while the link is still
+    // out, so `postChatMessage` would strict-lookup an id nothing minted.
+    act(() => {
+      useAssistantIdentityStore.setState({
+        version: "0.9.0",
+        assistantId: ASSISTANT_ID,
+      });
+    });
+    await act(async () => {
+      settleLink();
+      await submitted;
+    });
+
+    // THEN nothing goes out, and nothing is left recorded against the id the
+    // send was framed for.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
+      "Couldn't send your message. Try again.",
+    );
+    expect(result.current.status).toBe("error");
+    expect(
+      useDocumentComposerReplyStore.getState().awaitingReplyConversationIds
+        .size,
+    ).toBe(0);
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+    expect(useComposerStore.getState().documentInput).toBe("hello");
+
+    // The retry is framed against the version that landed, so it mints the row
+    // and sends against that.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(conversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+    expect(result.current.status).toBe("sent");
   });
 });
 
@@ -1170,6 +1268,73 @@ describe("when the reply wait goes up", () => {
     expect(result.current.status).toBe("sent");
     expect(isAwaitingReply("conv-existing")).toBe(false);
   });
+
+  test("a refused retry takes down the wait its first attempt raised", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("network dropped");
+        }
+        return { ok: false, status: 500, error: { detail: "boom" } };
+      },
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    // GIVEN a first attempt that never reached the daemon, so the wait it
+    // raised is still up when the user retries.
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+
+    // WHEN the daemon answers the retry and refuses it.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN no reply is coming for this message under any attempt, so the
+    // wait the first attempt raised comes down with the retry's mark.
+    expect(result.current.status).toBe("error");
+    expect(isAwaitingReply("conv-existing")).toBe(false);
+    expect(isProcessing("conv-existing")).toBe(false);
+  });
+
+  test("a refused retry leaves another message's wait alone", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          throw new Error("network dropped");
+        }
+        return { ok: false, status: 500, error: { detail: "boom" } };
+      },
+    );
+    // GIVEN an earlier message still awaiting its reply in this conversation.
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-existing", "nonce-of-an-earlier-send");
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // WHEN the daemon refuses the retry.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the wait is the earlier message's, raised under its nonce, and is
+    // not this one's to take down.
+    expect(result.current.status).toBe("error");
+    expect(isAwaitingReply("conv-existing")).toBe(true);
+    expect(awaitingNonce("conv-existing")).toBe("nonce-of-an-earlier-send");
+  });
 });
 
 describe("the sidebar processing mark", () => {
@@ -1659,6 +1824,10 @@ describe("a send that outlives its owner", () => {
 
     // The dropped attempt left no nonce behind: the incoming assistant's own
     // message is a first send, with its own id and its own wait.
+    useAssistantIdentityStore.setState({
+      version: "0.8.5",
+      assistantId: "assistant-2",
+    });
     useComposerStore
       .getState()
       .setInput("for the second assistant", "document");
@@ -1831,5 +2000,186 @@ describe("a send that outlives its owner", () => {
     expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
       "Couldn't send your message. Try again.",
     );
+  });
+
+  test("a completion after the hook moved on leaves the newer attempt's nonce alone", async () => {
+    // GIVEN a send for the first document still in flight.
+    const settleFirst = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the hook moves to a second document whose own send fails
+    // ambiguously, so its nonce is the one a retry has to carry.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    const failSecond = failPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const secondNonce = sentOptions(0).clientMessageId as string;
+    expect(secondNonce).toBeTruthy();
+    await act(async () => {
+      failSecond();
+      await submittedSecond;
+    });
+
+    // ... and the first document's send lands afterwards.
+    await act(async () => {
+      settleFirst(sentResult("conv-a"));
+      await submittedFirst;
+    });
+
+    // THEN the second document's retry still carries its own nonce, so a first
+    // attempt the daemon accepted and only failed to answer is deduped.
+    postChatMessageMock = mock(defaultPostChatMessage);
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(sentOptions(0).clientMessageId).toBe(secondNonce);
+  });
+
+  test("a refused send after the hook moved on leaves the newer attempt's nonce alone", async () => {
+    // GIVEN a send for the first document still in flight.
+    const settleFirst = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the hook moves to a second document whose own send fails
+    // ambiguously, and the first document's send comes back refused.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    const failSecond = failPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const secondNonce = sentOptions(0).clientMessageId as string;
+    await act(async () => {
+      failSecond();
+      await submittedSecond;
+    });
+    await act(async () => {
+      settleFirst({ ok: false, status: 500, error: { detail: "boom" } });
+      await submittedFirst;
+    });
+
+    // THEN the retry for the second document still carries its own nonce.
+    postChatMessageMock = mock(defaultPostChatMessage);
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(sentOptions(0).clientMessageId).toBe(secondNonce);
+  });
+
+  test("a refused send after the hook moved on ends only the wait it raised", async () => {
+    // GIVEN a send for the first document in flight, with its wait up.
+    const settleFirst = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    expect(isAwaitingReply("conv-a")).toBe(true);
+
+    // WHEN the hook moves to a second document that raises a wait of its own.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    const settleSecond = deferPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    expect(isAwaitingReply("conv-b")).toBe(true);
+
+    // ... and the first document's send comes back refused.
+    await act(async () => {
+      settleFirst({ ok: false, status: 500, error: { detail: "boom" } });
+      await submittedFirst;
+    });
+
+    // THEN only the refused message's own wait ends: it can never be replied
+    // to, and the second document is still waiting on the send it has out.
+    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isAwaitingReply("conv-b")).toBe(true);
+
+    await act(async () => {
+      settleSecond(sentResult("conv-b"));
+      await submittedSecond;
+    });
+    expect(isAwaitingReply("conv-b")).toBe(true);
+  });
+
+  test("a send that lands after the hook moved on moves only its own wait", async () => {
+    // GIVEN a send for the first document in flight, with its wait up.
+    const settleFirst = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the hook moves to a second document that raises a wait of its own.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    const settleSecond = deferPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    expect(isAwaitingReply("conv-b")).toBe(true);
+
+    // ... and the first document's send answers with a row of its own.
+    await act(async () => {
+      settleFirst(sentResult("conv-a-real"));
+      await submittedFirst;
+    });
+
+    // THEN the wait that moves is the one the first send raised, and the
+    // second document keeps the wait it is still holding.
+    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isAwaitingReply("conv-a-real")).toBe(true);
+    expect(isAwaitingReply("conv-b")).toBe(true);
+
+    await act(async () => {
+      settleSecond(sentResult("conv-b"));
+      await submittedSecond;
+    });
   });
 });
