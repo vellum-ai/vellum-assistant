@@ -573,7 +573,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
     const { cwd, env } = options as { cwd?: string; env?: NodeJS.ProcessEnv };
     expect(cwd).toBeDefined();

@@ -44,9 +44,17 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
 describe("DEFAULT_AGENT_NPM_PACKAGES", () => {
   test("is keyed by command name with the canonical npm package", () => {
     expect(DEFAULT_AGENT_NPM_PACKAGES).toEqual({
-      "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-      "codex-acp": "@agentclientprotocol/codex-acp",
+      "claude-agent-acp": "@agentclientprotocol/claude-agent-acp@0.75.1",
+      "codex-acp": "@agentclientprotocol/codex-acp@1.10.0",
     });
+  });
+
+  test("every package spec pins an exact version", () => {
+    // A bare name would let a clean install resolve whatever npm calls
+    // latest, which is what the repo's pinning rule exists to prevent.
+    for (const spec of Object.values(DEFAULT_AGENT_NPM_PACKAGES)) {
+      expect(spec).toMatch(/^@?[^@]+@\d+\.\d+\.\d+$/);
+    }
   });
 
   test("every default profile's command has a matching npm package", () => {

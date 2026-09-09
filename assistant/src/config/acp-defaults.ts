@@ -33,15 +33,21 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
 });
 
 /**
- * Single source of truth for adapter binary → npm package name. Automatic
+ * Single source of truth for adapter binary → npm package spec. Automatic
  * installation and the resolver's install hints use this map, so a new
  * adapter only needs one entry here.
  *
  * Keyed by command name (not agent id) so the mapping follows the binary
  * regardless of how a user's config aliases an agent.
+ *
+ * Values carry an exact version, so a clean install lands the adapter version
+ * the daemon was tested against instead of whatever npm calls latest today.
+ * An adapter already on PATH is left alone: installation runs only when
+ * preflight found no binary at all, so this never moves a version the user
+ * installed themselves.
  */
 export const DEFAULT_AGENT_NPM_PACKAGES: Readonly<Record<string, string>> =
   Object.freeze({
-    "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
-    "codex-acp": "@agentclientprotocol/codex-acp",
+    "claude-agent-acp": "@agentclientprotocol/claude-agent-acp@0.75.1",
+    "codex-acp": "@agentclientprotocol/codex-acp@1.10.0",
   });
