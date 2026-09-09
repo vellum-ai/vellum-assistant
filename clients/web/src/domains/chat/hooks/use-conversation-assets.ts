@@ -39,8 +39,9 @@ export type ConversationFileAsset =
     };
 
 /**
- * How far the two daemon queries have got. The transcript attachments have no
- * loading state of their own, so they never hold this back from `"ready"`.
+ * How far the panel's three sources have got: the two daemon queries and the
+ * conversation's own transcript, which is loaded rather than fetched and is
+ * unready until the chat session owns a snapshot for this conversation.
  */
 export type ConversationAssetsStatus = "pending" | "error" | "ready";
 
@@ -162,7 +163,9 @@ export function useConversationAssets({
   const docs = documentsQuery.data ?? NO_DOCUMENTS;
 
   // A failed background refetch keeps the last data, so a source is failed or
-  // unresolved only while it has nothing to show.
+  // unresolved only while it has nothing to show. The transcript counts as a
+  // source too: without it a conversation whose only assets are attachments
+  // would read ready and empty until the snapshot lands.
   const appsUnresolved = appsQuery.data === undefined;
   const documentsUnresolved = documentsQuery.data === undefined;
   let status: ConversationAssetsStatus = "ready";
@@ -172,8 +175,9 @@ export function useConversationAssets({
   ) {
     status = "error";
   } else if (
-    (appsQuery.isPending && appsUnresolved) ||
-    (documentsQuery.isPending && documentsUnresolved)
+    appsUnresolved ||
+    documentsUnresolved ||
+    !attachments.transcriptReady
   ) {
     status = "pending";
   }

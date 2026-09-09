@@ -3,8 +3,9 @@
  *
  * Apps and documents come from two TanStack queries and the attachments from
  * the chat-session store, so the suite seeds all three rather than mocking
- * anything: nothing refetches on mount and the derived lists are exactly what
- * a test asks for.
+ * anything: nothing refetches on mount, no request leaves the process, and the
+ * derived lists are exactly what a test asks for. All three are sources the
+ * reported status answers for.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -84,6 +85,24 @@ function renderAssets({
   return { ...view, client };
 }
 
+function seedClient({
+  apps = [],
+  documents = [],
+  client = makeChatInfoQueryClient(),
+}: {
+  apps?: AppSummary[];
+  documents?: DocumentSummary[];
+  client?: QueryClient;
+} = {}): QueryClient {
+  seedChatInfoConversation(client, {
+    assistantId: ASSISTANT_ID,
+    conversationId: CONVERSATION_ID,
+    apps,
+    documents,
+  });
+  return client;
+}
+
 function renderSeeded({
   apps = [],
   documents = [],
@@ -93,14 +112,7 @@ function renderSeeded({
   documents?: DocumentSummary[];
   refreshKey?: number;
 } = {}) {
-  const client = makeChatInfoQueryClient();
-  seedChatInfoConversation(client, {
-    assistantId: ASSISTANT_ID,
-    conversationId: CONVERSATION_ID,
-    apps,
-    documents,
-  });
-  return renderAssets({ client, refreshKey });
+  return renderAssets({ client: seedClient({ apps, documents }), refreshKey });
 }
 
 function seedMessages(messages: DisplayMessage[]) {
@@ -186,12 +198,16 @@ describe("useConversationAssets", () => {
   });
 
   test("invalidates both queries when the refresh key changes", () => {
-    const { rerender, client } = renderSeeded({ refreshKey: 1 });
+    // Stubbed before the first render: the mount pass invalidates too, and the
+    // real one would send both queries to a daemon this suite does not run.
+    const client = seedClient();
     const invalidated: unknown[] = [];
     client.invalidateQueries = (filters) => {
       invalidated.push(filters);
       return Promise.resolve();
     };
+    const { rerender } = renderAssets({ client, refreshKey: 1 });
+    invalidated.length = 0;
 
     rerender({ refreshKey: 2 });
 
@@ -203,6 +219,11 @@ describe("useConversationAssets", () => {
 });
 
 describe("useConversationAssets status", () => {
+  /** Both daemon queries answered, on a client that asks the daemon nothing. */
+  function seededQueries(): QueryClient {
+    return seedClient({ client: makePendingChatInfoQueryClient() });
+  }
+
   // An empty category means "nothing here" only once this reads "ready", so
   // the panel can tell an empty conversation from one still loading.
   test("is pending until both sources resolve", () => {
@@ -245,14 +266,40 @@ describe("useConversationAssets status", () => {
     expect(result.current.files.map((file) => file.id)).toEqual(["doc-doc-1"]);
   });
 
-  test("is ready once both sources hold data", () => {
-    const client = makePendingChatInfoQueryClient();
-    client.setQueryData(appsGetQueryKey(QUERY_ARGS), { apps: [] });
-    client.setQueryData(documentsGetQueryKey(QUERY_ARGS), { documents: [] });
+  test("is ready once every source holds data", () => {
+    const { result } = renderAssets({ client: seededQueries() });
+
+    expect(result.current.status).toBe("ready");
+  });
+
+  // The transcript is where a conversation's attachments come from, so a chat
+  // with nothing but attachments would otherwise read ready and empty until
+  // the snapshot lands, and the header trigger would flash and disappear.
+  test("is pending until the transcript is loaded", () => {
+    clearTranscriptMessages();
+
+    const { result } = renderAssets({ client: seededQueries() });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  test("is pending while another conversation owns the transcript", () => {
+    seedTranscriptMessages(ASSISTANT_ID, "conv-2", []);
+
+    const { result } = renderAssets({ client: seededQueries() });
+
+    expect(result.current.status).toBe("pending");
+  });
+
+  test("reports a failed source before the transcript has landed", () => {
+    clearTranscriptMessages();
+    const client = seededQueries();
+    client.removeQueries({ queryKey: documentsGetQueryKey(QUERY_ARGS) });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
 
     const { result } = renderAssets({ client });
 
-    expect(result.current.status).toBe("ready");
+    expect(result.current.status).toBe("error");
   });
 });
 

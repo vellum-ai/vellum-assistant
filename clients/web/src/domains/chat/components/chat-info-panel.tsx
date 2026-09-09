@@ -27,11 +27,11 @@ import {
   CHAT_INFO_APP_TILE_WIDTH_PX,
   ChatInfoAppTile,
 } from "@/domains/chat/components/chat-info-app-tile";
-import { ChatInfoCategoryGrid } from "@/domains/chat/components/chat-info-category-grid";
+import { ChatInfoFileGrid } from "@/domains/chat/components/chat-info-file-grid";
 import {
-  CHAT_INFO_FILE_TILE_WIDTH_PX,
-  ChatInfoFileTile,
-} from "@/domains/chat/components/chat-info-file-tile";
+  type ChatInfoFileCategory,
+  ChatInfoFileRow,
+} from "@/domains/chat/components/chat-info-file-row";
 import { ChatInfoSection } from "@/domains/chat/components/chat-info-section";
 import {
   type ConversationFileAsset,
@@ -166,31 +166,25 @@ export function ChatInfoPanel({
     }
   }, [emptiedCategory, onSelectCategory]);
 
-  const renderFileSection = (category: "files" | "frames") => {
+  const renderFileRow = (category: ChatInfoFileCategory) => {
     const items = categoryLists[category];
     if (items.length === 0) {
       return null;
     }
     return (
-      <ChatInfoSection
+      <ChatInfoFileRow
+        category={category}
         title={categoryTitles[category]}
         count={counts[category]}
         items={items}
-        tileWidth={CHAT_INFO_FILE_TILE_WIDTH_PX}
         seeAllAriaLabel={
           category === "files"
             ? t("chatInfoPanel.seeAllFilesAria")
             : t("chatInfoPanel.seeAllFramesAria")
         }
-        onSeeAll={() => onSelectCategory(category)}
-        renderTile={(file) => (
-          <ChatInfoFileTile
-            key={file.id}
-            file={file}
-            assistantId={assistantId}
-            onOpen={handleOpenFile}
-          />
-        )}
+        onSeeAll={onSelectCategory}
+        onOpen={handleOpenFile}
+        assistantId={assistantId}
       />
     );
   };
@@ -218,7 +212,7 @@ export function ChatInfoPanel({
     );
   } else if (level !== null) {
     body = (
-      <ChatInfoCategoryGrid
+      <ChatInfoFileGrid
         items={categoryLists[level]}
         assistantId={assistantId}
         hasMore={level === "files" ? hasMoreFiles : hasMoreFrames}
@@ -233,9 +227,6 @@ export function ChatInfoPanel({
     // as an answer the loaded panel then replaces.
     body = (
       <div className="flex flex-col gap-8">
-        {status === "error" && (
-          <DetailShellNotice>{t("chatInfoPanel.loadFailed")}</DetailShellNotice>
-        )}
         {status === "ready" && count === 0 && (
           <DetailShellNotice>{t("chatInfoPanel.empty")}</DetailShellNotice>
         )}
@@ -259,8 +250,8 @@ export function ChatInfoPanel({
             )}
           />
         )}
-        {renderFileSection("files")}
-        {renderFileSection("frames")}
+        {renderFileRow("files")}
+        {renderFileRow("frames")}
       </div>
     );
   }
@@ -299,6 +290,11 @@ export function ChatInfoPanel({
       closeTooltip={t("chatInfoPanel.closeAria")}
       onClose={onClose}
     >
+      {/* Above the body at every level: a category drilled into with nothing
+          cached would otherwise be a blank grid with no reason given. */}
+      {status === "error" && (
+        <DetailShellNotice>{t("chatInfoPanel.loadFailed")}</DetailShellNotice>
+      )}
       {body}
       {/* Both overlays live in the body so a level switch cannot unmount them. */}
       {previewModal}

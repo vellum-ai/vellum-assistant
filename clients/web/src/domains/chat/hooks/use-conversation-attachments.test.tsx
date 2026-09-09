@@ -64,7 +64,9 @@ describe("useConversationAttachments", () => {
     });
     expect(result.current.source).toBe("transcript");
     expect(result.current.totalFiles).toBe(2);
+    // The transcript never carries the frame tag, so this source has none.
     expect(result.current.totalFrames).toBe(0);
+    expect(result.current.transcriptReady).toBe(true);
     expect(result.current.hasMoreFiles).toBe(false);
     expect(result.current.hasMoreFrames).toBe(false);
   });
@@ -281,6 +283,44 @@ describe("useConversationAttachments", () => {
     expect(renders).toBe(rendersAfterMount);
   });
 
+  // The other half of the same contract: the walk does run, once, when the set
+  // of attachment-carrying rows actually changes.
+  test("walks once when an attachment row lands", () => {
+    seed([
+      makeTranscriptRow({
+        id: "msg-upload",
+        timestamp: 1_000,
+        attachments: [makeDisplayAttachment({ id: "att-1" })],
+      }),
+    ]);
+
+    let renders = 0;
+    const { result } = renderHook(() => {
+      renders += 1;
+      return useConversationAttachments(TARGET);
+    });
+    const first = result.current.entries;
+    const rendersAfterMount = renders;
+
+    act(() => {
+      useChatSessionStore.getState().patchSnapshotMessages((prev) => [
+        ...prev,
+        makeTranscriptRow({
+          id: "msg-second",
+          timestamp: 2_000,
+          attachments: [makeDisplayAttachment({ id: "att-2" })],
+        }),
+      ]);
+    });
+
+    expect(result.current.entries).not.toBe(first);
+    expect(result.current.entries.map((entry) => entry.attachment.id)).toEqual([
+      "att-2",
+      "att-1",
+    ]);
+    expect(renders).toBe(rendersAfterMount + 1);
+  });
+
   test("lists the loaded transcript when the target owns the snapshot", () => {
     seed([
       makeTranscriptRow({
@@ -306,6 +346,7 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.entries).toHaveLength(0);
     expect(result.current.totalFiles).toBe(0);
+    expect(result.current.transcriptReady).toBe(false);
   });
 
   test("lists nothing when another assistant owns the snapshot", () => {
@@ -333,6 +374,18 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.entries).toHaveLength(0);
     expect(result.current.totalFiles).toBe(0);
+    expect(result.current.transcriptReady).toBe(false);
+  });
+
+  // An owned conversation with no snapshot yet is the first paint of a chat:
+  // no files listed, and not yet the same thing as a chat with none.
+  test("is unready until a snapshot is loaded", () => {
+    clearTranscriptMessages();
+
+    const { result } = renderHook(() => useConversationAttachments(TARGET));
+
+    expect(result.current.transcriptReady).toBe(false);
+    expect(result.current.entries).toHaveLength(0);
   });
 
   test("keeps the load-more callbacks stable", () => {

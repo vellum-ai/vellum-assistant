@@ -358,8 +358,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}",
+    "ariaLabelUnavailable": "Ресурсы диалога, не удалось загрузить",
     "ariaLabelUnseen": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}} (есть невидимые изменения)",
-    "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}"
+    "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}",
+    "labelUnavailable": "Не удалось загрузить ресурсы"
   },
   "conversationStarterDock": {
     "caption": "Подсказки:"

@@ -13,7 +13,15 @@
  * for the single animation class token on the dot and nothing else.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
@@ -33,12 +41,13 @@ import {
   makePendingChatInfoQueryClient,
   seedChatInfoConversation,
   seedQueryFailure,
+  seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
 import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { DocumentSummary } from "@/types/document-types";
 
-installChatInfoDomStubs();
+const restoreDomStubs = installChatInfoDomStubs();
 
 const viewport = viewportAxesStub();
 
@@ -125,11 +134,19 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
       });
       view.rerender(pill(conversationId));
     },
-    /** Drop the conversation's last asset, as a delete would. */
-    emptyAssets: () => {
-      seedConversation(client, [], CONVERSATION_ID);
-    },
   };
+}
+
+/** Mounts the trigger alone against a client a test has set up itself. */
+function renderPillWith(client: QueryClient) {
+  render(
+    <QueryClientProvider client={client}>
+      <ConversationAssetsPill
+        assistantId={ASSISTANT_ID}
+        conversationId={CONVERSATION_ID}
+      />
+    </QueryClientProvider>,
+  );
 }
 
 /**
@@ -186,7 +203,9 @@ function chatInfoState() {
 }
 
 beforeEach(() => {
-  clearTranscriptMessages();
+  // A settled transcript, so the trigger's sources are only as unresolved as
+  // a test makes them: an unloaded one holds the count pending on its own.
+  seedTranscriptMessages(ASSISTANT_ID, CONVERSATION_ID, []);
   viewport.set({ narrow: false, coarsePointer: false });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.getState().reset();
@@ -199,6 +218,13 @@ afterEach(() => {
   reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.getState().reset();
+});
+
+// `mock.module` is process-global in this runner, so the module graph and the
+// stubbed browser APIs are put back before the next file loads.
+afterAll(() => {
+  restoreDomStubs();
+  mock.restore();
 });
 
 function dotHasPulse(): boolean {
@@ -334,27 +360,6 @@ describe("conversation switch while the panel is open", () => {
 describe("the last asset leaving while the panel is open", () => {
   // The panel says it is empty and carries its own close control, so the
   // trigger going does not have to take it down.
-  test("hides the trigger and leaves the panel open", async () => {
-    const { emptyAssets } = renderPill();
-
-    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
-    expect(chatInfoState().mainView).toBe("chat-info");
-
-    emptyAssets();
-
-    await waitFor(() => {
-      expect(screen.queryByRole("button")).toBeNull();
-    });
-    expect(chatInfoState()).toEqual({
-      mainView: "chat-info",
-      activeChatInfo: {
-        assistantId: ASSISTANT_ID,
-        conversationId: CONVERSATION_ID,
-        category: null,
-      },
-    });
-  });
-
   test("leaves the panel showing the empty copy, trigger gone", async () => {
     const { emptyAssets } = renderComposed();
 
@@ -423,8 +428,18 @@ describe("empty asset list", () => {
     expect(unseenConversations()).toEqual([CONVERSATION_ID]);
   });
 
+  // Counting nothing yet is not counting nothing: a trigger that appears with
+  // "0 items" on every uncached chat and vanishes a frame later is worse than
+  // no trigger at all.
+  test("renders nothing while its sources are still unresolved", () => {
+    renderPillWith(makePendingChatInfoQueryClient());
+
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   // A first load that failed also counts nothing, and hiding the trigger there
   // would leave the user no way to reach the panel that reports the failure.
+  // It names the failure rather than a count it cannot know.
   test("keeps the trigger when a source could not be loaded", () => {
     const client = makePendingChatInfoQueryClient();
     seedQueryFailure(
@@ -435,17 +450,12 @@ describe("empty asset list", () => {
       }),
     );
 
-    render(
-      <QueryClientProvider client={client}>
-        <ConversationAssetsPill
-          assistantId={ASSISTANT_ID}
-          conversationId={CONVERSATION_ID}
-        />
-      </QueryClientProvider>,
-    );
+    renderPillWith(client);
 
     expect(
-      screen.getByRole("button", { name: "Conversation assets, 0 items" }),
+      screen.getByRole("button", {
+        name: "Conversation assets, could not be loaded",
+      }),
     ).toBeTruthy();
   });
 });

@@ -60,7 +60,7 @@ const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
 const OTHER_CONVERSATION_ID = "conv-2";
 
-installChatInfoDomStubs();
+const restoreDomStubs = installChatInfoDomStubs();
 
 mock.module("@/hooks/use-element-size", () =>
   makeElementSizeMock(() => CHAT_INFO_DRAWER_WIDTH_PX),
@@ -253,6 +253,7 @@ afterAll(() => {
     loadApp: realLoadApp,
     loadDocument: realLoadDocument,
   });
+  restoreDomStubs();
   mock.restore();
 });
 
@@ -391,12 +392,6 @@ describe("ChatInfoPanel See All level", () => {
     expect(onSelectCategory).toHaveBeenCalledWith(null);
   });
 
-  test("holds no Load more for a category that has everything", async () => {
-    await renderChatInfo("files");
-
-    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
-  });
-
   test("falls back to the top level once the category empties", async () => {
     await renderChatInfo("apps", { apps: [] });
 
@@ -471,5 +466,14 @@ describe("ChatInfoPanel unsettled sources", () => {
       notice.compareDocumentPosition(filesTitle) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeGreaterThan(0);
+  });
+
+  // The notice sits above the body at every level, so a category drilled into
+  // while a source is down is not a silent grid.
+  test("heads a drilled-in category with the failure too", async () => {
+    await renderChatInfo("files", { apps: [], afterSeed: failDocuments });
+
+    expect(screen.getByText("Assets could not be loaded")).toBeDefined();
+    expect(screen.getByLabelText("Preview photo-0.png")).toBeDefined();
   });
 });

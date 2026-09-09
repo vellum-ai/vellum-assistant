@@ -1,6 +1,9 @@
 /**
- * The Chat Info panel's second level: one category's whole set as a wrapping
- * grid of tiles, with the control that fetches the next page under it.
+ * The Chat Info panel's second level for its two file categories, documents
+ * and images and camera frames: the whole category as a wrapping grid of
+ * tiles, with the control that fetches the next page under it. The apps
+ * drill-in keeps its own auto-fill grid in the panel, since an app tile is
+ * sized and laid out differently.
  *
  * Presentational: the panel owns the category, its items, and what opening a
  * tile does.
@@ -8,11 +11,12 @@
 
 import { Button } from "@vellumai/design-library";
 
+import { DetailShellNotice } from "@/components/detail-shell";
 import { ChatInfoFileTile } from "@/domains/chat/components/chat-info-file-tile";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import { useTranslation } from "@/i18n";
 
-export interface ChatInfoCategoryGridProps {
+export interface ChatInfoFileGridProps {
   items: ConversationFileAsset[];
   assistantId: string;
   /** Whether the category holds more than the loaded page. */
@@ -22,27 +26,31 @@ export interface ChatInfoCategoryGridProps {
   onOpen: (file: ConversationFileAsset) => void;
 }
 
-export function ChatInfoCategoryGrid({
+export function ChatInfoFileGrid({
   items,
   assistantId,
   hasMore,
   onLoadMore,
   onOpen,
-}: ChatInfoCategoryGridProps) {
+}: ChatInfoFileGridProps) {
   const { t } = useTranslation("chat");
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
-        {items.map((file) => (
-          <ChatInfoFileTile
-            key={file.id}
-            file={file}
-            assistantId={assistantId}
-            onOpen={onOpen}
-          />
-        ))}
-      </div>
+      {items.length === 0 ? (
+        <DetailShellNotice>{t("chatInfoPanel.empty")}</DetailShellNotice>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {items.map((file) => (
+            <ChatInfoFileTile
+              key={file.id}
+              file={file}
+              assistantId={assistantId}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
       {hasMore && (
         <Button variant="outlined" onClick={onLoadMore} className="self-start">
           {t("chatInfoPanel.loadMore")}
