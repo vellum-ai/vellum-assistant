@@ -137,12 +137,13 @@ type ResumableHistoryRow = typeof acpSessionHistory.$inferSelect & {
 };
 
 /**
- * Cancellation for a steer. Cancelling an in-flight prompt and restoring a
- * session from history are both awaits, and what follows them hands a paid
- * agent an instruction that outlives the turn, so the signal is rechecked at
- * each of those seams.
+ * Cancellation for a call that puts an agent to work. Starting a child
+ * process, cancelling an in-flight prompt and restoring a session from history
+ * are all awaits, and what follows each of them hands a long-lived agent an
+ * instruction that outlives the turn, so the signal is rechecked at every one
+ * of those seams.
  */
-export interface AcpSteerOptions {
+export interface AcpCancellationOptions {
   signal?: AbortSignal;
 }
 
@@ -251,8 +252,10 @@ export class AcpSessionManager {
     parentConversationId: string,
     sendToVellum: (msg: AssistantEvent) => void,
     parentToolUseId?: string,
+    opts?: AcpCancellationOptions,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     this.assertCapacity();
+    opts?.signal?.throwIfAborted();
 
     const acpSessionId = randomUUID();
     log.info(
@@ -310,9 +313,22 @@ export class AcpSessionManager {
       throw err;
     }
 
+    // Recheck: the protocol handshake and session creation above are both
+    // awaits, and the child process is already running. A turn stopped in that
+    // window must not be told a session started, nor have the agent handed the
+    // task, so the process is torn down and the abort let out instead.
+    if (opts?.signal?.aborted) {
+      log.info(
+        { acpSessionId, agentId },
+        "ACP spawn cancelled during setup; tearing the session down",
+      );
+      this.teardownSession(acpSessionId, entry);
+      opts.signal.throwIfAborted();
+    }
+
     this.sendSpawnedEvent(acpSessionId, entry);
 
-    // Fire prompt in the background — don't await
+    // Fire prompt in the background, do not await
     entry.currentPrompt = this.firePromptInBackground(
       acpSessionId,
       entry,
@@ -664,7 +680,7 @@ export class AcpSessionManager {
   async steer(
     acpSessionId: string,
     instruction: string,
-    opts?: AcpSteerOptions,
+    opts?: AcpCancellationOptions,
   ): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
@@ -730,7 +746,7 @@ export class AcpSessionManager {
     acpSessionId: string,
     instruction: string,
     sendToVellum: (msg: AssistantEvent) => void,
-    opts?: AcpSteerOptions,
+    opts?: AcpCancellationOptions,
   ): Promise<{ resumed: boolean }> {
     try {
       await this.steer(acpSessionId, instruction, opts);

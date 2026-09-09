@@ -598,18 +598,13 @@ export async function preprocessForAsset(
       `Extracted ${totalFrames} total frames across ${segments.length} segments.\n`,
     );
 
-    // Atomically swap temp dir to durable path
-    await rm(framesDir, { recursive: true, force: true });
-    await mkdir(dirname(framesDir), { recursive: true });
-    await rename(tempDir, framesDir);
-
     // Step 4: Subject registry
+    //
+    // Reads the frames where they still are, under the temp directory, so the
+    // destructive swap can wait for the commit step below. `segment.framePaths`
+    // are the durable paths those files acquire once the swap happens.
     onProgress?.("Building subject registry...\n");
-    const allExtractedPaths = segments.flatMap((s) => s.framePaths);
-    const subjectRegistry = await buildSubjectRegistry(
-      allExtractedPaths,
-      signal,
-    );
+    const subjectRegistry = await buildSubjectRegistry(allFramePaths, signal);
     onProgress?.(
       `Identified ${subjectRegistry.groups.length} subject group(s).\n`,
     );
@@ -624,13 +619,21 @@ export async function preprocessForAsset(
       sectionBoundaries = createDefaultSections(durationSeconds);
     }
 
-    // Step 6: Register keyframes in DB
+    // Step 6: Commit
     //
     // Last checkpoint before the run becomes durable. Everything past here
-    // replaces the asset's existing keyframes, rewrites the manifest and marks
-    // the stage complete, so a cancel landing later would leave the asset
-    // looking preprocessed by a run the model was told never finished.
+    // replaces the asset's frames on disk, replaces its keyframe rows, rewrites
+    // the manifest and marks the stage complete. Those have to move together:
+    // a cancel between the swap and the rows would leave new frames on disk
+    // described by the previous run's keyframes, and the asset looking
+    // preprocessed by a run the model was told never finished.
     signal?.throwIfAborted();
+
+    // Atomically swap temp dir to durable path
+    await rm(framesDir, { recursive: true, force: true });
+    await mkdir(dirname(framesDir), { recursive: true });
+    await rename(tempDir, framesDir);
+
     onProgress?.("Registering keyframes in database...\n");
     deleteKeyframesForAsset(assetId);
 

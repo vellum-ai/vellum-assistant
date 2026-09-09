@@ -660,3 +660,60 @@ describe("AcpSessionManager.steer: a stopped turn hands the agent nothing", () =
     expect(prompt).not.toHaveBeenCalled();
   });
 });
+
+describe("AcpSessionManager.spawn: a stopped turn leaves no agent running", () => {
+  const REASON = createAbortReason("user_cancel", "session-manager.test");
+
+  /**
+   * The protocol handshake and session creation are awaits, and the child
+   * process is already running by the time they finish. A stop landing there
+   * has to kill it: the spawned event would otherwise tell the client a
+   * session started, and the prompt would hand the agent the task.
+   */
+  test("a cancel during protocol setup tears the process down and fires nothing", async () => {
+    const manager = new AcpSessionManager(1);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    const proc = {
+      ...fakeProcess(prompt),
+      spawn: () => {},
+      initialize: async () => {},
+      createSession: async () => {
+        // The user stops the turn while the protocol is coming up.
+        controller.abort(REASON);
+        return "proto-1";
+      },
+    };
+    const internals = manager as unknown as {
+      registerSession: (opts: {
+        acpSessionId: string;
+        parentConversationId: string;
+      }) => unknown;
+      sessions: Map<string, unknown>;
+    };
+    internals.registerSession = (opts) =>
+      injectSession(
+        manager,
+        opts.acpSessionId,
+        opts.parentConversationId,
+        proc as unknown as ReturnType<typeof fakeProcess>,
+      );
+
+    await expect(
+      manager.spawn(
+        "claude",
+        { command: "noop", args: [] } as never,
+        "do the task",
+        "/tmp",
+        "conv-1",
+        () => {},
+        undefined,
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(proc.kill).toHaveBeenCalled();
+    expect(internals.sessions.size).toBe(0);
+  });
+});
