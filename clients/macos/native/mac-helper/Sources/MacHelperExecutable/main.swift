@@ -563,6 +563,11 @@ final class MacHelper: @unchecked Sendable {
     /// Watch every scroll on the desktop for the moment it stops, or stop
     /// watching. Idempotent: a second enable keeps the monitor it has, and
     /// a disable with none up is nothing to take down.
+    ///
+    /// The watch is asked for by a scroll already under way: the caller saw
+    /// the first wheel event itself, and that one is over before the monitor
+    /// is up. A single tick is a whole scroll, so the end is scheduled on
+    /// enable and only pushed out by whatever the monitor sees after.
     private func setScrollWatch(enable: Bool) throws -> [String: Any] {
         if !enable {
             removeScrollMonitor()
@@ -571,20 +576,21 @@ final class MacHelper: @unchecked Sendable {
         if scrollMonitor == nil {
             guard
                 let monitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] _ in
-                    self?.handleScroll()
+                    self?.pushScrollEnd()
                 })
             else {
                 throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.scrollWheel)")
             }
             scrollMonitor = monitor
         }
+        pushScrollEnd()
         return ["enabled": true]
     }
 
-    /// A scroll-wheel event went by. Where it went, and how far, is never
-    /// read; only that the scroll is not over yet. The report of its end is
-    /// pushed out by the gap again.
-    private func handleScroll() {
+    /// The scroll is not over yet: the watch just went up for one, or a
+    /// wheel event went by. Where it went, and how far, is never read. The
+    /// report of its end is pushed out by the gap again.
+    private func pushScrollEnd() {
         scrollEndReport?.cancel()
         let report = DispatchWorkItem { [weak self] in
             guard let self, self.scrollMonitor != nil else { return }
