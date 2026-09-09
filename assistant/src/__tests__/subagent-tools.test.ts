@@ -629,6 +629,44 @@ describe("Subagent spawn success and failure", () => {
     }
   });
 
+  test("a cancel during the manager's own setup reports cancelled, not pending", async () => {
+    // The tool-level test above stubs `manager.spawn`; this one drives the
+    // real one, because the branch under test is inside it: setup finishes,
+    // the child is registered, and only then does the user's stop land.
+    const manager = getSubagentManager();
+    const subagentId = "sub-cancelled-mid-setup";
+    const parentConversationId = "sess-spawn-midsetup";
+    const controller = new AbortController();
+    const internals = manager as unknown as {
+      setUpSubagent: (...args: unknown[]) => Promise<unknown>;
+      subagents: Map<string, { state: SubagentRecord | SubagentState }>;
+    };
+    const originalSetUp = internals.setUpSubagent;
+    internals.setUpSubagent = async () => {
+      injectSubagent(manager, subagentId, parentConversationId);
+      controller.abort();
+      return { subagentId, managed: internals.subagents.get(subagentId) };
+    };
+
+    try {
+      const result = await executeSubagentSpawn(
+        { label: "Stopped", objective: "Never runs" },
+        makeContext(parentConversationId, {
+          sendToClient: () => {},
+          signal: controller.signal,
+        }),
+      );
+
+      // The child is terminal, so the tool must not answer with a live one.
+      expect(result.content).not.toContain("pending");
+      expect(result.content).toContain("was not spawned");
+      expect(result.isError).toBe(false);
+      expect(internals.subagents.get(subagentId)?.state.status).toBe("aborted");
+    } finally {
+      internals.setUpSubagent = originalSetUp;
+    }
+  });
+
   test("spawn passes context to manager", async () => {
     const manager = getSubagentManager();
     const originalSpawn = manager.spawn.bind(manager);

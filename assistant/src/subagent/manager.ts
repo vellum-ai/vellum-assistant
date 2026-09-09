@@ -497,7 +497,12 @@ export class SubagentManager {
     // early-terminal guard reads: it releases the conversation without ever
     // starting the agent loop. Notification is suppressed because the parent
     // turn the caller was serving is the thing that stopped.
-    if (opts?.signal?.aborted) {
+    //
+    // Read once: the throw below has to describe the same child this branch
+    // marked terminal, and an abort landing between the two would otherwise
+    // report a cancellation for a run that is already going.
+    const cancelledDuringSetup = opts?.signal?.aborted === true;
+    if (cancelledDuringSetup) {
       this.abort(subagentId, managed.parentSendToClient, undefined, {
         suppressNotification: true,
       });
@@ -513,6 +518,13 @@ export class SubagentManager {
         log.error({ subagentId, err }, "Subagent run failed unexpectedly");
       },
     );
+
+    // The run above finds the child terminal, releases its conversation and
+    // stops. Returning its id here would have the tool answer with a pending
+    // subagent, so the caller hears the cancellation instead.
+    if (cancelledDuringSetup) {
+      throw new SubagentSpawnCancelledError();
+    }
 
     return subagentId;
   }
