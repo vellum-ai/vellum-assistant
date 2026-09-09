@@ -23,6 +23,7 @@
 
 import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
 import type { ContentBlock } from "../providers/types.js";
+import { joinWithSpacing } from "../util/text-spacing.js";
 import {
   extractTextFromStoredMessageContent,
   stringifyMessageContent,
@@ -141,33 +142,65 @@ export function projectUserFacingContent(
     return content;
   }
 
+  // Every delivered message in this content becomes ONE text block, carrying
+  // them joined the way the live emission joins them.
+  //
+  // One response may call the tool more than once, and the loop streams those
+  // messages as a single `text_delta`. A channel whose stream IS the reply
+  // (Slack finalizes its streamed message in place) counts one delivered
+  // segment for that delta, so a projection that emitted one block per call
+  // would report a segment the channel never owed, and durable reconciliation
+  // would post the second message again underneath the finished stream.
+  const delivered: string[] = [];
+  let deliveredRider: number | undefined;
+  for (const block of content) {
+    const message = sendUserMessageText(block);
+    if (message === null) {
+      continue;
+    }
+    delivered.push(message);
+    // Carry the persist path's `_redactionVersion` rider onto the text block
+    // these become. A message is redacted when the row is built, so a sentinel
+    // inside it is redactor-authored; without the rider the history renderer
+    // would treat the projected block as pre-feature and neutralize that
+    // sentinel into an inert glyph string.
+    const rider = isRecord(block) ? block["_redactionVersion"] : undefined;
+    if (typeof rider === "number") {
+      deliveredRider = Math.max(deliveredRider ?? rider, rider);
+    }
+  }
+
   let changed = false;
-  const projected = content.map((block) => {
+  let deliveredEmitted = false;
+  const projected: unknown[] = [];
+  for (const block of content) {
     if (isRecord(block) && block["type"] === "text") {
       changed = true;
-      return {
+      projected.push({
         type: "thinking",
         thinking: typeof block["text"] === "string" ? block["text"] : "",
         signature: "",
-      };
+      });
+      continue;
     }
-    const message = sendUserMessageText(block);
-    if (message !== null) {
+    if (sendUserMessageText(block) !== null) {
       changed = true;
-      // Carry the persist path's `_redactionVersion` rider onto the text
-      // block this becomes. The message is redacted when the row is built, so
-      // a sentinel inside it is redactor-authored; without the rider the
-      // history renderer would treat the projected block as pre-feature and
-      // neutralize that sentinel into an inert glyph string.
-      const rider = isRecord(block) ? block["_redactionVersion"] : undefined;
-      return {
-        type: "text",
-        text: message,
-        ...(typeof rider === "number" ? { _redactionVersion: rider } : {}),
-      };
+      // The whole run of messages rides the first call's position; the rest
+      // are dropped, having been folded into it.
+      if (!deliveredEmitted) {
+        deliveredEmitted = true;
+        projected.push({
+          type: "text",
+          text: joinWithSpacing(delivered),
+          ...(deliveredRider !== undefined
+            ? { _redactionVersion: deliveredRider }
+            : {}),
+        });
+      }
+      continue;
     }
-    return block;
-  });
+    projected.push(block);
+  }
 
   return changed ? projected : content;
 }

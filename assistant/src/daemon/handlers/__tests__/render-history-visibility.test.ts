@@ -143,3 +143,49 @@ describe("history reload across a visibility change", () => {
     ]);
   });
 });
+
+describe("a response that called the tool more than once", () => {
+  const TWO_CALLS = [
+    { type: "text", text: "checking the calendar" },
+    {
+      type: "tool_use",
+      id: "tu_1",
+      name: "send_user_message",
+      input: { message: "Looking now." },
+    },
+    {
+      type: "tool_use",
+      id: "tu_2",
+      name: "send_user_message",
+      input: { message: "Two meetings today." },
+    },
+  ];
+
+  test("renders one segment, matching the single live delta", () => {
+    // The loop streams both messages as one `text_delta`, and a channel whose
+    // stream IS the reply (Slack finalizes in place) counts one delivered
+    // segment for it. A second segment here would be reported as undelivered
+    // and posted again under the finished stream.
+    setFlag(true);
+    const rendered = renderHistoryContent(TWO_CALLS, undefined, "m1", PRIVATE);
+
+    expect(rendered.textSegments).toEqual(["Looking now. Two meetings today."]);
+    expect(rendered.text).toBe("Looking now. Two meetings today.");
+  });
+
+  test("an unmarked row is untouched, tool chips and all", () => {
+    setFlag(true);
+    const rendered = renderHistoryContent(
+      TWO_CALLS,
+      undefined,
+      "m2",
+      undefined,
+    );
+
+    expect(rendered.text).toBe("checking the calendar");
+    expect(rendered.toolCalls.map((c) => c.name)).toEqual([
+      "send_user_message",
+      "send_user_message",
+    ]);
+  });
+});

@@ -1988,3 +1988,88 @@ describe("a gated turn that spoke more than once", () => {
     ]);
   });
 });
+
+/**
+ * The reconciliation half of the same contract.
+ *
+ * `channel-reply-session` reports how many segments its live stream already
+ * delivered; durable delivery resumes from that index. When the projection and
+ * the live path agree on boundaries, a fully streamed reply resumes past the
+ * end and posts nothing more.
+ */
+describe("resuming after a stream that delivered every segment", () => {
+  beforeEach(() => {
+    deliveryCalls.length = 0;
+    conversationMessages.length = 0;
+    renderedHistoryContentQueue.length = 0;
+    renderedHistoryContentByContent.clear();
+  });
+
+  it("posts nothing when the stream already carried the whole reply", () => {
+    // One segment rendered, one segment reported delivered: nothing is owed.
+    renderedHistoryContentByContent.set("two-calls", {
+      text: "Looking now. Two meetings today.",
+      textSegments: ["Looking now. Two meetings today."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "what's on today?" },
+      {
+        id: "assistant-two-calls",
+        role: "assistant",
+        content: "two-calls",
+        metadata: JSON.stringify({ assistantTextVisibility: "private" }),
+      },
+    );
+
+    return deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      {
+        messageId: "assistant-two-calls",
+        sinceMessageId: "user-target",
+        startFromSegment: 1,
+        messageTs: "1700000000.000100",
+      },
+    ).then(() => {
+      expect(deliveryCalls).toHaveLength(0);
+    });
+  });
+
+  it("still posts the tail when the stream stopped short", () => {
+    // Two segments rendered, one delivered: the second is genuinely owed.
+    renderedHistoryContentByContent.set("partial", {
+      text: "First. Second.",
+      textSegments: ["First.", "Second."],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0", "text:1"],
+      surfaces: [],
+      thinkingSegments: [],
+    });
+    conversationMessages.push(
+      { id: "user-target", role: "user", content: "hi" },
+      { id: "assistant-partial", role: "assistant", content: "partial" },
+    );
+
+    return deliverReplyViaCallback(
+      "conv-1",
+      "chat-1",
+      "https://callback.example.com/reply",
+      undefined,
+      {
+        messageId: "assistant-partial",
+        sinceMessageId: "user-target",
+        startFromSegment: 1,
+      },
+    ).then(() => {
+      expect(deliveryCalls.map((c) => c.payload.text)).toEqual(["Second."]);
+    });
+  });
+});

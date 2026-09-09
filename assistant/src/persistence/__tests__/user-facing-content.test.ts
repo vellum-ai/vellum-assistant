@@ -74,7 +74,12 @@ describe("projectUserFacingContent", () => {
     );
   });
 
-  test("projects every send_user_message call in order", () => {
+  test("folds every send_user_message call of a response into one block", () => {
+    // The loop streams a response's messages as a single `text_delta`, and a
+    // channel whose stream IS the reply counts one delivered segment for it.
+    // The projection has to agree, or durable reconciliation posts the second
+    // message again underneath the finished stream. The run rides the first
+    // call's position, joined the way the live emission joins it.
     const projected = projectUserFacingContent(
       [
         sendCall("First.", "tu_1"),
@@ -83,11 +88,17 @@ describe("projectUserFacingContent", () => {
       ] as ContentBlock[],
       { toolGated: true },
     );
-    expect(projected.map((block) => block.type)).toEqual([
-      "text",
-      "thinking",
-      "text",
-    ]);
+    expect(projected.map((block) => block.type)).toEqual(["text", "thinking"]);
+    expect((projected[0] as { text: string }).text).toBe("First. Second.");
+  });
+
+  test("a single call is unchanged by the fold", () => {
+    const projected = projectUserFacingContent(
+      [{ type: "text", text: "notes" }, sendCall("Only.")] as ContentBlock[],
+      { toolGated: true },
+    );
+    expect(projected.map((block) => block.type)).toEqual(["thinking", "text"]);
+    expect((projected[1] as { text: string }).text).toBe("Only.");
   });
 });
 

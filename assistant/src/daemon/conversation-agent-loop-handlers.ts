@@ -979,6 +979,26 @@ export function buildPersistedAssistantContent(
       ? redactSecretsForChat(value, revealCandidates, forChatMints)
       : redactCandidateValuesLegacy(value, legacyFallbackCandidates);
 
+  /**
+   * Give a delivered message the same cleaning a top-level text block gets:
+   * the projection turns it into this row's text, so a legacy
+   * `<vellum-attachment />` tag left inside it renders to the user verbatim.
+   * Running it through `cleanAssistantContent` rather than re-implementing the
+   * strip keeps the two from drifting as the directive syntax evolves.
+   *
+   * Discovery of the directive is separate and already runs over the projected
+   * blocks in `handleMessageComplete`, so this only removes the markup; the
+   * attachment it names is still resolved and linked to the row.
+   */
+  const stripDirectiveMarkup = (message: string): string => {
+    if (!message.includes("<vellum-attachment")) {
+      return message;
+    }
+    const [cleaned] = cleanAssistantContent([{ type: "text", text: message }])
+      .cleanedContent as Array<{ text?: unknown } | undefined>;
+    return typeof cleaned?.text === "string" ? cleaned.text : message;
+  };
+
   return withSurfaces.map((block) => {
     // A `send_user_message` call carries text a user reads: the read-side
     // projection turns it into this row's text block, and history, exports,
@@ -987,7 +1007,7 @@ export function buildPersistedAssistantContent(
     // message reaches SQLite in the clear.
     const delivered = sendUserMessageText(block);
     if (delivered !== null) {
-      const redacted = redact(delivered);
+      const redacted = redact(stripDirectiveMarkup(delivered));
       if (redacted === delivered) {
         return block;
       }
