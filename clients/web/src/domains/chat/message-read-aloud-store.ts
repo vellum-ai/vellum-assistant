@@ -38,7 +38,6 @@ let playbackGeneration = 0;
 let mediaGeneration = 0;
 let objectUrl: string | null = null;
 let sharedAudio: HTMLAudioElement | null = null;
-let activeUtterance: SpeechSynthesisUtterance | null = null;
 
 function getSpeechSynthesis(): SpeechSynthesis | null {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) {
@@ -82,7 +81,6 @@ function getSharedAudio(): HTMLAudioElement {
 }
 
 function cancelWebSpeech(): void {
-  activeUtterance = null;
   const synth = getSpeechSynthesis();
   if (!synth) {
     return;
@@ -146,7 +144,6 @@ function speakWithWebSpeech(text: string, generation: number): boolean {
   }
   try {
     const utterance = new SpeechSynthesisUtterance(text);
-    activeUtterance = utterance;
     mediaGeneration = generation;
     utterance.onend = () => {
       if (playbackGeneration !== generation) {

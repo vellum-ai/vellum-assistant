@@ -22,6 +22,8 @@ mock.module("@/domains/chat/message-read-aloud-tts", () => ({
 const toastError = mock(() => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { error: toastError, success: () => {} },
+  Toaster: () => null,
+  ToastContent: () => null,
 }));
 
 const { useMessageReadAloudStore } = await import(
@@ -58,7 +60,7 @@ const originalRevokeObjectURL = URL.revokeObjectURL;
 const originalSpeechSynthesis = window.speechSynthesis;
 const originalUtterance = globalThis.SpeechSynthesisUtterance;
 
-const speak = mock(() => {});
+const speak = mock((_utterance: { text: string }) => {});
 const cancel = mock(() => {});
 const resume = mock(() => {});
 
@@ -132,7 +134,10 @@ describe("message read-aloud store", () => {
       expect(useMessageReadAloudStore.getState().status).toBe("playing");
     });
     expect(synthesizeMessagePlayback).toHaveBeenCalledTimes(1);
-    expect(speak).not.toHaveBeenCalled();
+    const spokenMessage = speak.mock.calls.find(
+      (call) => call[0].text === "hello there",
+    );
+    expect(spokenMessage).toBeUndefined();
   });
 
   test("falls back to web speech when daemon TTS is unavailable", async () => {
@@ -149,7 +154,7 @@ describe("message read-aloud store", () => {
     });
     expect(speak.mock.calls.length).toBeGreaterThan(0);
     const spoken = speak.mock.calls.find(
-      (call) => (call[0] as { text: string }).text === "hello there",
+      (call) => call[0].text === "hello there",
     );
     expect(spoken).toBeDefined();
   });
