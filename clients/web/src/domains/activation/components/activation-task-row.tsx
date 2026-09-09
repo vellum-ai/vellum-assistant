@@ -167,11 +167,22 @@ export function ActivationTaskRow({
   let statusBody: ReactNode = null;
   if (working) {
     statusBody = (
-      <ProcessStatusPill
-        state="working"
-        label={t("row.working")}
-        count={steps}
-      />
+      <div className="flex items-center gap-3">
+        <ProcessStatusPill
+          state="working"
+          label={t("row.working")}
+          count={steps}
+        />
+        {conversationId ? (
+          <Button
+            variant="link"
+            className="text-body-medium-default [--vbtn-fg:var(--content-secondary)]"
+            onClick={() => onOpenConversation?.(conversationId)}
+          >
+            {t("row.open")}
+          </Button>
+        ) : null}
+      </div>
     );
   } else if (done) {
     statusBody = artifact ? (

@@ -24,8 +24,6 @@
 import { useCallback, useMemo } from "react";
 import { Navigate, useNavigate } from "react-router";
 
-import { toast } from "@vellumai/design-library/components/toast";
-
 import { useEffectiveActivationListId } from "@/hooks/use-activation-enabled";
 import { useActivationGatesSettled } from "@/hooks/use-activation-gate";
 import { useTranslation } from "@/i18n";
@@ -37,6 +35,7 @@ import { useAvailableActivationList } from "../capabilities";
 import { ActivationListPage } from "../components/activation-list-page";
 import { useActivationProgress } from "../hooks/use-activation-progress";
 import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
+import { toastActivationLaunchResult } from "../toast-activation-launch";
 
 export function ActivationListRoute() {
   const navigate = useNavigate();
@@ -52,29 +51,15 @@ export function ActivationListRoute() {
   const tasks = useMemo(() => [...starters, ...items], [starters, items]);
 
   // The page is the point of the launch, so the user stays on it and the row
-  // flips to Working; the conversation runs in the background. A failure has
-  // nowhere else to surface, and one that already linked a conversation hands
-  // it back so the user can drive the task by hand.
+  // flips to Working; the conversation runs in the background. Success and
+  // failure both toast, and a linked conversation is offered so the user can
+  // open the thread without leaving first.
   const handleLaunch = useCallback(
     async (taskId: string) => {
       const result = await launch(taskId);
-      if (result.ok || !result.error) {
-        return;
-      }
-      const { conversationId } = result;
-      toast.error(
-        result.error,
-        conversationId
-          ? {
-              action: {
-                label: t("launch.openConversation"),
-                onClick: () => {
-                  navigateToConversation(navigate, conversationId);
-                },
-              },
-            }
-          : undefined,
-      );
+      toastActivationLaunchResult(result, t, (conversationId) => {
+        navigateToConversation(navigate, conversationId);
+      });
     },
     [launch, navigate, t],
   );

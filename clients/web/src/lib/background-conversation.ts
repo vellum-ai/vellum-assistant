@@ -47,6 +47,12 @@ export interface CreateBackgroundConversationArgs {
    * seam sits below any locale namespace a domain owns.
    */
   fallback: string;
+  /**
+   * Persisted as a user-set title. The auto-titler leaves those alone, so a
+   * checklist launch can name the thread from the start instead of leaving
+   * "New conversation" in the sidebar until the first turn finishes.
+   */
+  title?: string;
 }
 
 /**
@@ -54,8 +60,8 @@ export interface CreateBackgroundConversationArgs {
  *
  * `standard` (the daemon's default) on purpose: this is a conversation the
  * user is meant to be able to open, unlike the `background` rows the
- * onboarding and identity flows create for work nobody should ever see. No
- * title either, so the auto titler names it from the turn once it runs.
+ * onboarding and identity flows create for work nobody should ever see.
+ * Callers that already know the thread's name pass `title`.
  *
  * Never throws: a transport failure comes back as `ok: false` so a caller's
  * result contract holds on every path.
@@ -63,11 +69,12 @@ export interface CreateBackgroundConversationArgs {
 export async function createBackgroundConversation({
   assistantId,
   fallback,
+  title,
 }: CreateBackgroundConversationArgs): Promise<CreateBackgroundConversationResult> {
   try {
     const { data, error, response } = await conversationsPost({
       path: { assistant_id: assistantId },
-      body: {},
+      body: title ? { title } : {},
       throwOnError: false,
     });
     const conversationId = data?.id;

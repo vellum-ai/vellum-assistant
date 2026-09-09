@@ -76,11 +76,12 @@
     },
     "general": {
       "starters": [
-        "pdf-car-report",
+        "teach-memory",
         "set-schedule",
         "draft-doc"
       ],
       "items": [
+        "pdf-car-report",
         "edit-my-doc",
         "meeting-notes",
         "connect-email",
@@ -102,7 +103,6 @@
         "watcher",
         "bill-reminders",
         "budget-plan",
-        "teach-memory",
         "add-contacts",
         "voice-mode",
         "connect-telegram",

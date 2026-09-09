@@ -102,6 +102,16 @@ mock.module("@vellumai/design-library/components/toast", () => ({
         onAction: options?.action?.onClick,
       });
     },
+    success: (
+      message: string,
+      options?: { action?: { label: string; onClick: () => void } },
+    ) => {
+      toasts.push({
+        message,
+        actionLabel: options?.action?.label,
+        onAction: options?.action?.onClick,
+      });
+    },
   },
 }));
 
@@ -197,6 +207,24 @@ describe("ActivationListRoute", () => {
 
     expect(launched).toEqual([FIXTURE_STARTER_IDS[0]]);
     expect(navigated).toEqual([]);
+  });
+
+  test("a successful launch toasts a way into the conversation", async () => {
+    launchOutcome = { ok: true, conversationId: "conv-new-1" };
+    renderRoute();
+
+    fireEvent.click(
+      screen.getByText(starters[0]?.title ?? "").closest("button")!,
+    );
+
+    await waitFor(() => {
+      expect(toasts).toHaveLength(1);
+    });
+    expect(toasts[0]?.message).toBe("Running in the sidebar");
+    expect(toasts[0]?.actionLabel).toBe("Open");
+
+    toasts[0]?.onAction?.();
+    expect(navigated).toEqual(["conv-new-1"]);
   });
 
   test("a finished row opens the conversation it ran in", () => {

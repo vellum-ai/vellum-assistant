@@ -128,6 +128,19 @@ describe("ActivationTaskRow", () => {
     expect(toggles).toBe(0);
   });
 
+  test("a working row offers an Open control next to Working", () => {
+    const opened: string[] = [];
+    const { getByRole } = render(
+      <ActivationTaskRow
+        task={TASK}
+        progress={startedTaskProgress()}
+        onOpenConversation={(conversationId) => opened.push(conversationId)}
+      />,
+    );
+    fireEvent.click(getByRole("button", { name: /^Open$/ }));
+    expect(opened).toEqual(["conv-started-1"]);
+  });
+
   test("clicking a launched row opens its conversation", () => {
     const opened: string[] = [];
     const { getByRole } = render(

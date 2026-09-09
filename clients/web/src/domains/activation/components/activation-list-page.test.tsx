@@ -1,7 +1,7 @@
 /**
  * What the Inspiration List owes its reader: every task of the list in catalog
- * order, a title that counts them, and a click that does the right thing for
- * the state each row is in.
+ * order, a Get started title, and a click that does the right thing for the
+ * state each row is in.
  *
  * The page is presentational, so nothing is mocked here. The catalog is the
  * real one and the progress is the wire shape the daemon returns, which is the
@@ -53,14 +53,10 @@ afterEach(() => {
 });
 
 describe("ActivationListPage", () => {
-  test("renders the whole list, starters first, and counts it in the title", () => {
+  test("renders the whole list, starters first, under Get started", () => {
     renderPage();
 
-    expect(
-      screen.getByRole("heading", {
-        name: `Your first ${TASKS.length} things`,
-      }),
-    ).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Get started" })).toBeTruthy();
 
     const rows = screen.getAllByRole("listitem");
     expect(rows.length).toBe(TASKS.length);

@@ -197,7 +197,7 @@ describe("skills routes", () => {
 });
 
 describe("Inspiration List route", () => {
-  // The celebration modal's "Show me the full list" navigates here. Without a
+  // The celebration modal's "See the full list" navigates here. Without a
   // route of its own the path falls through to the `/assistant/*` catch-all
   // and the reward for finishing the checklist is a not-found page.
   test("the celebration's destination matches a route of its own", async () => {

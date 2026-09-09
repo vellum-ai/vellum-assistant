@@ -42,9 +42,9 @@ export function ActivationController(): ReactNode {
   const { dismiss } = useDismissActivation(listId);
   useActivationCompletionTelemetry();
 
-  // An expanded row, Show More, a pill reopen and a dismissal made ahead of
-  // the daemon all belong to one assistant's checklist. Switching assistants
-  // without remounting starts the next one from the default view.
+  // An expanded row, a pill reopen and a dismissal made ahead of the daemon
+  // all belong to one assistant's checklist. Switching assistants without
+  // remounting starts the next one from the default view.
   const activeAssistantId = useResolvedAssistantsStore.use.activeAssistantId();
   useEffect(() => {
     resetTransientState();

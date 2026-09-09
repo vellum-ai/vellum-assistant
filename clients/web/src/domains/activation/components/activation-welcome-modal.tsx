@@ -24,12 +24,12 @@
  *
  * There is no close glyph, matching the mock. Escape and a click outside both
  * dismiss, and each variant carries a keyboard-reachable way out of its own:
- * "Do it Later" on the welcome modal, "Show me the full list" on the
+ * "Do it Later" on the welcome modal, "See the full list" on the
  * celebration.
  */
 
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -38,7 +38,6 @@ import {
   Button,
   cn,
   Modal,
-  toast,
   Typography,
   useTouchSurface,
 } from "@vellumai/design-library";
@@ -58,7 +57,11 @@ import {
   type ActivationProgress,
 } from "../hooks/use-activation-progress";
 import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
+import { toastActivationLaunchResult } from "../toast-activation-launch";
 import { ActivationTaskList } from "./activation-task-list";
+
+/** Extra catalog items under the three starters. Ten rows in all. */
+const MODAL_PREVIEW_EXTRA_ITEMS = 7;
 
 /**
  * `welcome` is the first-run modal with its dismiss button; `all-done` is the
@@ -106,7 +109,7 @@ export function ActivationWelcomeModal({
   const touchSurface = useTouchSurface();
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   // Filtered, so a row whose prerequisite is missing is never offered, seeded
-  // as the open one, or counted by Show More (`../capabilities.ts`).
+  // as the open one, or included in the preview (`../capabilities.ts`).
   const { starters, items } = useAvailableActivationList(listId);
   const { launch, pendingTaskIds } = useLaunchActivationTask(listId);
   const queryClient = useQueryClient();
@@ -120,12 +123,10 @@ export function ActivationWelcomeModal({
   const expandedTaskId = useActivationUiStore.use.expandedTaskId();
   const setExpandedTaskId = useActivationUiStore.use.setExpandedTaskId();
   const toggleTask = useActivationUiStore.use.toggleTask();
-  const showMore = useActivationUiStore.use.showMore();
-  const setShowMore = useActivationUiStore.use.setShowMore();
 
   const tasks = useMemo(
-    () => (showMore ? [...starters, ...items] : starters),
-    [items, showMore, starters],
+    () => [...starters, ...items.slice(0, MODAL_PREVIEW_EXTRA_ITEMS)],
+    [items, starters],
   );
 
   /**
@@ -143,8 +144,8 @@ export function ActivationWelcomeModal({
       return;
     }
     seeded.current = true;
-    setExpandedTaskId(firstTodoTaskId(starters, progress));
-  }, [open, starters, progress, setExpandedTaskId]);
+    setExpandedTaskId(firstTodoTaskId(tasks, progress));
+  }, [open, tasks, progress, setExpandedTaskId]);
 
   const handleOpenConversation = useCallback(
     (conversationId: string) => {
@@ -157,6 +158,7 @@ export function ActivationWelcomeModal({
   const handleLaunch = useCallback(
     (taskId: string, promptOverride?: string) => {
       void launch(taskId, promptOverride).then((result) => {
+        toastActivationLaunchResult(result, t, handleOpenConversation);
         if (result.ok) {
           // The accordion moves on only once the daemon holds the launch: a
           // refused row has to stay where the user left it, and a row they
@@ -176,24 +178,7 @@ export function ActivationWelcomeModal({
             );
             setExpandedTaskId(firstTodoTaskId(candidates, current, taskId));
           }
-          return;
         }
-        if (!result.error) {
-          return;
-        }
-        // A failure that still names a conversation got as far as linking one,
-        // so the work may be recoverable by opening it. A failure without one
-        // has nothing to open, and the row stays where it was.
-        toast.error(result.error, {
-          ...(result.conversationId
-            ? {
-                action: {
-                  label: t("launch.openConversation"),
-                  onClick: () => handleOpenConversation(result.conversationId!),
-                },
-              }
-            : {}),
-        });
       });
     },
     [
@@ -213,26 +198,16 @@ export function ActivationWelcomeModal({
     void navigate(routes.activationList);
   }, [navigate, onDismiss]);
 
-  const disclosure =
-    variant === "all-done" ? (
-      <Button
-        variant="link"
-        rightIcon={<ChevronRight className="h-4 w-4" />}
-        className="text-body-medium-default [--vbtn-fg:var(--content-tertiary)]"
-        onClick={handleShowFullList}
-      >
-        {t("welcome.showFullList")}
-      </Button>
-    ) : showMore ? null : (
-      <Button
-        variant="link"
-        rightIcon={<ChevronDown className="h-4 w-4" />}
-        className="text-body-medium-default [--vbtn-fg:var(--content-tertiary)]"
-        onClick={() => setShowMore(true)}
-      >
-        {t("welcome.showMore", { count: items.length })}
-      </Button>
-    );
+  const disclosure = (
+    <Button
+      variant="link"
+      rightIcon={<ChevronRight className="h-4 w-4" />}
+      className="text-body-medium-default [--vbtn-fg:var(--content-tertiary)]"
+      onClick={handleShowFullList}
+    >
+      {t("welcome.showFullList")}
+    </Button>
+  );
 
   const body = (
     <>
@@ -246,7 +221,7 @@ export function ActivationWelcomeModal({
         pendingTaskIds={pendingTaskIds}
         assistantId={assistantId ?? undefined}
       />
-      {disclosure ? <div className="pt-6">{disclosure}</div> : null}
+      <div className="pt-6">{disclosure}</div>
     </>
   );
 

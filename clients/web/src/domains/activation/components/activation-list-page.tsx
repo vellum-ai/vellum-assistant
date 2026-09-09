@@ -60,7 +60,7 @@ export function ActivationListPage({
           className="text-center text-[40px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[48px]"
           style={{ fontFamily: "var(--font-serif)" }}
         >
-          {t("page.title", { count: tasks.length })}
+          {t("page.title")}
         </h1>
         {/* The placeholders are the only signal the page is loading, so the
             wrapper carries the loading semantics while they stand. It wraps

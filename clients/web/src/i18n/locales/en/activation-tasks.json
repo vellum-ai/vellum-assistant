@@ -31,10 +31,10 @@
       "category": "documents",
       "icon": "PenLine",
       "color": "purple",
-      "title": "Draft a document",
-      "description": "Write a first draft in the editor and iterate together.",
+      "title": "Draft something",
+      "description": "A one-pager in the editor: announcement, note, whatever you need.",
       "chip": "Draft a launch announcement",
-      "prompt": "Open a new document and draft a one-page announcement. Ask me three questions about what I am announcing first."
+      "prompt": "Open a new document and draft a one-pager. Ask me whether I need an announcement, a note, or something else first."
     },
     "edit-my-doc": {
       "category": "documents",
@@ -241,10 +241,10 @@
       "category": "automations",
       "icon": "Calendar",
       "color": "teal",
-      "title": "Set up a schedule",
-      "description": "Want a reminder? An everyday inbox sweep? Go wild.",
+      "title": "Set a reminder",
+      "description": "Morning briefing, inbox sweep, or anything on a schedule.",
       "chip": "Remind me every weekday at 9",
-      "prompt": "Set up a recurring schedule for me. Propose three useful daily or weekly routines and set up the one I choose."
+      "prompt": "Set up a recurring reminder for me. Propose a morning briefing, an inbox sweep, or another useful routine, then set up the one I choose."
     },
     "weekly-report": {
       "category": "automations",

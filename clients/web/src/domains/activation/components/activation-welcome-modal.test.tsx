@@ -12,10 +12,11 @@
  */
 
 import type { ReactNode } from "react";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, useLocation } from "react-router";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
   ACTIVATION_PROGRESS_ALL_DONE,
@@ -277,13 +278,50 @@ describe("ActivationWelcomeModal", () => {
     });
   });
 
-  test("Show More counts the rest of the catalog and opens it inline", () => {
-    const { getByRole, getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
-    fireEvent.click(
-      getByRole("button", { name: `Show More (${items.length})` }),
+  test("shows ten tasks and offers the full list rather than expanding inline", () => {
+    const { getByRole, getByText, queryByText } = renderModal(
+      ACTIVATION_PROGRESS_EMPTY,
     );
-    expect(useActivationUiStore.getState().showMore).toBe(true);
+    expect(getByText(starters[0]!.title)).not.toBeNull();
     expect(getByText(items[0]!.title)).not.toBeNull();
+    expect(getByText(items[6]!.title)).not.toBeNull();
+    expect(queryByText(items[7]!.title)).toBeNull();
+    expect(getByRole("button", { name: "See the full list" })).not.toBeNull();
+  });
+
+  test("See the full list leaves for the Inspiration List", () => {
+    let dismissals = 0;
+    const { getByRole, getByTestId } = renderModal(
+      ACTIVATION_PROGRESS_EMPTY,
+      "welcome",
+      () => {
+        dismissals += 1;
+      },
+    );
+    fireEvent.click(getByRole("button", { name: "See the full list" }));
+    expect(dismissals).toBe(1);
+    expect(getByTestId("location").textContent).toBe("/assistant/suggestions");
+  });
+
+  test("a successful launch toasts a way into the conversation", async () => {
+    const success = mock(() => {});
+    const original = toast.success;
+    toast.success = success as typeof toast.success;
+    try {
+      const { getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
+      await act(async () => {
+        fireEvent.click(getByText(starters[0]!.chip));
+      });
+      expect(success).toHaveBeenCalled();
+      const [message, options] = success.mock.calls[0] as [
+        string,
+        { action?: { label: string } },
+      ];
+      expect(message).toBe("Running in the sidebar");
+      expect(options.action?.label).toBe("Open");
+    } finally {
+      toast.success = original;
+    }
   });
 
   test("Do it Later dismisses", () => {
@@ -317,7 +355,7 @@ describe("ActivationWelcomeModal", () => {
     );
     expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
     expect(
-      getByRole("button", { name: "Show me the full list" }),
+      getByRole("button", { name: "See the full list" }),
     ).not.toBeNull();
   });
 
@@ -351,7 +389,7 @@ describe("ActivationWelcomeModal", () => {
         dismissals += 1;
       },
     );
-    fireEvent.click(getByRole("button", { name: "Show me the full list" }));
+    fireEvent.click(getByRole("button", { name: "See the full list" }));
     expect(dismissals).toBe(1);
     expect(getByTestId("location").textContent).toBe("/assistant/suggestions");
   });

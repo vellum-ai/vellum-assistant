@@ -21,7 +21,6 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { expect, userEvent, within } from "storybook/test";
 
 import { TOUCH_SURFACE_MEDIA_QUERY } from "@vellumai/design-library";
 
@@ -37,16 +36,15 @@ import type { ActivationProgress } from "@/domains/activation/hooks/use-activati
 import { ActivationWelcomeModal } from "@/domains/activation/components/activation-welcome-modal";
 
 /**
- * The accordion and the Show More disclosure live in an app-level store, so a
- * story would otherwise inherit whatever the last one left behind. Clearing it
- * before the modal mounts gives each story the state a first-time visitor
- * gets, and the modal seeds its own open row from there.
+ * The accordion lives in an app-level store, so a story would otherwise
+ * inherit whatever the last one left behind. Clearing it before the modal
+ * mounts gives each story the state a first-time visitor gets, and the modal
+ * seeds its own open row from there.
  */
 function FreshUiStore({ children }: { children: ReactNode }): ReactNode {
   const [ready] = useState(() => {
     useActivationUiStore.setState({
       expandedTaskId: null,
-      showMore: false,
       modalReopened: false,
     });
     return true;
@@ -159,7 +157,7 @@ const meta: Meta<typeof ActivationWelcomeModal> = {
 export default meta;
 type Story = StoryObj<typeof ActivationWelcomeModal>;
 
-/** The canonical frame: dark header, three starters, the first one open. */
+/** The canonical frame: dark header, ten tasks, the first one open. */
 export const Light800DarkHeader: Story = {};
 
 /** The same frame on the dark ground, where the band becomes the sunken surface. */
@@ -232,57 +230,3 @@ export const Light789AllDoneCollapsedMobile: Story = {
   args: { variant: "all-done", progress: ALL_DONE_BARE },
 };
 
-/** Opens the disclosure the way a reader does, by clicking it. */
-const openShowMore: Story["play"] = async ({ canvasElement }) => {
-  // The modal portals out of the story root, so the query runs against the
-  // document rather than the canvas element.
-  const screen = within(canvasElement.ownerDocument.body);
-  await userEvent.click(
-    await screen.findByRole("button", { name: /Show More/ }),
-  );
-  await expect(await screen.findByText("Try computer use")).toBeInTheDocument();
-};
-
-/** The rest of the catalog, opened inline. The body scrolls; the header does not. */
-export const ShowMoreExpanded: Story = {
-  play: openShowMore,
-};
-
-/** The expanded catalog on the dark ground. */
-export const ShowMoreExpandedDark: Story = {
-  globals: { theme: "dark" },
-  play: openShowMore,
-};
-
-/** The expanded catalog in the sheet, which is where the scroll matters most. */
-export const ShowMoreExpandedMobile: Story = {
-  ...phone,
-  play: openShowMore,
-};
-
-/**
- * The one catalog row with an external call to action, opened in place: the
- * link sits under the description and above the chip, and never appears inside
- * the desktop app.
- */
-const openComputerUse: Story["play"] = async (context) => {
-  await openShowMore?.(context);
-  const screen = within(context.canvasElement.ownerDocument.body);
-  await userEvent.click(await screen.findByText("Try computer use"));
-};
-
-export const TodoExpandedWithLink: Story = {
-  play: openComputerUse,
-};
-
-/** The linked row on the dark ground. */
-export const TodoExpandedWithLinkDark: Story = {
-  globals: { theme: "dark" },
-  play: openComputerUse,
-};
-
-/** The linked row in the sheet. */
-export const TodoExpandedWithLinkMobile: Story = {
-  ...phone,
-  play: openComputerUse,
-};

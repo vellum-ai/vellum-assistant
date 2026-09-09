@@ -323,7 +323,8 @@ export function useLaunchActivationTask(
       // Read at click time rather than from a resolved list: the catalog is
       // data and this is an event handler, so the non-reactive binding is the
       // right one (see `@/i18n`).
-      const prompt = override || readRawActivationTask(taskId)?.prompt;
+      const task = readRawActivationTask(taskId);
+      const prompt = override || task?.prompt;
       if (!prompt) {
         return { ok: false, error: t("launch.unknownTask") };
       }
@@ -346,6 +347,7 @@ export function useLaunchActivationTask(
         const created = await createBackgroundConversation({
           assistantId,
           fallback: t("launch.failed"),
+          ...(task?.title ? { title: task.title } : {}),
         });
         if (!created.ok) {
           return { ok: false, error: created.error };

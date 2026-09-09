@@ -271,6 +271,9 @@ describe("useLaunchActivationTask", () => {
     expect(requestFor("start").url).toContain(
       "/activation/tasks/pdf-proposal/start",
     );
+    expect(requestFor("create").body).toEqual({
+      title: "Make a proposal PDF",
+    });
   });
 
   // The regression: the daemon looks a `conversationId` up strictly, so the id

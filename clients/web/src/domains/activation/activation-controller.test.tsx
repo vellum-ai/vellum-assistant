@@ -159,7 +159,7 @@ describe("ActivationController", () => {
     progressMock.set(ACTIVATION_PROGRESS_ALL_DONE);
     const { getByRole } = renderSurfaces();
     await act(async () => {
-      fireEvent.click(getByRole("button", { name: "Show me the full list" }));
+      fireEvent.click(getByRole("button", { name: "See the full list" }));
     });
     expect(dismissals()).toEqual([{ kind: "all-done", listId: "smb" }]);
   });
@@ -195,12 +195,15 @@ describe("ActivationController", () => {
   test("switching assistants drops the previous checklist's transient choices", async () => {
     renderSurfaces();
     act(() => {
-      useActivationUiStore.setState({ showMore: true, expandedTaskId: "x" });
+      useActivationUiStore.setState({
+        modalReopened: true,
+        expandedTaskId: "x",
+      });
     });
     await act(async () => {
       seedActivationIdentity("asst-2");
     });
-    expect(useActivationUiStore.getState().showMore).toBe(false);
+    expect(useActivationUiStore.getState().modalReopened).toBe(false);
     expect(useActivationUiStore.getState().expandedTaskId).toBeNull();
   });
 
@@ -216,15 +219,15 @@ describe("ActivationController", () => {
   test("closing the celebration closes it at once too", () => {
     progressMock.set(ACTIVATION_PROGRESS_ALL_DONE);
     const { getByRole, queryByRole } = renderSurfaces();
-    fireEvent.click(getByRole("button", { name: "Show me the full list" }));
-    expect(queryByRole("button", { name: "Show me the full list" })).toBeNull();
+    fireEvent.click(getByRole("button", { name: "See the full list" }));
+    expect(queryByRole("button", { name: "See the full list" })).toBeNull();
   });
 
   test("shows the celebration once every starter is done", () => {
     progressMock.set(ACTIVATION_PROGRESS_ALL_DONE);
     const { getByRole, queryByRole } = renderSurfaces();
     expect(
-      getByRole("button", { name: "Show me the full list" }),
+      getByRole("button", { name: "See the full list" }),
     ).not.toBeNull();
     expect(queryByRole("button", { name: "Do it Later" })).toBeNull();
   });

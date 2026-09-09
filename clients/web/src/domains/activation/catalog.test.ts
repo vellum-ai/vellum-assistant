@@ -34,9 +34,9 @@ const TASKS = activationTasks.tasks as unknown as Record<
   RawActivationTask
 >;
 
-/** Starters shown before "Show More", per the mock. */
+/** Starters pinned at the top of the modal and the Inspiration List. */
 const STARTER_COUNT = 3;
-/** The floor the "Your first 30 things" page promises, minus the starters. */
+/** The floor the Inspiration List promises, minus the starters. */
 const MIN_ITEM_COUNT = 27;
 
 /** Every string a translator or copy editor can touch. */
