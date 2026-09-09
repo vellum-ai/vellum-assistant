@@ -42,6 +42,7 @@ export function ChatInfoAppTile({
 
   return (
     <div
+      data-slot="chat-info-app-tile"
       data-reveal-row=""
       className={cn(
         "relative flex flex-col gap-1",

@@ -21,6 +21,7 @@ import {
   classifyAttachment,
   formatAttachmentSize,
 } from "@/domains/chat/components/chat-attachments/utils";
+import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
 import { baseMimeType, extensionOf } from "@/domains/chat/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
@@ -130,9 +131,10 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     !isRehydrated;
 
   const { data: blob, isError } = useQuery({
-    // The attachment id is stable and unique, so it is the cache key — reopening
-    // the same attachment reuses the fetched blob instead of refetching.
-    queryKey: ["attachmentContent", assistantId, attachment.id],
+    // The attachment id is stable and unique, so it is the cache key. Reopening
+    // the same attachment, or opening one a thumbnail already fetched, reuses
+    // that blob instead of refetching.
+    queryKey: attachmentContentQueryKey(assistantId, attachment.id),
     queryFn: async () => {
       const data = await fetchAttachmentContentBlob(
         assistantId!,

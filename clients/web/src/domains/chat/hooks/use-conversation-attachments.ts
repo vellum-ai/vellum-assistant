@@ -11,10 +11,8 @@
 import { useMemo } from "react";
 
 import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import { useConversationStore } from "@/stores/conversation-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
-
-/** Page size for a paged attachment listing. */
-export const ATTACHMENT_PAGE_SIZE = 200;
 
 export interface ConversationAttachmentEntry {
   /**
@@ -64,13 +62,21 @@ export function useConversationAttachments(target: {
   assistantId: string;
   conversationId: string;
 }): ConversationAttachments {
-  // The transcript is already the open conversation's, so this source has
-  // nothing to scope by; `target` names the conversation the entries belong to.
-  void target;
+  // The transcript holds whichever conversation is open and its snapshot names
+  // no conversation of its own, so a caller asking about a different one is
+  // answered with nothing rather than with the open conversation's files. With
+  // none open there is no other conversation to mistake these rows for.
+  const activeConversationId = useConversationStore.use.activeConversationId();
+  const isOtherConversation =
+    activeConversationId !== null &&
+    activeConversationId !== target.conversationId;
 
   const messages = useTranscriptMessages();
 
   const entries = useMemo(() => {
+    if (isOtherConversation) {
+      return NO_ENTRIES;
+    }
     const collected: ConversationAttachmentEntry[] = [];
     const seen = new Set<string>();
     // Newest first, and an optimistic row plus its confirmed echo carry the
@@ -83,13 +89,12 @@ export function useConversationAttachments(target: {
         continue;
       }
       const attachments = message.attachments ?? [];
-      // Folded assistant rows append the newer donor's files after the
-      // survivor's, so a row is walked from its end as well.
-      for (
-        let position = attachments.length - 1;
-        position >= 0;
-        position -= 1
-      ) {
+      // A folded row appends the newer donor's files after the survivor's, so
+      // only those are walked from the end; one upload keeps the order it was
+      // sent in.
+      const folded = (message.mergedMessageIds?.length ?? 0) > 0;
+      for (let step = 0; step < attachments.length; step += 1) {
+        const position = folded ? attachments.length - 1 - step : step;
         const attachment = attachments[position]!;
         const key = entryKey(message.id, attachment.id, position);
         if (seen.has(key)) {
@@ -106,7 +111,7 @@ export function useConversationAttachments(target: {
       }
     }
     return collected.length === 0 ? NO_ENTRIES : collected;
-  }, [messages]);
+  }, [messages, isOtherConversation]);
 
   return useMemo(
     () => ({

@@ -128,7 +128,10 @@ describe("ToolResultImages referenced media", () => {
     };
     renderStrip([toolCall], { assistantId: null });
 
-    expect(screen.getByTestId("tool-result-image-placeholder")).toBeDefined();
+    const placeholder = screen.getByTestId("tool-result-image-placeholder");
+    expect(placeholder).toBeDefined();
+    // Nothing is on its way, so the box stays empty rather than spinning.
+    expect(placeholder.querySelector(".animate-spin")).toBeNull();
     expect(screen.queryByTestId("tool-result-image")).toBeNull();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });

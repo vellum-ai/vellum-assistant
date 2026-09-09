@@ -330,8 +330,10 @@ const ToolResultImageThumb: FC<{
 /**
  * Renders a workspace-referenced tool-result image from the object URL
  * {@link useAttachmentObjectUrl} fetches for it, which shares its cache entry
- * with the preview modal. Until that resolves (or when no assistant id is
- * available to fetch with), a spinner placeholder holds the slot.
+ * with the preview modal. A spinner placeholder holds the slot while that
+ * resolves; with nothing to fetch with (no assistant id, or an id that can
+ * never resolve) the placeholder box stays empty, because there is nothing
+ * left to wait for.
  */
 const ReferencedToolResultImage: FC<{
   attachment: DisplayAttachment;

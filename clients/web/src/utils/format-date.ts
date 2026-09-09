@@ -1,12 +1,13 @@
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
+ * `locale` defaults to the browser's; pass the app's where the two can differ.
  */
 export function formatFriendlyDate(
   date: Date,
-  opts?: { alwaysShowYear?: boolean },
+  opts?: { alwaysShowYear?: boolean; locale?: string },
 ): string {
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString(opts?.locale, {
     day: "numeric",
     month: "short",
     year:
@@ -14,6 +15,31 @@ export function formatFriendlyDate(
         ? "numeric"
         : undefined,
   });
+}
+
+/** Hour and minute, the shape every inline timestamp here shows. */
+function formatTimeOfDay(date: Date, locale?: string): string {
+  return date.toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/**
+ * Label for when something was captured: the time of day for a capture made
+ * today, the friendly date for an older one. A run of captures from a single
+ * session all fall on one date, so the date alone would label them identically.
+ */
+export function formatCaptureTime(ms: number, locale?: string): string {
+  const date = new Date(ms);
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return isToday
+    ? formatTimeOfDay(date, locale)
+    : formatFriendlyDate(date, { locale });
 }
 
 /**
@@ -80,11 +106,7 @@ export function formatCompactLocalDate(
     return "";
   }
   const date = new Date(dateStr);
-  const time = date.toLocaleTimeString(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return `${formatFriendlyDate(date)}, ${time}`;
+  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date)}`;
 }
 
 /**

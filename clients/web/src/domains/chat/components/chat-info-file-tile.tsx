@@ -5,7 +5,7 @@
  */
 
 import { Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
@@ -16,14 +16,12 @@ import {
   classifyAttachment,
 } from "@/domains/chat/components/chat-attachments/utils";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
+import { useInView } from "@/hooks/use-in-view";
 import { useTranslation } from "@/i18n";
-import { formatFriendlyDate } from "@/utils/format-date";
+import { formatCaptureTime } from "@/utils/format-date";
 
 /** Fixed tile width, and what the section fits a row of them to. Kept in step with `w-[135px]` below. */
 export const CHAT_INFO_FILE_TILE_WIDTH_PX = 135;
-
-/** Stands in for a document's absent attachment so the bytes hook stays unconditional. */
-const NO_ATTACHMENT = { id: "", previewUrl: null };
 
 export interface ChatInfoFileTileProps {
   file: ConversationFileAsset;
@@ -36,31 +34,13 @@ export function ChatInfoFileTile({
   assistantId,
   onOpen,
 }: ChatInfoFileTileProps) {
-  const { t } = useTranslation("chat");
+  const { t, i18n } = useTranslation("chat");
   const boxRef = useRef<HTMLButtonElement>(null);
 
+  const hasSeenTile = useInView(boxRef, { rootMargin: "200px", once: true });
   // A browser without IntersectionObserver loads every tile rather than none:
   // the picture is the tile's content here, not an enhancement of it.
-  const [isVisible, setIsVisible] = useState(
-    () => typeof IntersectionObserver === "undefined",
-  );
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el || typeof IntersectionObserver === "undefined") {
-      return;
-    }
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
+  const isVisible = hasSeenTile || typeof IntersectionObserver === "undefined";
 
   const attachment = file.kind === "document" ? null : file.attachment;
   // A document's own glyph is the `document` kind's, so the three kinds of tile
@@ -72,7 +52,7 @@ export function ChatInfoFileTile({
   const [previewFailed, setPreviewFailed] = useState(false);
   const { url, isError } = useAttachmentObjectUrl(
     assistantId,
-    attachment ?? NO_ATTACHMENT,
+    attachment,
     isVisible && kind === "image",
   );
 
@@ -96,7 +76,7 @@ export function ChatInfoFileTile({
 
   const label =
     file.kind === "frame" && file.capturedAt !== null
-      ? formatFriendlyDate(new Date(file.capturedAt))
+      ? formatCaptureTime(file.capturedAt, i18n.resolvedLanguage)
       : file.title;
 
   const renderBoxContent = () => {
@@ -127,6 +107,7 @@ export function ChatInfoFileTile({
 
   return (
     <div
+      data-slot="chat-info-file-tile"
       data-reveal-row=""
       className="relative flex w-[135px] shrink-0 flex-col gap-1"
     >
