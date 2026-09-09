@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { currentLocale } from "@/i18n";
 import {
   formatCaptureTime,
   formatCompactLocalDate,
@@ -12,8 +13,8 @@ import {
  * hardcoded "Aug 5, 11:42 AM", so they hold wherever the suite runs. What they
  * pin is the composition: the friendly date, a comma, and the local time.
  */
-function localTime(date: Date): string {
-  return date.toLocaleTimeString(undefined, {
+function localTime(date: Date, locale: string = currentLocale()): string {
+  return date.toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "2-digit",
   });
@@ -55,6 +56,45 @@ describe("formatCompactLocalDate", () => {
     expect(formatCompactLocalDate(null)).toBe("");
     expect(formatCompactLocalDate(undefined)).toBe("");
     expect(formatCompactLocalDate("")).toBe("");
+  });
+
+  test("formats date and time together in the locale it is given", () => {
+    const date = new Date(2001, 0, 15, 13, 42);
+    const iso = date.toISOString();
+
+    // Both halves move, so the label cannot carry an app-locale date beside a
+    // browser-locale time.
+    expect(formatCompactLocalDate(iso, "ru")).toBe(
+      `${formatFriendlyDate(date, { locale: "ru" })}, ${localTime(date, "ru")}`,
+    );
+    expect(formatCompactLocalDate(iso, "ru")).not.toBe(
+      formatCompactLocalDate(iso, "en"),
+    );
+  });
+});
+
+describe("formatFullLocalDate", () => {
+  test("formats in the locale it is given", () => {
+    const iso = new Date(2001, 0, 15, 13, 42).toISOString();
+
+    expect(formatFullLocalDate(iso, "ru")).toBe(
+      new Date(iso).toLocaleString("ru", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZoneName: "short",
+      }),
+    );
+    expect(formatFullLocalDate(iso, "ru")).not.toBe(
+      formatFullLocalDate(iso, "en"),
+    );
+  });
+
+  test("renders nothing for a missing timestamp", () => {
+    expect(formatFullLocalDate(null)).toBe("");
+    expect(formatFullLocalDate(undefined)).toBe("");
   });
 });
 

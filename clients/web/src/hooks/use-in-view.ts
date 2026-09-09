@@ -1,10 +1,12 @@
 /**
  * Whether an element is currently on screen.
  *
- * A thin `IntersectionObserver` wrapper, added because the codebase had three
- * hand-rolled copies (the app card's lazy preview, the PDF page renderer, the
- * transcript's load-more sentinel). Those three are left alone; they each fold
- * extra behaviour into their observer.
+ * A thin `IntersectionObserver` wrapper. Three hand-rolled copies are left
+ * alone, each asking for something this hook does not offer: the app card's
+ * lazy preview latches on the first sighting and disconnects, the PDF page
+ * renderer observes every page canvas against its own scroll container and
+ * reads the page number off each target, and the transcript's load-more
+ * sentinel calls back on every entry rather than reporting a boolean.
  *
  * Reports `false` before the first observation and wherever the API is missing,
  * so callers get the conservative answer while the browser catches up. A caller

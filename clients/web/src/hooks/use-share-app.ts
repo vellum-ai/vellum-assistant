@@ -1,29 +1,23 @@
 /**
- * Export one app as a `.vellum` bundle and report how it went.
+ * Export one app as a `.vellum` bundle from a menu, refusing a second export
+ * while one is running.
  *
- * Every menu that offers Share does the same three things: refuse a second
- * export while one is running, hand the app to {@link shareApp}, and raise a
- * toast either way. The copy is the caller's, because the two menus name the
- * action from their own catalogs.
+ * The sequence itself is {@link shareAppWithToast}; this adds the guard the
+ * menus need. The guard is a ref rather than state because neither menu draws
+ * a busy affordance, and a ref keeps `share` stable across the export. A
+ * surface that does draw one owns its own flag and calls the core function.
  */
 
-import { useCallback, useState } from "react";
-
-import { toast } from "@vellumai/design-library";
+import { useCallback, useRef } from "react";
 
 import type { AppSummary } from "@/types/app-types";
-import { shareApp } from "@/utils/share-app";
-
-export interface ShareAppCopy {
-  /** Toast title once the bundle has been handed off. */
-  exported: string;
-  /** Toast title when the export fails; the error's own message is the description. */
-  failed: string;
-}
+import {
+  shareAppWithToast,
+  type ShareAppCopy,
+} from "@/utils/share-app-with-toast";
 
 export interface ShareAppHandle {
   share: () => Promise<void>;
-  isSharing: boolean;
 }
 
 export function useShareApp(
@@ -32,24 +26,19 @@ export function useShareApp(
   { exported, failed }: ShareAppCopy,
 ): ShareAppHandle {
   const { id, name } = app;
-  const [isSharing, setIsSharing] = useState(false);
+  const isSharingRef = useRef(false);
 
   const share = useCallback(async () => {
-    if (isSharing) {
+    if (isSharingRef.current) {
       return;
     }
-    setIsSharing(true);
+    isSharingRef.current = true;
     try {
-      await shareApp(assistantId, id, name);
-      toast.success(exported, { description: `${name}.vellum` });
-    } catch (err) {
-      toast.error(failed, {
-        description: err instanceof Error ? err.message : undefined,
-      });
+      await shareAppWithToast(assistantId, { id, name }, { exported, failed });
     } finally {
-      setIsSharing(false);
+      isSharingRef.current = false;
     }
-  }, [assistantId, id, name, isSharing, exported, failed]);
+  }, [assistantId, id, name, exported, failed]);
 
-  return { share, isSharing };
+  return { share };
 }
