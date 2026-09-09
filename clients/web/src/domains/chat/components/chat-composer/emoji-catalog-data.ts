@@ -9,14 +9,11 @@
  * the dataset's tags and labels, which derive from Unicode's own names.
  *
  * Reaction rendering does not depend on this: a channel's adapter says what
- * a reaction's emoji is, and the web renders that. `lookupEmoji` serves the
- * composer and the transitional fallback for rows stored before adapters
- * resolved names (see `displayReactionEmoji`).
+ * a reaction's emoji is, and the web renders that.
  *
  * Loaded lazily by `emoji-catalog.ts`, which keeps the dataset out of the
  * initial bundle.
  */
-import { slackEmojiCharacter } from "@vellumai/slack-text";
 import type { CompactEmoji } from "emojibase";
 import compact from "emojibase-data/en/compact.json" with { type: "json" };
 import slackNames from "emojibase-data/en/shortcodes/iamcal.json" with { type: "json" };
@@ -56,9 +53,6 @@ export const EMOJI_CATALOG: EmojiEntry[] = (compact as CompactEmoji[])
   .sort((a, b) =>
     a.shortcode < b.shortcode ? -1 : a.shortcode > b.shortcode ? 1 : 0,
   );
-
-/** The character for a Slack emoji name, skin tone suffix included. */
-export const lookupEmoji = slackEmojiCharacter;
 
 /**
  * Returns emoji entries matching `query` (case-insensitive), capped at `limit`.

@@ -14,7 +14,6 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
@@ -574,34 +573,23 @@ export function SlackMessageAttribution({
  * channel's adapter says what the emoji is: a `unicode` reaction renders its
  * character, and a `custom` or `shortcode` one renders its bare ":name:",
  * since its image belongs to the channel and a name must never swap into an
- * unrelated standard emoji.
- *
- * Rows stored before adapters resolved names carry only a spelling, whose
- * kind the contract's classifier recovers, or a Slack name typed
- * `shortcode`; those go through the composer's catalog with the ":name:"
- * fallback. Transitional: delete once no supported assistant serves such
- * rows (`docs/BACKWARDS_COMPAT.md`, "Related compatibility seams").
+ * unrelated standard emoji. A row carrying only a spelling has its kind
+ * recovered by the contract's classifier and renders the same way, so a
+ * Slack name stored before its adapter resolved names reads as ":name:".
  */
 export function displayReactionEmoji(
   reaction: { emoji: string } & ReactionEmojiFields,
-  lookup: (shortcode: string) => string | undefined,
 ): string {
   const typed =
     reaction.emojiKind !== undefined && reaction.emojiName !== undefined
       ? { emojiKind: reaction.emojiKind, emojiName: reaction.emojiName }
       : classifyReactionEmojiSpelling(reaction.emoji);
-  switch (typed.emojiKind) {
-    case "unicode":
-      return typed.emojiName;
-    case "custom":
-      return `:${typed.emojiName}:`;
-    case "shortcode":
-      return lookup(typed.emojiName) ?? `:${typed.emojiName}:`;
-  }
+  return typed.emojiKind === "unicode"
+    ? typed.emojiName
+    : `:${typed.emojiName}:`;
 }
 
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {
-  const lookupEmoji = useEmojiLookup();
   const reaction = message.slackMessage?.reaction;
   if (!reaction) {
     return null;
@@ -611,7 +599,6 @@ export function SlackReactionLine({ message }: { message: DisplayMessage }) {
   // fields; Slack's own envelope carries only the spelling.
   const emojiDisplay = displayReactionEmoji(
     message.reaction ?? { emoji: reaction.emoji },
-    lookupEmoji,
   );
   const actor =
     reaction.actorDisplayName ??

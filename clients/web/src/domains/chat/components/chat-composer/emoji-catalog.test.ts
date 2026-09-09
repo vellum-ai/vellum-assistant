@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 
 import {
   EMOJI_CATALOG,
-  lookupEmoji,
   searchEmoji,
 } from "@/domains/chat/components/chat-composer/emoji-catalog-data";
 
@@ -49,28 +48,6 @@ describe("EMOJI_CATALOG", () => {
     expect(
       glyph(EMOJI_CATALOG.find((e) => e.shortcode === shortcode)?.emoji),
     ).toBe(emoji);
-  });
-});
-
-describe("lookupEmoji", () => {
-  test("resolves a Slack name to its character", () => {
-    expect(glyph(lookupEmoji("tada"))).toBe("🎉");
-    expect(lookupEmoji("blob_wave")).toBeUndefined();
-  });
-
-  test("resolves Slack's skin tone suffix to the toned variant", () => {
-    expect(glyph(lookupEmoji("thumbsup::skin-tone-3"))).toBe("👍🏼");
-  });
-
-  test("places the tone inside a multi-person sequence", () => {
-    expect(glyph(lookupEmoji("woman-raising-hand::skin-tone-2"))).toBe(
-      glyph("🙋🏻‍♀️"),
-    );
-  });
-
-  test("keeps the base character for an emoji with no tone variants", () => {
-    expect(glyph(lookupEmoji("tada::skin-tone-4"))).toBe("🎉");
-    expect(lookupEmoji("blob_wave::skin-tone-2")).toBeUndefined();
   });
 });
 

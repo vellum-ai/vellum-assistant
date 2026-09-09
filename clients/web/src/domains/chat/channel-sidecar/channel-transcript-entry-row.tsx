@@ -26,7 +26,6 @@ import {
   isReferenceableChannelEntry,
   type ChannelTranscriptEntry,
 } from "@/domains/chat/channel-sidecar/channel-sidecar-transcript";
-import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import { displayReactionEmoji } from "@/domains/chat/transcript/transcript-message-body-shared";
 import { useTranslation } from "@/i18n";
 import {
@@ -57,7 +56,6 @@ export function ChannelTranscriptEntryRow({
   onToggleReference,
 }: ChannelTranscriptEntryRowProps) {
   const { t } = useTranslation("chat");
-  const lookupEmoji = useEmojiLookup();
   const iso = channelTimestampToIso(entry.timestamp);
   const fallbackSender =
     entry.role === "user"
@@ -126,7 +124,7 @@ export function ChannelTranscriptEntryRow({
             reaction.op === "added"
               ? "channelTranscriptPanel.reactionAdded"
               : "channelTranscriptPanel.reactionRemoved",
-            { emoji: displayReactionEmoji(reaction, lookupEmoji) },
+            { emoji: displayReactionEmoji(reaction) },
           )}
         </Typography>
       ) : (

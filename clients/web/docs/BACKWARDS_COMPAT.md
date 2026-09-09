@@ -300,14 +300,6 @@ with the code they protect:
   before the identity fetch hydrates a version to compare. Delete the marker
   branch (and `extractWirePendingQuestion` with it) once no supported assistant
   predates the key.
-- **Reaction emoji from before adapters resolved names** —
-  `src/domains/chat/transcript/transcript-message-body-shared.tsx`
-  (`displayReactionEmoji`). A channel adapter now states what a reaction's
-  emoji is, and the web renders that. Rows persisted earlier carry only the
-  spelling, or a Slack name typed `shortcode`, and those still resolve through
-  the composer's emoji catalog with a `:name:` fallback, which is the only
-  reason the web depends on `@vellumai/slack-text`. Delete that branch, and
-  the dependency, once no supported assistant serves such rows.
 - **Electron / Capacitor bridge** — `src/runtime/is-electron.ts` declares
   `window.vellum` with **optional capability groups** (`helper?`,
   `featureFlags?`, `diagnostics?`, …). Consumers guard on presence
