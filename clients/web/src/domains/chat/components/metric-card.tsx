@@ -89,7 +89,10 @@ interface MetricCardContentProps {
   icon: ReactNode;
   value: string;
   label: string;
-  /** Extra classes on the value row, e.g. `font-mono` for a model name. */
+  /**
+   * Extra classes on the value row, e.g. `font-mono` for a model name. The
+   * row truncates by default, so a long value never widens its tile.
+   */
   valueClassName?: string;
 }
 
@@ -112,7 +115,10 @@ export function MetricCardContent({
       <div className="min-w-0">
         <Typography
           variant="title-small"
-          className={cn("block text-[var(--content-default)]", valueClassName)}
+          className={cn(
+            "block truncate text-[var(--content-default)]",
+            valueClassName,
+          )}
         >
           {value}
         </Typography>

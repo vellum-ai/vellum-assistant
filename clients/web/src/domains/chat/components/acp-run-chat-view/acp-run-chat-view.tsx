@@ -101,10 +101,12 @@ export interface AcpRunChatViewProps {
   entry: AcpRunEntry;
   onClose: () => void;
   /**
-   * Assistant that owns the run's parent conversation. `entry` carries no id
-   * of its own: the ACP run store is populated from that conversation's
-   * stream. Threaded to every markdown block so workspace file references
-   * resolve against the right workspace.
+   * The active assistant, from the surface that mounted the panel. `entry`
+   * carries no assistant of its own: the ACP run store is populated from the
+   * parent conversation's stream. Threaded to every markdown block so
+   * workspace file references resolve against the right workspace, and read
+   * by the model gate, which closes when the active assistant does not
+   * support switching.
    */
   assistantId?: string | null;
 }
@@ -121,11 +123,14 @@ export function AcpRunChatView({
   const { t } = useTranslation("chat");
   const isRunning = isActiveAcpStatus(entry.status);
 
-  // The tile is the grid's third column, so the column count and the tile read
-  // one predicate rather than each deciding for itself.
+  // The tile is a grid column of its own, so the column count and the tile
+  // read one predicate rather than each deciding for itself.
   const showsModelCard = useShowsAcpModelCard(entry, assistantId);
+  // A run reports its token counts from its first usage event, so a fresh run
+  // has no usage to show yet and its tiles would read a made-up zero.
   const showsUsage =
     entry.inputTokens !== undefined || entry.outputTokens !== undefined;
+  const tileCount = (showsUsage ? 2 : 0) + (showsModelCard ? 1 : 0);
 
   const events = useAcpRunStore(
     (s) => s.byId[entry.acpSessionId]?.events ?? EMPTY_EVENTS,
@@ -272,42 +277,56 @@ export function AcpRunChatView({
             data-testid="acp-chat-conversation"
             className="flex h-full flex-col gap-4 overflow-y-auto px-5 py-5"
           >
-            {(showsUsage || showsModelCard) && (
+            {tileCount > 0 && (
               <div
                 className={cn(
                   "grid gap-3",
-                  showsModelCard ? "grid-cols-3" : "grid-cols-2",
+                  // Three tiles are two columns until there is room for three,
+                  // since a model id in the third of three narrow columns has
+                  // nowhere to render.
+                  tileCount === 1 && "grid-cols-1",
+                  tileCount === 2 && "grid-cols-2",
+                  tileCount === 3 && "grid-cols-2 sm:grid-cols-3",
                 )}
                 data-testid="acp-run-metrics"
               >
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowDownToLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
+                {showsUsage && (
+                  <>
+                    <AnimatedMetricCard
+                      icon={
+                        <ArrowDownToLine
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: "var(--content-secondary)" }}
+                        />
+                      }
+                      target={entry.inputTokens ?? 0}
+                      format={(n) => formatNumber(Math.round(n))}
+                      label={t("acpRunChatView.inputLabel")}
                     />
-                  }
-                  target={entry.inputTokens ?? 0}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label={t("acpRunChatView.inputLabel")}
-                />
-                <AnimatedMetricCard
-                  icon={
-                    <ArrowUpFromLine
-                      className="h-4 w-4 shrink-0"
-                      style={{ color: "var(--content-secondary)" }}
+                    <AnimatedMetricCard
+                      icon={
+                        <ArrowUpFromLine
+                          className="h-4 w-4 shrink-0"
+                          style={{ color: "var(--content-secondary)" }}
+                        />
+                      }
+                      target={entry.outputTokens ?? 0}
+                      format={(n) => formatNumber(Math.round(n))}
+                      label={t("acpRunChatView.outputLabel")}
                     />
-                  }
-                  target={entry.outputTokens ?? 0}
-                  format={(n) => formatNumber(Math.round(n))}
-                  label={t("acpRunChatView.outputLabel")}
-                />
+                  </>
+                )}
                 {showsModelCard && (
-                  <AcpModelStatCard
-                    entry={entry}
-                    onSwitchModel={switchAcpRunModel}
-                    assistantId={assistantId}
-                  />
+                  <div
+                    className={
+                      tileCount === 3 ? "col-span-2 sm:col-span-1" : undefined
+                    }
+                  >
+                    <AcpModelStatCard
+                      entry={entry}
+                      onSwitchModel={switchAcpRunModel}
+                    />
+                  </div>
                 )}
               </div>
             )}

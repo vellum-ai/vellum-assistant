@@ -141,7 +141,11 @@ export class ApiError extends Error {
   readonly code?: string;
   readonly details?: unknown;
 
-  constructor(status: number, message: string, envelope: ApiErrorEnvelope = {}) {
+  constructor(
+    status: number,
+    message: string,
+    envelope: ApiErrorEnvelope = {},
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
@@ -155,19 +159,19 @@ export class ApiError extends Error {
 }
 
 /**
- * The server's own message for a 400 rejection, or `undefined` for any other
- * failure. A 400 from the daemon is a validation verdict written for the user
- * ("Anthropic has no API key…") and is worth more than generic retry copy;
- * every other status carries internal detail, so callers keep their own
- * wording there.
+ * The server's own message for one of `statuses`, or `undefined` for any other
+ * failure.
  *
  * Only matches {@link ApiError}, which the daemon client's error interceptor
- * produces for `throwOnError: true` calls — its `message` is already the
+ * produces for `throwOnError: true` calls, so its `message` is already the
  * server's `error.message` when the body carried one. The synthesized
  * `HTTP <status>` fallback is treated as no message at all.
  */
-export function badRequestMessage(error: unknown): string | undefined {
-  if (!(error instanceof ApiError) || error.status !== 400) {
+function serverMessageFor(
+  error: unknown,
+  statuses: readonly number[],
+): string | undefined {
+  if (!(error instanceof ApiError) || !statuses.includes(error.status)) {
     return undefined;
   }
   const message = error.message.trim();
@@ -175,6 +179,28 @@ export function badRequestMessage(error: unknown): string | undefined {
     return undefined;
   }
   return message;
+}
+
+/**
+ * The server's own message for a 400 rejection, or `undefined` for any other
+ * failure. A 400 from the daemon is a validation verdict written for the user
+ * ("Anthropic has no API key…") and is worth more than generic retry copy;
+ * every other status carries internal detail, so callers keep their own
+ * wording there.
+ */
+export function badRequestMessage(error: unknown): string | undefined {
+  return serverMessageFor(error, [400]);
+}
+
+/**
+ * The server's message for either rejection a user can act on: a 400 verdict
+ * on the value they picked, or a 409 saying the target no longer accepts the
+ * change at all (an ACP adapter that dropped its model selector mid-run).
+ * Both are written for the user, and a caller that unwraps only the 400 shows
+ * generic retry copy for the one case retrying cannot fix.
+ */
+export function rejectionMessage(error: unknown): string | undefined {
+  return serverMessageFor(error, [400, 409]);
 }
 
 /**

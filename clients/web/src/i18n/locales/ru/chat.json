@@ -12,6 +12,14 @@
     "saveButton": "Сохранить",
     "pastePlaceholder": "Ключ"
   },
+  "acpRunChatView": {
+    "modelLabel": "Модель",
+    "modelMenuTitle": "Выбрать модель",
+    "modelNextTurnHint": "Применяется со следующего хода.",
+    "modelSelectedAria": "Выбрано",
+    "modelSwitchFailed": "Не удалось сменить модель. Повторите попытку.",
+    "modelTriggerAria": "Модель: {model}. Сменить модель"
+  },
   "activityStepsPanel": {
     "backAria": "Назад ко всем шагам",
     "backTooltip": "Все шаги"

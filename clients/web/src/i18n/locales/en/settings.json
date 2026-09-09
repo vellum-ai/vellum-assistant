@@ -480,7 +480,6 @@
     "customModelLabel": "Model",
     "customModelOption": "Custom model",
     "customModelPlaceholder": "claude-opus-4-1",
-    "modelAriaLabel": "Default coding agent model",
     "modelLabel": "Default model",
     "modelOptions": {
       "best": "Best available",
@@ -495,7 +494,7 @@
       "sonnet1m": "Sonnet (1M context)"
     },
     "savedToast": "Coding agent settings saved.",
-    "subtitle": "Choose the model new coding agent sessions start on",
+    "subtitle": "Choose the model new coding agent sessions start on. The list names Claude's models, and other coding agents fall back to their own default.",
     "title": "Coding Agents"
   },
   "communityPage": {

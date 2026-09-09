@@ -81,6 +81,15 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
   // which is the one moment the draft cannot say so for itself.
   const [customPicked, setCustomPicked] = useState(false);
 
+  // A stored model that changes under the card (another client, an edited
+  // config file) decides the row again. Without this the trigger stays on the
+  // custom row while the select shows a listed alias.
+  const [prevServerModel, setPrevServerModel] = useState(serverDefaultModel);
+  if (prevServerModel !== serverDefaultModel) {
+    setPrevServerModel(serverDefaultModel);
+    setCustomPicked(false);
+  }
+
   const hasCustomValue =
     Boolean(defaultModel) && !isAcpSelectableModel(defaultModel);
   const showsCustomInput = customPicked || hasCustomValue;
@@ -155,18 +164,13 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
       subtitle={t("codingAgentsCard.subtitle")}
     >
       <div className="space-y-4">
-        <div className="space-y-1">
-          <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            {t("codingAgentsCard.modelLabel")}
-          </label>
-          <Select
-            aria-label={t("codingAgentsCard.modelAriaLabel")}
-            value={selectValue}
-            onChange={handleSelect}
-            onSelectNone={handleSelectNone}
-            options={modelOptions}
-          />
-        </div>
+        <Select
+          label={t("codingAgentsCard.modelLabel")}
+          value={selectValue}
+          onChange={handleSelect}
+          onSelectNone={handleSelectNone}
+          options={modelOptions}
+        />
 
         {showsCustomInput && (
           <div className="space-y-1">

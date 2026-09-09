@@ -78,6 +78,17 @@ describe("useAssistantScopedSupportsAcpModelSwitching", () => {
     expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(true);
   });
 
+  // A `vel up` image stamps `local.YYYYMMDDHHMMSS`, which `versionSupports`
+  // reads to the minute, the precision it shares with a CI `dev` stamp. So a
+  // local build carries the floor's commits only if it was cut in that minute
+  // or later, whatever its longer stamp says after it.
+  test("compares a local build against the dev floor by its stamp", () => {
+    setVersion("0.11.10-local.20260909053400.abcdef1");
+    expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(true);
+    setVersion("0.11.10-local.20260908235959.abcdef1");
+    expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(false);
+  });
+
   test("false when the supported version belongs to another assistant", () => {
     setVersion(MIN_VERSION, "asst-other");
     expect(scopedSupports(OWNER_ASSISTANT_ID)).toBe(false);
