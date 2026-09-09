@@ -2371,8 +2371,27 @@
       "general": "常规",
       "terminal": "终端",
       "doctor": "诊断",
+      "database": "数据库",
       "conversations": "会话"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "数据库",
+    "subtitle": "此助手的迁移状态，包括失败和被推迟的步骤。",
+    "refresh": "刷新",
+    "loading": "正在加载数据库状态…",
+    "unsupported": "此助手版本尚不提供数据库诊断信息。",
+    "loadError": "无法加载数据库诊断信息。",
+    "statusReady": "就绪",
+    "statusRunning": "正在迁移",
+    "statusFailed": "失败",
+    "statusNotStarted": "未开始",
+    "migratingHint": "迁移仍在进行。如果某一步抛出错误，失败步骤会显示在这里。",
+    "noFailures": "没有失败的迁移。",
+    "failedHeading": "失败的迁移",
+    "deferredHeading": "被推迟的迁移",
+    "validationHeading": "校验错误",
+    "missingDeps": "等待：{deps}"
   },
   "profileCreateModelFirst": {
     "addApiKeyTag": "添加 API 密钥",

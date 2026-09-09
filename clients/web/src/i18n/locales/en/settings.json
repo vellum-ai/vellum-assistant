@@ -2403,7 +2403,26 @@
       "general": "General",
       "terminal": "Terminal",
       "doctor": "Doctor",
+      "database": "Database",
       "conversations": "Conversations"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "Database",
+    "subtitle": "Migration status for this assistant, including failed and deferred steps.",
+    "refresh": "Refresh",
+    "loading": "Loading database status…",
+    "unsupported": "This assistant version does not report database diagnostics yet.",
+    "loadError": "Could not load database diagnostics.",
+    "statusReady": "Ready",
+    "statusRunning": "Migrating",
+    "statusFailed": "Failed",
+    "statusNotStarted": "Not started",
+    "migratingHint": "Migrations are still running. Failed steps will appear here if a step throws.",
+    "noFailures": "No failed migrations.",
+    "failedHeading": "Failed migrations",
+    "deferredHeading": "Deferred migrations",
+    "validationHeading": "Validation error",
+    "missingDeps": "Waiting on: {deps}"
   }
 }

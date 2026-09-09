@@ -123,6 +123,49 @@ describe("DB migration readiness HTTP gate", () => {
     expect(body.reason).toBe("db_migrations_failed");
   });
 
+  test("continues serving debug/database while migrations are running", async () => {
+    setDbMigrating();
+    await startServer();
+
+    const response = await fetch(url("/debug/database"));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(false);
+    expect(body.state).toBe("running");
+    expect(body.reason).toBe("db_migrations_running");
+    expect(body.failed).toEqual([]);
+    expect(body.deferred).toEqual([]);
+  });
+
+  test("continues serving debug/database when migrations have failed", async () => {
+    setDbMigrationFailed(new Error("boom"), {
+      failedMigrations: [{ name: "flakyStep", error: "transient failure" }],
+      deferredMigrations: [{ name: "dependentStep", missing: ["flakyStep"] }],
+      validationError: "schema mismatch",
+    });
+    await startServer();
+
+    const response = await fetch(url("/debug/database"));
+    expect(response.status).toBe(200);
+
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body.ready).toBe(false);
+    expect(body.state).toBe("failed");
+    expect(body.reason).toBe("db_migrations_failed");
+    expect(body.error).toBe("boom");
+    expect(body.failed).toEqual([
+      { name: "flakyStep", error: "transient failure" },
+    ]);
+    expect(body.deferred).toEqual([
+      { name: "dependentStep", missing: ["flakyStep"] },
+    ]);
+    expect(body.validationError).toBe("schema mismatch");
+
+    const conversations = await fetch(url("/conversations"));
+    expect(conversations.status).toBe(503);
+  });
+
   test("blocks config schema while migrations are running", async () => {
     setDbMigrating();
     await startServer();

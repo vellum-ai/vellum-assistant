@@ -2371,8 +2371,27 @@
       "general": "一般",
       "terminal": "終端機",
       "doctor": "診斷",
+      "database": "資料庫",
       "conversations": "對話"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "資料庫",
+    "subtitle": "此助手的遷移狀態，包括失敗與被延後的步驟。",
+    "refresh": "重新整理",
+    "loading": "正在載入資料庫狀態…",
+    "unsupported": "此助手版本尚不提供資料庫診斷資訊。",
+    "loadError": "無法載入資料庫診斷資訊。",
+    "statusReady": "就緒",
+    "statusRunning": "正在遷移",
+    "statusFailed": "失敗",
+    "statusNotStarted": "未開始",
+    "migratingHint": "遷移仍在進行。如果某一步擲出錯誤，失敗步驟會顯示在這裡。",
+    "noFailures": "沒有失敗的遷移。",
+    "failedHeading": "失敗的遷移",
+    "deferredHeading": "被延後的遷移",
+    "validationHeading": "驗證錯誤",
+    "missingDeps": "等待：{deps}"
   },
   "profileCreateModelFirst": {
     "addApiKeyTag": "新增 API 金鑰",

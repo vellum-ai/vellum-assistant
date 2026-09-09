@@ -11081,6 +11081,71 @@ paths:
                   - exitCode
                   - timedOut
                 additionalProperties: false
+  /v1/debug/database:
+    get:
+      operationId: debug_database_get
+      summary: Database migration diagnostics
+      description:
+        Return the in-memory DB migration latch, including failed and deferred steps. Does not query SQLite, so it
+        stays answerable while migrations are running or have failed.
+      tags:
+        - debug
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                  state:
+                    type: string
+                    enum:
+                      - not_started
+                      - running
+                      - failed
+                      - ready
+                  reason:
+                    type: string
+                  error:
+                    type: string
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - name
+                      additionalProperties: false
+                  deferred:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        missing:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - name
+                        - missing
+                      additionalProperties: false
+                  validationError:
+                    type: string
+                required:
+                  - ready
+                  - state
+                  - failed
+                  - deferred
+                additionalProperties: false
   /v1/defer/cancel:
     post:
       operationId: defer_cancel_post
@@ -13442,6 +13507,35 @@ paths:
                         type: string
                       error:
                         type: string
+                      failedMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            error:
+                              type: string
+                          required:
+                            - name
+                          additionalProperties: false
+                      deferredMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - name
+                            - missing
+                          additionalProperties: false
+                      validationError:
+                        type: string
                     required:
                       - ready
                       - state
@@ -13646,6 +13740,35 @@ paths:
                       reason:
                         type: string
                       error:
+                        type: string
+                      failedMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            error:
+                              type: string
+                          required:
+                            - name
+                          additionalProperties: false
+                      deferredMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - name
+                            - missing
+                          additionalProperties: false
+                      validationError:
                         type: string
                     required:
                       - ready

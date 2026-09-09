@@ -277,7 +277,8 @@ export async function runDaemon(): Promise<void> {
   // records the failed migration state so /readyz returns 503.
   let dbReady = false;
   try {
-    const { migrationsOk } = await initializeDb();
+    const initResult = await initializeDb();
+    const { migrationsOk } = initResult;
     dbReady = true;
     // A quiesce lease can survive a stop that happened mid-drain; clear it so
     // a fresh boot never starts with background work paused. Placed
@@ -305,8 +306,17 @@ export async function runDaemon(): Promise<void> {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
-      setDbMigrationFailed();
+      setDbMigrationFailed(undefined, {
+        failedMigrations: initResult.failedMigrations,
+        deferredMigrations: initResult.deferredMigrations,
+        validationError: initResult.validationError,
+      });
       log.error(
+        {
+          failedMigrations: initResult.failedMigrations,
+          deferredMigrations: initResult.deferredMigrations,
+          validationError: initResult.validationError,
+        },
         "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
