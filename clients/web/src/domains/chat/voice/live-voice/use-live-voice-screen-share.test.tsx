@@ -198,20 +198,26 @@ function renderShare() {
 }
 
 /**
- * Hold the next upload open, and hand back what finishes it. For the cases
- * where a boundary lands while a frame is on its way up.
+ * Hold the next upload open, and hand back what finishes or fails it. For
+ * the cases where something lands while a frame is on its way up.
  */
-function holdNextUpload(): () => void {
-  let finish!: () => void;
+function holdNextUpload(): { finish: () => void; fail: () => void } {
+  let resolveUpload!: (result: UploadAttachmentResult) => void;
+  // Numbered when the upload starts, as the ordinary mock numbers its own,
+  // so a held upload keeps its place among the ones that overtake it.
+  let id = "";
   uploadChatAttachment.mockImplementationOnce(
     () =>
       new Promise<UploadAttachmentResult>((resolve) => {
         autoUploadId += 1;
-        const id = `att-${autoUploadId}`;
-        finish = () => resolve({ ok: true, id });
+        id = `att-${autoUploadId}`;
+        resolveUpload = resolve;
       }),
   );
-  return () => finish();
+  return {
+    finish: () => resolveUpload({ ok: true, id }),
+    fail: () => resolveUpload({ ok: false, status: 500, error: {} }),
+  };
 }
 
 beforeEach(() => {
@@ -740,13 +746,13 @@ describe("useLiveVoiceScreenShare: stopping", () => {
   });
 
   test("a frame in flight when the share stops is refused, and its upload given back", async () => {
-    const finishUpload = holdNextUpload();
+    const upload = holdNextUpload();
     renderShare();
     share(WINDOW);
     await flush();
     // The stop lands while the frame is still on its way up.
     share(null);
-    finishUpload();
+    upload.finish();
     await flush();
 
     expect(controls.sightFrame).not.toHaveBeenCalled();
@@ -876,6 +882,85 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
       expect.objectContaining({ reason: "novel" }),
     );
   });
+
+  /**
+   * A send waits its turn behind older captures, and the capture resolves
+   * before the turn comes. A frame that is merely waiting is not a frame
+   * that was lost, and the gate must go on judging against it: put back to
+   * the view before it, the same screen would be sent again as new.
+   */
+  test("a frame parked behind a slower upload is not taken for lost", async () => {
+    const first = holdNextUpload();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    // The question's frame uploads at once and waits behind the first.
+    show("b");
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    first.finish();
+    await flush();
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+
+    // The call has the second view, and nothing has changed since.
+    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
+    speak(false);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The gate was put back to the last delivered frame when a newer one was
+   * lost, and a frame older than the lost one was still waiting its turn.
+   * When that one lands it is the newest view the call has, and the gate
+   * has to come up to it rather than stay on the older view.
+   */
+  test("a parked frame that lands after a newer one was lost becomes the baseline", async () => {
+    const first = holdNextUpload();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    show("b");
+    speak(true);
+    await flush();
+    // A third view, lost, while the first two are still on their way.
+    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
+    const third = holdNextUpload();
+    show("c");
+    speak(false);
+    await flush();
+    third.fail();
+    await flush();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    first.finish();
+    await flush();
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
+      "att-1",
+      "att-2",
+    ]);
+
+    // The second view is what the call has, so a question about it is
+    // answered already, and one about the lost third view is not.
+    show("b");
+    speak(true);
+    speak(false);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
+    show("c");
+    speak(true);
+    await flush();
+    expect(controls.sightFrame).toHaveBeenCalledTimes(3);
+    expect(controls.sightFrame).toHaveBeenLastCalledWith(
+      "att-4",
+      expect.objectContaining({ reason: "forced" }),
+    );
+  });
 });
 
 describe("useLiveVoiceScreenShare: the boundary a frame in flight can cross", () => {
@@ -885,7 +970,7 @@ describe("useLiveVoiceScreenShare: the boundary a frame in flight can cross", ()
    * down. What must not survive is a frame of the view from before the drop.
    */
   test("a frame uploading across a reconnect is refused, and the share goes on", async () => {
-    const finishUpload = holdNextUpload();
+    const upload = holdNextUpload();
     renderShare();
     share(WINDOW);
     await flush();
@@ -893,7 +978,7 @@ describe("useLiveVoiceScreenShare: the boundary a frame in flight can cross", ()
     act(() => {
       useLiveVoiceStore.getState().setReconnecting(true);
     });
-    finishUpload();
+    upload.finish();
     await flush();
 
     expect(controls.sightFrame).not.toHaveBeenCalled();
