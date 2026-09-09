@@ -67,7 +67,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * | Family | Renderer today | Volume rank | Stories | Readability gap |
  * | --- | --- | --- | --- | --- |
- * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | `file_edit` purpose-built, rest generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_edit` renders a unified diff. `file_write` still shows the written body as a JSON string literal with escaped newlines, which is the next one worth a body of its own. |
+ * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | changing tools purpose-built, reading tools generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_edit` and `file_write` share one body: an edit renders a unified diff, a write renders the file under its path, and both label the section by whether the call succeeded. `file_read` stays generic because its file comes back in the result, which the Output section already renders as text. |
  * | Shell (`bash`, `host_bash`) | purpose-built | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | The command and its output as two labelled blocks, rather than a JSON object quoting one. |
  * | Memory (`remember`, `recall`) | generic | 3 | Remember, Recall | `recall` returns a ranked list and renders as flat preformatted text; `remember` spends the full section chrome on a one-line acknowledgement. |
  * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
@@ -97,10 +97,13 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * Ranked by how many calls each slice improves against how much design it
  * needs, which puts the two families the design lead named first.
  *
- * 1. `file_write` as an editor view, the largest readability win left.
- * 2. Memory. `recall` as a result list rather than flat text.
- * 3. MCP naming (LUM-3511). Low volume, but the title is wrong on every call
+ * 1. Memory. `recall` as a result list rather than flat text.
+ * 2. MCP naming (LUM-3511). Low volume, but the title is wrong on every call
  *    rather than merely plain.
+ * 3. A true diff for file changes (LUM-3403). The daemon already returns
+ *    whole-file before and after on every completed file call; the client
+ *    discards it, and it is not persisted, so this needs a daemon field
+ *    before the panel can show more than the requested hunk.
  *
  * Syntax highlighting is deliberately absent from all of these: there is no
  * highlighter in the repository, and adding one is a dependency call that can
@@ -184,8 +187,9 @@ export const FileReadEmptyOutput: Story = {
 export const FileReadError: Story = { args: { detail: fileReadMissingDetail } };
 
 /**
- * `file_write`. The written file body is a JSON string literal with escaped
- * newlines, which is the clearest argument for the editor treatment.
+ * `file_write`. The file renders under its path rather than as a JSON string
+ * literal. It shares `FileChangeDetail` with `file_edit`, so a write that was
+ * declined or failed says so in the same words an edit does.
  */
 export const FileWrite: Story = { args: { detail: fileWriteDetail } };
 

@@ -27,12 +27,10 @@ export interface SlackMessageSender {
   isBot?: boolean;
 }
 
-export interface SlackReaction {
-  emoji: string;
-  op: "added" | "removed";
-  actorDisplayName?: string;
-  targetChannelTs: string;
-}
+/** A reaction as Slack's own envelope carries it on the wire. */
+export type SlackReaction = NonNullable<
+  NonNullable<ConversationMessage["slackMessage"]>["reaction"]
+>;
 
 export interface SlackRuntimeMessage {
   channelId: string;
@@ -167,15 +165,9 @@ export interface DisplayMessage {
    *  Mirrors `ConversationMessage["noResponse"]`; renders as a quiet marker
    *  and counts as the turn's reply. */
   isNoResponse?: boolean;
-  /** Reaction row, either direction. Mirrors `ConversationMessage["reaction"]`;
-   *  renders as a reaction line, never the stored sentinel text. */
-  reaction?: {
-    emoji: string;
-    op: "added" | "removed";
-    targetMessageId: string;
-    actorDisplayName?: string;
-    selfAuthored?: boolean;
-  };
+  /** Reaction row, either direction; renders as a reaction line, never the
+   *  stored sentinel text. */
+  reaction?: ConversationMessage["reaction"];
   /** Provider-failure notice metadata, carried from the wire
    *  `ConversationMessage["providerError"]`. `code` is the stable classified
    *  error code (e.g. `"PROVIDER_BILLING"`), `category` the classified

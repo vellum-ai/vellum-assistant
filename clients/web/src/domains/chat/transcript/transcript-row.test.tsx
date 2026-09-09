@@ -96,10 +96,32 @@ describe("TranscriptRow reaction dispatch", () => {
     // A Discord custom emoji named like a catalog shortcode is a distinct
     // guild emoji; the display must stay ":name:" and never swap into the
     // unrelated standard emoji once the catalog loads.
-    expect(displayReactionEmoji("<:heart:99>", () => "❤️")).toBe(":heart:");
-    expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
-    expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
-    expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
+    // What the adapter said wins.
+    expect(
+      displayReactionEmoji({
+        emoji: "tada",
+        emojiKind: "unicode",
+        emojiName: "🎉",
+      }),
+    ).toBe("🎉");
+    expect(
+      displayReactionEmoji({
+        emoji: "<:heart:99>",
+        emojiKind: "custom",
+        emojiName: "heart",
+      }),
+    ).toBe(":heart:");
+    expect(
+      displayReactionEmoji({
+        emoji: "blob_wave",
+        emojiKind: "shortcode",
+        emojiName: "blob_wave",
+      }),
+    ).toBe(":blob_wave:");
+    // A spelling-only row classifies through the contract's grammar.
+    expect(displayReactionEmoji({ emoji: "<:heart:99>" })).toBe(":heart:");
+    expect(displayReactionEmoji({ emoji: "tada" })).toBe(":tada:");
+    expect(displayReactionEmoji({ emoji: "🎉" })).toBe("🎉");
   });
 });
 

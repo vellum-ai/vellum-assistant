@@ -30,16 +30,17 @@ export function readToolInputString(
 }
 
 /**
- * Spellings a file path arrives under.
+ * Spellings a file path arrives under, the key the tool actually reads first.
  *
- * `path` is canonical: the daemon's alias table rewrites `file_path` to it for
- * every aliased filesystem tool (`assistant/src/tools/tool-name-aliases.ts`).
- * A model calling a canonically-named tool directly can still send `file_path`,
- * which is why the daemon's own summariser reads both, and `filePath` reaches
- * us from callers that camel-case everything. Order does not decide anything:
- * the rewrite deletes the key it renames, so no call carries two of these.
+ * `path` is that key either way: the daemon's alias table rewrites `file_path`
+ * to it for aliased filesystem tools (`assistant/src/tools/tool-name-aliases.ts`),
+ * and a canonically-named tool reads `parsed.data.path` directly
+ * (`assistant/src/tools/filesystem/write.ts`). The other two spellings only
+ * ever arrive as fields nothing read: the input schemas are `z.looseObject`,
+ * so a call can carry more than one of these and still be valid, and naming a
+ * file the tool did not touch is worse than naming none.
  */
-export const FILE_PATH_KEYS = ["file_path", "path", "filePath"] as const;
+export const FILE_PATH_KEYS = ["path", "file_path", "filePath"] as const;
 
 /** Spellings a shell command arrives under; `cmd` is the legacy one. */
 export const COMMAND_KEYS = ["command", "cmd"] as const;

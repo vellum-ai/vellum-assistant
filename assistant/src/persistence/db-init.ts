@@ -73,7 +73,14 @@ export async function checkpointWalBeforeOpen(): Promise<void> {
 
 // ---------------------------------------------------------------------------
 
-export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
+export interface InitializeDbResult {
+  migrationsOk: boolean;
+  failedMigrations: Array<{ name: string; error?: string }>;
+  deferredMigrations: Array<{ name: string; missing: string[] }>;
+  validationError?: string;
+}
+
+export async function initializeDb(): Promise<InitializeDbResult> {
   // Fold any post-crash WAL back into the database off the main event loop
   // before the first open, so a large WAL can't block /healthz through a
   // synchronous in-process WAL recovery and trip the liveness probe. Returns
@@ -88,10 +95,14 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   // broken migration doesn't prevent independent later ones from succeeding.
   // The runner creates the checkpoint ledger, recovers crashed migrations, then
   // records each step so an already-migrated database skips it on later boots.
-  const { applied, failed, skipped, deferred } = await runMigrationSteps(
-    database,
-    migrationSteps,
-  );
+  const {
+    applied,
+    failed,
+    skipped,
+    deferred,
+    failedMigrations,
+    deferredMigrations,
+  } = await runMigrationSteps(database, migrationSteps);
 
   log.info(
     {
@@ -116,14 +127,14 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
 
   if (failed.length > 0) {
     log.error(
-      { failedMigrations: failed, count: failed.length },
+      { failedMigrations, count: failed.length },
       `DB initialization completed with ${failed.length} failed migration(s)`,
     );
   }
 
   if (deferred.length > 0) {
     log.error(
-      { deferredMigrations: deferred, count: deferred.length },
+      { deferredMigrations, count: deferred.length },
       `DB initialization completed with ${deferred.length} deferred migration(s) whose prerequisites are not applied`,
     );
   }
@@ -132,10 +143,12 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   // flags schema inconsistencies (e.g. a completed step missing a declared
   // dependsOn checkpoint) that no individual step body surfaces as a failure.
   let validationOk = true;
+  let validationError: string | undefined;
   try {
     validateMigrationState(database, migrationSteps);
   } catch (err) {
     validationOk = false;
+    validationError = err instanceof Error ? err.message : String(err);
     log.error({ err }, "validateMigrationState failed");
   }
 
@@ -145,5 +158,8 @@ export async function initializeDb(): Promise<{ migrationsOk: boolean }> {
   // step silently never running while the daemon reports ready.
   return {
     migrationsOk: failed.length === 0 && deferred.length === 0 && validationOk,
+    failedMigrations,
+    deferredMigrations,
+    ...(validationError ? { validationError } : {}),
   };
 }

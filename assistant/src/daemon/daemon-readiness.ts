@@ -8,6 +8,22 @@
 
 let startupComplete = false;
 
+export type FailedMigrationDetail = {
+  name: string;
+  error?: string;
+};
+
+export type DeferredMigrationDetail = {
+  name: string;
+  missing: string[];
+};
+
+export type DbMigrationFailureDetails = {
+  failedMigrations?: FailedMigrationDetail[];
+  deferredMigrations?: DeferredMigrationDetail[];
+  validationError?: string;
+};
+
 export type DbMigrationReadiness =
   | { ready: true; state: "ready" }
   | {
@@ -18,6 +34,9 @@ export type DbMigrationReadiness =
         | "db_migrations_running"
         | "db_migrations_failed";
       error?: string;
+      failedMigrations?: FailedMigrationDetail[];
+      deferredMigrations?: DeferredMigrationDetail[];
+      validationError?: string;
     };
 
 let dbMigrationReadiness: DbMigrationReadiness = {
@@ -27,17 +46,20 @@ let dbMigrationReadiness: DbMigrationReadiness = {
 
 /**
  * Operations that must stay answerable while DB migrations are not ready:
- * health/liveness probes and process diagnostics that never touch the ORM.
+ * health/liveness probes and in-memory diagnostics that never touch the ORM.
  *
  * Single source of truth for both transports' migration gates — the HTTP gate
  * (`runtime/http-server.ts`) uses it directly as its exempt endpoint set, and
  * the IPC gate (`ipc/assistant-server.ts`) derives its exempt method set from
  * it (adding the DB-free `$cancel` control method). `health`/`healthz` must
  * remain exempt so the gateway can poll them to observe when migrations
- * finish (see gateway/src/post-assistant-ready.ts).
+ * finish (see gateway/src/post-assistant-ready.ts). `debug/database` is the
+ * in-memory failed-migration report (HTTP path and IPC operationId); it must
+ * stay reachable while `/readyz` is red so operators can see which steps
+ * threw.
  */
 export const DB_MIGRATION_READINESS_EXEMPT_OPERATIONS: ReadonlySet<string> =
-  new Set(["health", "healthz", "ps"]);
+  new Set(["health", "healthz", "ps", "debug/database", "debug_database"]);
 
 /**
  * The migration-repair surface: operations additionally allowed while DB
@@ -108,7 +130,10 @@ export function setDbMigrating(): void {
   };
 }
 
-export function setDbMigrationFailed(error?: unknown): void {
+export function setDbMigrationFailed(
+  error?: unknown,
+  details?: DbMigrationFailureDetails,
+): void {
   dbMigrationReadiness = {
     ready: false,
     state: "failed",
@@ -116,6 +141,11 @@ export function setDbMigrationFailed(error?: unknown): void {
     ...(error === undefined
       ? {}
       : { error: error instanceof Error ? error.message : String(error) }),
+    failedMigrations: details?.failedMigrations ?? [],
+    deferredMigrations: details?.deferredMigrations ?? [],
+    ...(details?.validationError
+      ? { validationError: details.validationError }
+      : {}),
   };
 }
 

@@ -1,5 +1,6 @@
 /**
- * Decoding the base64 payloads that reach the app as strings.
+ * Encoding bytes as base64 and decoding the base64 payloads that reach the app
+ * as strings.
  *
  * Two shapes arrive and mean the same thing. An attachment carries its bytes as
  * a full `data:` URI; the native camera bridge answers with the payload alone.
@@ -34,4 +35,22 @@ export function decodeBase64Payload(
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+/**
+ * Base64 for `bytes`, without a data-URI prefix: the bridges that carry
+ * rasterized images (the Live Activity island, the desktop notification
+ * sender) take the payload raw.
+ *
+ * Encoded in chunks because `String.fromCharCode` is applied to the whole
+ * chunk at once, and a spread of a few hundred thousand arguments overflows
+ * the call stack.
+ */
+export function encodeBase64Bytes(bytes: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + CHUNK));
+  }
+  return btoa(binary);
 }

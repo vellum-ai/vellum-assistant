@@ -8,6 +8,7 @@ import {
 } from "@vellumai/avatar-manifest";
 import { z } from "zod";
 
+import { backfillAccent } from "../../avatar/accent-backfill.js";
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
 import {
   type AvatarState,
@@ -16,7 +17,6 @@ import {
   writeManifest,
 } from "../../avatar/avatar-manifest.js";
 import {
-  backfillAccent,
   clearAvatar,
   setAccent,
   setCharacter,
