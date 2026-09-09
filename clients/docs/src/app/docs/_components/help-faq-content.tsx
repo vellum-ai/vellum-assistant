@@ -53,9 +53,19 @@ export function HelpFaqContent() {
             Is Vellum free?
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
-            You can run Vellum locally with your own Anthropic API key at no cost beyond your API
-            usage. Vellum also offers a managed mode where you sign in with a Vellum account and
-            the assistant runs on our platform.
+            You can start without paying. Vellum Cloud has a free{" "}
+            <strong>Base</strong> plan, and you can also run Vellum locally with your own
+            model API key at no cost beyond that API usage. Paid{" "}
+            <strong>Pro</strong> packages add a larger machine, more storage, and included
+            monthly credits. See{" "}
+            <Link
+              href="/docs/pricing"
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              Pricing
+            </Link>{" "}
+            for the current plans. For this assistant&apos;s live plan and credit balance,
+            ask it here rather than guessing from the docs page.
           </p>
 
           <SectionHeading id="why-does-it-cost-money-when-im-not-using-it" level={3}>
@@ -84,9 +94,19 @@ export function HelpFaqContent() {
             >
               vellum.ai
             </Link>
-            , the iPhone and iPad app, the macOS and Windows desktop apps, and a
-            command-line interface. Beyond those first-party surfaces,
-            channels include Telegram, Slack, email, and phone calls.
+            , the iPhone and iPad app, the Android app, the macOS and Windows desktop
+            apps, and a command-line interface. There is no shipped Linux desktop client.
+            On Linux, use the web app or the Chrome extension. The assistant runtime can
+            self-host on a Linux machine; that is hosting, not a desktop app.
+            Download the shipped clients from{" "}
+            <Link
+              href={routes.downloads}
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              vellum.ai/downloads
+            </Link>
+            . Beyond those first-party surfaces, channels include Telegram, Slack, email,
+            and phone calls.
           </p>
 
           <SectionHeading id="where-should-i-host" level={3}>
@@ -157,16 +177,67 @@ export function HelpFaqContent() {
           <SectionHeading id="can-i-use-it-on-my-phone" level={3}>
             Can I use it on my phone?
           </SectionHeading>
-          <p className="mb-0 text-zinc-600">
-            Yes. There&apos;s a native iPhone and iPad app on the{" "}
+          <p className="mb-6 text-zinc-600">
+            Yes. There is a native iPhone and iPad app on the{" "}
             <Link
-              href="https://apps.apple.com/us/app/vellum-assistant/id6759934423"
+              href={routes.iosAppStore}
               className="font-semibold text-emerald-700 underline hover:text-emerald-800"
             >
               App Store
             </Link>
-            , and you can also reach your assistant through Telegram or
-            phone calls from any device.
+            {" "}and an Android app on{" "}
+            <Link
+              href={routes.androidPlayStore}
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              Google Play
+            </Link>
+            . You can also reach your assistant through Telegram or phone calls from any
+            device.
+          </p>
+
+          <SectionHeading id="is-there-a-windows-app" level={3}>
+            Is there a Windows app?
+          </SectionHeading>
+          <p className="mb-6 text-zinc-600">
+            Yes. Download the Windows desktop app from{" "}
+            <Link
+              href={routes.downloads}
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              vellum.ai/downloads
+            </Link>
+            . You can also open{" "}
+            <Link
+              href="https://vellum.ai"
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              vellum.ai
+            </Link>{" "}
+            in a browser, or install the{" "}
+            <Link
+              href={routes.chromeWebStore}
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              Chrome extension
+            </Link>{" "}
+            so the assistant can use your Chrome session.
+          </p>
+
+          <SectionHeading id="does-it-run-on-linux" level={3}>
+            Does it run on Linux?
+          </SectionHeading>
+          <p className="mb-0 text-zinc-600">
+            The web app and Chrome extension work on Linux. There is no Linux desktop
+            client to install. You can self-host the assistant runtime on a Linux
+            machine if you want the server itself on that host. See{" "}
+            <Link
+              href="/docs/hosting-options"
+              className="font-semibold text-emerald-700 underline hover:text-emerald-800"
+            >
+              Hosting options
+            </Link>
+            .
           </p>
         </section>
 

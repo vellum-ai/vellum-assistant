@@ -56,7 +56,7 @@ export function formatLoggedInBrowserOffer(
       "This page needs a logged-in browser on a computer. There is no in-app browser on this phone, and the Chrome extension cannot be installed here.",
     );
     lines.push(
-      `Install the desktop app on a Mac or Windows PC (${DESKTOP_APP_DOWNLOAD_URL}) or the Chrome extension in Chrome on that computer (${CHROME_WEB_STORE_INSTALL_URL}).`,
+      `Install the macOS desktop app (${DESKTOP_APP_DOWNLOAD_URL}) or the Chrome extension in Chrome on a computer (${CHROME_WEB_STORE_INSTALL_URL}).`,
     );
     lines.push(
       "Offer those first. Do not describe a browser panel here. Only ask for a screenshot or pasted page content if the user cannot install either.",
@@ -65,9 +65,9 @@ export function formatLoggedInBrowserOffer(
   }
 
   lines.push(
-    "A connected desktop app or Chrome extension can open this page in a browser where you are already logged in.",
+    "A connected macOS desktop app or Chrome extension can open this page in a browser where you are already logged in.",
   );
-  lines.push(`Desktop app: ${DESKTOP_APP_DOWNLOAD_URL}`);
+  lines.push(`macOS desktop app: ${DESKTOP_APP_DOWNLOAD_URL}`);
   lines.push(`Chrome extension: ${CHROME_WEB_STORE_INSTALL_URL}`);
   lines.push(
     "Offer those first. Only ask for a screenshot or pasted page content if the user cannot install either.",
