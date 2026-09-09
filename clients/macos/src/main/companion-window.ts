@@ -35,6 +35,11 @@ import {
   WATCH_FLAG,
   companionLowerReachFor,
   type CoachmarkRefusal,
+  type CoachmarkRequest,
+  type CoachmarkResult,
+  type CoachmarkUnresolved,
+  namesATarget,
+  type PlacedCoachmark,
   type CompanionCardGrowth,
   type CompanionCoachmark,
   type CompanionGrowth,
@@ -79,6 +84,7 @@ import {
 import {
   captureSourceThumbnail,
   captureTargetFrame,
+  locateOnTarget,
   listCaptureSources,
   resolveCapturePick,
   windowBoundsFor,
@@ -1125,6 +1131,19 @@ let coachmarks: readonly CompanionCoachmark[] = NO_COACHMARKS;
 let coachmarkTarget: WatchCaptureTarget | undefined;
 
 /**
+ * How many requests to change what is pointed at have been taken.
+ *
+ * Resolving a name is a round trip to the helper and nothing is queued behind
+ * it, so a second request can arrive and finish while the first is still out.
+ * `screen_clear_marks` is the case that matters, because it has nothing to
+ * look up and answers immediately: the lookup landing afterwards would put
+ * the mark the user was just told was gone back on their screen. Each request
+ * takes the next number on the way in, and only the request holding the
+ * latest one is allowed to paint.
+ */
+let coachmarkRequests = 0;
+
+/**
  * The surface of the last frame this process handed to the window holding the
  * session, or nothing before it has served one.
  *
@@ -1240,6 +1259,16 @@ const syncCapturedTarget = (): void => {
  * changes and cannot reach one that arrives afterwards, so the arrival is
  * refused here instead.
  *
+ * **The last request in owns the screen.** Requests are not queued, so a
+ * lookup still out when a later one lands would paint over its answer.
+ * {@link coachmarkRequests} settles that: the latest number paints, and
+ * anything holding an older one is refused.
+ *
+ * **A request replaces everything, including with nothing.** A name that does
+ * not resolve takes the standing marks down on its way to saying so. They
+ * describe the step before this one, and leaving them up would point the user
+ * at a control while the assistant says it could not find the one it meant.
+ *
  * **Taking them down always succeeds**, whoever asks and whatever the frame is
  * around. The two directions are not the same risk: a mark placed by the
  * wrong conversation is a ring on a stranger's screen reported as a success,
@@ -1247,14 +1276,86 @@ const syncCapturedTarget = (): void => {
  * down anyway. Refusing those would leave marks standing that nothing could
  * reach, which is the failure this whole entrance exists to avoid.
  */
-export const showCompanionCoachmarks = (
-  marks: readonly CompanionCoachmark[],
+export const showCompanionCoachmarks = async (
+  requests: readonly CoachmarkRequest[],
   conversationId?: string,
-): CoachmarkRefusal | null => {
-  if (marks.length === 0) {
+): Promise<CoachmarkResult> => {
+  if (requests.length === 0) {
+    coachmarkRequests += 1;
     setCoachmarks(NO_COACHMARKS);
-    return null;
+    return { kind: "placed", marks: [] };
   }
+  const share = context.screenShare;
+  const refusal = whyNotToDraw(conversationId, share);
+  if (refusal !== null) {
+    return { kind: "refused", refusal };
+  }
+  if (share === undefined) {
+    return { kind: "refused", refusal: "unshared" };
+  }
+  // Taken after the refusals above, so a request that was never going to
+  // change what is on screen does not supersede one that is.
+  coachmarkRequests += 1;
+  const sequence = coachmarkRequests;
+
+  const marks: PlacedCoachmark[] = [];
+  for (const request of requests) {
+    if (!namesATarget(request)) {
+      marks.push(request);
+      continue;
+    }
+    const placed = await placeOnNamedTarget(share, request);
+    // Both asked after every await, because both answers can change across
+    // one. Something else asking to point in the meantime owns the screen
+    // now, and this request touching it at all would undo that.
+    if (sequence !== coachmarkRequests) {
+      return { kind: "refused", refusal: "superseded" };
+    }
+    // Asked against the share these marks are being
+    // resolved on rather than against whatever is shared now. Resolving a
+    // name is a round trip to the helper and the user is still working the
+    // whole time: a share that moved and had a frame of its own served in
+    // that window answers every check the current state can make, and these
+    // marks would land on it measured against the surface it replaced.
+    const moved = whyNotToDraw(conversationId, share);
+    if (moved !== null) {
+      return { kind: "refused", refusal: moved };
+    }
+    if ("reason" in placed) {
+      // A request replaces everything on screen, and it has replaced it with
+      // nothing it can draw. Leaving the last step's mark up would point the
+      // user at a control this turn is about to say it could not find.
+      setCoachmarks(NO_COACHMARKS);
+      return { kind: "unresolved", unresolved: placed };
+    }
+    marks.push(placed);
+  }
+
+  // The name a mark resolved from is for the caller to read back, not for the
+  // frame to draw: what goes on screen is a rectangle, and the renderer has
+  // no use for the label it came from.
+  setCoachmarks(marks.map(({ matched: _matched, ...mark }) => mark));
+  return { kind: "placed", marks };
+};
+
+/**
+ * Why the marks cannot go up, or `null` when they can.
+ *
+ * Pulled out because it is asked before resolving a name and again after
+ * every round trip that resolving takes, since resolving takes long enough
+ * for the answer to change.
+ *
+ * `measuredAgainst` is the surface the marks in hand describe, which is the
+ * share as it was when the request was taken. Asking only what is shared
+ * *now* is not enough: a share that moved and then served a frame of its own
+ * leaves the current state entirely self-consistent, and marks measured
+ * against the surface before the move would pass on their way onto the one
+ * after it.
+ */
+const whyNotToDraw = (
+  conversationId: string | undefined,
+  measuredAgainst: WatchCaptureTarget | undefined,
+): CoachmarkRefusal | null => {
   if (!framesTheShare()) {
     return "unshared";
   }
@@ -1267,8 +1368,64 @@ export const showCompanionCoachmarks = (
   if (!sameCaptureTarget(capturedTarget, context.screenShare)) {
     return "stale-surface";
   }
-  setCoachmarks(marks);
+  if (!sameCaptureTarget(measuredAgainst, context.screenShare)) {
+    return "stale-surface";
+  }
   return null;
+};
+
+/**
+ * One named control as a mark, or why it could not be one.
+ *
+ * The conversion is the whole point of resolving through the tree: the helper
+ * answers in screen points, the surface has bounds in the same space, and a
+ * fraction is the difference between them. Nothing here estimates anything.
+ */
+const placeOnNamedTarget = async (
+  share: WatchCaptureTarget,
+  request: { target: string; caption?: string },
+): Promise<PlacedCoachmark | CoachmarkUnresolved> => {
+  const located = await locateOnTarget(share, request.target);
+  if (!located.found) {
+    return {
+      target: request.target,
+      reason: located.reason,
+      candidates: located.ambiguous ?? located.available ?? [],
+      ...(located.candidateCount === undefined
+        ? {}
+        : { candidateCount: located.candidateCount }),
+    };
+  }
+  const bounds = await surfaceBounds(share);
+  if (bounds === null) {
+    return { target: request.target, reason: "no-tree", candidates: [] };
+  }
+  return {
+    x: (located.x - bounds.x) / bounds.width,
+    y: (located.y - bounds.y) / bounds.height,
+    width: located.width / bounds.width,
+    height: located.height / bounds.height,
+    ...(request.caption === undefined ? {} : { caption: request.caption }),
+    matched: located.label,
+  };
+};
+
+/**
+ * Where the shared surface is, in the screen points a located control is in.
+ *
+ * The same bounds the frame is placed on, for the same reason: a fraction of
+ * the surface only means anything against the rectangle the frame draws.
+ */
+const surfaceBounds = async (
+  share: WatchCaptureTarget,
+): Promise<Rectangle | null> => {
+  if (share.kind === "display") {
+    return (
+      screen.getAllDisplays().find((d) => d.id === share.displayId)?.bounds ??
+      null
+    );
+  }
+  return windowBoundsFor(share.windowId);
 };
 
 /**
