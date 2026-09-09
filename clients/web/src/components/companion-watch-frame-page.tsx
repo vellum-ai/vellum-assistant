@@ -231,6 +231,18 @@ export function CompanionWatchFramePage() {
       ? undefined
       : { ["--companion-ring-accent" as string]: accentHex };
 
+  // The label's, on top of the accent: how far down the framed surface it
+  // has to start to clear the menu bar, when a whole display is framed and
+  // the bar draws over the top of this window. The shell reports it from
+  // where it put the window; a shell that says nothing is one whose frame
+  // has no bar over it, or predates the field, and the label sits against
+  // the edge as it did.
+  const inset = state?.frameInsetTop ?? 0;
+  const labelStyle =
+    inset > 0
+      ? { ...accentStyle, ["--companion-frame-inset" as string]: `${inset}px` }
+      : accentStyle;
+
   // Read the same way `watching` is, and for the sharper version of the same
   // reason: this one decides whether the window under the pointer takes the
   // click. Main makes the window interactive and says so here, so a shell
@@ -264,7 +276,7 @@ export function CompanionWatchFramePage() {
         <CompanionWatchFrameLabel
           read={read}
           assistantName={state?.assistantName ?? ""}
-          style={accentStyle}
+          style={labelStyle}
         />
       )}
       {/* One capture, as a single brightening of the same edge. The frame

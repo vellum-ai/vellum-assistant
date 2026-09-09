@@ -353,6 +353,35 @@ describe("the frame around what is read", () => {
       ).toBe("#5eead4");
     });
 
+    /**
+     * A whole display is framed to its full bounds and the menu bar draws
+     * over the top of the window, so the shell says how far down the label
+     * has to start. Read as the inset it is; a shell that says nothing
+     * leaves the label against the edge.
+     */
+    test("starts below the menu bar the shell reports", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        screenShare: { kind: "display", displayId: 7 },
+        frameInsetTop: 25,
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-frame-inset"),
+      ).toBe("25px");
+    });
+
+    test("sits against the edge when the shell reports no inset", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        screenShare: { kind: "window", windowId: 42 },
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-frame-inset"),
+      ).toBe("");
+    });
+
     test("comes down with the share", () => {
       const { container } = render(<CompanionWatchFramePage />);
       pushState({

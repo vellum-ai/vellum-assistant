@@ -2984,6 +2984,36 @@ describe("Share on the companion surface", () => {
     expect(glow).toBeNull();
   });
 
+  /**
+   * A whole display is framed to its full bounds, and the menu bar draws
+   * over the top of that window. What the frame draws at its top has to
+   * start below the bar, and only the shell knows how tall it is.
+   */
+  test("reports the menu bar's height over a framed display", () => {
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 25, width: 1920, height: 1055 },
+    };
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(state().frameInsetTop).toBe(25);
+  });
+
+  test("reports no inset over a framed window", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "window", windowId: 7 } }),
+    );
+    expect(state().frameInsetTop).toBeUndefined();
+  });
+
+  test("reports no inset with nothing framed", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().frameInsetTop).toBeUndefined();
+  });
+
   test("the share ends with the window holding it", () => {
     send(
       "vellum:companion:setContext",

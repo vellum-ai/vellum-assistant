@@ -404,10 +404,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * and stays up for as long as the edge does. Top centre, where every screen
  * sharing tool the user has met puts the same sentence. Dark with an accent
  * rim, the coachmark caption's treatment, for the caption's reason: only the
- * rim can tie the label to the edge at a contrast that holds on any palette. */
+ * rim can tie the label to the edge at a contrast that holds on any palette.
+ * `--companion-frame-inset` is how much of the window's top the menu bar
+ * draws over when a whole display is framed, set by the page from what the
+ * shell reports; a label placed against the edge would sit under the bar. */
 .companion-watch-frame-label {
   position: fixed;
-  top: 10px;
+  top: calc(10px + var(--companion-frame-inset, 0px));
   left: 50%;
   transform: translateX(-50%);
   display: inline-flex;
