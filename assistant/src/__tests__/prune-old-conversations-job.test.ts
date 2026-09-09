@@ -1,13 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AssistantConfig } from "../config/schema.js";
-import { upsertAcpConversationModelPreference } from "../persistence/acp-model-preference.js";
 import { getDb, getTelemetryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { pruneOldConversationsJob } from "../persistence/job-handlers/cleanup.js";
 import type { MemoryJob } from "../persistence/jobs-store.js";
 import {
-  acpConversationModelPreference,
   conversations,
   telemetryEvents,
   toolInvocations,
@@ -58,18 +56,11 @@ function seedConversation(id: string, updatedAt: number): void {
       payload: "{}",
     })
     .run();
-  // Cascades from the conversation, so the prune deletes it without naming it.
-  upsertAcpConversationModelPreference({
-    parentConversationId: id,
-    agentId: "claude",
-    model: "opus",
-  });
 }
 
 function countRows(conversationId: string): {
   invocations: number;
   telemetryRows: number;
-  modelPreferences: number;
 } {
   const db = getDb();
   return {
@@ -83,11 +74,6 @@ function countRows(conversationId: string): {
       .from(telemetryEvents)
       .all()
       .filter((r) => r.conversationId === conversationId).length,
-    modelPreferences: db
-      .select()
-      .from(acpConversationModelPreference)
-      .all()
-      .filter((r) => r.parentConversationId === conversationId).length,
   };
 }
 
@@ -96,7 +82,6 @@ describe("pruneOldConversationsJob", () => {
     const db = getDb();
     getTelemetryDb()!.delete(telemetryEvents).run();
     db.delete(toolInvocations).run();
-    db.delete(acpConversationModelPreference).run();
     db.delete(conversations).run();
   });
 
@@ -107,16 +92,8 @@ describe("pruneOldConversationsJob", () => {
 
     pruneOldConversationsJob(JOB, CONFIG);
 
-    expect(countRows(STALE_ID)).toEqual({
-      invocations: 0,
-      telemetryRows: 0,
-      modelPreferences: 0,
-    });
-    expect(countRows(FRESH_ID)).toEqual({
-      invocations: 1,
-      telemetryRows: 1,
-      modelPreferences: 1,
-    });
+    expect(countRows(STALE_ID)).toEqual({ invocations: 0, telemetryRows: 0 });
+    expect(countRows(FRESH_ID)).toEqual({ invocations: 1, telemetryRows: 1 });
     const remaining = getDb().select().from(conversations).all();
     expect(remaining.map((c) => c.id)).toEqual([FRESH_ID]);
   });

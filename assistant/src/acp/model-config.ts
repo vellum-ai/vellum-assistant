@@ -14,10 +14,10 @@
  * may localize or restyle at will, so it is never matched against.
  *
  * `resolveAcpModel` is the precedence ladder a spawn walks before it talks to
- * the adapter: an explicit request beats the conversation's remembered choice,
- * which beats the per-agent config default, which beats the global one. Values
- * are adapter-reported aliases (`opus`, `sonnet`), never Assistant catalog ids,
- * and are passed through unvalidated: only the adapter knows what it accepts.
+ * the adapter: an explicit request beats the per-agent config default, which
+ * beats the global one. Values are adapter-reported aliases (`opus`,
+ * `sonnet`), never Assistant catalog ids, and are passed through unvalidated:
+ * only the adapter knows what it accepts.
  *
  * Both helpers are synchronous and side-effect free.
  */
@@ -49,7 +49,6 @@ export type AcpModelInfo = {
 
 type ResolveAcpModelInput = {
   requestedModel?: string;
-  conversationPreference?: string;
   agentModel?: string;
   defaultModel?: string;
 };
@@ -127,12 +126,7 @@ export function deriveModelInfo(
 export function resolveAcpModel(
   input: ResolveAcpModelInput,
 ): string | undefined {
-  const ladder = [
-    input.requestedModel,
-    input.conversationPreference,
-    input.agentModel,
-    input.defaultModel,
-  ];
+  const ladder = [input.requestedModel, input.agentModel, input.defaultModel];
 
   for (const candidate of ladder) {
     const trimmed = candidate?.trim();

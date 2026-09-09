@@ -14,10 +14,6 @@ import type { AssistantEvent } from "../api/index.js";
 import { getConfig } from "../config/loader.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
-import {
-  getAcpConversationModelPreference,
-  upsertAcpConversationModelPreference,
-} from "../persistence/acp-model-preference.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -41,7 +37,7 @@ import { deriveFailureError } from "./failure-error.js";
 import type { AcpModelInfo } from "./model-config.js";
 import { deriveModelInfo, resolveAcpModel } from "./model-config.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
-import { canonicalAgentId, formatResolveFailure } from "./resolve-agent.js";
+import { formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
 import {
   ACP_LIVE_STATUSES,
@@ -74,52 +70,6 @@ function claudeAuthRequiredCode(
     isClaudeAuthFailureMessage(failureMessage)
     ? ACP_CLAUDE_AUTH_REQUIRED_CODE
     : undefined;
-}
-
-/**
- * The model this conversation last chose for this agent, if any. Best-effort:
- * a lookup that fails leaves the run to the next rung of the ladder rather
- * than sinking the spawn.
- */
-function readConversationModelPreference(
-  parentConversationId: string,
-  agentId: string,
-): string | undefined {
-  try {
-    return getAcpConversationModelPreference(
-      parentConversationId,
-      canonicalAgentId(agentId),
-    );
-  } catch (err) {
-    log.warn(
-      { parentConversationId, agentId, err },
-      "Failed to read the ACP conversation model preference",
-    );
-    return undefined;
-  }
-}
-
-/**
- * Remembers an explicit model choice for this conversation. Best-effort: the
- * session is already running on the model, so a failed write costs only the
- * inheritance the next run would have had.
- */
-function rememberConversationModelPreference(preference: {
-  parentConversationId: string;
-  agentId: string;
-  model: string;
-}): void {
-  try {
-    upsertAcpConversationModelPreference({
-      ...preference,
-      agentId: canonicalAgentId(preference.agentId),
-    });
-  } catch (err) {
-    log.warn(
-      { ...preference, err },
-      "Failed to record the ACP conversation model preference",
-    );
-  }
 }
 
 /**
@@ -222,28 +172,6 @@ interface SessionEntry {
    *  and resume pins and any overlapping setModel calls reach the adapter one
    *  at a time and the last choice wins. */
   modelSwitchQueue: Promise<void>;
-  /** Last model value this manager asked the adapter for, so a
-   *  `config_option_update` the adapter sends as that call's side effect is
-   *  not read as a user choice. Set before the call, cleared when the call
-   *  failed (nothing moved, so a later user pick of the same value is a
-   *  genuine choice) and once a genuinely different model arrives. */
-  lastManagerPinnedModel?: string;
-  /** Whether one of this manager's own `setConfigOption` calls is awaiting the
-   *  adapter. `lastManagerPinnedModel` cannot answer for that window: the
-   *  adapter may resolve the alias it was handed to a full model id, so an
-   *  echo landing mid-flight carries a value the manager never named. A
-   *  boolean suffices because switches are serialized per session. */
-  managerPinInFlight: boolean;
-  /** Whether a pin has run against the adapter's own reported model. Until it
-   *  has, an unsolicited update is the adapter announcing its default rather
-   *  than the user choosing, and writing it as the conversation's preference
-   *  would freeze that default in. */
-  modelBaselineEstablished: boolean;
-  /** Whether the session is still opening: `session/new`, `session/load` or
-   *  `session/resume` and the pin that follows it. Every notification until
-   *  the pin latches reports what the session opens on, so the baseline
-   *  belongs to the pin alone. */
-  modelOpeningInFlight: boolean;
 }
 
 /** What a spawn or resume pin did about the model it was asked for. */
@@ -407,13 +335,9 @@ export class AcpSessionManager {
 
     const requestedModel = options?.model?.trim() || undefined;
     // Resolved before the adapter is asked for anything, so the ladder is
-    // walked once against the config and conversation the spawn was made in.
+    // walked once against the config the spawn was made under.
     const resolvedModel = resolveAcpModel({
       requestedModel,
-      conversationPreference: readConversationModelPreference(
-        parentConversationId,
-        agentId,
-      ),
       agentModel: agentConfig.model,
       defaultModel: getConfig().acp.defaultModel,
     });
@@ -458,14 +382,6 @@ export class AcpSessionManager {
       requestedModel,
       resolvedModel,
     );
-
-    // Only an explicit request becomes the conversation's preference, and only
-    // once the session is confirmed to be on it. Inherited rungs are already
-    // recorded where they came from, and re-recording them here would freeze a
-    // config default into the conversation.
-    if (requestedModel && !modelWarning) {
-      this.rememberModelChoice(entry);
-    }
 
     this.sendSpawnedEvent(acpSessionId, entry);
     this.sendModelEvent(acpSessionId, entry);
@@ -536,8 +452,9 @@ export class AcpSessionManager {
    *
    * A caller who named the model is owed the news when it was not applied,
    * whether the adapter has no selector or refused the value; an inherited
-   * rung (config default, remembered preference) is only logged, so a config
-   * the user never typed here does not surface as a warning on every spawn.
+   * rung (a config default, a resume's recorded model) is only logged, so a
+   * value the caller never named does not surface as a warning on every
+   * spawn.
    */
   private pinSessionModel(
     entry: SessionEntry,
@@ -545,32 +462,15 @@ export class AcpSessionManager {
     requestedModel: string | undefined,
     resolvedModel: string | undefined,
   ): Promise<ModelPinResult> {
-    return this.enqueueModelWork(entry, async () => {
-      const result = await this.applyModelPin(
-        entry,
-        configOptions,
-        requestedModel,
-        resolvedModel,
-      );
-      // The opening ends here, which makes this the one place an opening
-      // arms the baseline. The window while the pin is in flight belongs to
-      // `managerPinInFlight`, and by now the adapter has reported what the
-      // session is on, so anything unsolicited after this is a change rather
-      // than an opening announcement.
-      entry.modelOpeningInFlight = false;
-      entry.modelBaselineEstablished = entry.modelConfigId !== undefined;
-      return result;
-    });
+    return this.enqueueModelWork(entry, () =>
+      this.applyModelPin(entry, configOptions, requestedModel, resolvedModel),
+    );
   }
 
   /**
    * Chains `work` onto this session's model-switch queue, so the manager's
-   * own pins and a client's `setModel` reach the adapter one at a time.
-   * `managerPinInFlight` is a single boolean covering every call in flight,
-   * which only holds while nothing overlaps: two concurrent round trips would
-   * each clear it on their own way out, and whichever answered first would
-   * open the window for the other. The queue is idle when a spawn or resume
-   * pins, so serializing costs those nothing.
+   * own spawn and resume pins and any `setModel` reach the adapter one at a
+   * time and the last one to run is the one the session ends on.
    *
    * A refusal belongs to its caller alone; the chain carries on either way.
    */
@@ -587,9 +487,8 @@ export class AcpSessionManager {
   }
 
   /**
-   * The pin itself: report what the adapter says, then put it on
-   * `resolvedModel` if that is somewhere else. Split from the baseline latch
-   * above so the latch cannot be reached before the round trip settles.
+   * The pin itself: record what the opening response says about the model,
+   * then put the session on `resolvedModel` if that is somewhere else.
    */
   private async applyModelPin(
     entry: SessionEntry,
@@ -619,8 +518,8 @@ export class AcpSessionManager {
     }
 
     try {
-      const refreshed = await this.setConfigOptionAsManager(
-        entry,
+      const refreshed = await entry.process.setConfigOption(
+        state.acpSessionId,
         entry.modelConfigId,
         resolvedModel,
       );
@@ -637,45 +536,6 @@ export class AcpSessionManager {
           ? { warning: err instanceof Error ? err.message : String(err) }
           : {}),
       };
-    }
-  }
-
-  /**
-   * Runs one of the manager's own `setConfigOption` calls, marked so the
-   * unsolicited path does not mistake the adapter's echo of it for a model
-   * the user chose. Spawn, resume, and `setModel` each decide their own
-   * preference write, and a second one from the notification would freeze an
-   * inherited default into the conversation. Switches are serialized per
-   * session, so one flag covers every call in flight.
-   *
-   * Two markers, because the echo can land on either side of the answer. The
-   * in-flight flag covers the round trip whatever the notification carries:
-   * the adapter may resolve `opus` to `claude-opus-4-5` and report that,
-   * which the value marker would never match. The value marker then covers
-   * the echo that arrives after the call resolved.
-   *
-   * A refused call clears the value marker: nothing moved, so a later
-   * `/model` onto the same value is a genuine choice rather than this call's
-   * echo.
-   */
-  private async setConfigOptionAsManager(
-    entry: SessionEntry,
-    configId: string,
-    value: string,
-  ): Promise<SessionConfigOption[]> {
-    entry.lastManagerPinnedModel = value;
-    entry.managerPinInFlight = true;
-    try {
-      return await entry.process.setConfigOption(
-        entry.state.acpSessionId,
-        configId,
-        value,
-      );
-    } catch (err) {
-      entry.lastManagerPinnedModel = undefined;
-      throw err;
-    } finally {
-      entry.managerPinInFlight = false;
     }
   }
 
@@ -767,9 +627,6 @@ export class AcpSessionManager {
       command: basename(opts.agentConfig.command),
       credentialDigest: opts.agentConfig.credentialDigest,
       modelSwitchQueue: Promise.resolve(),
-      managerPinInFlight: false,
-      modelBaselineEstablished: false,
-      modelOpeningInFlight: true,
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -827,10 +684,9 @@ export class AcpSessionManager {
    * the user the work in flight.
    *
    * Switches run one at a time per session, on the same queue as the
-   * manager's own spawn and resume pins. A picker changed twice in quick
-   * succession would otherwise have two round trips in flight at once, and a
-   * slow first one landing last would put the state, the preference, and the
-   * client back on the model the user already moved off.
+   * manager's own spawn and resume pins. Two round trips in flight at once
+   * would otherwise let a slow first one land last and put the state and the
+   * client back on the model the caller already moved off.
    */
   async setModel(
     acpSessionId: string,
@@ -876,8 +732,8 @@ export class AcpSessionManager {
       );
     }
 
-    const refreshed = await this.setConfigOptionAsManager(
-      entry,
+    const refreshed = await entry.process.setConfigOption(
+      state.acpSessionId,
       modelConfigId,
       model,
     );
@@ -886,7 +742,6 @@ export class AcpSessionManager {
     }
     this.applyModelInfo(entry, refreshed);
     if (!this.clearVanishedModelSelector(acpSessionId, entry)) {
-      this.rememberModelChoice(entry);
       this.sendModelEvent(acpSessionId, entry);
     }
     return state;
@@ -910,7 +765,7 @@ export class AcpSessionManager {
    * publishes the empty picker. `applyModelInfo` keeps the recorded model for
    * adapters that never had one, which here would leave the client on options
    * `setModel` now rejects. Returns whether it fired, so callers skip the
-   * publish and the preference write that assume a model is still there.
+   * publish that assumes a model is still there.
    *
    * A published picker is what says the selector was there to vanish: only an
    * adapter that advertised one ever populates it, so an adapter that never
@@ -935,40 +790,10 @@ export class AcpSessionManager {
   }
 
   /**
-   * Records the model a session is confirmed to be on as this conversation's
-   * choice for this agent. The value is the adapter's own, which may have
-   * resolved an alias to a full model id. No-op when the adapter reports no
-   * model, so a session with no selector never writes a preference.
-   */
-  private rememberModelChoice(entry: SessionEntry): void {
-    const { model } = entry.state;
-    if (!model) {
-      return;
-    }
-    rememberConversationModelPreference({
-      parentConversationId: entry.parentConversationId,
-      agentId: entry.state.agentId,
-      model,
-    });
-  }
-
-  /**
    * Takes in a `config_option_update` the adapter sent unprompted, which is
    * how a `/model` the user typed straight into the transcript reaches the
-   * daemon. Only a value that actually moved becomes the conversation's
-   * preference: adapters re-report the full option set for unrelated changes,
-   * and re-recording an unchanged model would freeze an inherited default
-   * into the conversation. A move this manager itself asked for is published
-   * like any other but writes no preference, whether the notification lands
-   * while the request is in flight or just after it resolved. Nor does an
-   * update that arrives before any pin has run: an adapter that reports its
-   * options by notification, and a `session/load` replay during a resume, are
-   * both announcing a default rather than relaying a choice.
-   *
-   * An adapter whose selector appears only once the opening is over arms the
-   * baseline on that first announcement, so a `/model` the user types after
-   * it is remembered instead of being swallowed forever. Announcements made
-   * during an opening, however many, belong to the pin that ends it.
+   * daemon: record what it reports, publish it, and drop the live snapshot
+   * when the selector it announced has vanished.
    *
    * A session past its terminal transition takes nothing from a late
    * notification at all: its history row is already written, so mutating
@@ -983,38 +808,12 @@ export class AcpSessionManager {
     if (!entry || !this.isEntryLive(acpSessionId, entry)) {
       return;
     }
-    const previousModel = entry.state.model;
-    const hadBaseline = entry.modelBaselineEstablished;
     this.applyModelInfo(entry, configOptions);
 
     if (this.clearVanishedModelSelector(acpSessionId, entry)) {
       return;
     }
-    // A selector first seen after the opening arms the baseline, so the next
-    // change the adapter reports is read as a choice rather than swallowed as
-    // another opening announcement.
-    if (
-      !hadBaseline &&
-      !entry.modelOpeningInFlight &&
-      entry.modelConfigId !== undefined
-    ) {
-      entry.modelBaselineEstablished = true;
-    }
-
     this.sendModelEvent(acpSessionId, entry);
-
-    if (entry.state.model === previousModel) {
-      return;
-    }
-    if (
-      !hadBaseline ||
-      entry.managerPinInFlight ||
-      entry.state.model === entry.lastManagerPinnedModel
-    ) {
-      return;
-    }
-    entry.lastManagerPinnedModel = undefined;
-    this.rememberModelChoice(entry);
   }
 
   /**
@@ -1254,8 +1053,7 @@ export class AcpSessionManager {
     }
 
     // A fresh adapter process starts on its own default, so the run the user
-    // resumes is put back on the model its history row recorded. No preference
-    // is written: resuming is not choosing.
+    // resumes is put back on the model its history row recorded.
     const recordedModel = row.model ?? undefined;
     const { applied } = await this.pinSessionModel(
       entry,

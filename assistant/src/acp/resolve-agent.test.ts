@@ -10,8 +10,7 @@ afterAll(() => {
   which.restore();
 });
 
-const { canonicalAgentId, resolveAcpAgent, listAcpAgents } =
-  await import("./resolve-agent.js");
+const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
 
 beforeEach(() => {
   config.setConfig({});
@@ -57,9 +56,7 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.agent.command).toBe("codex-acp");
-    expect(result.agent.description).toContain(
-      "@agentclientprotocol/codex-acp",
-    );
+    expect(result.agent.description).toContain("@agentclientprotocol/codex-acp");
   });
 
   test("falls back to default profile for claude when no user entry", () => {
@@ -194,7 +191,7 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
+      "bun add -g @agentclientprotocol/claude-agent-acp",
     );
     expect(result.command).toBe("claude-agent-acp");
   });
@@ -243,9 +240,7 @@ describe("resolveAcpAgent", () => {
     if (result.reason !== "binary_not_found") {
       return;
     }
-    expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/codex-acp@1.10.0",
-    );
+    expect(result.hint).toBe("bun add -g @agentclientprotocol/codex-acp");
   });
 
   test("binary preflight honors agent.env.PATH override (matches spawn env)", () => {
@@ -314,45 +309,6 @@ describe("resolveAcpAgent", () => {
 });
 
 // ---------------------------------------------------------------------------
-// canonicalAgentId
-// ---------------------------------------------------------------------------
-
-describe("canonicalAgentId", () => {
-  test("folds every natural spelling of an alias onto one id", () => {
-    for (const alias of ["Claude Code", "claude-code", "claude_code"]) {
-      expect(canonicalAgentId(alias)).toBe("claude");
-    }
-    expect(canonicalAgentId("OpenAI Codex")).toBe("codex");
-    expect(canonicalAgentId("codex cli")).toBe("codex");
-  });
-
-  test("passes a canonical id through untouched", () => {
-    expect(canonicalAgentId("claude")).toBe("claude");
-    expect(canonicalAgentId("codex")).toBe("codex");
-  });
-
-  test("passes an id that names no alias through untouched", () => {
-    expect(canonicalAgentId("my-custom-agent")).toBe("my-custom-agent");
-  });
-
-  test("a config entry keyed as the alias keeps its own id", () => {
-    config.setConfig({
-      agents: { "claude code": { command: "my-claude", args: [] } },
-    });
-
-    // The resolver runs this entry rather than the bundled claude, so its
-    // durable state is its own.
-    expect(canonicalAgentId("claude code")).toBe("claude code");
-  });
-
-  test("an alias with no config entry of its own still folds", () => {
-    config.setConfig({ agents: { other: { command: "other", args: [] } } });
-
-    expect(canonicalAgentId("claude code")).toBe("claude");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // resolveAcpAgent - missing binaries are never run from the task cwd
 // ---------------------------------------------------------------------------
 
@@ -376,7 +332,7 @@ describe("resolveAcpAgent - missing binary", () => {
     }
     expect(result.command).toBe("claude-agent-acp");
     expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
+      "bun add -g @agentclientprotocol/claude-agent-acp",
     );
   });
 
@@ -395,7 +351,7 @@ describe("resolveAcpAgent - missing binary", () => {
       return;
     }
     expect(result.hint).toBe(
-      "bun add -g @agentclientprotocol/claude-agent-acp@0.75.1",
+      "bun add -g @agentclientprotocol/claude-agent-acp",
     );
   });
 });
@@ -474,9 +430,7 @@ describe("listAcpAgents", () => {
     const codex = result.agents.find((a) => a.id === "codex");
     expect(codex?.available).toBe(false);
     expect(codex?.unavailableReason).toBe("'codex-acp' is not on PATH");
-    expect(codex?.setupHint).toBe(
-      "bun add -g @agentclientprotocol/codex-acp@1.10.0",
-    );
+    expect(codex?.setupHint).toBe("bun add -g @agentclientprotocol/codex-acp");
   });
 
   test("aliases are resolution sugar, not catalog entries", () => {

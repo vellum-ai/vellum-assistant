@@ -8,10 +8,8 @@ const COLUMN = "model";
  * Add a nullable `model TEXT` column to `acp_session_history`.
  *
  * Records which model the adapter confirmed the run was on, so a finished run
- * can say what produced it. It is a record of the past, not the source a later
- * spawn inherits from: history is written once at terminal transition, while
- * inheritance has to answer before a run starts. That question belongs to
- * `acp_conversation_model_preference`.
+ * can say what produced it, and so a resume can put the fresh adapter process
+ * back on it.
  *
  * `NULL` for rows written before this migration ran, and for every run on an
  * adapter that advertises no model selector.

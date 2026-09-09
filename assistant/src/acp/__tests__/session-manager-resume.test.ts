@@ -268,7 +268,6 @@ const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../../api/index.js";
-import { getAcpConversationModelPreference } from "../../persistence/acp-model-preference.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
@@ -276,7 +275,6 @@ import {
   clearHistory,
   insertHistoryRow,
   readHistoryRow,
-  seedConversationRow,
 } from "./helpers/acp-history-db.js";
 
 const { AcpResumeError, AcpSessionManager, AcpSessionNotFoundError } =
@@ -575,7 +573,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp@0.75.1",
+      "@agentclientprotocol/claude-agent-acp",
     ]);
     const { cwd, env } = options as { cwd?: string; env?: NodeJS.ProcessEnv };
     expect(cwd).toBeDefined();
@@ -804,7 +802,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
 
   test("resume puts the fresh adapter process back on the recorded model", async () => {
     fakeCaps.resume = true;
-    seedConversationRow("conv-1");
     // A new adapter process starts on its own default, not the model the
     // original run was pinned to.
     resumeConfigOptions = [modelOption("default")];
@@ -823,62 +820,10 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
-    // Resuming is not choosing: the conversation preference is untouched.
-    expect(
-      getAcpConversationModelPreference("conv-1", "claude"),
-    ).toBeUndefined();
-  });
-
-  test("a config_option_update replayed during session/load records no preference", async () => {
-    fakeCaps.loadSession = true;
-    seedConversationRow("conv-1");
-    // The reattached adapter announces its own default mid-replay, before
-    // the pin that puts the run back on what the row recorded.
-    replayConfigOptionUpdates = [[modelOption("default")]];
-    resumeConfigOptions = [modelOption("default")];
-    insertHistoryRow({ id: "resume-replay-model", model: "opus" });
-
-    const manager = new AcpSessionManager(4);
-    await manager.resumeFromHistory("resume-replay-model", () => {});
-
-    const state = manager.getStatus("resume-replay-model") as AcpSessionState;
-    expect(state.model).toBe("opus");
-    // Announcing a default is not the user choosing one.
-    expect(
-      getAcpConversationModelPreference("conv-1", "claude"),
-    ).toBeUndefined();
-  });
-
-  test("the model switches a session/load replays record no preference", async () => {
-    fakeCaps.loadSession = true;
-    seedConversationRow("conv-1");
-    // A transcript the user typed two `/model` commands into: the replay
-    // reports each of them before the load resolves.
-    replayConfigOptionUpdates = [
-      [modelOption("sonnet")],
-      [modelOption("opus")],
-    ];
-    resumeConfigOptions = [modelOption("opus")];
-    insertHistoryRow({ id: "resume-replay-switches", model: "opus" });
-
-    const manager = new AcpSessionManager(4);
-    await manager.resumeFromHistory("resume-replay-switches", () => {});
-
-    expect(
-      getAcpConversationModelPreference("conv-1", "claude"),
-    ).toBeUndefined();
-
-    // The pin latched the baseline, so the next change is the user's own.
-    await fakeInstances[0]!.emitConfigOptions([modelOption("sonnet")]);
-
-    expect(getAcpConversationModelPreference("conv-1", "claude")).toBe(
-      "sonnet",
-    );
   });
 
   test("a session/load answering with no config options keeps the replayed selector", async () => {
     fakeCaps.loadSession = true;
-    seedConversationRow("conv-1");
     // The selector reaches the manager only through the replayed
     // notification: the load itself answers with no config options at all.
     replayConfigOptionUpdates = [[modelOption("default")]];
@@ -912,7 +857,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
 
   test("a resume the adapter refuses to re-pin runs on the adapter's model and records that on the row", async () => {
     fakeCaps.resume = true;
-    seedConversationRow("conv-1");
     resumeConfigOptions = [modelOption("default")];
     setConfigOptionError = new Error(
       "Invalid value for config option model: claude-opus-4-5",
@@ -943,13 +887,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       },
     ]);
 
-    // The adapter re-announcing the model it chose for itself is not the user
-    // choosing it.
-    await fakeInstances[0]!.emitConfigOptions([modelOption("default")]);
-    expect(
-      getAcpConversationModelPreference("conv-1", "claude"),
-    ).toBeUndefined();
-
     await manager.steer("resume-refused-model", "keep going");
     fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
     await Promise.resolve();
@@ -958,37 +895,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     // The row records the model the run ended on, so the next resume re-pins
     // to the one the user was actually working with.
     expect(readHistoryRow("resume-refused-model")!.model).toBe("default");
-  });
-
-  test("a model chosen after a refused resume re-pin is remembered and lands on the row", async () => {
-    fakeCaps.resume = true;
-    seedConversationRow("conv-1");
-    resumeConfigOptions = [modelOption("default")];
-    setConfigOptionError = new Error(
-      "Invalid value for config option model: claude-opus-4-5",
-    );
-    insertHistoryRow({
-      id: "resume-then-typed",
-      model: "claude-opus-4-5",
-    });
-
-    const manager = new AcpSessionManager(4);
-    await manager.resumeFromHistory("resume-then-typed", () => {});
-
-    // The refused re-pin leaves the baseline armed, so the very next change
-    // the adapter reports is read as the user's own choice.
-    await fakeInstances[0]!.emitConfigOptions([modelOption("sonnet")]);
-
-    expect(getAcpConversationModelPreference("conv-1", "claude")).toBe(
-      "sonnet",
-    );
-
-    await manager.steer("resume-then-typed", "keep going");
-    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(readHistoryRow("resume-then-typed")!.model).toBe("sonnet");
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {

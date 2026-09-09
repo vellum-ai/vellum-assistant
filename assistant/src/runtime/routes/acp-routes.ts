@@ -1,8 +1,8 @@
 /**
  * Route handlers for ACP (Agent Communication Protocol) session lifecycle.
  *
- * Exposes spawn, steer, cancel, close, set-model, sessions, and permission
- * operations over HTTP and IPC.
+ * Exposes spawn, steer, cancel, close, sessions, and permission operations
+ * over HTTP and IPC.
  */
 import { randomUUID } from "node:crypto";
 
@@ -21,8 +21,6 @@ import {
 } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import {
-  AcpModelNotOfferedError,
-  AcpModelSelectionUnsupportedError,
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../acp/session-manager.js";
@@ -297,48 +295,6 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
     agent,
     ...(modelWarning ? { modelWarning } : {}),
   };
-}
-
-/**
- * Switches a live ACP session onto one of the models its adapter advertises.
- *
- * Ungated on purpose: the host subprocess is already running and already
- * approved, and choosing which model it answers with starts nothing new. The
- * guardian prompt belongs to spawn and resume, which do.
- */
-async function setSessionModel({ pathParams, body }: RouteHandlerArgs) {
-  const id = pathParams?.id as string;
-  const model = body?.model;
-
-  if (typeof model !== "string" || !model) {
-    throw new BadRequestError("model is required");
-  }
-
-  try {
-    const state = await getAcpSessionManager().setModel(id, model);
-    return {
-      acpSessionId: state.id,
-      model: state.model,
-      availableModels: state.availableModels ?? [],
-    };
-  } catch (err) {
-    if (err instanceof AcpSessionNotFoundError) {
-      throw new NotFoundError("ACP session not found");
-    }
-    // The session is alive and well, so a missing selector is a conflict with
-    // its state, not a session that is gone.
-    if (err instanceof AcpModelSelectionUnsupportedError) {
-      throw new ConflictError(err.message);
-    }
-    if (err instanceof AcpModelNotOfferedError) {
-      throw new BadRequestError(err.message);
-    }
-    throw new InternalError(
-      err instanceof Error
-        ? err.message
-        : "Failed to set the ACP session model",
-    );
-  }
 }
 
 async function steerSession({ pathParams, body }: RouteHandlerArgs) {
@@ -719,44 +675,6 @@ export const ROUTES: RouteDefinition[] = [
           "Why the requested model was not applied. The session is running " +
             "on the agent's own model.",
         ),
-    }),
-  },
-  {
-    operationId: "acp_set_model",
-    endpoint: "acp/:id/set-model",
-    method: "POST",
-    policy: {
-      requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    handler: setSessionModel,
-    summary: "Set ACP session model",
-    description:
-      "Switch a live ACP session onto one of the models its adapter " +
-      "advertises. The adapter applies it to the next turn, so a turn " +
-      "already in flight finishes on the model it started with.",
-    tags: ["acp"],
-    requestBody: z.object({
-      model: z
-        .string()
-        .describe("A value from the session's availableModels list."),
-    }),
-    additionalResponses: {
-      "400": {
-        description:
-          "Missing model, or a model the session does not offer (its " +
-          "availableModels list names the ones it does)",
-      },
-      "404": { description: "Unknown ACP session" },
-      "409": {
-        description:
-          "The session is alive but its adapter advertises no model selector",
-      },
-    },
-    responseBody: z.object({
-      acpSessionId: z.string(),
-      model: z.string().optional(),
-      availableModels: acpModelOptionsSchema,
     }),
   },
   {

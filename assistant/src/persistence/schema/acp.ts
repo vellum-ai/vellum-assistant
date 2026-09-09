@@ -1,13 +1,10 @@
 import {
   index,
   integer,
-  primaryKey,
   real,
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
-
-import { conversations } from "./conversations.js";
 
 /**
  * ACP (Agent Client Protocol) session history. Persists completed ACP
@@ -50,8 +47,8 @@ export const acpSessionHistory = sqliteTable(
     outputTokens: integer("output_tokens"),
     /** Model the adapter confirmed the run was on. Null when the adapter
      *  advertises no model selector, and for rows written before migration
-     *  377. A record of the run, never the source a later spawn inherits
-     *  from: see `acpConversationModelPreference`. */
+     *  377. A record of the run, and what a resume puts the fresh adapter
+     *  process back on. */
     model: text("model"),
   },
   (table) => [
@@ -82,34 +79,3 @@ export const acpRefusedCredentials = sqliteTable("acp_refused_credentials", {
   digest: text("digest").primaryKey(),
   refusedAt: integer("refused_at").notNull(),
 });
-
-/**
- * Which model a conversation's next run on a given agent starts on.
- *
- * Written only when the user chooses one: a spawn parameter, a live switch, a
- * typed command. Never from adapter-reported state, so an agent falling back
- * to its own default cannot quietly become the conversation's preference.
- *
- * Keyed per agent because one conversation can drive several coding agents and
- * their model vocabularies do not overlap. Values are adapter aliases (for
- * example "opus"), not Assistant catalog ids.
- *
- * Cascades from the conversation, so a preference never outlives the
- * conversation it was chosen for and no delete path has to remember it.
- *
- * Created by migration 378.
- */
-export const acpConversationModelPreference = sqliteTable(
-  "acp_conversation_model_preference",
-  {
-    parentConversationId: text("parent_conversation_id")
-      .notNull()
-      .references(() => conversations.id, { onDelete: "cascade" }),
-    agentId: text("agent_id").notNull(),
-    model: text("model").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.parentConversationId, table.agentId] }),
-  ],
-);
