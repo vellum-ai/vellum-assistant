@@ -849,7 +849,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     ).toBeUndefined();
   });
 
-  test("a resume the adapter refuses to re-pin runs on the adapter's model and keeps the record on the row", async () => {
+  test("a resume the adapter refuses to re-pin runs on the adapter's model and records that on the row", async () => {
     fakeCaps.resume = true;
     seedConversationRow("conv-1");
     resumeConfigOptions = [modelOption("default")];
@@ -894,13 +894,12 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // The row is still the record of the run it belongs to.
-    expect(readHistoryRow("resume-refused-model")!.model).toBe(
-      "claude-opus-4-5",
-    );
+    // The row records the model the run ended on, so the next resume re-pins
+    // to the one the user was actually working with.
+    expect(readHistoryRow("resume-refused-model")!.model).toBe("default");
   });
 
-  test("a model chosen after a refused resume re-pin replaces the record on the row", async () => {
+  test("a model chosen after a refused resume re-pin is remembered and lands on the row", async () => {
     fakeCaps.resume = true;
     seedConversationRow("conv-1");
     resumeConfigOptions = [modelOption("default")];
@@ -915,9 +914,8 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     const manager = new AcpSessionManager(4);
     await manager.resumeFromHistory("resume-then-typed", () => {});
 
-    // The selector announcement re-arms the baseline the refused re-pin took
-    // down; the change after it is the user's own.
-    await fakeInstances[0]!.emitConfigOptions([modelOption("default")]);
+    // The refused re-pin leaves the baseline armed, so the very next change
+    // the adapter reports is read as the user's own choice.
     await fakeInstances[0]!.emitConfigOptions([modelOption("sonnet")]);
 
     expect(getAcpConversationModelPreference("conv-1", "claude")).toBe(

@@ -612,6 +612,37 @@ describe("ensureAdapterInstalled - version pinning", () => {
     ).toHaveLength(1);
   });
 
+  test("an empty agent PATH gets its own pin scope, not the inherited one", async () => {
+    which.setWhich((cmd, options) => {
+      if (cmd === "bun") {
+        return BUN_BIN;
+      }
+      if (cmd !== "codex-acp") {
+        return null;
+      }
+      // An empty PATH reaches nothing; an omitted one inherits the daemon's,
+      // which does reach bun's link.
+      return options?.PATH === "" ? null : bunLinked("codex-acp");
+    });
+    // `bun add` exits 0 without moving the tree off 0.4.0, so the inherited
+    // scope abandons its pin after a single install.
+    stubGlobalTree({ "@agentclientprotocol/codex-acp": "0.4.0" });
+    execScripts.set(BUN_ADD_KEY, { stdout: "" });
+
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: true,
+    });
+    expect(await ensureAdapterInstalled("codex-acp")).toEqual({
+      installed: false,
+    });
+
+    // The empty PATH never proved that verdict, so it still gets its install.
+    expect(await ensureAdapterInstalled("codex-acp", "")).toEqual({
+      installed: true,
+    });
+    expect(execFileMock).toHaveBeenCalledTimes(2);
+  });
+
   test("two PATHs into the same bun tree run a single install", async () => {
     const BUN_BIN_DIR = `${BUN_ROOT}/bin`;
     const ALIAS_BIN_DIR = `${BUN_ALIAS_ROOT}/bin`;
@@ -1209,7 +1240,7 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
     );
   });
 
-  test("post-install resolution failure keeps the agent resolved before it", async () => {
+  test("post-install resolution failure surfaces the dead resolution, not an unspawnable agent", async () => {
     let onPath = true;
     which.setWhich((cmd) => {
       if (cmd === "bun") {
@@ -1221,8 +1252,8 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
       return null;
     });
     stubGlobalTree({ "@agentclientprotocol/claude-agent-acp": "0.47.0" });
-    // The reinstall unlinks the bin instead of repointing it, so the
-    // re-resolve fails on an agent the caller already had in hand.
+    // The reinstall unlinks the bin instead of repointing it, so the command
+    // the caller held is gone from PATH and nothing there can spawn.
     execScripts.set(BUN_ADD_KEY, {
       stdout: "",
       onCall: () => {
@@ -1232,11 +1263,16 @@ describe("resolveAgentWithAutoInstall - pin enforcement on a resolved binary", (
 
     const result = await resolveAgentWithAutoInstall("claude");
 
-    expect(result.resolved.ok).toBe(true);
-    if (!result.resolved.ok) {
+    expect(result.resolved.ok).toBe(false);
+    if (result.resolved.ok) {
       return;
     }
-    expect(result.resolved.agent.command).toBe("claude-agent-acp");
+    expect(result.resolved.reason).toBe("binary_not_found");
+    if (result.resolved.reason !== "binary_not_found") {
+      return;
+    }
+    expect(result.resolved.command).toBe("claude-agent-acp");
+    expect(result.resolved.hint).toContain(`bun add -g ${CLAUDE_SPEC}`);
     expect(result.autoInstalledPackage).toBeUndefined();
     expect(result.failureMessage).toBeUndefined();
     expect(warnings().join(" ")).toContain("no longer resolves");
