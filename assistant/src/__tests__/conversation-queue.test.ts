@@ -1396,6 +1396,55 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("a drain the interrupt armed keeps its message queued until the repair is durable", async () => {
+    // `pendingInterruptRepair` is armed by an interrupt whose own durable
+    // repair failed, and the message it queued behind it is the interrupting
+    // prompt. Persisting that prompt while the abandoned `tool_use` still has
+    // no durable result writes a sequence every provider rejects on the next
+    // load, however well the in-memory history reads to the turn running now.
+    // So a drain that cannot make the repair durable leaves both where they
+    // are rather than settling for the memory copy.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.messages.push({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu-durable-repair",
+          name: "bash",
+          input: {},
+        },
+      ],
+    });
+    conversation.pendingInterruptRepair = true;
+    conversation.enqueueMessage({
+      content: "the interrupting prompt",
+      requestId: "req-interrupting",
+      queueWhenIdle: true,
+    });
+
+    // The repair row is the only write naming the abandoned call.
+    addMessageShouldThrowForContent.add("toolu-durable-repair");
+
+    await expect(conversation.drainQueue()).rejects.toThrow(
+      "Simulated addMessage failure",
+    );
+
+    // Armed for the drain that follows, the prompt still queued behind it, and
+    // neither the prompt nor a half-repair in what a reload would read.
+    expect(conversation.pendingInterruptRepair).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(conversation.messages).toHaveLength(1);
+    expect(
+      capturedAddMessages.some((m) =>
+        m.content.includes("the interrupting prompt"),
+      ),
+    ).toBe(false);
+    expect(pendingRuns).toHaveLength(0);
+  });
+
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

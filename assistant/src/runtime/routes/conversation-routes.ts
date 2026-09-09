@@ -3025,36 +3025,46 @@ export async function handleSendMessage(
     }
   };
 
-  if (conversation.isProcessing()) {
-    // A retransmission of a send this route has already accepted but not yet
-    // persisted. The interrupt answers `202` and then does the abort, the
-    // waits, the repair and the persist off the response, so for that whole
-    // stretch a second copy finds no running turn of its own and no row, and
-    // both would race the unique `clientMessageId` insert with one losing.
-    const reservedRequestId = clientMessageId
-      ? conversation.inFlightSendRequestIds.get(clientMessageId)
-      : undefined;
-    if (reservedRequestId) {
-      log.info(
-        {
-          conversationId: mapping.conversationId,
-          clientMessageId,
-          requestId: reservedRequestId,
-        },
-        "Duplicate send for one already accepted and still in flight; answering with its id",
-      );
-      return {
-        accepted: true,
-        messageId: reservedRequestId,
-        requestId: reservedRequestId,
+  // A retransmission of a send this route has already accepted but not yet
+  // persisted. The interrupt answers `202` and then does the abort, the waits,
+  // the repair and the persist off the response, so for that whole stretch a
+  // second copy finds no row, and both would race the unique `clientMessageId`
+  // insert with one losing.
+  //
+  // Read before the processing test, not inside it: the interrupted turn
+  // releases the lock partway through the handover, so the conversation reads
+  // idle while the reservation is still held and the row is still unwritten.
+  // Nested under the busy branch a retransmission arriving in that window
+  // skipped every duplicate check, started a second `completeSend` and could
+  // win persistence under its own id, leaving the id the first 202 advertised
+  // naming no row at all.
+  const reservedRequestId = clientMessageId
+    ? conversation.inFlightSendRequestIds.get(clientMessageId)
+    : undefined;
+  if (reservedRequestId) {
+    log.info(
+      {
         conversationId: mapping.conversationId,
-      };
-    }
+        clientMessageId,
+        requestId: reservedRequestId,
+        processing: conversation.isProcessing(),
+      },
+      "Duplicate send for one already accepted and still in flight; answering with its id",
+    );
+    return {
+      accepted: true,
+      messageId: reservedRequestId,
+      requestId: reservedRequestId,
+      conversationId: mapping.conversationId,
+    };
+  }
 
+  if (conversation.isProcessing()) {
     // The narrowest form of the same retransmission problem, and it has to be
-    // checked first: a turn arms its abort controller and takes the processing
-    // lock BEFORE it inserts its row (`persistUserMessage`), so for that window
-    // a retry finds a busy conversation and no row to recognise. Aborting there
+    // checked ahead of the row lookup below: a turn arms its abort controller
+    // and takes the processing lock BEFORE it inserts its row
+    // (`persistUserMessage`), so for that window a retry finds a busy
+    // conversation and no row to recognise. Aborting there
     // would kill the turn its own original request had just started, and the
     // retry would then deduplicate against the row that lands a moment later
     // and start nothing, so the send is answered by neither. The running turn

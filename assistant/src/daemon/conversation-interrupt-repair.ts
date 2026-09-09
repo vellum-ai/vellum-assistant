@@ -35,12 +35,14 @@ const log = getLogger("conversation-interrupt-repair");
  * queue drain arms `pendingSteerRepair` / `pendingInterruptRepair` instead and
  * repairs on the drain that follows.
  *
- * `requireDurable` decides what a failed persist means. The drain runs the
- * next turn off the in-memory history, so it keeps the repair and settles; the
- * interrupt writes a user row after this call, and a user row after a durable
- * `tool_use` with no durable result is a sequence the provider rejects on
- * every later load, so it asks for the throw and gets the history back
- * untouched.
+ * `requireDurable` decides what a failed persist means. A caller that writes a
+ * user row after this call asks for the throw and gets the history back
+ * untouched, because a user row after a durable `tool_use` with no durable
+ * result is a sequence the provider rejects on every later load. That is the
+ * interrupt, and it is equally the drain of the message an interrupt queued
+ * when its own repair failed, which is why the flag it re-arms below carries
+ * the requirement forward. A steered drain has no row of its own to persist
+ * behind the repair, so it keeps the in-memory repair and settles.
  */
 export async function repairInterruptedToolUseBlocks(
   conversation: Conversation,
@@ -126,7 +128,9 @@ export async function repairInterruptedToolUseBlocks(
         conversation.messages.splice(idx, 1);
       }
       // Arm the drain that runs the queued message this caller falls back to,
-      // so the repair happens there instead.
+      // so the repair happens there instead, under this same requirement: the
+      // queued message is a user row, and the drain reads this flag to ask for
+      // it.
       conversation.pendingInterruptRepair = true;
       conversation.pendingSteerRepair = wasSteerArmed;
       throw err;

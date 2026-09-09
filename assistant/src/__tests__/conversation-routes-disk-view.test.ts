@@ -1151,6 +1151,43 @@ describe("host-proxy preactivation across an interrupt", () => {
     conv.owner = 0;
   });
 
+  test("a retransmit answers with the accepted send's id after the turn releases", async () => {
+    // The interrupted turn releases the processing lock partway through the
+    // handover, well before `completeSend` writes the row, so a retransmission
+    // arriving in that window finds an idle conversation and no row to
+    // recognise. Read only on the busy path, the reservation missed it: the
+    // retry skipped every duplicate check, started a second `completeSend`, and
+    // could win persistence under its own id, leaving the id the first 202
+    // advertised naming no row at all.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-released-inflight-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const clientMessageId = `cmid-${crypto.randomUUID()}`;
+    const conv = getOrCreateFakeConversation(conversationId);
+    const reservedRequestId = crypto.randomUUID();
+    conv.inFlightSendRequestIds.set(clientMessageId, reservedRequestId);
+    // The lock is already back; the accepted send is still mid-handover.
+    expect(conv.isProcessing()).toBe(false);
+
+    const retry = await sendMacosMessage(
+      conversationKey,
+      "answer me",
+      clientMessageId,
+    );
+    const body = (await retry.json()) as {
+      messageId?: string;
+      requestId?: string;
+    };
+
+    // The id the first 202 advertised, so the client reconciles its single
+    // optimistic row against the row that send is about to write.
+    expect(body.requestId).toBe(reservedRequestId);
+    expect(body.messageId).toBe(reservedRequestId);
+    // And nothing of its own: no second row racing the insert, no turn.
+    expect(readPersistedMessages(conversationId)).toHaveLength(0);
+    expect(conv.isProcessing()).toBe(false);
+  });
+
   test("a retransmitted send answers from the existing row instead of interrupting", async () => {
     // A network retry of an already-accepted POST must not stop the turn its
     // own original request started. The idempotent insert settles duplicates,

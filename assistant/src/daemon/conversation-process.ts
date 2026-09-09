@@ -478,7 +478,21 @@ export async function drainQueue(
 
   // Repair any pending tool_use blocks left over from a steered abort
   // before the drain path sends the next message to the LLM.
-  await repairInterruptedToolUseBlocks(conversation);
+  //
+  // An interrupt-armed drain is the one that must have the repair durable. The
+  // flag is armed by an interrupt whose own durable repair failed, and the
+  // message it queued is the interrupting prompt: persisted after a durable
+  // `tool_use` with no durable result, it makes a sequence every provider
+  // rejects on every later load, however well the in-memory history reads to
+  // the turn that runs now. So a second failure throws rather than settling,
+  // and the throw is what keeps the prompt out of the history: nothing has been
+  // dequeued at this point, so the queue is intact, the repair leaves the flag
+  // armed on its way out, and `kickQueueDrain` retries and then reports the
+  // stall to the queued senders. A steered drain keeps its in-memory repair, as
+  // it has no row of its own to persist behind it.
+  await repairInterruptedToolUseBlocks(conversation, {
+    requireDurable: conversation.pendingInterruptRepair,
+  });
 
   if (steered) {
     const next = conversation.queue.shift();
