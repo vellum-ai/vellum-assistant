@@ -1,4 +1,5 @@
 import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 
 /**
  * Fetch an attachment's stored bytes from the daemon content endpoint.
@@ -23,8 +24,13 @@ export async function fetchAttachmentContentBlob(
       return data;
     }
     return null;
-  } catch {
-    // Network failure, assistant offline, etc.
+  } catch (err) {
+    // Every reader of the attachment bytes lands here, so this is the one
+    // place the failure is reported.
+    captureError(err, {
+      context: "fetchAttachmentContentBlob",
+      bestEffort: true,
+    });
     return null;
   }
 }

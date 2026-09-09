@@ -3,7 +3,10 @@ import { currentLocale } from "@/i18n";
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
- * `locale` defaults to the app's active locale; pass one to pin the formatting.
+ *
+ * Every formatter in this file defaults to the app's active locale, so one
+ * label never pairs an app-locale date with a browser-locale time. Pass
+ * `locale` to pin the formatting.
  */
 export function formatFriendlyDate(
   date: Date,
@@ -20,7 +23,7 @@ export function formatFriendlyDate(
 }
 
 /** Hour and minute, the shape every inline timestamp here shows. */
-function formatTimeOfDay(date: Date, locale?: string): string {
+function formatTimeOfDay(date: Date, locale: string = currentLocale()): string {
   return date.toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "2-digit",
@@ -51,7 +54,10 @@ export function formatCaptureTime(
  * Compact relative-time label for inline metadata ("just now", "2h ago").
  * Mirrors the macOS client's `Date.relativeShortString()`.
  */
-export function formatRelativeDate(dateStr: string | null | undefined): string {
+export function formatRelativeDate(
+  dateStr: string | null | undefined,
+  locale: string = currentLocale(),
+): string {
   if (!dateStr) {
     return "—";
   }
@@ -96,7 +102,7 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
     const weeks = Math.floor(diffDays / 7);
     return `${weeks}w ago`;
   }
-  return date.toLocaleDateString();
+  return date.toLocaleDateString(locale);
 }
 
 /**
@@ -106,12 +112,13 @@ export function formatRelativeDate(dateStr: string | null | undefined): string {
  */
 export function formatCompactLocalDate(
   dateStr: string | null | undefined,
+  locale: string = currentLocale(),
 ): string {
   if (!dateStr) {
     return "";
   }
   const date = new Date(dateStr);
-  return `${formatFriendlyDate(date)}, ${formatTimeOfDay(date)}`;
+  return `${formatFriendlyDate(date, { locale })}, ${formatTimeOfDay(date, locale)}`;
 }
 
 /**
@@ -120,11 +127,12 @@ export function formatCompactLocalDate(
  */
 export function formatFullLocalDate(
   dateStr: string | null | undefined,
+  locale: string = currentLocale(),
 ): string {
   if (!dateStr) {
     return "";
   }
-  return new Date(dateStr).toLocaleString(undefined, {
+  return new Date(dateStr).toLocaleString(locale, {
     month: "long",
     day: "numeric",
     year: "numeric",

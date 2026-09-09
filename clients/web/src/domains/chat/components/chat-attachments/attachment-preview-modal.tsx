@@ -63,7 +63,9 @@ interface AttachmentPreviewModalProps {
   siblingAttachments?: DisplayAttachment[];
   /** The active attachment's position in `siblingAttachments`. Given by callers
    *  whose list can hold two attachments with the same id, which the id lookup
-   *  below cannot tell apart; omitted, the position is looked up by id. */
+   *  below cannot tell apart. Honoured only while it still points at
+   *  `attachment`; otherwise, and when omitted, the position is looked up by
+   *  id. */
   currentIndex?: number;
   /** Called when the user navigates to a different attachment via the gallery
    *  arrows. The parent swaps the active `attachment` prop in response, and
@@ -120,6 +122,7 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     url: effectiveUrl,
     isError,
     unavailable,
+    legacyId,
     isPending,
   } = useAttachmentObjectUrl(assistantId, attachment, open);
 
@@ -128,9 +131,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   // non-image fallback card instead of rendering the broken-image glyph.
   const [decodeFailedUrl, setDecodeFailedUrl] = useState<string | null>(null);
 
-  const previewError = unavailable
+  // Only a synthetic history id means the bytes were never kept. The rest of
+  // what `unavailable` covers still has a file behind it, so it falls through
+  // to the card that names it.
+  const previewError = legacyId
     ? "Preview unavailable — file content was not preserved in chat history."
-    : isError
+    : isError && !unavailable
       ? "Failed to load preview."
       : null;
 
@@ -138,11 +144,16 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     if (!siblingAttachments || siblingAttachments.length <= 1) {
       return -1;
     }
-    if (givenIndex !== undefined && siblingAttachments[givenIndex]) {
+    // The hint is only good while it still points at the attachment that was
+    // opened; a list that has shifted under the modal falls back to the id.
+    if (
+      givenIndex !== undefined &&
+      siblingAttachments[givenIndex] === attachment
+    ) {
       return givenIndex;
     }
     return siblingAttachments.findIndex((a) => a.id === attachment.id);
-  }, [siblingAttachments, attachment.id, givenIndex]);
+  }, [siblingAttachments, attachment, givenIndex]);
 
   const hasGallery =
     currentIndex !== -1 &&

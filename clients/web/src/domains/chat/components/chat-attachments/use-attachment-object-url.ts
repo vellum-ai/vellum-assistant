@@ -34,6 +34,8 @@ export interface AttachmentObjectUrl {
   isError: boolean;
   /** The bytes can never be fetched at all, as against a fetch that failed. */
   unavailable: boolean;
+  /** The id is a synthetic `rehydrated:` one, so no bytes were ever stored. */
+  legacyId: boolean;
   /** The bytes are still on their way, so nothing is settled yet. */
   isPending: boolean;
 }
@@ -48,11 +50,15 @@ export function useAttachmentObjectUrl(
   const previewUrl = attachment?.previewUrl ?? null;
   // Synthetic `rehydrated:` ids from the text-parsing history fallback can
   // never resolve against the content endpoint, so they are never fetched.
-  const canFetch = !!assistantId && !!id && !id.startsWith("rehydrated:");
+  const isRehydratedId = id.startsWith("rehydrated:");
+  const canFetch = !!assistantId && !!id && !isRehydratedId;
   const shouldFetch = enabled && !previewUrl && canFetch;
   // No inline bytes and no way to fetch them is a settled answer, not a
   // pending one, so callers can fall back instead of waiting.
   const unavailable = !!attachment && !previewUrl && !canFetch;
+  // Narrower than `unavailable`: the bytes were never stored, rather than
+  // merely being out of this caller's reach.
+  const legacyId = !previewUrl && isRehydratedId;
 
   const { data: blob, isError } = useQuery({
     queryKey: attachmentContentQueryKey(assistantId, id),
@@ -91,6 +97,7 @@ export function useAttachmentObjectUrl(
     url: previewUrl ?? objectUrl,
     isError: isError || unavailable,
     unavailable,
+    legacyId,
     isPending: shouldFetch && !objectUrl && !isError,
   };
 }

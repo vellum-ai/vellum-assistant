@@ -1,7 +1,8 @@
 /**
  * `useShareApp` is the one share handler both app menus call. What it owns is
- * the sequence: refuse a second export while one is running, name the bundle
- * after the app, and raise the caller's own copy either way.
+ * the guard: refuse a second export while one is running. The sequence it
+ * wraps names the bundle after the app and raises the caller's own copy
+ * either way.
  */
 
 import {
@@ -13,7 +14,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import * as toastModule from "@vellumai/design-library/components/toast";
 
 import type { AppSummary } from "@/types/app-types";
@@ -112,9 +113,6 @@ describe("useShareApp", () => {
     act(() => {
       firstShare = result.current.share();
     });
-    await waitFor(() => {
-      expect(result.current.isSharing).toBe(true);
-    });
 
     await act(async () => {
       await result.current.share();
@@ -125,7 +123,39 @@ describe("useShareApp", () => {
       release();
       await firstShare;
     });
-    expect(result.current.isSharing).toBe(false);
     expect(successes).toHaveLength(1);
+  });
+
+  test("takes the next request once the export has finished", async () => {
+    const { result } = renderShare();
+
+    await act(async () => {
+      await result.current.share();
+    });
+    await act(async () => {
+      await result.current.share();
+    });
+
+    expect(shareCalls).toHaveLength(2);
+  });
+
+  test("keeps one share handler across the export", async () => {
+    let release = () => {};
+    shareResult = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { result } = renderShare();
+    const before = result.current.share;
+
+    let firstShare: Promise<void> = Promise.resolve();
+    act(() => {
+      firstShare = result.current.share();
+    });
+    await act(async () => {
+      release();
+      await firstShare;
+    });
+
+    expect(result.current.share).toBe(before);
   });
 });
