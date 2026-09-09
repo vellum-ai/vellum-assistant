@@ -79,11 +79,17 @@ export function isHostProxyInterfaceId(id: string): id is HostProxyInterfaceId {
   return id === "macos" || id === "windows" || id === "linux";
 }
 
-/** Capabilities the interface provides, empty when it provides none. */
+/**
+ * Capabilities the interface provides, empty when it provides none.
+ *
+ * `Object.hasOwn`, not `in`: `in` walks the prototype chain, so an id like
+ * "toString" or "constructor" would resolve to an inherited function rather
+ * than a capability list, and the caller's `.includes` would throw.
+ */
 export function hostProxyCapabilities(
   id: string,
 ): readonly HostProxyCapability[] {
-  return id in HOST_PROXY_SUPPORT
+  return Object.hasOwn(HOST_PROXY_SUPPORT, id)
     ? HOST_PROXY_SUPPORT[id as keyof typeof HOST_PROXY_SUPPORT]
     : [];
 }
