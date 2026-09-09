@@ -77,6 +77,13 @@ export interface Notifier {
    * with whatever is already registered.
    */
   registerCategories(categories: NotifierCategory[]): void;
+  /**
+   * Puts the addon's delegate back in front of whoever holds the notification
+   * center's seat, forwarding to them what the addon does not own. Optional
+   * because a packed addon built without the export still satisfies the rest
+   * of this interface.
+   */
+  ensureDelegate?(): void;
   /** Hands the notification center's delegate back to whoever held it. */
   restoreDelegate(): void;
   show(
@@ -195,6 +202,25 @@ export const registerNotifierCategories = (
     notifier.registerCategories(categories);
   } catch (error) {
     log.warn("[notifier] registerCategories failed:", error);
+  }
+};
+
+/**
+ * Puts the addon's delegate back in front of whatever holds the notification
+ * center's seat. Electron's presenter takes that seat when it is built and
+ * drops responses for identifiers it does not own, so anything that can build
+ * it calls this afterwards. An addon built without the export has nothing to
+ * call, and the delegate then moves back on the addon's next post.
+ */
+export const ensureNotifierDelegate = (): void => {
+  const notifier = loadNotifier();
+  if (!notifier?.ensureDelegate) {
+    return;
+  }
+  try {
+    notifier.ensureDelegate();
+  } catch (error) {
+    log.warn("[notifier] ensureDelegate failed:", error);
   }
 };
 

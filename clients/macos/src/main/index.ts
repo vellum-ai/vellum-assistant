@@ -1,5 +1,5 @@
 import "./env-seed";
-import { app, net, protocol, session, shell } from "electron";
+import { app, net, Notification, protocol, session, shell } from "electron";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
@@ -110,7 +110,11 @@ import {
   createNativeNotificationFactory,
   registerNativeNotificationCategories,
 } from "./native-notifications";
-import { isNotifierSupported, restoreNotifierDelegate } from "./notifier";
+import {
+  ensureNotifierDelegate,
+  isNotifierSupported,
+  restoreNotifierDelegate,
+} from "./notifier";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -477,6 +481,16 @@ app
       ...(nativeNotifications ?? {}),
     });
     if (nativeNotifications) {
+      // Electron builds its notification presenter lazily, on the first
+      // `Notification.isSupported()` or `new Notification()`, and the presenter
+      // claims the notification center's delegate and discards responses for
+      // identifiers it does not own. Building it here, with nothing on screen,
+      // and re-asserting the addon's delegate straight after leaves the addon
+      // in front of it for the life of the process, forwarding what it does not
+      // own. The categories are then written after the presenter exists, so
+      // Electron's own category read-modify-write cannot land on top of them.
+      Notification.isSupported();
+      ensureNotifierDelegate();
       registerNativeNotificationCategories();
       app.on("before-quit", restoreNotifierDelegate);
     }
