@@ -473,6 +473,31 @@
     "tryAgain": "Intentar de nuevo",
     "viewPlans": "Ver planes"
   },
+  "codingAgentsCard": {
+    "agentDefaultOption": "Usar el predeterminado del agente",
+    "configUpdateFailedToast": "No se pudo actualizar la configuración del asistente. Inténtalo de nuevo.",
+    "customModelHint": "Se guarda tal como lo escribas, así que valen tanto un alias como un id de modelo completo que el agente de código entienda.",
+    "customModelLabel": "Modelo",
+    "customModelOption": "Modelo personalizado",
+    "customModelPlaceholder": "claude-opus-4-1",
+    "modelAriaLabel": "Modelo predeterminado del agente de código",
+    "modelLabel": "Modelo predeterminado",
+    "modelOptions": {
+      "best": "El mejor disponible",
+      "default": "Predeterminado",
+      "fable": "Fable",
+      "fable1m": "Fable (contexto de 1M)",
+      "haiku": "Haiku",
+      "opus": "Opus",
+      "opus1m": "Opus (contexto de 1M)",
+      "opusplan": "Opus en modo plan",
+      "sonnet": "Sonnet",
+      "sonnet1m": "Sonnet (contexto de 1M)"
+    },
+    "savedToast": "Configuración de los agentes de código guardada.",
+    "subtitle": "Elige el modelo con el que empiezan las nuevas sesiones de agentes de código",
+    "title": "Agentes de código"
+  },
   "communityPage": {
     "communityHubDescription": "Muestras, guías y proyectos compartidos por la comunidad.",
     "communityHubTitle": "Centro de la comunidad",
