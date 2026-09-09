@@ -35,6 +35,10 @@ import {
   type MessageRow,
 } from "../persistence/conversation-crud.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import {
+  isPrivateAssistantText,
+  projectPersistedAssistantContent,
+} from "../persistence/user-facing-content.js";
 import type { ContentBlock } from "../providers/types.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { hasNotifiedSourceContextSince } from "./events-store.js";
@@ -135,16 +139,38 @@ function collectRunRows(
  * honest finding is that nothing changed; the user asked for that cadence, and
  * "no new mail today" is a result, not noise.
  *
+ * Every row is read through the user-facing projection, so a scheduled run
+ * that routed its reply through `send_user_message` quotes the message it
+ * delivered rather than the private scratchpad behind it. A scheduled run
+ * resolves the `mainAgent` call site, so it is gated like any app turn.
+ *
+ * The scan walks back only across rows marked private, because that is the
+ * shape a gated run leaves: it ends on wrap-up notes that project to nothing,
+ * with the delivered message on the earlier row carrying the call. An ordinary
+ * run is read exactly as before: its last row, and silence if that row has no
+ * prose.
+ *
  * The returned body keeps its original markdown — only the emptiness test runs
  * on the flattened form, because the detail panel renders the real thing.
  */
-function resolveRunOutput(latestRow: MessageRow): string | undefined {
-  const text = stringifyMessageContent(latestRow.content);
-  const flattened = stripMarkdownForPreview(text).replace(/\s+/g, " ").trim();
-  if (!flattened) {
-    return undefined;
+function resolveRunOutput(runRows: readonly MessageRow[]): string | undefined {
+  for (let i = runRows.length - 1; i >= 0; i--) {
+    const row = runRows[i];
+    const text = stringifyMessageContent(
+      projectPersistedAssistantContent(row.content, row.metadata),
+    );
+    const flattened = stripMarkdownForPreview(text).replace(/\s+/g, " ").trim();
+    if (flattened) {
+      return truncate(
+        decodeLiteralLineBreaks(text.trim()),
+        MAX_RESULT_BODY_CHARS,
+      );
+    }
+    if (!isPrivateAssistantText(row.metadata)) {
+      return undefined;
+    }
   }
-  return truncate(decodeLiteralLineBreaks(text.trim()), MAX_RESULT_BODY_CHARS);
+  return undefined;
 }
 
 /**
@@ -219,7 +245,7 @@ export async function emitScheduleResultNotification(
       return;
     }
 
-    const body = resolveRunOutput(latestRow);
+    const body = resolveRunOutput(runRows);
     if (!body) {
       return;
     }
