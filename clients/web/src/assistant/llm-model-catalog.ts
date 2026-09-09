@@ -1362,15 +1362,12 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
   "gpt-5.4-mini",
 ]);
 
-export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
 export const HOSTED_INFERENCE_CATALOG_FLAG = "vellum-hosted-inference";
 
 export function catalogEnabledFlags(args: {
-  developerMode?: boolean;
   hostedInference?: boolean;
 }): Record<string, boolean> {
   return {
-    [DEVELOPER_MODE_CATALOG_FLAG]: args.developerMode === true,
     [HOSTED_INFERENCE_CATALOG_FLAG]: args.hostedInference === true,
   };
 }

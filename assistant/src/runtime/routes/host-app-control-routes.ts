@@ -19,15 +19,10 @@ import type {
   HostAppControlResultPayload,
   HostAppControlState,
 } from "../../daemon/message-types/host-app-control.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import {
-  enforceSameActorOrThrow,
-  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
-} from "../auth/same-actor.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { SAME_ACTOR_FORBIDDEN_DESCRIPTION } from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import { BadRequestError, ForbiddenError } from "./errors.js";
+import { assertHostProxyResultBinding } from "./host-proxy-result-binding.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -93,35 +88,14 @@ async function handleHostAppControlResult({ body, headers }: RouteHandlerArgs) {
     return { accepted: true };
   }
 
-  // Same-actor binding: when the pending interaction has a targetClientId,
-  // validate the submitting client matches and the actor principals align.
-  // Mirrors host-browser / host-cu / host-bash result routes.
-  if (peeked.targetClientId != null) {
-    const headerMap = headers ?? {};
-    const submittingClientId =
-      headerMap["x-vellum-client-id"]?.trim() || undefined;
-    if (!submittingClientId) {
-      throw new BadRequestError(
-        "x-vellum-client-id header is missing for a targeted host app-control request.",
-      );
-    }
-    if (submittingClientId !== peeked.targetClientId) {
-      throw new ForbiddenError(
-        `Client "${submittingClientId}" is not the target for this request (expected "${peeked.targetClientId}"). The targeted client must submit the result.`,
-      );
-    }
-    const submittingActorPrincipalId =
-      await resolveActorPrincipalIdForLocalGuardian(
-        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-      );
-    enforceSameActorOrThrow({
-      sourceActorPrincipalId: submittingActorPrincipalId,
-      targetActorPrincipalId: peeked.targetActorPrincipalId,
-      targetClientId: peeked.targetClientId,
-      op: "host_app_control",
-      hubForMissingTarget: assistantEventHub,
-    });
-  }
+  await assertHostProxyResultBinding({
+    headers,
+    targetClientId: peeked.targetClientId,
+    targetActorPrincipalId: peeked.targetActorPrincipalId,
+    op: "host_app_control",
+    missingClientIdMessage:
+      "x-vellum-client-id header is missing for a targeted host app-control request.",
+  });
 
   const interaction = pendingInteractions.resolve(requestId, "answered")!;
   const conversation = findConversation(interaction.conversationId);

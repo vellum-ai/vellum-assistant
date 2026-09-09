@@ -274,9 +274,12 @@ describe("runWatchersOnce — Phase 2 runBackgroundJob integration", () => {
     expect(sandwich.preamble).not.toContain("Linear inbox");
     expect(sandwich.preamble).not.toContain("Investigate flaky CI");
 
-    // Postamble (user role) carries the disposition contract; it must NOT
-    // include the attacker-controllable watcher name or event payload.
+    // Postamble (user role) carries the disposition contract and the
+    // silent-by-default notify rule; it must NOT include the
+    // attacker-controllable watcher name or event payload.
     expect(sandwich.postamble).toContain("<watcher-disposition>");
+    expect(sandwich.postamble).toContain("Watcher ticks are not scheduled runs");
+    expect(sandwich.postamble).toContain("Unmatched events stay quiet");
     expect(sandwich.postamble).not.toContain("Linear inbox");
     expect(sandwich.postamble).not.toContain("Investigate flaky CI");
   });
