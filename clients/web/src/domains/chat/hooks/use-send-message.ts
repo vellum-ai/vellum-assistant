@@ -576,6 +576,15 @@ export function useSendMessage({
           resolvedConversationId: postResult.conversationId,
         };
       }
+      // Not queued, so no `message_queued` will register this. Recorded anyway
+      // because a send the daemon accepted can still fail afterwards (an
+      // `interrupt-on-send` handover whose queue fallback is refused), and the
+      // only handle that failure event carries is the request id.
+      if (clientMessageId && postResult.requestId) {
+        useChatSessionStore
+          .getState()
+          .setRequestIdMapping(postResult.requestId, clientMessageId);
+      }
       if (hasMatchingActiveStream) {
         return {
           status: "ok",

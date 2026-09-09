@@ -2388,7 +2388,52 @@ export async function handleSendMessage(
    * handover it waits on is bounded by the abort budget plus the turn-boundary
    * commit wait, which is far too long to hold a request open.
    */
-  const completeSend = async (): Promise<unknown> => {
+  /**
+   * Tell the sender that a queue fallback was refused, for a send this request
+   * has already answered `202` for.
+   *
+   * `queueSend` answers a full queue with a `429`, and once the acceptance has
+   * gone out that response reaches nobody: the message would be accepted and
+   * then silently gone. `requestId` is the id the acceptance carried, so the
+   * client can fail the optimistic row it is already showing and offer the
+   * retry; the body it typed is in that row, so this does not repeat it.
+   */
+  const reportQueueRejectionAfterAcceptance = (reason: string): void => {
+    log.error(
+      {
+        conversationId: mapping.conversationId,
+        requestId: sendRequestId,
+        reason,
+      },
+      "Queue fallback for an accepted send was rejected; telling the sender",
+    );
+    broadcastMessage({
+      type: "error",
+      conversationId: mapping.conversationId,
+      requestId: sendRequestId,
+      code: "QUEUE_FULL",
+      category: "queue_drain_failed",
+      message:
+        "The assistant couldn't take your message: too many are already waiting. Try sending it again in a moment.",
+    });
+  };
+
+  /**
+   * @param afterAcceptance - true when this call runs off an already-answered
+   * request (the interrupt handover). Its return value reaches nobody, so a
+   * queue fallback that is refused has to be reported as an event instead.
+   */
+  const completeSend = async (afterAcceptance = false): Promise<unknown> => {
+    const queueFallback = async (
+      content: string,
+      reason: string,
+    ): Promise<unknown> => {
+      const result = await queueSend(content);
+      if (afterAcceptance && result instanceof RouteResponse) {
+        reportQueueRejectionAfterAcceptance(reason);
+      }
+      return result;
+    };
     // The interrupt arms a `thinking` / `message_interrupted` transition for the
     // agent loop to emit at the head of the replacement turn. Several exits
     // below answer without starting a loop at all: a `/compact`, a `/clean`, an
@@ -2537,7 +2582,7 @@ export async function handleSendMessage(
       if (slashResult.kind === "unknown") {
         const slashOwner = await conversation.acquireProcessingFenced();
         if (slashOwner === null) {
-          return queueSend(rawContent);
+          return queueFallback(rawContent, "lock_race");
         }
         let cleanupDeferred = false;
         try {
@@ -2656,7 +2701,7 @@ export async function handleSendMessage(
       if (slashResult.kind === "compact") {
         const compactOwner = await conversation.acquireProcessingFenced();
         if (compactOwner === null) {
-          return queueSend(rawContent);
+          return queueFallback(rawContent, "lock_race");
         }
         const slashMeta = {
           userMessageChannel: sourceChannel,
@@ -2757,7 +2802,7 @@ export async function handleSendMessage(
       if (slashResult.kind === "clean") {
         const cleanOwner = await conversation.acquireProcessingFenced();
         if (cleanOwner === null) {
-          return queueSend(rawContent);
+          return queueFallback(rawContent, "lock_race");
         }
         const conversationId = mapping.conversationId;
         // Outer try/finally guarantees the processing flag is cleared (and the
@@ -2861,7 +2906,7 @@ export async function handleSendMessage(
         if (isConversationBusyError(err)) {
           // The flag went to someone else inside the awaits above. This is the
           // same message the check at the top would have queued, so queue it.
-          return queueSend(resolvedContent);
+          return queueFallback(resolvedContent, "lock_race");
         }
         throw err;
       }
@@ -3020,26 +3065,9 @@ export async function handleSendMessage(
      */
     const queueAfterAcceptance = async (reason: string): Promise<void> => {
       const queueResult = await queueSend(contentAfterScan);
-      if (!(queueResult instanceof RouteResponse)) {
-        return;
+      if (queueResult instanceof RouteResponse) {
+        reportQueueRejectionAfterAcceptance(reason);
       }
-      log.error(
-        {
-          conversationId: mapping.conversationId,
-          requestId: sendRequestId,
-          reason,
-        },
-        "Queue fallback for an accepted interrupting send was rejected; telling the sender",
-      );
-      broadcastMessage({
-        type: "error",
-        conversationId: mapping.conversationId,
-        requestId: sendRequestId,
-        code: "QUEUE_FULL",
-        category: "queue_drain_failed",
-        message:
-          "The assistant couldn't take your message: too many are already waiting. Try sending it again in a moment.",
-      });
     };
 
     void (async () => {
@@ -3051,7 +3079,7 @@ export async function handleSendMessage(
         await queueAfterAcceptance(`interrupt_${outcome}`);
         return;
       }
-      await completeSend();
+      await completeSend(true);
     })().catch(async (err) => {
       // The message is this request's responsibility and it has already been
       // accepted, so a failure in here must still land it somewhere. The queue
@@ -3083,8 +3111,16 @@ export async function handleSendMessage(
       }
     });
 
+    // `messageId` as well as `requestId`, because the response contract is not
+    // suspended for an interrupt: `postChatMessage` rejects an accepted,
+    // non-queued response without one, and the client would report the send
+    // failed and drop the optimistic row. They are the same value by
+    // construction, since a user turn persists its row under its `requestId`
+    // (`persistUserMessage` passes `id: requestId`), which is why this can be
+    // answered before the row is written.
     return {
       accepted: true,
+      messageId: sendRequestId,
       requestId: sendRequestId,
       conversationId: mapping.conversationId,
     };

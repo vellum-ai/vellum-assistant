@@ -830,11 +830,17 @@ describe("host-proxy preactivation across an interrupt", () => {
     const body = (await response.json()) as {
       accepted?: boolean;
       requestId?: string;
+      messageId?: string;
       queued?: boolean;
     };
     expect(body.accepted).toBe(true);
     // The id the row will be written with, so the client can correlate.
     expect(typeof body.requestId).toBe("string");
+    // And `messageId`, because the response contract is not suspended for an
+    // interrupt: `postChatMessage` rejects an accepted, non-queued response
+    // without one and the client drops the optimistic row. Same value, since a
+    // user turn persists its row under its `requestId`.
+    expect(body.messageId).toBe(body.requestId);
     expect(body.queued).toBeUndefined();
     // The conversation is still mid-handover: the turn never released, so the
     // request cannot have waited for it.
@@ -962,6 +968,66 @@ describe("host-proxy preactivation across an interrupt", () => {
     expect(body.queued).toBeUndefined();
     // Untouched: no abort, and the turn still holds the conversation.
     expect(conv.isProcessing()).toBe(true);
+  });
+
+  test("reports a queue rejection from inside the detached send too", async () => {
+    // `completeSend` has its own queue fallbacks, for losing the lock race
+    // after the handover. Running detached, their return value reaches nobody
+    // either, so a refused enqueue there has to be reported the same way.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-lockrace-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = busyConversation(conversationId) as Conversation & {
+      acquireProcessingFenced: () => Promise<number | null>;
+      enqueueMessage: () => {
+        queued: boolean;
+        requestId: string;
+        rejected?: boolean;
+      };
+    };
+    // The handover succeeds (the interrupt takes the lock for its repair and
+    // gives it back), then another claim owns the conversation by the time the
+    // send tries to take it, and the queue it falls back to is full.
+    let claims = 0;
+    conv.acquireProcessingFenced = async () => {
+      claims += 1;
+      return claims === 1 ? 99 : null;
+    };
+    conv.enqueueMessage = () => ({
+      queued: false,
+      requestId: crypto.randomUUID(),
+      rejected: true,
+    });
+
+    const events: Array<Record<string, unknown>> = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "client",
+      clientId: `lock-race-watcher-${crypto.randomUUID()}`,
+      interfaceId: "macos",
+      capabilities: [],
+      callback: (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    });
+
+    const response = await sendMacosMessage(
+      conversationKey,
+      "/definitelynotarealcommand",
+    );
+    expect(response.status).toBe(202);
+
+    const reported = await waitFor(() => {
+      for (const envelope of events) {
+        const message = envelope.message as Record<string, unknown> | undefined;
+        if (message?.type === "error" && message.code === "QUEUE_FULL") {
+          return message;
+        }
+      }
+      return undefined;
+    });
+    expect(reported.category).toBe("queue_drain_failed");
+
+    subscription.dispose();
   });
 
   test("a retransmitted send answers from the existing row instead of interrupting", async () => {
