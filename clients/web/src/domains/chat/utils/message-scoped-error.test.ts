@@ -62,8 +62,8 @@ describe("isMessageScopedError", () => {
     expect(result).toBe(false);
   });
 
-  test("treats a turn scope carrying a nonce as the message's", () => {
-    // GIVEN an error labelled with the turn scope that still names one message
+  test("treats a turn scope carrying a nonce as the turn's", () => {
+    // GIVEN an error labelled with the turn scope that also names a message
     const event = {
       type: "error",
       message: "Could not save your message.",
@@ -74,7 +74,7 @@ describe("isMessageScopedError", () => {
     // WHEN asking what the error belongs to
     const result = isMessageScopedError(event);
 
-    // THEN the nonce names a single message, so the failure is that message's
-    expect(result).toBe(true);
+    // THEN the explicit scope decides, and the nonce is not read as a fallback
+    expect(result).toBe(false);
   });
 });
