@@ -107,19 +107,35 @@ const VOICE_IMAGE_PROFILE = "latency-optimized";
  * the stronger model the front door escalates to the one the conversation is
  * already using.
  *
+ * `profile` is the name to pin (a mix's own name, so dispatch re-expands it
+ * to the same arm from the conversation seed); `modelProfile` is the concrete
+ * profile whose model actually runs (the chosen arm of a mix), which is what
+ * capability checks must judge: a mix reads as vision-capable when any arm
+ * is, but only one arm serves this conversation.
+ *
  * Null when nothing above named a profile (the winner is the code-owned
  * anchor): the leg then keeps its ordinary call-site resolution, which lands
  * on the same anchor intent and still honors a `callAgent` site pin.
  */
 function conversationProfileForEscalation(
   conversation: OverrideProfileFields & { conversationId: string },
-): string | null {
+): { profile: string; modelProfile: string } | null {
   const overrideProfile = resolveOverrideProfile(conversation);
+  let chosenArm: string | undefined;
   const selection = selectWinningProfile("mainAgent", getConfig().llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
     selectionSeed: conversation.conversationId,
+    onMixSelected: ({ chosenProfile }) => {
+      chosenArm = chosenProfile;
+    },
   });
-  return selection.source === "default" ? null : selection.profileName;
+  if (selection.source === "default" || selection.profileName == null) {
+    return null;
+  }
+  return {
+    profile: selection.profileName,
+    modelProfile: chosenArm ?? selection.profileName,
+  };
 }
 
 /**
@@ -1946,13 +1962,15 @@ export async function startVoiceTurn(
       // its own call site already resolves to the same profile. A
       // conversation profile whose model takes images needs no image pin
       // either; one that does not yields to the image pin, since a model
-      // that rejects an image fails the whole leg. The capability checks
-      // come before the scan because they are the cheaper of the two and
-      // they decide whether the pin is worth anything at all.
+      // that rejects an image fails the whole leg. The judged profile is the
+      // concrete arm that serves this conversation, not a mix's name. The
+      // capability checks come before the scan because they are the cheaper
+      // of the two and they decide whether the pin is worth anything at all.
       const needsImagePin =
         opts.routingLeg !== "front-door" &&
         !(
-          conversationProfile != null && doesSupportVision(conversationProfile)
+          conversationProfile != null &&
+          doesSupportVision(conversationProfile.modelProfile)
         ) &&
         doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());
@@ -1963,13 +1981,15 @@ export async function startVoiceTurn(
         );
       } else if (conversationProfile != null) {
         log.info(
-          { turnId, profile: conversationProfile },
+          { turnId, profile: conversationProfile.profile },
           "Escalated voice leg pinned to the conversation's own profile",
         );
       }
       const profilePin =
         opts.overrideProfile ??
-        (needsImagePin ? VOICE_IMAGE_PROFILE : conversationProfile);
+        (needsImagePin
+          ? VOICE_IMAGE_PROFILE
+          : (conversationProfile?.profile ?? null));
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {

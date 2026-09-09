@@ -39,11 +39,15 @@ let pinProfileSupportsVision = true;
 // Vision capability of the conversation's own profile, which an escalated
 // leg is pinned to. Scripted for the same reason.
 let conversationProfileSupportsVision = true;
+// Per-profile answers that outrank the two switches above, for a mix whose
+// arms differ.
+const visionByProfile = new Map<string, boolean>();
 mock.module("../../plugin-api/vision-support.js", () => ({
   doesSupportVision: (profile: string) =>
-    profile === "latency-optimized"
+    visionByProfile.get(profile) ??
+    (profile === "latency-optimized"
       ? pinProfileSupportsVision
-      : conversationProfileSupportsVision,
+      : conversationProfileSupportsVision),
 }));
 
 // Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
@@ -133,6 +137,8 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -2837,5 +2843,53 @@ describe("startVoiceTurn escalated-leg profile pin", () => {
     });
 
     expect(runOptions.overrideProfile).toBe("balanced");
+  });
+
+  test("a mix is judged by the arm serving this conversation, not by any arm", async () => {
+    // A mix reads as vision-capable when any arm is, but dispatch expands it
+    // to one arm from the conversation seed. Only that arm's model sees the
+    // image, so only that arm's capability decides whether the image pin
+    // takes over. The pin itself stays the mix's own name, so dispatch lands
+    // on the same arm.
+    const llm = {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    };
+    setConfig("llm", llm);
+    let chosenArm: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        chosenArm = chosenProfile;
+      },
+    });
+    expect(chosenArm).toBeDefined();
+    const otherArm =
+      chosenArm === "quality-optimized"
+        ? "cost-optimized"
+        : "quality-optimized";
+    try {
+      // Only the unchosen arm takes images: judged as "any arm", the mix
+      // would keep the pin off and the image would reach a text-only model.
+      visionByProfile.set(chosenArm!, false);
+      visionByProfile.set(otherArm, true);
+      const textOnlyArm = await runOptionsFor({ messages: PHOTO_HISTORY });
+      expect(textOnlyArm.overrideProfile).toBe("latency-optimized");
+
+      // Only the chosen arm takes images: no pin needed, the mix stands.
+      visionByProfile.set(chosenArm!, true);
+      visionByProfile.set(otherArm, false);
+      const visionArm = await runOptionsFor({ messages: PHOTO_HISTORY });
+      expect(visionArm.overrideProfile).toBe("voice-mix");
+    } finally {
+      visionByProfile.clear();
+    }
   });
 });
