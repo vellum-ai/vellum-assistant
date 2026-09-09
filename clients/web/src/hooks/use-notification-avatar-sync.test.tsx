@@ -328,7 +328,9 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(getNotificationAvatar()).not.toBeNull();
     });
-    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+    // The render that gave nothing back, the one redraw it scheduled (which
+    // gave nothing back either), and the refetch.
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(3);
   });
 
   test("draws again on the next refetch after the rasterizer threw", async () => {
@@ -364,7 +366,73 @@ describe("useNotificationAvatarSync", () => {
     await waitFor(() => {
       expect(getNotificationAvatar()).not.toBeNull();
     });
+    // The render that threw, the one redraw it scheduled (which threw too),
+    // and the refetch.
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(3);
+  });
+
+  test("redraws from the URL a refetch minted under a render that then failed", async () => {
+    let releaseFirst = () => {};
+    let releaseRedraw = () => {};
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const redrawGate = new Promise<void>((resolve) => {
+      releaseRedraw = resolve;
+    });
+    rasterizeGate = firstGate;
+    rasterizeThrows = true;
+    const { rerender } = renderHook(
+      ({ url }: { url: string }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          url,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+        ),
+      { initialProps: { url: IMAGE_URL } },
+    );
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+    });
+
+    // A refetch mints a new URL for the same image while the first render is
+    // still in flight. The key is the image's identity, so that run matches it
+    // and returns: only the redraw the failure schedules can draw from the URL
+    // that is still live.
+    rerender({ url: "blob:avatar-1-refetched" });
+    rasterizeGate = redrawGate;
+    releaseFirst();
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+    });
+
+    rasterizeThrows = false;
+    releaseRedraw();
+
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+    expect(rasterizeNotificationAvatar).toHaveBeenLastCalledWith(
+      "blob:avatar-1-refetched",
+      ACCENT,
+    );
+  });
+
+  test("schedules one redraw, not a loop, for a picture that never draws", async () => {
+    rasterizeThrows = true;
+    render();
+
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+    });
+    await act(async () => {});
+    await act(async () => {});
+
     expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+    expect(getNotificationAvatar()).toBeNull();
   });
 
   test("keeps the held avatar when a refetch mints a new URL for the same image", async () => {

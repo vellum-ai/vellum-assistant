@@ -942,11 +942,12 @@ line is enough to tell a trimmed payload from a rejected download:
 bounds: 512 KB whether the response declares a length or streams one, and six
 seconds of wall clock on top of the request's idle timeout, which bounds only a
 stall. Android bounds the same download the same way, reading 8 KB chunks under
-the same 512 KB cap against a four-second budget (`READ_BUDGET_MILLIS` in
+the same 512 KB cap against a three-second budget that spans the response head
+and the body (`RESPONSE_BUDGET_MILLIS` in
 `clients/android/app/src/main/java/ai/vellum/assistant/push/AvatarCache.java`).
 iOS buffers 16 KB chunks out of a per-byte `URLSession.AsyncBytes` sequence and
-checks the deadline once per 512 bytes, because reading the clock costs more
-than copying the byte it guards.
+reads a monotonic clock once per byte, since any stride between checks is a
+window a host answering fewer bytes than that stride hides in.
 
 A banner with no avatar and no `nse.` line at all is the entitlement and
 profile case rather than a code one. `updating(from:)` may throw, which lands

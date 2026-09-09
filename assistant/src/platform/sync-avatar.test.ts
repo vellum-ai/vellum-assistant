@@ -552,9 +552,18 @@ describe("syncAvatarToPlatform", () => {
     expect(patches[1].body).toEqual({
       avatar_base64: png("a").toString("base64"),
     });
+    // The disc key, not the disc-less one: the platform judged this render, so
+    // a later enqueue must not redraw it and take the same 400.
     expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toEndWith(
-      ":none",
+      ":disc",
     );
+
+    lastResvgSvg = "";
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    expect(lastResvgSvg).toBe("");
   });
 
   test("a 400 naming something else is not re-sent without the disc", async () => {

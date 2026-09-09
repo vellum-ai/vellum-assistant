@@ -27,10 +27,6 @@ struct AvatarCache {
     /// budget expired.
     static let downloadBudget: TimeInterval = 6
     static let readChunkSize = 16 * 1024
-    /// Bytes between deadline checks. Reading the clock costs more than copying
-    /// the byte it guards, so it is amortized rather than paid per byte while
-    /// staying frequent enough to catch a body arriving one byte at a time.
-    static let deadlineCheckStride = 512
 
     /// Why no avatar reached the notification. Every cause has its own stable
     /// token, so the Console line names which one it was instead of standing
@@ -203,29 +199,31 @@ struct AvatarCache {
     /// and a possible reallocation per byte, which is the whole of the
     /// extension's CPU budget on a 512 KB avatar.
     ///
-    /// Throws ``UnavailableReason/timedOut`` once `deadline` passes, so a body
+    /// Throws ``UnavailableReason/timedOut`` once `budget` is spent, so a body
     /// that keeps arriving too slowly to go idle is still bounded.
+    ///
+    /// The clock is read once per byte against a monotonic deadline. Any stride
+    /// between checks is a window a trickle hides in: a host answering fewer
+    /// bytes than the stride, however slowly, would never reach a check at all.
+    /// A full 512 KB body pays for one clock read per byte, tens of
+    /// milliseconds against a six-second budget.
     static func readAtMost<Bytes: AsyncSequence>(
         _ limit: Int,
         from bytes: Bytes,
         expecting expectedCount: Int? = nil,
-        before deadline: Date = Date().addingTimeInterval(downloadBudget)
+        within budget: Duration = .seconds(downloadBudget)
     ) async throws -> Data? where Bytes.Element == UInt8 {
+        let deadline = ContinuousClock.now + budget
         var data = Data()
         data.reserveCapacity(min(limit, expectedCount ?? readChunkSize))
         var chunk = [UInt8](repeating: 0, count: min(limit, readChunkSize))
         var filled = 0
-        var sinceDeadlineCheck = 0
         for try await byte in bytes {
             if data.count + filled >= limit {
                 return nil
             }
-            sinceDeadlineCheck += 1
-            if sinceDeadlineCheck == deadlineCheckStride {
-                sinceDeadlineCheck = 0
-                guard Date() < deadline else {
-                    throw UnavailableReason.timedOut
-                }
+            guard ContinuousClock.now < deadline else {
+                throw UnavailableReason.timedOut
             }
             chunk[filled] = byte
             filled += 1

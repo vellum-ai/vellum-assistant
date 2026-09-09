@@ -61,6 +61,7 @@ jobs:
             production)
               echo "scheme=App" >> "$GITHUB_OUTPUT"
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios" >> "$GITHUB_OUTPUT"
+              echo "app_group=group.ai.vocify-inc.vellum-assistant-ios" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Distribution" >> "$GITHUB_OUTPUT"
               echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.VoiceActivity" >> "$GITHUB_OUTPUT"
@@ -79,6 +80,7 @@ jobs:
             staging)
               echo "scheme=App Staging" >> "$GITHUB_OUTPUT"
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.staging" >> "$GITHUB_OUTPUT"
+              echo "app_group=group.ai.vocify-inc.vellum-assistant-ios.staging" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_STAGING" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Staging Distribution" >> "$GITHUB_OUTPUT"
               echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.staging.VoiceActivity" >> "$GITHUB_OUTPUT"
@@ -97,6 +99,7 @@ jobs:
             dev)
               echo "scheme=App Dev" >> "$GITHUB_OUTPUT"
               echo "bundle_id=ai.vocify-inc.vellum-assistant-ios.dev" >> "$GITHUB_OUTPUT"
+              echo "app_group=group.ai.vocify-inc.vellum-assistant-ios.dev" >> "$GITHUB_OUTPUT"
               echo "profile_key=IOS_PROVISIONING_PROFILE_DEV" >> "$GITHUB_OUTPUT"
               echo "profile_name=Vellum Assistant iOS Dev Distribution" >> "$GITHUB_OUTPUT"
               echo "ext_bundle_id=ai.vocify-inc.vellum-assistant-ios.dev.VoiceActivity" >> "$GITHUB_OUTPUT"
@@ -273,16 +276,34 @@ jobs:
             fi
           }
 
+          # The App Group this environment's bundles name, restated from
+          # clients/ios/App/App/Config/App*.xcconfig and pinned to them by
+          # clients/ios/scripts/__tests__/notification-service-bundle-ids.test.ts.
+          APP_GROUP="${{ steps.config.outputs.app_group }}"
+
           # Every signed bundle declares the App Group: the app through
           # App/App.entitlements and App/App-Dev.entitlements, all three
           # appexes through App/Extension.entitlements. A profile issued before
           # the group was assigned to its App ID does not grant it, and the
           # build fails at Archive with an error that names neither the
           # entitlement nor the fix.
+          #
+          # The array has to carry this environment's group specifically. An
+          # empty array satisfies presence and grants nothing, and the
+          # production group is a prefix of the staging and dev ones, so a
+          # profile issued against the wrong environment's App ID passes any
+          # check looser than a whole-line match.
           require_app_group() {
             local plist="$1" secret="$2" target="$3"
             require_entitlement_present "$plist" com.apple.security.application-groups \
-              "Provisioning profile $secret does not grant com.apple.security.application-groups, which $target declares. Archive would fail while signing $target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md for this environment's row: assign the App Group to this App ID (steps 1 and 2), reissue its distribution profile under the identical name (steps 3 and 4), then replace $secret."
+              "Provisioning profile $secret does not grant com.apple.security.application-groups, which $target declares. Archive would fail while signing $target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md for this environment's row: assign $APP_GROUP to this App ID (steps 1 and 2), reissue its distribution profile under the identical name (steps 3 and 4), then replace $secret."
+            if ! /usr/libexec/PlistBuddy \
+              -c "Print :Entitlements:com.apple.security.application-groups" "$plist" \
+              | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' \
+              | grep -qxF "$APP_GROUP"; then
+              echo "::error::Provisioning profile $secret grants com.apple.security.application-groups but not $APP_GROUP, which $target declares. Archive would fail while signing $target. Fix: 'Manual Apple Developer portal setup' in clients/ios/README.md for this environment's row: assign $APP_GROUP to this App ID (steps 1 and 2), reissue its distribution profile under the identical name (steps 3 and 4), then replace $secret."
+              exit 1
+            fi
           }
 
           # The app profile is non-negotiable: without it there is no build to

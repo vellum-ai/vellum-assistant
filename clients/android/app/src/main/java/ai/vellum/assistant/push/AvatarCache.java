@@ -36,13 +36,16 @@ public final class AvatarCache {
     private static final int CONNECT_TIMEOUT_MILLIS = 3_000;
     // Bounds the response head and each body read alike.
     private static final int READ_TIMEOUT_MILLIS = 2_000;
-    // The read timeout restarts on every chunk, so the body also gets a total
-    // deadline: a host trickling bytes must not cost the whole notification.
-    // The deadline is only read between chunks, and Android fixes the socket
+    // The read timeout restarts on every chunk, so the response head and the
+    // body share one total deadline, started before the head is read: a host
+    // trickling bytes must not cost the whole notification. A head that
+    // arrives slowly spends the body's share rather than adding to it, and one
+    // that spends all of it gives up before a byte of body is read. The
+    // deadline is only read between chunks, and Android fixes the socket
     // timeout when the connection is made, so the read that crosses it still
     // runs its full timeout out: a connect, the budget, and that last read
     // bound a responding host at 8 s.
-    private static final long READ_BUDGET_MILLIS = 3_000;
+    private static final long RESPONSE_BUDGET_MILLIS = 3_000;
     // A local file has no host trickling it, so its read carries no deadline.
     private static final long NO_DEADLINE = 0;
     private static final int MAX_FILES = 8;
@@ -216,11 +219,16 @@ public final class AvatarCache {
             connection = (HttpsURLConnection) parsed.openConnection();
             connection.setConnectTimeout(CONNECT_TIMEOUT_MILLIS);
             connection.setReadTimeout(READ_TIMEOUT_MILLIS);
+            long deadline = System.nanoTime() + RESPONSE_BUDGET_MILLIS * 1_000_000L;
             if (connection.getResponseCode() != HttpsURLConnection.HTTP_OK) {
                 return null;
             }
+            long remainingMillis = (deadline - System.nanoTime()) / 1_000_000L;
+            if (remainingMillis <= 0) {
+                return null;
+            }
             try (InputStream stream = connection.getInputStream()) {
-                return readCapped(stream, READ_BUDGET_MILLIS);
+                return readCapped(stream, remainingMillis);
             }
         } catch (IOException | RuntimeException exception) {
             return null;
@@ -233,8 +241,10 @@ public final class AvatarCache {
 
     /**
      * Bytes up to {@link #MAX_BYTES}, or null once the payload passes the cap
-     * or the budget runs out. A budget of {@link #NO_DEADLINE} reads to the end
-     * of the stream. Package-private so a test can burn a budget quickly.
+     * or the budget runs out. The budget is what the caller has left of
+     * {@link #RESPONSE_BUDGET_MILLIS}, not a fresh one. A budget of
+     * {@link #NO_DEADLINE} reads to the end of the stream. Package-private so a
+     * test can burn a budget quickly.
      */
     @Nullable
     static byte[] readCapped(InputStream stream, long budgetMillis) throws IOException {

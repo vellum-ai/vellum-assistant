@@ -454,12 +454,15 @@ name or has grown past the 512 KB cap. The avatar is resolved once the renderer
 confirms a notification can be posted at all, and before it is posted: the cache
 first, then an HTTPS download verified against the pushed sha256. The download
 runs inside `onMessageReceived` with a 3 s connect timeout, a 2 s read timeout,
-and a 3 s total budget for the body, since the per-read timeout restarts on
-every chunk. The budget is only read between chunks and Android fixes the socket
-timeout when the connection is made, so the read that crosses the budget still
-runs its own timeout out: a connect, the budget, and that last read bound a
-responding host at 8 s. The local cache read carries the cap but no deadline,
-having no host to trickle it. A miss just posts without an avatar.
+and a 3 s total budget that starts before the response head and spans the body,
+since the per-read timeout restarts on every chunk. A head that arrives slowly
+spends the body's share rather than adding to it, and one that spends all of it
+gives up before a byte of body is read. The budget is only read between chunks
+and Android fixes the socket timeout when the connection is made, so the read
+that crosses it still runs its own timeout out: a connect, the budget, and that
+last read bound a responding host at 8 s. The local cache read carries the cap
+but no deadline, having no host to trickle it. A miss just posts without an
+avatar.
 
 ### Device QA checklist
 
