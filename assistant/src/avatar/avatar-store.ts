@@ -15,9 +15,11 @@
  * unless the avatar came out identical. Mutating routes (HTTP/IPC) go through
  * it rather than touching artifacts or the manifest directly. The
  * `notify_avatar_updated` route and the avatar watcher in
- * `daemon/config-watcher.ts` republish out-of-band writes and record nothing;
- * the read-time accent repair in `accent-backfill.ts` is the one other
- * manifest write, and announces nothing.
+ * `daemon/config-watcher.ts` republish out-of-band writes and record nothing.
+ * Three other writers touch the manifest and announce and record nothing: the
+ * read-time accent repair in `accent-backfill.ts`, the read routes' self-heal
+ * persist in `runtime/routes/avatar-routes.ts`, and the
+ * `094-seed-avatar-manifest` workspace migration.
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -43,10 +45,10 @@ import {
   type AvatarChangeAction,
   avatarChangedFields,
   IMAGE_ACTIONS,
+  type ImageSource,
   isSameAvatar,
 } from "./avatar-changed-telemetry.js";
 import {
-  type AvatarSource,
   type AvatarState,
   computeImageMeta,
   NONE_AVATAR_STATE,
@@ -92,8 +94,8 @@ interface AvatarTransition {
 }
 
 /**
- * The side effects every persisted change owes. An identical re-set still
- * notifies but is not counted. Telemetry is best effort: the avatar is
+ * The side effects every persisted change owes. An identical re-set notifies
+ * and is not counted. Telemetry is best effort: the avatar is
  * already written and announced, so a failed record is logged, not thrown.
  */
 function announceChange(
@@ -165,7 +167,7 @@ export function setCharacter(
  */
 export async function setImage(
   pngBuffer: Buffer,
-  source: Exclude<AvatarSource, "builder">,
+  source: ImageSource,
   options?: ImageChangeOptions,
 ): Promise<void> {
   const accent = derivedAccent(await deriveAccentHexFromImage(pngBuffer));
@@ -238,7 +240,8 @@ export async function setAccent(
 
 /**
  * Clears the avatar entirely: removes the PNG, character sidecars, and the
- * manifest itself. Idempotent — safe to call when nothing exists.
+ * manifest itself. Idempotent: safe to call when nothing exists. Returns the
+ * state it cleared, so a caller can tell whether an avatar was there.
  *
  * "No avatar" is represented by the ABSENCE of a manifest, not a persisted
  * `kind:"none"`. Deleting avatar.json (rather than writing `none`) keeps an
@@ -246,7 +249,7 @@ export async function setAccent(
  * picked up by the read-time self-heal instead of being shadowed by a stale
  * `none` manifest.
  */
-export function clearAvatar(options?: AvatarChangeOptions): void {
+export function clearAvatar(options?: AvatarChangeOptions): AvatarState {
   const avatarDir = getAvatarDir();
   mkdirSync(avatarDir, { recursive: true });
 
@@ -262,4 +265,5 @@ export function clearAvatar(options?: AvatarChangeOptions): void {
     NO_AVATAR_IDENTITY_NOTE,
     options,
   );
+  return previous;
 }

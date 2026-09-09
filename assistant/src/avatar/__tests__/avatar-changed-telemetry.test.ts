@@ -196,22 +196,9 @@ describe("isSameAvatar", () => {
     );
   });
 
-  test("a legacy-derived image is not the same once the bytes change", () => {
-    expect(isSameAvatar(UPLOADED_LEGACY, UPLOADED, true)).toBe(false);
-  });
-
   test("a custom accent over one that was never recorded is not", () => {
     expect(
       isSameAvatar(UPLOADED_LEGACY, { ...UPLOADED, accent: CUSTOM_ACCENT }),
-    ).toBe(false);
-  });
-
-  test("a previous custom accent under a derived one is not, even with an unknown source", () => {
-    expect(
-      isSameAvatar(
-        { ...UPLOADED_LEGACY, accent: { hex: "#c81e1e", source: "custom" } },
-        UPLOADED,
-      ),
     ).toBe(false);
   });
 

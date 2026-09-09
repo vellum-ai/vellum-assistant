@@ -20,10 +20,12 @@ export type AvatarChangeAction =
   | "set_accent"
   | "clear";
 
+/** The sources an image can be set from. */
+export type ImageSource = Exclude<AvatarSource, "builder">;
+
 /** The action an image write counts as, by where the image came from. */
-export const IMAGE_ACTIONS: Readonly<
-  Record<Exclude<AvatarSource, "builder">, AvatarChangeAction>
-> = { upload: "upload_image", ai: "generate_image" };
+export const IMAGE_ACTIONS: Readonly<Record<ImageSource, AvatarChangeAction>> =
+  { upload: "upload_image", ai: "generate_image" };
 
 /** The `avatar_changed` wire payload minus the fields `recordTelemetryEvent` stamps. */
 type AvatarChangedFields = Omit<
