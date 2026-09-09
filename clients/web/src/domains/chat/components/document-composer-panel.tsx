@@ -30,13 +30,18 @@ export function DocumentComposerPanel({
 }: DocumentComposerPanelProps) {
   const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const { status, submit } = useDocumentComposerSubmit({ assistantId, doc });
   // These attachments are sent to the document's own conversation, so the
-  // image gate reads that conversation's model, not the chat route's.
+  // image gate reads that conversation's model, not the chat route's. A null
+  // is that model still loading, which holds an image back until it is known.
   const imageAttachmentsAllowed = useImageAttachmentsAllowed(
     assistantId,
     doc?.conversationId,
   );
+  const { status, submit } = useDocumentComposerSubmit({
+    assistantId,
+    doc,
+    imageAttachmentsAllowed,
+  });
 
   // Clear the document slot's staged text/attachments whenever the target
   // document changes or the panel unmounts, so a draft typed for one
@@ -92,7 +97,7 @@ export function DocumentComposerPanel({
         onAddAttachmentFiles={(files) => {
           const { allowed, droppedImages } = partitionAttachableFiles(
             files,
-            imageAttachmentsAllowed,
+            imageAttachmentsAllowed === true,
           );
           if (allowed.length > 0) {
             useComposerStore
@@ -102,9 +107,10 @@ export function DocumentComposerPanel({
           // Set after `addFiles`, which clears the slot's error on a clean queue.
           if (droppedImages > 0) {
             useComposerStore.setState({
-              documentAttachmentLastError: t(
-                "documentComposer.imageNotSupported",
-              ),
+              documentAttachmentLastError:
+                imageAttachmentsAllowed === null
+                  ? t("documentComposer.imageGateResolving")
+                  : t("documentComposer.imageNotSupported"),
             });
           }
         }}

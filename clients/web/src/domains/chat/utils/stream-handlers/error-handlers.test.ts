@@ -1,13 +1,35 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
   handleStreamError,
   handleConversationErrorEvent,
   handleConversationNoticeEvent,
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
+import { conversationListQueryKey } from "@/utils/conversation-list-keys";
+import { findConversation } from "@/utils/conversation-cache";
+import { listPage } from "@/utils/conversation-list.test-helper";
 
 describe("handleStreamError", () => {
+  const optimisticSend: DisplayMessage = {
+    id: "client-1",
+    clientMessageId: "client-1",
+    isOptimistic: true,
+    role: "user",
+    contentBlocks: [{ type: "text", text: "the batched send" }],
+  };
+
+  // The message-scoped branch reads the real chat-session store to find the
+  // row the failing nonce belongs to. Reset it around each case.
+  beforeEach(() => {
+    useChatSessionStore.setState({ optimisticSends: [] });
+  });
+  afterEach(() => {
+    useChatSessionStore.setState({ optimisticSends: [] });
+  });
+
   it("ends the turn with reason=error, sets error, cancels stream", () => {
     const ctx = makeCtx();
     handleStreamError({ type: "error", message: "Something went wrong." }, ctx);
@@ -17,6 +39,93 @@ describe("handleStreamError", () => {
     });
     expect(ctx.setError).toHaveBeenCalled();
     expect(ctx.cancelAndClearStream).toHaveBeenCalled();
+  });
+
+  it("clears the cached isProcessing flag when the error names no message", () => {
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: true }]),
+    );
+
+    handleStreamError({ type: "error", message: "Something went wrong." }, ctx);
+
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(false);
+  });
+
+  it("marks only the named send failed and leaves the running turn alone", () => {
+    // GIVEN a queued batch member this tab still renders as an optimistic row
+    useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: true }]),
+    );
+
+    // WHEN the daemon reports it could not persist that one message
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+
+    // THEN the row comes out of the transcript with its text offered back
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+    const updater = (
+      ctx.setOptimisticSends as unknown as ReturnType<typeof Object>
+    ).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    expect(updater([optimisticSend])).toEqual([]);
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+      displayAs: "modal",
+      restoreContent: "the batched send",
+    });
+
+    // AND the reply the batch is still generating keeps streaming
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(true);
+  });
+
+  it("surfaces a notice and nothing else for a message this tab has no row for", () => {
+    // Another client's queued send failed to persist: nothing local to roll
+    // back, and the turn on screen is not this message's.
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: true }]),
+    );
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        clientMessageId: "client-elsewhere",
+      },
+      ctx,
+    );
+
+    expect(ctx.setNotice).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+    });
+    expect(ctx.setError).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(true);
   });
 });
 

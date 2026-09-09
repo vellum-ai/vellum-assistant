@@ -701,6 +701,7 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "El asistente respondió",
+    "imageGateResolving": "Todavía se está comprobando si el modelo de esta conversación admite imágenes. Inténtalo de nuevo en un momento.",
     "imageNotSupported": "El modelo actual no admite entrada de imágenes. Cambia a un modelo con visión para adjuntar imágenes.",
     "messageSentToast": "Mensaje enviado",
     "placeholder": "¿Qué te gustaría hacer?",

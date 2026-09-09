@@ -705,6 +705,7 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "Assistant replied",
+    "imageGateResolving": "Still checking whether this conversation's model accepts images. Try again in a moment.",
     "imageNotSupported": "The current model doesn't support image input. Switch to a vision-capable model to attach images.",
     "messageSentToast": "Message sent",
     "placeholder": "What would you like to do?",

@@ -18,7 +18,9 @@
  * assistant. The version the send is framed against is covered as well: the
  * wait for an identity that has not hydrated, and a version that flips
  * mid-flight failing the send rather than posting under a frame the row was
- * never minted for.
+ * never minted for. The staged image is checked again at submit against the
+ * model of the conversation it goes to, and the retry handle a send that
+ * outlived its owner leaves to the composer on screen.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -37,6 +39,7 @@ import { createElement } from "react";
 import type { PostMessageResult } from "@/domains/chat/api/messages";
 import type { ComposerSlot } from "@/domains/chat/composer-store";
 import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
+import chatEn from "@/i18n/locales/en/chat.json";
 
 const realMessages = await import("@/domains/chat/api/messages");
 // Echoes back the conversation id it was sent (the real server's contract
@@ -177,12 +180,16 @@ function wrapper({ children }: { children: ReactNode }) {
   return createElement(QueryClientProvider, { client: queryClient }, children);
 }
 
-function renderSubmit(conversationId: string) {
+function renderSubmit(
+  conversationId: string,
+  imageAttachmentsAllowed: boolean | null = true,
+) {
   return renderHook(
     () =>
       useDocumentComposerSubmit({
         assistantId: ASSISTANT_ID,
         doc: { surfaceId: SURFACE_ID, conversationId },
+        imageAttachmentsAllowed,
       }),
     { wrapper },
   );
@@ -192,7 +199,11 @@ function renderSubmit(conversationId: string) {
 function renderSubmitFor(doc: DocumentConversationRef) {
   return renderHook(
     ({ doc: current }: { doc: DocumentConversationRef }) =>
-      useDocumentComposerSubmit({ assistantId: ASSISTANT_ID, doc: current }),
+      useDocumentComposerSubmit({
+        assistantId: ASSISTANT_ID,
+        doc: current,
+        imageAttachmentsAllowed: true,
+      }),
     { wrapper, initialProps: { doc } },
   );
 }
@@ -207,6 +218,7 @@ function renderSubmitForAssistant(
       useDocumentComposerSubmit({
         assistantId: current,
         doc: { surfaceId: SURFACE_ID, conversationId },
+        imageAttachmentsAllowed: true,
       }),
     { wrapper, initialProps: { assistantId } },
   );
@@ -685,7 +697,12 @@ describe("send guards", () => {
 
   test("no-ops without an assistant id or a resolvable document", async () => {
     const { result } = renderHook(
-      () => useDocumentComposerSubmit({ assistantId: null, doc: null }),
+      () =>
+        useDocumentComposerSubmit({
+          assistantId: null,
+          doc: null,
+          imageAttachmentsAllowed: true,
+        }),
       { wrapper },
     );
     useComposerStore.getState().setInput("hello", "document");
@@ -695,6 +712,100 @@ describe("send guards", () => {
     });
 
     expect(postChatMessageMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("images against the target model", () => {
+  /** Stages one uploaded attachment in the document slot, with a draft. */
+  function stageDocumentAttachment(filename: string, mimeType: string): void {
+    useComposerStore.setState({
+      documentInput: "have a look",
+      documentAttachments: [
+        {
+          kind: "uploaded",
+          localId: "a1",
+          id: "srv-1",
+          filename,
+          mimeType,
+          sizeBytes: 1,
+          previewUrl: null,
+        },
+      ],
+    });
+  }
+
+  test("an image bound for a model without vision sends nothing", async () => {
+    // GIVEN an image staged for a conversation whose model cannot see one.
+    stageDocumentAttachment("photo.png", "image/png");
+    const { result } = renderSubmit("conv-existing", false);
+
+    // WHEN the composer submits.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN nothing goes out, the draft and the image are still there to edit,
+    // and the slot says why: the model is what the send would have failed on.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().documentInput).toBe("have a look");
+    expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBe(
+      chatEn.documentComposer.imageNotSupported,
+    );
+    expect(result.current.status).toBe("idle");
+  });
+
+  test("an image sent before the gate resolves waits rather than failing the turn", async () => {
+    // GIVEN an image staged while the target conversation's profile has not
+    // resolved, so whether the model can see it is still unknown.
+    stageDocumentAttachment("photo.png", "image/png");
+    const { result } = renderSubmit("conv-existing", null);
+
+    // WHEN the composer submits.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN nothing goes out, and the notice asks for another try instead of
+    // naming a model the gate has not read yet.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().documentAttachments).toHaveLength(1);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBe(
+      chatEn.documentComposer.imageGateResolving,
+    );
+  });
+
+  test("an image bound for a vision-capable model goes out", async () => {
+    // GIVEN an image staged for a conversation whose model can see one.
+    stageDocumentAttachment("photo.png", "image/png");
+    const { result } = renderSubmit("conv-existing", true);
+
+    // WHEN the composer submits.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the send carries the image and the slot raises no notice.
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[3]).toMatchObject({
+      attachmentIds: ["srv-1"],
+    });
+    expect(useComposerStore.getState().documentAttachmentLastError).toBeNull();
+  });
+
+  test("a file that is not an image goes out on a model without vision", async () => {
+    // GIVEN a text file staged for a conversation whose model has no vision.
+    stageDocumentAttachment("notes.txt", "text/plain");
+    const { result } = renderSubmit("conv-existing", false);
+
+    // WHEN the composer submits.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the gate has nothing to say about it and the send goes out.
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBeNull();
   });
 });
 
@@ -2501,6 +2612,111 @@ describe("a send that outlives its owner", () => {
     await act(async () => {
       settleSecond(sentResult("conv-b"));
       await submittedSecond;
+    });
+  });
+
+  test("a send resolving under a former owner leaves the new owner's nonce alone", async () => {
+    // GIVEN a fresh draft on a mint-capable assistant, whose send is still
+    // waiting on the conversation the daemon is minting for it.
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    const settleMint = deferConversationsPost();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "",
+    });
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(conversationsPostMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the hook moves to a second document that sends before the first one
+    // resumes, and the first one's mint then settles so it reaches its POST.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    const failSecond = failPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const secondNonce = sentOptions(0).clientMessageId as string;
+    expect(secondNonce).toBeTruthy();
+    await act(async () => {
+      settleMint();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(2));
+
+    // THEN the second document's send is still listed under the nonce it went
+    // out with: the older send has no claim on the composer's retry handle.
+    expect(awaitingSends("conv-b").map((p) => p.clientMessageId)).toEqual([
+      secondNonce,
+    ]);
+
+    // ... so its retry after an ambiguous failure carries that same nonce,
+    // which is what lets the daemon dedupe a message it already holds.
+    await act(async () => {
+      failSecond();
+      await submittedSecond;
+      await submittedFirst;
+    });
+    postChatMessageMock = mock(defaultPostChatMessage);
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(sentOptions(0).clientMessageId).toBe(secondNonce);
+  });
+
+  test("a send resolving under a former owner carries a nonce of its own", async () => {
+    // GIVEN a fresh draft on a mint-capable assistant, whose send is still
+    // waiting on the conversation the daemon is minting for it.
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    const settleMint = deferConversationsPost();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "",
+    });
+    let submittedFirst: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedFirst = result.current.submit();
+    });
+    await waitFor(() => expect(conversationsPostMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the hook moves to a second document that sends before the first one
+    // resumes, and the first one's mint then settles so it reaches its POST.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+    const failSecond = failPostChatMessage();
+    let submittedSecond: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submittedSecond = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const secondNonce = sentOptions(0).clientMessageId as string;
+    await act(async () => {
+      settleMint();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(2));
+
+    // THEN the first document's send goes out under a nonce of its own, and
+    // each send is listed in its own conversation under the one it carries.
+    const firstNonce = sentOptions(1).clientMessageId as string;
+    expect(firstNonce).toBeTruthy();
+    expect(firstNonce).not.toBe(secondNonce);
+    expect(
+      awaitingSends(MINTED_CONVERSATION_ID).map((p) => p.clientMessageId),
+    ).toEqual([firstNonce]);
+    expect(awaitingSends("conv-b").map((p) => p.clientMessageId)).toEqual([
+      secondNonce,
+    ]);
+
+    await act(async () => {
+      failSecond();
+      await submittedSecond;
+      await submittedFirst;
     });
   });
 });

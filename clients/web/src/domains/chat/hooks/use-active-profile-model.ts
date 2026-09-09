@@ -47,20 +47,55 @@ export function useActiveProfileModel(
   conversationId: string | undefined,
   pendingProfile?: string | null,
 ): ActiveProfileModel | null {
+  return useActiveProfileModelState(assistantId, conversationId, pendingProfile)
+    .model;
+}
+
+/** What `useActiveProfileModelState` reports about the effective profile. */
+export interface ActiveProfileModelState {
+  /** The (provider, model) pair in effect, null while none resolves. */
+  model: ActiveProfileModel | null;
+  /**
+   * Whether the reads behind `model` have settled. A null `model` under a true
+   * `resolved` is the answer (no profile declares a provider/model); under a
+   * false one it is a query still in flight, which a caller gating a
+   * capability on the model holds for rather than guessing at.
+   */
+  resolved: boolean;
+}
+
+/**
+ * `useActiveProfileModel` plus the signal that tells a still-loading read from
+ * a settled absence.
+ *
+ * @param pendingProfile As on `useActiveProfileModel`.
+ */
+export function useActiveProfileModelState(
+  assistantId: string | null,
+  conversationId: string | undefined,
+  pendingProfile?: string | null,
+): ActiveProfileModelState {
   const { data: config } = useQuery({
     ...configGetOptions({ path: { assistant_id: assistantId ?? "" } }),
     enabled: !!assistantId,
     staleTime: 30_000,
   });
 
-  const { data: convData } = useQuery({
+  const conversationEnabled = !!assistantId && !!conversationId;
+  const { data: convData, status: convStatus } = useQuery({
     ...conversationsByIdGetOptions({
       path: { assistant_id: assistantId ?? "", id: conversationId ?? "" },
     }),
-    enabled: !!assistantId && !!conversationId,
+    enabled: conversationEnabled,
   });
 
-  return useMemo(() => {
+  // A disabled query stays pending at an idle fetch, so only an enabled one
+  // reports anything by its status. An errored row (a draft id the daemon has
+  // never seen) has settled all the same: it carries no override.
+  const resolved =
+    !!config && (!conversationEnabled || convStatus !== "pending");
+
+  const model = useMemo(() => {
     if (!config) {
       return null;
     }
@@ -86,4 +121,6 @@ export function useActiveProfileModel(
         : {}),
     };
   }, [config, convData, pendingProfile]);
+
+  return useMemo(() => ({ model, resolved }), [model, resolved]);
 }

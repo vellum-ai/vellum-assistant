@@ -701,6 +701,7 @@
   },
   "documentComposer": {
     "assistantRepliedToast": "助理已回覆",
+    "imageGateResolving": "正在檢查此對話的模型是否支援圖片輸入，請稍後再試。",
     "imageNotSupported": "目前的模型不支援圖片輸入。請切換到支援視覺的模型後再附加圖片。",
     "messageSentToast": "訊息已傳送",
     "placeholder": "您想做什麼？",

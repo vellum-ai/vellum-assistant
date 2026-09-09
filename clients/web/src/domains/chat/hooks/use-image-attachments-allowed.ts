@@ -7,25 +7,37 @@
  * vision fails the whole turn on the provider's rejection, so the surface has
  * to turn the image away before it is staged.
  *
+ * `null` is the gate being active over a profile that has not resolved yet:
+ * nothing revalidates an image once it is staged, so a surface that can wait
+ * holds the image rather than staging one the model may reject. `true` and
+ * `false` are the settled answers, and a resolved profile that declares no
+ * vision capability reads as `true`.
+ *
  * `conversationId` is the conversation the message is sent to, so a surface
  * targeting a conversation other than the active one (the document composer)
  * gates on the model that conversation actually runs. `pendingProfile` carries
  * the stashed profile of a conversation whose row has not loaded yet, which is
  * the profile its first message uses.
  */
-import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
+import { useActiveProfileModelState } from "@/domains/chat/hooks/use-active-profile-model";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 
 export function useImageAttachmentsAllowed(
   assistantId: string | null,
   conversationId: string | undefined,
   pendingProfile?: string | null,
-): boolean {
-  const activeProfileModel = useActiveProfileModel(
+): boolean | null {
+  const { model, resolved } = useActiveProfileModelState(
     assistantId,
     conversationId,
     pendingProfile,
   );
   const visionGateActive = useVisionAttachmentGate();
-  return !visionGateActive || (activeProfileModel?.supportsVision ?? true);
+  if (!visionGateActive) {
+    return true;
+  }
+  if (!resolved) {
+    return null;
+  }
+  return model?.supportsVision ?? true;
 }

@@ -17,14 +17,18 @@ import chatEn from "@/i18n/locales/en/chat.json";
 let hookStatus: DocumentComposerSendStatus = "idle";
 const submitMock = mock(async () => {});
 
+let lastSubmitParams: Record<string, unknown> = {};
 mock.module("@/domains/chat/hooks/use-document-composer-submit", () => ({
-  useDocumentComposerSubmit: () => ({
-    status: hookStatus,
-    submit: submitMock,
-  }),
+  useDocumentComposerSubmit: (params: Record<string, unknown>) => {
+    lastSubmitParams = params;
+    return {
+      status: hookStatus,
+      submit: submitMock,
+    };
+  },
 }));
 
-let imageAttachmentsAllowed = true;
+let imageAttachmentsAllowed: boolean | null = true;
 mock.module("@/domains/chat/hooks/use-image-attachments-allowed", () => ({
   useImageAttachmentsAllowed: () => imageAttachmentsAllowed,
 }));
@@ -66,6 +70,7 @@ afterEach(() => {
   imageAttachmentsAllowed = true;
   submitMock.mockClear();
   lastComposerProps = {};
+  lastSubmitParams = {};
   resetComposerDocumentSlot();
 });
 
@@ -221,6 +226,34 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
       chatEn.documentComposer.imageNotSupported,
     );
+  });
+
+  test("holds an image back while the target model is still unknown", () => {
+    // Nothing revalidates a staged image once the profile lands, so an
+    // unresolved gate parks the image and says why, rather than staging one
+    // the conversation's model may reject.
+    imageAttachmentsAllowed = null;
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    addFiles([image, note]);
+
+    expect(
+      useComposerStore
+        .getState()
+        .documentAttachments.map((att) => att.filename),
+    ).toEqual(["note.txt"]);
+    expect(useComposerStore.getState().documentAttachmentLastError).toBe(
+      chatEn.documentComposer.imageGateResolving,
+    );
+  });
+
+  test("hands the gate's verdict to the submit hook", () => {
+    // The send re-checks the gate against the attachments it is about to
+    // upload, so it reads the same value the filter did.
+    imageAttachmentsAllowed = null;
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    expect(lastSubmitParams.imageAttachmentsAllowed).toBeNull();
   });
 
   test("keeps the notice visible when the image was the only file", () => {

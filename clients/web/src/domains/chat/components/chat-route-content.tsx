@@ -997,9 +997,11 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const handleDroppedFiles = useCallback(
     (files: FileList | File[]): File[] => {
+      // The route's composer keeps accepting images while the profile is
+      // still loading, so an unresolved gate reads as allowed here.
       const { allowed, droppedImages } = partitionAttachableFiles(
         files,
-        imageAttachmentsAllowed,
+        imageAttachmentsAllowed !== false,
       );
       if (droppedImages > 0) {
         useComposerStore.setState({

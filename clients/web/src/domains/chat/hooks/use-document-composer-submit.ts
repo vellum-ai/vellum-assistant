@@ -31,7 +31,9 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { postChatMessage } from "@/domains/chat/api/messages";
 import { conversationsPost } from "@/generated/daemon/sdk.gen";
+import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
 import {
+  type ChatAttachment,
   selectUploadedIds,
   selectUploadingCount,
   useComposerStore,
@@ -60,6 +62,10 @@ export type DocumentComposerSendStatus = "idle" | "sending" | "sent" | "error";
 export interface UseDocumentComposerSubmitParams {
   assistantId: string | null;
   doc: DocumentConversationRef | null;
+  /** Whether an image sent to the target conversation survives the turn on
+   *  the model that conversation runs. `null` while the vision gate is active
+   *  and that conversation's profile has not resolved yet. */
+  imageAttachmentsAllowed: boolean | null;
 }
 
 export interface DocumentComposerSubmitResult {
@@ -116,9 +122,25 @@ function abandonAttempt(
   }
 }
 
+/**
+ * Whether any staged attachment is an image, read off the file each variant
+ * names. A path reference names no file to send, so it is never one.
+ */
+function hasStagedImage(attachments: ChatAttachment[]): boolean {
+  return attachments.some(
+    (attachment) =>
+      attachment.kind !== "path-reference" &&
+      isImageAttachment({
+        name: attachment.filename,
+        type: attachment.mimeType,
+      }),
+  );
+}
+
 export function useDocumentComposerSubmit({
   assistantId,
   doc,
+  imageAttachmentsAllowed,
 }: UseDocumentComposerSubmitParams): DocumentComposerSubmitResult {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
@@ -213,6 +235,25 @@ export function useDocumentComposerSubmit({
       return;
     }
     if (selectUploadingCount(documentAttachments) > 0) {
+      return;
+    }
+    // The staging filter runs when the file is picked, and the answer can
+    // change between then and the send (the profile resolves, or the
+    // conversation's model changes), so the send checks again against the
+    // model it goes to. Below the image-fallback release an image on a
+    // profile without vision fails the whole turn on the provider's
+    // rejection, after the draft would already have been cleared.
+    if (
+      imageAttachmentsAllowed !== true &&
+      hasStagedImage(documentAttachments)
+    ) {
+      useComposerStore.setState({
+        documentAttachmentLastError: t(
+          imageAttachmentsAllowed === false
+            ? "documentComposer.imageNotSupported"
+            : "documentComposer.imageGateResolving",
+        ),
+      });
       return;
     }
 
@@ -360,10 +401,17 @@ export function useDocumentComposerSubmit({
       // sending the new payload) whenever the draft moved on. Attachment ids
       // are stable upload-row ids, so the snapshot is exact for that set.
       const payloadSnapshot = `${content}\u0000${attachmentIds.join("\u0000")}`;
+      // The ref is the owner's retry handle: a send that outlived its owner
+      // cannot be retried from the composer on screen, so it neither reads nor
+      // writes the handle, and carries a nonce of its own instead.
+      const ownsSlotAtSend = ownsSlotNow();
+      const previousAttempt = ownsSlotAtSend
+        ? pendingClientMessageRef.current
+        : null;
       const sameMessage =
-        pendingClientMessageRef.current?.snapshot === payloadSnapshot &&
-        pendingClientMessageRef.current.clientMessageId
-          ? pendingClientMessageRef.current
+        previousAttempt?.snapshot === payloadSnapshot &&
+        previousAttempt.clientMessageId
+          ? previousAttempt
           : null;
       const clientMessageId = sameMessage
         ? sameMessage.clientMessageId
@@ -377,8 +425,8 @@ export function useDocumentComposerSubmit({
         sameMessage?.targetConversationId === targetConversationId;
       // The attempt whose nonce is replaced here threw, and the fresh nonce
       // is the only handle a retry could have carried back to it.
-      if (pendingClientMessageRef.current && !sameMessage) {
-        abandonAttempt(pendingClientMessageRef.current);
+      if (previousAttempt && !sameMessage) {
+        abandonAttempt(previousAttempt);
       }
       attempt = {
         clientMessageId,
@@ -386,7 +434,9 @@ export function useDocumentComposerSubmit({
         targetConversationId,
         inFlight: true,
       };
-      pendingClientMessageRef.current = attempt;
+      if (ownsSlotAtSend) {
+        pendingClientMessageRef.current = attempt;
+      }
 
       /** Give the nonce back, unless the slot has moved on to another one. */
       const releaseClientMessageId = () => {
@@ -606,7 +656,7 @@ export function useDocumentComposerSubmit({
       }
       toast.error(t("documentComposer.sendFailed"));
     }
-  }, [assistantId, doc, navigate, queryClient, t]);
+  }, [assistantId, doc, imageAttachmentsAllowed, navigate, queryClient, t]);
 
   return { status, submit };
 }
