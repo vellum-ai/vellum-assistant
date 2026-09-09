@@ -39,7 +39,8 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
   ]),
   local_v1: new Set<Scope>(["local.all"]),
   // A grant minted for a third-party CLI to reach the OAuth passthrough
-  // route; it opens no other route.
+  // route. `enforcePolicy` admits it only where the route's policy names
+  // oauth.proxy, so a route naming no scope refuses it too.
   oauth_proxy_v1: new Set<Scope>(["oauth.proxy"]),
   // Managed speech relay only (ATL-1033): the daemon's relay-dial token must
   // not open any other edge-scoped route.
