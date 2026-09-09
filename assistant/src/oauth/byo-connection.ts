@@ -113,6 +113,9 @@ export class BYOOAuthConnection implements OAuthConnection {
                 ? Buffer.from(binaryBody)
                 : (rawBody ?? JSON.stringify(req.body)))
             : undefined,
+          // Following a redirect would replay a POST as a GET against a URL
+          // the caller never asked for, and hide the 3xx from them.
+          redirect: req.manualRedirect === true ? "manual" : "follow",
           signal: req.signal
             ? AbortSignal.any([
                 req.signal,

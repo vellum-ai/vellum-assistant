@@ -128,6 +128,9 @@ export async function handleOAuthProxy(
       // Byte-exact passthrough. Honored by BYO connections; a managed
       // connection is parsed platform-side and cannot offer it.
       rawResponseBody: true,
+      // The caller's own HTTP client decides what to do with a 3xx; the
+      // proxy never makes an upstream hop on its behalf.
+      manualRedirect: true,
     });
   } catch (err) {
     throw mapProxyRequestError(err, provider);

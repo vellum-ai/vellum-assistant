@@ -463,6 +463,25 @@ describe("response emission", () => {
     expect(emitted.equals(raw)).toBe(true);
   });
 
+  test("hands the caller the provider's redirect rather than following it", async () => {
+    upstream = {
+      status: 302,
+      headers: {
+        location: "https://files.stripe.com/blob/abc",
+        "content-type": "text/plain",
+      },
+      body: "moved",
+    };
+
+    const response = await callProxy({ method: "POST", body: "{}" });
+
+    expect(requireCaptured().manualRedirect).toBe(true);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://files.stripe.com/blob/abc",
+    );
+  });
+
   test("emits a string body as UTF-8", async () => {
     upstream = {
       status: 200,
