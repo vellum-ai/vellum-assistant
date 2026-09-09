@@ -204,9 +204,9 @@ describe("isSameAvatar", () => {
 
   test("none is always the same as none", () => {
     expect(isSameAvatar(NONE_AVATAR_STATE, NONE_AVATAR_STATE)).toBe(true);
-    expect(isSameAvatar(NONE_AVATAR_STATE, { ...NONE_AVATAR_STATE }, true)).toBe(
-      true,
-    );
+    expect(
+      isSameAvatar(NONE_AVATAR_STATE, { ...NONE_AVATAR_STATE }, true),
+    ).toBe(true);
   });
 
   test("none is never the same as an avatar", () => {

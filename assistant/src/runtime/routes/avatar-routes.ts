@@ -76,7 +76,7 @@ function handleGetCharacterComponents() {
 /**
  * Reads the manifest, self-healing once if it is absent.
  *
- * The migration (092) seeds `avatar.json` for every workspace, so the manifest
+ * The migration (094) seeds `avatar.json` for every workspace, so the manifest
  * is normally present. If it is somehow missing (e.g. a workspace that predates
  * the manifest and skipped the migration), we derive state from the legacy
  * sidecar files. A *real* avatar (character/image) is persisted once so
@@ -274,7 +274,7 @@ async function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
 }
 
 function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
-  // A character-only workspace (traits, no PNG) is still an avatar, so
+  // A character-only workspace (traits, no PNG) counts as an avatar, so
   // `hadAvatar` comes from the cleared state's kind.
   const hadAvatar = clearAvatar(changeOptions(headers)).kind !== "none";
   return { ok: true, hadAvatar };
