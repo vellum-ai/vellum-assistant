@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
 // `mock.module` is safe for `use-is-mobile` because it's a pure
@@ -14,8 +22,9 @@ mock.module("@/hooks/use-is-mobile", () => ({
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { haptic } from "@/utils/haptics";
 
-import { useOpenAppFromChat } from "./use-open-app-from-chat";
+import { openAppFromChat, useOpenAppFromChat } from "./use-open-app-from-chat";
 
 // We can't safely `mock.module(...)` core stores like viewer/conversation
 // because Bun module mocks are process-global. They leak into every
@@ -28,6 +37,8 @@ let viewerSnapshot: ReturnType<typeof useViewerStore.getState>;
 let conversationSnapshot: ReturnType<typeof useConversationStore.getState>;
 let selectionSnapshot: ReturnType<typeof useResolvedAssistantsStore.getState>;
 
+let lightSpy: ReturnType<typeof spyOn<typeof haptic, "light">>;
+
 const loadAppMock = mock(async (_assistantId: string, _appId: string) => {});
 const enterAppEditingMock = mock(() => undefined);
 const setEditingConversationIdMock = mock((_id: string | null) => undefined);
@@ -36,6 +47,8 @@ beforeEach(() => {
   viewerSnapshot = useViewerStore.getState();
   conversationSnapshot = useConversationStore.getState();
   selectionSnapshot = useResolvedAssistantsStore.getState();
+
+  lightSpy = spyOn(haptic, "light").mockImplementation(async () => {});
 
   mobileRef.current = false;
   loadAppMock.mockReset();
@@ -77,6 +90,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  lightSpy.mockRestore();
   useViewerStore.setState(viewerSnapshot, true);
   useConversationStore.setState(conversationSnapshot, true);
   useResolvedAssistantsStore.setState(selectionSnapshot, true);
@@ -152,5 +166,14 @@ describe("useOpenAppFromChat", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(enterAppEditingMock).not.toHaveBeenCalled();
     expect(setEditingConversationIdMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("openAppFromChat", () => {
+  test("buzzes and opens the app under the assistant it is given", async () => {
+    await openAppFromChat("asst-other", "app-42");
+
+    expect(lightSpy).toHaveBeenCalledTimes(1);
+    expect(loadAppMock).toHaveBeenCalledWith("asst-other", "app-42");
   });
 });

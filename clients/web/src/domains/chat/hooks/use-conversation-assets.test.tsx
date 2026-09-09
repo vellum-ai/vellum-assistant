@@ -8,7 +8,15 @@
  * suite mocks it.
  */
 
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook } from "@testing-library/react";
 
@@ -31,6 +39,8 @@ const {
   useConversationAssets,
   toConversationFileAssets,
 } = await import("@/domains/chat/hooks/use-conversation-assets");
+const { clearTranscriptOwner, seedTranscriptOwner } =
+  await import("@/domains/chat/components/chat-info.test-helper");
 const { makeDisplayAttachment } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
 const {
@@ -145,9 +155,14 @@ function renderCounts({
   );
 }
 
+beforeEach(() => {
+  seedTranscriptOwner(ASSISTANT_ID, CONVERSATION_ID);
+});
+
 afterEach(() => {
   cleanup();
   messagesRef.value = [];
+  clearTranscriptOwner();
 });
 
 // `mock.module` is process-global in this runner, so the module graph is put

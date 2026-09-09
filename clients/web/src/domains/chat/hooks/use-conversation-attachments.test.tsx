@@ -5,10 +5,17 @@
  * everything asserted here is the walk over those rows.
  */
 
-import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type * as ConversationStore from "@/stores/conversation-store";
 import type * as TranscriptMessages from "@/domains/chat/transcript/use-transcript-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
@@ -23,19 +30,10 @@ mock.module(
   }),
 );
 
-const openConversationRef: { value: string | null } = { value: "conv-1" };
-
-mock.module(
-  "@/stores/conversation-store",
-  (): Partial<typeof ConversationStore> => ({
-    useConversationStore: {
-      use: { activeConversationId: () => openConversationRef.value },
-    } as unknown as typeof ConversationStore.useConversationStore,
-  }),
-);
-
 const { useConversationAttachments } =
   await import("@/domains/chat/hooks/use-conversation-attachments");
+const { clearTranscriptOwner, seedTranscriptOwner } =
+  await import("@/domains/chat/components/chat-info.test-helper");
 const { makeDisplayAttachment } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
 
@@ -45,10 +43,14 @@ function makeMessage(overrides: Partial<DisplayMessage>): DisplayMessage {
   return { id: "msg-1", role: "user", ...overrides };
 }
 
+beforeEach(() => {
+  seedTranscriptOwner(TARGET.assistantId, TARGET.conversationId);
+});
+
 afterEach(() => {
   cleanup();
   messagesRef.value = [];
-  openConversationRef.value = "conv-1";
+  clearTranscriptOwner();
 });
 
 afterAll(() => {
@@ -231,8 +233,7 @@ describe("useConversationAttachments", () => {
     expect(result.current.entries).toBe(first);
   });
 
-  test("lists the loaded transcript when it is the target conversation's", () => {
-    openConversationRef.value = "conv-1";
+  test("lists the loaded transcript when the target owns the snapshot", () => {
     messagesRef.value = [
       makeMessage({ attachments: [makeDisplayAttachment({ id: "mine" })] }),
     ];
@@ -244,8 +245,8 @@ describe("useConversationAttachments", () => {
     ]);
   });
 
-  test("lists nothing when the loaded transcript is another conversation's", () => {
-    openConversationRef.value = "conv-2";
+  test("lists nothing when another conversation owns the snapshot", () => {
+    seedTranscriptOwner(TARGET.assistantId, "conv-2");
     messagesRef.value = [
       makeMessage({ attachments: [makeDisplayAttachment({ id: "theirs" })] }),
     ];
@@ -256,18 +257,28 @@ describe("useConversationAttachments", () => {
     expect(result.current.totalFiles).toBe(0);
   });
 
-  test("lists the transcript when no conversation is named as open", () => {
-    // Nothing open is nothing to confuse these rows with, so the rows stand.
-    openConversationRef.value = null;
+  test("lists nothing when another assistant owns the snapshot", () => {
+    seedTranscriptOwner("asst-2", TARGET.conversationId);
+    messagesRef.value = [
+      makeMessage({ attachments: [makeDisplayAttachment({ id: "theirs" })] }),
+    ];
+
+    const { result } = renderHook(() => useConversationAttachments(TARGET));
+
+    expect(result.current.entries).toHaveLength(0);
+    expect(result.current.totalFiles).toBe(0);
+  });
+
+  test("lists nothing when no conversation owns the snapshot", () => {
+    clearTranscriptOwner();
     messagesRef.value = [
       makeMessage({ attachments: [makeDisplayAttachment({ id: "draft" })] }),
     ];
 
     const { result } = renderHook(() => useConversationAttachments(TARGET));
 
-    expect(result.current.entries.map((entry) => entry.attachment.id)).toEqual([
-      "draft",
-    ]);
+    expect(result.current.entries).toHaveLength(0);
+    expect(result.current.totalFiles).toBe(0);
   });
 
   test("keeps the load-more callbacks stable", () => {

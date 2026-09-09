@@ -10,6 +10,7 @@
  * way `utils/conversation-list.test-helper.ts` already is.
  */
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
   type ConversationFileAsset,
   toConversationFileAssets,
@@ -97,4 +98,26 @@ export function makeFrameAsset(
     [],
     [makeAttachmentEntry(attachment, { sightFrame: true, capturedAt })],
   ).frames[0]!;
+}
+
+/**
+ * Names the conversation the seeded chat-session snapshot belongs to, which is
+ * what `useConversationAttachments` gates on.
+ */
+export function seedTranscriptOwner(
+  assistantId: string,
+  conversationId: string,
+): void {
+  useChatSessionStore.setState({
+    previousAssistantId: assistantId,
+    previousConversationId: conversationId,
+  });
+}
+
+/** Unnames the owner, so a seeded transcript cannot outlive its test or story. */
+export function clearTranscriptOwner(): void {
+  useChatSessionStore.setState({
+    previousAssistantId: null,
+    previousConversationId: null,
+  });
 }
