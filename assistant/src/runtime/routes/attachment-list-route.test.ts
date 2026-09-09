@@ -23,7 +23,10 @@ import {
 } from "../../persistence/conversation-crud.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import { messages } from "../../persistence/schema/index.js";
+import {
+  messageAttachments,
+  messages,
+} from "../../persistence/schema/index.js";
 import { BadRequestError } from "./errors.js";
 
 await initializeDb();
@@ -75,6 +78,14 @@ function setFinalized(messageId: string, finalized: number): void {
     .update(messages)
     .set({ finalized })
     .where(eq(messages.id, messageId))
+    .run();
+}
+
+function setLinkId(attachmentId: string, linkId: string): void {
+  getDb()
+    .update(messageAttachments)
+    .set({ id: linkId })
+    .where(eq(messageAttachments.attachmentId, attachmentId))
     .run();
 }
 
@@ -471,6 +482,48 @@ describe("GET /v1/attachments", () => {
       conversationId: conversation.id,
     }).attachments.map((a) => a.id);
     expect([...fullOrder].sort()).toEqual([firstPhoto, secondPhoto].sort());
+
+    for (let run = 0; run < 3; run += 1) {
+      const head = listAttachments({
+        conversationId: conversation.id,
+        limit: "1",
+      });
+      const tail = listAttachments({
+        conversationId: conversation.id,
+        limit: "1",
+        offset: "1",
+      });
+      expect(
+        [...head.attachments, ...tail.attachments].map((a) => a.id),
+      ).toEqual(fullOrder);
+    }
+  });
+
+  test("pages deterministically when two links on one carrier share a position", async () => {
+    const conversation = createConversation("Same position");
+
+    const carrier = await addMessage(conversation.id, "user", "both", {
+      skipIndexing: true,
+    });
+    const alpha = linkAttachmentToMessage(
+      carrier.id,
+      await newAttachment("pos-alpha.png"),
+      0,
+    );
+    const beta = linkAttachmentToMessage(
+      carrier.id,
+      await newAttachment("pos-beta.png"),
+      0,
+    );
+    setCreatedAt(carrier.id, 8000);
+    // Link ids that invert insertion order, so only the final key can decide.
+    setLinkId(alpha, "link-b-alpha");
+    setLinkId(beta, "link-a-beta");
+
+    const fullOrder = listAttachments({
+      conversationId: conversation.id,
+    }).attachments.map((a) => a.id);
+    expect(fullOrder).toEqual([beta, alpha]);
 
     for (let run = 0; run < 3; run += 1) {
       const head = listAttachments({

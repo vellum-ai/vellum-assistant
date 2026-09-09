@@ -2764,12 +2764,14 @@ export function listConversationAttachments(
     )
     .innerJoin(attachments, eq(attachments.id, messageAttachments.attachmentId))
     .where(and(lineageFilter(conversationId), eq(messages.finalized, 1)))
-    // `(createdAt, id)` before position: carriers sharing a millisecond would
+    // `(createdAt, id)` before position and the link's own id after it:
+    // carriers sharing a millisecond, or two links sharing a position, would
     // otherwise compare equal, so paging and the first-seen dedupe would drift.
     .orderBy(
       desc(messages.createdAt),
       desc(messages.id),
       asc(messageAttachments.position),
+      asc(messageAttachments.id),
     )
     .all();
 
