@@ -143,8 +143,10 @@ export async function executeAcpSpawn(
     const installNote = autoInstalledPackage
       ? ` Installed ${autoInstalledPackage} automatically.`
       : "";
+    // Relayed verbatim: the warning already distinguishes an adapter with no
+    // selector from one that refused the value.
     const modelNote = modelWarning
-      ? ` The agent refused the requested model and is running on its own default: ${modelWarning}`
+      ? ` The requested model was not applied: ${modelWarning}`
       : "";
     const payload = JSON.stringify({
       acpSessionId,

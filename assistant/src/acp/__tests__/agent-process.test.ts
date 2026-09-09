@@ -15,6 +15,7 @@ import type {
 } from "@agentclientprotocol/sdk";
 
 import { AcpAgentProcess } from "../agent-process.js";
+import { modelOption } from "./helpers/acp-model-option.js";
 
 function makeProcess(): AcpAgentProcess {
   return new AcpAgentProcess(
@@ -165,21 +166,6 @@ describe("AcpAgentProcess loadSession/resumeSession", () => {
 });
 
 describe("AcpAgentProcess config options", () => {
-  /** The model selector shaped the way claude-agent-acp reports it. */
-  function modelOption(currentValue: string): SessionConfigOption {
-    return {
-      type: "select",
-      id: "model",
-      name: "Model",
-      category: "model",
-      currentValue,
-      options: [
-        { value: "sonnet", name: "Sonnet" },
-        { value: "opus", name: "Opus" },
-      ],
-    };
-  }
-
   /** Injects a connection whose session calls report `configOptions`. */
   function stubSessionResponses(
     proc: AcpAgentProcess,
@@ -193,7 +179,7 @@ describe("AcpAgentProcess config options", () => {
     };
   }
 
-  test("createSession returns and caches the reported options", async () => {
+  test("createSession returns the reported options", async () => {
     const proc = makeProcess();
     const options = [modelOption("sonnet")];
     stubSessionResponses(proc, options);
@@ -202,10 +188,9 @@ describe("AcpAgentProcess config options", () => {
       sessionId: "session-1",
       configOptions: options,
     });
-    expect(proc.configOptions).toEqual(options);
   });
 
-  test("loadSession returns and caches the reported options", async () => {
+  test("loadSession returns the reported options", async () => {
     const proc = makeProcess();
     const options = [modelOption("sonnet")];
     stubSessionResponses(proc, options);
@@ -213,10 +198,9 @@ describe("AcpAgentProcess config options", () => {
     await expect(
       proc.loadSession("session-1", "/tmp/project"),
     ).resolves.toEqual({ configOptions: options });
-    expect(proc.configOptions).toEqual(options);
   });
 
-  test("resumeSession returns and caches the reported options", async () => {
+  test("resumeSession returns the reported options", async () => {
     const proc = makeProcess();
     const options = [modelOption("opus")];
     stubSessionResponses(proc, options);
@@ -224,7 +208,6 @@ describe("AcpAgentProcess config options", () => {
     await expect(
       proc.resumeSession("session-1", "/tmp/project"),
     ).resolves.toEqual({ configOptions: options });
-    expect(proc.configOptions).toEqual(options);
   });
 
   test("a null or absent configOptions normalizes to an empty array", async () => {
@@ -234,7 +217,6 @@ describe("AcpAgentProcess config options", () => {
       sessionId: "session-1",
       configOptions: [],
     });
-    expect(created.configOptions).toEqual([]);
 
     const loaded = makeProcess();
     stubSessionResponses(loaded, null);
@@ -249,84 +231,7 @@ describe("AcpAgentProcess config options", () => {
     ).resolves.toEqual({ configOptions: [] });
   });
 
-  test("modelConfigOption is undefined before a session call", () => {
-    const proc = makeProcess();
-
-    expect(proc.modelConfigOption).toBeUndefined();
-    expect(proc.supportsModelSelection).toBe(false);
-  });
-
-  test("modelConfigOption matches a select option by id", async () => {
-    const proc = makeProcess();
-    const option: SessionConfigOption = {
-      ...modelOption("sonnet"),
-      category: undefined,
-    };
-    stubSessionResponses(proc, [option]);
-
-    await proc.createSession("/tmp/project");
-
-    expect(proc.modelConfigOption).toEqual(option);
-    expect(proc.supportsModelSelection).toBe(true);
-  });
-
-  test("modelConfigOption matches a select option by category", async () => {
-    const proc = makeProcess();
-    const option: SessionConfigOption = {
-      ...modelOption("sonnet"),
-      id: "llm",
-    };
-    stubSessionResponses(proc, [option]);
-
-    await proc.createSession("/tmp/project");
-
-    expect(proc.modelConfigOption).toEqual(option);
-  });
-
-  test("modelConfigOption ignores boolean options in the model category", async () => {
-    const proc = makeProcess();
-    stubSessionResponses(proc, [
-      {
-        type: "boolean",
-        id: "model",
-        name: "Extended thinking",
-        category: "model",
-        currentValue: true,
-      },
-    ]);
-
-    await proc.createSession("/tmp/project");
-
-    expect(proc.modelConfigOption).toBeUndefined();
-    expect(proc.supportsModelSelection).toBe(false);
-  });
-
-  test("applyConfigOptionsUpdate replaces the cached set", async () => {
-    const proc = makeProcess();
-    stubSessionResponses(proc, [modelOption("sonnet")]);
-    await proc.createSession("/tmp/project");
-
-    const refreshed = [modelOption("opus")];
-    proc.applyConfigOptionsUpdate(refreshed);
-
-    expect(proc.configOptions).toEqual(refreshed);
-    expect(proc.modelConfigOption).toEqual(refreshed[0]);
-    expect(proc.supportsModelSelection).toBe(true);
-  });
-
-  test("applyConfigOptionsUpdate can drop the model selector", async () => {
-    const proc = makeProcess();
-    stubSessionResponses(proc, [modelOption("sonnet")]);
-    await proc.createSession("/tmp/project");
-
-    proc.applyConfigOptionsUpdate([]);
-
-    expect(proc.configOptions).toEqual([]);
-    expect(proc.modelConfigOption).toBeUndefined();
-    expect(proc.supportsModelSelection).toBe(false);
-  });
-
-  test("setConfigOption forwards the value and caches the refreshed set", async () => {
+  test("setConfigOption forwards the value and returns the refreshed set", async () => {
     const proc = makeProcess();
     const calls: unknown[] = [];
     const refreshed = [modelOption("opus")];
@@ -344,8 +249,6 @@ describe("AcpAgentProcess config options", () => {
     expect(calls).toEqual([
       { sessionId: "session-1", configId: "model", value: "opus" },
     ]);
-    expect(proc.configOptions).toEqual(refreshed);
-    expect(proc.modelConfigOption).toMatchObject({ currentValue: "opus" });
   });
 
   test("setConfigOption sends the boolean request variant", async () => {

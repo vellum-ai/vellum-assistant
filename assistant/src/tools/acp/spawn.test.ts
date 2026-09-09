@@ -509,8 +509,26 @@ describe("executeAcpSpawn - model selection", () => {
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
     expect(payload.message).toContain(
-      "The agent refused the requested model and is running on its own default: Unknown model: nope",
+      "The requested model was not applied: Unknown model: nope",
     );
+  });
+
+  test("the note relays a no-selector warning without calling it a refusal", async () => {
+    spawnMock.mockImplementationOnce(async () => ({
+      acpSessionId: "acp-session-test",
+      protocolSessionId: "proto-session-test",
+      modelWarning:
+        'Agent "claude" does not support model selection, so the session is running on the agent\'s own model.',
+    }));
+
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something", model: "opus" },
+      makeContext(),
+    );
+
+    const payload = JSON.parse(result.content);
+    expect(payload.message).toContain("does not support model selection");
+    expect(payload.message).not.toContain("refused");
   });
 
   test("no model note when the spawn reports no warning", async () => {
@@ -521,7 +539,9 @@ describe("executeAcpSpawn - model selection", () => {
 
     expect(result.isError).toBe(false);
     const payload = JSON.parse(result.content);
-    expect(payload.message).not.toContain("refused the requested model");
+    expect(payload.message).not.toContain(
+      "The requested model was not applied",
+    );
   });
 });
 

@@ -8,29 +8,20 @@ import { describe, expect, test } from "bun:test";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
+import {
+  MODEL_OPTION_MODELS,
+  modelOption,
+} from "./__tests__/helpers/acp-model-option.js";
 import { deriveModelInfo, resolveAcpModel } from "./model-config.js";
 
-const flatModelOption: SessionConfigOption = {
-  type: "select",
-  id: "model",
-  name: "Model",
-  category: "model",
-  currentValue: "sonnet",
-  options: [
-    { value: "sonnet", name: "Sonnet", description: "Balanced" },
-    { value: "opus", name: "Opus" },
-  ],
-};
+const flatModelOption = modelOption("sonnet");
 
 describe("deriveModelInfo", () => {
   test("flattens flat options and reports the current value", () => {
     expect(deriveModelInfo([flatModelOption])).toEqual({
       model: "sonnet",
       modelConfigId: "model",
-      availableModels: [
-        { value: "sonnet", label: "Sonnet", description: "Balanced" },
-        { value: "opus", label: "Opus" },
-      ],
+      availableModels: MODEL_OPTION_MODELS,
     });
   });
 

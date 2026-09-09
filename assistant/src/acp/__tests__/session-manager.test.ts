@@ -90,10 +90,6 @@ mock.module("../agent-process.js", () => ({
     async cancel(sessionId: string): Promise<void> {
       cancelCalls.push(sessionId);
     }
-    readonly appliedConfigOptions: SessionConfigOption[][] = [];
-    applyConfigOptionsUpdate(configOptions: SessionConfigOption[]): void {
-      this.appliedConfigOptions.push(configOptions);
-    }
     markStderr(): number {
       return 0;
     }
@@ -232,47 +228,6 @@ describe("AcpSessionManager — cancelForParent", () => {
 
     expect(manager.cancelForParent("parent-with-nothing")).toBe(0);
     expect(cancelCalls).toEqual([]);
-  });
-});
-
-describe("AcpSessionManager config option updates", () => {
-  const noopSend = () => {};
-
-  const MODEL_OPTION = modelOption("opus");
-
-  test("a config_option_update notification refreshes the process cache", async () => {
-    const manager = new AcpSessionManager(5);
-
-    const { acpSessionId } = await manager.spawn(
-      "agent-1",
-      { command: "echo", args: ["hi"] },
-      "task",
-      "/tmp",
-      "parent-A",
-      noopSend,
-    );
-
-    const entry = (
-      manager as unknown as {
-        sessions: Map<
-          string,
-          {
-            process: { appliedConfigOptions: SessionConfigOption[][] };
-            clientHandler: VellumAcpClientHandler;
-          }
-        >;
-      }
-    ).sessions.get(acpSessionId);
-
-    await entry?.clientHandler.sessionUpdate({
-      sessionId: "proto-agent-1",
-      update: {
-        sessionUpdate: "config_option_update",
-        configOptions: [MODEL_OPTION],
-      },
-    });
-
-    expect(entry?.process.appliedConfigOptions).toEqual([[MODEL_OPTION]]);
   });
 });
 
@@ -477,6 +432,22 @@ describe("AcpSessionManager: model selection at spawn", () => {
     expect(
       getAcpConversationModelPreference("conv-inherit", "agent-model"),
     ).toBeUndefined();
+  });
+
+  test("an inherited model the adapter refuses warns nobody", async () => {
+    config.setConfig({ defaultModel: "nope" });
+    scriptedConfigOptions = [[modelOption("opus")]];
+    setConfigOptionResult = new Error(
+      "Invalid value for config option model: nope",
+    );
+
+    const { modelWarning, state } = await spawnWithModel({
+      conversationId: "conv-refused-inherited",
+    });
+
+    // Logged, not surfaced: nobody typed this model here.
+    expect(modelWarning).toBeUndefined();
+    expect(state.model).toBe("opus");
   });
 
   test("a refused model warns, runs unpinned, and records no preference", async () => {
@@ -957,6 +928,126 @@ describe("AcpSessionManager: unsolicited model updates", () => {
     expect(sent.map((e) => e.type)).toEqual(["acp_session_model_update"]);
     expect(
       getAcpConversationModelPreference("conv-pin-echo", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("a notification after the session went terminal changes nothing", async () => {
+    const { manager, acpSessionId, sent } =
+      await spawnSwitchable("conv-terminal");
+    const handler = clientHandlerFor(manager, acpSessionId);
+    await manager.cancel(acpSessionId);
+    sent.length = 0;
+
+    await handler.sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("opus")],
+      },
+    });
+
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.status).toBe("cancelled");
+    expect(state.model).toBe("sonnet");
+    expect(sent).toEqual([]);
+    expect(
+      getAcpConversationModelPreference("conv-terminal", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("an adapter that first reports its selector by notification records no preference", async () => {
+    // Nothing in the session/new response, so no pin ever ran against a
+    // model the adapter had told us about.
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const { acpSessionId } = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-late-selector",
+      (msg) => sent.push(msg),
+    );
+    sent.length = 0;
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("opus")],
+      },
+    });
+
+    // The picker still reaches the client; only the preference is withheld.
+    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
+      "opus",
+    );
+    expect(sent.map((e) => e.type)).toEqual(["acp_session_model_update"]);
+    expect(
+      getAcpConversationModelPreference("conv-late-selector", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("a user picking the value a refused pin asked for is remembered", async () => {
+    scriptedConfigOptions = [[modelOption("opus")]];
+    setConfigOptionResult = new Error(
+      "Invalid value for config option model: sonnet",
+    );
+    const manager = new AcpSessionManager(5);
+    const { acpSessionId } = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-refused-then-typed",
+      () => {},
+      { model: "sonnet" },
+    );
+
+    // Nothing moved when the pin was refused, so this is a genuine choice
+    // rather than that call's echo.
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("sonnet")],
+      },
+    });
+
+    expect(
+      getAcpConversationModelPreference(
+        "conv-refused-then-typed",
+        "agent-model",
+      ),
+    ).toBe("sonnet");
+  });
+
+  test("a preference is keyed on the canonical agent id, not the alias spawned under", async () => {
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    const manager = new AcpSessionManager(5);
+    const { acpSessionId } = await manager.spawn(
+      "claude code",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-alias",
+      () => {},
+    );
+
+    await clientHandlerFor(manager, acpSessionId).sessionUpdate({
+      sessionId: "proto-claude code",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("opus")],
+      },
+    });
+
+    expect(getAcpConversationModelPreference("conv-alias", "claude")).toBe(
+      "opus",
+    );
+    // And a spawn made under the canonical id inherits it.
+    expect(
+      getAcpConversationModelPreference("conv-alias", "claude code"),
     ).toBeUndefined();
   });
 

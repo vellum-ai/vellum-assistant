@@ -25,7 +25,6 @@ import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
 import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
-import { findModelConfigOption } from "./model-config.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp");
@@ -36,6 +35,16 @@ const log = getLogger("acp");
  * stays bounded.
  */
 const STDERR_RETENTION_BYTES = 4096;
+
+/**
+ * Normalizes the SDK's optional-and-nullable config-option field to an array,
+ * so every session call hands its caller the same shape.
+ */
+function normalizeConfigOptions(
+  configOptions: SessionConfigOption[] | null | undefined,
+): SessionConfigOption[] {
+  return configOptions ?? [];
+}
 
 function isEnvVarMethod(
   method: AuthMethod,
@@ -62,14 +71,6 @@ export class AcpAgentProcess {
    * afterwards.
    */
   private spawnedEnv: NodeJS.ProcessEnv | null = null;
-
-  /**
-   * Session config options as last reported by the agent: on session
-   * create/load/resume, on every setConfigOption response, and on every
-   * config_option_update notification. Each carries the full refreshed set.
-   * Empty until one of those arrives.
-   */
-  private lastConfigOptions: SessionConfigOption[] = [];
 
   /**
    * Ring of the most recent stderr lines, bounded to ~STDERR_RETENTION_BYTES.
@@ -231,24 +232,6 @@ export class AcpAgentProcess {
     );
   }
 
-  /** Session config options as of the last session or setConfigOption call. */
-  get configOptions(): SessionConfigOption[] {
-    return this.lastConfigOptions;
-  }
-
-  /** The agent's model selector, if it advertises one. */
-  get modelConfigOption(): SessionConfigOption | undefined {
-    return findModelConfigOption(this.lastConfigOptions);
-  }
-
-  /**
-   * Whether the agent exposes a model selector. No capability flag announces
-   * config-option support, so this stays false until a session call reports one.
-   */
-  get supportsModelSelection(): boolean {
-    return this.modelConfigOption != null;
-  }
-
   /**
    * Authentication methods the agent advertised at initialize.
    * Returns an empty array before initialize() resolves.
@@ -385,25 +368,6 @@ export class AcpAgentProcess {
   }
 
   /**
-   * Replaces the cached config options with what the agent just reported,
-   * normalizing the SDK's optional-and-nullable field to an array.
-   */
-  private cacheConfigOptions(
-    configOptions: SessionConfigOption[] | null | undefined,
-  ): SessionConfigOption[] {
-    this.lastConfigOptions = configOptions ?? [];
-    return this.lastConfigOptions;
-  }
-
-  /**
-   * Refreshes the cache from a `config_option_update` notification, which
-   * carries the agent's full option set rather than a delta.
-   */
-  applyConfigOptionsUpdate(configOptions: SessionConfigOption[]): void {
-    this.cacheConfigOptions(configOptions);
-  }
-
-  /**
    * Creates a new ACP session in the specified working directory.
    * Returns the session ID and the config options the agent reported.
    */
@@ -418,7 +382,7 @@ export class AcpAgentProcess {
 
     return {
       sessionId: result.sessionId,
-      configOptions: this.cacheConfigOptions(result.configOptions),
+      configOptions: normalizeConfigOptions(result.configOptions),
     };
   }
 
@@ -440,7 +404,7 @@ export class AcpAgentProcess {
       this.requireConnection().loadSession({ sessionId, cwd, mcpServers: [] }),
     );
 
-    return { configOptions: this.cacheConfigOptions(result.configOptions) };
+    return { configOptions: normalizeConfigOptions(result.configOptions) };
   }
 
   /**
@@ -464,13 +428,13 @@ export class AcpAgentProcess {
       }),
     );
 
-    return { configOptions: this.cacheConfigOptions(result.configOptions) };
+    return { configOptions: normalizeConfigOptions(result.configOptions) };
   }
 
   /**
    * Sets one session config option (e.g. the model selector) via
    * `session/set_config_option`. The agent answers with the full refreshed
-   * option set, which replaces the cached one.
+   * option set, which is returned to the caller.
    *
    * A boolean value sends the `type: "boolean"` request variant; a string
    * sends the value-id variant.
@@ -494,7 +458,7 @@ export class AcpAgentProcess {
       this.requireConnection().setSessionConfigOption(request),
     );
 
-    return this.cacheConfigOptions(response.configOptions);
+    return normalizeConfigOptions(response.configOptions);
   }
 
   /**
