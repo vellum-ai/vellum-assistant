@@ -4,9 +4,8 @@
  *
  * The split is not a style preference. A popover anchored near the bottom of a
  * phone screen opens into the thumb's own reach and lands under the soft
- * keyboard, which is why every existing chat control that opens a panel
- * (Assets, and the activity pill before it) hand-rolled this same branch. This
- * exists so they stop hand-rolling it: three surfaces now share one
+ * keyboard, which is why the activity pill hand-rolled this same branch. This
+ * exists so chat controls stop hand-rolling it: every surface shares one
  * implementation, so a fix to the touch path cannot land on one and miss the
  * others.
  *

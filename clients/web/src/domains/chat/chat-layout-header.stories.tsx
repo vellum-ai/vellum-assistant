@@ -13,8 +13,9 @@
  * is the same ghost icon-only `Button` with the same glyph, which is all this
  * story needs it to be. It exists to occupy the cluster, not to be exercised.
  *
- * Three states are covered: the composition is what this file protects, not a
- * per-component matrix.
+ * The states covered are the composition's, not a per-component matrix: the
+ * desktop and mobile baselines, a channel-bound header, and each viewport with
+ * the Chat Info panel open, where the Assets trigger reads as selected.
  */
 
 import { useEffect, useState } from "react";
@@ -32,6 +33,7 @@ import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-
 import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
+import { useViewerStore } from "@/stores/viewer-store";
 
 const ASSISTANT_ID = "asst-story";
 const CONVERSATION_ID = "conv-story";
@@ -185,6 +187,28 @@ function ForceMobile({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+/**
+ * Opens the Chat Info panel for the story's conversation, so the Assets
+ * trigger renders the selected state it holds while the panel is on screen.
+ *
+ * Opened from a `useState` initializer, which runs during this component's
+ * render, i.e. before the trigger below it first samples the store.
+ */
+function ChatInfoOpen({ children }: { children: React.ReactNode }) {
+  const [opened] = useState(() => {
+    useViewerStore.getState().openChatInfo({
+      assistantId: ASSISTANT_ID,
+      conversationId: CONVERSATION_ID,
+    });
+    return true;
+  });
+  void opened;
+  useEffect(() => {
+    return () => useViewerStore.getState().closeChatInfo();
+  }, []);
+  return <>{children}</>;
+}
+
 const meta: Meta<typeof Harness> = {
   title: "Chat/ChatLayoutHeader",
   component: Harness,
@@ -223,6 +247,39 @@ export const MobileBaseline: Story = {
     (Story) => (
       <ForceMobile>
         <Story />
+      </ForceMobile>
+    ),
+  ],
+};
+
+/**
+ * The Chat Info panel is open on this conversation, so the Assets glyph carries
+ * the `active` fill that marks it as the selected view.
+ */
+export const AssetsPanelOpen: Story = {
+  args: { isMobile: false },
+  decorators: [
+    (Story) => (
+      <ChatInfoOpen>
+        <Story />
+      </ChatInfoOpen>
+    ),
+  ],
+};
+
+/**
+ * The same open state on the narrow header, where the trigger is the filled
+ * icon button.
+ */
+export const AssetsPanelOpenMobile: Story = {
+  args: { isMobile: true },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
+  decorators: [
+    (Story) => (
+      <ForceMobile>
+        <ChatInfoOpen>
+          <Story />
+        </ChatInfoOpen>
       </ForceMobile>
     ),
   ],

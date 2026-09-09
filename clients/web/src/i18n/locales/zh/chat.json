@@ -613,7 +613,6 @@
   "conversationAssets": {
     "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
-    "heading": "资产",
     "label": "{count, plural, one {# 个资产} other {# 个资产}}"
   },
   "conversationRow": {
