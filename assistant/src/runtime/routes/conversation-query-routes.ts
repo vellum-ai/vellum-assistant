@@ -29,6 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
+import { scrubNulledAcpModels } from "../../config/acp-model-write.js";
 import {
   catalogEntryFor,
   type InputModalities,
@@ -1561,33 +1562,6 @@ function scrubRemovedServiceModes(raw: Record<string, unknown>): void {
     const entry = services[key];
     if (entry && typeof entry === "object" && "mode" in entry) {
       delete entry.mode;
-    }
-  }
-}
-
-/**
- * Clearing a coding-agent model is a write of `null` - a PATCH of
- * `{ acp: { defaultModel: null } }`, a `config set acp.defaultModel null`, or
- * either shape aimed at `acp.agents.<id>.model`. The deep-merge assigns that
- * literal `null` because the stored value is a scalar, and a SET writes it
- * verbatim by design. Both model fields are optional strings in
- * `AcpConfigSchema`, so a persisted `null` makes every later `loadConfig()`
- * warn and take its salvage path, dropping the whole `acp` section with the
- * agents defined in it. Clearing means removing the key, so drop it here on
- * every write path.
- */
-function scrubNulledAcpModels(raw: Record<string, unknown>): void {
-  const acp = readPlainObject(raw.acp);
-  if (!acp) {
-    return;
-  }
-  if (acp.defaultModel === null) {
-    delete acp.defaultModel;
-  }
-  for (const entry of Object.values(readPlainObject(acp.agents) ?? {})) {
-    const agent = readPlainObject(entry);
-    if (agent && agent.model === null) {
-      delete agent.model;
     }
   }
 }

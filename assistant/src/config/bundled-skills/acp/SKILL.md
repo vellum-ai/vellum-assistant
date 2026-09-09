@@ -23,7 +23,17 @@ Use `acp_spawn` to delegate a coding task to an external agent. The agent runs a
 
 Users can refer to agents by natural names: "claude code", "codex cli", and "openai codex" all resolve to the canonical `claude` and `codex` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
 
-Pass the optional `model` parameter only when the user asks for a specific model (e.g. `opus` for Claude); an explicit choice is persisted per conversation and agent, so a later spawn without `model` reuses it rather than falling back to a configured default. The resolution order is: the `model` parameter, then this conversation's last explicit choice for that agent, then `acp.agents.<id>.model`, then `acp.defaultModel`, then the agent's own default.
+## Choosing a model
+
+Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
+
+- **The user names a model for this piece of work.** Pass it as `model` on `acp_spawn`.
+- **"From now on", "always", "by default".** Call `acp_set_default_model`, then state in one line what is now set. Add `agent` to scope it to one agent (`acp.agents.<id>.model`); leave it off to cover every agent (`acp.defaultModel`). `model: null` clears the setting.
+- **"Switch this to X" about a session that is already running.** Call `acp_set_model` with that `acp_session_id`. The agent applies it from the next turn, so a prompt in flight finishes on the model it started on.
+
+A spawn with no `model` starts on `acp.agents.<id>.model`, then `acp.defaultModel`, then the agent's own default.
+
+When the agent advertises no model selector, or does not offer the model, the tool result says so: relay it in one sentence and carry on. A result saying the switch could not be completed leaves the session's state unknown, so check it with `acp_status` rather than assuming which model it is on.
 
 ## When the user names Claude Code or Codex
 
@@ -43,13 +53,13 @@ ACP is always available - default profiles for `claude` and `codex` ship out-of-
 
 ## Automatic adapter availability
 
-The assistant pins the adapter version it was built against and re-checks that pin on every spawn and resume. When the binary is missing from PATH, or the installed one is off the pin, the assistant installs the pinned version via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. Once the pin holds, the check is a cheap read and the spawn goes straight to the installed binary.
+When an agent's binary is missing from PATH, the assistant installs the adapter version it was built against via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token.
 
-An adapter installed by another package manager (npm, brew) is left alone: PATH would keep selecting it, so the pin is skipped rather than enforced.
+An adapter already on PATH is left alone, whoever installed it: the install runs only when preflight found no binary at all.
 
 Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`); user-configured agents with custom commands are never installed automatically.
 
-Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result). Install the pinned version the tool result names, never `@latest`: an unpinned install is reverted to the pin on the next spawn.
+Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result). Install the pinned version below rather than `@latest`, so the adapter matches what the assistant was built against.
 
 ```bash
 bun add -g @agentclientprotocol/claude-agent-acp@0.75.1   # claude
@@ -93,7 +103,7 @@ Do NOT put API keys (or any secret) in the workspace config file - secrets never
 
 ## Updating an adapter
 
-The adapter version is pinned by the Assistant, which re-verifies it on every spawn. A manual `bun add -g <adapter>@latest` is therefore reverted to the pin on the next spawn: do not run one, and do not tell the user to. Adapter upgrades ship with Assistant releases.
+Adapter upgrades ship with Assistant releases: the pinned version is what a missing adapter is installed at. An adapter already on PATH is never replaced, so a user who upgrades one themselves keeps that version.
 
 Codex uses the adapter's bundled dependency by default, within the version range declared by the adapter. If `CODEX_PATH` selects a separate CLI, update that installation separately.
 
