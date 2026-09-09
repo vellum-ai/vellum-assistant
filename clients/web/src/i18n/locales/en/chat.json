@@ -706,6 +706,7 @@
   "documentComposer": {
     "assistantRepliedToast": "Assistant replied",
     "messageSentToast": "Message sent",
+    "placeholder": "What would you like to do?",
     "sendFailed": "Couldn't send your message. Try again.",
     "sent": "Sent",
     "viewConversation": "View conversation",

@@ -4,13 +4,14 @@
  * document route. `ChatComposer` and `useDocumentComposerSubmit` are mocked,
  * mirroring `mobile-document-overlay.test.tsx`: this file's job is only to
  * assert the panel's own wiring (the null-render guard, the slot, the
- * disabled/Sent-state derivation, and the bottom-inset default), not
- * `ChatComposer`'s or the submit hook's own behavior.
+ * placeholder, the disabled/Sent-state derivation, and the bottom-inset
+ * default), not `ChatComposer`'s or the submit hook's own behavior.
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 
 import type { DocumentComposerSendStatus } from "@/domains/chat/hooks/use-document-composer-submit";
+import chatEn from "@/i18n/locales/en/chat.json";
 
 let hookStatus: DocumentComposerSendStatus = "idle";
 const submitMock = mock(async () => {});
@@ -94,6 +95,18 @@ describe("DocumentComposerPanel", () => {
     expect(screen.getByTestId("composer")).toBeDefined();
     expect(lastComposerProps.slot).toBe("document");
     expect(lastComposerProps.assistantId).toBe("assistant-1");
+  });
+
+  test("gives the composer a catalog-backed placeholder", () => {
+    // GIVEN a panel rendered against a document
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    // WHEN the composer reads the props it was handed
+    // THEN its placeholder is the catalog's, so every locale reads its own
+    // copy rather than the composer's English default
+    expect(lastComposerProps.placeholder).toBe(
+      chatEn.documentComposer.placeholder,
+    );
   });
 
   test("enables the composer while idle", () => {

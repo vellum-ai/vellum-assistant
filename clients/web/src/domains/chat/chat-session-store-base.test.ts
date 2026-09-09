@@ -571,9 +571,7 @@ describe("chat-session-store: composer reset on assistant switch", () => {
       documentAttachments: [],
       documentAttachmentLastError: null,
     });
-    useDocumentComposerReplyStore.setState({
-      awaitingReplyConversationIds: new Set(),
-    });
+    useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
     useViewerStore.getState().reset();
   });
 
@@ -646,7 +644,7 @@ describe("chat-session-store: composer reset on assistant switch", () => {
       activeConversationId: "conv-B",
     });
     expect([
-      ...useDocumentComposerReplyStore.getState().awaitingReplyConversationIds,
+      ...useDocumentComposerReplyStore.getState().pendingReplies.keys(),
     ]).toEqual(["conv-A"]);
 
     // A different assistant means a different SSE connection, so conv-A's
@@ -657,7 +655,7 @@ describe("chat-session-store: composer reset on assistant switch", () => {
       activeConversationId: "conv-C",
     });
     expect([
-      ...useDocumentComposerReplyStore.getState().awaitingReplyConversationIds,
+      ...useDocumentComposerReplyStore.getState().pendingReplies.keys(),
     ]).toEqual([]);
   });
 

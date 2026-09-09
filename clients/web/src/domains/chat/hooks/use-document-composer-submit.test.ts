@@ -273,7 +273,7 @@ function sentOptions(callIndex: number): { clientMessageId?: string } {
 function isAwaitingReply(conversationId: string): boolean {
   return useDocumentComposerReplyStore
     .getState()
-    .awaitingReplyConversationIds.has(conversationId);
+    .pendingReplies.has(conversationId);
 }
 
 function isProcessing(conversationId: string): boolean {
@@ -283,15 +283,17 @@ function isProcessing(conversationId: string): boolean {
 }
 
 function isQueuedReply(conversationId: string): boolean {
-  return useDocumentComposerReplyStore
+  const pending = useDocumentComposerReplyStore
     .getState()
-    .queuedReplyConversationIds.has(conversationId);
+    .pendingReplies.get(conversationId);
+  return pending?.some((p) => p.queued) ?? false;
 }
 
+/** The nonce of the oldest send still awaiting a reply in `conversationId`. */
 function awaitingNonce(conversationId: string): string | undefined {
   return useDocumentComposerReplyStore
     .getState()
-    .awaitingReplyClientMessageIds.get(conversationId);
+    .pendingReplies.get(conversationId)?.[0]?.clientMessageId;
 }
 
 /** The document `document-viewer-page`'s "Submit Feedback" leaves open: on a
@@ -323,11 +325,7 @@ beforeEach(() => {
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
   });
-  useDocumentComposerReplyStore.setState({
-    awaitingReplyConversationIds: new Set(),
-    queuedReplyConversationIds: new Set(),
-    awaitingReplyClientMessageIds: new Map(),
-  });
+  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
   useViewerStore.setState({ openedDocumentState: null });
   // Below the server-mint floor, so the legacy path is the default and the
   // send's bounded wait for a resolved version settles immediately.
@@ -352,11 +350,7 @@ afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
-  useDocumentComposerReplyStore.setState({
-    awaitingReplyConversationIds: new Set(),
-    queuedReplyConversationIds: new Set(),
-    awaitingReplyClientMessageIds: new Map(),
-  });
+  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
   useViewerStore.setState({ openedDocumentState: null });
 });
 
@@ -593,10 +587,9 @@ describe("the version the send is framed against", () => {
       "Couldn't send your message. Try again.",
     );
     expect(result.current.status).toBe("error");
-    expect(
-      useDocumentComposerReplyStore.getState().awaitingReplyConversationIds
-        .size,
-    ).toBe(0);
+    expect(useDocumentComposerReplyStore.getState().pendingReplies.size).toBe(
+      0,
+    );
     expect(useConversationStore.getState().processingConversationIds.size).toBe(
       0,
     );
@@ -1256,7 +1249,7 @@ describe("when the reply wait goes up", () => {
 
     // The first attempt landed after all and its turn finished, so the
     // watcher took the wait back down before the user retried.
-    useDocumentComposerReplyStore.getState().stopAwaitingReply("conv-existing");
+    useDocumentComposerReplyStore.getState().settleOldestReply("conv-existing");
 
     await act(async () => {
       await result.current.submit();
@@ -1335,6 +1328,72 @@ describe("when the reply wait goes up", () => {
     expect(isAwaitingReply("conv-existing")).toBe(true);
     expect(awaitingNonce("conv-existing")).toBe("nonce-of-an-earlier-send");
   });
+
+  test("a second send to the same conversation lists itself too", async () => {
+    // GIVEN a first send the daemon has taken, whose reply is still on its
+    // way, so the composer is enabled again.
+    useComposerStore.getState().setInput("one", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(result.current.status).toBe("sent");
+
+    // WHEN a second message goes out to the same conversation.
+    useComposerStore.getState().setInput("two", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN both sends are listed, oldest first and each under its own nonce,
+    // so the watcher can settle them one terminal at a time.
+    const pending = useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get("conv-existing");
+    expect(pending?.map((p) => p.clientMessageId)).toEqual([
+      sentOptions(0).clientMessageId as string,
+      sentOptions(1).clientMessageId as string,
+    ]);
+  });
+
+  test("a refused second send leaves the first one listed and processing", async () => {
+    let calls = 0;
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => {
+        calls += 1;
+        if (calls === 1) {
+          return sentResult("conv-existing");
+        }
+        return { ok: false, status: 500, error: { detail: "boom" } };
+      },
+    );
+
+    // GIVEN a first send the daemon took, still awaiting its reply.
+    useComposerStore.getState().setInput("one", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // WHEN a second send to the same conversation is refused.
+    useComposerStore.getState().setInput("two", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN only the refused message comes off the list, and the mark stays up
+    // for the turn the first send still has running.
+    expect(result.current.status).toBe("error");
+    const pending = useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get("conv-existing");
+    expect(pending?.map((p) => p.clientMessageId)).toEqual([
+      sentOptions(0).clientMessageId as string,
+    ]);
+    expect(isProcessing("conv-existing")).toBe(true);
+  });
 });
 
 describe("the sidebar processing mark", () => {
@@ -1396,7 +1455,7 @@ describe("the sidebar processing mark", () => {
 
     // What the watcher does when the whole turn runs and completes before the
     // POST answers: it ends the wait and takes the mark down with it.
-    useDocumentComposerReplyStore.getState().stopAwaitingReply("conv-existing");
+    useDocumentComposerReplyStore.getState().settleOldestReply("conv-existing");
     useConversationStore
       .getState()
       .removeProcessingConversationId("conv-existing");
@@ -1783,10 +1842,9 @@ describe("a send that outlives its owner", () => {
     // Nothing went out, so there is nothing to report and nothing to wait on.
     expect(toastInfoMock).not.toHaveBeenCalled();
     expect(toastErrorMock).not.toHaveBeenCalled();
-    expect(
-      useDocumentComposerReplyStore.getState().awaitingReplyConversationIds
-        .size,
-    ).toBe(0);
+    expect(useDocumentComposerReplyStore.getState().pendingReplies.size).toBe(
+      0,
+    );
     expect(useConversationStore.getState().processingConversationIds.size).toBe(
       0,
     );

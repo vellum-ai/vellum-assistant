@@ -71,6 +71,7 @@ export function DocumentComposerPanel({
       <ChatComposer
         slot="document"
         assistantId={assistantId}
+        placeholder={t("documentComposer.placeholder")}
         inputRef={inputRef}
         typingDisabled={disabled}
         sendDisabled={disabled}

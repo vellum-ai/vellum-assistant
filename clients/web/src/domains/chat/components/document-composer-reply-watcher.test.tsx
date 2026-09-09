@@ -2,10 +2,10 @@
  * Tests for `DocumentComposerReplyWatcher`, the always-mounted watcher that
  * raises the document composer's "Assistant replied" toast.
  *
- * The awaiting set is driven straight through
+ * The pending sends are driven straight through
  * `document-composer-reply-store` rather than by running a real send, so
  * these tests pin the watcher's own filtering (which stream events it treats
- * as terminal for the wait) independently of `useDocumentComposerSubmit`,
+ * as terminal for a send) independently of `useDocumentComposerSubmit`,
  * whose hand-off to the store is covered by its own test file. The event bus,
  * the store, and `useConversationStore` are real; only navigation and the
  * toast surface are mocked.
@@ -131,7 +131,10 @@ function publishMessageQueued(
   });
 }
 
-function publishMessageDequeued(conversationId: string) {
+function publishMessageDequeued(
+  conversationId: string,
+  clientMessageId?: string,
+) {
   act(() => {
     publish("sse.event", {
       id: `evt-dequeued-${conversationId}`,
@@ -140,6 +143,7 @@ function publishMessageDequeued(conversationId: string) {
         type: "message_dequeued",
         conversationId,
         requestId: `req-${conversationId}`,
+        ...(clientMessageId ? { clientMessageId } : {}),
       },
     });
   });
@@ -191,13 +195,40 @@ function setActiveAssistant(assistantId: string | null) {
 function awaiting(conversationId: string): boolean {
   return useDocumentComposerReplyStore
     .getState()
-    .awaitingReplyConversationIds.has(conversationId);
+    .pendingReplies.has(conversationId);
 }
 
 function queued(conversationId: string): boolean {
+  return (
+    useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get(conversationId)
+      ?.some((pending) => pending.queued) ?? false
+  );
+}
+
+function queuedFlags(conversationId: string): boolean[] {
+  return (
+    useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get(conversationId)
+      ?.map((pending) => pending.queued) ?? []
+  );
+}
+
+function nonces(conversationId: string): (string | undefined)[] {
+  return (
+    useDocumentComposerReplyStore
+      .getState()
+      .pendingReplies.get(conversationId)
+      ?.map((pending) => pending.clientMessageId) ?? []
+  );
+}
+
+function oldestNonce(conversationId: string): string | undefined {
   return useDocumentComposerReplyStore
     .getState()
-    .queuedReplyConversationIds.has(conversationId);
+    .pendingReplies.get(conversationId)?.[0]?.clientMessageId;
 }
 
 function processing(conversationId: string): boolean {
@@ -207,11 +238,7 @@ function processing(conversationId: string): boolean {
 }
 
 beforeEach(() => {
-  useDocumentComposerReplyStore.setState({
-    awaitingReplyConversationIds: new Set(),
-    queuedReplyConversationIds: new Set(),
-    awaitingReplyClientMessageIds: new Map(),
-  });
+  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
   useConversationStore.setState({
     processingConversationIds: new Set(),
     processingSnapshots: new Map(),
@@ -394,8 +421,23 @@ describe("DocumentComposerReplyWatcher", () => {
     expect(awaiting("conv-1")).toBe(true);
   });
 
-  test("a handoff keeps the wait open until the queue's own turn completes", () => {
+  test("a handoff answers the send that was running", () => {
     useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishGenerationHandoff("conv-1");
+
+    // The daemon emits a handoff in place of `message_complete` when the turn
+    // finishes with more messages queued behind it, so the reply is done.
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(awaiting("conv-1")).toBe(false);
+    expect(processing("conv-1")).toBe(false);
+  });
+
+  test("a handoff keeps a queued send waiting for the queue's own turn", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
     render(<DocumentComposerReplyWatcher />);
 
     publishGenerationHandoff("conv-1");
@@ -410,6 +452,138 @@ describe("DocumentComposerReplyWatcher", () => {
     expect(awaiting("conv-1")).toBe(false);
   });
 
+  describe("sends in order", () => {
+    test("each terminal settles one send, oldest first", () => {
+      // GIVEN a second document composer send into a conversation whose first
+      // send is still running
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageComplete("conv-1");
+
+      // THEN the first send has its reply, and the second is still owed one
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(oldestNonce("conv-1")).toBe("cm-2");
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(2);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("a send queued behind the running one toasts on its own turn", () => {
+      // GIVEN the daemon parking the second send behind the first
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-2");
+
+      // THEN only the send the ack names is flagged
+      expect(queuedFlags("conv-1")).toEqual([false, true]);
+
+      publishGenerationHandoff("conv-1");
+
+      // The first send's turn handed off with the second still queued.
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(oldestNonce("conv-1")).toBe("cm-2");
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageDequeued("conv-1", "cm-2");
+
+      expect(queuedFlags("conv-1")).toEqual([false]);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(2);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("a message_queued naming neither send flags nothing", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-someone-else");
+
+      expect(queuedFlags("conv-1")).toEqual([false, false]);
+    });
+
+    test("a message_queued carrying no nonce flags the newest send", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      render(<DocumentComposerReplyWatcher />);
+
+      // An older daemon acks the queue without echoing `clientMessageId`, and
+      // the send that just went out is the one it parked.
+      publishMessageQueued("conv-1");
+
+      expect(queuedFlags("conv-1")).toEqual([false, true]);
+    });
+
+    test("a message_queued_deleted removes only the send it names", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueuedDeleted("conv-1", "cm-2");
+
+      // The first send is still running, so the activity stays up.
+      expect(nonces("conv-1")).toEqual(["cm-1"]);
+      expect(processing("conv-1")).toBe(true);
+    });
+
+    test("a cancelled first turn still leaves the second send its toast", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishGenerationCancelled("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(oldestNonce("conv-1")).toBe("cm-2");
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+  });
+
   describe("a wait queued behind a running turn", () => {
     const terminals: [string, (conversationId: string) => void][] = [
       ["generation_handoff", publishGenerationHandoff],
@@ -420,6 +594,7 @@ describe("DocumentComposerReplyWatcher", () => {
 
     for (const [name, publishTerminal] of terminals) {
       test(`${name} for the running turn is absorbed, and the queued message's reply toasts`, () => {
+        useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
         useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
         useConversationStore.getState().addProcessingConversationId("conv-1");
         render(<DocumentComposerReplyWatcher />);
@@ -442,6 +617,7 @@ describe("DocumentComposerReplyWatcher", () => {
     }
 
     test("the queued message's own failure ends the wait silently", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
       useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
       useConversationStore.getState().addProcessingConversationId("conv-1");
       render(<DocumentComposerReplyWatcher />);
@@ -502,6 +678,7 @@ describe("DocumentComposerReplyWatcher", () => {
     });
 
     test("a message_dequeued unflags the wait without ending it", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
       useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
       render(<DocumentComposerReplyWatcher />);
 
@@ -652,14 +829,17 @@ describe("DocumentComposerReplyWatcher", () => {
   describe("assistant switches", () => {
     test("switching to another assistant drops the wait", () => {
       useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
       render(<DocumentComposerReplyWatcher />);
 
       setActiveAssistant("assistant-2");
 
       expect(awaiting("conv-1")).toBe(false);
+      // The outgoing assistant's stream is detached, so no terminal is coming
+      // to take the activity down with the wait.
+      expect(processing("conv-1")).toBe(false);
 
-      // The outgoing assistant's stream is detached, so a terminal seen for
-      // conv-1 afterwards belongs to some unrelated turn.
+      // A terminal seen for conv-1 afterwards belongs to some unrelated turn.
       publishMessageComplete("conv-1");
 
       expect(toastSuccessMock).not.toHaveBeenCalled();
@@ -667,6 +847,7 @@ describe("DocumentComposerReplyWatcher", () => {
 
     test("a pass through no active assistant leaves the wait up", () => {
       useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
       render(<DocumentComposerReplyWatcher />);
 
       // A reload drops the active id before settling on the same assistant.
@@ -674,6 +855,7 @@ describe("DocumentComposerReplyWatcher", () => {
       setActiveAssistant("assistant-1");
 
       expect(awaiting("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
 
       publishMessageComplete("conv-1");
 

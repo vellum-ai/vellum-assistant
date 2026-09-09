@@ -702,6 +702,7 @@
   "documentComposer": {
     "assistantRepliedToast": "助手已回复",
     "messageSentToast": "消息已发送",
+    "placeholder": "您想做什么？",
     "sendFailed": "无法发送您的消息，请重试。",
     "sent": "已发送",
     "viewConversation": "查看对话",

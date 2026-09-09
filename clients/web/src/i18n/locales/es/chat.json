@@ -702,6 +702,7 @@
   "documentComposer": {
     "assistantRepliedToast": "El asistente respondió",
     "messageSentToast": "Mensaje enviado",
+    "placeholder": "¿Qué te gustaría hacer?",
     "sendFailed": "No se pudo enviar tu mensaje. Inténtalo de nuevo.",
     "sent": "Enviado",
     "viewConversation": "Ver conversación",

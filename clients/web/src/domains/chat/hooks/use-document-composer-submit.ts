@@ -18,8 +18,8 @@
  * lives inside `DocumentComposerPanel`, which unmounts when the host closes
  * the document (`MobileDocumentOverlay` returning `null`, or navigating off
  * the standalone document route), so a subscription kept here would drop a
- * reply that arrives afterward. This hook only records the conversation to
- * watch, via `document-composer-reply-store.ts`; the always-mounted
+ * reply that arrives afterward. This hook only lists the send as awaiting a
+ * reply, via `document-composer-reply-store.ts`; the always-mounted
  * `DocumentComposerReplyWatcher` (in `RootLayout`) owns the subscription and
  * raises the toast.
  */
@@ -105,10 +105,10 @@ export function useDocumentComposerSubmit({
   // and reusing it against an edited draft would have the daemon answer the
   // old message while the hook cleared the new edits. The nonce also carries
   // the conversation the message went toward, so a retry the daemon dedupes
-  // does not raise a second wait for a turn that may already be over. Which
-  // wait is this message's is not mirrored here at all: the reply store keeps
-  // the nonce each wait was raised under, and an attempt only takes down a
-  // wait that carries its own.
+  // does not list itself a second time for a turn that may already be over.
+  // Which pending send is this message's is not mirrored here at all: the
+  // reply store lists every send under the nonce it went out with, and an
+  // attempt only takes down the entry carrying its own.
   const surfaceId = doc?.surfaceId ?? null;
   const ownerGenerationRef = useRef(0);
   const currentAssistantIdRef = useRef(assistantId);
@@ -121,9 +121,9 @@ export function useDocumentComposerSubmit({
     currentAssistantIdRef.current = assistantId;
     ownerGenerationRef.current += 1;
     // The draft is cleared when either half of the owner changes, so the next
-    // send is a different message with a nonce of its own. A wait an earlier
-    // attempt raised stays up, since that message may still be on its way to
-    // a reply.
+    // send is a different message with a nonce of its own. An entry an earlier
+    // attempt listed stays listed, since that message may still be on its way
+    // to a reply.
     pendingClientMessageRef.current = null;
     // The composer on screen belongs to the incoming owner and has sent
     // nothing, so it starts enabled instead of inheriting the outgoing
@@ -318,9 +318,9 @@ export function useDocumentComposerSubmit({
         ? sameMessage.clientMessageId
         : crypto.randomUUID();
       // A retry of a message that already went toward this conversation rides
-      // whatever wait that earlier attempt raised, even one the watcher has
-      // since ended: the daemon dedupes the retry back to the message it
-      // already holds, so a second wait would stand for a turn that is over
+      // whatever entry that earlier attempt listed, even one the watcher has
+      // since settled: the daemon dedupes the retry back to the message it
+      // already holds, so a second entry would stand for a turn that is over
       // and the next unrelated completion would fire the reply toast.
       const retryOfSameTarget =
         sameMessage?.targetConversationId === targetConversationId;
@@ -340,26 +340,27 @@ export function useDocumentComposerSubmit({
         }
       };
 
-      // Put `conversationId` on the reply watcher's list under the nonce this
-      // send is carrying, so the watcher can tell stream events that echo it
-      // apart from events about any other message in the conversation. A
-      // conversation already being waited on keeps the wait it has: the list
-      // is a set, so an earlier send's entry covers this one too.
+      // List this send among `conversationId`'s pending sends, under the nonce
+      // it is carrying, so the watcher can tell stream events that echo it
+      // apart from events about any other message in the conversation. Every
+      // send lists itself, and the watcher settles them one terminal at a
+      // time, in the order they went out.
       const raiseReplyWait = (conversationId: string) => {
-        const replyStore = useDocumentComposerReplyStore.getState();
-        if (replyStore.awaitingReplyConversationIds.has(conversationId)) {
-          return;
-        }
-        replyStore.startAwaitingReply(conversationId, clientMessageId);
-      };
-      // Whether the wait on `conversationId` is this message's: raised under
-      // its nonce, by this attempt or an earlier one. Any other wait there is
-      // another message's, and not this attempt's to take back down.
-      const ownsReplyWait = (conversationId: string) =>
         useDocumentComposerReplyStore
           .getState()
-          .awaitingReplyClientMessageIds.get(conversationId) ===
-        clientMessageId;
+          .startAwaitingReply(conversationId, clientMessageId);
+      };
+      // Whether one of `conversationId`'s pending sends is this message's:
+      // listed under its nonce, by this attempt or an earlier one. Every other
+      // entry there is another message's, and not this attempt's to take down.
+      const ownsReplyWait = (conversationId: string) => {
+        const pending = useDocumentComposerReplyStore
+          .getState()
+          .pendingReplies.get(conversationId);
+        return (
+          pending?.some((p) => p.clientMessageId === clientMessageId) ?? false
+        );
+      };
 
       // Raised before the POST, not off its response. The daemon dedupes a
       // retry on `(conversation, clientMessageId)` and answers a duplicate
@@ -388,19 +389,25 @@ export function useDocumentComposerSubmit({
 
       if (!result.ok) {
         // The daemon answered and refused the message: nothing is persisted
-        // and no turn will run, so the wait this attempt raised and the mark
-        // that went up with it both come back down, and the next attempt goes
-        // out as a fresh send rather than a duplicate the daemon would dedupe
-        // against nothing. A refused message can never be replied to, so its
-        // wait ends even on a composer the slot has moved past.
-        if (ownsReplyWait(targetConversationId)) {
-          useDocumentComposerReplyStore
-            .getState()
-            .stopAwaitingReply(targetConversationId);
-        }
-        useConversationStore
+        // and no turn will run, so this attempt's entry comes off the list and
+        // the next attempt goes out as a fresh send rather than a duplicate
+        // the daemon would dedupe against nothing. Only the entry carrying
+        // this nonce goes, and it goes even on a composer the slot has moved
+        // past, since a refused message can never be replied to.
+        useDocumentComposerReplyStore
           .getState()
-          .removeProcessingConversationId(targetConversationId);
+          .stopAwaitingReply(targetConversationId, clientMessageId);
+        // The mark stands for every send still running in the conversation, so
+        // it comes down only once this one was the last pending there.
+        if (
+          !useDocumentComposerReplyStore
+            .getState()
+            .pendingReplies.has(targetConversationId)
+        ) {
+          useConversationStore
+            .getState()
+            .removeProcessingConversationId(targetConversationId);
+        }
         releaseClientMessageId();
         if (ownsSlotNow()) {
           setStatus("error");
@@ -436,17 +443,17 @@ export function useDocumentComposerSubmit({
       // `message_queued` stream event, which arrives in order against the
       // terminal events it has to outrank.
       if (sameAssistant && conversationId !== targetConversationId) {
-        // The mark follows the wait onto the answered row, and only while that
-        // wait is still up: one the watcher has already ended took the mark
-        // down with it, and a turn that is over must not come back as
-        // processing under another id.
+        // The mark follows the wait onto the answered row, and only while
+        // something is still pending on the row it went up for: a conversation
+        // the watcher has emptied took the mark down with it, and a turn that
+        // is over must not come back as processing under another id.
         const waiting = useDocumentComposerReplyStore
           .getState()
-          .awaitingReplyConversationIds.has(targetConversationId);
+          .pendingReplies.has(targetConversationId);
         if (ownsReplyWait(targetConversationId)) {
           useDocumentComposerReplyStore
             .getState()
-            .stopAwaitingReply(targetConversationId);
+            .stopAwaitingReply(targetConversationId, clientMessageId);
         }
         raiseReplyWait(conversationId);
         if (waiting) {

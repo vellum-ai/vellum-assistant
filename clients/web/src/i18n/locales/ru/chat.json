@@ -370,6 +370,7 @@
   "documentComposer": {
     "assistantRepliedToast": "Ассистент ответил",
     "messageSentToast": "Сообщение отправлено",
+    "placeholder": "Что бы вы хотели сделать?",
     "sendFailed": "Не удалось отправить сообщение. Повторите попытку.",
     "sent": "Отправлено",
     "viewConversation": "Открыть разговор",
