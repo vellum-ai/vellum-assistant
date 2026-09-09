@@ -407,6 +407,25 @@ describe("ToolDetailPanel", () => {
     expect(getByText("src/deep/module.ts")).toBeDefined();
   });
 
+  test("labels a denied write as requested, the same as a denied edit", () => {
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_write",
+          input: { path: "src/a.ts", content: "const a = 1;\n" },
+          result: undefined,
+          status: "denied",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    // A write and an edit are the same event, so the rule that only a
+    // successful call reads as applied has to hold for both.
+    expect(getByText("Requested changes")).toBeDefined();
+    expect(queryByText("Changes")).toBeNull();
+  });
+
   test("shows a written file as content, not as an escaped JSON string", () => {
     const { getByText, queryByText } = render(
       <ToolDetailPanel
@@ -424,7 +443,7 @@ describe("ToolDetailPanel", () => {
 
     // The file reaches the panel inside the input bag, which is the one place
     // the generic body prints a string with its quotes and newlines escaped.
-    expect(getByText("Content")).toBeDefined();
+    expect(getByText("Changes")).toBeDefined();
     expect(getByText("src/a.ts")).toBeDefined();
     expect(queryByText(/\\n/)).toBeNull();
   });

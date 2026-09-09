@@ -1688,7 +1688,6 @@
     "changes": "更改",
     "closeAria": "关闭工具详情",
     "command": "命令",
-    "content": "内容",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
     "input": "输入",
