@@ -25,11 +25,19 @@ import type { WorkspaceMigration } from "./types.js";
  * every request. Both are swept in `llm.default`, `llm.callSites.*`, and
  * `llm.profiles.*`.
  *
- * Providerless fragments are left untouched: a call-site pin rides the
- * winning profile's provider, which may be an API-key or managed route that
- * still serves the model. Replacements: `gpt-5.4` becomes `gpt-5.5` (its
- * successor) and `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's
- * Balanced model; on the subscription every model bills the same).
+ * A providerless call-site pin overlays the profile that wins that site
+ * (`llm.activeProfile` for mainAgent, then the site's `profile`, then the
+ * default column of `llm.defaultProvider`). With the model outside the
+ * allowlist a `chatgpt` winner no longer serves it, so the resolver implies
+ * provider `openai` and a subscription-only workspace has no connection for
+ * it; a winner pinning the subscription row keeps that pin and 400s. Such a
+ * pin is repaired only when the winner is provably subscription-routed; a
+ * winner on an API-key or managed route still serves the model, and an
+ * ambiguous winner (a mix) is left alone.
+ *
+ * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
+ * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
+ * on the subscription every model bills the same).
  */
 export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
   id: "153-repair-retired-codex-gpt-5-4-model-ids",
@@ -93,9 +101,13 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
 
     const callSites = readObject(llm.callSites);
     if (callSites !== null) {
-      for (const rawConfig of Object.values(callSites)) {
+      for (const [site, rawConfig] of Object.entries(callSites)) {
+        const isSubscriptionRouted = (provider: unknown): boolean =>
+          provider === undefined
+            ? winnerIsSubscriptionRouted(site, llm, isSubscriptionProvider)
+            : isSubscriptionProvider(provider);
         changed =
-          repairFragment(readObject(rawConfig), isSubscriptionProvider) ||
+          repairFragment(readObject(rawConfig), isSubscriptionRouted) ||
           changed;
       }
     }
@@ -157,6 +169,91 @@ function repairFragment(
   }
   fragment.model = replacement;
   return true;
+}
+
+// Frozen snapshot of `DEFAULT_PROFILE_KEYS`: a reference to one of these
+// resolves to the default provider's catalog column unless a user-owned
+// shadow in `llm.profiles` stands in for it.
+const DEFAULT_PROFILE_KEYS = new Set([
+  "balanced",
+  "quality-optimized",
+  "cost-optimized",
+  "latency-optimized",
+]);
+
+/**
+ * Whether the profile that wins `site` dispatches through the subscription.
+ * Mirrors the resolver's single-winner chain: `llm.activeProfile` (mainAgent
+ * only), then `llm.callSites[site].profile`, then the default column of
+ * `llm.defaultProvider`. A named rung that is missing, disabled, or
+ * incomplete falls through the way the resolver skips it; a mix winner is
+ * ambiguous and reports false.
+ */
+function winnerIsSubscriptionRouted(
+  site: string,
+  llm: Record<string, unknown>,
+  isSubscriptionProvider: (provider: unknown) => boolean,
+): boolean {
+  const profiles = readObject(llm.profiles);
+  const siteConfig = readObject(readObject(llm.callSites)?.[site]);
+  const rungs =
+    site === "mainAgent"
+      ? [llm.activeProfile, siteConfig?.profile]
+      : [siteConfig?.profile];
+  for (const name of rungs) {
+    if (typeof name !== "string" || name.length === 0) {
+      continue;
+    }
+    const shadow = readObject(profiles?.[name]);
+    if (shadow === null || shadow.source === "managed") {
+      if (DEFAULT_PROFILE_KEYS.has(name)) {
+        return defaultProviderIsSubscription(llm, isSubscriptionProvider);
+      }
+      continue;
+    }
+    if (shadow.status === "disabled") {
+      continue;
+    }
+    if (shadow.mix !== undefined) {
+      return false;
+    }
+    if (
+      typeof shadow.provider !== "string" ||
+      typeof shadow.model !== "string"
+    ) {
+      if (DEFAULT_PROFILE_KEYS.has(name)) {
+        return defaultProviderIsSubscription(llm, isSubscriptionProvider);
+      }
+      continue;
+    }
+    return (
+      isSubscriptionProvider(shadow.provider) ||
+      isSubscriptionProvider(shadow.provider_connection)
+    );
+  }
+  return defaultProviderIsSubscription(llm, isSubscriptionProvider);
+}
+
+/**
+ * Whether `llm.defaultProvider` routes its default column through the
+ * subscription: the `chatgpt` identity, or `openai` pinning a subscription
+ * row by `connectionName`.
+ */
+function defaultProviderIsSubscription(
+  llm: Record<string, unknown>,
+  isSubscriptionProvider: (provider: unknown) => boolean,
+): boolean {
+  const defaultProvider = readObject(llm.defaultProvider);
+  if (defaultProvider === null) {
+    return false;
+  }
+  if (defaultProvider.provider === CHATGPT_IDENTITY) {
+    return true;
+  }
+  return (
+    defaultProvider.provider === "openai" &&
+    isSubscriptionProvider(defaultProvider.connectionName)
+  );
 }
 
 /**
