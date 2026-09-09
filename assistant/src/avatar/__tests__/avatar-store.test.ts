@@ -5,7 +5,7 @@
  * artifacts:
  *   - setCharacter  → traits.json + PNG (+ ASCII) on disk, `character` manifest
  *   - setImage      → PNG on disk, character sidecars removed, `image` manifest
- *   - clearAvatar   → everything removed, `none` manifest
+ *   - clearAvatar   → everything removed, manifest deleted
  *
  * Every successful mutation also leaves a `## Avatar` note in IDENTITY.md,
  * hands the change to the client/platform fan-out, and records an

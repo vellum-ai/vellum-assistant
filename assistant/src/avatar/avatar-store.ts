@@ -234,7 +234,11 @@ export async function setAccent(
     accent: hex ? { hex, source: "custom" } : await automaticAccent(state),
   };
   writeManifest(next);
-  announceChange({ action: "set_accent", previous: state, next }, null, options);
+  announceChange(
+    { action: "set_accent", previous: state, next },
+    null,
+    options,
+  );
   return next;
 }
 
