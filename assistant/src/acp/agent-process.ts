@@ -25,6 +25,7 @@ import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
 import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
+import { findModelConfigOption } from "./model-config.js";
 import type { AcpAgentConfig } from "./types.js";
 
 const log = getLogger("acp");
@@ -235,16 +236,9 @@ export class AcpAgentProcess {
     return this.lastConfigOptions;
   }
 
-  /**
-   * The agent's model selector, if it advertises one. `category` is UX-only
-   * per the ACP spec, so a `model` id counts too; non-select options never do.
-   */
+  /** The agent's model selector, if it advertises one. */
   get modelConfigOption(): SessionConfigOption | undefined {
-    return this.lastConfigOptions.find(
-      (option) =>
-        option.type === "select" &&
-        (option.id === "model" || option.category === "model"),
-    );
+    return findModelConfigOption(this.lastConfigOptions);
   }
 
   /**
