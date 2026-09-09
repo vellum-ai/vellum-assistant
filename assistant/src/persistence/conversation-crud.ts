@@ -2757,7 +2757,6 @@ export function listConversationAttachments(
       messageId: messages.id,
       messageCreatedAt: messages.createdAt,
       role: messages.role,
-      content: messages.content,
       metadata: messages.metadata,
     })
     .from(messages)
@@ -2766,7 +2765,13 @@ export function listConversationAttachments(
       eq(messageAttachments.messageId, messages.id),
     )
     .innerJoin(attachments, eq(attachments.id, messageAttachments.attachmentId))
-    .where(and(lineageFilter(conversationId), eq(messages.finalized, 1)))
+    .where(
+      and(
+        lineageFilter(conversationId),
+        eq(messages.finalized, 1),
+        excludesToolResultRows(),
+      ),
+    )
     // `(createdAt, id)` before position and the link's own id after it:
     // carriers sharing a millisecond, or two links sharing a position, would
     // otherwise compare equal, so paging and the first-seen dedupe would drift.
@@ -2793,9 +2798,6 @@ export function listConversationAttachments(
     }
     // A channel-deleted row renders as a tombstone, so its files stay hidden.
     if (row.metadata !== null && isChannelDeletedMetadata(row.metadata)) {
-      continue;
-    }
-    if (isToolResultMessage(row.role, row.content)) {
       continue;
     }
     seen.add(row.id);
@@ -4833,6 +4835,16 @@ function isToolResultMessage(role: string, content: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A `WHERE` fragment keeping every row {@link isToolResultMessage} rejects,
+ * with the same semantics: a non-object element, or an element whose `type` is
+ * anything else, makes the row an ordinary one. The classification runs inside
+ * SQLite so no message body is read into memory to decide it.
+ */
+function excludesToolResultRows(): SQL {
+  return sql`NOT (${messages.role} = 'user' AND json_valid(${messages.content}) AND json_type(${messages.content}) = 'array' AND json_array_length(${messages.content}) > 0 AND NOT EXISTS (SELECT 1 FROM json_each(${messages.content}) WHERE json_extract(value, '$.type') IS NOT 'tool_result'))`;
 }
 
 /**

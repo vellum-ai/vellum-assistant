@@ -347,6 +347,28 @@ describe("GET /v1/attachments", () => {
     expect(excluded.total).toBe(2);
   });
 
+  test("lists a row that mixes a text block with a tool result", async () => {
+    const conversation = createConversation("Mixed blocks");
+
+    const photo = await newAttachment("mixed.png");
+    const mixed = await addMessage(
+      conversation.id,
+      "user",
+      JSON.stringify([
+        { type: "text", text: "here is the file" },
+        { type: "tool_result", tool_use_id: "toolu_mixed", content: "ok" },
+      ]),
+      { skipIndexing: true },
+    );
+    linkAttachmentToMessage(mixed.id, photo, 0);
+    setCreatedAt(mixed.id, 1000);
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments.map((a) => a.id)).toEqual([photo]);
+    expect(result.total).toBe(1);
+  });
+
   test("lists an attachment carried twice once, under the newest carrier", async () => {
     const conversation = createConversation("Resent");
 
