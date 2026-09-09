@@ -67,7 +67,7 @@ A stock third-party CLI reaches a provider's API through the daemon without ever
 
 ### Route
 
-`oauth/proxy/:provider/:path*` (`../runtime/routes/oauth-proxy-routes.ts`), registered once per forwarded method (GET, POST, PUT, PATCH, DELETE, HEAD) under operation IDs `oauth_proxy_get`, `oauth_proxy_post`, and so on. OPTIONS is absent: a CORS preflight has no meaning for a CLI calling a loopback daemon. Every registration requires the `oauth.proxy` scope and a local principal.
+`oauth/proxy/:provider/:path*` (`../runtime/routes/oauth-proxy-routes.ts`), registered once per forwarded method (GET, POST, PUT, PATCH, DELETE, HEAD) under operation IDs `oauth_proxy_get`, `oauth_proxy_post`, and so on. Those ids are what IPC dispatch uses; `openapi.yaml` derives its own from the path, so the same routes read there as `oauth_proxy_by_provider_by_path_get` and the mint as `oauth_proxygrant_post`. OPTIONS is absent: a CORS preflight has no meaning for a CLI calling a loopback daemon. Every registration requires the `oauth.proxy` scope and a local principal.
 
 Only the HTTP adapter supplies the wire-exact URL the route forwards, so an IPC dispatch throws `HttpTransportRequiredError` (421, `BINARY_UNSUPPORTED_OVER_IPC`). That is the gateway's existing retry signal: its IPC proxy falls through to the HTTP proxy, so the caller is served rather than failed. The refusal precedes the provider lookup and the resolution, so upstream still runs exactly once.
 
@@ -90,39 +90,52 @@ The proxy re-derives that subject from the segment on the request and compares i
 
 A grant is pinned when the caller passed `--account` or the resolved connection carries an `accountInfo`. An unpinned grant is therefore bound to the provider, not to the connection row it was minted against: revoke that connection and replace it inside the grant's lifetime and the grant reaches the replacement. That is accepted, given the TTL.
 
+### Containment
+
+The grant carries one scope for one route, and three checks hold it there:
+
+- **Gateway edge auth** (`gateway/src/http/middleware/auth.ts`) refuses it on every gateway-native route, with no loopback fallback. `isSingleRouteGrant` reads any profile outside the `EDGE_AUTH_PROFILES` allowlist as a single-route grant, and also catches a proxy subject carrying some other profile. The passthrough itself never passes through edge auth: it falls to the runtime-proxy catch-all, which re-mints the grant's own profile for the daemon.
+- **The gateway's IPC fast path** (`gateway/src/http/routes/ipc-runtime-proxy.ts`) refuses it against any daemon route naming no scope. The daemon's IPC server runs no policy check of its own, so this is the only enforcement an IPC-served request gets.
+- **`enforcePolicy`** (`../runtime/auth/route-policy.ts`) refuses the same on the HTTP path, then applies the route's own scopes. `oauth.proxy` reaches the passthrough and nothing else.
+
+The two `UNSCOPED_ROUTE_PROFILES` sets, one per package, are hand-kept copies: the cross-package import boundary forbids sharing a module, so widening one means editing both. A new profile lands outside both and fails closed.
+
 ### CLI
 
 `assistant oauth proxy-url <provider>` mints a grant and prints it as JSON, or with `--export` as `export` lines for `eval`: `VELLUM_OAUTH_PROXY_BASE_URL`, `VELLUM_OAUTH_PROXY_TOKEN`, `VELLUM_OAUTH_PROXY_EXPIRES_AT`, and `VELLUM_OAUTH_PROXY_ACCOUNT` when the grant pinned one. The names are provider-neutral by design; the calling skill or wrapper maps them onto whatever its CLI reads (the command's help shows the Link example). The command is `medium` risk in the gateway's bash command registry (`gateway/src/risk/command-registry/commands/assistant.ts`).
 
 ### Byte fidelity and managed-mode limits
 
-The route asks each connection for `rawResponseBody: true` and `manualRedirect: true`.
+The route asks each connection for `rawResponseBody: true`, `manualRedirect: true`, the wire-exact `rawQuery`, and `singleAttempt` on every non-idempotent method.
 
-A BYO connection honors both. The provider's bytes come back untouched, and a 3xx is returned verbatim with its `Location` intact instead of being followed: following it would replay a POST upstream as a GET the caller never asked for and hide the 3xx from the client whose job it is to handle it.
+A BYO connection honors the first three: the provider's bytes come back untouched, the query reaches the provider as the caller wrote it, and a 3xx is surfaced rather than followed, since following it would replay a POST upstream as a GET the caller never asked for and hide the 3xx from the client whose job it is to handle it. It needs no `singleAttempt`, having made its one attempt already; its only retry follows a provider 401, which rejected the request before it took effect.
 
-A managed connection cannot honor `rawResponseBody`, because the platform proxy parses the response server-side. A managed JSON response is therefore parsed and re-serialized, which drops duplicate keys and rounds integers past `Number.MAX_SAFE_INTEGER`. Managed mode inherits the platform proxy's other limits too:
+The 3xx status survives; its target does not stay in `location`. `materializeProxyResponse` moves it onto `x-vellum-proxy-location` and drops `location`, so nothing auto-follows the redirect back to the provider carrying the grant as its bearer token. A client that keeps `Authorization` across hosts (`curl --location-trusted`, a hand-rolled redirect loop) would otherwise hand a live daemon credential to the third party on the first hop. The target stays readable under a name nothing follows.
+
+A managed connection is proxied by the platform, which parses the response and rebuilds the request server-side, so most of that does not survive:
+
+- **Response bytes.** `rawResponseBody` cannot be honored. A managed JSON response is parsed and re-serialized, which drops duplicate keys and rounds integers past `Number.MAX_SAFE_INTEGER`.
+- **Query fidelity.** `rawQuery` cannot be honored either; the parsed `query` record travels instead and the platform rebuilds the string. Interleaved repeated keys are regrouped, `%20` becomes `+`, and a valueless `?flag` becomes `flag=`. A provider that signs its own query string therefore works over BYO and cannot work over managed.
+- **Redirects.** The platform follows a 3xx itself, so the caller gets the destination's response and never the 3xx. `manualRedirect` does not apply.
+- **HEAD.** Not forwarded; the route answers 405 before calling a managed connection.
+
+`singleAttempt` is the one that does apply, which is why the route sets it: the platform retries a 502 it returns only after already calling the provider, so a proxied write the caller cannot repeat would otherwise be replayed.
+
+Managed mode inherits the platform proxy's narrowing too:
 
 - Request headers are narrowed to `content-type`, `accept`, `user-agent`, and `x-request-id`, plus the provider's configured defaults.
-- HEAD is not forwarded; the route answers 405 before calling a managed connection.
 - Response headers are narrowed to `Content-Type`, `X-Rate-Limit-Remaining`, and `X-Rate-Limit-Reset`.
 - Request and response bodies are size-capped platform-side.
 
-These are known limits: the proxy is byte-exact on BYO connections only. `stripe_link`, the connection it was built for, is managed.
+The proxy is byte-exact on BYO connections only, and `stripe_link`, the connection it was built for, is managed-only, so these limits are live rather than theoretical.
 
 ### Security invariants
 
 - The caller's `authorization` never reaches the provider. `sanitizeInboundHeaders` also drops proxy-auth, hop-by-hop framing, `host`, `cookie`, `accept-encoding`, forwarding hints, every `x-forwarded-*`, and every `x-vellum-*`, so an inbound header cannot forge a gateway signal. Content type, accept, user agent, and other custom `x-*` headers pass through.
+- The response is stripped in the same spirit. `set-cookie` and `set-cookie2` go, so a provider cannot plant state on the daemon's own origin; the request side already drops an inbound `cookie`, so one could never round-trip anyway. Every provider-supplied `x-vellum-*` goes, since that namespace is this daemon's on both sides of the hop. `location` is relocated to `x-vellum-proxy-location`. Framing headers go because the response is re-framed on the way out.
 - Nothing logs the grant or the credential. The proxy logs provider, method, path, and status; the mint logs provider, account, and TTL.
 - The route calls `connection.request()` only, so the raw token stays inside the connection.
 
 ### Error mapping
 
-- 400: malformed provider segment or proxied path.
-- 402: the managed account is out of balance.
-- 403: the grant names another provider or account.
-- 404: unknown provider.
-- 405: HEAD against a managed connection.
-- 409: several accounts connected, none pinned.
-- 421: dispatched over IPC; retry over HTTP.
-- 424: no usable connection. The details carry `assistant oauth connect <provider>`.
-- 502: the provider API could not be reached.
+`ERROR_RESPONSES` in `../runtime/routes/oauth-proxy-routes.ts` is the list, and it generates the `openapi.yaml` entries; do not copy it here. Two mappings are worth knowing without opening it: 421 means the request was dispatched over IPC and the gateway retries it over HTTP on the caller's behalf, and 424 carries `assistant oauth connect <provider>` in its details.
