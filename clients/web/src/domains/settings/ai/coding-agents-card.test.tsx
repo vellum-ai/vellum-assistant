@@ -7,9 +7,10 @@
  *   4. A custom model reaches the daemon exactly as typed, since the adapter
  *      accepts ids this list does not enumerate.
  *   5. A stored value outside the list opens on the custom row, pre-filled.
- *   6. The capability gate is scoped to the assistant the card writes to.
- *   7. An assistant that predates the feature gets no card at all.
- *   8. Switching assistants drops an unsaved draft instead of saving it to
+ *   6. A stored value that becomes a listed alias leaves the custom row.
+ *   7. The capability gate is scoped to the assistant the card writes to.
+ *   8. An assistant that predates the feature gets no card at all.
+ *   9. Switching assistants drops an unsaved draft instead of saving it to
  *      the assistant the user landed on.
  *
  * The design-library Select is real, driven through its combobox trigger like
@@ -18,6 +19,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -102,17 +104,21 @@ function renderCard() {
     </QueryClientProvider>
   );
   const view = render(tree());
-  return { ...view, rerenderCard: () => view.rerender(tree()) };
+  return {
+    ...view,
+    queryClient,
+    rerenderCard: () => view.rerender(tree()),
+  };
 }
 
+/**
+ * The trigger, found by the visible field label. The label names the control,
+ * so a name that drifts from the copy on screen fails here.
+ */
 function modelTrigger(): HTMLButtonElement {
-  const trigger = document.querySelector<HTMLButtonElement>(
-    'button[role="combobox"][aria-label="Default coding agent model"]',
-  );
-  if (!trigger) {
-    throw new Error("expected the default model dropdown trigger");
-  }
-  return trigger;
+  return screen.getByRole("combobox", {
+    name: "Default model",
+  }) as HTMLButtonElement;
 }
 
 function visibleOptions(): string[] {
@@ -246,6 +252,28 @@ describe("CodingAgentsCard", () => {
     expect(modelTrigger().textContent).toContain("Custom model");
     expect(customInput().value).toBe("gpt-5-codex");
     expect(saveButton().disabled).toBe(true);
+  });
+
+  // Another client or a hand-edited config can move the stored model under an
+  // open card. The row follows the value rather than the click that opened it.
+  test("leaves the custom row when the stored model becomes a listed alias", async () => {
+    daemonConfigData = { acp: { defaultModel: "gpt-5-codex" } };
+    const { queryClient, rerenderCard } = renderCard();
+
+    expect(modelTrigger().textContent).toContain("Custom model");
+
+    // The card's config query is idle in these tests (org readiness is
+    // stubbed off), so the new server value is pushed into its cache the way
+    // a refetch would deliver it.
+    await act(async () => {
+      queryClient.setQueryData(["config-get-test", ASSISTANT_ID], {
+        acp: { defaultModel: "haiku" },
+      });
+    });
+    rerenderCard();
+
+    expect(modelTrigger().textContent).toContain("Haiku");
+    expect(screen.queryByPlaceholderText("claude-opus-4-1")).toBeNull();
   });
 
   test("scopes the capability gate to the card's assistant", () => {

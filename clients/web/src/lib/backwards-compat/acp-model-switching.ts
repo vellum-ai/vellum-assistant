@@ -33,15 +33,15 @@ import { useAssistantScopedSupports } from "@/lib/backwards-compat/utils";
 export const MIN_VERSION = "0.11.10-dev.202609090534.a9ef179";
 
 /**
- * The gate, scoped to the assistant the surface reads and writes. Returns
- * `true` only when the version the identity store holds was fetched for
- * `assistantId`.
+ * The gate, scoped to the assistant the surface reads and writes, which is the
+ * active one on both mount paths. Returns `true` only when the version the
+ * identity store holds was fetched for `assistantId`.
  *
  * During an assistant switch the active id changes before the identity store
  * catches up, so an unscoped gate would answer off the outgoing assistant's
  * version. On an older newly selected assistant that lights the settings card,
  * and a quick save writes an `acp.defaultModel` its config schema strips; it
- * also leaves a stale run's model menu enabled, posting `set-model` to an
+ * also leaves a run panel's model menu enabled, posting `set-model` to an
  * assistant with no such route. Scoping holds both surfaces closed until the
  * version hydrates for the assistant they belong to. This is the gate's only
  * entry point, so neither surface can reach for an unscoped answer.

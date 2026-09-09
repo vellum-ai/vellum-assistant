@@ -480,7 +480,6 @@
     "customModelLabel": "模型",
     "customModelOption": "自定义模型",
     "customModelPlaceholder": "claude-opus-4-1",
-    "modelAriaLabel": "编程代理默认模型",
     "modelLabel": "默认模型",
     "modelOptions": {
       "best": "最佳可用",
@@ -495,7 +494,7 @@
       "sonnet1m": "Sonnet（1M 上下文）"
     },
     "savedToast": "编程代理设置已保存。",
-    "subtitle": "选择新的编程代理会话启动时使用的模型",
+    "subtitle": "选择新的编程代理会话启动时使用的模型。列表中是 Claude 的模型，其他编程代理会回退到各自的默认模型。",
     "title": "编程代理"
   },
   "communityPage": {

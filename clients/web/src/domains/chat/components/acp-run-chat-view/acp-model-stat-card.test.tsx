@@ -5,6 +5,9 @@
  * these drive the viewport axes rather than stubbing a hook: a stubbed hook
  * would pass while the real primitive read something else. The switch action
  * arrives as a prop, so nothing here pulls in the daemon client.
+ *
+ * Whether the tile renders at all is the panel's decision, so the gate's cases
+ * live in `acp-run-chat-view.test.tsx` beside the grid they size.
  */
 
 import {
@@ -32,8 +35,7 @@ import {
   type AcpRunEntry,
 } from "@/domains/chat/acp-run-store";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
-import { MIN_VERSION } from "@/lib/backwards-compat/acp-model-switching";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { ApiError } from "@/utils/api-errors";
 
 import { AcpModelStatCard } from "./acp-model-stat-card";
 
@@ -43,9 +45,7 @@ const OPTIONS: AcpModelOption[] = [
 ];
 
 const TRIGGER_NAME = "Model: Opus. Change model";
-
-/** The assistant the panel says owns the run, matching the identity store. */
-const OWNER_ASSISTANT_ID = "asst-owner";
+const PENDING_TRIGGER_NAME = "Model: Sonnet. Change model";
 
 const viewport = viewportAxesStub();
 
@@ -66,17 +66,32 @@ function entry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
 }
 
 /** Seed the run so the store's `setModel` has an entry to write. */
-function seed(e: AcpRunEntry) {
+function seed(...entries: AcpRunEntry[]) {
   useAcpRunStore.setState({
-    byId: { [e.acpSessionId]: e },
-    orderedIds: [e.acpSessionId],
+    byId: Object.fromEntries(entries.map((e) => [e.acpSessionId, e])),
+    orderedIds: entries.map((e) => e.acpSessionId),
     byToolUseId: new Map<string, string>(),
     highWaterMark: new Map<string, number>(),
   });
 }
 
-function storedModel(): string | undefined {
-  return useAcpRunStore.getState().byId["acp-1"]?.model;
+function storedModel(acpSessionId = "acp-1"): string | undefined {
+  return useAcpRunStore.getState().byId[acpSessionId]?.model;
+}
+
+/** A switch whose answer the test hands back when it chooses to. */
+function deferredSwitch() {
+  let settle!: (result: {
+    model: string;
+    availableModels: AcpModelOption[];
+  }) => void;
+  const pending = new Promise<{
+    model: string;
+    availableModels: AcpModelOption[];
+  }>((resolve) => {
+    settle = resolve;
+  });
+  return { onSwitchModel: mock(async () => pending), settle };
 }
 
 const noopSwitch = mock(async () => ({
@@ -86,17 +101,12 @@ const noopSwitch = mock(async () => ({
 
 beforeEach(() => {
   viewport.set({ narrow: false, coarsePointer: false });
-  useAssistantIdentityStore.setState({
-    version: MIN_VERSION,
-    assistantId: OWNER_ASSISTANT_ID,
-  });
   noopSwitch.mockClear();
 });
 
 afterEach(() => {
   cleanup();
   viewport.restore();
-  useAssistantIdentityStore.setState({ version: null, assistantId: null });
   useAcpRunStore.getState().reset();
 });
 
@@ -105,13 +115,7 @@ describe("AcpModelStatCard on a live run", () => {
     const e = entry();
     seed(e);
 
-    render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
+    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
 
     const trigger = screen.getByRole("button", { name: TRIGGER_NAME });
     expect(trigger.textContent).toContain("Opus");
@@ -123,13 +127,7 @@ describe("AcpModelStatCard on a live run", () => {
     const e = entry();
     seed(e);
 
-    render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
+    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
     fireEvent.pointerDown(screen.getByRole("button", { name: TRIGGER_NAME }), {
       button: 0,
       ctrlKey: false,
@@ -139,35 +137,26 @@ describe("AcpModelStatCard on a live run", () => {
     expect(screen.getByRole("menuitem", { name: /Sonnet/ })).toBeTruthy();
   });
 
-  test("lists every option the adapter offers and checks the active one", () => {
+  test("lists every option the adapter offers and names the active one", () => {
     const e = entry();
     seed(e);
 
     render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-        defaultOpen
-      />,
+      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} defaultOpen />,
     );
 
     // Radix labels the menu from its trigger, so the surface is found by role.
     expect(screen.getByRole("menu")).toBeTruthy();
-    expect(screen.getByRole("menuitem", { name: /Opus/ })).toBeTruthy();
     expect(screen.getByRole("menuitem", { name: /Sonnet/ })).toBeTruthy();
-    // The description rides along with the label so both surfaces show it.
+    // The check is decorative, so the selected row says so in its name rather
+    // than in a colour only a sighted user can read.
     expect(
-      screen.getByRole("menuitem", { name: /Opus/ }).textContent,
-    ).toContain("Most capable");
+      screen.getByRole("menuitem", { name: "Opus Selected" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("menuitem", { name: /Sonnet Selected/ }),
+    ).toBeNull();
     expect(screen.getByText("Applies from the next turn.")).toBeTruthy();
-    // Only the selected row carries the check.
-    expect(screen.getByRole("menuitem", { name: /Opus/ }).innerHTML).toContain(
-      "--system-positive-strong",
-    );
-    expect(
-      screen.getByRole("menuitem", { name: /Sonnet/ }).innerHTML,
-    ).not.toContain("--system-positive-strong");
   });
 
   test("groups options under the names the adapter gave them", () => {
@@ -180,45 +169,102 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-        defaultOpen
-      />,
+      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} defaultOpen />,
     );
 
     expect(screen.getByText("Claude")).toBeTruthy();
     expect(screen.getByText("OpenAI")).toBeTruthy();
   });
 
-  test("selecting an option switches optimistically, then reconciles", async () => {
+  test("shows the choice as pending and writes the store from the response", async () => {
     const e = entry();
     seed(e);
-    const onSwitchModel = mock(async () => ({
-      model: "sonnet",
-      availableModels: [OPTIONS[1]!],
-    }));
+    const { onSwitchModel, settle } = deferredSwitch();
 
     render(
+      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
+
+    expect(onSwitchModel).toHaveBeenCalledWith("acp-1", "sonnet");
+    // The tile reads the choice; the store still holds what the daemon last
+    // confirmed, so a snapshot landing now cannot roll the tile back.
+    expect(
+      screen.getByRole("button", { name: PENDING_TRIGGER_NAME }).textContent,
+    ).toContain("Sonnet");
+    expect(storedModel()).toBe("opus");
+
+    await act(async () => {
+      settle({ model: "sonnet", availableModels: [OPTIONS[1]!] });
+    });
+
+    expect(storedModel()).toBe("sonnet");
+    expect(
+      useAcpRunStore.getState().byId["acp-1"]!.availableModels,
+    ).toHaveLength(1);
+  });
+
+  test("takes the tile out of play while a switch is in flight", async () => {
+    const e = entry();
+    seed(e);
+    const { onSwitchModel, settle } = deferredSwitch();
+
+    render(
+      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
+
+    expect(
+      (
+        screen.getByRole("button", {
+          name: PENDING_TRIGGER_NAME,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+
+    await act(async () => {
+      settle({ model: "sonnet", availableModels: OPTIONS });
+    });
+
+    // The answer landed, so the tile is live again. It reads the run it was
+    // given, which the panel re-renders from the store.
+    expect(
+      (
+        screen.getByRole("button", {
+          name: TRIGGER_NAME,
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(onSwitchModel).toHaveBeenCalledTimes(1);
+  });
+
+  test("ignores the answer to a switch the panel has already moved off", async () => {
+    const first = entry();
+    const second = entry({ acpSessionId: "acp-2", model: "opus" });
+    seed(first, second);
+    const { onSwitchModel, settle } = deferredSwitch();
+
+    const { rerender } = render(
       <AcpModelStatCard
-        entry={e}
+        entry={first}
         onSwitchModel={onSwitchModel}
-        assistantId={OWNER_ASSISTANT_ID}
         defaultOpen
       />,
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
 
-    expect(onSwitchModel).toHaveBeenCalledWith("acp-1", "sonnet");
-    // Written before the round trip resolves.
-    expect(storedModel()).toBe("sonnet");
+    rerender(<AcpModelStatCard entry={second} onSwitchModel={onSwitchModel} />);
+    await act(async () => {
+      settle({ model: "sonnet", availableModels: OPTIONS });
+    });
 
-    await act(async () => {});
-
+    // The tile belongs to another run now: it is neither waiting nor writing
+    // the answer to a question that run never asked.
+    expect(storedModel("acp-1")).toBe("opus");
     expect(
-      useAcpRunStore.getState().byId["acp-1"]!.availableModels,
-    ).toHaveLength(1);
+      (screen.getByRole("button", { name: TRIGGER_NAME }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   test("re-selecting the active model asks the daemon for nothing", () => {
@@ -226,19 +272,14 @@ describe("AcpModelStatCard on a live run", () => {
     seed(e);
 
     render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-        defaultOpen
-      />,
+      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} defaultOpen />,
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Opus/ }));
 
     expect(noopSwitch).not.toHaveBeenCalled();
   });
 
-  test("restores the previous selection and toasts when the switch fails", async () => {
+  test("leaves the stored model alone and toasts when the switch fails", async () => {
     const e = entry();
     seed(e);
     const onSwitchModel = mock(async () => {
@@ -247,15 +288,9 @@ describe("AcpModelStatCard on a live run", () => {
     const errorToast = spyOn(toast, "error");
 
     render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={onSwitchModel}
-        assistantId={OWNER_ASSISTANT_ID}
-        defaultOpen
-      />,
+      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
     );
     fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
-    expect(storedModel()).toBe("sonnet");
 
     await act(async () => {});
 
@@ -266,22 +301,34 @@ describe("AcpModelStatCard on a live run", () => {
     expect(errorToast).toHaveBeenCalledWith(
       "Could not switch the model. Please try again.",
     );
+    expect(
+      (screen.getByRole("button", { name: TRIGGER_NAME }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
     errorToast.mockRestore();
   });
 
-  test("renders nothing when the adapter offers no models", () => {
-    const e = entry({ availableModels: [] });
+  // 409 is the daemon's answer when the adapter dropped its model selector
+  // mid-run. Retrying cannot fix that, so the user reads why.
+  test("toasts the daemon's own words when it refuses the switch", async () => {
+    const e = entry();
     seed(e);
+    const onSwitchModel = mock(async () => {
+      throw new ApiError(409, "This session no longer offers a model choice.");
+    });
+    const errorToast = spyOn(toast, "error");
 
-    const { container } = render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
+    render(
+      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
     );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Sonnet/ }));
 
-    expect(container.innerHTML).toBe("");
+    await act(async () => {});
+
+    expect(errorToast).toHaveBeenCalledWith(
+      "This session no longer offers a model choice.",
+    );
+    errorToast.mockRestore();
   });
 });
 
@@ -290,7 +337,7 @@ describe("AcpModelStatCard on a touch surface", () => {
     viewport.set({ narrow: true, coarsePointer: true });
   });
 
-  test("offers the same options as a sheet", () => {
+  test("offers the same options as a sheet, descriptions included", () => {
     const e = entry();
     seed(e);
     const onSwitchModel = mock(async () => ({
@@ -299,16 +346,14 @@ describe("AcpModelStatCard on a touch surface", () => {
     }));
 
     render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={onSwitchModel}
-        assistantId={OWNER_ASSISTANT_ID}
-        defaultOpen
-      />,
+      <AcpModelStatCard entry={e} onSwitchModel={onSwitchModel} defaultOpen />,
     );
 
     expect(screen.getByRole("dialog", { name: "Choose model" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Sonnet/ }));
+    // The sheet row has room for the supporting line, and the command still
+    // names the row on its own.
+    expect(screen.getByText("Most capable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sonnet" }));
 
     expect(onSwitchModel).toHaveBeenCalledWith("acp-1", "sonnet");
   });
@@ -319,66 +364,25 @@ describe("AcpModelStatCard on a terminal run", () => {
     const e = entry({ status: "completed", completedAt: 1 });
     seed(e);
 
-    render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
+    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
 
     expect(screen.getByText("Opus")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
-});
 
-describe("AcpModelStatCard behind the compat gate", () => {
-  test("renders nothing when the assistant predates model switching", () => {
-    useAssistantIdentityStore.setState({ version: "0.1.0" });
-    const e = entry();
-    seed(e);
-
-    const { container } = render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
-
-    expect(container.innerHTML).toBe("");
-  });
-
-  // Mid-switch the active id has moved on while the identity store still holds
-  // the outgoing version. The tile follows the run's own assistant, so it
-  // closes rather than posting `set-model` to one that may lack the route.
-  test("renders nothing when the held version belongs to another assistant", () => {
-    useAssistantIdentityStore.setState({
-      version: MIN_VERSION,
-      assistantId: "asst-incoming",
+  // History carries the raw value the adapter reported and no option list, so
+  // the tile shows the id rather than a label it has no way to resolve.
+  test("shows the raw model id when there is no list to name it", () => {
+    const e = entry({
+      status: "completed",
+      completedAt: 1,
+      model: "claude-opus-4-1-20250805",
+      availableModels: undefined,
     });
-    const e = entry();
     seed(e);
 
-    const { container } = render(
-      <AcpModelStatCard
-        entry={e}
-        onSwitchModel={noopSwitch}
-        assistantId={OWNER_ASSISTANT_ID}
-      />,
-    );
+    render(<AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />);
 
-    expect(container.innerHTML).toBe("");
-  });
-
-  test("renders nothing when the panel names no owner", () => {
-    const e = entry();
-    seed(e);
-
-    const { container } = render(
-      <AcpModelStatCard entry={e} onSwitchModel={noopSwitch} />,
-    );
-
-    expect(container.innerHTML).toBe("");
+    expect(screen.getByText("claude-opus-4-1-20250805")).toBeTruthy();
   });
 });

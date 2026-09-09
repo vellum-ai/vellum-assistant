@@ -30,9 +30,9 @@ export const ACP_SELECTABLE_MODELS = [
   { value: "fable[1m]", labelKey: "codingAgentsCard.modelOptions.fable1m" },
 ] as const;
 
-export type AcpSelectableModelOption = (typeof ACP_SELECTABLE_MODELS)[number];
+type AcpSelectableModelOption = (typeof ACP_SELECTABLE_MODELS)[number];
 
-export type AcpSelectableModel = AcpSelectableModelOption["value"];
+type AcpSelectableModel = AcpSelectableModelOption["value"];
 
 /**
  * Whether a stored value is one of the rows above.

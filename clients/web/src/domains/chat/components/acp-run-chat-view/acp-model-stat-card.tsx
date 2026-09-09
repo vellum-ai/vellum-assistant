@@ -7,6 +7,13 @@
  * the model it started with and the menu says so. A terminal run has nothing
  * left to switch, so its tile is the plain metric card.
  *
+ * A switch is sequenced rather than optimistic: the chosen label shows as
+ * pending and the store is written only from the daemon's answer. An
+ * optimistic write races every other writer of the same field. A rehydration
+ * fetch issued after it reads the daemon before `set-model` applies and rolls
+ * the tile back; a revert on failure clobbers whatever the session's own
+ * stream wrote in between.
+ *
  * `ActionMenu` resolves the surface: an anchored dropdown under a pointer, a
  * bottom sheet under a thumb. `MetricCard` is a plain div with no ref, so the
  * trigger wears its chrome (`METRIC_CARD_CLASS` + `MetricCardContent`) on a
@@ -14,7 +21,15 @@
  */
 
 import { Check, ChevronDown, Sparkles } from "lucide-react";
-import { Fragment, useCallback, type ReactNode, type Ref } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type Ref,
+} from "react";
 
 import { ActionMenu, cn, toast } from "@vellumai/design-library";
 
@@ -32,57 +47,57 @@ import type { SwitchAcpRunModelResponse } from "@/domains/chat/utils/acp-run-act
 import { useTranslation } from "@/i18n";
 import { useAssistantScopedSupportsAcpModelSwitching } from "@/lib/backwards-compat/acp-model-switching";
 import { isActiveAcpStatus } from "@/utils/acp-run-status";
-import { badRequestMessage } from "@/utils/api-errors";
+import { rejectionMessage } from "@/utils/api-errors";
 
 const EMPTY_OPTIONS: AcpModelOption[] = [];
 
 /** What the tile needs back from a switch: the daemon's refreshed selection. */
-export type AcpModelSelection = Pick<
+type AcpModelSelection = Pick<
   SwitchAcpRunModelResponse,
   "model" | "availableModels"
 >;
 
-export interface AcpModelStatCardProps {
+interface AcpModelStatCardProps {
   entry: AcpRunEntry;
   /** Applies the chosen model to the live session. */
   onSwitchModel: (
     acpSessionId: string,
     model: string,
   ) => Promise<AcpModelSelection>;
-  /**
-   * Assistant that owns the run, from the panel. The compat gate is scoped to
-   * it so a stale run's menu closes the moment the active assistant moves to
-   * one whose daemon has no `set-model` route.
-   */
-  assistantId?: string | null;
   /** Start the menu open. For tests; the panel leaves it closed. */
   defaultOpen?: boolean;
 }
 
 /**
  * Whether the MODEL tile renders for a run: the compat gate is open for the
- * run's own assistant, the adapter reported a model, and a live run still has
- * something to switch to. The panel reads it to size its metrics grid, so the
- * grid and the tile cannot disagree about whether there is a third column.
+ * active assistant, and there is something to show. A live run needs the
+ * adapter's option list, since the tile is a picker; a terminal run needs only
+ * the model it ran on, which it shows as a plain metric.
  *
- * The gate is scoped to `assistantId` rather than to whichever assistant is
- * active. During a switch the active id moves before the identity store
- * rehydrates, so an unscoped answer off the outgoing version would leave the
- * stale run's menu enabled and post `set-model` to an assistant that has no
- * such route. No owner id means no gate to check, so the tile stays hidden.
+ * The list is what the gate reads, not the reported current value: an adapter
+ * that offers a full list with an empty `currentValue` still has a switch
+ * worth offering, and a run whose list is empty has none however it answered.
+ *
+ * `assistantId` is the assistant the panel is looking at, which is the one
+ * `set-model` would post to. The gate closes when the version the identity
+ * store holds was fetched for a different assistant, or for one whose daemon
+ * has no such route, so the menu cannot outlive the assistant that serves it.
+ *
+ * The panel reads this to size its metrics grid, so the grid and the tile
+ * cannot disagree about whether there is a model column.
  */
 export function useShowsAcpModelCard(
   entry: AcpRunEntry,
   assistantId: string | null | undefined,
 ): boolean {
   const supported = useAssistantScopedSupportsAcpModelSwitching(assistantId);
-  if (!supported || entry.model === undefined) {
+  if (!supported) {
     return false;
   }
-  if (!isActiveAcpStatus(entry.status)) {
-    return true;
+  if (isActiveAcpStatus(entry.status)) {
+    return (entry.availableModels?.length ?? 0) > 0;
   }
-  return (entry.availableModels?.length ?? 0) > 0;
+  return entry.model !== undefined;
 }
 
 /** Options in adapter order, split at each change of the group they name. */
@@ -104,28 +119,45 @@ function groupOptions(
 export function AcpModelStatCard({
   entry,
   onSwitchModel,
-  assistantId,
   defaultOpen,
 }: AcpModelStatCardProps) {
   const { t } = useTranslation("chat");
-  const shows = useShowsAcpModelCard(entry, assistantId);
   const { acpSessionId, model } = entry;
   const options = entry.availableModels ?? EMPTY_OPTIONS;
 
+  // The chosen model while its switch is in flight. Local, so nothing else
+  // reads a value the daemon has not confirmed.
+  const [pendingValue, setPendingValue] = useState<string | null>(null);
+  // Which request the tile is waiting on. A response from any earlier one is a
+  // stale answer about a model nobody is switching to any more.
+  const requestRef = useRef(0);
+
+  // The panel reuses one tile across runs, so a run switch retires whatever is
+  // in flight: its answer belongs to the run that asked, not to this one.
+  useEffect(() => {
+    requestRef.current += 1;
+    setPendingValue(null);
+  }, [acpSessionId]);
+
   const handleSelect = useCallback(
     (value: string) => {
-      if (value === model) {
+      if (value === model || pendingValue !== null) {
         return;
       }
-      // Optimistic so the tile reads the user's choice before the round trip,
-      // then reconciled against the adapter's refreshed set. Both writes go
-      // through the store's `setModel`, which stamps `modelUpdatedAt` and so
-      // survives an `/acp/sessions` snapshot fetched before either landed.
-      useAcpRunStore
-        .getState()
-        .setModel({ acpSessionId, model: value, availableModels: options });
-      void onSwitchModel(acpSessionId, value)
+      // The request goes out first: it resolves the active assistant, and a
+      // missing one must reject rather than latch the menu shut.
+      const request = onSwitchModel(acpSessionId, value);
+      const requestId = ++requestRef.current;
+      setPendingValue(value);
+      void request
         .then((next) => {
+          if (requestId !== requestRef.current) {
+            return;
+          }
+          setPendingValue(null);
+          // The store is written once, from the daemon's answer, through the
+          // action that stamps `modelUpdatedAt` so an `/acp/sessions` snapshot
+          // fetched before the switch landed cannot overwrite it.
           useAcpRunStore.getState().setModel({
             acpSessionId,
             model: next.model,
@@ -133,24 +165,23 @@ export function AcpModelStatCard({
           });
         })
         .catch((err: unknown) => {
-          useAcpRunStore
-            .getState()
-            .setModel({ acpSessionId, model, availableModels: options });
-          // A 400 is the adapter's verdict on the value, written for the user.
+          if (requestId !== requestRef.current) {
+            return;
+          }
+          setPendingValue(null);
+          // A 400 is the adapter's verdict on the value and a 409 says it no
+          // longer offers a choice at all. Both are written for the user.
           toast.error(
-            badRequestMessage(err) ?? t("acpRunChatView.modelSwitchFailed"),
+            rejectionMessage(err) ?? t("acpRunChatView.modelSwitchFailed"),
           );
         });
     },
-    [acpSessionId, model, options, onSwitchModel, t],
+    [acpSessionId, model, onSwitchModel, pendingValue, t],
   );
 
-  if (!shows) {
-    return null;
-  }
-
   const label = t("acpRunChatView.modelLabel");
-  const value = options.find((o) => o.value === model)?.label ?? model ?? "";
+  const shown = pendingValue ?? model;
+  const value = options.find((o) => o.value === shown)?.label ?? shown ?? "";
   const icon = (
     <Sparkles
       className="h-4 w-4 shrink-0"
@@ -164,7 +195,7 @@ export function AcpModelStatCard({
         icon={icon}
         value={value}
         label={label}
-        valueClassName="truncate font-mono"
+        valueClassName="font-mono"
       />
     );
   }
@@ -177,6 +208,7 @@ export function AcpModelStatCard({
           value={value}
           label={label}
           ariaLabel={t("acpRunChatView.modelTriggerAria", { model: value })}
+          pending={pendingValue !== null}
         />
       </ActionMenu.Trigger>
       <ActionMenu.Content
@@ -189,11 +221,20 @@ export function AcpModelStatCard({
             {items.map((option) => (
               <ActionMenu.Item
                 key={option.value}
-                label={
-                  <ModelRowLabel
-                    option={option}
-                    active={option.value === model}
-                  />
+                label={option.label}
+                description={option.description}
+                trailing={
+                  option.value === model ? (
+                    <>
+                      <Check
+                        className="h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]"
+                        aria-hidden
+                      />
+                      <span className="sr-only">
+                        {t("acpRunChatView.modelSelectedAria")}
+                      </span>
+                    </>
+                  ) : null
                 }
                 onSelect={() => handleSelect(option.value)}
               />
@@ -212,12 +253,18 @@ export function AcpModelStatCard({
 /**
  * The tile as a button, so Radix can hand it the trigger's ref and ARIA state.
  * `ref` is a plain prop, matching the design library's own controls.
+ *
+ * `pending` dims the value and takes the trigger out of play, so a second
+ * choice cannot be made against a model the daemon has not confirmed yet. It
+ * is applied after the menu's own props, which carry a `disabled` of their
+ * own that is always `false`.
  */
 function ModelTileTrigger({
   icon,
   value,
   label,
   ariaLabel,
+  pending,
   ref,
   ...rest
 }: {
@@ -225,6 +272,7 @@ function ModelTileTrigger({
   value: string;
   label: string;
   ariaLabel: string;
+  pending: boolean;
   ref?: Ref<HTMLButtonElement>;
 }) {
   return (
@@ -239,47 +287,18 @@ function ModelTileTrigger({
         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--border-focus)]",
       )}
       {...rest}
+      disabled={pending}
     >
       <MetricCardContent
         icon={icon}
         value={value}
         label={label}
-        valueClassName="truncate font-mono"
+        valueClassName={cn("font-mono", pending && "opacity-60")}
       />
       <ChevronDown
         className="ml-auto h-4 w-4 shrink-0 text-[var(--content-tertiary)]"
         aria-hidden
       />
     </button>
-  );
-}
-
-/**
- * One model row: the adapter's label, its description as secondary text, and a
- * check on the selected one. Built as a single label node so both the anchored
- * row and the sheet row show the same thing.
- */
-function ModelRowLabel({
-  option,
-  active,
-}: {
-  option: AcpModelOption;
-  active: boolean;
-}) {
-  return (
-    <span className="flex min-w-0 items-baseline gap-2">
-      <span className="truncate">{option.label}</span>
-      {option.description ? (
-        <span className="truncate text-label-small-default text-[var(--content-tertiary)]">
-          {option.description}
-        </span>
-      ) : null}
-      {active ? (
-        <Check
-          className="ml-auto h-3.5 w-3.5 shrink-0 self-center text-[var(--system-positive-strong)]"
-          aria-hidden
-        />
-      ) : null}
-    </span>
   );
 }

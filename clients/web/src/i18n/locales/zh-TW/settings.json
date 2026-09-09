@@ -480,7 +480,6 @@
     "customModelLabel": "模型",
     "customModelOption": "自訂模型",
     "customModelPlaceholder": "claude-opus-4-1",
-    "modelAriaLabel": "程式設計代理預設模型",
     "modelLabel": "預設模型",
     "modelOptions": {
       "best": "最佳可用",
@@ -495,7 +494,7 @@
       "sonnet1m": "Sonnet（1M 上下文）"
     },
     "savedToast": "程式設計代理設定已儲存。",
-    "subtitle": "選擇新的程式設計代理會話啟動時使用的模型",
+    "subtitle": "選擇新的程式設計代理會話啟動時使用的模型。清單中是 Claude 的模型，其他程式設計代理會回退到各自的預設模型。",
     "title": "程式設計代理"
   },
   "communityPage": {

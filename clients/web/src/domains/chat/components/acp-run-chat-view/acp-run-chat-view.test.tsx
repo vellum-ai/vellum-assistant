@@ -437,7 +437,9 @@ describe("AcpRunChatView metrics grid", () => {
     useAssistantIdentityStore.setState({ version: null, assistantId: null });
   });
 
-  test("gives the MODEL tile the grid's third column", () => {
+  // Three tiles fold to two columns on a narrow panel, where the model tile
+  // takes the full row rather than a third of it.
+  test("gives the MODEL tile a column of its own", () => {
     setIdentity(MIN_VERSION);
     const e = entry({
       inputTokens: 1000,
@@ -456,9 +458,11 @@ describe("AcpRunChatView metrics grid", () => {
     );
 
     const metrics = screen.getByTestId("acp-run-metrics");
-    expect(metrics.className).toContain("grid-cols-3");
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.className).toContain("sm:grid-cols-3");
     expect(metrics.children).toHaveLength(3);
     expect(metrics.children[2]!.textContent).toContain("Opus");
+    expect(metrics.children[2]!.className).toContain("col-span-2");
   });
 
   test("keeps two columns for a run with no model", () => {
@@ -479,7 +483,9 @@ describe("AcpRunChatView metrics grid", () => {
     expect(metrics.children).toHaveLength(2);
   });
 
-  test("renders the grid for a run whose only stat is its model", () => {
+  // A run reports tokens from its first usage event, so a just-spawned run has
+  // none. Token tiles reading zero would be a number nobody measured.
+  test("shows only the MODEL tile for a run with no usage yet", () => {
     setIdentity(MIN_VERSION);
     const e = entry({ model: "opus", availableModels: MODEL_OPTIONS });
     seed(e, []);
@@ -492,9 +498,83 @@ describe("AcpRunChatView metrics grid", () => {
       />,
     );
 
-    expect(screen.getByTestId("acp-run-metrics").className).toContain(
-      "grid-cols-3",
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-1");
+    expect(metrics.children).toHaveLength(1);
+    expect(metrics.textContent).toContain("Opus");
+    expect(metrics.textContent).not.toContain("Input");
+    expect(metrics.textContent).not.toContain("Output");
+  });
+
+  // The gate reads the option list, not the reported current value: an adapter
+  // that offers a list without naming a current model still has a switch.
+  test("shows the MODEL tile when the adapter names no current model", () => {
+    setIdentity(MIN_VERSION);
+    const e = entry({
+      inputTokens: 1000,
+      outputTokens: 200,
+      availableModels: MODEL_OPTIONS,
+    });
+    seed(e, []);
+
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
     );
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.children).toHaveLength(3);
+    expect(screen.getByRole("button", { name: /Change model/ })).toBeTruthy();
+  });
+
+  test("omits the MODEL tile when a live adapter offers no models", () => {
+    setIdentity(MIN_VERSION);
+    const e = entry({
+      inputTokens: 1000,
+      outputTokens: 200,
+      model: "opus",
+      availableModels: [],
+    });
+    seed(e, []);
+
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.textContent).not.toContain("Opus");
+  });
+
+  // A run from history carries the model it ran on and no list to switch with,
+  // so the tile is the plain metric rather than a picker.
+  test("shows a terminal run's model as a static tile", () => {
+    setIdentity(MIN_VERSION);
+    const e = entry({
+      status: "completed",
+      completedAt: 1,
+      model: "claude-opus-4-1-20250805",
+    });
+    seed(e, []);
+
+    render(
+      <AcpRunChatView
+        entry={e}
+        onClose={() => {}}
+        assistantId={OWNER_ASSISTANT_ID}
+      />,
+    );
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.textContent).toContain("claude-opus-4-1-20250805");
+    expect(screen.queryByRole("button", { name: /Change model/ })).toBeNull();
   });
 
   test("renders no grid at all for a run with neither stat", () => {
