@@ -11,7 +11,7 @@
 
 import { ChevronLeft, Layers } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { Button, Typography } from "@vellumai/design-library";
 
@@ -34,7 +34,7 @@ import {
   type ConversationFileAsset,
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
 import {
@@ -110,16 +110,31 @@ export function ChatInfoPanel({
   );
 
   const appDelete = useAppDelete(assistantId);
-  const openApp = useOpenAppFromChat();
+
+  // The panel showing a conversation's assets is the user looking at them, so
+  // a change that lands while it is open is seen the moment it arrives. It
+  // clears here rather than at the header trigger because every entry point
+  // into the panel passes through this component.
+  const unseenDocuments =
+    useUnseenDocumentChangesStore.use.changedDocuments()[conversationId];
+  const clearConversation =
+    useUnseenDocumentChangesStore.use.clearConversation();
+  useEffect(() => {
+    if (unseenDocuments !== undefined) {
+      clearConversation(conversationId);
+    }
+  }, [clearConversation, conversationId, unseenDocuments]);
 
   // Closing first returns the viewer to whatever the panel was opened from,
-  // so the asset lands there rather than behind the panel.
+  // so the asset lands there rather than behind the panel. The app opens
+  // under the panel's own assistant, which need not be the active one.
   const handleOpenApp = useCallback(
     (appId: string) => {
+      haptic.light();
       useViewerStore.getState().closeChatInfo();
-      void openApp(appId);
+      void useViewerStore.getState().loadApp(assistantId, appId);
     },
-    [openApp],
+    [assistantId],
   );
 
   const handleOpenFile = useCallback(
@@ -147,10 +162,18 @@ export function ChatInfoPanel({
 
   // A category emptied while drilled in (the last app deleted) falls back to
   // the top level rather than rendering an empty page.
-  const level =
-    payload.category !== null && categoryLists[payload.category].length > 0
-      ? payload.category
-      : null;
+  const emptiedCategory =
+    payload.category !== null && categoryLists[payload.category].length === 0;
+  const level = emptiedCategory ? null : payload.category;
+
+  // The fallback above is what this frame renders; the store still holds the
+  // category, so it is settled too. Otherwise a refilled category would drill
+  // back in on its own, and See All on that same category would no-op.
+  useEffect(() => {
+    if (emptiedCategory) {
+      onSelectCategory(null);
+    }
+  }, [emptiedCategory, onSelectCategory]);
 
   const renderFileSection = (category: "files" | "frames") => {
     const items = categoryLists[category];
@@ -184,7 +207,12 @@ export function ChatInfoPanel({
   let body: ReactNode;
   if (level === "apps") {
     body = (
-      <div className="grid gap-2 [grid-template-columns:repeat(auto-fill,minmax(184px,1fr))]">
+      <div
+        className="grid gap-2"
+        style={{
+          gridTemplateColumns: `repeat(auto-fill, minmax(${CHAT_INFO_APP_TILE_WIDTH_PX}px, 1fr))`,
+        }}
+      >
         {apps.map((app) => (
           <ChatInfoAppTile
             key={app.id}
