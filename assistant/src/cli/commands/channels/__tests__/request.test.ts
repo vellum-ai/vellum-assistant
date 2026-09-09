@@ -3,20 +3,18 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // The command runs the authenticated-request route in-process, as `oauth
 // request` does. The route is stubbed so the tests see exactly what provider
 // key and request shape the command hands it; IPC is stubbed to prove the
-// command never takes that path.
+// command never takes that path. The exit-code helpers stay real, so the
+// tests assert the mapping that ships.
 const ipcCalls: string[] = [];
 const handleRequestCalls: Array<{ body: Record<string, unknown> }> = [];
 
+const actualCliClient = await import("../../../../ipc/cli-client.js");
 mock.module("../../../../ipc/cli-client.js", () => ({
+  ...actualCliClient,
   cliIpcCall: async (method: string) => {
     ipcCalls.push(method);
     return { ok: false, error: `Unexpected IPC method ${method}` };
   },
-  exitFromIpcResult: (r: { error?: string }) => {
-    throw new Error(r.error ?? "IPC error");
-  },
-  exitCodeFromIpcResult: (r: { statusCode?: number }) =>
-    r.statusCode === undefined ? 10 : r.statusCode >= 500 ? 3 : 1,
 }));
 
 mock.module("../../../../runtime/routes/oauth-commands-routes.js", () => ({
@@ -31,61 +29,33 @@ mock.module("../../../../runtime/routes/oauth-commands-routes.js", () => ({
   },
 }));
 
-import { Command } from "commander";
+import type { Command } from "commander";
 
-import { applyCommandHelp } from "../../../lib/cli-command-help.js";
-import { channelsHelp } from "../index.help.js";
-import {
-  botProviderForChannel,
-  registerChannelsRequestCommand,
-  REQUESTABLE_CHANNELS,
-} from "../request.js";
+import { runCliCommand } from "../../__tests__/cli-test-harness.js";
+import { registerChannelsCommand } from "../index.js";
+import { botProviderForChannel, REQUESTABLE_CHANNELS } from "../request.js";
+
+const { exitCodeFromIpcResult } = actualCliClient;
 
 beforeEach(() => {
   ipcCalls.length = 0;
   handleRequestCalls.length = 0;
-  process.exitCode = 0;
 });
 
-async function runChannelsRequest(args: string[]): Promise<{
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}> {
-  const out: string[] = [];
-  const err: string[] = [];
-  const originalOut = process.stdout.write;
-  const originalErr = process.stderr.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    out.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
-    return true;
-  }) as typeof process.stdout.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    err.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
-    return true;
-  }) as typeof process.stderr.write;
-  try {
-    const program = new Command();
-    program.exitOverride();
-    const channels = program
-      .command("channels")
-      .description(channelsHelp.description);
-    applyCommandHelp(channels, channelsHelp);
-    registerChannelsRequestCommand(channels);
-    const request = channels.commands.find((c) => c.name() === "request");
-    request?.option("--json");
-    await program.parseAsync(["node", "test", "channels", "request", ...args]);
-  } catch {
-    // Commander may throw under exitOverride for parse errors.
-  } finally {
-    process.stdout.write = originalOut;
-    process.stderr.write = originalErr;
-  }
-  return {
-    stdout: out.join(""),
-    stderr: err.join(""),
-    exitCode: Number(process.exitCode ?? 0),
-  };
+/**
+ * The shipped registration, plus the `--json` leaf option the program
+ * normally attaches after every command is registered.
+ */
+function registerChannels(program: Command): void {
+  registerChannelsCommand(program);
+  program.commands
+    .find((c) => c.name() === "channels")
+    ?.commands.find((c) => c.name() === "request")
+    ?.option("--json");
+}
+
+function runChannelsRequest(args: string[]) {
+  return runCliCommand(registerChannels, ["channels", "request", ...args]);
 }
 
 describe("channel to bot provider", () => {
@@ -210,7 +180,8 @@ describe("assistant channels request", () => {
       "/auth.test",
     ]);
 
-    expect(exitCode).toBe(1);
+    // The exit code is the one the route's status maps to for every command.
+    expect(exitCode).toBe(exitCodeFromIpcResult({ statusCode: 404 }));
     const envelope = JSON.parse(stdout.trim());
     expect(envelope.ok).toBe(false);
     expect(envelope.error).toContain("Provider not configured");
