@@ -2,6 +2,14 @@
   "version": 1,
   "flags": [
     {
+      "id": "interrupt-on-send",
+      "scope": "both",
+      "key": "interrupt-on-send",
+      "label": "Interrupt On Send",
+      "description": "A message sent while the assistant is busy interrupts the current tool call and is delivered immediately, instead of queueing",
+      "defaultEnabled": false
+    },
+    {
       "id": "in-chat-onboarding-tour",
       "scope": "client",
       "key": "in-chat-onboarding-tour",

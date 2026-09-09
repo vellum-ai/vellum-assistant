@@ -602,6 +602,9 @@ mock.module("../daemon/assistant-attachments.js", () => ({
   }),
 }));
 
+// Flipped by the turn-boundary-commit tests; every other test leaves the commit
+// finishing inside its wait budget.
+let raceWithTimeoutOutcome: "completed" | "timed_out" = "completed";
 mock.module("../daemon/conversation-media-retry.js", () => ({
   stripMediaPayloadsForRetry: (msgs: Message[]) => ({
     messages: msgs,
@@ -609,7 +612,7 @@ mock.module("../daemon/conversation-media-retry.js", () => ({
     replacedBlocks: 0,
     latestUserIndex: null,
   }),
-  raceWithTimeout: async () => "completed" as const,
+  raceWithTimeout: async () => raceWithTimeoutOutcome,
 }));
 
 mock.module("../workspace/turn-commit.js", () => ({
@@ -688,6 +691,10 @@ import {
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
+import {
+  resetTurnFinalizationsForTesting,
+  waitForTurnFinalization,
+} from "../daemon/turn-finalization.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
 import type { PostCompactContext } from "../hooks/types.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
@@ -964,6 +971,8 @@ function overflowAfterToolTurnScenario(): NonNullable<
 beforeEach(() => {
   setConfig("ui", {});
   seedLlmConfig();
+  raceWithTimeoutOutcome = "completed";
+  resetTurnFinalizationsForTesting();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -1507,6 +1516,79 @@ describe("session-agent-loop", () => {
         errorCategory: "disk_pressure",
         userMessage: expect.stringContaining("remote messages are ignored"),
       });
+    });
+
+    test("holds the finalization barrier open past a commit that outran its budget", async () => {
+      // `raceWithTimeout` returning `timed_out` means the turn stops waiting,
+      // not that the commit stopped: it is still staging the working tree. The
+      // barrier has to outlast it, or an interrupt is told the turn is finished
+      // and lets the replacement turn write files into the old turn's commit.
+      let finishCommit = () => {};
+      const commitTurnChanges = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            finishCommit = resolve;
+          }),
+      );
+      raceWithTimeoutOutcome = "timed_out";
+      const ctx = makeCtx({
+        commitTurnChanges:
+          commitTurnChanges as unknown as Conversation["commitTurnChanges"],
+      });
+
+      await runAgentLoopImpl(ctx, "write a file", "msg-1", () => {});
+
+      expect(commitTurnChanges).toHaveBeenCalled();
+      // The loop has returned, but the commit has not, so the barrier stands.
+      expect(await waitForTurnFinalization("test-conv", 5)).toBe(false);
+
+      finishCommit();
+
+      expect(await waitForTurnFinalization("test-conv", 1000)).toBe(true);
+    });
+
+    test("closes the finalization barrier when the commit lands in budget", async () => {
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(await waitForTurnFinalization("test-conv", 5)).toBe(true);
+    });
+
+    test("emits the interrupt bridge at turn head and disarms it", async () => {
+      // `interruptRunningTurn` arms the flag instead of emitting, because the
+      // send can still fail before any turn runs and an activity state is
+      // cached and replayed to reconnecting clients. The loop is the first
+      // point at which the replacement turn is certainly running.
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        pendingInterruptActivityBridge: true,
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "and now the time", "msg-1", () => {});
+
+      expect(activityStates[0]).toEqual(["thinking", "message_interrupted"]);
+      // Disarmed, so a later unrelated turn does not replay the transition.
+      expect(ctx.pendingInterruptActivityBridge).toBe(false);
+    });
+
+    test("emits no interrupt bridge on a turn nothing interrupted", async () => {
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(activityStates).not.toContainEqual([
+        "thinking",
+        "message_interrupted",
+      ]);
     });
 
     test("blocked background turns clear processing state and drain the queue", async () => {

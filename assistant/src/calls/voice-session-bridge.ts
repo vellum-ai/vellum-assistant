@@ -24,7 +24,10 @@ import type {
 } from "../channels/types.js";
 import { selectWinningProfile } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
+import {
+  ABORT_WATCHDOG_MS,
+  resolveTurnCommitWaitMs,
+} from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
@@ -198,7 +201,6 @@ export const TURN_ABORTED_WAITING_MESSAGE =
  */
 export { CONVERSATION_BUSY_MESSAGE };
 
-const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
  * lock before giving up. The prior turn can hold the lock for the abort
@@ -207,10 +209,10 @@ const PROCESSING_WAIT_MARGIN_MS = 1000;
  * CONVERSATION_BUSY_MESSAGE.
  */
 export function resolveProcessingWaitMs(
-  turnCommitMaxWaitMs: number,
+  turnCommitMaxWaitMs: number | undefined,
   abortUnwindMs: number,
 ): number {
-  return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
+  return resolveTurnCommitWaitMs(turnCommitMaxWaitMs) + abortUnwindMs;
 }
 
 /**
@@ -985,7 +987,7 @@ export async function startVoiceTurn(
 
   const config = getConfig();
   const maxWaitMs = resolveProcessingWaitMs(
-    config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    config.workspaceGit?.turnCommitMaxWaitMs,
     ABORT_WATCHDOG_MS,
   );
   const waitStartedAt = Date.now();

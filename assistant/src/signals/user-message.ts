@@ -16,6 +16,9 @@ import { join } from "node:path";
 
 import { v7 as uuidv7 } from "uuid";
 
+import { getConfig } from "../config/loader.js";
+import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
+import { interruptRunningTurn } from "../daemon/conversation-interrupt.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
@@ -24,6 +27,7 @@ import {
   resolveTurnChannel,
   resolveTurnInterface,
 } from "../daemon/process-message.js";
+import { startAfterTurnFinalization } from "../daemon/turn-finalization.js";
 import {
   uploadFileBackedAttachment,
   validateAttachmentUpload,
@@ -108,7 +112,23 @@ async function dispatchUserMessage(params: {
     }
   }
 
-  if (conversation.isProcessing()) {
+  // Under `interrupt-on-send` this message stops the turn in flight and takes
+  // its place, so a busy conversation is made idle here and the same
+  // background dispatch an idle conversation uses runs it. The CLI carries no
+  // actor principal, so it is the guardian by the routes layer's convention
+  // and always allowed to interrupt.
+  const interruptOutcome = conversation.isProcessing()
+    ? await interruptRunningTurn(conversation, {
+        origin: "signals/user-message",
+      })
+    : "released";
+
+  // Every outcome but `released` queues, whatever the flag now reads. A `busy`
+  // that comes back after the interrupted turn has already ended is the case
+  // this must not treat as idle: its history carries a durable `tool_use` the
+  // repair could not answer, and running the message here would persist a user
+  // row after it. The idle kick below is what gets the queued message drained.
+  if (interruptOutcome !== "released") {
     for (let i = resolvedAttachments.length - 1; i >= 0; i--) {
       const att = resolvedAttachments[i];
       if (att.filePath && !att.data) {
@@ -136,6 +156,11 @@ async function dispatchUserMessage(params: {
         userMessageInterface: resolvedInterface,
         assistantMessageInterface: resolvedInterface,
       },
+      // This branch has already decided the message cannot run now, so the
+      // enqueue's idle fast path (which stores nothing) would drop it. The
+      // conversation is routinely idle here: the interrupt fallback is reached
+      // after the turn it stopped has ended. The kick below is what runs it.
+      queueWhenIdle: true,
     });
     if (!result.rejected) {
       // Mirror the HTTP send path: a follow-up enqueued while the turn is busy
@@ -149,6 +174,26 @@ async function dispatchUserMessage(params: {
         log.warn(
           { err, conversationId },
           "Post-enqueue supersession failed — queued message unaffected",
+        );
+      }
+      // Same reason the HTTP send path kicks one: a message that lands on a
+      // conversation which is already idle has no running turn whose `finally`
+      // would drain it. Behind the finalization barrier for the same reason
+      // too: the interrupt's `busy` fallback is reached when the turn-boundary
+      // commit outran its budget, and a drain that started while it is still
+      // staging would have the drained turn's writes swept into it.
+      if (!conversation.isProcessing()) {
+        startAfterTurnFinalization(
+          conversationId,
+          resolveTurnCommitWaitMs(
+            getConfig().workspaceGit?.turnCommitMaxWaitMs,
+          ),
+          () => {
+            void conversation.kickDrainQueue(
+              "loop_complete",
+              "signal_send_idle",
+            );
+          },
         );
       }
     }

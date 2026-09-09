@@ -1098,6 +1098,34 @@ async function insertMessageCore(
   );
 }
 
+/**
+ * Id of the row a previous send with this `(conversation, clientMessageId)`
+ * already persisted, or undefined when this send is new.
+ *
+ * The idempotent insert in `addMessage` settles a duplicate on the unique
+ * constraint, which is the authority. This read exists for callers that must
+ * recognise a retransmission BEFORE taking an action the insert cannot undo:
+ * `interrupt-on-send` aborts the running turn, and a retried POST that reached
+ * the abort first would kill the very turn its original request started and
+ * then dedupe without starting a replacement.
+ */
+export function findMessageIdByClientMessageId(
+  conversationId: string,
+  clientMessageId: string,
+): string | undefined {
+  const existing = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.clientMessageId, clientMessageId),
+      ),
+    )
+    .get();
+  return existing?.id;
+}
+
 export function createConversation(
   titleOrOpts?:
     | string

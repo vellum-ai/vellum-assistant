@@ -241,6 +241,10 @@ export function useStreamEventHandler(
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setOptimisticSends: store.setOptimisticSends,
+        // Read live rather than closing over `store`: a queue ack can arrive
+        // after later sends have already changed the list.
+        getOptimisticSends: () =>
+          useChatSessionStore.getState().optimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,

@@ -549,6 +549,31 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("enqueueMessage drops an idle send unless the caller asks it to queue", () => {
+    // The idle fast path stores nothing and reports `queued: false`, so a
+    // caller that treats "not rejected" as success loses the message. Callers
+    // that have already decided the send cannot run now pass `queueWhenIdle`
+    // and own the drain kick.
+    const conversation = makeConversation();
+    expect(conversation.isProcessing()).toBe(false);
+
+    const dropped = conversation.enqueueMessage({
+      content: "idle-1",
+      requestId: "idle-req-1",
+    });
+    expect(dropped.queued).toBe(false);
+    expect(dropped.rejected).toBeUndefined();
+    expect(conversation.getQueueDepth()).toBe(0);
+
+    const queued = conversation.enqueueMessage({
+      content: "idle-2",
+      requestId: "idle-req-2",
+      queueWhenIdle: true,
+    });
+    expect(queued.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(1);
+  });
+
   test("enqueueMessage captures the sender's trust, immune to a later slot change", async () => {
     // Trust must ride with the queued message. The conversation-level slot is
     // rewritten by whoever sends next, so a message that reads it at drain time

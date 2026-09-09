@@ -62,6 +62,41 @@ export function isUserInterruptAbort(reason: AbortReason | undefined): boolean {
   return reason?.kind === "user_cancel" || reason?.kind === "signal_cancel";
 }
 
+/**
+ * Synthetic `tool_result` text for a tool call an ordinary cancel cut off.
+ */
+export const CANCELLED_TOOL_RESULT_TEXT = "Cancelled by user";
+
+/**
+ * Synthetic `tool_result` text for a tool call a newly arrived user message
+ * cut off.
+ *
+ * Distinct from {@link CANCELLED_TOOL_RESULT_TEXT} because the model's next
+ * decision is different. A plain cancel ends the work; a preemption means a
+ * message is waiting, the abandoned call may well have taken effect on the
+ * outside world before the abort landed, and the model has to answer the new
+ * message before it decides what to do about the work it was doing.
+ */
+export const PREEMPTED_TOOL_RESULT_TEXT =
+  "Interrupted by the user before this tool call finished. It may still have completed; check before repeating it. Treat the new user message as the priority: reply to it first, then decide whether to resume or abandon the work that was in progress.";
+
+/**
+ * The synthetic `tool_result` text that matches why the turn was aborted.
+ *
+ * Takes the raw `AbortSignal.reason` (or any candidate) so call sites can hand
+ * over whatever they hold without unwrapping it first; anything that is not a
+ * tagged {@link AbortReason} reads as an ordinary cancel.
+ */
+export function abortedToolResultText(reasonCandidate: unknown): string {
+  if (
+    isAbortReason(reasonCandidate) &&
+    reasonCandidate.kind === "preempted_by_new_message"
+  ) {
+    return PREEMPTED_TOOL_RESULT_TEXT;
+  }
+  return CANCELLED_TOOL_RESULT_TEXT;
+}
+
 export function isAbortReason(value: unknown): value is AbortReason {
   if (typeof value !== "object" || value === null) {
     return false;

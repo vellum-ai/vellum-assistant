@@ -30,6 +30,7 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
@@ -683,6 +684,24 @@ export class Conversation {
    * @internal
    */
   pendingInterruptRepair = false;
+  /**
+   * Set by `interruptRunningTurn` once it has handed the conversation over, and
+   * consumed by the agent loop at the head of the very next turn, which emits
+   * the `thinking` / `message_interrupted` transition.
+   *
+   * The transition bridges a gap the interrupt opens: the stopped turn's
+   * `generation_cancelled` idles every client's turn state, and the ordinary
+   * send path emits no `thinking` of its own, so without it the composer sits
+   * idle until the replacement turn's first delta. It is deferred to the loop
+   * rather than emitted by the interrupt because the send can still fail
+   * between the two (slash resolution, a `/compact` claim, the user-row
+   * persist), and an activity state is cached and replayed to reconnecting
+   * clients: emitted early, a failed send leaves every client showing a busy
+   * conversation that is not running anything. A flag nobody consumes emits
+   * nothing.
+   * @internal
+   */
+  pendingInterruptActivityBridge = false;
   /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
@@ -2396,7 +2415,21 @@ export class Conversation {
     return this.queue.removeByRequestId(requestId);
   }
 
+  /**
+   * Whether the agent loop may yield at a turn-boundary checkpoint to let a
+   * queued message take over.
+   *
+   * Under `interrupt-on-send` a message sent while this conversation is busy
+   * never queues, so the handoff has nothing to hand off to. Answering `false`
+   * outright keeps the loop from taking the branch on a queue that only holds
+   * entries the interrupt path deliberately left there (another actor's send
+   * falling back to the queue, a daemon-internal enqueue): those run on the
+   * ordinary end-of-turn drain rather than by cutting a turn short.
+   */
   canHandoffAtCheckpoint(): boolean {
+    if (isInterruptOnSendEnabled()) {
+      return false;
+    }
     return this._processing && this.hasQueuedMessages();
   }
 

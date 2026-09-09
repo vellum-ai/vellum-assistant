@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -20,10 +20,14 @@ import {
 } from "../persistence/conversation-key-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
+import {
+  AssistantEventHub,
+  assistantEventHub,
+} from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -93,9 +97,24 @@ function createFakeConversation(conversationId: string): Conversation {
     } | null,
     messages: [] as Array<unknown>,
     hostCuProxy: undefined as unknown,
+    currentTurnSourceActorPrincipalId: undefined as string | undefined,
+    pendingSteerRepair: false,
+    pendingInterruptRepair: false,
     usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
     isProcessing(this: { processing: boolean }) {
       return this.processing;
+    },
+    /** Polls the flag rather than modelling waiters; the fakes here release
+     *  synchronously from their own abort listener. */
+    async waitForIdle(
+      this: { processing: boolean },
+      { timeoutMs }: { timeoutMs: number },
+    ) {
+      const deadline = Date.now() + Math.min(timeoutMs, 250);
+      while (this.processing && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 1));
+      }
+      return !this.processing;
     },
     setProcessing(
       this: { processing: boolean; owner: number },
@@ -188,13 +207,23 @@ function createFakeConversation(conversationId: string): Conversation {
       this.hostAppControlProxy = proxy;
     },
     restoreBrowserProxyAvailability: () => {},
-    addPreactivatedSkillId: () => {},
+    preactivatedSkillIds: undefined as string[] | undefined,
+    addPreactivatedSkillId(
+      this: { preactivatedSkillIds: string[] | undefined },
+      skillId: string,
+    ) {
+      this.preactivatedSkillIds = [
+        ...(this.preactivatedSkillIds ?? []),
+        skillId,
+      ];
+    },
     hasAnyPendingConfirmation: () => false,
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     enqueueMessage: () => ({ queued: true, requestId: crypto.randomUUID() }),
+    kickDrainQueue: async () => {},
     getQueueDepth: () => 0,
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
@@ -655,5 +684,306 @@ describe("conversationKey send path disk-view regression", () => {
     expect(lines[0]?.content).toBe(content);
     expect(lines[1]?.role).toBe("assistant");
     expect(lines[1]?.content).toBe("Synthetic assistant reply");
+  });
+});
+
+// A turn clears `preactivatedSkillIds` when it ends, so the per-turn host-proxy
+// setup has to run for whichever turn this send actually drives. Under
+// `interrupt-on-send` that is a replacement turn on a conversation that was busy
+// when the request arrived, and a setup keyed on "was idle on arrival" would
+// hand a host-capable macOS client a turn with no `computer-use` or
+// `app-control` tools.
+describe("host-proxy preactivation across an interrupt", () => {
+  afterEach(() => {
+    setOverridesForTesting({});
+  });
+
+  /** A conversation mid-turn whose abort releases the lock, as a loop does. */
+  function busyConversation(conversationId: string): Conversation {
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      processing: boolean;
+      owner: number;
+      abortController: AbortController | null;
+    };
+    conv.processing = true;
+    conv.owner = 1;
+    const controller = new AbortController();
+    controller.signal.addEventListener("abort", () => {
+      conv.processing = false;
+      conv.owner = 0;
+    });
+    conv.abortController = controller;
+    return conv;
+  }
+
+  async function sendMacosMessage(
+    conversationKey: string,
+    content: string,
+    clientMessageId?: string,
+  ) {
+    return callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async (conversationId: string) =>
+              getOrCreateFakeConversation(conversationId),
+            assistantEventHub: new AssistantEventHub(),
+            resolveAttachments: () => [],
+          },
+        }),
+      new Request("http://localhost/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-vellum-principal-type": authContext.principalType,
+        },
+        body: JSON.stringify({
+          conversationKey,
+          content,
+          sourceChannel: "vellum",
+          interface: "macos",
+          ...(clientMessageId ? { clientMessageId } : {}),
+        }),
+      }),
+      undefined,
+      202,
+    );
+  }
+
+  test("the replacement turn gets the proxies and the skill preactivation", async () => {
+    // `macos` natively supports `host_cu` and `host_app_control`, so the real
+    // attachment gate says yes to those two without a connected client to
+    // stand in for.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-interrupt-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = busyConversation(conversationId) as Conversation & {
+      hostCuProxy?: unknown;
+      hostAppControlProxy?: unknown;
+      preactivatedSkillIds?: string[];
+    };
+
+    const response = await sendMacosMessage(
+      conversationKey,
+      "stop and tell me the time",
+    );
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { queued?: boolean };
+    expect(body.queued).toBeUndefined();
+
+    // The response lands before the handover: the abort, the wait for the turn
+    // to release and finalize, the repair and the dispatch all run off the
+    // request, so the per-turn setup arrives shortly after the 202.
+    await waitFor(() =>
+      conv.preactivatedSkillIds?.length ? conv.preactivatedSkillIds : undefined,
+    );
+
+    // The natively supported capabilities only. `screen-annotation` is absent
+    // by design: `host_cu_annotate` is negotiated on a client's connection
+    // rather than implied by the interface, and this turn has no connected
+    // client advertising it.
+    expect(conv.preactivatedSkillIds ?? []).toEqual([
+      "computer-use",
+      "app-control",
+    ]);
+    expect(conv.hostCuProxy).toBeDefined();
+    expect(conv.hostAppControlProxy).toBeDefined();
+  });
+
+  test("answers the request before the handover settles", async () => {
+    // `POST /v1/messages` is fire-and-forget. The handover is bounded by the
+    // abort budget plus the turn-boundary commit wait, which is far longer than
+    // a send may hold a request open, and a client that timed out would retry a
+    // message the daemon is still placing. So the abort, the wait, the repair,
+    // the persist and the dispatch all run off the response.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-async-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      processing: boolean;
+      owner: number;
+      abortController: AbortController | null;
+    };
+    conv.processing = true;
+    conv.owner = 1;
+    // A turn that does not release on the abort, so the handover is still
+    // waiting out its budget when the response has to be back.
+    let aborted = false;
+    const controller = new AbortController();
+    controller.signal.addEventListener("abort", () => {
+      aborted = true;
+    });
+    conv.abortController = controller;
+
+    const startedAt = Date.now();
+    const response = await sendMacosMessage(conversationKey, "stop and answer");
+    const elapsedMs = Date.now() - startedAt;
+
+    // The load-bearing assertion. Awaiting the handover would spend the abort
+    // release budget here before answering (the fake conversation caps its
+    // `waitForIdle` at 250 ms; in production it is `ABORT_RELEASE_WAIT_MS`,
+    // 7 s, plus the commit wait). Answering off the handover costs neither.
+    expect(elapsedMs).toBeLessThan(100);
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      accepted?: boolean;
+      requestId?: string;
+      queued?: boolean;
+    };
+    expect(body.accepted).toBe(true);
+    // The id the row will be written with, so the client can correlate.
+    expect(typeof body.requestId).toBe("string");
+    expect(body.queued).toBeUndefined();
+    // The conversation is still mid-handover: the turn never released, so the
+    // request cannot have waited for it.
+    expect(aborted).toBe(true);
+    expect(conv.isProcessing()).toBe(true);
+
+    // Let the handover give up and fall back to the queue rather than leaking
+    // its timer into the next test.
+    conv.processing = false;
+    conv.owner = 0;
+  });
+
+  test("tells the sender when the queue fallback is rejected after acceptance", async () => {
+    // The 202 has already gone out, so `queueSend`'s own 429 answers nobody.
+    // Without an event the message is accepted and then silently gone.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-qfull-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      processing: boolean;
+      owner: number;
+      abortController: AbortController | null;
+      enqueueMessage: () => {
+        queued: boolean;
+        requestId: string;
+        rejected?: boolean;
+      };
+    };
+    conv.processing = true;
+    conv.owner = 1;
+    // A turn that never releases, so the handover gives up and falls back to
+    // the queue, which is full.
+    conv.abortController = new AbortController();
+    conv.enqueueMessage = () => ({
+      queued: false,
+      requestId: crypto.randomUUID(),
+      rejected: true,
+    });
+
+    const events: Array<Record<string, unknown>> = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "client",
+      clientId: `queue-full-watcher-${crypto.randomUUID()}`,
+      interfaceId: "macos",
+      capabilities: [],
+      callback: (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+    });
+
+    const response = await sendMacosMessage(conversationKey, "please answer");
+    expect(response.status).toBe(202);
+
+    // The hub wraps each event in an envelope; the payload is `message`.
+    const reported = await waitFor(() => {
+      for (const envelope of events) {
+        const message = envelope.message as Record<string, unknown> | undefined;
+        if (message?.type === "error" && message.code === "QUEUE_FULL") {
+          return message;
+        }
+      }
+      return undefined;
+    });
+    // Correlated by the id the 202 carried, so the client can fail the
+    // optimistic row it is already showing and offer the retry.
+    expect(typeof reported.requestId).toBe("string");
+    expect(reported.category).toBe("queue_drain_failed");
+
+    subscription.dispose();
+    conv.processing = false;
+    conv.owner = 0;
+  });
+
+  test("disarms the activity bridge when the send starts no turn", async () => {
+    // A deduplicated persist answers without starting a loop, and several slash
+    // commands do the same. Nothing would consume the armed
+    // `message_interrupted` transition on those, so the next ordinary turn on
+    // this conversation would emit one belonging to an interrupt long over.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-nobridge-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const clientMessageId = `cmid-${crypto.randomUUID()}`;
+    await addMessage(conversationId, "user", "already sent", {
+      clientMessageId,
+    });
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      pendingInterruptActivityBridge: boolean;
+    };
+    // Armed as a completed interrupt would leave it, on an idle conversation so
+    // the send takes `completeSend` directly and dedups without a turn.
+    conv.pendingInterruptActivityBridge = true;
+
+    await sendMacosMessage(conversationKey, "already sent", clientMessageId);
+
+    expect(conv.pendingInterruptActivityBridge).toBe(false);
+  });
+
+  test("a retransmitted send answers from the existing row instead of interrupting", async () => {
+    // A network retry of an already-accepted POST must not stop the turn its
+    // own original request started. The idempotent insert settles duplicates,
+    // but it settles them by returning the existing row and exiting without
+    // starting a turn, which is too late once the abort has fired: the user's
+    // answer would be cancelled for good.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-dup-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const clientMessageId = `cmid-${crypto.randomUUID()}`;
+    const existing = await addMessage(
+      conversationId,
+      "user",
+      "the original send",
+      {
+        clientMessageId,
+      },
+    );
+    const conv = busyConversation(conversationId);
+
+    const response = await sendMacosMessage(
+      conversationKey,
+      "the original send",
+      clientMessageId,
+    );
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as {
+      messageId?: string;
+      queued?: boolean;
+    };
+    // Answered from the row the first request wrote, and the turn that request
+    // started is still running.
+    expect(body.messageId).toBe(existing.id);
+    expect(body.queued).toBeUndefined();
+    expect(conv.isProcessing()).toBe(true);
+  });
+
+  test("a send that queues instead leaves the running turn's preactivation alone", async () => {
+    // Flag off, so the busy conversation queues. Preactivation belongs to the
+    // drain at dequeue time, not to this request.
+    setOverridesForTesting({ "interrupt-on-send": false });
+    const conversationKey = `macos-queued-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const conv = busyConversation(conversationId) as Conversation & {
+      preactivatedSkillIds?: string[];
+    };
+
+    const response = await sendMacosMessage(conversationKey, "queued instead");
+
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { queued?: boolean };
+    expect(body.queued).toBe(true);
+    expect(conv.preactivatedSkillIds).toBeUndefined();
   });
 });

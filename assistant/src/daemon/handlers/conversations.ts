@@ -505,6 +505,24 @@ export function supersedePendingInteractionsOnEnqueue(
   conversationId: string,
   enqueuedRequestId: string,
 ): void {
+  denyPendingConfirmationsOnSupersession(conversationId);
+  steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);
+}
+
+/**
+ * Step 1 of {@link supersedePendingInteractionsOnEnqueue} on its own: deny the
+ * confirmations the in-flight turn left pending, notify clients, and sync the
+ * gateway request status before clearing the prompter's records.
+ *
+ * Split out for the interrupt path, which aborts the running turn itself and
+ * so needs the denials without the steer. A steer works by promoting a queued
+ * message, and an interrupting message never joins the queue, so there would
+ * be nothing for it to promote; the interrupt's own abort settles a parked
+ * `ask_question` the same way a steer's does.
+ */
+export function denyPendingConfirmationsOnSupersession(
+  conversationId: string,
+): void {
   const conversation = findConversation(conversationId);
   if (!conversation) {
     return;
@@ -539,8 +557,6 @@ export function supersedePendingInteractionsOnEnqueue(
     conversation.denyAllPendingConfirmations();
     pendingInteractions.removeByConversation(conversationId);
   }
-
-  steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);
 }
 
 // ---------------------------------------------------------------------------
