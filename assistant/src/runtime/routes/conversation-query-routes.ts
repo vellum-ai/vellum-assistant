@@ -91,6 +91,7 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
+import { rescheduleHeartbeatIfTimezoneChanged } from "../../heartbeat/heartbeat-service.js";
 import {
   getAssistantMessageIdsInTurn,
   getConversation,
@@ -1508,6 +1509,7 @@ export async function commitConfigWrite(
 
   clearEmbeddingBackendCache();
   invalidateConfigCache();
+  rescheduleHeartbeatIfTimezoneChanged(preWrite, raw);
   // Reinitialize providers so the live registry reflects the new config.
   // Suppress disk writes inside loadConfig() — we just wrote the raw config
   // and the first-launch seed path would overwrite it with full defaults.

@@ -149,32 +149,45 @@ uninstall-tests the installer.
 ## Release
 
 `.github/workflows/release-windows.yaml` is the reusable release: both
-`dev-release.yaml` and `release.yml` call it with `{ environment, version }`
-behind the `WINDOWS_{DEV,STAGING,PRODUCTION}_RELEASE_ENABLED` variables, so
-each channel stays off until its variable is set. Per
-architecture (x64 on `windows-2025`, arm64 on the `windows-11-vs2026-arm`
-preview runner) it stamps the version, builds the helper, preview handler,
-CLI runtime, and renderer, packages and signs through `electron-builder`,
-verifies every manifest binary and the installer with
-`Get-AuthenticodeSignature`, and publishes to the
+`dev-release.yaml` and `release.yml` call it with `{ environment, version }`.
+Windows installers build for dev, staging, and production releases. Staging
+and production wait for the release images and channel metadata to publish.
+The workflow stamps the version and builds the helper, preview handler, CLI
+runtime, and renderer on native runners (x64 on `windows-2025`, arm64 on
+`windows-11-vs2026-arm`). Each native payload and its stamped app manifest
+transfer to an x64 `windows-2025` runner
+for packaging and signing through `electron-builder`, because
+[Azure Artifact Signing does not support Windows ARM runners](https://github.com/Azure/artifact-signing-action#runner-requirements).
+The workflow verifies every manifest binary and the installer with
+`Get-AuthenticodeSignature`, requiring valid signatures from the configured
+publisher while allowing Azure certificate rotation. Three bundled Microsoft
+runtime DLL paths also accept valid Microsoft Windows catalog signatures,
+which PowerShell prefers over embedded signatures. The workflow publishes to the
 `vellum-ai-<env>-releases/win-electron/<arch>/` feed: installer and blockmap
-first, then the `<env>.yml` channel manifest.
+first, then the `<env>.yml` channel manifest. Dev also publishes the installer
+as `vellum-assistant-dev-<arch>.exe` for stable download-page links.
+
+The builder always writes `latest.yml`, including for prerelease versions;
+CD uploads it under the environment's `<env>.yml` channel name.
 
 The executable, installer, and uninstaller use the environment-specific icon
 from `build-resources/icons/<environment>/icon.ico`, matching the local, dev,
 staging, and production desktop identities.
 
-Signing is provider-neutral and an explicit gate on each GitHub environment
-(`electron-builder.config.cjs`, `WINDOWS_SIGNING_PROVIDER`):
+CD uses Azure Artifact Signing (`azure-trusted-signing`) with the shared account,
+certificate profile, regional endpoint, and publisher name defined directly in
+`.github/workflows/release-windows.yaml`. These settings apply to dev, staging,
+and production without GitHub signing variables.
 
-- `pfx`: `WINDOWS_SIGNING_PFX_BASE64` + `WINDOWS_SIGNING_PFX_PASSWORD` secrets.
-- `azure-trusted-signing`: `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` /
-  `AZURE_CLIENT_SECRET` secrets plus `AZURE_TRUSTED_SIGNING_ENDPOINT`,
-  `AZURE_TRUSTED_SIGNING_ACCOUNT`, `AZURE_TRUSTED_SIGNING_PROFILE`, and
-  `WINDOWS_SIGNING_PUBLISHER_NAME` variables.
-- `command`: a `WINDOWS_SIGN_COMMAND` secret holding any signing CLI
-  invocation with a `{file}` placeholder, plus `WINDOWS_SIGNING_PUBLISHER_NAME`
-  so the updater can verify downloaded installers.
+Set `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET` once as
+repository secrets under **Settings > Secrets and variables > Actions**.
+Both callers inherit these secrets. Environment secrets with the same names
+override the repository values. The app registration must have the
+Artifact Signing Certificate Profile Signer role on the signing account or
+certificate profile.
+
+Local packaging also supports `pfx` and `command` through the
+`WINDOWS_SIGNING_PROVIDER` environment variable in `electron-builder.config.cjs`.
 
 Production also requires `SENTRY_DSN_WINDOWS` and `SENTRY_AUTH_TOKEN` secrets
 plus the `SENTRY_PROJECT_WINDOWS` variable. The DSN serves both the main

@@ -189,7 +189,11 @@ export type VellumCommand =
    * against, and an answer to one that no longer stands is dropped. See
    * {@link CompanionDictationOffer}.
    */
-  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer; offerId: string }
+  | {
+      kind: "answerDictationOffer";
+      answer: DictationOfferAnswer;
+      offerId: string;
+    }
   /**
    * Start a live-voice session, or end the one that is running.
    *
@@ -1473,25 +1477,54 @@ export const COMPANION_ANNOTATION_STROKE = 0.006;
  * goes outside them, so the control a user is being pointed at stays as
  * visible as it was before anything was drawn on it.
  *
- * A rectangle, not a stroke, because this end knows what it is pointing at:
- * the user draws freehand at something they can already see, and the
- * assistant resolves an element that has bounds.
+ * For an extent that is itself the message: a region of an image, an area of
+ * a canvas, a panel being named as a whole. To send someone to one control,
+ * see {@link CompanionCoachmarkPoint}.
  */
-export interface CompanionCoachmark {
+export interface CompanionCoachmarkRegion {
+  kind: "region";
   x: number;
   y: number;
   width: number;
   height: number;
-  /**
-   * What to do with the thing, in the user's language, or nothing when the
-   * ring is the whole message.
-   *
-   * Short by contract ({@link COMPANION_COACHMARK_CAPTION_MAX}): it is drawn
-   * over the user's own work, in a window they cannot scroll or dismiss, and
-   * anything longer than a caption belongs in what the assistant is saying.
-   */
   caption?: string;
 }
+
+/**
+ * A place on the surface, drawn as an arrow aimed at it.
+ *
+ * **The ordinary way to point, because aim survives error and extent does
+ * not.** A ring asserts where a thing ends as well as where it is, and an
+ * element's bounds are the least trustworthy thing the accessibility tree
+ * reports about it: a control's frame is its hit area, which can be twice the
+ * size of the glyph inside it, and a row can be named by the small triangle
+ * that discloses it. Every one of those rings the wrong shape while knowing
+ * the right place. An arrow makes the weaker claim, so it stays true where the
+ * ring does not.
+ *
+ * `x` and `y` are the point being indicated, not a corner: the arrow's tip
+ * lands there and its tail hangs off whichever side has the room.
+ */
+export interface CompanionCoachmarkPoint {
+  kind: "point";
+  x: number;
+  y: number;
+  caption?: string;
+}
+
+/**
+ * What is drawn on the shared surface: an arrow at something, or a ring
+ * around some extent of it.
+ *
+ * Tagged rather than inferred from which fields are set, because the tag is
+ * the thing that decides what `x` and `y` mean. A corner and a point are
+ * different claims, and a reader that guessed between them by looking for a
+ * width would be one field away from drawing a mark half its own size out of
+ * place.
+ */
+export type CompanionCoachmark =
+  | CompanionCoachmarkRegion
+  | CompanionCoachmarkPoint;
 
 /**
  * How many marks stand at once, and how long a caption may be.
@@ -1518,7 +1551,73 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * and the host-proxy executor words it, and the file that words it says in as
  * many words that it must not reach into the windows for anything.
  */
-export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+export type CoachmarkRefusal =
+  | "unshared"
+  | "not-this-call"
+  | "stale-surface"
+  | "superseded";
+
+/**
+ * One thing to point at: a control named, or a rectangle given.
+ *
+ * **Naming is the one to reach for.** The accessibility tree holds the exact
+ * frame of every labelled control on the surface, so a name resolves to where
+ * the thing actually is; a rectangle is a guess at it, measured off a picture
+ * that has been scaled and compressed on its way to whoever is guessing. The
+ * rectangle form remains for what the tree cannot name (a canvas, an image,
+ * a plugin's own drawing), where there is nothing to resolve against.
+ */
+export type CoachmarkRequest =
+  | { target: string; caption?: string }
+  | { x: number; y: number; width: number; height: number; caption?: string };
+
+/** Whether a request named a control or gave bounds outright. */
+export const namesATarget = (
+  request: CoachmarkRequest,
+): request is { target: string; caption?: string } => "target" in request;
+
+/**
+ * A mark that went up, and what it turned out to be.
+ *
+ * `matched` is the label the surface actually uses, which is not always the
+ * one that was asked for: a control found by a forgiving comparison is
+ * reported under its own name so the caller can say the same word the user
+ * can see.
+ */
+export type PlacedCoachmark = CompanionCoachmark & { matched?: string };
+
+/**
+ * Why a named control could not be turned into a mark.
+ *
+ * Each carries the labels that were on the surface, because the answer to all
+ * three is the same shape: say what is there instead of drawing at a guess.
+ * `ambiguous` lists the ones that fit, the others everything there was.
+ */
+export interface CoachmarkUnresolved {
+  target: string;
+  reason: "no-tree" | "ambiguous" | "no-match";
+  candidates: readonly string[];
+  /**
+   * How many labels the surface carried, which can be more than `candidates`
+   * holds. The host bounds the list at the point it reads the accessibility
+   * tree, since a web page is ten thousand elements and any of them can be
+   * carrying a paragraph of `aria-label`. The count is what lets the reader
+   * say how many names it is not showing.
+   */
+  candidateCount?: number;
+}
+
+/**
+ * What became of a set of marks.
+ *
+ * Three outcomes rather than a nullable refusal, because a named control that
+ * does not resolve is neither a placement nor a refusal of the surface: the
+ * share is fine and the caller simply named something that is not there.
+ */
+export type CoachmarkResult =
+  | { kind: "placed"; marks: readonly PlacedCoachmark[] }
+  | { kind: "refused"; refusal: CoachmarkRefusal }
+  | { kind: "unresolved"; unresolved: CoachmarkUnresolved };
 
 /**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
@@ -1977,6 +2076,22 @@ export interface CompanionSurfaceState {
    * never travels: a shell with nothing to draw says nothing.
    */
   coachmarks?: readonly CompanionCoachmark[];
+
+  /**
+   * How far below the top of the framed surface anything the frame draws
+   * there has to start, in the frame window's own pixels, to be seen.
+   *
+   * Main's, because it is a fact about where main put the window: a whole
+   * display is framed to its full bounds so the edge is the screen's, and the
+   * menu bar draws over the top of that window. A label placed against the
+   * edge would sit under the bar. This is the bar's height, read from the
+   * gap between the display's bounds and its work area.
+   *
+   * Absent for a window frame, whose top edge is the window's own title bar
+   * and inside the frame, and absent when nothing is framed. A shell that
+   * predates the field reads as no inset, which is the frame as it was.
+   */
+  frameInsetTop?: number;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the

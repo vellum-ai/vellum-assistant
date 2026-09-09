@@ -23,6 +23,7 @@ import {
 import {
   findServableRoute,
   ingressDeclarationDigest,
+  listServablePluginWebhookPaths,
   resolvePluginIngress,
 } from "./plugin-ingress-approvals.js";
 
@@ -426,5 +427,101 @@ describe("findServableRoute", () => {
     // vellum signer cannot smuggle an invalid route through.
     const res = resolution({});
     expect(findServableRoute(res, "p", "hook", "http")).toBeUndefined();
+  });
+});
+
+describe("listServablePluginWebhookPaths", () => {
+  const MIXED = [
+    route({ path: "hook" }),
+    route({ path: "platform", signer: "vellum" }),
+  ];
+
+  function servable(workspaceDir: string): string[] {
+    return listServablePluginWebhookPaths(
+      resolvePluginIngress({ workspaceDir }),
+    )
+      .map((p) => `${p.source} ${p.path}`)
+      .sort();
+  }
+
+  it("agrees with findServableRoute on every spelling of every declared route", () => {
+    // Both read the same rule, and this is what says so: a path is in the set
+    // exactly when a request for it would be served. The trailing-slash
+    // spelling is served too, so it has to be in the set on the same terms.
+    const workspaceDir = makeWorkspace();
+    writePlugin(workspaceDir, "meeting-bot", MIXED);
+    writePlugin(workspaceDir, "notes", MIXED);
+    approvePluginIngress({
+      plugin: "meeting-bot",
+      digest: ingressDeclarationDigest(MIXED),
+    });
+
+    const resolution = resolvePluginIngress({ workspaceDir });
+    const set = new Set(
+      listServablePluginWebhookPaths(resolution).map((p) => p.path),
+    );
+    for (const plugin of ["meeting-bot", "notes"]) {
+      for (const declared of MIXED) {
+        for (const requested of [declared.path, `${declared.path}/`]) {
+          expect(set.has(`/webhooks/plugins/${plugin}/${requested}`)).toBe(
+            findServableRoute(resolution, plugin, requested, declared.kind) !==
+              undefined,
+          );
+        }
+      }
+    }
+  });
+
+  it("takes every route of an approved declaration and only the exempt ones of a pending one", () => {
+    const workspaceDir = makeWorkspace();
+    writePlugin(workspaceDir, "meeting-bot", MIXED);
+    writePlugin(workspaceDir, "notes", MIXED);
+    approvePluginIngress({
+      plugin: "meeting-bot",
+      digest: ingressDeclarationDigest(MIXED),
+    });
+
+    expect(servable(workspaceDir)).toEqual([
+      "meeting-bot /webhooks/plugins/meeting-bot/hook",
+      "meeting-bot /webhooks/plugins/meeting-bot/hook/",
+      "meeting-bot /webhooks/plugins/meeting-bot/platform",
+      "meeting-bot /webhooks/plugins/meeting-bot/platform/",
+      "notes /webhooks/plugins/notes/platform",
+      "notes /webhooks/plugins/notes/platform/",
+    ]);
+  });
+
+  it("drops the approval-governed paths of a declaration that has been edited", () => {
+    // The grant covers the digest it was given for. Anything else is pending,
+    // whatever the source is still named in the approvals table.
+    const workspaceDir = makeWorkspace();
+    writePlugin(workspaceDir, "meeting-bot", MIXED);
+    approvePluginIngress({
+      plugin: "meeting-bot",
+      digest: ingressDeclarationDigest(MIXED),
+    });
+    writePlugin(workspaceDir, "meeting-bot", [
+      ...MIXED,
+      route({ path: "extra" }),
+    ]);
+
+    expect(servable(workspaceDir)).toEqual([
+      "meeting-bot /webhooks/plugins/meeting-bot/platform",
+      "meeting-bot /webhooks/plugins/meeting-bot/platform/",
+    ]);
+  });
+
+  it("holds nothing for a plugin that is not installed, approval or not", () => {
+    const workspaceDir = makeWorkspace();
+    approvePluginIngress({ plugin: "gone", digest: "a".repeat(32) });
+
+    expect(servable(workspaceDir)).toEqual([]);
+  });
+
+  it("holds nothing for a declaration that failed validation", () => {
+    const workspaceDir = makeWorkspace();
+    writePlugin(workspaceDir, "broken", [{ path: "/absolute", kind: "http" }]);
+
+    expect(servable(workspaceDir)).toEqual([]);
   });
 });

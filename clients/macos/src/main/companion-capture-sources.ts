@@ -753,3 +753,69 @@ export async function captureSourceThumbnail(
     releaseThumbnailSlot();
   }
 }
+
+/**
+ * Where a named control is on a shared surface, in screen points.
+ *
+ * A found element carries the frame the accessibility tree holds for it,
+ * which is exact: the point of asking at all is that nothing here estimates
+ * a position from a picture. A refusal carries names instead, so the caller
+ * can say what is on the surface rather than pointing at a guess. See
+ * `AXTargetMatch` for why a query fitting more than one control resolves to
+ * nothing.
+ */
+const locatedElementSchema = z.discriminatedUnion("found", [
+  z.object({
+    found: z.literal(true),
+    label: z.string(),
+    role: z.string(),
+    x: z.number(),
+    y: z.number(),
+    width: z.number(),
+    height: z.number(),
+  }),
+  z.object({
+    found: z.literal(false),
+    reason: z.enum(["no-tree", "ambiguous", "no-match"]),
+    ambiguous: z.array(z.string()).optional(),
+    available: z.array(z.string()).optional(),
+    /**
+     * How many labels there were, which can be more than the list carries.
+     * The helper bounds what it sends so a page of ten thousand elements
+     * cannot become the payload, and the count is what keeps a caller saying
+     * "and N more" honest about the ones it never received.
+     */
+    candidateCount: z.number().optional(),
+  }),
+]);
+
+export type LocatedElement = z.infer<typeof locatedElementSchema>;
+
+/**
+ * Ask the helper which control on `target` `query` names.
+ *
+ * A window is read as itself. A display has no tree of its own, so the helper
+ * reads the frontmost window standing on it: someone sharing a screen and
+ * naming a control means the one they are looking at.
+ *
+ * Never throws. A helper that will not answer is reported as `no-tree`, the
+ * same as a window that has no tree, because the caller does the same thing
+ * with both: say so rather than draw.
+ */
+export async function locateOnTarget(
+  target: WatchCaptureTarget,
+  query: string,
+): Promise<LocatedElement> {
+  const params =
+    target.kind === "display"
+      ? { displayId: target.displayId }
+      : { windowId: target.windowId };
+  try {
+    return locatedElementSchema.parse(
+      await getSharedCuHelper().call("ax.locate", { ...params, query }),
+    );
+  } catch (err) {
+    log.warn(`[companion] could not locate ${JSON.stringify(query)}:`, err);
+    return { found: false, reason: "no-tree" };
+  }
+}

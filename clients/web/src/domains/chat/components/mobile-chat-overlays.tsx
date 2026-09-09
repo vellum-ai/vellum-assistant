@@ -33,6 +33,7 @@ import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document
 import { MobileMessageFilesOverlay } from "@/domains/chat/components/mobile-message-files-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
 import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
+import { MobileWakeDetailOverlay } from "@/domains/chat/components/mobile-wake-detail-overlay";
 import { MobileWorkflowDetailOverlay } from "@/domains/chat/components/mobile-workflow-detail-overlay";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
@@ -47,6 +48,7 @@ export function MobileChatOverlays() {
   const openedDocumentState = useViewerStore.use.openedDocumentState();
   const isAppMinimized = useViewerStore.use.isAppMinimized();
   const activeSubagentId = useViewerStore.use.activeSubagentId();
+  const activeWakeDetail = useViewerStore.use.activeWakeDetail();
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const activeActivitySteps = useViewerStore.use.activeActivitySteps();
   const activeMessageFiles = useViewerStore.use.activeMessageFiles();
@@ -177,6 +179,10 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeChannelTranscript();
   }, []);
 
+  const handleCloseWakeDetail = useCallback(() => {
+    useViewerStore.getState().closeWakeDetail();
+  }, []);
+
   if (!overlayTarget) {
     return null;
   }
@@ -215,6 +221,10 @@ export function MobileChatOverlays() {
         onStop={handleStopSubagent}
         onRequestDetail={handleRequestSubagentDetail}
         assistantId={assistantId}
+      />
+      <MobileWakeDetailOverlay
+        payload={mainView === "wake-detail" ? activeWakeDetail : null}
+        onClose={handleCloseWakeDetail}
       />
       <MobileWorkflowDetailOverlay
         entry={

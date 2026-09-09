@@ -618,8 +618,18 @@ describe("sendLiveVoiceSightFrame", () => {
     useLiveVoiceStore.getState().setControls(controls);
     const kept = useLiveVoiceStore.getState().sessionGeneration;
 
-    expect(sendLiveVoiceSightFrame("att-1", kept)).toBe(true);
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    const timing = {
+      reason: "forced",
+      armToKeepMs: 40,
+      keepToEncodedMs: 30,
+      encodedToUploadedMs: 200,
+      uploadedToSentMs: 0,
+      bytes: 12345,
+    };
+    expect(sendLiveVoiceSightFrame("att-1", kept, timing)).toBe(true);
+    // The timing rides the frame as given: the daemon's log is where it is
+    // read, and nothing here has a reason to reshape it.
+    expect(controls.sightFrame).toHaveBeenCalledWith("att-1", timing);
   });
 
   test("refuses a frame kept in a session that ended", () => {

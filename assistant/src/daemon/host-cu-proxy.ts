@@ -23,6 +23,7 @@ import {
   assistantEventHub,
   broadcastMessage,
 } from "../runtime/assistant-event-hub.js";
+import { snapshotHostProxyActorPrincipalId } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -356,12 +357,11 @@ export class HostCuProxy {
         conversationId,
         kind: "host_cu",
         targetClientId: resolvedTargetClientId,
-        targetActorPrincipalId:
-          resolvedTargetClientId != null
-            ? assistantEventHub.getActorPrincipalIdForClient(
-                resolvedTargetClientId,
-              )
-            : undefined,
+        targetActorPrincipalId: snapshotHostProxyActorPrincipalId({
+          hub: assistantEventHub,
+          targetClientId: resolvedTargetClientId,
+          sourceActorPrincipalId,
+        }),
         rpcResolve: resolve as (v: unknown) => void,
         rpcReject: reject,
         timer,
