@@ -1,0 +1,123 @@
+/**
+ * Tests for the `Request` the `/x/*` routes synthesize for user-authored
+ * handler files.
+ *
+ * Two properties matter here. Fidelity: served over HTTP the handler sees the
+ * URL the client sent, so repeated query keys and percent-encoded path
+ * segments survive; served over IPC there is no wire URL, so it is rebuilt
+ * from the matched path and the flattened query. And audience: the verified
+ * `x-vellum-subject` is daemon-side authorization material and stays out of
+ * workspace code, while the identity the handler has always seen, and every
+ * other header, still reaches it.
+ */
+
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+
+import { getWorkspaceRoutesDir } from "../../../util/platform.js";
+import type { RouteHandlerArgs, RouteResponse } from "../types.js";
+import { ROUTES } from "../user-routes.js";
+
+/** A path whose single segment is percent-encoded on the wire. */
+const ROUTE_PATH = "hello world";
+
+const ECHO_HANDLER = `export function GET(request) {
+  const url = new URL(request.url);
+  return Response.json({
+    pathname: url.pathname,
+    tags: url.searchParams.getAll("tag"),
+    subject: request.headers.get("x-vellum-subject"),
+    principalType: request.headers.get("x-vellum-principal-type"),
+    actorPrincipalId: request.headers.get("x-vellum-actor-principal-id"),
+    clientId: request.headers.get("x-vellum-client-id"),
+  });
+}
+`;
+
+interface EchoBody {
+  pathname: string;
+  tags: string[];
+  subject: string | null;
+  principalType: string | null;
+  actorPrincipalId: string | null;
+  clientId: string | null;
+}
+
+const getHandler = ROUTES.find((r) => r.operationId === "user_route_get")!
+  .handler as (args: RouteHandlerArgs) => Promise<RouteResponse>;
+
+const IDENTITY_HEADERS_IN: Record<string, string> = {
+  "x-vellum-principal-type": "actor",
+  "x-vellum-actor-principal-id": "user-123",
+  "x-vellum-subject": "actor:self:user-123",
+  "x-vellum-client-id": "client-abc",
+};
+
+async function echo(args: RouteHandlerArgs): Promise<EchoBody> {
+  const response = await getHandler(args);
+  expect(response.status).toBe(200);
+  return (await new Response(response.body).json()) as EchoBody;
+}
+
+beforeEach(() => {
+  mkdirSync(getWorkspaceRoutesDir(), { recursive: true });
+  writeFileSync(
+    join(getWorkspaceRoutesDir(), `${ROUTE_PATH}.ts`),
+    ECHO_HANDLER,
+  );
+});
+
+afterEach(() => {
+  rmSync(getWorkspaceRoutesDir(), { recursive: true, force: true });
+});
+
+describe("user route request URL", () => {
+  test("served over HTTP, the wire URL reaches the handler intact", async () => {
+    const body = await echo({
+      pathParams: { path: ROUTE_PATH },
+      // The flattened record the adapter also passes: last value wins, so it
+      // cannot be the source of the repeated keys.
+      queryParams: { tag: "b" },
+      rawUrl: new URL("http://127.0.0.1:4747/v1/x/hello%20world?tag=a&tag=b"),
+      headers: IDENTITY_HEADERS_IN,
+    });
+
+    expect(body.pathname).toBe("/v1/x/hello%20world");
+    expect(body.tags).toEqual(["a", "b"]);
+  });
+
+  test("served over IPC, the URL is rebuilt from the matched path and query", async () => {
+    const body = await echo({
+      pathParams: { path: ROUTE_PATH },
+      queryParams: { tag: "b" },
+      headers: IDENTITY_HEADERS_IN,
+    });
+
+    expect(body.pathname).toBe("/v1/x/hello%20world");
+    expect(body.tags).toEqual(["b"]);
+  });
+});
+
+describe("user route identity headers", () => {
+  test("the verified subject does not reach a user-authored handler", async () => {
+    const body = await echo({
+      pathParams: { path: ROUTE_PATH },
+      rawUrl: new URL("http://127.0.0.1:4747/v1/x/hello%20world"),
+      headers: IDENTITY_HEADERS_IN,
+    });
+
+    expect(body.subject).toBeNull();
+  });
+
+  test("the caller's principal type, actor id, and other headers still do", async () => {
+    const body = await echo({
+      pathParams: { path: ROUTE_PATH },
+      headers: IDENTITY_HEADERS_IN,
+    });
+
+    expect(body.principalType).toBe("actor");
+    expect(body.actorPrincipalId).toBe("user-123");
+    expect(body.clientId).toBe("client-abc");
+  });
+});
