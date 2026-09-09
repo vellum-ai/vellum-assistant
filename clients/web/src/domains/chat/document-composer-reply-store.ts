@@ -27,6 +27,8 @@ export interface DocumentComposerReplyActions {
   startAwaitingReply: (conversationId: string) => void;
   /** Stop waiting, once the reply toast has fired (or is no longer wanted). */
   stopAwaitingReply: (conversationId: string) => void;
+  /** Drop every wait, for a context change that no reply can arrive across. */
+  clearAwaitingReplies: () => void;
 }
 
 export type DocumentComposerReplyStore = DocumentComposerReplyState &
@@ -52,6 +54,15 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         const next = new Set(s.awaitingReplyConversationIds);
         next.delete(conversationId);
         return { awaitingReplyConversationIds: next };
+      });
+    },
+
+    clearAwaitingReplies: () => {
+      set((s) => {
+        if (s.awaitingReplyConversationIds.size === 0) {
+          return s;
+        }
+        return { awaitingReplyConversationIds: new Set() };
       });
     },
   }),

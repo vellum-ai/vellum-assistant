@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
 import {
   pushSseEvent,
@@ -569,6 +570,9 @@ describe("chat-session-store: composer reset on assistant switch", () => {
       documentAttachments: [],
       documentAttachmentLastError: null,
     });
+    useDocumentComposerReplyStore.setState({
+      awaitingReplyConversationIds: new Set(),
+    });
   });
 
   test("an assistant switch fully resets both composer slots, not just main", () => {
@@ -625,5 +629,33 @@ describe("chat-session-store: composer reset on assistant switch", () => {
     });
     expect(useComposerStore.getState().input).toBe("main draft");
     expect(useComposerStore.getState().documentInput).toBe("");
+  });
+
+  test("an assistant switch drops document composer reply waits", () => {
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-A",
+    });
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-A");
+
+    // Same assistant: the connection that carries the reply is still open.
+    store().switchToConversation({
+      assistantId: "asst-1",
+      activeConversationId: "conv-B",
+    });
+    expect([
+      ...useDocumentComposerReplyStore.getState().awaitingReplyConversationIds,
+    ]).toEqual(["conv-A"]);
+
+    // A different assistant means a different SSE connection, so conv-A's
+    // reply never reaches this session and the wait would toast on an
+    // unrelated turn after switching back.
+    store().switchToConversation({
+      assistantId: "asst-2",
+      activeConversationId: "conv-C",
+    });
+    expect([
+      ...useDocumentComposerReplyStore.getState().awaitingReplyConversationIds,
+    ]).toEqual([]);
   });
 });

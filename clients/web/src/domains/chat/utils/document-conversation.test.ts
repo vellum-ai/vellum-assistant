@@ -140,20 +140,24 @@ describe("persistDocumentConversationId", () => {
 
 describe("linkDocumentConversationIfNeeded", () => {
   test("does not call the daemon when the resolved id matches the document's own", async () => {
-    await linkDocumentConversationIfNeeded(
+    const linked = await linkDocumentConversationIfNeeded(
       { surfaceId: SURFACE_ID, conversationId: "conv-1" },
       ASSISTANT_ID,
       "conv-1",
     );
+    // The link a caller asked for is already in place, so the no-op reports
+    // success rather than making the caller special-case it.
+    expect(linked).toBe(true);
     expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
   });
 
   test("links a reused or freshly minted id that differs from the document's own", async () => {
-    await linkDocumentConversationIfNeeded(
+    const linked = await linkDocumentConversationIfNeeded(
       { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
       "conv-new",
     );
+    expect(linked).toBe(true);
     expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1);
     expect(documentsByIdConversationsPostMock).toHaveBeenCalledWith({
       path: { assistant_id: ASSISTANT_ID, id: SURFACE_ID },
@@ -162,18 +166,20 @@ describe("linkDocumentConversationIfNeeded", () => {
     });
   });
 
-  test("swallows a daemon failure rather than throwing", async () => {
+  test("reports a daemon failure as false rather than throwing", async () => {
     documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
       throw new Error("no such route");
     });
 
+    // A caller old enough to be talking to an assistant without the route
+    // ignores this; one that just minted a row uses it to hold the turn back.
     await expect(
       linkDocumentConversationIfNeeded(
         { surfaceId: SURFACE_ID, conversationId: "" },
         ASSISTANT_ID,
         "conv-new",
       ),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 });
 

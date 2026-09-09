@@ -33,6 +33,7 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useComposerStore } from "@/domains/chat/composer-store";
+import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import type {
   DisplayMessage,
   EphemeralMetaResult,
@@ -527,6 +528,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       // text and the outgoing assistant's would greet the incoming one. The
       // main slot's text belongs to `handleConversationSwitch` above.
       useComposerStore.getState().setInput("", "document");
+      // One SSE connection follows the active assistant, so a wait held past
+      // the switch never sees its reply and toasts on an unrelated turn.
+      useDocumentComposerReplyStore.getState().clearAwaitingReplies();
     } else {
       // Same assistant, different conversation — keep blob URLs for sent messages.
       useComposerStore.getState().resetAttachments();

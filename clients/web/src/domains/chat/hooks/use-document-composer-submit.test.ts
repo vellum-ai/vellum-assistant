@@ -8,7 +8,9 @@
  * Also covers the queued-send result, the idempotency nonce carried on the
  * POST, when the wait for a reply is raised and taken back down, and the
  * guard that keeps a late-resolving send from clearing a draft typed for a
- * document, or an assistant, it was never about.
+ * document, or an assistant, it was never about. Also covers dropping a send
+ * whose assistant changed while it was resolving, and the refused document
+ * link that stops the first turn from running without the document.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -62,9 +64,11 @@ mock.module("@/domains/chat/api/messages", () => ({
 
 const MINTED_CONVERSATION_ID = "conv-server-minted";
 
-const documentsByIdConversationsPostMock = mock(async () => ({
-  data: { success: true },
-}));
+const documentsByIdConversationsPostMock = mock(
+  async (..._args: unknown[]) => ({
+    data: { success: true },
+  }),
+);
 interface MintedConversationResult {
   data: {
     id: string;
@@ -162,12 +166,15 @@ function renderSubmitFor(doc: DocumentConversationRef) {
 }
 
 /** Renders against a swappable assistant, for the mid-flight switch. */
-function renderSubmitForAssistant(assistantId: string) {
+function renderSubmitForAssistant(
+  assistantId: string,
+  conversationId = "conv-a",
+) {
   return renderHook(
     ({ assistantId: current }: { assistantId: string }) =>
       useDocumentComposerSubmit({
         assistantId: current,
-        doc: { surfaceId: SURFACE_ID, conversationId: "conv-a" },
+        doc: { surfaceId: SURFACE_ID, conversationId },
       }),
     { wrapper, initialProps: { assistantId } },
   );
@@ -184,6 +191,38 @@ function deferPostChatMessage(): (result: PostMessageResult) => void {
   });
   postChatMessageMock = mock(async (..._args: unknown[]) => pending);
   return (result) => settle(result);
+}
+
+/** Points `postChatMessage` at a promise the test rejects by hand. */
+function failPostChatMessage(): () => void {
+  let fail: () => void = () => {};
+  const pending = new Promise<PostMessageResult>((_resolve, reject) => {
+    fail = () => reject(new Error("network dropped"));
+  });
+  postChatMessageMock = mock(async (..._args: unknown[]) => pending);
+  return fail;
+}
+
+/** Points the conversation mint at a promise the test resolves by hand. */
+function deferConversationsPost(): () => void {
+  let settle: () => void = () => {};
+  const pending = new Promise<MintedConversationResult>((resolve) => {
+    settle = () => resolve(defaultConversationsPost());
+  });
+  conversationsPostMock = mock(async (..._args: unknown[]) => pending);
+  return settle;
+}
+
+/** Points the document link at a promise the test resolves by hand. */
+function deferDocumentLink(): () => void {
+  let settle: () => void = () => {};
+  const pending = new Promise<{ data: { success: boolean } }>((resolve) => {
+    settle = () => resolve({ data: { success: true } });
+  });
+  documentsByIdConversationsPostMock.mockImplementationOnce(
+    async () => pending,
+  );
+  return settle;
 }
 
 function sentResult(conversationId: string): PostMessageResult {
@@ -660,6 +699,50 @@ describe("failure path", () => {
     expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
     expect(sentOptions(0).clientMessageId).toBeTruthy();
   });
+
+  test("a refused document link on the mint path sends nothing, and the retry links the same row", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    documentsByIdConversationsPostMock.mockImplementationOnce(async () => {
+      throw new Error("link refused");
+    });
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The assistant that minted the row has the link route, so a refusal is
+    // the daemon saying no, not a route that isn't there: the first turn
+    // would run without the document, so the message stays put.
+    expect(result.current.status).toBe("error");
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
+      "Couldn't send your message. Try again.",
+    );
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().documentInput).toBe("hello");
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+    expect(isAwaitingReply(MINTED_CONVERSATION_ID)).toBe(false);
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The row the mint already created is cached, so the retry reuses it
+    // instead of minting a second one, and tries the link again.
+    expect(conversationsPostMock).toHaveBeenCalledTimes(1);
+    expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(2);
+    expect(documentsByIdConversationsPostMock.mock.calls[1]?.[0]).toEqual({
+      path: { assistant_id: ASSISTANT_ID, id: SURFACE_ID },
+      body: { conversationId: MINTED_CONVERSATION_ID },
+      throwOnError: true,
+    });
+    expect(result.current.status).toBe("sent");
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe(MINTED_CONVERSATION_ID);
+  });
 });
 
 describe("queued sends", () => {
@@ -913,7 +996,9 @@ describe("a send that outlives its owner", () => {
       "for the second assistant",
     );
     expect(result.current.status).toBe("idle");
-    // Everything that isn't the composer's own state still runs.
+    // The message did land, so the confirmation toast still fires, and the
+    // wait raised before the POST went up while this assistant was still the
+    // active one.
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(isAwaitingReply("conv-a")).toBe(true);
   });
@@ -943,5 +1028,212 @@ describe("a send that outlives its owner", () => {
       "about the second doc",
     );
     expect(isAwaitingReply("conv-a")).toBe(true);
+  });
+
+  test("an assistant switch while the conversation is being minted drops the send", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    const settleMint = deferConversationsPost();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID, "");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(conversationsPostMock).toHaveBeenCalledTimes(1));
+
+    rerender({ assistantId: "assistant-2" });
+    useComposerStore
+      .getState()
+      .setInput("for the second assistant", "document");
+
+    await act(async () => {
+      settleMint();
+      await submitted;
+    });
+
+    // `postChatMessage` picks its wire field from whichever assistant is
+    // active when it runs, so a send framed for the outgoing one stops here
+    // rather than going out under the incoming one's version.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+    // Nothing went out, so there is nothing to report and nothing to wait on.
+    expect(toastInfoMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(
+      useDocumentComposerReplyStore.getState().awaitingReplyConversationIds
+        .size,
+    ).toBe(0);
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+    // The incoming assistant's composer is untouched and still sendable.
+    expect(useComposerStore.getState().documentInput).toBe(
+      "for the second assistant",
+    );
+    expect(result.current.status).toBe("idle");
+  });
+
+  test("an assistant switch while the document is being linked drops the send, and the next one is ordinary", async () => {
+    const settleLink = deferDocumentLink();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID, "");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() =>
+      expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1),
+    );
+
+    rerender({ assistantId: "assistant-2" });
+
+    await act(async () => {
+      settleLink();
+      await submitted;
+    });
+
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(toastInfoMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("idle");
+
+    // The dropped attempt left no nonce behind: the incoming assistant's own
+    // message is a first send, with its own id and its own wait.
+    useComposerStore
+      .getState()
+      .setInput("for the second assistant", "document");
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(sentOptions(0).clientMessageId).toBeTruthy();
+    expect(result.current.status).toBe("sent");
+    expect(
+      isAwaitingReply(postChatMessageMock.mock.calls[0]?.[1] as string),
+    ).toBe(true);
+  });
+
+  test("a document switch while the document is being linked still sends", async () => {
+    const settleLink = deferDocumentLink();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() =>
+      expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1),
+    );
+
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    useComposerStore.getState().setInput("about the second doc", "document");
+
+    await act(async () => {
+      settleLink();
+      await submitted;
+    });
+
+    // The send still belongs to the first document's conversation, and the
+    // version gates that frame it never moved, so only the composer's own
+    // state is off limits.
+    const sentConversationId = postChatMessageMock.mock.calls[0]?.[1] as string;
+    expect(sentConversationId).toBeTruthy();
+    expect(useComposerStore.getState().documentInput).toBe(
+      "about the second doc",
+    );
+    expect(result.current.status).toBe("idle");
+    expect(isAwaitingReply(sentConversationId)).toBe(true);
+  });
+
+  test("a send that lands after an assistant switch arms no wait and marks nothing processing", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    rerender({ assistantId: "assistant-2" });
+
+    await act(async () => {
+      // The daemon answers with the row it minted rather than the key that
+      // went out, which is what the success path would move the wait onto.
+      settle(sentResult("conv-minted"));
+      await submitted;
+    });
+
+    // Both the wait and the processing marker watch the outgoing assistant's
+    // SSE connection, which is not the one the client is on any more: only an
+    // unrelated completion could ever take them down.
+    expect(isAwaitingReply("conv-minted")).toBe(false);
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
+  });
+
+  test("a refused send after an assistant switch reports the error without disabling the new composer", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    rerender({ assistantId: "assistant-2" });
+    useComposerStore
+      .getState()
+      .setInput("for the second assistant", "document");
+
+    await act(async () => {
+      settle({ ok: false, status: 500, error: { detail: "boom" } });
+      await submitted;
+    });
+
+    // "Error" is the outgoing composer's micro-state: leaving it on the
+    // incoming one would disable a composer that never sent anything.
+    expect(result.current.status).toBe("idle");
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0]?.[0]).toBe("boom");
+    expect(useComposerStore.getState().documentInput).toBe(
+      "for the second assistant",
+    );
+  });
+
+  test("a thrown send after an assistant switch reports the error without disabling the new composer", async () => {
+    const fail = failPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    rerender({ assistantId: "assistant-2" });
+
+    await act(async () => {
+      fail();
+      await submitted;
+    });
+
+    expect(result.current.status).toBe("idle");
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
+      "Couldn't send your message. Try again.",
+    );
   });
 });

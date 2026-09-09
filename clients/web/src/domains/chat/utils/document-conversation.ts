@@ -70,17 +70,21 @@ export function persistDocumentConversationId(
 /**
  * Link a resolved conversation id to the document server-side, when it
  * differs from the document's own (a session-cached id was reused, or a
- * fresh one was minted). Best-effort and silent: the daemon route may not
- * exist yet on an older assistant, and there is nothing actionable a caller
- * could do about that failure.
+ * fresh one was minted).
+ *
+ * Never throws: the daemon route may not exist yet on an older assistant.
+ * Returns whether the link is in place, `true` also covering the no-op case
+ * where the id already is the document's own, so a caller that knows its
+ * assistant has the route can hold back a turn that would otherwise run
+ * without the document.
  */
 export async function linkDocumentConversationIfNeeded(
   doc: DocumentConversationRef,
   assistantId: string,
   conversationId: string,
-): Promise<void> {
+): Promise<boolean> {
   if (conversationId === doc.conversationId) {
-    return;
+    return true;
   }
   try {
     await documentsByIdConversationsPost({
@@ -88,8 +92,9 @@ export async function linkDocumentConversationIfNeeded(
       body: { conversationId },
       throwOnError: true,
     });
+    return true;
   } catch {
-    // Best-effort: fails if the daemon doesn't have the route yet.
+    return false;
   }
 }
 

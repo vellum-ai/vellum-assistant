@@ -117,6 +117,10 @@ export function useDocumentComposerSubmit({
     // way to a reply.
     pendingClientMessageIdRef.current = null;
     armedReplyConversationIdRef.current = null;
+    // The composer on screen belongs to the incoming owner and has sent
+    // nothing, so it starts enabled instead of inheriting the outgoing
+    // attempt's "sending".
+    setStatus("idle");
   }, [assistantId, surfaceId]);
 
   /** Take back down the wait this attempt raised, if it raised one. */
@@ -166,6 +170,20 @@ export function useDocumentComposerSubmit({
       return;
     }
     const owner: DocumentSlotOwner = { assistantId, surfaceId: doc.surfaceId };
+    // Every gate that frames the send reads the version of whichever
+    // assistant is active when it runs (`supportsServerMintedConversation`
+    // here, `pickConversationIdWireField` inside `postChatMessage`), so an
+    // attempt that outlives a switch to another assistant would be framed
+    // against the wrong one. Switching also clears the draft, hands the
+    // shared slot to the incoming assistant, and resets this attempt's nonce
+    // and wait, so an attempt that finds the assistant changed has nothing
+    // left to send, to take back down, or to say on a composer that is not
+    // the one it started on.
+    const assistantChanged = () =>
+      currentOwnerRef.current.assistantId !== owner.assistantId;
+    const ownsSlotNow = () =>
+      !assistantChanged() &&
+      currentOwnerRef.current.surfaceId === owner.surfaceId;
 
     const { documentInput, documentAttachments } = useComposerStore.getState();
     const content = documentInput.trim();
@@ -225,11 +243,32 @@ export function useDocumentComposerSubmit({
         }
         persistDocumentConversationId(doc, assistantId, targetConversationId);
       }
-      await linkDocumentConversationIfNeeded(
+      if (assistantChanged()) {
+        return;
+      }
+
+      const linked = await linkDocumentConversationIfNeeded(
         doc,
         assistantId,
         targetConversationId,
       );
+      // Nothing has gone out yet, and no await stands between here and the
+      // POST, so this is the last point the send can still be dropped whole.
+      if (assistantChanged()) {
+        return;
+      }
+      if (useServerMint && !linked) {
+        // The assistant that just minted the row is new enough to have the
+        // link route, so a failure is the daemon refusing rather than a route
+        // that isn't there: sending now would run the first turn without the
+        // document. The minted id is cached and no longer marked a draft, so
+        // a retry reuses the row and tries the link again.
+        if (ownsSlotNow()) {
+          setStatus("error");
+        }
+        toast.error(t("documentComposer.sendFailed"));
+        return;
+      }
 
       // The current `latestAssistantMessageAt` snapshot, seeded the same way
       // `use-send-message.ts` seeds it: without a snapshot, the graduation
@@ -266,7 +305,9 @@ export function useDocumentComposerSubmit({
         // duplicate the daemon would dedupe against nothing.
         disarmReplyWaiter();
         pendingClientMessageIdRef.current = null;
-        setStatus("error");
+        if (ownsSlotNow()) {
+          setStatus("error");
+        }
         toast.error(
           resolvePostError(
             result.error.code,
@@ -282,17 +323,25 @@ export function useDocumentComposerSubmit({
       pendingClientMessageIdRef.current = null;
 
       const conversationId = result.conversationId;
-      // The assistant is the source of truth for the id: a legacy
-      // `conversationKey` send for a fresh draft comes back with the row the
-      // daemon minted rather than the key that went out, so the wait moves
-      // onto it. A queued result waits the same way an immediate one does.
-      // The daemon ends a turn that has messages queued behind it with
-      // `generation_handoff` instead of `message_complete`, so the reply
-      // watcher's `message_complete` lands only once this message's own turn,
-      // and every turn ahead of it, has finished.
-      armReplyWaiter(conversationId);
-      // The watcher owns the wait from here; the next send arms its own.
-      armedReplyConversationIdRef.current = null;
+      // A reply wait and a processing marker both watch the assistant's own
+      // SSE connection, which a switch to another assistant replaced: raised
+      // for the outgoing one, neither can be taken down by anything but an
+      // unrelated completion. A move to another document keeps both, since
+      // the reply toast is meant to outlive closing the document.
+      const sameAssistant = !assistantChanged();
+      if (sameAssistant) {
+        // The assistant is the source of truth for the id: a legacy
+        // `conversationKey` send for a fresh draft comes back with the row
+        // the daemon minted rather than the key that went out, so the wait
+        // moves onto it. A queued result waits the same way an immediate one
+        // does. The daemon ends a turn that has messages queued behind it
+        // with `generation_handoff` instead of `message_complete`, so the
+        // reply watcher's `message_complete` lands only once this message's
+        // own turn, and every turn ahead of it, has finished.
+        armReplyWaiter(conversationId);
+        // The watcher owns the wait from here; the next send arms its own.
+        armedReplyConversationIdRef.current = null;
+      }
 
       if (isFreshDraft && !useServerMint) {
         // The legacy conversationKey create-or-lookup materialized the row, so
@@ -301,19 +350,18 @@ export function useDocumentComposerSubmit({
       }
       persistDocumentConversationId(doc, assistantId, conversationId);
 
-      useConversationStore
-        .getState()
-        .addProcessingConversationId(conversationId, snapshot);
+      if (sameAssistant) {
+        useConversationStore
+          .getState()
+          .addProcessingConversationId(conversationId, snapshot);
+      }
       // Only the document and assistant this send started under own the
       // shared `"document"` slot. Switching either one mid-flight, on any
       // host, hands the slot to the next draft, and a late completion
       // clearing it would wipe text the user typed for a message this send
       // never carried. "Sent" is that composer's micro-state for the same
       // reason: on anyone else's composer this send is over without a trace.
-      const ownsSlot =
-        isMountedRef.current &&
-        currentOwnerRef.current.assistantId === owner.assistantId &&
-        currentOwnerRef.current.surfaceId === owner.surfaceId;
+      const ownsSlot = isMountedRef.current && ownsSlotNow();
       if (ownsSlot) {
         useComposerStore.getState().setInput("", "document");
         useComposerStore.getState().resetAttachments("document");
@@ -330,7 +378,9 @@ export function useDocumentComposerSubmit({
       // the message and only the response was lost. The nonce and the armed
       // wait both stay put, so the retry is a duplicate the daemon can dedupe
       // and the reply it may already be generating still raises the toast.
-      setStatus("error");
+      if (ownsSlotNow()) {
+        setStatus("error");
+      }
       toast.error(t("documentComposer.sendFailed"));
     }
   }, [

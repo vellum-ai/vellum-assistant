@@ -67,3 +67,22 @@ describe("stopAwaitingReply", () => {
     expect(watchedIds()).toEqual(["conv-1"]);
   });
 });
+
+describe("clearAwaitingReplies", () => {
+  test("drops every wait at once", () => {
+    getState().startAwaitingReply("conv-1");
+    getState().startAwaitingReply("conv-2");
+
+    getState().clearAwaitingReplies();
+
+    expect(watchedIds()).toEqual([]);
+  });
+
+  test("is a no-op when nothing is awaiting a reply", () => {
+    const before = getState().awaitingReplyConversationIds;
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().awaitingReplyConversationIds).toBe(before);
+  });
+});
