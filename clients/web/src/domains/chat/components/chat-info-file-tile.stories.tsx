@@ -4,9 +4,9 @@
  * cannot get, a non-image glyph, a video poster, and a camera frame labelled
  * with when it was captured.
  *
- * `LazyImage` seeds the shared `attachmentContent` cache entry the tile reads,
- * which is the same entry the preview modal uses, so the story shows the
- * fetched path without a daemon behind it.
+ * `LazyImage` seeds the cache entry the tile reads, under the same
+ * `attachmentContentQueryKey` the preview modal fetches with, so the story
+ * shows the fetched path without a daemon behind it.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -18,8 +18,10 @@ import {
   makeSamplePreview,
   SAMPLE_PREVIEWS,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import type { DocumentSummary } from "@/types/document-types";
+import { decodeBase64Payload } from "@/utils/base64";
 
 import { ChatInfoFileTile } from "./chat-info-file-tile";
 
@@ -69,9 +71,10 @@ const LAZY_IMAGE_ATTACHMENT = makeDisplayAttachment({
 });
 const LAZY_IMAGE = attachmentFile(LAZY_IMAGE_ATTACHMENT);
 
+/** A legacy row: a synthetic id the content endpoint can never resolve. */
 const LAZY_IMAGE_UNAVAILABLE = attachmentFile(
   makeDisplayAttachment({
-    id: "gulls-at-dusk",
+    id: "rehydrated:0",
     filename: "gulls-at-dusk.png",
     sizeBytes: 176_128,
   }),
@@ -110,25 +113,13 @@ const FRAME_FILE: ConversationFileAsset = {
   capturedAt: Date.UTC(2026, 4, 27, 9, 41),
 };
 
-/** The bytes the daemon would return, decoded from a sample preview data URL. */
-function blobFromDataUrl(dataUrl: string): Blob {
-  const [prefix, payload] = dataUrl.split(",");
-  const binary = atob(payload!);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return new Blob([bytes], {
-    type: prefix!.slice("data:".length).replace(";base64", ""),
-  });
-}
-
 const storyClient = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 });
+// The bytes the daemon would return, decoded from a sample preview data URL.
 storyClient.setQueryData(
-  ["attachmentContent", ASSISTANT_ID, LAZY_IMAGE_ATTACHMENT.id],
-  blobFromDataUrl(SAMPLE_PREVIEWS[2]!),
+  attachmentContentQueryKey(ASSISTANT_ID, LAZY_IMAGE_ATTACHMENT.id),
+  new Blob([decodeBase64Payload(SAMPLE_PREVIEWS[2]!)!], { type: "image/png" }),
 );
 
 const withSeededBytes: Decorator = (Story) => (
@@ -165,7 +156,7 @@ export const LazyImage: Story = {
   args: { file: LAZY_IMAGE },
 };
 
-/** The same path with nothing to fetch: the tile settles on the image glyph. */
+/** A legacy image with no bytes to fetch: the tile settles straight on the glyph. */
 export const LazyImageUnavailable: Story = {
   args: { file: LAZY_IMAGE_UNAVAILABLE },
 };
@@ -180,7 +171,7 @@ export const VideoPoster: Story = {
   args: { file: VIDEO_FILE },
 };
 
-/** A camera frame, labelled with when it was captured rather than its filename. */
+/** A camera frame, labelled by capture time: the time of day for today's, the date for an older one. */
 export const Frame: Story = {
   args: { file: FRAME_FILE },
 };

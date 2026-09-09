@@ -3,24 +3,35 @@
  *
  * A thin `IntersectionObserver` wrapper, added because the codebase had three
  * hand-rolled copies (the app card's lazy preview, the PDF page renderer, the
- * transcript's load-more sentinel) and this is a fourth caller that wants the
- * plain "is it visible" answer rather than a one-shot trigger. Those three are
- * left alone; they each fold extra behaviour into their observer.
+ * transcript's load-more sentinel). Those three are left alone; they each fold
+ * extra behaviour into their observer.
  *
  * Reports `false` before the first observation and wherever the API is missing,
- * so callers get the conservative answer while the browser catches up.
+ * so callers get the conservative answer while the browser catches up. A caller
+ * for which "not observable" means "show it" (a lazily loaded picture that is
+ * the content, not an enhancement of it) checks for the API itself.
  */
 
 import { useEffect, useState, type RefObject } from "react";
 
 export function useInView(
   ref: RefObject<Element | null>,
-  /**
-   * Fraction of the element that must be showing to count as visible. The
-   * default asks for any sliver, which is the right test for "the user can
-   * already see this, so don't show them a second copy of it".
-   */
-  { threshold = 0 }: { threshold?: number } = {},
+  {
+    threshold = 0,
+    rootMargin,
+    once = false,
+  }: {
+    /**
+     * Fraction of the element that must be showing to count as visible. The
+     * default asks for any sliver, which is the right test for "the user can
+     * already see this, so don't show them a second copy of it".
+     */
+    threshold?: number;
+    /** Grows the viewport the element is tested against, e.g. `"200px"` to start loading just before it scrolls in. */
+    rootMargin?: string;
+    /** Latch on the first sighting and stop observing, for work that only needs doing once. */
+    once?: boolean;
+  } = {},
 ): boolean {
   const [inView, setInView] = useState(false);
 
@@ -32,21 +43,29 @@ export function useInView(
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
-        if (entry) {
-          setInView(entry.isIntersecting);
+        if (!entry || (once && !entry.isIntersecting)) {
+          return;
+        }
+        setInView(entry.isIntersecting);
+        if (once) {
+          observer.disconnect();
         }
       },
-      { threshold },
+      { threshold, rootMargin },
     );
     observer.observe(el);
     return () => {
       observer.disconnect();
-      // An unmounting element is not on screen. Without this a control that
-      // scrolls out of the virtualised transcript would leave its last
-      // "visible" answer behind and suppress the floating copy forever.
-      setInView(false);
+      if (!once) {
+        // An unmounting element is not on screen. Without this a control that
+        // scrolls out of the virtualised transcript would leave its last
+        // "visible" answer behind and suppress the floating copy forever. A
+        // latched caller keeps its answer: it asked for one sighting, not for
+        // the live state.
+        setInView(false);
+      }
     };
-  }, [ref, threshold]);
+  }, [ref, threshold, rootMargin, once]);
 
   return inView;
 }

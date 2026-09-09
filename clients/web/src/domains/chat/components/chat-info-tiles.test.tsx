@@ -6,7 +6,15 @@
  * asserted through accessible names and the rendered image source.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -81,7 +89,7 @@ const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
 const { appsGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
-const { formatFriendlyDate } = await import("@/utils/format-date");
+const { formatCaptureTime } = await import("@/utils/format-date");
 type ConversationFileAsset =
   import("@/domains/chat/hooks/use-conversation-assets").ConversationFileAsset;
 
@@ -147,6 +155,10 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+});
+
+afterAll(() => {
+  mock.restore();
 });
 
 describe("ChatInfoAppTile", () => {
@@ -318,9 +330,11 @@ describe("ChatInfoFileTile attachments", () => {
 });
 
 describe("ChatInfoFileTile camera frames", () => {
-  test("labels itself with the capture time and names itself a frame", () => {
-    const capturedAt = new Date(2026, 4, 27, 10, 30).getTime();
-    const file: ConversationFileAsset = {
+  // The suite pins i18next to English, which is the locale the tile formats in.
+  const LOCALE = "en";
+
+  function frameAsset(capturedAt: number): ConversationFileAsset {
+    return {
       kind: "frame",
       id: "frame-1",
       title: "frame-01.jpg",
@@ -332,9 +346,15 @@ describe("ChatInfoFileTile camera frames", () => {
       }),
       capturedAt,
     };
+  }
+
+  test("labels a frame from today with its time of day", () => {
+    // Frames from one Live session share a date, so the time is what tells
+    // them apart.
+    const capturedAt = new Date().setHours(10, 30, 0, 0);
     renderTile(
       <ChatInfoFileTile
-        file={file}
+        file={frameAsset(capturedAt)}
         assistantId={ASSISTANT_ID}
         onOpen={() => {}}
       />,
@@ -342,7 +362,23 @@ describe("ChatInfoFileTile camera frames", () => {
 
     expect(screen.getByLabelText("Preview camera frame")).toBeDefined();
     expect(
-      screen.getByText(formatFriendlyDate(new Date(capturedAt))),
+      screen.getByText(formatCaptureTime(capturedAt, LOCALE)),
     ).toBeDefined();
+  });
+
+  test("labels an older frame with its date", () => {
+    const capturedAt = new Date(2001, 4, 27, 10, 30).getTime();
+    renderTile(
+      <ChatInfoFileTile
+        file={frameAsset(capturedAt)}
+        assistantId={ASSISTANT_ID}
+        onOpen={() => {}}
+      />,
+    );
+
+    expect(
+      screen.getByText(formatCaptureTime(capturedAt, LOCALE)),
+    ).toBeDefined();
+    expect(screen.getByText(/2001/)).toBeDefined();
   });
 });
