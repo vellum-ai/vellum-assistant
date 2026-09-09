@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const AcpAgentConfigSchema = z
+export const AcpAgentConfigSchema = z
   .object({
     command: z.string().describe("Command to spawn the ACP agent process"),
     args: z
@@ -15,6 +15,12 @@ const AcpAgentConfigSchema = z
       .record(z.string(), z.string())
       .optional()
       .describe("Environment variables set for the agent process"),
+    model: z
+      .string()
+      .optional()
+      .describe(
+        "Default model for this agent, overriding acp.defaultModel. An adapter-reported alias.",
+      ),
   })
   .describe("Configuration for an individual ACP agent");
 
@@ -32,6 +38,12 @@ export const AcpConfigSchema = z
       .record(z.string(), AcpAgentConfigSchema)
       .default({})
       .describe("Map of agent names to their configurations"),
+    defaultModel: z
+      .string()
+      .optional()
+      .describe(
+        "Default model the coding agent starts with (an adapter-reported alias such as 'opus' or 'sonnet' for Claude, not an Assistant catalog id). Unset means the agent's own default.",
+      ),
   })
   .describe(
     "Agent Communication Protocol (ACP) — inter-agent communication and delegation",

@@ -36283,6 +36283,14 @@ components:
                   additionalProperties: {}
                 - type: "null"
           additionalProperties: {}
+        acp:
+          type: object
+          properties:
+            defaultModel:
+              anyOf:
+                - type: string
+                - type: "null"
+          additionalProperties: {}
       additionalProperties: {}
     LLMProvider:
       type: string
@@ -37122,6 +37130,12 @@ components:
                 mode:
                   $ref: "#/components/schemas/ServiceMode"
               additionalProperties: {}
+          additionalProperties: {}
+        acp:
+          type: object
+          properties:
+            defaultModel:
+              type: string
           additionalProperties: {}
       additionalProperties: {}
     ProfileEntry:

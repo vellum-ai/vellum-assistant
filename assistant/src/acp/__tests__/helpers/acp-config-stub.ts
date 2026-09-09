@@ -22,11 +22,13 @@ import type { AcpAgentConfig } from "../../../config/acp-schema.js";
 export interface MockAcpConfig {
   maxConcurrentSessions: number;
   agents: Record<string, AcpAgentConfig>;
+  defaultModel?: string;
 }
 
 const DEFAULT_CONFIG: MockAcpConfig = {
   maxConcurrentSessions: 4,
   agents: {},
+  defaultModel: undefined,
 };
 
 export interface AcpConfigStubHandle {
