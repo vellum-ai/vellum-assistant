@@ -24,6 +24,7 @@ import {
   makeAppSummary,
   makeChatInfoQueryClient,
   makeDocumentSummary,
+  makeSeededChatInfoStoryClient,
   seedChatInfoConversation,
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
@@ -34,6 +35,18 @@ import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
 export const CHAT_INFO_ASSISTANT_ID = "story-assistant";
 export const CHAT_INFO_CONVERSATION_ID = "story-conversation";
+
+const storyClient = makeSeededChatInfoStoryClient(CHAT_INFO_ASSISTANT_ID);
+
+/**
+ * The client a tile story reads: it answers every query from what
+ * {@link makeSeededChatInfoStoryClient} holds, so no story reaches the daemon.
+ */
+export const withChatInfoStoryClient: Decorator = (Story) => (
+  <QueryClientProvider client={storyClient}>
+    <Story />
+  </QueryClientProvider>
+);
 
 /** Name, icon, and preview lines for each app a story can ask for. */
 const APP_SEEDS: Array<{ name: string; icon: string; lines: string[] }> = [
@@ -100,7 +113,7 @@ const APP_SEEDS: Array<{ name: string; icon: string; lines: string[] }> = [
 ];
 
 /** A small page for the preview iframe, in system colours so it reads in either theme. */
-export function chatInfoPreviewHtml(title: string, lines: string[]): string {
+function chatInfoPreviewHtml(title: string, lines: string[]): string {
   const items = lines.map((line) => `<li>${line}</li>`).join("");
   return `<!doctype html><meta charset="utf-8"><title>${title}</title><style>body{margin:0;padding:24px;font-family:system-ui,sans-serif;background:Canvas;color:CanvasText}h1{margin:0 0 12px;font-size:28px}ul{margin:0;padding-left:22px;font-size:18px;line-height:1.7}</style><h1>${title}</h1><ul>${items}</ul>`;
 }

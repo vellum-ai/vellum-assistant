@@ -2,13 +2,15 @@
  * A Chat Info row: the category header with its exact total and a See All
  * control, over one line of tiles.
  *
- * The row is tile-agnostic, so these stories feed it the shipped 64px
- * `MessageAttachmentSquare` rather than the panel's own tiles. What they
- * document is the fit rule: on a roomy window the line is truncated to the
- * tiles its measured width holds, and on a phone the same width decides a
- * horizontal strip that runs past the screen edge. See All appears whenever
- * the category's total exceeds that line, which is why the paged story shows
- * it under a row that looks complete.
+ * The row is tile-agnostic, so most of these stories feed it the shipped 64px
+ * `MessageAttachmentSquare`. What they document is the fit rule: on a roomy
+ * window the line is truncated to the tiles its measured width holds, and on a
+ * phone the same width decides a horizontal strip that runs past the screen
+ * edge. See All appears whenever the category's total exceeds that line, which
+ * is why the paged story shows it under a row that looks complete.
+ *
+ * The Frames stories are the exception: they draw the panel's own Camera
+ * Frames row, on its catalog copy and its file tiles.
  *
  * Read the phone stories at the Mobile viewports: the frame draws
  * `DetailShell`'s lift surface and body inset, which the strip cancels.
@@ -23,10 +25,21 @@ import {
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
 import {
+  CHAT_INFO_FILE_TILE_WIDTH_PX,
+  ChatInfoFileTile,
+} from "@/domains/chat/components/chat-info-file-tile";
+import {
+  CHAT_INFO_ASSISTANT_ID,
+  withChatInfoStoryClient,
+} from "@/domains/chat/components/chat-info-story-fixtures";
+import {
   CHAT_INFO_DRAWER_WIDTH_PX,
   CHAT_INFO_NARROW_PHONE_PX,
+  chatInfoStoryFrames,
 } from "@/domains/chat/components/chat-info.test-helper";
+import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
+import { useTranslation } from "@/i18n";
 
 import {
   ChatInfoSection,
@@ -156,4 +169,55 @@ export const NarrowPhoneStrip: Story = {
     items: makePreviewableImages(8),
     count: 12,
   },
+};
+
+/** One Live session's captures, the set the frames row is shown against. */
+const FRAME_TILES = chatInfoStoryFrames(6);
+
+/** The Camera Frames row the panel draws: its catalog copy, over its file tiles. */
+function FramesRow({
+  count,
+  onSeeAll,
+}: Pick<ChatInfoSectionProps<ConversationFileAsset>, "count" | "onSeeAll">) {
+  const { t } = useTranslation("chat");
+  return (
+    <ChatInfoSection
+      title={t("chatInfoPanel.framesTitle")}
+      count={count}
+      items={FRAME_TILES}
+      tileWidth={CHAT_INFO_FILE_TILE_WIDTH_PX}
+      seeAllAriaLabel={t("chatInfoPanel.seeAllFramesAria")}
+      onSeeAll={onSeeAll}
+      renderTile={(frame) => (
+        <ChatInfoFileTile
+          key={frame.id}
+          file={frame}
+          assistantId={CHAT_INFO_ASSISTANT_ID}
+          onOpen={() => {}}
+        />
+      )}
+    />
+  );
+}
+
+type FramesStory = StoryObj<
+  Pick<ChatInfoSectionProps<ConversationFileAsset>, "count" | "onSeeAll">
+>;
+
+/**
+ * Camera Frames at the drawer width: each tile carries the time its frame was
+ * captured, and the session's total puts See All in the header.
+ */
+export const Frames: FramesStory = {
+  decorators: [withChatInfoStoryClient, inDrawerColumn],
+  args: { count: 240 },
+  render: (args) => <FramesRow {...args} />,
+};
+
+/** The same row on the narrowest phone, where the captures scroll past the edge. */
+export const FramesStrip: FramesStory = {
+  decorators: [withChatInfoStoryClient, inPhonePage],
+  globals: { viewport: { value: "sbNarrowPhone", isRotated: false } },
+  args: { count: 240 },
+  render: (args) => <FramesRow {...args} />,
 };
