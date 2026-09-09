@@ -28,6 +28,7 @@ mock.module("@/runtime/companion-surface", () => ({
   // sends is `companion-share-annotation.test.tsx`'s subject, and this file
   // only cares whether the layer is on the page at all.
   annotateCompanionShare: () => undefined,
+  setCompanionFrameScrolling: () => undefined,
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
