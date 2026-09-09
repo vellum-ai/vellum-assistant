@@ -14,6 +14,11 @@ metadata:
       - "what it can do or which skills/tools exist"
       - "whether a service is connected, and in which sense"
       - "its credits, plan allowance, spend, or daily limit"
+      - "pricing, plans, or whether Vellum is free"
+      - "how to install the desktop, iOS, or Android app"
+      - "how do I install you"
+      - "whether there is a Windows or Linux desktop app"
+      - "do you run on my PC"
       - "how to self-host or use your own model API key"
     avoid-when:
       - "changing configuration"
@@ -138,6 +143,8 @@ Base URL: `https://www.vellum.ai/docs`
 | Getting help             | `/help/getting-help`                      |
 | Skills reference index   | `/skills-reference`                       |
 | Specific skill reference | `/skills-reference/<skill-name>`          |
+
+Install, platform, and "how do I install you" questions belong on Installation and FAQ, not memory. Pricing and "is it free" belong on Pricing, then the `assistant platform credits|subscription|plans` commands for this assistant's live plan.
 
 Use `web_fetch` to pull the page content. If a URL 404s, try fetching the docs homepage and navigating from the sidebar.
 

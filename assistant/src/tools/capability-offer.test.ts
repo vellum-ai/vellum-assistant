@@ -42,6 +42,8 @@ describe("shouldOfferLoggedInBrowser", () => {
     expect(shouldOfferLoggedInBrowser("host unreachable")).toBe(true);
     expect(shouldOfferLoggedInBrowser("login required")).toBe(true);
     expect(shouldOfferLoggedInBrowser("HTTP 403 Forbidden")).toBe(true);
+    expect(shouldOfferLoggedInBrowser("verify you are human")).toBe(true);
+    expect(shouldOfferLoggedInBrowser("Cloudflare captcha")).toBe(true);
   });
 
   test("does not match cancelled or invalid-input failures", () => {
@@ -71,8 +73,11 @@ describe("formatLoggedInBrowserOffer", () => {
     });
     expect(offer).toContain("no in-app browser");
     expect(offer).toContain("Do not describe a browser panel");
+    expect(offer).toContain("does not transfer the session");
+    expect(offer).toContain("macOS desktop app");
     expect(offer).toContain(DESKTOP_APP_DOWNLOAD_URL);
     expect(offer).toContain(CHROME_WEB_STORE_INSTALL_URL);
+    expect(offer).not.toContain("Windows PC");
   });
 });
 

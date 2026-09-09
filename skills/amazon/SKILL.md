@@ -150,4 +150,4 @@ Immediately before clicking final submit button:
 
 - Always show price/totals before confirmation.
 - Never infer final consent from prior messages; ask again right before submission.
-- If CAPTCHA or anti-bot challenge appears, ask user to solve it and continue after refresh.
+- If a CAPTCHA or anti-bot challenge appears, wait a few seconds; it often auto-resolves. If it persists and a desktop app or Chrome extension is driving the user's Chrome on a computer, ask them to complete it in that same window, then continue. Do not send them to Safari or Chrome on a phone: completing it there does not transfer the session, and there is no in-app browser to hand off to.
