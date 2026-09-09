@@ -136,8 +136,8 @@ function connectUnixSocket(
       settled = true;
       clearTimeout(timer);
       sock.off("connect", onConnect);
-      sock.off("error", onError);
       sock.off("close", onClose);
+      // Keep the error listener so sock.destroy() cannot become uncaught.
       if (err) {
         sock.destroy();
         reject(err);

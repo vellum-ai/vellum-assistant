@@ -21,7 +21,6 @@ export {
   ipcCall,
   IpcCallError,
   IpcConnectError,
-  isRetryableIpcConnectError,
   PersistentIpcClient,
 } from "./ipc-client.js";
 
