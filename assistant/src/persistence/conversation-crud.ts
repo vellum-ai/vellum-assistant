@@ -54,6 +54,7 @@ import {
   purgeAllWatchTimelines,
   purgeWatchTimelineForConversation,
 } from "../watch/watch-timeline.js";
+import { deleteAcpConversationModelPreferences } from "./acp-model-preference.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
@@ -2242,6 +2243,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
       .where(eq(toolInvocations.conversationId, id))
       .run();
     tx.delete(messages).where(eq(messages.conversationId, id)).run();
+    deleteAcpConversationModelPreferences(id, tx);
     // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
     // commit or roll back with the conversation row they describe.
     deleteSubagentRecordsByParent(id);
@@ -2392,6 +2394,7 @@ export async function deleteConversationGently(
     tx.delete(toolInvocations)
       .where(eq(toolInvocations.conversationId, id))
       .run();
+    deleteAcpConversationModelPreferences(id, tx);
     // Raw SQL on the same bun:sqlite handle Drizzle wraps, so the subagent rows
     // commit or roll back with the conversation row they describe.
     deleteSubagentRecordsByParent(id);

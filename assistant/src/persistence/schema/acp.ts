@@ -1,6 +1,7 @@
 import {
   index,
   integer,
+  primaryKey,
   real,
   sqliteTable,
   text,
@@ -45,6 +46,11 @@ export const acpSessionHistory = sqliteTable(
     // before these columns existed.
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
+    /** Model the adapter confirmed the run was on. Null when the adapter
+     *  advertises no model selector, and for rows written before migration
+     *  377. A record of the run, never the source a later spawn inherits
+     *  from: see `acpConversationModelPreference`. */
+    model: text("model"),
   },
   (table) => [
     index("idx_acp_session_history_started_at").on(table.startedAt),
@@ -74,3 +80,29 @@ export const acpRefusedCredentials = sqliteTable("acp_refused_credentials", {
   digest: text("digest").primaryKey(),
   refusedAt: integer("refused_at").notNull(),
 });
+
+/**
+ * Which model a conversation's next run on a given agent starts on.
+ *
+ * Written only when the user chooses one: a spawn parameter, a live switch, a
+ * typed command. Never from adapter-reported state, so an agent falling back
+ * to its own default cannot quietly become the conversation's preference.
+ *
+ * Keyed per agent because one conversation can drive several coding agents and
+ * their model vocabularies do not overlap. Values are adapter aliases (for
+ * example "opus"), not Assistant catalog ids.
+ *
+ * Created by migration 378.
+ */
+export const acpConversationModelPreference = sqliteTable(
+  "acp_conversation_model_preference",
+  {
+    parentConversationId: text("parent_conversation_id").notNull(),
+    agentId: text("agent_id").notNull(),
+    model: text("model").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.parentConversationId, table.agentId] }),
+  ],
+);
