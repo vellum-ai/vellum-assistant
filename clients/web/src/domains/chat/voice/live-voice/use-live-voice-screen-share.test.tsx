@@ -915,49 +915,37 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
   });
 
   /**
-   * The gate was put back to the last delivered frame when a newer one was
-   * lost, and a frame older than the lost one was still waiting its turn.
-   * When that one lands it is the newest view the call has, and the gate
-   * has to come up to it rather than stay on the older view.
+   * The occasion after a keep is judged against it, and that judgement is
+   * spent: if the keep's upload then fails, the occasion is gone. So the
+   * next occasion waits to learn the keep's fate, and the gate is put right
+   * before it is judged. Here the question's own frame is lost, and the
+   * frame of the view the user left behind still reaches the call.
    */
-  test("a parked frame that lands after a newer one was lost becomes the baseline", async () => {
-    const first = holdNextUpload();
+  test("an occasion waits for the frame before it, so a lost keep costs no turn", async () => {
     renderShare();
     share(WINDOW);
     await flush();
-    show("b");
+    const question = holdNextUpload();
+    show("a+");
     speak(true);
     await flush();
-    // A third view, lost, while the first two are still on their way.
-    now += FRAME_GATE_FORCED_KEEP_TTL_MS + 1;
-    const third = holdNextUpload();
-    show("c");
+    // The stop edge is asked for while the question's frame is still on its
+    // way up, and is not judged yet.
     speak(false);
     await flush();
-    third.fail();
-    await flush();
-    expect(controls.sightFrame).not.toHaveBeenCalled();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
 
-    first.finish();
+    question.fail();
     await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
     expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
       "att-1",
-      "att-2",
+      "att-3",
     ]);
-
-    // The second view is what the call has, so a question about it is
-    // answered already, and one about the lost third view is not.
-    show("b");
-    speak(true);
-    speak(false);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(2);
-    show("c");
-    speak(true);
-    await flush();
-    expect(controls.sightFrame).toHaveBeenCalledTimes(3);
+    // Judged against the view the call has, at the question's bar, since
+    // the ask the lost frame had spent is put back with the gate.
     expect(controls.sightFrame).toHaveBeenLastCalledWith(
-      "att-4",
+      "att-3",
       expect.objectContaining({ reason: "forced" }),
     );
   });

@@ -128,6 +128,20 @@ export const SCREEN_SHARE_FRAME_GATE_OPTIONS: FrameGateOptions = {
   minDetail: 0,
 };
 
+/**
+ * How long the next occasion waits to learn whether the frame before it
+ * arrived.
+ *
+ * A keep moves the gate's baseline when it is judged, and the next occasion
+ * judged against it is spent on that judgement: if the keep's upload then
+ * fails, the occasion the failure cost is gone. So an occasion waits for the
+ * frame before it to be shared or dropped, and the gate is put right before
+ * anything else is judged. An upload of one screen frame takes well under a
+ * second; this is the bound for one that hangs, past which the share goes on
+ * as if the frame had arrived, and puts the gate right whenever it does not.
+ */
+export const SCREEN_SHARE_OUTCOME_WAIT_MS = 5_000;
+
 export function useLiveVoiceScreenShare(): void {
   const target = useLiveVoiceStore.use.screenShareTarget();
   const state = useLiveVoiceStore.use.state();
@@ -175,6 +189,12 @@ export function useLiveVoiceScreenShare(): void {
       readonly grid: Uint8Array;
       readonly atMs: number;
       readonly seq: number;
+      /**
+       * The ask this frame answered, when it was a forced keep: the arm it
+       * spent, to be given back if the frame is lost. The ask still stands
+       * only inside its own window; the gate drops one that has run out.
+       */
+      readonly spentArmMs: number | null;
     };
     let judgedSeq = 0;
     // The last frame the call was given. What the gate is put back to when a
@@ -255,6 +275,12 @@ export function useLiveVoiceScreenShare(): void {
       if (baseline !== frame) {
         return;
       }
+      // The question this frame was for is still unanswered, so the ask
+      // goes back with the gate, unless a newer question has since been
+      // asked.
+      if (frame.spentArmMs !== null && armedAtMs === null) {
+        armedAtMs = frame.spentArmMs;
+      }
       moveGateTo(delivered);
     };
 
@@ -310,16 +336,9 @@ export function useLiveVoiceScreenShare(): void {
       // of the producer's reused grid: on delivery it is what the call has,
       // and until then it is what a failure has to undo.
       judgedSeq += 1;
-      const judged: JudgedFrame | null =
-        grid === null
-          ? null
-          : { grid: new Uint8Array(grid), atMs: nowMs, seq: judgedSeq };
+      let spentArmMs: number | null = null;
       let keep: SightKeepOrigin;
       if (drawing !== null) {
-        if (grid !== null) {
-          gate.adopt(grid, nowMs);
-          baseline = judged;
-        }
         keep = { reason: "drawing" };
       } else {
         // A frame the gate cannot read is not sent unjudged: that is the
@@ -344,13 +363,32 @@ export function useLiveVoiceScreenShare(): void {
             ? { reason: decision.reason, armedAtMs }
             : { reason: decision.reason };
         if (decision.reason === "forced") {
+          spentArmMs = armedAtMs;
           armedAtMs = null;
+        }
+      }
+      const judged: JudgedFrame | null =
+        grid === null
+          ? null
+          : {
+              grid: new Uint8Array(grid),
+              atMs: nowMs,
+              seq: judgedSeq,
+              spentArmMs,
+            };
+      if (judged !== null) {
+        if (drawing !== null) {
+          gate.adopt(judged.grid, nowMs);
         }
         baseline = judged;
       }
-      // Not awaited: the queue orders the pictures, and the upload behind
-      // each keep is ordered by the capture itself, so the next occasion need
-      // not wait for this one to reach the daemon.
+      // The frame's fate, for the occasion behind this one to wait on: it is
+      // shared or dropped, exactly once, and possibly after `capture`
+      // resolves, since a send waits its turn.
+      let settle: () => void = () => {};
+      const outcome = new Promise<void>((resolve) => {
+        settle = resolve;
+      });
       void sight.capture({
         assistantId,
         keep,
@@ -375,6 +413,7 @@ export function useLiveVoiceScreenShare(): void {
             arrived(judged);
           }
           reportCompanionSharedFrame(target);
+          settle();
         },
         // A run that has since ended has nothing to put back, and a drawing
         // the gate could not read never moved it.
@@ -382,8 +421,23 @@ export function useLiveVoiceScreenShare(): void {
           if (judged !== null && !stale()) {
             lost(judged);
           }
+          settle();
         },
       });
+      // Nothing else is judged until this frame's fate is known, or the
+      // bound runs out. The capture itself is not awaited: a send parked
+      // behind an older one resolves it early, and it is the send that
+      // settles this.
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      await Promise.race([
+        outcome,
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, SCREEN_SHARE_OUTCOME_WAIT_MS);
+        }),
+      ]);
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
     };
 
     const share = (drawing: SharedDrawing | null = null): void => {
