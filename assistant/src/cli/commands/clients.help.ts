@@ -1,13 +1,36 @@
 /** Declarative help for the `assistant clients` command. */
 
+import {
+  HOST_PROXY_SUPPORT,
+  hostProxyCapabilities,
+} from "../../types/host-capabilities.js";
 import type { CliCommandHelp } from "../lib/cli-command-help.js";
 
+const CLIENT_LABELS: Record<keyof typeof HOST_PROXY_SUPPORT, string> = {
+  macos: "macOS desktop",
+  windows: "Windows desktop",
+  linux: "Linux desktop",
+  "chrome-extension": "Chrome extension",
+};
+
 /**
- * The capability matrix in `helpText` mirrors `supportsHostProxy` in
- * `assistant/src/channels/types.ts`. Update both in lock-step: this text is
- * what the assistant reads when deciding which client can unblock a task, so
- * a stale entry here sends users to install a client that cannot help.
+ * Render `HOST_PROXY_SUPPORT` as help text so the matrix the assistant reads
+ * cannot drift from the one that actually routes host tools.
  */
+function hostCapabilityMatrix(): string {
+  const labels = Object.entries(CLIENT_LABELS) as [
+    keyof typeof HOST_PROXY_SUPPORT,
+    string,
+  ][];
+  const labelWidth = Math.max(...labels.map(([, label]) => label.length));
+  return labels
+    .map(
+      ([id, label]) =>
+        `  ${label.padEnd(labelWidth)}  ${hostProxyCapabilities(id).join(", ")}`,
+    )
+    .join("\n");
+}
+
 export const clientsHelp: CliCommandHelp = {
   name: "clients",
   description: "Discover and manage connected clients",
@@ -18,17 +41,17 @@ or CLI. Each client has a set of capabilities (e.g. host_bash,
 host_file) that determine which tools the assistant can route through
 it.
 
-Host capabilities come only from a native desktop client. macOS, Windows
-and Linux provide host_bash, host_file, host_cu, host_browser and
-host_ui_snapshot; host_app_control, host_cu_window_capture and
-host_cu_annotate are macOS-only. The Chrome extension provides
-host_browser and nothing else. Web, iOS and Android clients provide no
-host capabilities at all, so never offer a mobile app to unblock one.
+Which client provides which host capability:
 
-When a task needs a host capability and no connected client offers it,
-say so and share the download page for a platform that does, without
+${hostCapabilityMatrix()}
+
+Any client not listed above (web, iOS, Android, CLI) provides no host
+capabilities, so never offer a mobile app to unblock one.
+
+When a task needs a host capability and no connected client provides
+it, say so and share the download page for a client that does, without
 waiting to be asked: https://www.vellum.ai/downloads
-Chrome extension (host_browser only): https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+The Chrome extension installs from the Chrome Web Store instead: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 
 Examples:
   $ assistant clients list                             List all connected clients
