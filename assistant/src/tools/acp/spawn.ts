@@ -36,6 +36,7 @@ export const acpSpawnInputSchema = z.looseObject({
   agent: nullAsOmitted(z.string()),
   task: nullAsOmitted(z.string()),
   cwd: nullAsOmitted(z.string()),
+  model: nullAsOmitted(z.string()),
 });
 
 /**
@@ -119,15 +120,16 @@ export async function executeAcpSpawn(
   try {
     const manager = getAcpSessionManager();
     const cwd = parsedInput.data.cwd || context.workingDir;
-    const { acpSessionId, protocolSessionId } = await manager.spawn(
-      agent,
-      agentConfig,
-      task,
-      cwd,
-      context.conversationId,
-      sendToClient,
-      { parentToolUseId: context.toolUseId },
-    );
+    const { acpSessionId, protocolSessionId, modelWarning } =
+      await manager.spawn(
+        agent,
+        agentConfig,
+        task,
+        cwd,
+        context.conversationId,
+        sendToClient,
+        { parentToolUseId: context.toolUseId, model: parsedInput.data.model },
+      );
 
     // Claude Code-only resume hint; empty for other adapters. Keyed off the
     // resolved command basename (always the real adapter binary). See
@@ -141,6 +143,9 @@ export async function executeAcpSpawn(
     const installNote = autoInstalledPackage
       ? ` Installed ${autoInstalledPackage} automatically.`
       : "";
+    const modelNote = modelWarning
+      ? ` The agent refused the requested model and is running on its own default: ${modelWarning}`
+      : "";
     const payload = JSON.stringify({
       acpSessionId,
       protocolSessionId,
@@ -150,7 +155,7 @@ export async function executeAcpSpawn(
       message:
         `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
         `Results stream back via SSE. You will be notified when it completes.` +
-        `${installNote}${resumeHint}`,
+        `${installNote}${modelNote}${resumeHint}`,
     });
 
     return { content: payload, isError: false };

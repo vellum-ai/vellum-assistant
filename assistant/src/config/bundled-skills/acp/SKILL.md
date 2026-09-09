@@ -23,6 +23,8 @@ Use `acp_spawn` to delegate a coding task to an external agent. The agent runs a
 
 Users can refer to agents by natural names: "claude code", "codex cli", and "openai codex" all resolve to the canonical `claude` and `codex` ids (unless the user's config defines an agent literally keyed by that name, which always wins).
 
+Pass the optional `model` parameter only when the user asks for a specific model (e.g. `opus` for Claude); an explicit choice is persisted per conversation and agent, so a later spawn without `model` reuses it rather than falling back to a configured default. The resolution order is: the `model` parameter, then this conversation's last explicit choice for that agent, then `acp.agents.<id>.model`, then `acp.defaultModel`, then the agent's own default.
+
 ## When the user names Claude Code or Codex
 
 If they name Claude Code or Codex without asking you to run it here (for example they say that tool will do the work), offer once, in one short sentence, that you can connect and run it in this conversation. Then continue with whatever they were doing.
