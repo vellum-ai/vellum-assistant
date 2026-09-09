@@ -68,7 +68,7 @@ export function pickReactionEmojiFields(
  * spelling recovers its kind from it. One parser, so the two cannot disagree
  * about what counts as one.
  *
- * `animated` reports whether the spelling carries the `a` marker. This
+ * `animated` reports whether the spelling carries the `a` marker. Discord's
  * normalizer never writes that marker, so it is read only from spellings that
  * arrive from elsewhere: a row written by another producer, or a value the
  * model hands back as it received it.
@@ -85,9 +85,9 @@ export function parseDiscordEmojiMention(
 /**
  * Recover an emoji's kind from its spelling alone. This is the one inference
  * the design permits, reserved for a value that carries the string and no
- * typed fields: a persisted row, a replayed retry payload, or the emoji the
- * model hands `react_to_message`, whose contract is the spelling. A payload
- * that declares its kind never reaches this.
+ * typed fields: a persisted row or a replayed retry payload. A value that
+ * declares its kind never reaches this; `reactionEmojiIdentity` makes that
+ * choice for every reader.
  *
  * A mention form is unambiguous. Past that the two remaining kinds are told
  * apart by whether the string is a name at all: a channel's shortcode is
@@ -113,4 +113,22 @@ export function classifyReactionEmojiSpelling(
   return /^[\w+-]+(::skin-tone-[2-6])?$/.test(emoji)
     ? { emojiKind: "shortcode", emojiName: emoji }
     : { emojiKind: "unicode", emojiName: emoji };
+}
+
+/**
+ * The typed identity of a reaction's emoji: the fields it declares when it
+ * declares a kind, otherwise the kind recovered from its spelling. Every
+ * reader that must know what an emoji is goes through this, so the wire
+ * contract and the web agree on when the spelling is consulted.
+ */
+export function reactionEmojiIdentity(
+  reaction: { emoji: string } & ReactionEmojiFields,
+): ReactionEmojiFields & { emojiKind: ReactionEmojiKind; emojiName: string } {
+  return reaction.emojiKind !== undefined && reaction.emojiName !== undefined
+    ? {
+        ...pickReactionEmojiFields(reaction),
+        emojiKind: reaction.emojiKind,
+        emojiName: reaction.emojiName,
+      }
+    : classifyReactionEmojiSpelling(reaction.emoji);
 }

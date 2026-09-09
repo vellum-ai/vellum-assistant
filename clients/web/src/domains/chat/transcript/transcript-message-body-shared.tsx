@@ -1,5 +1,5 @@
 import {
-  classifyReactionEmojiSpelling,
+  reactionEmojiIdentity,
   type ReactionEmojiFields,
 } from "@vellumai/service-contracts/reactions";
 import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
@@ -574,19 +574,14 @@ export function SlackMessageAttribution({
  * character, and a `custom` or `shortcode` one renders its bare ":name:",
  * since its image belongs to the channel and a name must never swap into an
  * unrelated standard emoji. A row carrying only a spelling has its kind
- * recovered by the contract's classifier and renders the same way; a bare
- * name is never resolved here.
+ * recovered by the contract's grammar and renders the same way; a bare name
+ * is never resolved here.
  */
 export function displayReactionEmoji(
   reaction: { emoji: string } & ReactionEmojiFields,
 ): string {
-  const typed =
-    reaction.emojiKind !== undefined && reaction.emojiName !== undefined
-      ? { emojiKind: reaction.emojiKind, emojiName: reaction.emojiName }
-      : classifyReactionEmojiSpelling(reaction.emoji);
-  return typed.emojiKind === "unicode"
-    ? typed.emojiName
-    : `:${typed.emojiName}:`;
+  const { emojiKind, emojiName } = reactionEmojiIdentity(reaction);
+  return emojiKind === "unicode" ? emojiName : `:${emojiName}:`;
 }
 
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {

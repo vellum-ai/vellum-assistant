@@ -34,10 +34,11 @@ function normalizeSlackReaction(
   }
 
   const channel = event.item.channel;
-  const character = slackEmojiCharacter(event.reaction);
 
   const routing = resolveAssistant(config, channel, event.user);
   if (isRejection(routing)) return null;
+
+  const character = slackEmojiCharacter(event.reaction);
 
   // The addressing parts (channel, message ts, emoji, reactor, op) name a
   // reaction, not one occurrence of one: they repeat byte for byte each time

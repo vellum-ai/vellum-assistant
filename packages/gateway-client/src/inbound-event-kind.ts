@@ -77,7 +77,7 @@ export function inboundEventRefersToAnotherMessage(
 import {
   classifyReactionEmojiSpelling,
   parseDiscordEmojiMention,
-  pickReactionEmojiFields,
+  reactionEmojiIdentity,
   type ReactionEmojiKind,
 } from "@vellumai/service-contracts/reactions";
 
@@ -131,18 +131,12 @@ export function resolveInboundReactionPayload(fields: {
     if (emoji.length === 0 || targetMessageId.length === 0) {
       return null;
     }
-    // A payload carrying only the spelling has its kind recovered from
-    // the string, the one source left.
-    const typed =
-      fields.reaction.emojiKind !== undefined &&
-      fields.reaction.emojiName !== undefined
-        ? {
-            ...pickReactionEmojiFields(fields.reaction),
-            emojiKind: fields.reaction.emojiKind,
-            emojiName: fields.reaction.emojiName,
-          }
-        : classifyReactionEmojiSpelling(emoji);
-    return { op, emoji, targetMessageId, ...typed };
+    return {
+      op,
+      emoji,
+      targetMessageId,
+      ...reactionEmojiIdentity(fields.reaction),
+    };
   }
   const cb = fields.callbackData;
   const target = fields.sourceMetadata?.messageId;
