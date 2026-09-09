@@ -8,10 +8,9 @@ metadata:
     display-name: "Screen Annotation"
     category: "system"
     activation-hints:
-      - "User asks where something is, or how to do something, in an app they are sharing on a call"
-      - "User wants to be shown how rather than have it done for them"
-      - "The answer to a question is a place on the user's screen"
-      - "User wants to be walked through something in an app, step by step"
+      - "User asks where something is, how to do it, or to be walked through it, in an app they share on a call"
+      - "User wants to be shown, not have it done for them"
+      - "The answer is a place on the user's screen"
     avoid-when:
       - "User wants the assistant to do the thing rather than be shown it (use computer-use)"
       - "Nothing is being shared, so there is no surface to point at"
