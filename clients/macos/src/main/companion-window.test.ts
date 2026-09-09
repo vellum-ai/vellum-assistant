@@ -387,6 +387,12 @@ type GlowWindow = {
     ignore: boolean,
     options?: { forward?: boolean },
   ) => void;
+  /** Whether it may become key, which is what lets its cursor show. */
+  focusable: boolean;
+  setFocusable: (focusable: boolean) => void;
+  /** Whether it is key: `focus` makes it so, and nothing here resigns it. */
+  key: boolean;
+  focus: () => void;
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
@@ -440,6 +446,17 @@ const openGlow = (options: {
     setIgnoreMouseEvents: (ignore, options) => {
       window.clickThrough = ignore;
       window.forwarded = ignore && options?.forward === true;
+    },
+    focusable: options.browserWindow?.focusable !== false,
+    setFocusable: (focusable) => {
+      window.focusable = focusable;
+    },
+    key: false,
+    focus: () => {
+      // The real one refuses a window that may not become key.
+      if (window.focusable) {
+        window.key = true;
+      }
     },
   };
   glow = window;
@@ -3336,6 +3353,55 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:setAnnotating", true);
     expect(glow?.clickThrough).toBe(false);
     expect(glow?.forwarded).toBe(false);
+  });
+
+  /**
+   * Chromium on macOS puts a page's cursor on the pointer only for the key
+   * window, and the frame opens unable to become one. So the mode lends it
+   * key status, or the pencil the layer hangs on the pointer never shows and
+   * nothing on screen says a press is now a mark.
+   */
+  test("drawing on lends the frame key status, so its pencil can show", () => {
+    shareDisplay();
+    expect(glow?.focusable).toBe(false);
+    expect(glow?.key).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /**
+   * Off the mode the frame may not become key again: a click-through window
+   * that still could would take the keyboard on the next press that reached
+   * it. Resigning key is not something main can ask for on macOS, so what it
+   * can do is stop the frame taking it back.
+   */
+  test("drawing off makes the frame unfocusable again", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.focusable).toBe(false);
+  });
+
+  /** The mode is still on across a scroll, and the mouse is coming back. */
+  test("a scroll the frame steps aside for leaves its key status alone", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /** A window that replaces the frame mid-mode is lent key the same way. */
+  test("a frame opened afresh is lent key status with the mouse", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
   });
 
   /**
