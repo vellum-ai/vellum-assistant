@@ -5,18 +5,20 @@
  * passed to the sidebar's processing tracking, the success and failure
  * paths, the empty-content/uploading guards, and the hand-off of the
  * conversation to watch for a reply to `document-composer-reply-store`.
- * Also covers the queued-send result, the idempotency nonce carried on the
- * POST, when the wait for a reply is raised and taken back down, and the
- * guard that keeps a late-resolving send from clearing a draft typed for a
- * document, or an assistant, it was never about. Also covers dropping a send
- * whose assistant changed while it was resolving, and the refused document
- * link that stops the first turn from running without the document. Ownership
- * covers the round trip too (away to another assistant and back), alongside
- * the full slot reset that frees the composer's preview URLs and the
- * "View conversation" action going quiet under another assistant. The version
- * the send is framed against is covered as well: the wait for an identity
- * that has not hydrated, and a version that flips mid-flight failing the send
- * rather than posting under a frame the row was never minted for.
+ * Also covers the queued-send result, the acknowledgment the response stands
+ * in for while the stream has not spoken for the send, the idempotency nonce
+ * carried on the POST, when the wait for a reply is raised and taken back
+ * down, and the guard that keeps a late-resolving send from clearing a draft
+ * typed for a document, or an assistant, it was never about. Also covers
+ * dropping a send whose assistant changed while it was resolving, and the
+ * refused document link that stops the first turn from running without the
+ * document. Ownership covers the round trip too (away to another assistant
+ * and back), alongside the full slot reset that frees the composer's preview
+ * URLs and the "View conversation" action going quiet under another
+ * assistant. The version the send is framed against is covered as well: the
+ * wait for an identity that has not hydrated, and a version that flips
+ * mid-flight failing the send rather than posting under a frame the row was
+ * never minted for.
  *
  * The "Assistant replied" toast that hand-off leads to belongs to
  * `DocumentComposerReplyWatcher` and is covered by its own test file.
@@ -294,6 +296,22 @@ function awaitingNonce(conversationId: string): string | undefined {
   return useDocumentComposerReplyStore
     .getState()
     .pendingReplies.get(conversationId)?.[0]?.clientMessageId;
+}
+
+/**
+ * How the oldest send still awaiting a reply in `conversationId` stands:
+ * whether the daemon has taken it in, and whether it is queued rather than
+ * running. `undefined` when nothing is awaiting a reply there.
+ */
+function awaitingState(
+  conversationId: string,
+): { acknowledged: boolean; queued: boolean } | undefined {
+  const pending = useDocumentComposerReplyStore
+    .getState()
+    .pendingReplies.get(conversationId)?.[0];
+  return pending
+    ? { acknowledged: pending.acknowledged, queued: pending.queued }
+    : undefined;
 }
 
 /** The document `document-viewer-page`'s "Submit Feedback" leaves open: on a
@@ -1138,10 +1156,9 @@ describe("queued sends", () => {
     expect(result.current.status).toBe("sent");
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(isAwaitingReply("conv-existing")).toBe(true);
-    // The POST response races the running turn's `generation_handoff`, so it
-    // is not what flags the wait: the watcher does that off the ordered
-    // `message_queued` stream event instead.
-    expect(isQueuedReply("conv-existing")).toBe(false);
+    // The daemon answered that it parked the message and nothing on the
+    // stream has spoken for the send yet, so the response is what flags it.
+    expect(isQueuedReply("conv-existing")).toBe(true);
   });
 
   test("an immediately-accepted result leaves the wait unflagged", async () => {
@@ -1247,8 +1264,12 @@ describe("when the reply wait goes up", () => {
     });
     expect(result.current.status).toBe("error");
 
-    // The first attempt landed after all and its turn finished, so the
-    // watcher took the wait back down before the user retried.
+    // The first attempt landed after all: the daemon echoed the send back on
+    // the stream, and the terminal that followed settled it, so the watcher
+    // took the wait back down before the user retried.
+    useDocumentComposerReplyStore
+      .getState()
+      .markReplyRunning("conv-existing", sentOptions(0).clientMessageId);
     useDocumentComposerReplyStore
       .getState()
       .settleRunningReplies("conv-existing");
@@ -1398,6 +1419,179 @@ describe("when the reply wait goes up", () => {
   });
 });
 
+describe("acknowledging the send", () => {
+  test("a send is unacknowledged until the daemon answers, then runs", async () => {
+    // GIVEN a send whose POST is still in flight.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // THEN nothing speaks for it yet, so a terminal that arrives in this
+    // window belongs to some other turn and cannot settle it.
+    expect(awaitingState("conv-existing")).toEqual({
+      acknowledged: false,
+      queued: false,
+    });
+
+    // WHEN the daemon answers that it took the message for a turn.
+    await act(async () => {
+      settle(sentResult("conv-existing"));
+      await submitted;
+    });
+
+    // THEN the send is acknowledged and running, so the next terminal there
+    // is its own.
+    expect(awaitingState("conv-existing")).toEqual({
+      acknowledged: true,
+      queued: false,
+    });
+  });
+
+  test("a queued response acknowledges the send as queued", async () => {
+    // GIVEN a daemon that parks the message behind a turn already running.
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => ({
+        ok: true,
+        queued: true,
+        assistantId: ASSISTANT_ID,
+        conversationId: "conv-existing",
+        requestId: "req-1",
+      }),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    // WHEN the send goes out.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the running turn's terminal is not this send's: it waits for the
+    // dequeue that starts its own.
+    expect(awaitingState("conv-existing")).toEqual({
+      acknowledged: true,
+      queued: true,
+    });
+  });
+
+  test("a response leaves a send the stream has queued alone", async () => {
+    // GIVEN a send the stream has already parked in the queue.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    useDocumentComposerReplyStore
+      .getState()
+      .markReplyQueued("conv-existing", sentOptions(0).clientMessageId);
+
+    // WHEN the POST answers, saying the daemon took the message for a turn.
+    await act(async () => {
+      settle(sentResult("conv-existing"));
+      await submitted;
+    });
+
+    // THEN the ordered stream keeps the send queued, so a terminal there is
+    // the running turn's rather than this send's.
+    expect(awaitingState("conv-existing")).toEqual({
+      acknowledged: true,
+      queued: true,
+    });
+  });
+
+  test("a queued response leaves a send the stream is running alone", async () => {
+    // GIVEN a send the stream has already echoed back as running.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    useDocumentComposerReplyStore
+      .getState()
+      .markReplyRunning("conv-existing", sentOptions(0).clientMessageId);
+
+    // WHEN the POST answers with the queue it was parked in when it landed.
+    await act(async () => {
+      settle({
+        ok: true,
+        queued: true,
+        assistantId: ASSISTANT_ID,
+        conversationId: "conv-existing",
+        requestId: "req-1",
+      });
+      await submitted;
+    });
+
+    // THEN the send stays running, so the terminal for the turn it is in
+    // settles it.
+    expect(awaitingState("conv-existing")).toEqual({
+      acknowledged: true,
+      queued: false,
+    });
+  });
+
+  test("a send the daemon answered under another id is acknowledged there", async () => {
+    // GIVEN the legacy `conversationKey` path, which answers with the row the
+    // daemon minted rather than the key that went out.
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> =>
+        sentResult("conv-minted"),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+
+    // WHEN the send goes out.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the entry moved onto the answered row, and it is that entry the
+    // response acknowledges.
+    expect(awaitingState("conv-key")).toBeUndefined();
+    expect(awaitingState("conv-minted")).toEqual({
+      acknowledged: true,
+      queued: false,
+    });
+  });
+
+  test("a refused send leaves nothing to acknowledge", async () => {
+    // GIVEN a daemon that answers and refuses the message.
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => ({
+        ok: false,
+        status: 500,
+        error: { detail: "boom" },
+      }),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    // WHEN the send goes out.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN no turn will run for it, so the entry is gone rather than
+    // acknowledged.
+    expect(result.current.status).toBe("error");
+    expect(awaitingState("conv-existing")).toBeUndefined();
+  });
+});
+
 describe("the sidebar processing mark", () => {
   test("the mark is up before the send resolves", async () => {
     const settle = deferPostChatMessage();
@@ -1456,7 +1650,11 @@ describe("the sidebar processing mark", () => {
     await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
 
     // What the watcher does when the whole turn runs and completes before the
-    // POST answers: it ends the wait and takes the mark down with it.
+    // POST answers: the stream echoes the send back, and the terminal ends
+    // the wait and takes the mark down with it.
+    useDocumentComposerReplyStore
+      .getState()
+      .markReplyRunning("conv-existing", sentOptions(0).clientMessageId);
     useDocumentComposerReplyStore
       .getState()
       .settleRunningReplies("conv-existing");

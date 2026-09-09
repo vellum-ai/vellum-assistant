@@ -34,10 +34,10 @@ function clearProcessingWhenSettled(conversationId: string): void {
  * event answers every send running in its conversation, since one turn can
  * run a batch of them, and raises one toast for them all.
  *
- * The queued flag on a pending send is this watcher's own: the daemon's queue
- * events set and clear it, so a send parked behind another turn waits for the
- * dequeue that starts its own rather than for a terminal that is not its
- * reply.
+ * A terminal settles a send only once the stream has acknowledged it as
+ * running: the daemon's echo says it took the send in and started its turn,
+ * while its queue events say the send is parked behind another turn instead,
+ * so that one waits for the dequeue that starts its own.
  *
  * Mounted once in `RootLayout`, above every document host's null guard, so
  * this subscription survives closing the document (`MobileDocumentOverlay`
@@ -88,8 +88,22 @@ export function DocumentComposerReplyWatcher() {
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
 
-    // The queue ack, not the send's POST response, is what flags a send as
-    // queued: it rides the same stream as the terminals below, while the
+    // The echo is the daemon taking the send in and starting its turn, and it
+    // rides the stream ahead of that turn's terminal, so it is what makes the
+    // send settleable. A send the daemon has not spoken for yet belongs to no
+    // turn, and a terminal that arrives before it belongs to some other one.
+    if (event.type === "user_message_echo") {
+      if (!event.conversationId) {
+        return;
+      }
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyRunning(event.conversationId, event.clientMessageId);
+      return;
+    }
+
+    // The queue ack, not the send's POST response, is what acknowledges a send
+    // as queued: it rides the same stream as the terminals below, while the
     // response can return after the running turn has already handed off. A
     // requeue is that same ack after a rolled-back dequeue, so it re-flags.
     if (event.type === "message_queued" || event.type === "message_requeued") {
@@ -146,8 +160,9 @@ export function DocumentComposerReplyWatcher() {
     // turn-ending, `utils/stream-handlers/error-handlers.ts`). One turn can
     // run a batch of sends the daemon dequeued together, so this answers every
     // send running in the conversation. Sends still queued wait for their own
-    // dequeue, and a terminal with none of these sends running belongs to a
-    // turn started elsewhere.
+    // dequeue, sends the daemon has not spoken for yet belong to no turn, and
+    // a terminal with none of these sends running belongs to a turn started
+    // elsewhere.
     const settled = useDocumentComposerReplyStore
       .getState()
       .settleRunningReplies(conversationId);

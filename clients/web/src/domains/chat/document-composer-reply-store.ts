@@ -6,9 +6,10 @@
  * toast can be raised by an always-mounted watcher
  * (`DocumentComposerReplyWatcher`, mounted in `RootLayout`) instead of a
  * host component that unmounts when the document closes. A send adds itself
- * to its conversation's list; the watcher settles the sends that are running
- * when a terminal stream event arrives for that conversation. The daemon's
- * queue events say which sends those are.
+ * to its conversation's list before its POST goes out; the daemon's stream
+ * then says when it took the send in, and whether it is running or parked in
+ * the queue; the watcher settles the sends that are running when a terminal
+ * event arrives for that conversation.
  *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *
@@ -26,6 +27,12 @@ export interface PendingDocumentReply {
    * matched to this send rather than to any message in the conversation.
    */
   clientMessageId?: string;
+  /**
+   * The daemon has taken the send in: it echoed the message back as running,
+   * or acked it as queued. Until then nothing on the stream speaks for the
+   * send, so a terminal that arrives belongs to some other turn.
+   */
+  acknowledged: boolean;
   /**
    * The send is parked in the daemon's queue rather than running: some other
    * turn holds the conversation. A terminal never settles a queued send, so
@@ -61,15 +68,24 @@ export interface DocumentComposerReplyActions {
   /**
    * A terminal stream event arrived for `conversationId`: settle every send
    * running there, since one turn answers all of them, and report how many
-   * that was. Queued sends stay, and 0 means the terminal belongs to a turn
-   * none of these sends is in.
+   * that was. Queued sends stay, as do sends the daemon has not acknowledged
+   * yet, and 0 means the terminal belongs to a turn none of these sends is in.
    */
   settleRunningReplies: (conversationId: string) => number;
   /**
+   * The daemon echoed the send carrying `clientMessageId` back into
+   * `conversationId`: it is running, and the next terminal there is its own.
+   * When the event or every pending send lacks a nonce, the oldest send not
+   * yet acknowledged is the one echoed; a nonce that names none of them is
+   * another client's message.
+   */
+  markReplyRunning: (conversationId: string, clientMessageId?: string) => void;
+  /**
    * The daemon parked the send carrying `clientMessageId` in
-   * `conversationId`'s queue, so it is not the one running. When the event or
-   * every pending send lacks a nonce, the newest pending send is the one that
-   * was queued; a nonce that names none of them is another client's message.
+   * `conversationId`'s queue, so it is acknowledged but not the one running.
+   * When the event or every pending send lacks a nonce, the newest pending
+   * send is the one that was queued; a nonce that names none of them is
+   * another client's message.
    */
   markReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /**
@@ -79,6 +95,18 @@ export interface DocumentComposerReplyActions {
    * nonce that names none of them is another client's message.
    */
   clearReplyQueued: (conversationId: string, clientMessageId?: string) => void;
+  /**
+   * The daemon answered the POST for the send carrying `clientMessageId`,
+   * queued or running as `queued` says. Stands in for the stream's own
+   * acknowledgment only while that has not arrived: the response can reach
+   * the client after the stream has already moved the send along, so a send
+   * the stream has spoken for is left as the stream put it.
+   */
+  acknowledgeReply: (
+    conversationId: string,
+    clientMessageId: string,
+    queued: boolean,
+  ) => void;
   /** Drop every pending send, for a context change no reply can arrive across. */
   clearAwaitingReplies: () => void;
 }
@@ -144,7 +172,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, [
             ...pending,
-            { clientMessageId, queued: false },
+            { clientMessageId, acknowledged: false, queued: false },
           ]),
         };
       });
@@ -176,8 +204,8 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       if (!pending) {
         return 0;
       }
-      const stillQueued = pending.filter((p) => p.queued);
-      const settled = pending.length - stillQueued.length;
+      const notRunning = pending.filter((p) => !p.acknowledged || p.queued);
+      const settled = pending.length - notRunning.length;
       if (settled === 0) {
         return 0;
       }
@@ -185,10 +213,36 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         pendingReplies: withPending(
           s.pendingReplies,
           conversationId,
-          stillQueued,
+          notRunning,
         ),
       }));
       return settled;
+    },
+
+    markReplyRunning: (conversationId, clientMessageId) => {
+      set((s) => {
+        const pending = s.pendingReplies.get(conversationId);
+        if (!pending || pending.length === 0) {
+          return s;
+        }
+        const index = indexOfAwaitedSend(
+          pending,
+          clientMessageId,
+          pending.findIndex((p) => !p.acknowledged),
+        );
+        if (index === -1) {
+          return s;
+        }
+        const current = pending[index];
+        if (current.acknowledged && !current.queued) {
+          return s;
+        }
+        const next = [...pending];
+        next[index] = { ...current, acknowledged: true, queued: false };
+        return {
+          pendingReplies: withPending(s.pendingReplies, conversationId, next),
+        };
+      });
     },
 
     markReplyQueued: (conversationId, clientMessageId) => {
@@ -206,7 +260,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const next = [...pending];
-        next[index] = { ...pending[index], queued: true };
+        next[index] = { ...pending[index], acknowledged: true, queued: true };
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
@@ -229,6 +283,26 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         }
         const next = [...pending];
         next[index] = { ...pending[index], queued: false };
+        return {
+          pendingReplies: withPending(s.pendingReplies, conversationId, next),
+        };
+      });
+    },
+
+    acknowledgeReply: (conversationId, clientMessageId, queued) => {
+      set((s) => {
+        const pending = s.pendingReplies.get(conversationId);
+        if (!pending) {
+          return s;
+        }
+        const index = pending.findIndex((p) =>
+          carriesNonce(p, clientMessageId),
+        );
+        if (index === -1 || pending[index].acknowledged) {
+          return s;
+        }
+        const next = [...pending];
+        next[index] = { ...pending[index], acknowledged: true, queued };
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };

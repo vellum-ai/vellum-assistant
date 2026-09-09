@@ -342,9 +342,9 @@ export function useDocumentComposerSubmit({
 
       // List this send among `conversationId`'s pending sends, under the nonce
       // it is carrying, so the watcher can tell stream events that echo it
-      // apart from events about any other message in the conversation. Every
-      // send lists itself, and a terminal event settles whichever of them
-      // were running when it arrived.
+      // apart from events about any other message in the conversation. A send
+      // lists itself unacknowledged: nothing settles it until the daemon has
+      // taken it in on the stream or answered the POST.
       const raiseReplyWait = (conversationId: string) => {
         useDocumentComposerReplyStore
           .getState()
@@ -438,10 +438,6 @@ export function useDocumentComposerSubmit({
       // daemon minted rather than the key that went out, so the wait moves
       // onto it, under the same nonce. An id that did not move leaves the wait
       // raised before the POST exactly as it stands, the watcher's to end.
-      // Whether the daemon parked this message behind a turn already running
-      // is not read off this response: the watcher learns that from the
-      // `message_queued` stream event, which arrives in order against the
-      // terminal events it has to outrank.
       if (sameAssistant && conversationId !== targetConversationId) {
         // The mark follows the wait onto the answered row, and only while
         // something is still pending on the row it went up for: a conversation
@@ -464,6 +460,24 @@ export function useDocumentComposerSubmit({
               conversationId,
             );
         }
+      }
+      if (sameAssistant) {
+        // The stream is what acknowledges a send and says whether it runs or
+        // waits, ordered against the terminals it has to outrank. The
+        // response reaches the client on its own schedule, possibly after the
+        // stream has already moved the send along, so it acknowledges only a
+        // send the stream has not spoken for, and says queued or running as
+        // the daemon answered. It addresses the row the daemon answered with,
+        // where the entry lives once the id has moved. A switch to another
+        // assistant dropped every entry, so there is nothing left there to
+        // acknowledge.
+        useDocumentComposerReplyStore
+          .getState()
+          .acknowledgeReply(
+            conversationId,
+            clientMessageId,
+            result.queued === true,
+          );
       }
 
       if (isFreshDraft && !useServerMint) {
