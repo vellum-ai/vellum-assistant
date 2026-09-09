@@ -176,21 +176,28 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     const duration = Math.round(performance.now() - start);
 
     if (response.status >= 400) {
-      const body = await response.text();
+      // Buffer the bytes rather than decoding to text: an error body that is
+      // not valid UTF-8, such as one the OAuth passthrough carries verbatim
+      // from a provider, has to reach the client unchanged. Only the byte
+      // count is logged: bodies here are written by the daemon or by a third
+      // party, carry other people's data, and the log serializers redact only
+      // `err`/`req`/`res`.
+      const bodyBytes = new Uint8Array(await response.arrayBuffer());
+      // Both headers describe a framing this hop redoes around the buffer.
+      resHeaders.set("content-length", String(bodyBytes.byteLength));
+      resHeaders.delete("content-encoding");
       const level = response.status >= 500 ? "error" : "warn";
-      const bodySnippet =
-        body.length > 256 ? body.slice(0, 256) + "\u2026[truncated]" : body;
       log[level](
         {
           method: req.method,
           path: url.pathname,
           status: response.status,
           duration,
-          body: bodySnippet,
+          bodyBytes: bodyBytes.byteLength,
         },
         "Upstream returned error",
       );
-      return new Response(body, {
+      return new Response(bodyBytes, {
         status: response.status,
         headers: resHeaders,
       });
