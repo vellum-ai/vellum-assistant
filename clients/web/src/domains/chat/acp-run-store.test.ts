@@ -701,6 +701,59 @@ describe("updateUsage", () => {
 });
 
 // ---------------------------------------------------------------------------
+// setModel
+// ---------------------------------------------------------------------------
+
+describe("setModel", () => {
+  it("records the selection and the adapter's options", () => {
+    spawn();
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [
+        { value: "opus", label: "Opus" },
+        { value: "sonnet", label: "Sonnet" },
+      ],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([
+      { value: "opus", label: "Opus" },
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+  });
+
+  it("replaces both fields wholesale so a cleared selection sticks", () => {
+    spawn();
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      availableModels: [],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toEqual([]);
+  });
+
+  it("ignores an unknown session", () => {
+    const before = { ...getState().byId };
+    getState().setModel({
+      acpSessionId: "acp-missing",
+      model: "opus",
+      availableModels: [],
+    });
+
+    expect(getState().byId).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // seedFromHistory
 // ---------------------------------------------------------------------------
 
@@ -732,6 +785,36 @@ describe("seedFromHistory", () => {
     expect(getState().byId["acp-h1"]!.status).toBe("completed");
     expect(getState().byToolUseId.get("tool-h1")).toBe("acp-h1");
     expect(getState().highWaterMark.get("acp-h1")).toBe(7);
+  });
+
+  it("keeps a live model and options when the history row omits them", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([historyEntry({ acpSessionId: "acp-1" })]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+  });
+
+  it("takes the history row's model when it carries one", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({ acpSessionId: "acp-1", model: "haiku" }),
+    ]);
+
+    expect(getState().byId["acp-1"]!.model).toBe("haiku");
   });
 
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {

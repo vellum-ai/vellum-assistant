@@ -12,6 +12,8 @@
 
 import { create } from "zustand";
 
+import type { AcpSessionModelUpdateEvent } from "@vellumai/assistant-api";
+
 import { createSelectors } from "@/utils/create-selectors";
 import { isActiveAcpStatus, type AcpRunStatus } from "@/utils/acp-run-status";
 import {
@@ -68,6 +70,10 @@ export interface AcpRunRawEvent {
   messageId?: string;
 }
 
+/** One selectable model as the ACP adapter reported it. */
+export type AcpModelOption =
+  AcpSessionModelUpdateEvent["availableModels"][number];
+
 export interface AcpRunEntry {
   acpSessionId: string;
   agent: string;
@@ -99,6 +105,10 @@ export interface AcpRunEntry {
   /** Cumulative cost reported by the agent, when available. */
   costAmount?: number;
   costCurrency?: string;
+  /** Model the session currently runs on, when the adapter reports one. */
+  model?: string;
+  /** Models the session can switch to; absent when the adapter has no selector. */
+  availableModels?: AcpModelOption[];
   events: AcpRunRawEvent[];
 }
 
@@ -215,6 +225,18 @@ export interface AcpRunActions {
   }) => void;
 
   /**
+   * Record the session's model selection. Unlike `updateUsage`, both fields are
+   * replaced wholesale: the adapter reports its full current state, so a
+   * cleared selection or a shrunken option set must not be masked by the
+   * previous one.
+   */
+  setModel: (params: {
+    acpSessionId: string;
+    model?: string;
+    availableModels: AcpModelOption[];
+  }) => void;
+
+  /**
    * Idempotent merge of history entries keyed by acpSessionId. Unions live and
    * incoming `events` by `seq` so a live stream is never clobbered by a
    * stale-but-longer snapshot, while always merging terminal/status/usage
@@ -321,6 +343,8 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
+    model: incoming.model ?? existing.model,
+    availableModels: incoming.availableModels ?? existing.availableModels,
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -615,6 +639,25 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           outputTokens: params.outputTokens ?? existing.outputTokens,
           costAmount: params.costAmount ?? existing.costAmount,
           costCurrency: params.costCurrency ?? existing.costCurrency,
+        },
+      },
+    });
+  },
+
+  setModel: (params) => {
+    const { byId } = get();
+    const existing = byId[params.acpSessionId];
+    if (!existing) {
+      return;
+    }
+
+    set({
+      byId: {
+        ...byId,
+        [params.acpSessionId]: {
+          ...existing,
+          model: params.model,
+          availableModels: params.availableModels,
         },
       },
     });

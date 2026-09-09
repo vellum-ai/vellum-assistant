@@ -29,6 +29,7 @@ import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   useAcpRunStore,
+  type AcpModelOption,
   type AcpRunEntry,
   type AcpRunRawEvent,
 } from "@/domains/chat/acp-run-store";
@@ -73,6 +74,8 @@ interface AcpSessionRow {
   outputTokens?: number;
   costAmount?: number;
   costCurrency?: string;
+  model?: string;
+  availableModels?: AcpModelOption[];
   eventLog?: AcpSessionEventLogItem[];
 }
 
@@ -152,6 +155,8 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     outputTokens: row.outputTokens,
     costAmount: row.costAmount,
     costCurrency: row.costCurrency,
+    model: row.model,
+    availableModels: row.availableModels,
     events,
   };
 }
