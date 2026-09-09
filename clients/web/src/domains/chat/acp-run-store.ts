@@ -312,6 +312,29 @@ function mergeEvents(
 }
 
 /**
+ * Fold a snapshot's model selection into a live entry. A row carrying
+ * `availableModels` is authoritative for both fields, so the supported
+ * no-selection state (no `model`, empty options) clears a stale selection. A
+ * legacy row that omits the option set keeps the store's options and only
+ * upgrades a model it actually carries.
+ */
+function mergeModelSelection(
+  existing: AcpRunEntry,
+  incoming: AcpRunEntry,
+): Pick<AcpRunEntry, "model" | "availableModels"> {
+  if (incoming.availableModels !== undefined) {
+    return {
+      model: incoming.model,
+      availableModels: incoming.availableModels,
+    };
+  }
+  return {
+    model: incoming.model ?? existing.model,
+    availableModels: existing.availableModels,
+  };
+}
+
+/**
  * Merge a history entry into an existing live entry. Unions both event buffers
  * by `seq` (never dropping the newest live events) and always folds in the
  * history entry's terminal/status/usage metadata. A terminal history status
@@ -343,8 +366,7 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
-    model: incoming.model ?? existing.model,
-    availableModels: incoming.availableModels ?? existing.availableModels,
+    ...mergeModelSelection(existing, incoming),
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };

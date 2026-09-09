@@ -817,6 +817,44 @@ describe("seedFromHistory", () => {
     expect(getState().byId["acp-1"]!.model).toBe("haiku");
   });
 
+  it("clears a stale model when the row carries an empty option set", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({ acpSessionId: "acp-1", availableModels: [] }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toEqual([]);
+  });
+
+  it("replaces both fields when the row carries a model and options", () => {
+    spawn({ acpSessionId: "acp-1" });
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        model: "haiku",
+        availableModels: [{ value: "haiku", label: "Haiku" }],
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("haiku");
+    expect(entry.availableModels).toEqual([{ value: "haiku", label: "Haiku" }]);
+  });
+
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {
     const entry = historyEntry({ acpSessionId: "acp-h1" });
     getState().seedFromHistory([entry]);
