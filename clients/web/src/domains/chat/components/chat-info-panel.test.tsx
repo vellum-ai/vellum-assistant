@@ -2,11 +2,17 @@
  * `ChatInfoPanel` at both of its levels: the three category rows, and the
  * grid a See All drills into.
  *
- * The conversation's assets, the row's measured width, and the window-size
- * axis all arrive through module mocks, since happy-dom reports a zero box for
- * everything and the real hook would want a daemon behind it. What is left is
- * what this component owns: which sections exist, where See All appears, which
- * level renders, and the sequence each tile runs when it is opened.
+ * The conversation's assets arrive through the real hook, seeded at both of
+ * its sources: the query cache holds the apps and documents, the chat-session
+ * store holds the transcript rows the attachments come from. Only the row's
+ * measured width and the window-size axis are mocked, since happy-dom reports
+ * a zero box for everything. What is left is what this component owns: which
+ * sections exist, where See All appears, which level renders, what it says
+ * while the sources are unresolved, and the sequence each tile runs when it is
+ * opened.
+ *
+ * Camera frames and paged categories are not exercised here: the transcript is
+ * the hook's only source today and it can produce neither.
  */
 
 import {
@@ -18,7 +24,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -26,57 +32,34 @@ import {
   render,
   screen,
 } from "@testing-library/react";
-import type { ReactElement } from "react";
 
 import * as appHtmlCache from "@/utils/app-html-cache";
-import * as conversationAssetsModule from "@/domains/chat/hooks/use-conversation-assets";
 import {
   CHAT_INFO_T0,
+  clearTranscriptMessages,
+  installChatInfoDomStubs,
   makeAppSummary,
-  makeAttachmentEntry,
+  makeChatInfoQueryClient,
   makeDocumentSummary,
+  makePendingChatInfoQueryClient,
+  seedChatInfoConversation,
+  seedQueryFailure,
+  seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import type * as ElementSizeModule from "@/hooks/use-element-size";
 import type * as IsMobileModule from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
+import type { DocumentSummary } from "@/types/document-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
-
-type ConversationAssets = conversationAssetsModule.ConversationAssets;
-
-// Captured before the module is replaced below, so the fixtures are built by
-// the real mapping the hook runs.
-const { toConversationFileAssets } = conversationAssetsModule;
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
+const OTHER_CONVERSATION_ID = "conv-2";
 /** The drawer's body width on the desktop mock: 3 app tiles, 4 file tiles. */
 const DRAWER_WIDTH = 569;
 
-// happy-dom implements neither object URLs nor IntersectionObserver.
-globalThis.URL.createObjectURL = mock(
-  (_obj: Blob | MediaSource): string => "blob:chat-info-panel",
-);
-globalThis.URL.revokeObjectURL = mock((_url: string): void => undefined);
-
-class ImmediateIntersectionObserver {
-  readonly root = null;
-  readonly rootMargin = "";
-  readonly thresholds: number[] = [];
-  constructor(private readonly callback: IntersectionObserverCallback) {}
-  observe(target: Element): void {
-    this.callback(
-      [{ isIntersecting: true, target } as IntersectionObserverEntry],
-      this as unknown as IntersectionObserver,
-    );
-  }
-  unobserve(): void {}
-  disconnect(): void {}
-  takeRecords(): IntersectionObserverEntry[] {
-    return [];
-  }
-}
-globalThis.IntersectionObserver =
-  ImmediateIntersectionObserver as unknown as typeof IntersectionObserver;
+installChatInfoDomStubs();
 
 mock.module(
   "@/hooks/use-element-size",
@@ -102,21 +85,6 @@ mock.module(
   }),
 );
 
-const assetsRef = { value: null as ConversationAssets | null };
-const assetsTargets: conversationAssetsModule.ConversationAssetsTarget[] = [];
-// Keeps the rest of the module real, so a file that reads another of its
-// exports is unaffected by this process-global replacement.
-mock.module(
-  "@/domains/chat/hooks/use-conversation-assets",
-  (): Partial<typeof conversationAssetsModule> => ({
-    ...conversationAssetsModule,
-    useConversationAssets: (target) => {
-      assetsTargets.push(target);
-      return assetsRef.value!;
-    },
-  }),
-);
-
 const calls: string[] = [];
 
 const { ChatInfoPanel } =
@@ -124,7 +92,7 @@ const { ChatInfoPanel } =
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useUnseenDocumentChangesStore } =
   await import("@/domains/chat/unseen-document-changes-store");
-const { appsGetQueryKey } =
+const { documentsGetQueryKey } =
   await import("@/generated/daemon/@tanstack/react-query.gen");
 const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
   await import("@/domains/chat/components/chat-attachments/attachment-fixtures");
@@ -133,12 +101,13 @@ const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
 // Fixtures
 // ---------------------------------------------------------------------------
 
+// Newest first once the hook sorts them, so App 1 heads the fitted row.
 const APPS: AppSummary[] = Array.from({ length: 12 }, (_, index) =>
   makeAppSummary({
     id: `app-${index + 1}`,
     name: `App ${index + 1}`,
     contentId: `content-${index + 1}`,
-    updatedAt: CHAT_INFO_T0 + index,
+    updatedAt: CHAT_INFO_T0 - index,
   }),
 );
 
@@ -151,58 +120,55 @@ const PACKING_LIST = makeDocumentSummary({
   surfaceId: "surface-packing-list",
   conversationId: CONVERSATION_ID,
   title: "Packing List",
+  updatedAt: CHAT_INFO_T0 - 1,
 });
+const DOCUMENTS = [TRIP_NOTES, PACKING_LIST];
 
-function imageEntry(index: number) {
-  return makeAttachmentEntry(
-    makeDisplayAttachment({
-      id: `img-${index}`,
-      filename: `photo-${index}.png`,
-      previewUrl: SAMPLE_PREVIEWS[index]!,
-    }),
-  );
-}
-
-function frameEntry(index: number) {
-  return makeAttachmentEntry(
-    makeDisplayAttachment({
-      id: `frame-${index}`,
-      filename: `frame-${index}.png`,
-      previewUrl: SAMPLE_PREVIEWS[index]!,
-    }),
-    { sightFrame: true },
-  );
-}
-
-// Built by the hook's own mapping, so these fixtures carry the ids and shapes
-// the panel is handed in the app rather than a hand-written copy of them.
-const { files: FILES, frames: FRAMES } = toConversationFileAssets(
-  [TRIP_NOTES, PACKING_LIST],
-  [imageEntry(0), imageEntry(1), frameEntry(2), frameEntry(3), frameEntry(4)],
-);
-
-const loadMoreFiles = mock((): void => undefined);
-const loadMoreFrames = mock((): void => undefined);
-
-function makeAssets(
-  overrides: Partial<ConversationAssets> = {},
-): ConversationAssets {
-  const apps = overrides.apps ?? APPS;
-  const files = overrides.files ?? FILES;
-  const frames = overrides.frames ?? FRAMES;
+function imageRow(id: string, index: number, timestamp: number) {
   return {
-    apps,
-    files,
-    frames,
-    counts: { apps: apps.length, files: files.length, frames: frames.length },
-    count: apps.length + files.length + frames.length,
-    hasMoreFiles: false,
-    hasMoreFrames: true,
-    loadMoreFiles,
-    loadMoreFrames,
-    ...overrides,
+    id,
+    role: "user" as const,
+    timestamp,
+    attachments: [
+      makeDisplayAttachment({
+        id: `img-${index}`,
+        filename: `photo-${index}.png`,
+        previewUrl: SAMPLE_PREVIEWS[index]!,
+      }),
+    ],
   };
 }
+
+const IMAGE_ROWS: DisplayMessage[] = [
+  imageRow("msg-1", 0, CHAT_INFO_T0),
+  imageRow("msg-2", 1, CHAT_INFO_T0 + 1_000),
+];
+
+/** Two legacy rows whose attachments carry the same synthetic id. */
+const LEGACY_ROWS: DisplayMessage[] = [
+  {
+    id: "msg-old",
+    role: "user",
+    timestamp: CHAT_INFO_T0,
+    attachments: [
+      makeDisplayAttachment({
+        id: "rehydrated:0",
+        filename: "legacy-old.png",
+      }),
+    ],
+  },
+  {
+    id: "msg-new",
+    role: "user",
+    timestamp: CHAT_INFO_T0 + 1_000,
+    attachments: [
+      makeDisplayAttachment({
+        id: "rehydrated:0",
+        filename: "legacy-new.png",
+      }),
+    ],
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -235,49 +201,63 @@ const {
   loadDocument: realLoadDocument,
 } = useViewerStore.getState();
 
-function renderPanel(ui: ReactElement) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+interface Seed {
+  apps?: AppSummary[];
+  documents?: DocumentSummary[];
+  messages?: DisplayMessage[];
+  client?: QueryClient;
+  /** Runs once the conversation is seeded, for a test that then breaks it. */
+  afterSeed?: (client: QueryClient) => void;
+}
+
+/** Fills both sources the panel's hook reads, and returns its client. */
+function seedPanel({
+  apps = APPS,
+  documents = DOCUMENTS,
+  messages = IMAGE_ROWS,
+  client = makeChatInfoQueryClient(),
+  afterSeed,
+}: Seed = {}): QueryClient {
+  seedChatInfoConversation(client, {
+    assistantId: ASSISTANT_ID,
+    conversationId: CONVERSATION_ID,
+    apps,
+    documents,
   });
-  // Seeded so an app tile's options menu never reaches the daemon for its pin.
-  client.setQueryData(
-    appsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
-    { apps: APPS },
-  );
-  return render(
-    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
-  );
+  seedTranscriptMessages(ASSISTANT_ID, CONVERSATION_ID, messages);
+  afterSeed?.(client);
+  return client;
 }
 
 /** Awaited so each app tile's preview html settles inside the test. */
 async function renderChatInfo(
   category: ChatInfoCategory | null = null,
+  seed: Seed = {},
 ): Promise<void> {
+  const client = seedPanel(seed);
   await act(async () => {
-    renderPanel(
-      <ChatInfoPanel
-        payload={{
-          assistantId: ASSISTANT_ID,
-          conversationId: CONVERSATION_ID,
-          category,
-        }}
-        onClose={onClose}
-        onSelectCategory={onSelectCategory}
-      />,
+    render(
+      <QueryClientProvider client={client}>
+        <ChatInfoPanel
+          payload={{
+            assistantId: ASSISTANT_ID,
+            conversationId: CONVERSATION_ID,
+            category,
+          }}
+          onClose={onClose}
+          onSelectCategory={onSelectCategory}
+        />
+      </QueryClientProvider>,
     );
   });
 }
 
 beforeEach(() => {
-  assetsRef.value = makeAssets();
   calls.length = 0;
-  assetsTargets.length = 0;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   loadApp.mockClear();
   closeChatInfo.mockClear();
   loadDocument.mockClear();
-  loadMoreFiles.mockClear();
-  loadMoreFrames.mockClear();
   onClose.mockClear();
   onSelectCategory.mockClear();
   useViewerStore.setState({ closeChatInfo, loadApp, loadDocument });
@@ -285,6 +265,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  clearTranscriptMessages();
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
 });
 
@@ -309,10 +290,10 @@ describe("ChatInfoPanel top level", () => {
 
     expect(screen.getByText("Apps")).toBeDefined();
     expect(screen.getByText("Documents & Images")).toBeDefined();
-    expect(screen.getByText("Camera Frames")).toBeDefined();
     expect(screen.getByText("12")).toBeDefined();
     expect(screen.getByText("4")).toBeDefined();
-    expect(screen.getByText("3")).toBeDefined();
+    // Nothing carries the camera-frame tag on the transcript path.
+    expect(screen.queryByText("Camera Frames")).toBeNull();
   });
 
   test("offers See All only where the total exceeds the fitted row", async () => {
@@ -348,12 +329,22 @@ describe("ChatInfoPanel top level", () => {
   });
 
   test("reads the assets of the conversation its payload names", async () => {
-    await renderChatInfo();
-
-    expect(assetsTargets[0]).toEqual({
+    const client = makeChatInfoQueryClient();
+    seedChatInfoConversation(client, {
       assistantId: ASSISTANT_ID,
-      conversationId: CONVERSATION_ID,
+      conversationId: OTHER_CONVERSATION_ID,
+      documents: [
+        makeDocumentSummary({
+          surfaceId: "surface-other",
+          conversationId: OTHER_CONVERSATION_ID,
+          title: "Someone Else's Notes",
+        }),
+      ],
     });
+    await renderChatInfo(null, { client });
+
+    expect(screen.getByLabelText("Open Trip Notes")).toBeDefined();
+    expect(screen.queryByLabelText("Open Someone Else's Notes")).toBeNull();
   });
 
   test("clears the conversation's unseen dot while it is open", async () => {
@@ -402,6 +393,15 @@ describe("ChatInfoPanel top level", () => {
     expect(screen.getByRole("dialog")).toBeDefined();
     expect(closeChatInfo).not.toHaveBeenCalled();
   });
+
+  test("opens the gallery at the clicked tile, not at the first row sharing its id", async () => {
+    await renderChatInfo(null, { documents: [], messages: LEGACY_ROWS });
+
+    // Newest first, so the older row is the second of the two.
+    fireEvent.click(screen.getByLabelText("Preview legacy-old.png"));
+
+    expect(screen.getByText("2 / 2")).toBeDefined();
+  });
 });
 
 describe("ChatInfoPanel See All level", () => {
@@ -415,15 +415,6 @@ describe("ChatInfoPanel See All level", () => {
     expect(onSelectCategory).toHaveBeenCalledWith(null);
   });
 
-  test("grows a paged category from its Load more control", async () => {
-    await renderChatInfo("frames");
-
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
-
-    expect(loadMoreFrames).toHaveBeenCalledTimes(1);
-    expect(loadMoreFiles).not.toHaveBeenCalled();
-  });
-
   test("holds no Load more for a category that has everything", async () => {
     await renderChatInfo("files");
 
@@ -431,13 +422,50 @@ describe("ChatInfoPanel See All level", () => {
   });
 
   test("falls back to the top level once the category empties", async () => {
-    assetsRef.value = makeAssets({ apps: [] });
-    await renderChatInfo("apps");
+    await renderChatInfo("apps", { apps: [] });
 
     expect(screen.getByText("Chat Info")).toBeDefined();
     expect(screen.queryByLabelText("Back to chat info")).toBeNull();
     // Settled in the store too, so a refilled category cannot drill back in
     // on its own and See All on it is not a silent no-op.
     expect(onSelectCategory).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("ChatInfoPanel unsettled sources", () => {
+  test("says nothing at all while the sources are loading", async () => {
+    await renderChatInfo(null, { client: makePendingChatInfoQueryClient() });
+
+    expect(screen.getByText("Chat Info")).toBeDefined();
+    expect(screen.queryByText("No assets in this chat yet")).toBeNull();
+    expect(screen.queryByText("Assets could not be loaded")).toBeNull();
+  });
+
+  test("keeps the payload's category while the sources are loading", async () => {
+    await renderChatInfo("apps", { client: makePendingChatInfoQueryClient() });
+
+    expect(screen.getByLabelText("Back to chat info")).toBeDefined();
+    expect(onSelectCategory).not.toHaveBeenCalled();
+  });
+
+  test("says so once a conversation with nothing has loaded", async () => {
+    await renderChatInfo(null, { apps: [], documents: [], messages: [] });
+
+    expect(screen.getByText("No assets in this chat yet")).toBeDefined();
+  });
+
+  test("says so when a source could not be loaded", async () => {
+    await renderChatInfo(null, {
+      afterSeed: (client) =>
+        seedQueryFailure(
+          client,
+          documentsGetQueryKey({
+            path: { assistant_id: ASSISTANT_ID },
+            query: { conversationId: CONVERSATION_ID },
+          }),
+        ),
+    });
+
+    expect(screen.getByText("Assets could not be loaded")).toBeDefined();
   });
 });

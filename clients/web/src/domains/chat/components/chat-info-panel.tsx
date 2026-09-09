@@ -13,7 +13,7 @@ import { ChevronLeft, Layers } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 
-import { Button } from "@vellumai/design-library";
+import { Button, Typography } from "@vellumai/design-library";
 
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import {
@@ -35,7 +35,10 @@ import {
   type ConversationFileAsset,
   useConversationAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
-import { openAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import {
+  openAppFromChat,
+  openDocumentFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { useTranslation } from "@/i18n";
@@ -44,7 +47,20 @@ import {
   type ChatInfoPayload,
   useViewerStore,
 } from "@/stores/viewer-store";
-import { haptic } from "@/utils/haptics";
+import type { DisplayAttachment } from "@/types/attachment-types";
+
+/** The body when there is nothing to list: one quiet centred line. */
+function ChatInfoNotice({ children }: { children: ReactNode }) {
+  return (
+    <Typography
+      as="p"
+      variant="body-small-default"
+      className="py-10 text-center text-[var(--content-tertiary)]"
+    >
+      {children}
+    </Typography>
+  );
+}
 
 export interface ChatInfoPanelProps {
   payload: ChatInfoPayload;
@@ -67,6 +83,8 @@ export function ChatInfoPanel({
     files,
     frames,
     counts,
+    count,
+    status,
     hasMoreFiles,
     hasMoreFrames,
     loadMoreFiles,
@@ -74,14 +92,21 @@ export function ChatInfoPanel({
   } = useConversationAssets({ assistantId, conversationId });
 
   // The gallery spans both file categories, so arrowing out of the frames
-  // grid walks into the conversation's own photos rather than stopping.
-  const previewable = useMemo(
-    () =>
-      [...files, ...frames].flatMap((file) =>
-        file.kind === "document" ? [] : [file.attachment],
-      ),
-    [files, frames],
-  );
+  // grid walks into the conversation's own photos rather than stopping. Each
+  // tile carries its own position because two legacy rows can hold the same
+  // `rehydrated:N` attachment id, which the modal's id lookup cannot separate.
+  const { previewable, previewIndexById } = useMemo(() => {
+    const attachments: DisplayAttachment[] = [];
+    const indexById = new Map<string, number>();
+    for (const file of [...files, ...frames]) {
+      if (file.kind === "document") {
+        continue;
+      }
+      indexById.set(file.id, attachments.length);
+      attachments.push(file.attachment);
+    }
+    return { previewable: attachments, previewIndexById: indexById };
+  }, [files, frames]);
   const { openPreview, previewModal } = useAttachmentPreview(
     assistantId,
     previewable,
@@ -117,17 +142,14 @@ export function ChatInfoPanel({
   const handleOpenFile = useCallback(
     (file: ConversationFileAsset) => {
       if (file.kind === "document") {
-        haptic.light();
         useViewerStore.getState().closeChatInfo();
-        void useViewerStore
-          .getState()
-          .loadDocument(assistantId, file.doc.surfaceId);
+        void openDocumentFromChat(assistantId, file.doc.surfaceId);
         return;
       }
       // The modal sits above the panel, so the panel stays open behind it.
-      openPreview(file.attachment);
+      openPreview(file.attachment, previewIndexById.get(file.id));
     },
-    [assistantId, openPreview],
+    [assistantId, openPreview, previewIndexById],
   );
 
   const categoryTitles: Record<ChatInfoCategory, string> = {
@@ -138,9 +160,12 @@ export function ChatInfoPanel({
   const categoryLists = { apps, files, frames };
 
   // A category emptied while drilled in (the last app deleted) falls back to
-  // the top level rather than rendering an empty page.
+  // the top level rather than rendering an empty page. Only once the sources
+  // are ready: a category not loaded yet is empty for a different reason.
   const emptiedCategory =
-    payload.category !== null && categoryLists[payload.category].length === 0;
+    status === "ready" &&
+    payload.category !== null &&
+    categoryLists[payload.category].length === 0;
   const level = emptiedCategory ? null : payload.category;
 
   // The fallback above is what this frame renders; the store still holds the
@@ -182,7 +207,15 @@ export function ChatInfoPanel({
   };
 
   let body: ReactNode;
-  if (level === "apps") {
+  if (status === "pending") {
+    // Nothing at all rather than a line the loaded panel will replace: the
+    // sources land in a frame or two and a flash of copy reads as an answer.
+    body = null;
+  } else if (status === "error") {
+    body = <ChatInfoNotice>{t("chatInfoPanel.loadFailed")}</ChatInfoNotice>;
+  } else if (count === 0) {
+    body = <ChatInfoNotice>{t("chatInfoPanel.empty")}</ChatInfoNotice>;
+  } else if (level === "apps") {
     body = (
       <div
         className="grid gap-2"

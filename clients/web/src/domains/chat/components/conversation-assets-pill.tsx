@@ -14,7 +14,7 @@ import { useCallback, useEffect, useLayoutEffect } from "react";
 
 import { Button } from "@vellumai/design-library";
 
-import { useConversationAssetCounts } from "@/domains/chat/hooks/use-conversation-assets";
+import { useConversationAssets } from "@/domains/chat/hooks/use-conversation-assets";
 import { useHasUnseenDocumentChanges } from "@/domains/chat/unseen-document-changes-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
@@ -50,7 +50,7 @@ export function ConversationAssetsPill({
   conversationId,
   refreshKey,
 }: ConversationAssetsPillProps) {
-  const { count } = useConversationAssetCounts({
+  const { count } = useConversationAssets({
     assistantId,
     conversationId,
     refreshKey,
@@ -90,8 +90,6 @@ export function ConversationAssetsPill({
   const reduceMotion = useReducedMotion();
   const hasUnseenChanges = useHasUnseenDocumentChanges(conversationId);
 
-  // The panel clears the unseen dot, since it is the surface that shows what
-  // changed and it opens from other entry points too.
   const handleClick = useCallback(() => {
     useViewerStore.getState().toggleChatInfo({ assistantId, conversationId });
   }, [assistantId, conversationId]);

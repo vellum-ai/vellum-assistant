@@ -25,7 +25,12 @@ import {
 } from "@testing-library/react";
 import * as motionReact from "motion/react";
 
-import { makeDocumentSummary } from "@/domains/chat/components/chat-info.test-helper";
+import {
+  clearTranscriptMessages,
+  makeChatInfoQueryClient,
+  makeDocumentSummary,
+  seedChatInfoConversation,
+} from "@/domains/chat/components/chat-info.test-helper";
 import type { DocumentSummary } from "@/types/document-types";
 
 const isMobileRef = { value: false };
@@ -52,8 +57,6 @@ const {
 const { useUnseenDocumentChangesStore } =
   await import("@/domains/chat/unseen-document-changes-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
-const { appsGetOptions, documentsGetOptions } =
-  await import("@/generated/daemon/@tanstack/react-query.gen");
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
@@ -75,33 +78,20 @@ function makeDocument(
   return makeDocumentSummary({ surfaceId, conversationId, title: DOC_TITLE });
 }
 
-/**
- * `staleTime: Infinity` keeps the seeded entries fresh, so the queries resolve
- * from cache and never reach the generated SDK.
- */
-function makeQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: { retry: false, gcTime: 0, staleTime: Infinity },
-    },
-  });
-}
-
 function seedConversation(
   client: QueryClient,
   documents: DocumentSummary[],
   conversationId: string,
 ) {
-  const queryArgs = {
-    path: { assistant_id: ASSISTANT_ID },
-    query: { conversationId },
-  };
-  client.setQueryData(appsGetOptions(queryArgs).queryKey, { apps: [] });
-  client.setQueryData(documentsGetOptions(queryArgs).queryKey, { documents });
+  seedChatInfoConversation(client, {
+    assistantId: ASSISTANT_ID,
+    conversationId,
+    documents,
+  });
 }
 
 function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
-  const client = makeQueryClient();
+  const client = makeChatInfoQueryClient();
   seedConversation(client, withAssets ? [makeDocument()] : [], CONVERSATION_ID);
   seedConversation(
     client,
@@ -154,12 +144,14 @@ function chatInfoState() {
 }
 
 beforeEach(() => {
+  clearTranscriptMessages();
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
+  clearTranscriptMessages();
   isMobileRef.value = false;
   reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
