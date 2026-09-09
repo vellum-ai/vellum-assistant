@@ -63,11 +63,15 @@ const discord = {
   ),
 };
 
-mock.module("../slack/send.js", () => slack);
+// The transports also import the adapters' pure helpers from these modules;
+// spreading the real module keeps the mock complete as that surface grows.
+const actualSlackSend = await import("../slack/send.js");
+mock.module("../slack/send.js", () => ({ ...actualSlackSend, ...slack }));
 mock.module("../telegram-bot/send.js", () => telegram);
 mock.module("../whatsapp/send.js", () => whatsapp);
 mock.module("../a2a/deliver.js", () => a2a);
-mock.module("../discord/send.js", () => discord);
+const actualDiscordSend = await import("../discord/send.js");
+mock.module("../discord/send.js", () => ({ ...actualDiscordSend, ...discord }));
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => ({ debug() {}, info() {}, warn() {}, error() {} }),
 }));
