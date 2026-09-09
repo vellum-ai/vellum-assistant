@@ -257,6 +257,40 @@ const pinSurface = async (
 };
 
 /**
+ * The window's tile. The card opens on the screens, so the windows are a
+ * segment away. The sources-arriving effect resets the chosen kind, so a
+ * single click can lose to that reset; keep selecting Windows until it
+ * sticks, then wait for the tile.
+ */
+const windowTileOf = async (container: HTMLElement) => {
+  await waitFor(() => {
+    const kind = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-slot="segment-control"] [role="radio"]',
+      ),
+    ].find((each) => each.textContent === "Windows");
+    if (!kind) {
+      throw new Error("Expected the Windows segment");
+    }
+    if (kind.getAttribute("aria-checked") !== "true") {
+      fireEvent.click(kind);
+    }
+    if (kind.getAttribute("aria-checked") !== "true") {
+      throw new Error("Expected Windows to be selected");
+    }
+  });
+  return waitFor(() => {
+    const found = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Groceries (Notes)"]',
+    );
+    if (!found) {
+      throw new Error("Expected the window tile");
+    }
+    return found;
+  });
+};
+
+/**
  * The surface is a union of rects, and this is the one nothing draws into.
  *
  * The avatar and the pill are separate elements with a gap between them, and
@@ -934,33 +968,6 @@ describe("the picker behind Teach", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
-  /**
-   * The window's tile. The card opens on the screens, so the windows are a
-   * segment away: pressing it is what a user does before picking one.
-   */
-  const rowOf = async (container: HTMLElement) => {
-    const kind = await waitFor(() => {
-      const found = [
-        ...container.querySelectorAll<HTMLButtonElement>(
-          '[data-slot="segment-control"] [role="radio"]',
-        ),
-      ].find((each) => each.textContent === "Windows");
-      if (!found) {
-        throw new Error("Expected the Windows segment");
-      }
-      return found;
-    });
-    fireEvent.click(kind);
-    return waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Groceries (Notes)"]',
-      );
-      if (!found) {
-        throw new Error("Expected the window tile");
-      }
-      return found;
-    });
-  };
 
   const SOURCES = {
     displays: [
@@ -1005,7 +1012,7 @@ describe("the picker behind Teach", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(teachOf(container));
-    const row = await rowOf(container);
+    const row = await windowTileOf(container);
 
     fireEvent.click(row);
 
@@ -1734,33 +1741,6 @@ describe("the picker behind Share", () => {
   };
   const pickerOf = (container: HTMLElement): HTMLElement | null =>
     container.querySelector<HTMLElement>("[data-companion-capture-picker]");
-  /**
-   * The window's tile. The card opens on the screens, so the windows are a
-   * segment away: pressing it is what a user does before picking one.
-   */
-  const rowOf = async (container: HTMLElement) => {
-    const kind = await waitFor(() => {
-      const found = [
-        ...container.querySelectorAll<HTMLButtonElement>(
-          '[data-slot="segment-control"] [role="radio"]',
-        ),
-      ].find((each) => each.textContent === "Windows");
-      if (!found) {
-        throw new Error("Expected the Windows segment");
-      }
-      return found;
-    });
-    fireEvent.click(kind);
-    return waitFor(() => {
-      const found = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Groceries (Notes)"]',
-      );
-      if (!found) {
-        throw new Error("Expected the window tile");
-      }
-      return found;
-    });
-  };
 
   const SOURCES = {
     displays: [
@@ -1804,7 +1784,7 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(shareOf(container));
-    const row = await rowOf(container);
+    const row = await windowTileOf(container);
 
     fireEvent.click(row);
 
@@ -1832,13 +1812,13 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(shareOf(container));
-    await rowOf(container);
+    await windowTileOf(container);
 
     pushState({ ...STATE, screenShare: { kind: "window", windowId: 9 } });
     expect(pickerOf(container)).toBeNull();
 
     fireEvent.click(teachOf(container));
-    await rowOf(container);
+    await windowTileOf(container);
     pushState({ ...STATE, screenShare: undefined });
     expect(pickerOf(container)).not.toBeNull();
     expect(pickerOf(container)?.getAttribute("aria-label")).toBe(
@@ -1850,7 +1830,7 @@ describe("the picker behind Share", () => {
     const { container } = render(<CompanionSurfacePage />);
     await pinSurface(container);
     fireEvent.click(shareOf(container));
-    await rowOf(container);
+    await windowTileOf(container);
 
     fireEvent.click(teachOf(container));
 

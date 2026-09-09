@@ -26,6 +26,17 @@ import type { AssistantSleepPhase } from "@/components/status-banner";
 
 let phaseMock: AssistantSleepPhase | null = "waking";
 let voiceRoomVisibleMock = false;
+let operationalStateMock: string | null = "active";
+let localHealthMock: string | null = null;
+mock.module("@/assistant/local-health", () => ({
+  useLocalAssistantHealth: () => localHealthMock,
+}));
+mock.module("@/assistant/operational-status", () => ({
+  useAssistantOperationalStatus: () => ({
+    data: operationalStateMock ? { state: operationalStateMock } : null,
+    isError: false,
+  }),
+}));
 
 mock.module("@/components/status-banner", () => ({
   useAssistantSleepPhase: () => phaseMock,
@@ -88,6 +99,8 @@ function renderAt(pathname: string) {
 beforeEach(() => {
   phaseMock = "waking";
   voiceRoomVisibleMock = false;
+  operationalStateMock = "active";
+  localHealthMock = null;
   avatarMock = { components: null, traits: null, customImageUrl: null };
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   useAssistantIdentityStore.setState({ name: "Mel", version: null });
@@ -300,4 +313,38 @@ describe("AssistantSleepStage", () => {
     expect(screen.getByText("Mel is waking up…")).toBeTruthy();
     expect(useAssistantSleepStageStore.getState().visible).toBe(true);
   });
+});
+
+test.each(["unreachable", "crash_loop", "not_found", null])(
+  "leaving wake for %s does not announce success",
+  (state) => {
+    operationalStateMock = "waking";
+    const view = renderAt("/assistant/conversations/c1");
+    expect(screen.getByText("Mel is waking up…")).toBeTruthy();
+    phaseMock = null;
+    operationalStateMock = state;
+    view.repoll();
+    expect(screen.queryByText("Mel just woke up")).toBeNull();
+    expect(useAssistantSleepStageStore.getState().visible).toBe(false);
+  },
+);
+
+test("local wake waits for a healthy daemon", () => {
+  operationalStateMock = null;
+  localHealthMock = "starting";
+  const view = renderAt("/assistant/conversations/c1");
+  phaseMock = null;
+  localHealthMock = "healthy";
+  view.repoll();
+  expect(screen.getByText("Mel just woke up")).toBeTruthy();
+});
+
+test("switching to an active assistant does not announce that the sleeping one woke", () => {
+  const view = renderAt("/assistant/conversations/c1");
+  phaseMock = null;
+  act(() =>
+    useResolvedAssistantsStore.setState({ activeAssistantId: "other" }),
+  );
+  view.repoll();
+  expect(screen.queryByText("Mel just woke up")).toBeNull();
 });

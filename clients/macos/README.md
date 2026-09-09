@@ -188,6 +188,115 @@ whichever Swift channel you have around.
   elsewhere in the main process. Any failure (unwritable directory, no free
   name) simply skips `setSavePath` and lets Electron's Save panel take over.
 
+## Native notifier
+
+**What:** `native/notifier/` is an Objective-C++ Node addon that posts
+notifications through `UNUserNotificationCenter` directly. When a notification
+carries a sender avatar it donates an `INSendMessageIntent` and updates the
+content with it, so macOS renders the Communication Notification treatment: the
+assistant's avatar as the icon with the app icon badged in the corner, the
+assistant's name on line one, the conversation title on line two. Electron
+exposes no intent API, so this is the only path to that layout.
+
+`src/main/notifier.ts` loads the addon (`process.dlopen`, inside a try/catch)
+and `src/main/native-notifications.ts` adapts it to the `create` /
+`isSupported` seams of `@vellumai/electron-desktop/notifications`. A checkout
+with no built addon reports unavailable and the app falls back to Electron's
+own notifications, and so does an addon that loads but answers
+`isSupported()` with false, which is what an unbundled run does because
+`UNUserNotificationCenter` raises there. Set
+`VELLUM_DISABLE_NATIVE_NOTIFIER=1` to force that fallback in a build that
+would otherwise use the addon.
+
+**Which notifications the addon posts.** The addon posts only notifications
+that carry a sender; everything else uses Electron's presenter, through the
+shared `createElectronNotification`. The avatar is the one thing the addon
+renders that Electron cannot, and the renderer attaches a sender only under the
+`push-avatar-sender` flag, so turning that flag off restores Electron as the
+delivery path for every notification without shipping a new build.
+
+Notification categories carry the action buttons, and
+`setNotificationCategories:` applies asynchronously, so a category first
+registered in the runloop turn its notification is posted can miss it and the
+buttons never render. `src/main/index.ts` registers every action set through
+`registerCategories` at startup instead, deriving the set from the shared
+`NOTIFICATION_CATEGORIES` and `CATEGORY_ACTIONS` pair so it covers every set
+the app can post, and the addon unions its own set with whatever the
+notification center already holds rather than replacing it. That union is a
+read-modify-write, and Electron's own post path does the same one under no
+shared lock, so the addon re-reads what landed and re-applies once when its
+categories were written over. An identifier that
+is still unregistered when a notification is posted cannot be repaired in that
+same runloop turn, so the notification goes out with no category and the
+`shown` event carries the reason.
+
+**Delegate rule.** Electron's `NotificationPresenterMac` claims
+`UNUserNotificationCenter.currentNotificationCenter.delegate` the moment it is
+constructed, which `new Notification()`, `Notification.isSupported()`, and the
+renderer's Web Notification API all do. Three consequences:
+
+- The client must pass `isSupported` to `configureNotifications` alongside
+  `create`. The shared module otherwise falls back to
+  `electron.Notification.isSupported()`, and that call alone builds the
+  presenter, at whatever moment the first notification arrives.
+- The notifications permission probe in `src/main/permissions-service.ts` goes
+  through the addon's `requestAuthorization()` whenever the addon is loaded.
+  Constructing an `electron.Notification` there hands the presenter the
+  delegate and strands clicks on notifications already on screen.
+- The addon installs its own delegate, holds a strong reference to the one it
+  displaced, and forwards every response it does not own there. Electron's
+  presenter discards responses for identifiers it does not own, so the addon
+  has to be in front of it before anything the addon posted can be clicked:
+  `src/main/index.ts` builds Electron's presenter deliberately at startup, with
+  nothing on screen, then calls the addon's `ensureDelegate()`, which leaves the
+  addon's proxy in front and Electron's presenter as the delegate it forwards
+  to for the life of the process. `show`, `requestAuthorization`, and every
+  sender-less post through Electron re-assert it too. `restoreDelegate()` hands
+  the seat back at `before-quit`.
+
+**Rebuild:**
+
+```sh
+bash scripts/build-notifier.sh   # also runs as part of `bun run setup` and `bun run pack`
+```
+
+It compiles against the headers for the Electron version pinned in
+`package.json` and writes `resources/notifier/<arch>/vellum-notifier.node`,
+which `electron-builder` packs to `bin/notifier/` and `scripts/afterSign.js`
+re-signs with `inherit.plist`. `ELECTRON_TARGET_ARCH` picks the architecture,
+defaulting to the host's so a local `bun run setup` on any Mac builds an addon
+that machine's Electron can load. `pack.sh` exports the variable (arm64 unless
+it is already set, the same default `electron-builder.config.cjs` uses), so a
+pack builds the addon for the app it is packaging rather than for the builder.
+The script fails when the compiled slice is
+not the one that was asked for, and `afterSign.js` fails again when the packed
+addon is not the architecture being packaged, because a mismatched addon does
+not load and the app quietly falls back to plain notifications.
+
+**Provisioning profile switch.** `com.apple.developer.usernotifications.communication`
+is a restricted entitlement: an app declaring it without an authorizing
+provisioning profile is killed at launch. `electron-builder.config.cjs` sets
+`mac.provisioningProfile` only when `VELLUM_MAC_PROVISIONING_PROFILE` names a
+profile that exists on disk, and throws when the variable is set to a file that
+is not there rather than quietly signing the plain entitlements under a name
+that says otherwise. The release workflows decode one there from the
+`MAC_PROVISIONING_PROFILE` secret, then assert with `PlistBuddy` that its
+entitlements grant `com.apple.developer.usernotifications.communication` and
+that its `application-identifier` ends with the bundle id the environment
+packs, before exporting the variable. An unset secret is a warning saying the
+native notifier ships disabled.
+
+That build signs with an entitlements plist derived at pack time by
+`scripts/entitlements/derive-communication-entitlements.js`, which reads
+`scripts/entitlements/app.plist`, adds the one restricted key, and writes
+`build/entitlements/app-communication.plist` (gitignored), so `app.plist` stays
+the only place the entitlement set is edited. `scripts/afterSign.js` re-signs
+the outer app with whatever electron-builder was configured with, read back off
+`context.packager.platformSpecificBuildOptions`, so the two passes cannot
+disagree. Every other build signs with `app.plist` itself, the intent path
+fails closed inside `contentByUpdatingWithProvider:`, and notifications post
+plainly.
+
 ## Scripts
 
 ```sh

@@ -1456,12 +1456,12 @@ describe("AssistantSideMenu · section spacing", () => {
 });
 
 describe("AssistantSideMenu · section card surface", () => {
-  /* A conversation row rests transparent, so on touch the swipe layer wrapping
-     it is what actually paints behind the label. Left to its own default that
-     layer takes the panel surface, which is a different colour from the card,
-     and every row in the card reads as a sunken band. The card publishes its
-     own fill so the layer matches whatever the card is. */
-  test("every section card names the fill its swipeable rows sit on", () => {
+  /* A row swiped aside is an opaque cell sliding off the action behind it.
+     The swipe wrapper backs the row with the surface its host names, and the
+     card is what knows its own colour, so the card names it. Nothing paints
+     wider than an item, which is what keeps the pills standing beside these
+     cards free of a band (LUM-3518). */
+  test("every section card names the surface its rows sit on", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -1473,8 +1473,9 @@ describe("AssistantSideMenu · section card surface", () => {
     expect(cards).toHaveLength(4);
     for (const card of cards) {
       expect(card.className).toContain(
-        "[--swipe-reveal-bg:var(--surface-lift)]",
+        "[--swipe-item-surface:var(--surface-lift)]",
       );
+      expect(card.className).not.toContain("--swipe-reveal-bg");
     }
   });
 });
@@ -1797,20 +1798,21 @@ describe("AssistantSideMenu · equal section treatment", () => {
       }),
     );
     try {
-      const chats = sectionElements(container)[
-        sectionLabels(container).indexOf("Chats")
-      ];
+      const chats =
+        sectionElements(container)[sectionLabels(container).indexOf("Chats")];
       if (!chats) {
         throw new Error("expected the Chats section");
       }
 
       await waitFor(() => {
-        expect(chats.querySelector('[data-slot="virtual-list"]')).not.toBeNull();
+        expect(
+          chats.querySelector('[data-slot="virtual-list"]'),
+        ).not.toBeNull();
       });
       expect(chats.querySelector(".overflow-y-auto")).toBeNull();
       expect(
-        chats.querySelector('[data-slot="virtual-list"]')?.parentElement
-          ?.style.minHeight,
+        chats.querySelector('[data-slot="virtual-list"]')?.parentElement?.style
+          .minHeight,
       ).toBe("");
     } finally {
       cleanup();

@@ -1738,6 +1738,99 @@ paths:
       responses:
         "204":
           description: Successful response
+    get:
+      operationId: attachments_get
+      summary: List conversation attachments
+      description:
+        Return metadata for every attachment linked to a conversation's messages, newest first, across fork
+        lineage. Camera frames kept by live vision are flagged. Bytes come from GET /attachments/{id}/content.
+      tags:
+        - attachments
+      parameters:
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Conversation whose attachments to list
+        - name: sightFrames
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - only
+              - exclude
+          description: Restrict to camera frames, or leave them out
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Page size, default 200, max 1000
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        mimeType:
+                          type: string
+                        sizeBytes:
+                          type: number
+                        kind:
+                          type: string
+                        messageId:
+                          type: string
+                        createdAt:
+                          type: number
+                          description: "Capture time: the carrying message's created_at"
+                        fileBacked:
+                          type: boolean
+                        thumbnailData:
+                          type: string
+                        sightFrame:
+                          type: boolean
+                        ambientKeep:
+                          type: boolean
+                      required:
+                        - id
+                        - filename
+                        - mimeType
+                        - sizeBytes
+                        - kind
+                        - messageId
+                        - createdAt
+                        - sightFrame
+                        - ambientKeep
+                      additionalProperties: false
+                  total:
+                    type: number
+                  hasMore:
+                    type: boolean
+                required:
+                  - attachments
+                  - total
+                  - hasMore
+                additionalProperties: false
+        "400":
+          description: Missing or invalid query
     post:
       operationId: attachments_post
       summary: Upload attachment
@@ -4485,6 +4578,8 @@ paths:
                         - type
                     slackBotMentioned:
                       type: boolean
+                    slackEditedTs:
+                      type: string
                     account:
                       type: string
                     actorTeamId:
@@ -11106,6 +11201,71 @@ paths:
                   - exitCode
                   - timedOut
                 additionalProperties: false
+  /v1/debug/database:
+    get:
+      operationId: debug_database_get
+      summary: Database migration diagnostics
+      description:
+        Return the in-memory DB migration latch, including failed and deferred steps. Does not query SQLite, so it
+        stays answerable while migrations are running or have failed.
+      tags:
+        - debug
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                  state:
+                    type: string
+                    enum:
+                      - not_started
+                      - running
+                      - failed
+                      - ready
+                  reason:
+                    type: string
+                  error:
+                    type: string
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - name
+                      additionalProperties: false
+                  deferred:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        missing:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - name
+                        - missing
+                      additionalProperties: false
+                  validationError:
+                    type: string
+                required:
+                  - ready
+                  - state
+                  - failed
+                  - deferred
+                additionalProperties: false
   /v1/defer/cancel:
     post:
       operationId: defer_cancel_post
@@ -13467,6 +13627,35 @@ paths:
                         type: string
                       error:
                         type: string
+                      failedMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            error:
+                              type: string
+                          required:
+                            - name
+                          additionalProperties: false
+                      deferredMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - name
+                            - missing
+                          additionalProperties: false
+                      validationError:
+                        type: string
                     required:
                       - ready
                       - state
@@ -13671,6 +13860,35 @@ paths:
                       reason:
                         type: string
                       error:
+                        type: string
+                      failedMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            error:
+                              type: string
+                          required:
+                            - name
+                          additionalProperties: false
+                      deferredMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - name
+                            - missing
+                          additionalProperties: false
+                      validationError:
                         type: string
                     required:
                       - ready
@@ -17545,10 +17763,6 @@ paths:
                   type: array
                   items:
                     type: string
-                risk:
-                  type: string
-                disabled:
-                  type: boolean
                 headers:
                   type: object
                   propertyNames:
@@ -17635,7 +17849,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).
+      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
       tags:
         - internal
       responses:
@@ -17667,26 +17881,12 @@ paths:
                           required:
                             - type
                           additionalProperties: {}
-                        enabled:
-                          type: boolean
-                        defaultRiskLevel:
-                          type: string
                         hasOAuth:
                           type: boolean
-                        allowedTools:
-                          type: array
-                          items:
-                            type: string
-                        blockedTools:
-                          type: array
-                          items:
-                            type: string
                       required:
                         - id
                         - status
                         - transport
-                        - enabled
-                        - defaultRiskLevel
                         - hasOAuth
                       additionalProperties: false
                 required:
@@ -17798,24 +17998,6 @@ paths:
               properties:
                 name:
                   type: string
-                enabled:
-                  type: boolean
-                defaultRiskLevel:
-                  type: string
-                maxTools:
-                  type: number
-                allowedTools:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: string
-                    - type: "null"
-                blockedTools:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: string
-                    - type: "null"
                 headers:
                   anyOf:
                     - type: object
@@ -30372,8 +30554,8 @@ paths:
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
-      summary: Generate avatar
-      description: Generate an AI avatar image from a text description.
+      summary: Generate AI avatar (legacy alias)
+      description: Alias of avatar/generate kept for older clients; returns the avatar image path.
       tags:
         - settings
       requestBody:
@@ -30390,6 +30572,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  avatarPath:
+                    type: string
+                required:
+                  - ok
+                  - avatarPath
+                additionalProperties: false
   /v1/settings/client:
     put:
       operationId: settings_client_put

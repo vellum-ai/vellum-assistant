@@ -148,13 +148,19 @@ mock.module("@/lib/telemetry/resume-request-counter", () => ({
   noteDaemonApiRequest: noteDaemonApiRequestMock,
 }));
 
+import {
+  resetAssistantRequestActivity,
+  useAssistantRequestActivity,
+} from "@/assistant/request-activity";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as gatewayClient } from "@/generated/gateway/client.gen";
 import {
+  assistantActivityResponseInterceptor,
   authorizeRemoteGatewayRequest,
   daemonErrorInterceptor,
   daemonRequestInterceptor,
+  daemonUnreachableInterceptor,
   localGatewayAuthRecoveryInterceptor,
   platformAuthRecoveryInterceptor,
   platformFeaturesGate,
@@ -2792,4 +2798,168 @@ describe("api-interceptors / post-resume request counting", () => {
     expect(output.url).toBe(input.url);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
   });
+});
+
+describe("daemon request activity", () => {
+  beforeEach(() => {
+    resetAssistantRequestActivity("123");
+    isPlatformDisabledMock.mockReturnValue(false);
+    setSelfHostedConnection(null);
+    setCsrfCookie("test-csrf-token");
+  });
+  afterEach(() => {
+    resetAssistantRequestActivity(null);
+    clearCsrfCookie();
+  });
+
+  const start = (path = "conversations", init?: RequestInit) =>
+    daemonRequestInterceptor(
+      new Request(`https://app.example.test/v1/assistants/123/${path}`, init),
+    );
+  const respond = (request: Request, status = 200) => {
+    const response = Response.json({}, { status });
+    daemonUnreachableInterceptor(response, request);
+    assistantActivityResponseInterceptor(response, request);
+  };
+
+  test.each([
+    [daemonClient, "conversations", true],
+    [daemonClient, "skills", true],
+    [daemonClient, "plugins", true],
+    [daemonClient, "memory-items", true],
+    [daemonClient, "documents", true],
+    [daemonClient, "schedules", true],
+    [daemonClient, "clients/web-presence", true],
+    [daemonClient, "backups", false],
+    [daemonClient, "backups/create", false],
+    [daemonClient, "trust-rules", false],
+    [daemonClient, "contacts", false],
+    [daemonClient, "healthz", false],
+    [daemonClient, "health", false],
+    [daemonClient, "events", false],
+    [daemonClient, "background-wake/prepare-sleep", false],
+    [gatewayClient, "future-gateway-route", false],
+    [platformClient, "operational/status/", false],
+    [platformClient, "conversations", true],
+  ] as const)(
+    "SDK route %s %s proves readiness: %s",
+    async (client, path, expected) => {
+      setSelfHostedConnection({
+        url: "https://gateway.example.test",
+        token: "token",
+      });
+      const fetch = Object.assign(
+        async () => Response.json({ recorded: false }),
+        { preconnect: () => {} },
+      );
+      await client.post({
+        url: `https://app.example.test/v1/assistants/123/${path}`,
+        body: {},
+        fetch,
+      });
+      expect(useAssistantRequestActivity.getState().responded).toBe(expected);
+    },
+  );
+
+  test.each([401, 403, 500, 502, 503, 504])(
+    "HTTP %i cannot clear sleep",
+    async (status) => {
+      const event = mock(() => {});
+      const unsubscribe = subscribe("assistant.unreachable", event);
+      try {
+        respond(await start(), status);
+        expect(useAssistantRequestActivity.getState().responded).toBe(false);
+        expect(event).toHaveBeenCalledTimes([502, 503, 504].includes(status) ? 1 : 0);
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  test.each(["OPTIONS", "aborted", "SSE", "stream"])(
+    "%s is not readiness",
+    async (kind) => {
+      const controller = new AbortController();
+      const request = await start("conversations", {
+        method: kind === "OPTIONS" ? "OPTIONS" : "GET",
+        signal: controller.signal,
+      });
+      if (kind === "aborted") {controller.abort();}
+      assistantActivityResponseInterceptor(
+        new Response(null, {
+          headers:
+            kind === "SSE" ? { "Content-Type": "text/event-stream" } : {},
+        }),
+        request,
+        { parseAs: kind === "stream" ? "stream" : "json" },
+      );
+      expect(useAssistantRequestActivity.getState().responded).toBe(false);
+    },
+  );
+
+  test.each(["status", "failure", "healthz"])(
+    "a newer %s blocks late success and allows fresh recovery",
+    async (kind) => {
+      const old = await start();
+      const observation =
+        kind === "status"
+          ? await requestInterceptor(
+              new Request(
+                "https://app.example.test/v1/assistants/123/operational/status/",
+              ),
+            )
+          : await start(kind === "healthz" ? "healthz" : "conversations");
+      respond(observation, kind === "status" ? 200 : 503);
+      respond(old);
+      expect(useAssistantRequestActivity.getState().responded).toBe(false);
+      respond(await start());
+      expect(useAssistantRequestActivity.getState().responded).toBe(true);
+      respond(observation, kind === "status" ? 200 : 503);
+      expect(useAssistantRequestActivity.getState().responded).toBe(true);
+    },
+  );
+
+  test.each(["status", "failure"])(
+    "a delayed %s cannot undo a newer success",
+    async (kind) => {
+      const old =
+        kind === "status"
+          ? await requestInterceptor(
+              new Request(
+                "https://app.example.test/v1/assistants/123/operational/status/",
+              ),
+            )
+          : await start();
+      respond(await start());
+      const event = mock(() => {});
+      const unsubscribe = subscribe("assistant.unreachable", event);
+      try {
+        respond(old, kind === "status" ? 200 : 503);
+        expect(useAssistantRequestActivity.getState().responded).toBe(true);
+        expect(event).not.toHaveBeenCalled();
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  test.each([null, "456", "123"])(
+    "session reset to %s rejects old success and failure",
+    async (id) => {
+      const old = await start();
+      respond(old);
+      resetAssistantRequestActivity(null);
+      resetAssistantRequestActivity(id);
+      const event = mock(() => {});
+      const unsubscribe = subscribe("assistant.unreachable", event);
+      try {
+        respond(old);
+        respond(old, 503);
+        expect(useAssistantRequestActivity.getState().responded).toBe(false);
+        expect(event).not.toHaveBeenCalled();
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
 });

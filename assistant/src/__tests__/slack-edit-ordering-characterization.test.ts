@@ -53,7 +53,11 @@ async function seedMessage(): Promise<string> {
   return inserted.id;
 }
 
-async function applyEdit(eventId: string, content: string): Promise<void> {
+async function applyEdit(
+  eventId: string,
+  content: string,
+  slackEditedTs?: string,
+): Promise<void> {
   await handleEditIntercept({
     sourceChannel: "slack",
     conversationExternalId: CHANNEL,
@@ -61,6 +65,7 @@ async function applyEdit(eventId: string, content: string): Promise<void> {
     sourceMessageId: ORIGINAL_TS,
     assistantId: "self",
     content,
+    slackEditedTs,
   });
 }
 
@@ -90,10 +95,17 @@ describe("Slack edit ordering (characterization)", () => {
     expect(stringifyMessageContent(row!.content)).toBe("revised text");
   });
 
-  test.todo(
-    "GUARD (future PR): an edit whose Slack edited.ts is older than the stored one is ignored",
-    () => {},
-  );
+  test("GUARD: an edit whose Slack edited.ts is older than the stored one is ignored", async () => {
+    const messageId = await seedMessage();
+
+    // The newer edit (ts = .000300) arrives first and is applied.
+    await applyEdit("edit-event-newer", "second revision", "1700000000.000300");
+    // The older edit (ts = .000200) arrives late; the guard must reject it.
+    await applyEdit("edit-event-older", "first revision", "1700000000.000200");
+
+    const row = getMessageById(messageId);
+    expect(stringifyMessageContent(row!.content)).toBe("second revision");
+  });
 
   test.todo(
     "GUARD (future PR): content and mention source data are replaced in the same transaction on every applied edit",

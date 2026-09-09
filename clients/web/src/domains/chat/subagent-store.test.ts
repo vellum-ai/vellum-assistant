@@ -719,6 +719,31 @@ describe("receiveEvent", () => {
     expect(events[2]!.content).toBe("file.txt");
   });
 
+  it("summarises past a blank priority key to the one carrying a value", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    // `command` is scanned before `url`, and a blank value does not end the
+    // scan: the step is labelled with the field that carries something.
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_use_start",
+        toolName: "web_fetch",
+        input: { command: "", url: "https://example.com/docs" },
+      },
+      timestamp: NOW + 100,
+    });
+
+    expect(getState().byId["sa-1"]!.events[0]!.content).toBe(
+      "https://example.com/docs",
+    );
+  });
+
   it("coalesces consecutive text deltas into one event", () => {
     getState().spawnSubagent({
       subagentId: "sa-1",

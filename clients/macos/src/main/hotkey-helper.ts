@@ -43,6 +43,11 @@ import type {
 } from "@vellumai/ipc-contract";
 
 import { isPointerOnCompanion } from "./companion-pointer";
+import {
+  frameScrollEnded,
+  isFrameScrollWatched,
+  provideFrameScrollWatch,
+} from "./frame-scroll-watch";
 import { handle } from "./ipc";
 import log from "./logger";
 import {
@@ -428,6 +433,25 @@ const sendInputActivityWatch = async (enable: boolean): Promise<boolean> => {
   } catch (err) {
     log.warn(
       `[mac-helper] input activity watch failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
+};
+
+/**
+ * Ask the helper to report the end of the scroll the watch frame stepped
+ * aside for. Wanted-or-not lives in `frame-scroll-watch.ts`, where the frame
+ * put it, so a helper that comes back from a crash is put back to watching
+ * the same way the activity watch is.
+ */
+const sendScrollWatch = async (enable: boolean): Promise<boolean> => {
+  try {
+    const result = await client.call("input.setScrollWatch", { enable });
+    const parsed = HOTKEY_RESULT_SCHEMA.safeParse(result);
+    return parsed.success && parsed.data.enabled === enable;
+  } catch (err) {
+    log.warn(
+      `[mac-helper] scroll watch failed: ${err instanceof Error ? err.message : String(err)}`,
     );
     return false;
   }
@@ -870,6 +894,9 @@ const handleHelperState = (state: MacHelperState): void => {
     if (desiredInputActivityWatch) {
       void sendInputActivityWatch(true);
     }
+    if (isFrameScrollWatched()) {
+      void sendScrollWatch(true);
+    }
     return;
   }
 
@@ -902,6 +929,7 @@ const restartHelper = (): HelperRestartResult => {
 let installed = false;
 let unsubscribeHotkeyEvents: (() => void) | null = null;
 let unsubscribeInputActivity: (() => void) | null = null;
+let unsubscribeScrollEnded: (() => void) | null = null;
 let unsubscribeHelperState: (() => void) | null = null;
 let unsubscribeDictationPartials: (() => void) | null = null;
 let unsubscribeDictationFinalized: (() => void) | null = null;
@@ -926,6 +954,16 @@ export const installHotkeyHelper = (): void => {
       sendInputActivityToOwner();
     },
   );
+  unsubscribeScrollEnded = client.onNotification(
+    "input.scrollEnded",
+    z.unknown(),
+    () => {
+      frameScrollEnded();
+    },
+  );
+  provideFrameScrollWatch((enable) => {
+    void sendScrollWatch(enable);
+  });
   unsubscribeDictationPartials = client.onNotification(
     "dictation.partial",
     DICTATION_PARTIAL_SCHEMA,
@@ -1085,6 +1123,8 @@ export const __resetForTesting = (): void => {
   unsubscribeHotkeyEvents = null;
   unsubscribeInputActivity?.();
   unsubscribeInputActivity = null;
+  unsubscribeScrollEnded?.();
+  unsubscribeScrollEnded = null;
   unsubscribeHelperState?.();
   unsubscribeHelperState = null;
   unsubscribeDictationPartials?.();

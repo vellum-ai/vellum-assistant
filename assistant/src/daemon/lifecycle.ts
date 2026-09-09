@@ -70,7 +70,6 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
-import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
@@ -277,7 +276,8 @@ export async function runDaemon(): Promise<void> {
   // records the failed migration state so /readyz returns 503.
   let dbReady = false;
   try {
-    const { migrationsOk } = await initializeDb();
+    const initResult = await initializeDb();
+    const { migrationsOk } = initResult;
     dbReady = true;
     // A quiesce lease can survive a stop that happened mid-drain; clear it so
     // a fresh boot never starts with background work paused. Placed
@@ -305,8 +305,17 @@ export async function runDaemon(): Promise<void> {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
-      setDbMigrationFailed();
+      setDbMigrationFailed(undefined, {
+        failedMigrations: initResult.failedMigrations,
+        deferredMigrations: initResult.deferredMigrations,
+        validationError: initResult.validationError,
+      });
       log.error(
+        {
+          failedMigrations: initResult.failedMigrations,
+          deferredMigrations: initResult.deferredMigrations,
+          validationError: initResult.validationError,
+        },
         "Daemon startup: DB opened but one or more migrations failed or were deferred — /readyz will remain unready",
       );
     }
@@ -833,8 +842,6 @@ export async function runDaemon(): Promise<void> {
   installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
-
-  startWorkspaceHeartbeatService();
 
   startHeartbeatService();
 

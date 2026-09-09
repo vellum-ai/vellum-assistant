@@ -36,7 +36,7 @@ any installed plugin that declares one.
   Name         The server identifier
   Status       Health check result for workspace servers:
                  ✓  Connected and responding
-                 ✗  Error or disabled
+                 ✗  Error
                  !  Needs authentication (OAuth required)
                Plugin-declared servers report "declared" instead. They are
                listed but not connected by the assistant, and they are not
@@ -46,9 +46,6 @@ any installed plugin that declares one.
                Servers from config.json print no Source line.
   Transport    stdio, sse, or streamable-http
   URL/Command  The server URL (sse/streamable-http) or command (stdio)
-  Risk         Default risk level: low, medium, or high
-  Allowed      Tool allowlist filter (if configured)
-  Blocked      Tool blocklist filter (if configured)
 
 Health checks run on the daemon side. With --json, outputs the raw server
 list including health status.
@@ -71,9 +68,9 @@ Examples:
   $ vellum mcp reload   # after running "vellum mcp auth <server>"`,
     },
     {
-      // NOTE: the repeatable `-H, --header` collector option and the trailing
-      // `--disabled` are registered imperatively in `mcp.ts` (array-accumulating
-      // parser functions are not expressible as plain help data).
+      // NOTE: the repeatable `-H, --header` collector option is registered
+      // imperatively in `mcp.ts` (array-accumulating parser functions are
+      // not expressible as plain help data).
       name: "add",
       args: "<name>",
       description: "Add an MCP server configuration",
@@ -95,11 +92,6 @@ Examples:
           flags: "-a, --args <args...>",
           description: "Command arguments (for stdio)",
         },
-        {
-          flags: "-r, --risk <level>",
-          description:
-            "Risk level tools from this server start at: low, medium, or high",
-        },
       ],
       helpText: `
 Arguments:
@@ -110,11 +102,6 @@ Transport-specific requirements:
   sse               Requires --url pointing to the SSE endpoint
   streamable-http   Requires --url pointing to the HTTP endpoint
 
-The --risk flag sets the risk level tools from this server start at. Omit it
-and the server tracks the shipped default, "medium". A tool's own MCP
-annotations move it one step from there: destructiveHint up, readOnlyHint
-down. The server starts enabled unless --disabled is passed.
-
 The --header (-H) flag adds custom HTTP headers to sse/streamable-http
 transports. Use it for Bearer Token or API Key authentication. The flag
 is repeatable — pass multiple -H flags for multiple headers.
@@ -124,8 +111,7 @@ existing server first with "assistant mcp remove <name>".
 
 Examples:
   $ assistant mcp add my-server -t stdio -c npx -a my-mcp-server
-  $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp -r medium
-  $ assistant mcp add legacy-sse -t sse -u https://old.example.com/events --disabled
+  $ assistant mcp add remote-api -t streamable-http -u https://api.example.com/mcp
   $ assistant mcp add authed-api -t sse -u https://api.example.com/mcp -H 'Authorization: Bearer tok123'
   $ assistant mcp add apikey-srv -t streamable-http -u https://srv.example.com/mcp -H 'X-API-Key: sk_live_abc'`,
     },

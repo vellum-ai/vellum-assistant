@@ -57,6 +57,7 @@ import type {
 } from "../runtime/routes/types.js";
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
+import { mapGatewayIpcConnectError } from "./gateway-ipc-errors.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -479,19 +480,20 @@ export class AssistantIpcServer {
   }
 
   private buildErrorResponse(id: string, err: unknown): IpcResponse {
-    if (err instanceof RouteError) {
+    const mapped = mapGatewayIpcConnectError(err);
+    if (mapped instanceof RouteError) {
       const response: IpcResponse = {
         id,
-        error: err.message,
-        statusCode: err.statusCode,
-        errorCode: err.code,
+        error: mapped.message,
+        statusCode: mapped.statusCode,
+        errorCode: mapped.code,
       };
-      if (err.details !== undefined) {
-        response.errorDetails = err.details;
+      if (mapped.details !== undefined) {
+        response.errorDetails = mapped.details;
       }
       return response;
     }
-    return { id, error: String(err) };
+    return { id, error: String(mapped) };
   }
 
   /**

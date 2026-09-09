@@ -1,28 +1,18 @@
-import {
-  Archive,
-  Code2,
-  FileAudio,
-  File as FileIcon,
-  FileImage,
-  FileSpreadsheet,
-  FileText,
-  FileType2,
-  FileVideo,
-} from "lucide-react";
-import type { MouseEvent, ReactNode } from "react";
+import type { MouseEvent } from "react";
 import { useCallback } from "react";
 
 import { Typography } from "@vellumai/design-library";
 import { AttachmentDownloadOverlay } from "@/domains/chat/components/chat-attachments/attachment-download-overlay";
+import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
 
 import {
   classifyAttachment,
   formatAttachmentSize,
   middleTruncate,
-  type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import { cn } from "@/utils/misc";
 
 /**
  * Geometry of the square's inner tile box. Shared with
@@ -43,19 +33,6 @@ interface MessageAttachmentSquareProps {
   onPreviewError?: () => void;
 }
 
-const ICON_BY_KIND: Record<AttachmentIconKind, ReactNode> = {
-  image: <FileImage className="h-6 w-6" />,
-  video: <FileVideo className="h-6 w-6" />,
-  audio: <FileAudio className="h-6 w-6" />,
-  pdf: <FileType2 className="h-6 w-6" />,
-  code: <Code2 className="h-6 w-6" />,
-  archive: <Archive className="h-6 w-6" />,
-  spreadsheet: <FileSpreadsheet className="h-6 w-6" />,
-  document: <FileText className="h-6 w-6" />,
-  text: <FileText className="h-6 w-6" />,
-  file: <FileIcon className="h-6 w-6" />,
-};
-
 /**
  * Square thumbnail used inside message bubbles. Image attachments render their
  * preview edge-to-edge; non-image attachments fall back to a neutral surface
@@ -72,8 +49,6 @@ export function MessageAttachmentSquare({
     attachment;
   const kind = classifyAttachment(mimeType, filename);
   const hasImagePreview = kind === "image" && previewUrl !== null;
-  // Video posters stay a CSS background: there is no fallback to swap to when
-  // a poster fails, so an <img> would surface the browser's broken glyph.
   const backgroundImageUrl =
     kind === "video" && thumbnailUrl != null ? thumbnailUrl : null;
   // With nothing filling the tile, its `--surface-lift` fill disappears on a
@@ -115,30 +90,18 @@ export function MessageAttachmentSquare({
       className={`group flex flex-col gap-1${isClickable ? " cursor-pointer" : ""}`}
     >
       <div className="relative w-fit">
-        <div
-          className={`${ATTACHMENT_TILE_BOX_CLASS} flex items-center justify-center overflow-hidden bg-[var(--surface-lift)] bg-cover bg-center text-[var(--content-secondary)]${showsIcon ? " border border-[var(--border-element)]" : ""}`}
-          style={
-            backgroundImageUrl
-              ? {
-                  backgroundImage: `url(${JSON.stringify(backgroundImageUrl)})`,
-                }
-              : undefined
-          }
-        >
-          {hasImagePreview ? (
-            // A real <img> rather than a CSS background so an undecodable
-            // preview raises `onError` and the owner can fall back to the icon.
-            <img
-              src={previewUrl}
-              alt=""
-              aria-hidden
-              onError={onPreviewError}
-              className="h-full w-full object-cover"
-            />
-          ) : backgroundImageUrl ? null : (
-            ICON_BY_KIND[kind]
+        <AttachmentPreviewBox
+          className={cn(
+            ATTACHMENT_TILE_BOX_CLASS,
+            "bg-[var(--surface-lift)]",
+            showsIcon && "border border-[var(--border-element)]",
           )}
-        </div>
+          kind={kind}
+          imageUrl={hasImagePreview ? previewUrl : null}
+          posterUrl={backgroundImageUrl}
+          onImageError={onPreviewError}
+          glyphClassName="h-6 w-6"
+        />
         {onDownload && (
           <AttachmentDownloadOverlay
             filename={filename}

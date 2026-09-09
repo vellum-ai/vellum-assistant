@@ -16,6 +16,8 @@
  *     etc.); those are retired by this package.
  */
 
+import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -713,6 +715,48 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
+/**
+ * What a notification avatar's SHA-256 has to look like: 64 lowercase hex
+ * characters. The hash names the file a host writes the avatar to, so anything
+ * else could escape the cache directory. Shared by the IPC boundary that
+ * accepts it and the cache that writes it.
+ */
+export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/**
+ * The longest base64 payload the notification-avatar channel carries: base64
+ * of {@link NOTIFICATION_AVATAR_MAX_LOCAL_BYTES}, the cap the renderer drops a
+ * heavier render at. A payload past this is malformed rather than merely
+ * large, and the host has to cache it on disk, so the boundary refuses it
+ * instead of writing it. Derived from the byte cap rather than restated, so
+ * the two cannot drift.
+ */
+export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
+  Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4;
+
+/**
+ * The assistant a notification is from, for the platforms that render a sender
+ * rather than the app: its name goes on the first line and its notification
+ * avatar becomes the icon.
+ */
+export interface NotificationSender {
+  id: string;
+  name: string;
+  /**
+   * The notification avatar as a base64 PNG with no data prefix, the same
+   * shape {@link VoiceActivityStart.avatarBase64} travels in. The renderer
+   * composites it (avatar on an accent-tinted disc) because main has no
+   * canvas.
+   */
+  avatarBase64: string;
+  /**
+   * SHA-256 of the PNG, 64 lowercase hex characters, so a host can name a
+   * cache file by it. The schema enforces the shape, because the file name is
+   * what it becomes.
+   */
+  avatarHash: string;
+}
+
 /** Renderer → main payload for posting a native notification. */
 export interface ShowNotificationPayload {
   category: NotificationCategory;
@@ -722,6 +766,11 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * Absent unless the renderer has a notification avatar to send, which leaves
+   * the notification with the app icon and the title on line one.
+   */
+  sender?: NotificationSender;
 }
 
 export type TextInsertionResult =
@@ -1477,25 +1526,54 @@ export const COMPANION_ANNOTATION_STROKE = 0.006;
  * goes outside them, so the control a user is being pointed at stays as
  * visible as it was before anything was drawn on it.
  *
- * A rectangle, not a stroke, because this end knows what it is pointing at:
- * the user draws freehand at something they can already see, and the
- * assistant resolves an element that has bounds.
+ * For an extent that is itself the message: a region of an image, an area of
+ * a canvas, a panel being named as a whole. To send someone to one control,
+ * see {@link CompanionCoachmarkPoint}.
  */
-export interface CompanionCoachmark {
+export interface CompanionCoachmarkRegion {
+  kind: "region";
   x: number;
   y: number;
   width: number;
   height: number;
-  /**
-   * What to do with the thing, in the user's language, or nothing when the
-   * ring is the whole message.
-   *
-   * Short by contract ({@link COMPANION_COACHMARK_CAPTION_MAX}): it is drawn
-   * over the user's own work, in a window they cannot scroll or dismiss, and
-   * anything longer than a caption belongs in what the assistant is saying.
-   */
   caption?: string;
 }
+
+/**
+ * A place on the surface, drawn as an arrow aimed at it.
+ *
+ * **The ordinary way to point, because aim survives error and extent does
+ * not.** A ring asserts where a thing ends as well as where it is, and an
+ * element's bounds are the least trustworthy thing the accessibility tree
+ * reports about it: a control's frame is its hit area, which can be twice the
+ * size of the glyph inside it, and a row can be named by the small triangle
+ * that discloses it. Every one of those rings the wrong shape while knowing
+ * the right place. An arrow makes the weaker claim, so it stays true where the
+ * ring does not.
+ *
+ * `x` and `y` are the point being indicated, not a corner: the arrow's tip
+ * lands there and its tail hangs off whichever side has the room.
+ */
+export interface CompanionCoachmarkPoint {
+  kind: "point";
+  x: number;
+  y: number;
+  caption?: string;
+}
+
+/**
+ * What is drawn on the shared surface: an arrow at something, or a ring
+ * around some extent of it.
+ *
+ * Tagged rather than inferred from which fields are set, because the tag is
+ * the thing that decides what `x` and `y` mean. A corner and a point are
+ * different claims, and a reader that guessed between them by looking for a
+ * width would be one field away from drawing a mark half its own size out of
+ * place.
+ */
+export type CompanionCoachmark =
+  | CompanionCoachmarkRegion
+  | CompanionCoachmarkPoint;
 
 /**
  * How many marks stand at once, and how long a caption may be.
@@ -1540,7 +1618,7 @@ export type CoachmarkRefusal =
  */
 export type CoachmarkRequest =
   | { target: string; caption?: string }
-  | CompanionCoachmark;
+  | { x: number; y: number; width: number; height: number; caption?: string };
 
 /** Whether a request named a control or gave bounds outright. */
 export const namesATarget = (
@@ -1555,9 +1633,7 @@ export const namesATarget = (
  * reported under its own name so the caller can say the same word the user
  * can see.
  */
-export interface PlacedCoachmark extends CompanionCoachmark {
-  matched?: string;
-}
+export type PlacedCoachmark = CompanionCoachmark & { matched?: string };
 
 /**
  * Why a named control could not be turned into a mark.
@@ -2049,6 +2125,22 @@ export interface CompanionSurfaceState {
    * never travels: a shell with nothing to draw says nothing.
    */
   coachmarks?: readonly CompanionCoachmark[];
+
+  /**
+   * How far below the top of the framed surface anything the frame draws
+   * there has to start, in the frame window's own pixels, to be seen.
+   *
+   * Main's, because it is a fact about where main put the window: a whole
+   * display is framed to its full bounds so the edge is the screen's, and the
+   * menu bar draws over the top of that window. A label placed against the
+   * edge would sit under the bar. This is the bar's height, read from the
+   * gap between the display's bounds and its work area.
+   *
+   * Absent for a window frame, whose top edge is the window's own title bar
+   * and inside the frame, and absent when nothing is framed. A shell that
+   * predates the field reads as no inset, which is the frame as it was.
+   */
+  frameInsetTop?: number;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the
