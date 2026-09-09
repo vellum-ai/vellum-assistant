@@ -24,6 +24,11 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.selfIntroGreeting).toBe(false);
   });
 
+  test("exposes vellum hosted inference as an assistant flag defaulting off", () => {
+    expect(ASSISTANT_FLAG_DEFAULTS.vellumHostedInference).toBe(false);
+    expect("vellumHostedInference" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
     expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
       false,

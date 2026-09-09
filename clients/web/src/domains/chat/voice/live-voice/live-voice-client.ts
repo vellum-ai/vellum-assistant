@@ -140,6 +140,28 @@ export interface LiveVoiceTextTurnRejected {
  * frame: it could not persist this one, and it has already reclaimed the
  * attachment itself.
  */
+/**
+ * The client leg of one kept frame, sent with the `sight_frame` for the
+ * daemon's log. Durations rather than timestamps: the daemon's clock is not
+ * this one, and only this side can say how long its encode and upload took.
+ * Whole milliseconds, never negative. Mirrors `LiveVoiceSightFrameTiming` in
+ * the daemon's `live-voice/protocol.ts`.
+ */
+export interface LiveVoiceSightFrameTiming {
+  /** Why the frame was kept: a gate reason, or a source's own word for it. */
+  readonly reason: string;
+  /** From the arm that asked for this keep to the keep. Forced keeps only. */
+  readonly armToKeepMs?: number;
+  /** From the keep to a JPEG sized for upload. */
+  readonly keepToEncodedMs: number;
+  /** From the JPEG to an attachment id, which is the HTTP upload. */
+  readonly encodedToUploadedMs: number;
+  /** From the id to the send, which is the wait for older keeps to go first. */
+  readonly uploadedToSentMs: number;
+  /** The JPEG that was uploaded, in bytes. */
+  readonly bytes: number;
+}
+
 export interface LiveVoiceSightFrameRejected {
   readonly unsupported: boolean;
   /**
@@ -485,11 +507,20 @@ export class LiveVoiceChannelClient {
    * below keeps that out of the `update_config` bucket, an ungated sampler
    * would still be sending a frame every few seconds into a void.
    */
-  sightFrame(attachmentId: string): boolean {
+  sightFrame(
+    attachmentId: string,
+    timing?: LiveVoiceSightFrameTiming,
+  ): boolean {
     if (this.state !== "active") {
       return false;
     }
-    return this.trySend(JSON.stringify({ type: "sight_frame", attachmentId }));
+    return this.trySend(
+      JSON.stringify({
+        type: "sight_frame",
+        attachmentId,
+        ...(timing ? { timing } : {}),
+      }),
+    );
   }
 
   /**

@@ -148,6 +148,18 @@ export function setCompanionAnnotating(annotating: boolean): void {
 }
 
 /**
+ * The same mode, turned over.
+ *
+ * For the keyboard, which has one gesture for both directions and no view of
+ * the mode to work out which one it is asking for. Main holds it, so main is
+ * the side that can flip it; a caller comparing against the last pushed state
+ * would be a press behind whenever the two crossed.
+ */
+export function toggleCompanionAnnotating(): void {
+  bridge()?.toggleAnnotating?.();
+}
+
+/**
  * A mark the user is drawing on the shared surface, from the frame's own
  * window: the hand still on it, or off it with the strokes it left.
  *

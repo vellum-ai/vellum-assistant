@@ -98,7 +98,7 @@ function flushFrames(): void {
  */
 function judge(
   surface: FrameGateDebugSurface,
-  reason: "novel" | "rate-floor" | "warmup" | "first",
+  reason: "novel" | "answered" | "moving" | "warmup" | "first",
   keep: boolean,
   novelty: number | null = 0.9,
 ): void {
@@ -196,13 +196,15 @@ describe("FrameGateHud gating", () => {
 describe("FrameGateHud readout", () => {
   test("shows the latest verdict and highlights the check that made it", () => {
     render(<FrameGateHud surface="voice" />);
-    judge("voice", "rate-floor", false);
+    judge("voice", "answered", false);
 
     expect(screen.getByText("Skip")).toBeTruthy();
-    expect(screen.getByText("Too soon after the last photo.")).toBeTruthy();
+    expect(
+      screen.getByText("Asked for, but the last photo already shows this."),
+    ).toBeTruthy();
     expect(
       screen
-        .getByTestId("frame-gate-hud-step-rate-floor")
+        .getByTestId("frame-gate-hud-step-answered")
         .getAttribute("data-decided"),
     ).toBe("true");
     expect(
@@ -236,9 +238,10 @@ describe("FrameGateHud decision order", () => {
     expect(renderedSteps()).toEqual([
       "warmup",
       "featureless",
-      "forced",
-      "rate-floor",
       "moving",
+      "settling",
+      "answered",
+      "forced",
       "heartbeat",
       "novel",
       "unchanged",
@@ -249,15 +252,15 @@ describe("FrameGateHud decision order", () => {
     render(<FrameGateHud surface="voice" />);
     judge("voice", "first", true, null);
 
-    // The floor and the settle check are above the keep, which is the order
-    // the gate runs them in on this branch, and the checks that score against
-    // a kept frame are not on it at all.
+    // The settle check and the ask are above the keep, which is the order the
+    // gate runs them in on this branch, and the checks that score against a
+    // kept frame are not on it at all.
     expect(renderedSteps()).toEqual([
       "warmup",
       "featureless",
-      "forced",
-      "rate-floor",
       "moving",
+      "settling",
+      "forced",
       "first",
     ]);
     expect(
@@ -267,21 +270,21 @@ describe("FrameGateHud decision order", () => {
     ).toBe("true");
   });
 
-  test("a floor skip with no baseline highlights the floor, not the keep", () => {
+  test("a settle skip with no baseline highlights the settle check, not the keep", () => {
     render(<FrameGateHud surface="voice" />);
-    judge("voice", "rate-floor", false, null);
+    judge("voice", "moving", false, null);
 
     expect(renderedSteps()).toEqual([
       "warmup",
       "featureless",
-      "forced",
-      "rate-floor",
       "moving",
+      "settling",
+      "forced",
       "first",
     ]);
     expect(
       screen
-        .getByTestId("frame-gate-hud-step-rate-floor")
+        .getByTestId("frame-gate-hud-step-moving")
         .getAttribute("data-decided"),
     ).toBe("true");
     expect(
@@ -483,7 +486,7 @@ describe("FrameGateHud strip", () => {
     renderCollapsible();
     expect(within(strip()!).getByText("Keep")).toBeTruthy();
 
-    judge("voice", "rate-floor", false);
+    judge("voice", "answered", false);
 
     expect(within(strip()!).getByText("Skip")).toBeTruthy();
   });

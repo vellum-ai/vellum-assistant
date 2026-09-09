@@ -2521,7 +2521,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint:
       "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
-    featureFlag: "settings-developer-nav",
+    featureFlag: "vellum-hosted-inference",
     models: [
       {
         id: "qwen/qwen3-8b",
@@ -2533,7 +2533,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 0.3 },
-        featureFlag: "settings-developer-nav",
+        featureFlag: "vellum-hosted-inference",
       },
     ],
     defaultModel: "qwen/qwen3-8b",

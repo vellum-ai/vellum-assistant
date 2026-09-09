@@ -28,6 +28,8 @@ import { SidebarTree, type SidebarItem } from "@/components/sidebar-tree";
 export function SettingsLayout() {
   const settingsDeveloperNav =
     useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const vellumHostedInference =
+    useAssistantFeatureFlagStore.use.vellumHostedInference();
   // Settings brings its own full-screen chrome; the Windows in-title-bar
   // menu bar yields while it's up (inert off the Windows shell, where the
   // menu bar doesn't render anyway).
@@ -136,14 +138,24 @@ export function SettingsLayout() {
 
   const bottomItems = useMemo<SidebarItem[]>(() => {
     const items: SidebarItem[] = [];
+    if (vellumHostedInference) {
+      items.push(
+        ...SETTINGS_SIDEBAR.filter((item) => item.id === "personality").map(
+          (item) => ({
+            ...item,
+            label: getSidebarLabel(item.id, item.label),
+          }),
+        ),
+      );
+    }
     if (settingsDeveloperNav) {
       items.push(
-        ...SETTINGS_SIDEBAR.filter(
-          (item) => item.id === "personality" || item.id === "developer",
-        ).map((item) => ({
-          ...item,
-          label: getSidebarLabel(item.id, item.label),
-        })),
+        ...SETTINGS_SIDEBAR.filter((item) => item.id === "developer").map(
+          (item) => ({
+            ...item,
+            label: getSidebarLabel(item.id, item.label),
+          }),
+        ),
       );
     }
     // The auth action is pinned to the very bottom of the nav.
@@ -165,6 +177,7 @@ export function SettingsLayout() {
     return items;
   }, [
     settingsDeveloperNav,
+    vellumHostedInference,
     hasPlatformSession,
     navigate,
     login,

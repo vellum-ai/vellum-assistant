@@ -209,15 +209,15 @@ describe("frame gate live options", () => {
         noveltyThreshold: 1.5,
         settleThreshold: 0.3,
         minDetail: 40,
-        minIntervalMs: 500,
+        forcedNoveltyThreshold: 0.5,
         maxIntervalMs: 90_000,
       }),
     );
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(500);
+    expect(FRAME_GATE_LIVE_OPTIONS.forcedNoveltyThreshold).toBe(0.5);
 
     syncFrameGateDebugOptions(
       false,
-      overridesWith({ noveltyThreshold: 1.5, minIntervalMs: 500 }),
+      overridesWith({ noveltyThreshold: 1.5, forcedNoveltyThreshold: 0.5 }),
     );
     expect({ ...FRAME_GATE_LIVE_OPTIONS }).toEqual({
       ...DEFAULT_FRAME_GATE_OPTIONS,
@@ -237,39 +237,14 @@ describe("frame gate live options", () => {
       overridesWith({
         noveltyThreshold: Number.NaN,
         minDetail: 5_000,
-        minIntervalMs: -10,
+        forcedNoveltyThreshold: -1,
       }),
     );
     expect(FRAME_GATE_LIVE_OPTIONS.noveltyThreshold).toBe(
       DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
     );
     expect(FRAME_GATE_LIVE_OPTIONS.minDetail).toBe(60);
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(0);
-  });
-
-  test("a crossed interval pair reaches the gate ordered", () => {
-    // The gate reads the floor before the heartbeat, so a floor above the
-    // ceiling would leave the ceiling unreachable whatever the readout draws.
-    syncFrameGateDebugOptions(
-      true,
-      overridesWith({ minIntervalMs: 20_000, maxIntervalMs: 4_000 }),
-    );
-
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBeLessThanOrEqual(
-      FRAME_GATE_LIVE_OPTIONS.maxIntervalMs,
-    );
-    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(20_000);
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(20_000);
-  });
-
-  test("an ordered interval pair reaches the gate untouched", () => {
-    syncFrameGateDebugOptions(
-      true,
-      overridesWith({ minIntervalMs: 2_000, maxIntervalMs: 45_000 }),
-    );
-
-    expect(FRAME_GATE_LIVE_OPTIONS.minIntervalMs).toBe(2_000);
-    expect(FRAME_GATE_LIVE_OPTIONS.maxIntervalMs).toBe(45_000);
+    expect(FRAME_GATE_LIVE_OPTIONS.forcedNoveltyThreshold).toBe(0);
   });
 
   test("turning the readout off gives every held thumbnail back", () => {

@@ -29,6 +29,7 @@ import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assem
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
+  newestPersistedSightFrame,
   pendingStandaloneImagePersist,
   SIGHT_FRAME_TURN_HOLD_MS,
 } from "../live-voice/live-voice-photo.js";
@@ -803,6 +804,10 @@ export async function startVoiceTurn(
     conversationReadyAt: 0,
     admissionClearAt: 0,
     sightHoldMs: 0,
+    // The camera frame this turn reads as the current view, and how old it
+    // was when the turn's own message landed. Null when the conversation
+    // carries no frame.
+    newestSightFrame: null as { attachmentId: string; ageMs: number } | null,
     persistDoneAt: 0,
   };
   const eventSink: VoiceRunEventSink = {
@@ -1425,6 +1430,26 @@ export async function startVoiceTurn(
     }
   }
   dispatch.persistDoneAt = Date.now();
+  // Read now, under the flag this turn holds, rather than after the sight
+  // hold: a frame can still land between the hold and the persist, when its
+  // acquire beats this turn's and the turn retries behind it. What the loop
+  // below reads is what the rows hold at this moment, so this is the frame the
+  // answer is about. One indexed row; a log-only read that fails must not
+  // take the turn down with it.
+  try {
+    const newestFrame = newestPersistedSightFrame(opts.conversationId);
+    if (newestFrame) {
+      dispatch.newestSightFrame = {
+        attachmentId: newestFrame.attachmentId,
+        ageMs: dispatch.persistDoneAt - newestFrame.capturedAt,
+      };
+    }
+  } catch (err) {
+    log.warn(
+      { err, turnId, conversationId: opts.conversationId },
+      "Could not read the newest camera frame for the dispatch timing log",
+    );
+  }
   try {
     opts.callbacks?.persisted_user_message_id?.(messageId);
   } catch (err) {
@@ -1851,6 +1876,7 @@ export async function startVoiceTurn(
         admissionWaitMs:
           dispatch.admissionClearAt - dispatch.conversationReadyAt,
         sightHoldMs: dispatch.sightHoldMs,
+        newestSightFrame: dispatch.newestSightFrame,
         persistMs:
           dispatch.persistDoneAt -
           dispatch.admissionClearAt -

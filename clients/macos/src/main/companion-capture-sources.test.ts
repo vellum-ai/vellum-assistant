@@ -78,6 +78,7 @@ const deps = (
   return {
     listWindows: async () => [],
     listDisplays: () => [],
+    pointerDisplayId: () => 0,
     listChromeTabs: async () => [],
     activateChromeTab: async (chromeWindowId, tabIndex) => {
       activated.push([chromeWindowId, tabIndex]);

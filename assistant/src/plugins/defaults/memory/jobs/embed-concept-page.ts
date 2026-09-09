@@ -23,10 +23,11 @@ import { and, eq } from "drizzle-orm";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
+  durableEmbeddingCacheExtras,
   generateSparseEmbedding,
   getMemoryBackendStatus,
 } from "../../../../persistence/embeddings/embedding-backend.js";
-import { embeddingInputContentHash } from "../../../../persistence/embeddings/embedding-types.js";
+import { embeddingContentHashWithExtras } from "../../../../persistence/embeddings/embedding-types.js";
 import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   asString,
@@ -131,7 +132,11 @@ export async function embedConceptPageJob(
   // and (optional) summary share the same provider/model — but each gets
   // its own cache row keyed by a distinct targetId so summary edits don't
   // invalidate the body cache and vice versa.
-  const bodyContentHash = embeddingInputContentHash({ type: "text", text });
+  const extras = durableEmbeddingCacheExtras(config, cacheProvider);
+  const bodyContentHash = embeddingContentHashWithExtras(
+    { type: "text", text },
+    extras,
+  );
   const bodyCache = mem
     ? readEmbeddingCache(mem, slug, cacheProvider, cacheModel, expectedDim)
     : null;
@@ -145,7 +150,10 @@ export async function embedConceptPageJob(
   const hasSummary = summaryText.length > 0;
   const summaryCacheId = `${slug}#summary`;
   const summaryContentHash = hasSummary
-    ? embeddingInputContentHash({ type: "text", text: summaryText })
+    ? embeddingContentHashWithExtras(
+        { type: "text", text: summaryText },
+        extras,
+      )
     : undefined;
   const summaryCache =
     hasSummary && mem

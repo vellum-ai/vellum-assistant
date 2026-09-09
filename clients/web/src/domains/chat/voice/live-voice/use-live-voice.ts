@@ -86,6 +86,7 @@ import {
   LiveVoiceChannelClient,
   RETRYABLE_LIVE_VOICE_CLOSE_CODES,
   type LiveVoiceClientError,
+  type LiveVoiceSightFrameTiming,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
 import {
   LiveVoiceAudioCapture,
@@ -725,9 +726,14 @@ export function useLiveVoice(
    * reconnect gap is right to drop, since the fresh session is the one that
    * would persist it and the moment it belonged to has passed.
    */
-  const sightFrame = useCallback((attachmentId: string): boolean => {
-    return sessionRef.current?.client.sightFrame(attachmentId) ?? false;
-  }, []);
+  const sightFrame = useCallback(
+    (attachmentId: string, timing?: LiveVoiceSightFrameTiming): boolean => {
+      return (
+        sessionRef.current?.client.sightFrame(attachmentId, timing) ?? false
+      );
+    },
+    [],
+  );
 
   const createPlayer = useCallback(
     () =>

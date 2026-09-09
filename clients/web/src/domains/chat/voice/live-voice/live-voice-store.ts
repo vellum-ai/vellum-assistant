@@ -23,6 +23,7 @@
 
 import { create } from "zustand";
 
+import type { LiveVoiceSightFrameTiming } from "@/domains/chat/voice/live-voice/live-voice-client";
 import type {
   LiveVoiceEntry,
   LiveVoiceMetricsServerFrame,
@@ -230,7 +231,10 @@ export interface LiveVoiceSessionControls {
    *
    * Callers must gate on `useSupportsSightStream`.
    */
-  sightFrame: (attachmentId: string) => boolean;
+  sightFrame: (
+    attachmentId: string,
+    timing?: LiveVoiceSightFrameTiming,
+  ) => boolean;
 }
 
 /**
@@ -1596,6 +1600,7 @@ export function setLiveVoiceScreenShare(
 export function sendLiveVoiceSightFrame(
   attachmentId: string,
   sessionGeneration: number,
+  timing?: LiveVoiceSightFrameTiming,
 ): boolean {
   const state = useLiveVoiceStore.getState();
   if (state.sessionGeneration !== sessionGeneration) {
@@ -1606,7 +1611,7 @@ export function sendLiveVoiceSightFrame(
   if (state.sightFramesUnsupported) {
     return false;
   }
-  const sent = state.controls?.sightFrame(attachmentId) ?? false;
+  const sent = state.controls?.sightFrame(attachmentId, timing) ?? false;
   if (sent) {
     state.noteSightFrameSent(attachmentId);
   }

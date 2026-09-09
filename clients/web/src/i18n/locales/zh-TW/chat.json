@@ -94,7 +94,8 @@
     "bulkActionMembersFailed": "無法載入此區段的所有對話。請再試一次。",
     "closeNavAria": "關閉導覽",
     "navAria": "助理導覽",
-    "searchShortcut": "搜尋 ({shortcut})"
+    "searchShortcut": "搜尋 ({shortcut})",
+    "search": "搜尋"
   },
   "assistantSleepStage": {
     "dismissLabel": "隱藏休眠畫面",
@@ -295,7 +296,8 @@
     "title": "顯示"
   },
   "cardSurface": {
-    "tasksProgress": "已完成 {completed} / 共 {total} 個任務"
+    "tasksProgress": "已完成 {completed} / 共 {total} 個任務",
+    "viewDetails": "查看詳細資料"
   },
   "channelReferenceChip": {
     "heading": "正在參照 {channel} 訊息",
@@ -521,7 +523,10 @@
     "toolLabel": "工具："
   },
   "contactActions": {
-    "saveFailed": "儲存聯絡人失敗。請再試一次。"
+    "saveFailed": "儲存聯絡人失敗。請再試一次。",
+    "cancelFailed": "關閉表單失敗，請重試。",
+    "recordCancelFailed": "關閉表單失敗，請重試。",
+    "recordSaveFailed": "儲存聯絡人失敗，請重試。"
   },
   "contactPromptCard": {
     "addContact": "新增聯絡人",
@@ -532,7 +537,9 @@
     "namePlaceholder": "名稱",
     "notesLabel": "備註",
     "save": "儲存",
-    "saving": "正在儲存…"
+    "saving": "正在儲存…",
+    "markVerified": "將此地址標記為已驗證",
+    "markVerifiedHelp": "已驗證的地址可以向您的助手發送訊息。"
   },
   "contactRecordCard": {
     "channelType": "{channel}：",
@@ -544,7 +551,19 @@
     "mergeWarning": "這些管道將轉移至 {survivor}，並刪除 {donor} 的記錄。",
     "nameLabel": "姓名",
     "notesLabel": "備註",
-    "notesPlaceholder": "新增備註"
+    "notesPlaceholder": "新增備註",
+    "cancel": "取消",
+    "contactDeleted": "聯絡人已刪除",
+    "contactSaved": "聯絡人已儲存",
+    "createTitle": "新增聯絡人",
+    "delete": "刪除",
+    "deleteTitle": "刪除 {name}？",
+    "deleteWarning": "這也將移除其所有管道，對方將無法再聯繫到您的助手。",
+    "namePlaceholder": "姓名",
+    "noChannels": "該聯絡人暫無管道。",
+    "save": "儲存",
+    "saving": "正在儲存…",
+    "updateTitle": "更新 {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",
@@ -762,7 +781,42 @@
   },
   "frameGateHud": {
     "collapse": "隱藏影格篩選讀數",
-    "expand": "顯示影格篩選讀數"
+    "expand": "顯示影格篩選讀數",
+    "decisionOrder": "決策順序",
+    "detailLabel": "細節度 (亮度標準差)",
+    "keep": "保留",
+    "keptFrameAlt": "已保留畫面",
+    "maxIntervalLabel": "心跳間隔",
+    "minDetailLabel": "最低細節度",
+    "motionLabel": "與前一幀運動量",
+    "noKeeps": "尚未保留任何畫面。",
+    "noveltyLabel": "與上次保留的新穎度",
+    "noveltyThresholdLabel": "新穎度閾值",
+    "overridden": "已偏離預設值",
+    "reasonFeatureless": "細節過少，無法比較。",
+    "reasonFirst": "尚未保留畫面，畫面已穩定。",
+    "reasonForced": "為當前提出的問題保留。",
+    "reasonHeartbeat": "畫面未發生變化，但上一張照片時間已過久。",
+    "reasonMoving": "畫面仍在晃動中。",
+    "reasonNovel": "與上一張照片相比發生了足夠的變化。",
+    "reasonUnchanged": "畫面穩定、採集時間近且與上一張照片基本一致。",
+    "reasonWarmup": "仍處於曝光預熱階段。",
+    "recentFrames": "最近畫面幀",
+    "recentKeeps": "最近保留幀",
+    "reset": "重設",
+    "settleThresholdLabel": "穩定閾值",
+    "skip": "略過",
+    "stepFeatureless": "最低細節度",
+    "stepFirst": "首幀保留",
+    "stepForced": "使用者請求",
+    "stepHeartbeat": "心跳",
+    "stepMoving": "畫面穩定",
+    "stepNovel": "新穎度",
+    "stepUnchanged": "未變更",
+    "stepWarmup": "預熱",
+    "surfaceVoice": "語音通話攝影機",
+    "thresholds": "閾值",
+    "valueAbsent": "無"
   },
   "groupActions": {
     "archiveAll": "全部封存…",
@@ -845,7 +899,8 @@
     "windows": "語音已在 Windows 應用程式中啟用。"
   },
   "liveVoiceButton": {
-    "startVoiceMode": "啟動語音模式"
+    "startVoiceMode": "啟動語音模式",
+    "tooltip": "用語音模式開口交談"
   },
   "liveVoiceStatus": {
     "connecting": "正在連線…",
@@ -854,7 +909,8 @@
     "muted": "已靜音",
     "reconnecting": "正在重新連線…",
     "speaking": "正在說話…",
-    "thinking": "正在思考…"
+    "thinking": "正在思考…",
+    "askUnsupported": "該助手尚不支援以此種方式提問。請更新後重試。"
   },
   "llmCallErrorCard": {
     "chipCode": "程式碼",
@@ -1674,7 +1730,8 @@
     "seed": "嗨，我剛與您開始語音對話。此訊息為自動傳送。請用一句簡短的話向我打招呼，然後問我想做什麼。"
   },
   "voiceErrors": {
-    "nativeSttNoTranscript": "{clientName} 原生聽寫未傳回文字記錄。請檢查系統設定中的原生語音辨識，然後再試一次。"
+    "nativeSttNoTranscript": "{clientName} 原生聽寫未傳回文字記錄。請檢查系統設定中的原生語音辨識，然後再試一次。",
+    "askUnavailable": "助手目前無法接收語音提問。"
   },
   "voiceFirstRunCard": {
     "backAria": "返回",
@@ -1727,6 +1784,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "已靜音"
+  },
+  "wakeCard": {
+    "commandFinished": "背景指令已完成",
+    "incomingEvent": "收到事件",
+    "memoryReview": "記憶回顧",
+    "ranOnItsOwn": "自動執行",
+    "resumed": "中斷後已恢復",
+    "scheduledRun": "排程執行",
+    "watchReview": "觀察工作階段回顧",
+    "workflowFinished": "工作流程已完成"
+  },
+  "wakeDetailPanel": {
+    "close": "關閉",
+    "details": "詳細資料",
+    "result": "結果",
+    "runStatus": "執行狀態",
+    "title": "對話已喚醒",
+    "workflow": "工作流程"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -1798,7 +1873,23 @@
     "doneDiscarded": "未儲存",
     "doneNotRight": "已標記為有誤",
     "doneSaved": "技能已儲存",
-    "recommended": "推薦"
+    "recommended": "推薦",
+    "back": "上一步",
+    "dontSave": "不儲存",
+    "looksRight": "確認無誤",
+    "next": "下一步",
+    "save": "儲存技能",
+    "skip": "略過",
+    "somethingOff": "有地方不對",
+    "stepCount": "{count, plural, one {# 個步驟} other {# 個步驟}}",
+    "stepQuestion": "問題 {number}",
+    "stepRecap": "回顧",
+    "stepSummary": "儲存",
+    "summarySay": "提示詞",
+    "summarySteps": "步驟",
+    "summaryTitle": "已準備好儲存",
+    "summaryUnanswered": "未設定",
+    "untitledTask": "觀察到的操作"
   },
   "restoreManagedCredentialButton": {
     "restore": "復原存取",
@@ -1809,5 +1900,9 @@
     "failedReplacementRejected": "Vellum 拒絕了新的憑證。請登入 Vellum 平台後再試一次。",
     "failedUnconfirmed": "新憑證已儲存，但無法向 Vellum 確認。它可能很快就會生效。",
     "failedGeneric": "無法復原存取。請稍後再試。"
+  },
+  "assistantSection": {
+    "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
+    "emptyTitle": "目前還沒有任何想法。"
   }
 }

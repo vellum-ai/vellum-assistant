@@ -61,6 +61,8 @@ const importBackgroundTaskDetailPanel = () =>
   import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
+const importWakeDetailPanel = () =>
+  import("@/domains/chat/components/wake-detail-panel");
 const importChannelTranscriptPanel = () =>
   import("@/domains/chat/channel-sidecar/channel-transcript-panel");
 
@@ -89,6 +91,9 @@ const BackgroundTaskDetailPanel = lazy(() =>
 );
 const SkillDetailPanel = lazy(() =>
   importSkillDetailPanel().then((m) => ({ default: m.SkillDetailPanel })),
+);
+const WakeDetailPanel = lazy(() =>
+  importWakeDetailPanel().then((m) => ({ default: m.WakeDetailPanel })),
 );
 const ChannelTranscriptPanel = lazy(() =>
   importChannelTranscriptPanel().then((m) => ({
@@ -134,6 +139,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
   );
   const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
+  const activeWakeDetail = useViewerStore.use.activeWakeDetail();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
   const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
 
@@ -240,6 +246,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   const onCloseSkillDetail = useCallback(() => {
     useViewerStore.getState().closeSkillDetail();
+  }, []);
+
+  const onCloseWakeDetail = useCallback(() => {
+    useViewerStore.getState().closeWakeDetail();
   }, []);
 
   const onCloseChannelSetup = useCallback(() => {
@@ -352,6 +362,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       importWorkflowDetailPanel().catch(() => {});
       importBackgroundTaskDetailPanel().catch(() => {});
       importSkillDetailPanel().catch(() => {});
+      importWakeDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -614,6 +625,15 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           <SkillDetailPanel
             skillId={activeSkillDetailId}
             onClose={onCloseSkillDetail}
+          />
+        </LazyBoundary>
+      );
+    } else if (mainView === "wake-detail" && activeWakeDetail) {
+      rightPanel = (
+        <LazyBoundary>
+          <WakeDetailPanel
+            payload={activeWakeDetail}
+            onClose={onCloseWakeDetail}
           />
         </LazyBoundary>
       );
