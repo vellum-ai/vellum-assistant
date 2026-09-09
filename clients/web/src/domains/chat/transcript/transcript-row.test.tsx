@@ -100,6 +100,14 @@ describe("TranscriptRow reaction dispatch", () => {
     expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
     expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
     expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
+    expect(
+      displayReactionEmoji("thumbsup::skin-tone-3", (name) =>
+        name === "thumbsup::skin-tone-3" ? "👍🏼" : undefined,
+      ),
+    ).toBe("👍🏼");
+    expect(displayReactionEmoji("thumbsup::skin-tone-3", () => undefined)).toBe(
+      ":thumbsup::skin-tone-3:",
+    );
   });
 });
 

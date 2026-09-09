@@ -1,7 +1,7 @@
 /**
- * Public API for the emoji autocomplete popup. The actual catalog (~150 kB of
- * data) lives in `emoji-catalog-data.ts` and is loaded on first use via the
- * `useEmojiSearch` hook so it stays out of the initial bundle.
+ * Public API for the emoji autocomplete popup and the reaction lines. The
+ * catalog is built from the emojibase dataset in `emoji-catalog-data.ts` and
+ * loaded on first use, so the dataset stays out of the initial bundle.
  *
  * Re-exports the `EmojiEntry` type from the data module so consumers don't
  * have to know about the split.
@@ -42,10 +42,7 @@ function loadEmojiCatalog(): Promise<void> {
   }
   loadPromise = import("./emoji-catalog-data").then((m) => {
     cachedSearch = m.searchEmoji;
-    const shortcodeMap = new Map(
-      m.EMOJI_CATALOG.map((e) => [e.shortcode, e.emoji]),
-    );
-    cachedLookup = (sc: string) => shortcodeMap.get(sc);
+    cachedLookup = m.lookupEmoji;
   });
   return loadPromise;
 }
@@ -82,9 +79,9 @@ export function useEmojiSearch(): SearchFn {
 const noopLookup: LookupFn = () => undefined;
 
 /**
- * Returns a shortcode→emoji lookup function. Lazy-loads the catalog on
- * first mount; returns a no-op until loaded (callers should fall back to
- * `:shortcode:` rendering).
+ * Returns a lookup from a Slack emoji name (skin tone suffix included) to its
+ * character. Lazy-loads the catalog on first mount; returns a no-op until
+ * loaded (callers should fall back to `:shortcode:` rendering).
  */
 export function useEmojiLookup(): LookupFn {
   const [lookup, setLookup] = useState<LookupFn>(

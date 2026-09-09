@@ -567,8 +567,9 @@ export function SlackMessageAttribution({
  */
 /**
  * Display form of a reaction emoji, shared by every reaction line. A unicode
- * emoji renders as itself; a shortcode resolves through the catalog with the
- * ":shortcode:" fallback while it lazy-loads. A custom-emoji mention form
+ * emoji renders as itself; a Slack name, skin tone suffix included, resolves
+ * through the catalog with the ":shortcode:" fallback while it lazy-loads
+ * and for a workspace's custom emoji. A custom-emoji mention form
  * (Discord's `<:name:id>`) renders as its bare ":name:" and never consults
  * the catalog: custom names are arbitrary guild identities, and a name that
  * collides with a catalog shortcode must not swap into the unrelated
@@ -582,7 +583,7 @@ export function displayReactionEmoji(
   if (customMention) {
     return `:${customMention[1]!}:`;
   }
-  if (/^[\w+'-]+$/.test(raw)) {
+  if (/^[\w+'-]+(::skin-tone-[2-6])?$/.test(raw)) {
     return lookup(raw) ?? `:${raw}:`;
   }
   return raw;
