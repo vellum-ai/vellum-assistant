@@ -455,7 +455,7 @@ describe("startCall — pointer message regression", () => {
   });
 });
 
-describe("startCall — a stopped turn never dials", () => {
+describe("startCall: a stopped turn never dials", () => {
   test("an already-cancelled turn creates no session and places no call", async () => {
     const convId = "conv-domain-abort-before-setup";
     ensureConversation(convId);

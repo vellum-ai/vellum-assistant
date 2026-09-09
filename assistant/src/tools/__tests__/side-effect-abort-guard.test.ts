@@ -19,8 +19,9 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
  *
  * Read-only tools are out of scope, and so are the teardown calls
  * (`app_control_stop`, `computer_use_done`, `ui_dismiss`, `acp_abort`,
- * `subagent_abort`, `call_end`) whose whole purpose is to stop something:
- * refusing those on a cancelled turn would strand the session they close.
+ * `subagent_abort`, `call_end`, `screen_clear_marks`) whose whole purpose is
+ * to stop something: refusing those on a cancelled turn would strand the
+ * session they close, or the marks they take down.
  */
 
 const ABORT_REASON = createAbortReason(
@@ -287,6 +288,8 @@ const SKILL_TOOLS: GuardedTool[] = [
     input: { pane: "microphone", platform: "macos" },
   },
   { name: "navigate_settings_tab", input: { tab: "General" } },
+
+  proxied("screen_point_at"),
 
   {
     name: "scaffold_managed_skill",
