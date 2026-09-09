@@ -1121,6 +1121,16 @@ export class SubagentManager {
       }
     } finally {
       this.clearRuntimeBudget(managed);
+      // A run already terminal by the time the loop unwound had its record
+      // written from inside `abort`, which fires from a timer or an event tap
+      // while the loop is still awaited: the final turn's tokens had not been
+      // accrued yet, so the row holds pre-settlement usage (often zero). The
+      // try and catch above both refresh `state.usage` from the conversation
+      // before this runs, so persisting here is what puts the settled numbers
+      // on disk. The completion and failure paths rewrite what they just wrote.
+      if (TERMINAL_STATUSES.has(managed.state.status)) {
+        this.persistState(managed.state);
+      }
       // A budget stop aborts the child from a timer or an event tap, with
       // `runAgentLoop` still awaited above. Its notification waits until here,
       // where the loop has unwound and the final flush is on disk, so the

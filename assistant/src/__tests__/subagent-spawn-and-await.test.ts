@@ -53,6 +53,17 @@ interface FakeConversationConfig {
    * itself cannot see it and one sent from the run's teardown can.
    */
   flushOnAbort?: string;
+  /**
+   * Usage the conversation accrues as the run unwinds, modelling the final LLM
+   * turn's accounting landing after a budget stop has already raised the abort.
+   * Applied inside `runAgentLoop`, so a manager that snapshots usage from the
+   * synchronous abort path sees the pre-settlement numbers instead.
+   */
+  settledUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  };
 }
 
 /** Ordered record of the flush and the parent injection, for the budget tests. */
@@ -158,6 +169,9 @@ class FakeConversation {
           this.resolveAbort = resolve;
         });
       }
+      if (this.cfg.settledUsage) {
+        this.usageStats = { ...this.cfg.settledUsage };
+      }
       if (this.cfg.resolveOnAbort) {
         return;
       }
@@ -187,6 +201,41 @@ class FakeConversation {
 mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
+
+/** Durable rows the manager wrote, newest last. */
+const persistedRecords: {
+  id: string;
+  status: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}[] = [];
+
+mock.module("../persistence/subagent-store.js", () => ({
+  upsertSubagentRecord: (record: {
+    id: string;
+    status: string;
+    inputTokens: number;
+    outputTokens: number;
+    estimatedCost: number;
+  }) => {
+    persistedRecords.push({
+      id: record.id,
+      status: record.status,
+      inputTokens: record.inputTokens,
+      outputTokens: record.outputTokens,
+      estimatedCost: record.estimatedCost,
+    });
+  },
+  deleteAllSubagentRecords: () => {},
+  deleteSubagentRecordsByParent: () => {},
+  loadRehydratableSubagentRecords: () => [],
+}));
+
+/** The last row written for `subagentId`, which is what a reader would find. */
+function lastPersisted(subagentId: string) {
+  return [...persistedRecords].reverse().find((r) => r.id === subagentId);
+}
 
 /**
  * When set, `bootstrapConversation` awaits this before resolving. Lets a test
@@ -805,6 +854,45 @@ describe("SubagentManager run budgets", () => {
     clearConversations();
     bootstrapGate = undefined;
     teardownOrder = [];
+    persistedRecords.length = 0;
+  });
+
+  test("a budget stop persists the usage the run settled on", async () => {
+    // The stop aborts the child from a timer while `runAgentLoop` is still
+    // awaited, so the record written there carries the tokens spent so far.
+    // The final turn's accounting lands as the loop unwinds; without a second
+    // write the durable row keeps the pre-settlement numbers and the stopped
+    // child's cost is undercounted forever.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      settledUsage: {
+        inputTokens: 900,
+        outputTokens: 400,
+        estimatedCost: 0.42,
+      },
+    };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const row = lastPersisted(subagentId);
+    expect(row?.status).toBe("aborted");
+    expect(row).toMatchObject({
+      inputTokens: 900,
+      outputTokens: 400,
+      estimatedCost: 0.42,
+    });
+    // The in-memory state and the durable row agree, so a reader gets the
+    // same numbers either way.
+    expect(manager.getState(subagentId)?.usage).toEqual({
+      inputTokens: 900,
+      outputTokens: 400,
+      estimatedCost: 0.42,
+    });
+    clearConversations();
   });
 
   test("a child that outlives maxRuntimeMs is stopped and the parent told", async () => {
