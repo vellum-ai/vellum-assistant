@@ -15,6 +15,10 @@ import {
   keepFileAsWorkspaceRef,
 } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
+import {
+  GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE,
+  isGemini3Model,
+} from "../gemini-thought-signature.js";
 import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
@@ -44,13 +48,6 @@ import {
  */
 const GEMINI_CONTEXT_OVERFLOW_TOKEN_PATTERNS =
   /token.?count.*exceeds|exceeds.*maximum.*tokens|prompt.?is.?too.?long|too.?many.?(?:input.?)?tokens|input.?too.?long|context.?length.?exceeded/i;
-
-const GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE =
-  "context_engineering_is_the_way_to_go";
-
-function isGemini3Model(model: string): boolean {
-  return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
-}
 
 const THINKING_LEVEL_BY_NAME: Record<ThinkingLevelName, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
@@ -435,7 +432,8 @@ export class GeminiProvider implements Provider {
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
     const activeModel = modelOverride ?? this.model;
     const thinkingConfig = geminiModelSupportsThinking(activeModel)
       ? buildThinkingConfig(

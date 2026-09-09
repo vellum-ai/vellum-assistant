@@ -52,6 +52,16 @@ import {
   decodeCoercedObjectArgs,
 } from "./coerce-object-args.js";
 import {
+  applyGemini3UnsignedToolCallFallback,
+  assistantToolCallsNeedThoughtSignatureBackfill,
+  attachGoogleThoughtSignature,
+  backfillUnsignedGoogleThoughtSignatures,
+  googleThoughtSignatureFromUnknown,
+  type GoogleToolCallExtraContent,
+  messagesCarryGoogleThoughtSignature,
+  stripGoogleThoughtSignatures,
+} from "./google-thought-signature.js";
+import {
   isOpenAICompatInlineAudio,
   OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES,
   openAIInputAudioFormat,
@@ -204,7 +214,13 @@ const log = getLogger("chat-completions");
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
  *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
  *  `params.reasoning_effort` casts through this union. */
-export type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffortWire =
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 const REASONING_EFFORT_RANK: Record<ReasoningEffortWire, number> = {
   none: 0,
@@ -566,6 +582,50 @@ function isUnknownAssistantReasoningFieldRejection(
   );
 }
 
+/**
+ * True when thinking-enabled Gemini (via an OpenAI-compatible gateway)
+ * rejected the follow-up because assistant tool_calls omitted
+ * extra_content.google.thought_signature. One retry attaches the documented
+ * dummy signature to unsigned tool_calls so unsigned history can proceed.
+ */
+function isMissingThoughtSignatureRejection(
+  error: unknown,
+  params: unknown,
+): boolean {
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  if (!assistantToolCallsNeedThoughtSignatureBackfill(params)) {
+    return false;
+  }
+  const haystack = openaiCompatErrorHaystack(error);
+  return /thought[_\s-]?signature/i.test(haystack);
+}
+
+/**
+ * True when the request included tool_call extra_content and the provider
+ * rejected it as an unknown property. One retry without those extras lets a
+ * strict Chat Completions schema succeed.
+ */
+function isUnknownExtraContentRejection(
+  error: unknown,
+  params: unknown,
+): boolean {
+  if (!isClientErrorStatus(error)) {
+    return false;
+  }
+  if (!messagesCarryGoogleThoughtSignature(params)) {
+    return false;
+  }
+  const haystack = openaiCompatErrorHaystack(error);
+  if (!/extra_content/i.test(haystack)) {
+    return false;
+  }
+  return /unknown|unexpected|unrecognized|additional propert|extra (?:field|property)|not (?:a )?valid|invalid (?:argument|parameter|field|property)/i.test(
+    haystack,
+  );
+}
+
 function isTextualContentPart(part: { type: string }): boolean {
   return part.type === "text" || part.type === "refusal";
 }
@@ -778,6 +838,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         messages,
         systemPrompt,
         requestSupportsInlineAudio(modelOverride ?? this.model),
+        modelOverride ?? this.model,
       );
 
       recordProviderRequestDiagnostics({
@@ -973,7 +1034,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       const toolCallMap = new Map<
         number,
-        { id: string; name: string; args: string }
+        { id: string; name: string; args: string; thoughtSignature?: string }
       >();
       const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
@@ -1049,6 +1110,28 @@ export class OpenAIChatCompletionsProvider implements Provider {
               "Upstream rejected assistant reasoning field; retrying without it",
             );
             stripAssistantReasoningFields(params);
+            stream = await createStream();
+          } else if (isMissingThoughtSignatureRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream requires thought signature round-trip; retrying with dummy signature on unsigned tool_calls",
+            );
+            backfillUnsignedGoogleThoughtSignatures(params);
+            stream = await createStream();
+          } else if (isUnknownExtraContentRejection(error, params)) {
+            log.warn(
+              {
+                provider: this.name,
+                model: modelOverride ?? this.model,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              "Upstream rejected tool_call extra_content; retrying without it",
+            );
+            stripGoogleThoughtSignatures(params);
             stream = await createStream();
           } else if (isChatTemplateRejection(error, params)) {
             log.warn(
@@ -1149,6 +1232,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
                     entry.name,
                     entry.args,
                   );
+                }
+                const thoughtSignature = googleThoughtSignatureFromUnknown(tc);
+                if (thoughtSignature && !entry.thoughtSignature) {
+                  entry.thoughtSignature = thoughtSignature;
                 }
               }
             }
@@ -1271,6 +1358,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
           id: tc.id,
           name: tc.name,
           input,
+          ...(tc.thoughtSignature
+            ? {
+                providerMetadata: {
+                  gemini: { thoughtSignature: tc.thoughtSignature },
+                },
+              }
+            : {}),
         });
       }
 
@@ -1284,11 +1378,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
               content: contentText || null,
               tool_calls:
                 toolCallMap.size > 0
-                  ? Array.from(toolCallMap.values()).map((tc) => ({
-                      id: tc.id,
-                      type: "function",
-                      function: { name: tc.name, arguments: tc.args },
-                    }))
+                  ? Array.from(toolCallMap.values()).map((tc) =>
+                      attachGoogleThoughtSignature(
+                        {
+                          id: tc.id,
+                          type: "function",
+                          function: { name: tc.name, arguments: tc.args },
+                        },
+                        tc.thoughtSignature,
+                      ),
+                    )
                   : undefined,
             },
             finish_reason: finishReason,
@@ -1492,6 +1591,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     messages: Message[],
     systemPrompt?: string,
     audioInputEnabled = false,
+    model = this.model,
   ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
@@ -1513,7 +1613,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const emittedToolCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant") {
-        const assistantMessage = this.toOpenAIAssistantMessage(msg);
+        const assistantMessage = this.toOpenAIAssistantMessage(msg, model);
         for (const toolCall of assistantMessage.tool_calls ?? []) {
           emittedToolCallIds.add(toolCall.id);
         }
@@ -1591,11 +1691,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
   /** Convert an assistant message with text + tool_use blocks to OpenAI format. */
   private toOpenAIAssistantMessage(
     msg: Message,
+    model: string,
   ): OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam {
     const textParts: string[] = [];
     const reasoningParts: string[] = [];
-    const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] =
-      [];
+    const toolCalls: Array<
+      OpenAI.Chat.Completions.ChatCompletionMessageToolCall &
+        GoogleToolCallExtraContent
+    > = [];
 
     for (const block of msg.content) {
       switch (block.type) {
@@ -1609,14 +1712,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
           }
           break;
         case "tool_use":
-          toolCalls.push({
-            id: block.id,
-            type: "function",
-            function: {
-              name: block.name,
-              arguments: JSON.stringify(block.input),
-            },
-          });
+          toolCalls.push(
+            attachGoogleThoughtSignature(
+              {
+                id: block.id,
+                type: "function",
+                function: {
+                  name: block.name,
+                  arguments: JSON.stringify(block.input),
+                },
+              },
+              block.providerMetadata?.gemini?.thoughtSignature,
+            ),
+          );
           break;
         case "server_tool_use":
           textParts.push(`[Web search: ${block.name}]`);
@@ -1635,6 +1743,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       };
 
     if (toolCalls.length > 0) {
+      applyGemini3UnsignedToolCallFallback(toolCalls, model);
       result.tool_calls = toolCalls;
     }
 
