@@ -19,6 +19,12 @@ export interface OAuthConnectionRequest {
   baseUrl?: string;
   /** Optional abort signal to cancel the request. */
   signal?: AbortSignal;
+  /**
+   * When true the connection returns the response body as raw bytes with no
+   * JSON parsing, for callers that must preserve the provider's exact payload.
+   * Mirrors `RouteDefinition.rawRequestBody` on the inbound side.
+   */
+  rawResponseBody?: boolean;
 }
 
 export interface OAuthConnectionResponse {

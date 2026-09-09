@@ -21,6 +21,7 @@ import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ForbiddenError,
+  HttpTransportRequiredError,
   MethodNotAllowedError,
   NotFoundError,
 } from "./errors.js";
@@ -49,11 +50,12 @@ export async function handleOAuthProxy(
   method: string,
   args: RouteHandlerArgs,
 ): Promise<RouteResponse> {
-  // Only the HTTP adapter supplies the wire-exact URL this route forwards,
-  // so an IPC invocation is rejected before anything reaches the provider.
+  // Only the HTTP adapter supplies the wire-exact URL this route forwards. The
+  // refusal carries the gateway's retry-over-HTTP signal and precedes every
+  // provider call, so the retry reaches upstream exactly once.
   if (!args.rawUrl) {
-    throw new BadRequestError(
-      "The OAuth proxy is served over HTTP only; use assistant oauth request over IPC",
+    throw new HttpTransportRequiredError(
+      "The OAuth proxy is served over HTTP only; retry this request over the HTTP transport",
     );
   }
 
@@ -123,6 +125,9 @@ export async function handleOAuthProxy(
       headers,
       body,
       signal: args.abortSignal,
+      // Byte-exact passthrough. Honored by BYO connections; a managed
+      // connection is parsed platform-side and cannot offer it.
+      rawResponseBody: true,
     });
   } catch (err) {
     throw mapProxyRequestError(err, provider);

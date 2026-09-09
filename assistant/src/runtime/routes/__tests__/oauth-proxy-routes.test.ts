@@ -16,6 +16,7 @@ import type {
   OAuthConnectionRequest,
   OAuthConnectionResponse,
 } from "../../../oauth/connection.js";
+import { decodeOAuthResponseBytes } from "../../../oauth/connection.js";
 import {
   CredentialRequiredError,
   InsufficientBalanceError,
@@ -31,6 +32,7 @@ import type { RouteHandlerArgs } from "../types.js";
 
 let captured: OAuthConnectionRequest | undefined;
 let upstream: OAuthConnectionResponse;
+let upstreamBytes: Buffer | undefined;
 let requestError: unknown;
 
 async function serve(
@@ -39,6 +41,19 @@ async function serve(
   captured = req;
   if (requestError) {
     throw requestError;
+  }
+  if (upstreamBytes) {
+    // Same branch `BYOOAuthConnection.buildResponse` takes: raw bytes only
+    // when the caller asked for them, otherwise the decoded value.
+    return {
+      ...upstream,
+      body: req.rawResponseBody
+        ? upstreamBytes
+        : decodeOAuthResponseBytes(
+            upstreamBytes,
+            upstream.headers["content-type"] ?? "",
+          ),
+    };
   }
   return upstream;
 }
@@ -210,6 +225,7 @@ function requireCaptured(): OAuthConnectionRequest {
 
 beforeEach(() => {
   captured = undefined;
+  upstreamBytes = undefined;
   requestError = undefined;
   resolverError = undefined;
   resolverCalls.length = 0;
@@ -426,6 +442,27 @@ describe("response emission", () => {
     );
   });
 
+  test("round-trips a BYO JSON payload byte for byte", async () => {
+    // Whitespace, a repeated key, and an integer past 2^53: all three are lost
+    // or corrupted by a JSON.parse/JSON.stringify round trip.
+    const raw = Buffer.from(
+      '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+      "utf8",
+    );
+    upstreamBytes = raw;
+    upstream = {
+      status: 200,
+      headers: { "content-type": "application/json" },
+      body: null,
+    };
+
+    const response = await callProxy({});
+
+    expect(requireCaptured().rawResponseBody).toBe(true);
+    const emitted = Buffer.from(await response.arrayBuffer());
+    expect(emitted.equals(raw)).toBe(true);
+  });
+
   test("emits a string body as UTF-8", async () => {
     upstream = {
       status: 200,
@@ -562,16 +599,22 @@ describe("path safety", () => {
     expect(resolverCalls).toHaveLength(0);
   });
 
-  test("an IPC invocation never reaches the provider", async () => {
+  test("an IPC invocation never reaches the provider and asks for HTTP", async () => {
     const args: RouteHandlerArgs = {
       pathParams: { provider: "stripe_link" },
       headers: { "x-vellum-subject": SUBJECT },
     };
 
+    // The gateway's IPC proxy reads this code as "retry over HTTP", so the
+    // caller is served rather than hard-failed.
     await expect(
       Promise.resolve(ROUTES[0].handler(args)),
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({
+      statusCode: 421,
+      code: "BINARY_UNSUPPORTED_OVER_IPC",
+    });
     expect(resolverCalls).toHaveLength(0);
+    expect(captured).toBeUndefined();
   });
 });
 
