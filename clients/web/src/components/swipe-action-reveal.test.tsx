@@ -131,7 +131,7 @@ describe("SwipeActionReveal", () => {
     expect(html).not.toContain("--surface-overlay");
   });
 
-  test("clips in its own shape, one box inside the root, and paints nothing", () => {
+  test("clips in its own shape, one box inside the root; only the item box paints, and only the host's surface", () => {
     const html = renderToStaticMarkup(
       <SwipeActionReveal enabled={true} trailingActions={[noopAction]}>
         <div data-testid="content">Row content</div>
@@ -140,19 +140,26 @@ describe("SwipeActionReveal", () => {
 
     // What slides past the item's edge is cut there, in the root's shape. The
     // clip is not on the root itself: the root is the box a list lays out, and
-    // one that clips gives up its content-sized minimum. Nothing between the
-    // root and the item paints a fill, which would band a `w-fit` item.
+    // one that clips gives up its content-sized minimum. The item box is
+    // backed with the surface its host names and nothing else: a fill of any
+    // other kind, or on any other box, is the band behind a `w-fit` item.
     const host = document.createElement("div");
     host.innerHTML = html;
     const root = host.firstElementChild!;
+    const item = host.querySelector('[data-testid="content"]')!.parentElement!;
+    expect(item.className).toContain(
+      "bg-[var(--swipe-item-surface,transparent)]",
+    );
     const clips: Element[] = [];
-    let node = host.querySelector('[data-testid="content"]')!.parentElement;
+    let node: Element | null = item;
     while (node && node !== root.parentElement) {
       if (node.className.includes("overflow-hidden")) {
         clips.push(node);
       }
-      expect(node.className).not.toMatch(/(^|\s)bg-/);
-      expect(node.style.background).toBe("");
+      if (node !== item) {
+        expect(node.className).not.toMatch(/(^|\s)bg-/);
+      }
+      expect((node as HTMLElement).style.background).toBe("");
       node = node.parentElement;
     }
     expect(clips).toHaveLength(1);

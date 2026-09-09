@@ -1456,11 +1456,12 @@ describe("AssistantSideMenu · section spacing", () => {
 });
 
 describe("AssistantSideMenu · section card surface", () => {
-  /* A row swiped aside is an opaque cell sliding off the action behind it,
-     and the card is what knows its own colour, so the card names the surface
-     its rows paint. The swipe wrapper itself paints nothing, which is what
-     keeps the pills standing beside these cards free of a band (LUM-3518). */
-  test("every section card names the surface its rows paint", () => {
+  /* A row swiped aside is an opaque cell sliding off the action behind it.
+     The swipe wrapper backs the row with the surface its host names, and the
+     card is what knows its own colour, so the card names it. Nothing paints
+     wider than an item, which is what keeps the pills standing beside these
+     cards free of a band (LUM-3518). */
+  test("every section card names the surface its rows sit on", () => {
     const container = parse(
       renderMenu({
         conversations: LAYOUT_CONVERSATIONS,
@@ -1472,7 +1473,7 @@ describe("AssistantSideMenu · section card surface", () => {
     expect(cards).toHaveLength(4);
     for (const card of cards) {
       expect(card.className).toContain(
-        "[--conversation-row-surface:var(--surface-lift)]",
+        "[--swipe-item-surface:var(--surface-lift)]",
       );
       expect(card.className).not.toContain("--swipe-reveal-bg");
     }

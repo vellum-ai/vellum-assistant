@@ -148,11 +148,13 @@ export interface SwipeActionRevealProps extends ComponentPropsWithoutRef<"div"> 
  * the layer on top and slides toward the swiped edge in a `translateX()`. The
  * layers show for the gesture and the slide back and are hidden at rest, the
  * way a list cell adds its action view for a swipe and removes it once the
- * cell has settled. The item has to paint its own surface, since that is what
- * covers the action layer as it slides: a pill does already, and a row on a
- * card paints the card's colour so it reads as transparent until it moves.
- * The root takes the caller's shape (`w-fit rounded-full` for a pill,
- * `rounded-[6px]` for a row).
+ * cell has settled. The item has to be opaque, since it is what covers the
+ * action layer as it slides. A pill paints itself; a list row is transparent,
+ * so the item box paints `--swipe-item-surface`, which the host declares as
+ * the colour its rows sit on (a section card, the notifications list, the
+ * library grid). Undeclared it is transparent, and the layer shows through
+ * the item while it slides. The root takes the caller's shape (`w-fit
+ * rounded-full` for a pill, `rounded-[6px]` for a row).
  *
  * Both sit in a clip box the root's shape, so what slides past the item's
  * edge is cut there, rounded as the item is, the way a cell clips the content
@@ -282,7 +284,7 @@ export const SwipeActionReveal = forwardRef<
         ) : null}
         <div
           className={cn(
-            "relative transition-transform",
+            "relative bg-[var(--swipe-item-surface,transparent)] transition-transform",
             isDragging && "transition-none",
           )}
           style={{ transform: `translateX(${offset}px)` }}

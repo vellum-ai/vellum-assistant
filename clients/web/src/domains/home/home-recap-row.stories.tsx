@@ -38,7 +38,10 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className="max-w-2xl">
+      /* The surface the row's real host, the notifications list, names for
+         the swipe wrapper to back the row with; without it a swiped row shows
+         the action behind it through. */
+      <div className="max-w-2xl [--swipe-item-surface:var(--surface-base)]">
         <Story />
       </div>
     ),

@@ -75,7 +75,11 @@ export function NotificationsBellList({
       onScroll={onScroll}
       data-testid="notifications-bell-list"
       style={{ maxHeight }}
-      className="flex flex-col gap-[var(--app-spacing-md)] overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)]"
+      // The colour the rows sit on: the sheet and the popover that hold this
+      // list both paint `--surface-lift`. A row is transparent, and the swipe
+      // wrapper backs it with this so a swiped row covers the action behind
+      // it instead of showing it through.
+      className="flex flex-col gap-[var(--app-spacing-md)] overflow-y-auto px-[var(--app-spacing-lg)] pt-[var(--app-spacing-lg)] [--swipe-item-surface:var(--surface-lift)]"
     >
       {/* The rule between rows lives here rather than on the row, so the
           last row can drop it: the panel's footer draws its own rule right
