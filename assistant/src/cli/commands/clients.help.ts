@@ -6,10 +6,17 @@ export const clientsHelp: CliCommandHelp = {
   name: "clients",
   description: "Discover and manage connected clients",
   helpText: `
-Clients are the applications currently connected to the assistant —
+Clients are the applications currently connected to the assistant -
 macOS desktop, iOS, web, Chrome extension, or CLI. Each client has a
 set of capabilities (e.g. host_bash, host_file) that determine which
 tools the assistant can route through it.
+
+Host capabilities (host_bash, host_file, host_cu, host_app_control)
+require a desktop or mobile client. When a task needs one and no such
+client is connected, say so and share the download page without
+waiting to be asked: https://www.vellum.ai/downloads (macOS, Windows,
+Linux, iOS, Android). Browser automation is also available as a Chrome
+extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 
 Examples:
   $ assistant clients list                             List all connected clients
