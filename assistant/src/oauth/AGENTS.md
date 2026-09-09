@@ -59,3 +59,70 @@ The following are wired automatically once `PROVIDER_SEED_DATA` has an entry:
 - **Gateway proxy** (`gateway/src/http/routes/oauth-providers-proxy.ts`) — forwards to the runtime.
 - **OAuth store** (`oauth-store.ts`) — seeding uses upsert; schema already supports arbitrary providers.
 - **Provider serialization** (`provider-serializer.ts`) — generic over all providers.
+- **Passthrough proxy** (`../runtime/routes/oauth-proxy-routes.ts`): resolves any seeded or registered provider, so a new provider needs no proxy-specific work.
+
+## Passthrough Proxy for Third-Party CLIs
+
+A stock third-party CLI reaches a provider's API through the daemon without ever seeing the provider credential. It points its API base at the proxy and sends a short-lived grant as its bearer token; the proxy strips that grant, substitutes the resolved connection's credential, and forwards the request.
+
+### Route
+
+`oauth/proxy/:provider/:path*` (`../runtime/routes/oauth-proxy-routes.ts`), registered once per forwarded method (GET, POST, PUT, PATCH, DELETE, HEAD) under operation IDs `oauth_proxy_get`, `oauth_proxy_post`, and so on. OPTIONS is absent: a CORS preflight has no meaning for a CLI calling a loopback daemon. Every registration requires the `oauth.proxy` scope and a local principal.
+
+Only the HTTP adapter supplies the wire-exact URL the route forwards, so an IPC dispatch throws `HttpTransportRequiredError` (421, `BINARY_UNSUPPORTED_OVER_IPC`). That is the gateway's existing retry signal: its IPC proxy falls through to the HTTP proxy, so the caller is served rather than failed. The refusal precedes the provider lookup and the resolution, so upstream still runs exactly once.
+
+Wire semantics live in `../runtime/routes/oauth-proxy-passthrough.ts`. The remainder path reaches the provider as the caller wrote it: `.` and `..` collapse, an absolute URL, `//host`, or an empty segment is a 400, and no segment is decoded or re-encoded, so a `%2F` survives. No `baseUrl` is passed to the connection, so its own API base is the only host ever targeted.
+
+### Provider segment
+
+The first segment is `provider` or `provider@account`, the account pinning one connection when a provider has several. `encodeProxyProviderSegment` refuses a provider key that is empty or holds `@`, `/`, or `:`: the first two would parse back as a different provider, and a `:` would split the grant subject into a fourth component that no subject parser accepts, yielding a grant that could never verify. Accounts are percent-encoded for the same reason. When several accounts are connected and none is pinned, both the mint and the proxy answer 409 naming the accounts and an example segment.
+
+### Grant
+
+`oauth/proxy-grant` (`oauth_proxy_grant`, `../runtime/routes/oauth-proxy-grant-routes.ts`) requires `settings.write` and a local principal. It resolves the connection first, then mints a token with the subject `local:self:oauth-proxy.<segment>` and the `oauth_proxy_v1` profile, whose only scope is `oauth.proxy`. TTL is 60 to 3600 seconds, 900 by default.
+
+The proxy re-derives that subject from the segment on the request and compares it against the verified `x-vellum-subject` before anything else runs:
+
+- Unpinned grant, bare provider segment: allowed.
+- Grant pinned to an account, that account's segment: allowed.
+- Pinned grant, a different account or the bare segment: 403.
+- Unpinned grant, any account segment: 403.
+
+A grant is pinned when the caller passed `--account` or the resolved connection carries an `accountInfo`. An unpinned grant is therefore bound to the provider, not to the connection row it was minted against: revoke that connection and replace it inside the grant's lifetime and the grant reaches the replacement. That is accepted, given the TTL.
+
+### CLI
+
+`assistant oauth proxy-url <provider>` mints a grant and prints it as JSON, or with `--export` as `export` lines for `eval`: `VELLUM_OAUTH_PROXY_BASE_URL`, `VELLUM_OAUTH_PROXY_TOKEN`, `VELLUM_OAUTH_PROXY_EXPIRES_AT`, and `VELLUM_OAUTH_PROXY_ACCOUNT` when the grant pinned one. The names are provider-neutral by design; the calling skill or wrapper maps them onto whatever its CLI reads (the command's help shows the Link example). The command is `medium` risk in the gateway's bash command registry (`gateway/src/risk/command-registry/commands/assistant.ts`).
+
+### Byte fidelity and managed-mode limits
+
+The route asks each connection for `rawResponseBody: true` and `manualRedirect: true`.
+
+A BYO connection honors both. The provider's bytes come back untouched, and a 3xx is returned verbatim with its `Location` intact instead of being followed: following it would replay a POST upstream as a GET the caller never asked for and hide the 3xx from the client whose job it is to handle it.
+
+A managed connection cannot honor `rawResponseBody`, because the platform proxy parses the response server-side. A managed JSON response is therefore parsed and re-serialized, which drops duplicate keys and rounds integers past `Number.MAX_SAFE_INTEGER`. Managed mode inherits the platform proxy's other limits too:
+
+- Request headers are narrowed to `content-type`, `accept`, `user-agent`, and `x-request-id`, plus the provider's configured defaults.
+- HEAD is not forwarded; the route answers 405 before calling a managed connection.
+- Response headers are narrowed to `Content-Type`, `X-Rate-Limit-Remaining`, and `X-Rate-Limit-Reset`.
+- Request and response bodies are size-capped platform-side.
+
+These are known limits: the proxy is byte-exact on BYO connections only. `stripe_link`, the connection it was built for, is managed.
+
+### Security invariants
+
+- The caller's `authorization` never reaches the provider. `sanitizeInboundHeaders` also drops proxy-auth, hop-by-hop framing, `host`, `cookie`, `accept-encoding`, forwarding hints, every `x-forwarded-*`, and every `x-vellum-*`, so an inbound header cannot forge a gateway signal. Content type, accept, user agent, and other custom `x-*` headers pass through.
+- Nothing logs the grant or the credential. The proxy logs provider, method, path, and status; the mint logs provider, account, and TTL.
+- The route calls `connection.request()` only, so the raw token stays inside the connection.
+
+### Error mapping
+
+- 400: malformed provider segment or proxied path.
+- 402: the managed account is out of balance.
+- 403: the grant names another provider or account.
+- 404: unknown provider.
+- 405: HEAD against a managed connection.
+- 409: several accounts connected, none pinned.
+- 421: dispatched over IPC; retry over HTTP.
+- 424: no usable connection. The details carry `assistant oauth connect <provider>`.
+- 502: the provider API could not be reached.
