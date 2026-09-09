@@ -97,13 +97,23 @@ const wheel = (layer: Element): void => {
  * moves. Each edge is said once, however many events make it up.
  */
 describe("scrolling the app under the frame", () => {
-  test("the first wheel event asks main to step aside", () => {
+  /**
+   * In the window itself, only the first wheel event of a scroll ever
+   * reaches the layer: the frame steps aside on it and the rest go to the
+   * app. A second one arriving is therefore the next scroll, after main took
+   * the mouse back on its own when the desktop said the first had ended,
+   * which this layer is never told about. Each has to ask again, or a scroll
+   * that follows a scroll, with no move between, is swallowed whole.
+   */
+  test("every wheel event that reaches the layer asks main to step aside", () => {
     const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     wheel(layer);
     wheel(layer);
-    wheel(layer);
-    expect(scrolled).toEqual([true]);
+    expect(scrolled).toEqual([true, true]);
+    move(layer, 200, 200);
+    move(layer, 300, 300);
+    expect(scrolled).toEqual([true, true, false]);
   });
 
   test("the pointer moving afterwards takes the mouse back", () => {

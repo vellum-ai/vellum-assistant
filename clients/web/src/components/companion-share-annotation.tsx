@@ -140,11 +140,14 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   const live = useRef<readonly LiveStroke[]>([]);
   const drawing = useRef<number | null>(null);
   /**
-   * Whether the frame has stepped aside for a scroll, as the last report to
-   * main left it.
+   * Whether this layer last asked main to step aside for a scroll.
    *
-   * Kept so each edge is reported once: a scroll is many wheel events, and
-   * the pointer resting after one is many moves.
+   * Kept for the way back only, so a pointer resting after a scroll, which
+   * is many moves, asks for the mouse once. It is not the truth about the
+   * frame: main takes the mouse back on its own when the desktop says the
+   * scroll has ended, and this layer is not told. So a wheel event never
+   * reads it. One reaching this layer at all means the frame is holding the
+   * mouse right now, whatever was asked for last.
    */
   const scrolling = useRef(false);
   const nextId = useRef(0);
@@ -219,12 +222,18 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
    * the scroll reaches the app underneath. The one event that got here is
    * the price of finding out.
    *
+   * Every one, not the first: while the frame is stepped aside the wheel
+   * goes to the app and none arrive here, so one that does arrive is the
+   * start of a scroll the frame is taking, either the first or the next
+   * after main took the mouse back on its own. Main ignores an ask that
+   * changes nothing.
+   *
    * Not mid-stroke. The hand is down and captured, and a frame that let go
    * of the mouse now would lose the release that sends the mark and lifts
    * the hold on the session's frames.
    */
   const handleWheel = (): void => {
-    if (drawing.current !== null || scrolling.current) {
+    if (drawing.current !== null) {
       return;
     }
     scrolling.current = true;
