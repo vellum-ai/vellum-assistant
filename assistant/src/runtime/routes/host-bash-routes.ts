@@ -7,20 +7,11 @@
 import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
-import { assistantEventHub } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import {
-  enforceSameActorOrThrow,
-  SAME_ACTOR_FORBIDDEN_DESCRIPTION,
-} from "../auth/same-actor.js";
-import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
+import { SAME_ACTOR_FORBIDDEN_DESCRIPTION } from "../auth/same-actor.js";
 import * as pendingInteractions from "../pending-interactions.js";
-import {
-  BadRequestError,
-  ConflictError,
-  ForbiddenError,
-  NotFoundError,
-} from "./errors.js";
+import { ConflictError, NotFoundError } from "./errors.js";
+import { assertHostProxyResultBinding } from "./host-proxy-result-binding.js";
 import { parseBody } from "./parse-body.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -59,13 +50,6 @@ async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     body,
   );
 
-  const submittingClientId =
-    headers?.["x-vellum-client-id"]?.trim() || undefined;
-  const submittingActorPrincipalId =
-    await resolveActorPrincipalIdForLocalGuardian(
-      headers?.["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
-
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
     throw new NotFoundError("No pending interaction found for this requestId");
@@ -77,32 +61,14 @@ async function handleHostBashResult({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  const { targetClientId } = peeked;
-  if (targetClientId) {
-    if (!submittingClientId) {
-      throw new BadRequestError(
-        "x-vellum-client-id header is required for targeted host bash requests",
-      );
-    }
-    if (submittingClientId !== targetClientId) {
-      throw new ForbiddenError(
-        `Client "${submittingClientId}" is not the target for this request (expected "${targetClientId}"). The targeted client must submit the result.`,
-      );
-    }
-
-    // Defense-in-depth on top of the client-id header binding above: the
-    // submitting actor's principal must match the actor principal stored
-    // for the target client at SSE subscription time. This prevents a
-    // cross-user submission even when the attacker can guess or spoof the
-    // target's client ID.
-    enforceSameActorOrThrow({
-      sourceActorPrincipalId: submittingActorPrincipalId,
-      targetActorPrincipalId: peeked.targetActorPrincipalId,
-      targetClientId,
-      op: "host_bash",
-      hubForMissingTarget: assistantEventHub,
-    });
-  }
+  await assertHostProxyResultBinding({
+    headers,
+    targetClientId: peeked.targetClientId,
+    targetActorPrincipalId: peeked.targetActorPrincipalId,
+    op: "host_bash",
+    missingClientIdMessage:
+      "x-vellum-client-id header is required for targeted host bash requests",
+  });
 
   HostBashProxy.instance.resolveResult(requestId, {
     stdout: stdout ?? "",
