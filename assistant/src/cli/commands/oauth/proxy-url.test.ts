@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const ipcCalls: Array<{ method: string; params: unknown }> = [];
+const ipcExits: Array<unknown> = [];
 
 let ipcResult: {
   ok: boolean;
@@ -9,12 +10,20 @@ let ipcResult: {
   statusCode?: number;
 } = { ok: true };
 
+let ipcThrow: Error | null = null;
+
 mock.module("../../../ipc/cli-client.js", () => ({
   cliIpcCall: async (method: string, params: unknown) => {
     ipcCalls.push({ method, params });
+    if (ipcThrow) {
+      throw ipcThrow;
+    }
     return ipcResult;
   },
+  // The real helper writes to stderr and exits the process, so it never
+  // returns. Throwing is the closest a double can get to `never`.
   exitFromIpcResult: (r: { error?: string }) => {
+    ipcExits.push(r);
     throw new Error(r.error ?? "IPC error");
   },
 }));
@@ -38,23 +47,31 @@ const GRANT = {
 
 beforeEach(() => {
   ipcCalls.length = 0;
+  ipcExits.length = 0;
+  ipcThrow = null;
   process.exitCode = 0;
   ipcResult = { ok: true, result: { ...GRANT } };
 });
 
 async function runProxyUrl(args: string[]): Promise<{
   stdout: string;
+  stderr: string;
   exitCode: number;
   error?: Error;
 }> {
   const chunks: string[] = [];
+  const errChunks: string[] = [];
   const originalWrite = process.stdout.write;
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    chunks.push(
-      typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
-    );
-    return true;
-  }) as typeof process.stdout.write;
+  const originalErrorWrite = process.stderr.write;
+  const collect = (into: string[]) =>
+    ((chunk: string | Uint8Array) => {
+      into.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
+      return true;
+    }) as typeof process.stdout.write;
+  process.stdout.write = collect(chunks);
+  process.stderr.write = collect(errChunks);
 
   let error: Error | undefined;
   try {
@@ -70,10 +87,12 @@ async function runProxyUrl(args: string[]): Promise<{
     error = err instanceof Error ? err : new Error(String(err));
   } finally {
     process.stdout.write = originalWrite;
+    process.stderr.write = originalErrorWrite;
   }
 
   return {
     stdout: chunks.join(""),
+    stderr: errChunks.join(""),
     exitCode: Number(process.exitCode ?? 0),
     error,
   };
@@ -173,8 +192,48 @@ describe("assistant oauth proxy-url", () => {
       statusCode: 404,
     };
 
-    const { error } = await runProxyUrl(["nope"]);
+    await runProxyUrl(["nope"]);
 
-    expect(error?.message).toBe("Unknown provider: nope");
+    expect(ipcExits).toEqual([
+      { ok: false, error: "Unknown provider: nope", statusCode: 404 },
+    ]);
+  });
+
+  test("reports a thrown error on stderr and exits non-zero", async () => {
+    ipcThrow = new Error("Assistant socket is unavailable");
+
+    const { stdout, stderr, exitCode, error } = await runProxyUrl([
+      "stripe_link",
+    ]);
+
+    expect(error).toBeUndefined();
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toBe("Error: Assistant socket is unavailable\n");
+  });
+
+  test("reports a thrown error as a JSON envelope with --json", async () => {
+    ipcThrow = new Error("Assistant socket is unavailable");
+
+    const { stdout, stderr, exitCode } = await runProxyUrl([
+      "--json",
+      "stripe_link",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(stderr).toBe("");
+    expect(JSON.parse(stdout)).toEqual({
+      ok: false,
+      error: "Assistant socket is unavailable",
+    });
+  });
+
+  test("--export leaves stdout empty when the call throws", async () => {
+    ipcThrow = new Error("Assistant socket is unavailable");
+
+    const { stdout, exitCode } = await runProxyUrl(["stripe_link", "--export"]);
+
+    expect(stdout).toBe("");
+    expect(exitCode).toBe(1);
   });
 });
