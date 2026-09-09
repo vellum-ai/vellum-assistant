@@ -224,6 +224,7 @@ export function RootLayout() {
   useNotificationAvatarSync(
     assistantId,
     avatar.customImageUrl,
+    avatar.state?.image ?? null,
     avatar.components,
     avatar.traits,
     avatar.accentHex,

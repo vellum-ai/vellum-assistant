@@ -186,7 +186,8 @@ describe("helper toast factory", () => {
     userDataDir = dir;
     try {
       const avatarPng = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
-      const avatarHash = "a".repeat(64);
+      const avatarHash =
+        "0f4636c78f65d3639ece5a064b5ae753e3408614a14fb18ab4d7540d2c248543";
       const create = createHelperToastFactory("/helper.exe");
       const toast = create({
         title: "Weekly plan",
@@ -239,7 +240,8 @@ describe("helper toast factory", () => {
           id: "assistant-1",
           name: "Aria",
           avatarPng: Buffer.from([1]),
-          avatarHash: "b".repeat(64),
+          avatarHash:
+            "4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a",
         },
       }).show();
       await Bun.sleep(0);

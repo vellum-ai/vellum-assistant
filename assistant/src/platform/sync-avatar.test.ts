@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   afterAll,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -22,13 +23,23 @@ import {
 } from "bun:test";
 
 import type { AvatarState } from "../avatar/avatar-manifest.js";
+import * as realAvatarManifest from "../avatar/avatar-manifest.js";
 import * as realEnsureRaster from "../avatar/ensure-raster.js";
 import * as realResvgLazy from "../avatar/resvg-lazy.js";
+import * as realPlatformClient from "./client.js";
 
-// Captured before mock.module swaps the module so the real, fd-validated
-// read path is what the sync exercises.
+// Snapshotted before `installMocks` swaps the modules. `mock.module` is
+// process-global and the assistant suite runs by directory, so the mocks below
+// are installed for this file's tests and the real modules put back after
+// them; without that, the render cases in `../avatar/notification-avatar.test`
+// would exercise these fakes instead of the native rasterizer. The captures
+// also give the sync the real, fd-validated raster read.
+const REAL_AVATAR_MANIFEST = { ...realAvatarManifest };
+const REAL_ENSURE_RASTER = { ...realEnsureRaster };
+const REAL_RESVG_LAZY = { ...realResvgLazy };
+const REAL_PLATFORM_CLIENT = { ...realPlatformClient };
 const realReadContainedAvatarRaster =
-  realEnsureRaster.readContainedAvatarRaster;
+  REAL_ENSURE_RASTER.readContainedAvatarRaster;
 
 let mockState: AvatarState;
 let mockRasterPath: string | null;
@@ -38,52 +49,67 @@ let mockClient: {
   fetch: (path: string, init: RequestInit) => Promise<Response>;
 } | null;
 let mockResvgAvailable = false;
+let mockRenderThrows = false;
 let mockRenderedPng = Buffer.from("small");
 let lastResvgSvg = "";
 let rasterCalls = 0;
 
-mock.module("./client.js", () => ({
-  VellumPlatformClient: { create: async () => mockClient },
-}));
+function installMocks(): void {
+  mock.module("./client.js", () => ({
+    VellumPlatformClient: { create: async () => mockClient },
+  }));
 
-mock.module("../avatar/avatar-manifest.js", () => ({
-  readAvatarState: () => mockState,
-  computeImageMeta: (path: string) => {
-    const stats = statSync(path);
-    return { updatedAt: "", etag: `${stats.size}:${stats.mtimeMs}` };
-  },
-}));
-
-// Both entry points bump the same counter, so `rasterCalls` measures every
-// avatar-raster resolution a sync does, not just the one it goes through.
-mock.module("../avatar/ensure-raster.js", () => ({
-  ensureAvatarRasterPath: async () => {
-    rasterCalls += 1;
-    return mockRasterPath;
-  },
-  ensureAvatarRaster: async () => {
-    rasterCalls += 1;
-    return mockRasterPath === null
-      ? null
-      : realReadContainedAvatarRaster(mockRasterPath);
-  },
-  readContainedAvatarRaster: realReadContainedAvatarRaster,
-}));
-
-mock.module("../avatar/resvg-lazy.js", () => ({
-  isResvgAvailable: () => mockResvgAvailable,
-  isResvgDecodableType: realResvgLazy.isResvgDecodableType,
-  RESVG_DECODABLE_TYPES: realResvgLazy.RESVG_DECODABLE_TYPES,
-  getResvg: () =>
-    class {
-      constructor(svg: string) {
-        lastResvgSvg = svg;
-      }
-      render() {
-        return { asPng: () => mockRenderedPng };
-      }
+  mock.module("../avatar/avatar-manifest.js", () => ({
+    readAvatarState: () => mockState,
+    computeImageMeta: (path: string) => {
+      const stats = statSync(path);
+      return { updatedAt: "", etag: `${stats.size}:${stats.mtimeMs}` };
     },
-}));
+  }));
+
+  // Both entry points bump the same counter, so `rasterCalls` measures every
+  // avatar-raster resolution a sync does, not just the one it goes through.
+  mock.module("../avatar/ensure-raster.js", () => ({
+    ensureAvatarRasterPath: async () => {
+      rasterCalls += 1;
+      return mockRasterPath;
+    },
+    ensureAvatarRaster: async () => {
+      rasterCalls += 1;
+      return mockRasterPath === null
+        ? null
+        : realReadContainedAvatarRaster(mockRasterPath);
+    },
+    readContainedAvatarRaster: realReadContainedAvatarRaster,
+  }));
+
+  mock.module("../avatar/resvg-lazy.js", () => ({
+    isResvgAvailable: () => mockResvgAvailable,
+    isResvgDecodableType: REAL_RESVG_LAZY.isResvgDecodableType,
+    RESVG_DECODABLE_TYPES: REAL_RESVG_LAZY.RESVG_DECODABLE_TYPES,
+    getResvg: () =>
+      class {
+        constructor(svg: string) {
+          lastResvgSvg = svg;
+        }
+        render() {
+          if (mockRenderThrows) {
+            throw new Error("the rasterizer gave up");
+          }
+          return { asPng: () => mockRenderedPng };
+        }
+      },
+  }));
+}
+
+function restoreRealModules(): void {
+  mock.module("./client.js", () => REAL_PLATFORM_CLIENT);
+  mock.module("../avatar/avatar-manifest.js", () => REAL_AVATAR_MANIFEST);
+  mock.module("../avatar/ensure-raster.js", () => REAL_ENSURE_RASTER);
+  mock.module("../avatar/resvg-lazy.js", () => REAL_RESVG_LAZY);
+}
+
+installMocks();
 
 import {
   _resetSyncAvatarStateForTests,
@@ -117,7 +143,11 @@ const avatarDir = join(workspaceDir, "data", "avatar");
 const syncStatePath = join(dir, "protected", "platform-sync", "avatar.json");
 const prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+beforeAll(() => {
+  installMocks();
+});
 afterAll(() => {
+  restoreRealModules();
   if (prevWorkspaceDir === undefined) {
     delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
@@ -199,6 +229,8 @@ describe("syncAvatarToPlatform", () => {
     respond = () => new Response("{}", { status: 200 });
     mockClient = makeClient();
     mockResvgAvailable = false;
+    mockRenderThrows = false;
+    mockRenderedPng = Buffer.from("small");
     mockState = imageState("etag-a");
     mockRasterPath = writeRaster("a.png", png("a"));
   });
@@ -471,6 +503,70 @@ describe("syncAvatarToPlatform", () => {
       Buffer.from("disc-green").toString("base64"),
     );
     expect(lastResvgSvg).toContain('fill="#E6F1E7"');
+  });
+
+  test("a render that failed after the key promised a disc re-uploads next sync", async () => {
+    mockResvgAvailable = true;
+    mockRenderThrows = true;
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+    });
+    // The disc-less key, not the one the payload optimistically carried, so
+    // the next enqueue does not read as already synced.
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toEndWith(
+      ":none",
+    );
+
+    mockRenderThrows = false;
+    mockRenderedPng = Buffer.from("disc-a");
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    expect(patches[1].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+      notification_avatar_base64: Buffer.from("disc-a").toString("base64"),
+    });
+  });
+
+  test("a 400 naming the notification avatar re-sends the raster alone", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-a");
+    respond = () =>
+      patches.length === 1
+        ? new Response('{"notification_avatar_base64":["Unsupported image"]}', {
+            status: 400,
+          })
+        : new Response("{}", { status: 200 });
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(2);
+    expect(patches[0].body.notification_avatar_base64).toBe(
+      Buffer.from("disc-a").toString("base64"),
+    );
+    expect(patches[1].body).toEqual({
+      avatar_base64: png("a").toString("base64"),
+    });
+    expect(JSON.parse(readFileSync(syncStatePath, "utf-8")).key).toEndWith(
+      ":none",
+    );
+  });
+
+  test("a 400 naming something else is not re-sent without the disc", async () => {
+    mockResvgAvailable = true;
+    mockRenderedPng = Buffer.from("disc-a");
+    respond = () =>
+      new Response('{"avatar_base64":["Too large"]}', { status: 400 });
+    syncAvatarToPlatform();
+    await settle();
+
+    expect(patches).toHaveLength(1);
+    expect(() => readFileSync(syncStatePath)).toThrow();
   });
 
   test("does not render the notification avatar for a deduped payload", async () => {

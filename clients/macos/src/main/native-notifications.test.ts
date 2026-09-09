@@ -102,7 +102,7 @@ const sender = {
   name: "Ada",
   avatarPng,
   avatarHash:
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "0f4636c78f65d3639ece5a064b5ae753e3408614a14fb18ab4d7540d2c248543",
 };
 
 // The addon only takes notifications that carry a sender, so every test that

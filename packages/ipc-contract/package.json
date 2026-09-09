@@ -12,6 +12,7 @@
     "test": "bun test src/"
   },
   "dependencies": {
+    "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/service-contracts": "workspace:*"
   },
   "peerDependencies": {

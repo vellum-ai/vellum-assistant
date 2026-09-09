@@ -18,6 +18,8 @@ import { NOTIFICATION_AVATAR_MAX_BYTES } from "@vellumai/avatar-manifest/notific
 import sharp from "sharp";
 
 import {
+  __resetSharpCacheForTests,
+  __setSharpCacheForTests,
   canRenderNotificationAvatar,
   renderNotificationAvatarPng,
 } from "./notification-avatar.js";
@@ -28,8 +30,29 @@ import {
   isResvgAvailable,
 } from "./resvg-lazy.js";
 
-/** The render cases need the native binding; without it there is nothing to assert. */
-const nativeTest = test.if(isResvgAvailable());
+/**
+ * The render cases need the native binding; without it there is nothing to
+ * assert. The check runs inside the body rather than at module scope because
+ * `mock.module` is process-global and the suite runs by directory: a sibling
+ * file's fake for `./resvg-lazy.js` would otherwise decide, at import time,
+ * that this whole file has nothing to run.
+ */
+function nativeTest(
+  name: string,
+  body: () => Promise<void>,
+  timeout?: number,
+): void {
+  test(
+    name,
+    async () => {
+      if (!isResvgAvailable()) {
+        return;
+      }
+      await body();
+    },
+    timeout,
+  );
+}
 
 const IMAGE_FILENAME = "avatar-image.png";
 const MANIFEST_FILENAME = "avatar.json";
@@ -91,6 +114,7 @@ describe("renderNotificationAvatarPng", () => {
 
   afterEach(() => {
     __resetResvgCacheForTests();
+    __resetSharpCacheForTests();
     if (prevWorkspaceDir === undefined) {
       delete process.env.VELLUM_WORKSPACE_DIR;
     } else {
@@ -288,6 +312,32 @@ describe("renderNotificationAvatarPng", () => {
   });
 
   nativeTest(
+    "renders inside the square the push transports accept",
+    async () => {
+      writeCharacter(null);
+
+      const png = (await renderNotificationAvatarPng())!;
+      // The IHDR width and height, at fixed offsets past the 8-byte signature.
+      // The platform's own ceiling is a square of at most 512 px and 128 KB.
+      expect(png.readUInt32BE(16)).toBe(256);
+      expect(png.readUInt32BE(20)).toBe(256);
+      expect(png.length).toBeLessThanOrEqual(131072);
+    },
+    NATIVE_RENDER_TEST_TIMEOUT_MS,
+  );
+
+  nativeTest(
+    "returns null for a WebP upload when sharp has no native binary",
+    async () => {
+      await writeUpload("webp", null);
+      __setSharpCacheForTests(null);
+
+      expect(await renderNotificationAvatarPng()).toBeNull();
+    },
+    NATIVE_RENDER_TEST_TIMEOUT_MS,
+  );
+
+  nativeTest(
     "keeps a photographic upload inside the byte cap or gives up",
     async () => {
       await writeNoisyUpload();
@@ -382,6 +432,7 @@ describe("canRenderNotificationAvatar", () => {
 
   afterEach(() => {
     __resetResvgCacheForTests();
+    __resetSharpCacheForTests();
   });
 
   nativeTest("says yes for a PNG resvg draws directly", async () => {
@@ -416,5 +467,14 @@ describe("canRenderNotificationAvatar", () => {
     expect(
       await canRenderNotificationAvatar(Buffer.from("just some bytes here")),
     ).toBe(false);
+  });
+
+  // The transcode is the only route a WebP has, so without the codec there is
+  // no disc to promise, and the sync's key has to say so.
+  nativeTest("says no for a WebP when sharp has no native binary", async () => {
+    const bytes = await webp();
+    __setSharpCacheForTests(null);
+
+    expect(await canRenderNotificationAvatar(bytes)).toBe(false);
   });
 });

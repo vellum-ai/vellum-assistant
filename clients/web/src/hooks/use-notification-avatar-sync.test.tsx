@@ -14,7 +14,11 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
 import { NOTIFICATION_AVATAR_BASE64_MAX_CHARS } from "@vellumai/ipc-contract";
 
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type {
+  AvatarImageMeta,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
 
 const AVATAR_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
@@ -33,10 +37,14 @@ mock.module("@/runtime/popout-window", () => ({
 let rasterized: Uint8Array | null = AVATAR_PNG;
 /** Set to stall the rasterizer so the mid-render window can be observed. */
 let rasterizeGate: Promise<void> | null = null;
+let rasterizeThrows = false;
 const rasterizeNotificationAvatar = mock(
   async (_src: string, _accentHex: string | null) => {
     if (rasterizeGate) {
       await rasterizeGate;
+    }
+    if (rasterizeThrows) {
+      throw new Error("the canvas went away");
     }
     return rasterized;
   },
@@ -53,6 +61,11 @@ const { useNotificationAvatarSync } =
 const ASSISTANT_ID = "assistant-1";
 const IMAGE_URL = "blob:avatar-1";
 const ACCENT = "#E9642F";
+/** What the daemon's manifest says the uploaded image is, across refetches. */
+const IMAGE_META: AvatarImageMeta = {
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  etag: "etag-a",
+};
 
 /**
  * Components and traits that name nothing in the palette, so the render falls
@@ -73,7 +86,14 @@ const staleTraits = (): CharacterTraits => ({
 
 const render = (accentHex: string | null = ACCENT) =>
   renderHook(() =>
-    useNotificationAvatarSync(ASSISTANT_ID, IMAGE_URL, null, null, accentHex),
+    useNotificationAvatarSync(
+      ASSISTANT_ID,
+      IMAGE_URL,
+      IMAGE_META,
+      null,
+      null,
+      accentHex,
+    ),
   );
 
 beforeEach(() => {
@@ -81,6 +101,7 @@ beforeEach(() => {
   popoutWindow = false;
   rasterized = AVATAR_PNG;
   rasterizeGate = null;
+  rasterizeThrows = false;
   rasterizeNotificationAvatar.mockClear();
   clearNotificationAvatar();
   useClientFeatureFlagStore.setState({ pushAvatarSender: true });
@@ -169,7 +190,7 @@ describe("useNotificationAvatarSync", () => {
 
   test("holds nothing for an assistant with no avatar to draw", async () => {
     renderHook(() =>
-      useNotificationAvatarSync(ASSISTANT_ID, null, null, null, ACCENT),
+      useNotificationAvatarSync(ASSISTANT_ID, null, null, null, null, ACCENT),
     );
 
     await waitFor(() => {
@@ -180,7 +201,14 @@ describe("useNotificationAvatarSync", () => {
 
   test("holds nothing while there is no active assistant", async () => {
     renderHook(() =>
-      useNotificationAvatarSync(null, IMAGE_URL, null, null, ACCENT),
+      useNotificationAvatarSync(
+        null,
+        IMAGE_URL,
+        IMAGE_META,
+        null,
+        null,
+        ACCENT,
+      ),
     );
 
     await waitFor(() => {
@@ -223,6 +251,7 @@ describe("useNotificationAvatarSync", () => {
         useNotificationAvatarSync(
           ASSISTANT_ID,
           IMAGE_URL,
+          IMAGE_META,
           components,
           traits,
           ACCENT,
@@ -245,7 +274,7 @@ describe("useNotificationAvatarSync", () => {
   test("empties the holder before drawing a replacement, then holds the new assistant's avatar", async () => {
     const { rerender } = renderHook(
       ({ id, url }: { id: string; url: string }) =>
-        useNotificationAvatarSync(id, url, null, null, ACCENT),
+        useNotificationAvatarSync(id, url, null, null, null, ACCENT),
       { initialProps: { id: ASSISTANT_ID, url: IMAGE_URL } },
     );
     await waitFor(() => {
@@ -266,10 +295,130 @@ describe("useNotificationAvatarSync", () => {
     });
   });
 
+  test("draws again on the next refetch after a render that gave nothing back", async () => {
+    rasterized = null;
+    const { rerender } = renderHook(
+      ({
+        components,
+        traits,
+      }: {
+        components: CharacterComponents;
+        traits: CharacterTraits;
+      }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          components,
+          traits,
+          ACCENT,
+        ),
+      {
+        initialProps: { components: staleComponents(), traits: staleTraits() },
+      },
+    );
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {});
+
+    rasterized = AVATAR_PNG;
+    rerender({ components: staleComponents(), traits: staleTraits() });
+
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+  });
+
+  test("draws again on the next refetch after the rasterizer threw", async () => {
+    rasterizeThrows = true;
+    const { rerender } = renderHook(
+      ({
+        components,
+        traits,
+      }: {
+        components: CharacterComponents;
+        traits: CharacterTraits;
+      }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          IMAGE_URL,
+          IMAGE_META,
+          components,
+          traits,
+          ACCENT,
+        ),
+      {
+        initialProps: { components: staleComponents(), traits: staleTraits() },
+      },
+    );
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+    });
+    await act(async () => {});
+
+    rasterizeThrows = false;
+    rerender({ components: staleComponents(), traits: staleTraits() });
+
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+  });
+
+  test("keeps the held avatar when a refetch mints a new URL for the same image", async () => {
+    const { rerender } = renderHook(
+      ({ url }: { url: string }) =>
+        useNotificationAvatarSync(
+          ASSISTANT_ID,
+          url,
+          IMAGE_META,
+          null,
+          null,
+          ACCENT,
+        ),
+      { initialProps: { url: IMAGE_URL } },
+    );
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+    const held = getNotificationAvatar();
+
+    rerender({ url: "blob:avatar-1-refetched" });
+
+    expect(getNotificationAvatar()).toEqual(held);
+    expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(1);
+  });
+
+  test("redraws when the manifest says the uploaded image changed", async () => {
+    const { rerender } = renderHook(
+      ({ url, meta }: { url: string; meta: AvatarImageMeta }) =>
+        useNotificationAvatarSync(ASSISTANT_ID, url, meta, null, null, ACCENT),
+      { initialProps: { url: IMAGE_URL, meta: IMAGE_META } },
+    );
+    await waitFor(() => {
+      expect(getNotificationAvatar()).not.toBeNull();
+    });
+
+    rerender({
+      url: "blob:avatar-2",
+      meta: { ...IMAGE_META, etag: "etag-b" },
+    });
+
+    await waitFor(() => {
+      expect(rasterizeNotificationAvatar).toHaveBeenCalledTimes(2);
+    });
+    expect(rasterizeNotificationAvatar).toHaveBeenLastCalledWith(
+      "blob:avatar-2",
+      ACCENT,
+    );
+  });
+
   test("a render the holder has moved past never lands", async () => {
     const { rerender } = renderHook(
       ({ id, url }: { id: string; url: string }) =>
-        useNotificationAvatarSync(id, url, null, null, ACCENT),
+        useNotificationAvatarSync(id, url, null, null, null, ACCENT),
       { initialProps: { id: ASSISTANT_ID, url: IMAGE_URL } },
     );
 

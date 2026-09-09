@@ -16,6 +16,8 @@
  *     etc.); those are retired by this package.
  */
 
+import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -189,7 +191,11 @@ export type VellumCommand =
    * against, and an answer to one that no longer stands is dropped. See
    * {@link CompanionDictationOffer}.
    */
-  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer; offerId: string }
+  | {
+      kind: "answerDictationOffer";
+      answer: DictationOfferAnswer;
+      offerId: string;
+    }
   /**
    * Start a live-voice session, or end the one that is running.
    *
@@ -685,14 +691,14 @@ export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 /**
  * The longest base64 payload the notification-avatar channel carries: base64
- * of `NOTIFICATION_AVATAR_MAX_LOCAL_BYTES` (512 KB) from
- * `@vellumai/avatar-manifest/notification-avatar`, which is the cap the
- * renderer drops a heavier render at. A payload past this is malformed rather
- * than merely large, and the host has to cache it on disk, so the boundary
- * refuses it instead of writing it.
+ * of {@link NOTIFICATION_AVATAR_MAX_LOCAL_BYTES}, the cap the renderer drops a
+ * heavier render at. A payload past this is malformed rather than merely
+ * large, and the host has to cache it on disk, so the boundary refuses it
+ * instead of writing it. Derived from the byte cap rather than restated, so
+ * the two cannot drift.
  */
 export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
-  Math.ceil((512 * 1024) / 3) * 4;
+  Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4;
 
 /**
  * The assistant a notification is from, for the platforms that render a sender

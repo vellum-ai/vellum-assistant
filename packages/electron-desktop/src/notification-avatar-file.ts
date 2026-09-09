@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   mkdirSync,
   readdirSync,
@@ -18,22 +19,30 @@ import { NOTIFICATION_AVATAR_HASH_PATTERN } from "@vellumai/ipc-contract";
  *
  * The file is named by the avatar's SHA-256, so the same picture is written
  * once and re-used by every later notification, and a new avatar lands beside
- * the old one rather than replacing a file a live toast is still reading. A
- * cache entry counts as a hit only while its length matches the bytes in hand,
- * so a truncated or emptied file is rewritten instead of served forever.
+ * the old one rather than replacing a file a live toast is still reading. The
+ * name is only safe as a name if it is also true of the bytes, so the digest
+ * is recomputed here rather than trusted: a mismatch throws and the caller
+ * posts the app-icon toast. A cache entry counts as a hit only while its
+ * length matches the bytes in hand, so a truncated or emptied file is
+ * rewritten instead of served forever.
  *
  * Every hit stamps the file's mtime, which is what the prune orders by, so the
  * assistants actually being notified about keep their entries. A file younger
- * than {@link PRUNE_MIN_AGE_MS} is never pruned, because a Windows toast reads
- * the path after the post returns.
+ * than {@link PRUNE_MIN_AGE_MS} is never pruned, because the post hands the OS
+ * a path it reads afterwards.
  */
 
 const DIRECTORY_NAME = "notification-avatars";
 
 /** Enough for a handful of assistants; the rest are re-written on demand. */
-const MAX_FILES = 8;
+const MAX_FILES = 16;
 
-/** A toast posted this recently may still be reading its avatar off disk. */
+/**
+ * How long a posted notification may still be reading its avatar off disk.
+ * It covers the post itself, not how long the OS keeps the notification
+ * around: a toast the Action Center holds for days re-reads nothing, and an
+ * entry pruned under it simply loses its picture there.
+ */
 const PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
 
 const TEMPORARY_SUFFIX = ".tmp";
@@ -43,9 +52,10 @@ const TEMPORARY_SUFFIX = ".tmp";
  * unless it is already there intact, prunes the directory to the newest
  * {@link MAX_FILES} files, and returns the absolute path.
  *
- * Throws when `avatarHash` is not a lowercase hex SHA-256: it is the file
- * name, so anything else could escape the directory. Callers treat a throw as
- * "post the notification without an avatar".
+ * Throws when `avatarHash` is not a lowercase hex SHA-256, or is not the
+ * digest of `avatarPng`: it is the file name, so anything else could escape
+ * the directory or serve one assistant's picture under another's name.
+ * Callers treat a throw as "post the notification without an avatar".
  */
 export const ensureNotificationAvatarFile = (
   userDataDir: string,
@@ -57,6 +67,9 @@ export const ensureNotificationAvatarFile = (
       "A notification avatar hash must be 64 lowercase hex characters",
     );
   }
+  if (createHash("sha256").update(avatarPng).digest("hex") !== avatarHash) {
+    throw new Error("A notification avatar hash must match its bytes");
+  }
   const directory = path.join(userDataDir, DIRECTORY_NAME);
   const file = path.join(directory, `${avatarHash}.png`);
   if (touchIfIntact(file, avatarPng.length)) {
@@ -64,7 +77,13 @@ export const ensureNotificationAvatarFile = (
   }
   mkdirSync(directory, { recursive: true });
   writeAtomically(file, avatarPng);
-  pruneToNewest(directory);
+  // A file a live notification still holds open can refuse to be removed, and
+  // that is no reason to throw away the avatar just written.
+  try {
+    pruneToNewest(directory);
+  } catch {
+    // Left for the next write to sweep.
+  }
   return file;
 };
 
@@ -81,12 +100,19 @@ const touchIfIntact = (file: string, bytes: number): boolean => {
     if (statSync(file).size !== bytes) {
       return false;
     }
-    const now = new Date();
-    utimesSync(file, now, now);
-    return true;
   } catch {
     return false;
   }
+  // The stamp only orders the prune. Failing to write it (a read-only file, a
+  // clock the OS refuses) costs the entry its place in that order, never the
+  // hit itself.
+  try {
+    const now = new Date();
+    utimesSync(file, now, now);
+  } catch {
+    // The entry keeps its old mtime.
+  }
+  return true;
 };
 
 /**

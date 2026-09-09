@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -81,8 +82,8 @@ describe("ensureNotificationAvatarFile", () => {
     expect(readFileSync(file)).toEqual(PNG);
   });
 
-  test("prunes the aged directory to the eight newest avatars", () => {
-    const written = Array.from({ length: 8 }, (_unused, index) => {
+  test("prunes the aged directory to the sixteen newest avatars", () => {
+    const written = Array.from({ length: 16 }, (_unused, index) => {
       const bytes = pngFor(`avatar-${index}`);
       const hash = hashOf(bytes);
       // Oldest first, and all past the prune floor, so the pruning order is
@@ -91,7 +92,7 @@ describe("ensureNotificationAvatarFile", () => {
       return hash;
     });
 
-    const newest = pngFor("avatar-8");
+    const newest = pngFor("avatar-16");
     ensureNotificationAvatarFile(userDataDir, newest, hashOf(newest));
 
     expect(readdirSync(avatarDir()).sort()).toEqual(
@@ -103,12 +104,30 @@ describe("ensureNotificationAvatarFile", () => {
   });
 
   test("keeps avatars past the cap while a toast could still be reading them", () => {
-    for (let index = 0; index < 9; index++) {
+    for (let index = 0; index < 17; index++) {
       const bytes = pngFor(`fresh-${index}`);
       ensureNotificationAvatarFile(userDataDir, bytes, hashOf(bytes));
     }
 
-    expect(readdirSync(avatarDir())).toHaveLength(9);
+    expect(readdirSync(avatarDir())).toHaveLength(17);
+  });
+
+  test("keeps the avatar it just wrote when the prune cannot remove a file", () => {
+    ensureNotificationAvatarFile(userDataDir, PNG, HASH);
+    // A directory under a staging name: the sweep tries to remove it and the
+    // non-recursive `rmSync` throws, which must not cost the new avatar.
+    const blocked = path.join(avatarDir(), `${HASH}.png.123.tmp`);
+    mkdirSync(blocked);
+    age(blocked);
+
+    const other = pngFor("b");
+    const file = ensureNotificationAvatarFile(
+      userDataDir,
+      other,
+      hashOf(other),
+    );
+
+    expect(readFileSync(file)).toEqual(other);
   });
 
   test("sweeps a staging file a crashed write left behind", () => {
@@ -123,6 +142,15 @@ describe("ensureNotificationAvatarFile", () => {
     expect(readdirSync(avatarDir()).sort()).toEqual(
       [`${HASH}.png`, `${hashOf(other)}.png`].sort(),
     );
+  });
+
+  test("rejects a well-formed hash that is not the digest of the bytes", () => {
+    // The hash names the file every later notification is served from, so a
+    // picture filed under another one's name would be shown as that assistant.
+    expect(() =>
+      ensureNotificationAvatarFile(userDataDir, PNG, hashOf(pngFor("b"))),
+    ).toThrow("match its bytes");
+    expect(readdirSync(userDataDir)).toEqual([]);
   });
 
   test("rejects a hash that is not lowercase hex", () => {

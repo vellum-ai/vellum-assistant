@@ -623,6 +623,7 @@
       "name": "@vellumai/ipc-contract",
       "version": "0.0.1",
       "dependencies": {
+        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",
       },
       "devDependencies": {
