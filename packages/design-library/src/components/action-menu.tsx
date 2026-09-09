@@ -294,10 +294,7 @@ function Item({
   const { presentation, close } = useActionMenuContext("Item");
   const isDestructive = tone === "destructive";
   const check = selected ? (
-    <Check
-      className="h-3.5 w-3.5 shrink-0 text-[var(--content-default)]"
-      aria-hidden
-    />
+    <Check className="h-3.5 w-3.5 shrink-0 text-inherit" aria-hidden />
   ) : null;
   const ariaCurrent = selected ? ("true" as const) : undefined;
 
@@ -357,6 +354,9 @@ function Item({
       disabled={disabled}
       className={cn(
         "whitespace-nowrap",
+        // The trailing slot paints its contents tertiary, which the mark has
+        // to opt out of to take the row's colour like the leading glyph does.
+        selected && "[&_[data-slot=menu-item-trailing]]:text-inherit",
         isDestructive && actionMenuDestructiveClasses.anchored,
         className,
       )}

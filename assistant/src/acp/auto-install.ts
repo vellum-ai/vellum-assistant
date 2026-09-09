@@ -108,11 +108,6 @@ const pinChecks = new Map<string, Promise<AdapterInstallResult>>();
 /** In-flight global installs, keyed by command alone. */
 const installRuns = new Map<string, Promise<AdapterInstallResult>>();
 
-/** Composite map key over fields that may contain any character. */
-function joinKey(first: string, second: string): string {
-  return `${first}\u0000${second}`;
-}
-
 /**
  * Stands in for an agent that names no `env.PATH` and inherits the daemon's.
  * A real PATH string cannot contain NUL, so this never collides with one,
@@ -128,7 +123,7 @@ const INHERITED_SEARCH_PATH = "\u0000inherit";
  * the pin, and must not unpin the agents whose path can.
  */
 function pinScope(command: string, searchPath: string | undefined): string {
-  return joinKey(command, searchPath ?? INHERITED_SEARCH_PATH);
+  return `${command}\u0000${searchPath ?? INHERITED_SEARCH_PATH}`;
 }
 
 /**

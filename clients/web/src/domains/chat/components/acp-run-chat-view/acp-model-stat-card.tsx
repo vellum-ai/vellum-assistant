@@ -262,7 +262,6 @@ export function AcpModelStatCard({
                   label={option.label}
                   description={option.description}
                   selected={selected}
-                  disabled={pending}
                   onSelect={() => handleSelect(option.value)}
                 />
               );

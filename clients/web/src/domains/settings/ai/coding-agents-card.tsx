@@ -104,8 +104,7 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
     }
   }
 
-  const hasCustomValue = isCustomModel(defaultModel);
-  const showsCustomInput = customPicked || hasCustomValue;
+  const showsCustomInput = customPicked;
   const selectValue = showsCustomInput ? CUSTOM_SENTINEL : defaultModel;
 
   const nextDefaultModel = defaultModel?.trim() || null;
@@ -137,7 +136,7 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
     (value: string) => {
       if (value === CUSTOM_SENTINEL) {
         setCustomPicked(true);
-        if (!hasCustomValue) {
+        if (!isCustomModel(defaultModel)) {
           setDraftDefaultModel("");
         }
         return;
@@ -145,7 +144,7 @@ function CodingAgentsCardBody({ assistantId }: { assistantId: string }) {
       setCustomPicked(false);
       setDraftDefaultModel(value);
     },
-    [hasCustomValue, setDraftDefaultModel],
+    [defaultModel, setDraftDefaultModel],
   );
 
   const handleSelectNone = useCallback(() => {
