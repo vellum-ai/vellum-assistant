@@ -309,7 +309,7 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     expect(spawnMock).toHaveBeenCalledTimes(1);
     const payload = JSON.parse(result.content);
     expect(payload.message).toContain(
-      "Installed @agentclientprotocol/claude-agent-acp automatically.",
+      "Installed @agentclientprotocol/claude-agent-acp@0.75.1 automatically.",
     );
     // The real binary was spawned with cwd = the project dir and token
     // injected (trusted-binary config, no resolution at spawn).
@@ -330,7 +330,7 @@ describe("executeAcpSpawn: sandboxed bun auto-install on missing binary", () => 
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 

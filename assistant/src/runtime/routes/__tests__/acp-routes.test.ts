@@ -593,7 +593,7 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 
