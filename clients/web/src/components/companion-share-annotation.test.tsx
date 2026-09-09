@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  mock,
+  test,
+} from "bun:test";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import type { CompanionAnnotationStroke } from "@vellumai/ipc-contract";
 
@@ -41,6 +49,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  jest.useRealTimers();
 });
 
 const layerOf = (container: HTMLElement): Element => {
@@ -186,9 +195,12 @@ describe("drawing on what the call is shown", () => {
   /**
    * The mark is a gesture rather than an annotation layer: it has been sent,
    * and a circle still sitting on the user's screen a minute later is one
-   * they have to clear up themselves.
+   * they have to clear up themselves. But it stays for the sentence that goes
+   * with it: a mark gone before the user has finished saying "this one" is a
+   * drawing that looks like it failed.
    */
-  test("the mark fades and is taken away once it has been sent", async () => {
+  test("the mark stays through the hold, then fades and is taken away", () => {
+    jest.useFakeTimers();
     const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     down(layer, 100, 100);
@@ -197,12 +209,34 @@ describe("drawing on what the call is shown", () => {
     expect(
       container.querySelector(".companion-share-ink-spent"),
     ).not.toBeNull();
-    await act(async () => {
-      await new Promise((resolve) =>
-        setTimeout(resolve, COMPANION_INK_HOLD_MS + COMPANION_INK_FADE_MS + 20),
+    // The hold is a few seconds, not a beat: long enough to say what the
+    // mark is about.
+    expect(COMPANION_INK_HOLD_MS).toBeGreaterThanOrEqual(4000);
+    act(() => {
+      jest.advanceTimersByTime(
+        COMPANION_INK_HOLD_MS + COMPANION_INK_FADE_MS - 1,
       );
     });
+    expect(container.querySelector("polyline")).not.toBeNull();
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
     expect(container.querySelector("polyline")).toBeNull();
+  });
+
+  /**
+   * The stylesheet fades the mark on the layer's own numbers, so the element
+   * cannot be dropped mid-fade or sit invisible after it.
+   */
+  test("tells the stylesheet how long the hold and the fade are", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    const layer = layerOf(container) as HTMLElement;
+    expect(layer.style.getPropertyValue("--companion-ink-hold")).toBe(
+      `${COMPANION_INK_HOLD_MS}ms`,
+    );
+    expect(layer.style.getPropertyValue("--companion-ink-fade")).toBe(
+      `${COMPANION_INK_FADE_MS}ms`,
+    );
   });
 
   /**

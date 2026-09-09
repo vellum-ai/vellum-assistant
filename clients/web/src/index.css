@@ -473,14 +473,18 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 /* A mark on its way out, once it has been sent. The delay is the hold that
- * lets the user see it land, and `forwards` is what keeps it gone for the
- * moment between the fade ending and the element being dropped. */
+ * lets the user see it land and say what it is about, and `forwards` is what
+ * keeps it gone for the moment between the fade ending and the element being
+ * dropped. Both times come from the layer (`COMPANION_INK_HOLD_MS` and
+ * `COMPANION_INK_FADE_MS` in `companion-share-annotation.tsx`), which drops
+ * the element on the same numbers. */
 @keyframes companion-share-ink-out {
   to { opacity: 0; }
 }
 
 .companion-share-ink-spent {
-  animation: companion-share-ink-out 900ms ease-out 500ms forwards;
+  animation: companion-share-ink-out var(--companion-ink-fade) ease-out
+    var(--companion-ink-hold) forwards;
 }
 
 /* Taken away rather than left standing: the mark is spent, and the reason it
@@ -488,7 +492,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * drawn on with no way to clear it. */
 @media (prefers-reduced-motion: reduce) {
   .companion-share-ink-spent {
-    animation: companion-share-ink-out 1ms linear 1400ms forwards;
+    animation: companion-share-ink-out 1ms linear
+      calc(var(--companion-ink-hold) + var(--companion-ink-fade)) forwards;
   }
 }
 

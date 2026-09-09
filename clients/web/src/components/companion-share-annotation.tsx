@@ -42,12 +42,20 @@ import {
  * How long a finished mark stays at full strength before it starts to go, and
  * how long it takes to go.
  *
- * The hold is there so the user sees the mark land: the frame leaves on the
- * same release, and a line that began dissolving as the hand came off would
- * read as a drawing that failed rather than one that was sent. The fade is
- * slow enough to be a departure rather than a blink.
+ * The hold is the time it takes to say what the mark is about. The frame
+ * leaves on the release, but the user is usually mid-sentence when the hand
+ * comes off ("this button, here"), and a circle that has dissolved before the
+ * sentence ends reads as a drawing that failed rather than one that was
+ * sent. Long enough for that sentence and for the assistant to start
+ * answering to it; short enough that the surface is clear again before the
+ * next thing worth pointing at. The fade is slow enough to be a departure
+ * rather than a blink.
+ *
+ * The overlay's stylesheet reads both through custom properties set on the
+ * layer, so the moment the element is dropped and the moment its fade ends
+ * are the same number.
  */
-export const COMPANION_INK_HOLD_MS = 500;
+export const COMPANION_INK_HOLD_MS = 4500;
 export const COMPANION_INK_FADE_MS = 900;
 
 /** A fraction of the shared surface, held inside it. */
@@ -243,6 +251,12 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   return (
     <svg
       className="companion-share-annotation fixed inset-0 h-full w-full"
+      style={
+        {
+          "--companion-ink-hold": `${COMPANION_INK_HOLD_MS}ms`,
+          "--companion-ink-fade": `${COMPANION_INK_FADE_MS}ms`,
+        } as React.CSSProperties
+      }
       data-testid="companion-share-annotation"
       role="presentation"
       onPointerDown={handleDown}
