@@ -74,6 +74,21 @@ describe("provider segment", () => {
     );
     expect(() => parseProxyProviderSegment("a/b")).toThrow(BadRequestError);
   });
+
+  test("refuses to encode a provider key that would parse back wrong", () => {
+    // "vendor@region" would encode unchanged and parse back as provider
+    // "vendor" pinned to account "region".
+    expect(() => encodeProxyProviderSegment("vendor@region")).toThrow(
+      BadRequestError,
+    );
+    expect(() =>
+      encodeProxyProviderSegment("vendor@region", "a@example.com"),
+    ).toThrow(BadRequestError);
+    expect(() => encodeProxyProviderSegment("vendor/region")).toThrow(
+      BadRequestError,
+    );
+    expect(() => encodeProxyProviderSegment("")).toThrow(BadRequestError);
+  });
 });
 
 describe("proxyGrantSubject", () => {
@@ -157,6 +172,26 @@ describe("parseProxyQuery", () => {
     expect(parseProxyQuery("")).toBeUndefined();
     expect(parseProxyQuery("?")).toBeUndefined();
   });
+
+  test("a key naming an Object.prototype member is an ordinary key", () => {
+    const query = parseProxyQuery(
+      "?__proto__=polluted&constructor=c&toString=t",
+    );
+
+    expect(Object.entries(query ?? {})).toEqual([
+      ["__proto__", "polluted"],
+      ["constructor", "c"],
+      ["toString", "t"],
+    ]);
+    // The literal-object build would have mutated this prototype instead.
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  });
+
+  test("a repeated __proto__ collapses into an array like any other key", () => {
+    expect(
+      Object.entries(parseProxyQuery("?__proto__=a&__proto__=b") ?? {}),
+    ).toEqual([["__proto__", ["a", "b"]]]);
+  });
 });
 
 describe("sanitizeInboundHeaders", () => {
@@ -165,6 +200,7 @@ describe("sanitizeInboundHeaders", () => {
       "Authorization",
       "proxy-authorization",
       "proxy-authenticate",
+      "Proxy-Connection",
       "Host",
       "content-length",
       "keep-alive",
@@ -363,6 +399,54 @@ describe("mapProxyRequestError", () => {
     expect(mapped.details).toEqual({
       provider: "stripe_link",
       reconnect: "assistant oauth connect stripe_link",
+    });
+  });
+
+  // Stands in for `TokenExpiredError` from security/token-manager.js, which
+  // this pure module deliberately does not import.
+  const tokenExpiredError = (message: string): Error => {
+    const err = new Error(message);
+    err.name = "TokenExpiredError";
+    return err;
+  };
+
+  test("a BYO token expiry asks the caller to reconnect", () => {
+    const mapped = mapProxyRequestError(
+      tokenExpiredError(
+        'No access token found for "stripe_link". Authorization required.',
+      ),
+      "stripe_link",
+    );
+
+    expect(mapped.statusCode).toBe(424);
+    expect(mapped.details).toEqual({
+      provider: "stripe_link",
+      reconnect: "assistant oauth connect stripe_link",
+    });
+  });
+
+  test("a BYO 401 that survived a refresh asks the caller to reconnect", () => {
+    const err = new Error("HTTP 401 from stripe_link");
+    (err as Error & { status: number }).status = 401;
+
+    const mapped = mapProxyRequestError(err, "stripe_link");
+
+    expect(mapped.statusCode).toBe(424);
+    expect(mapped.message).toBe("HTTP 401 from stripe_link");
+    expect(mapped.details).toEqual({
+      provider: "stripe_link",
+      reconnect: "assistant oauth connect stripe_link",
+    });
+  });
+
+  test("another upstream status is still a bad gateway", () => {
+    const err = new Error("HTTP 403 from stripe_link");
+    (err as Error & { status: number }).status = 403;
+
+    expect(mapProxyRequestError(err, "stripe_link")).toMatchObject({
+      statusCode: 502,
+      code: "BAD_GATEWAY",
+      message: "HTTP 403 from stripe_link",
     });
   });
 

@@ -16,6 +16,7 @@ import {
   InsufficientBalanceError,
   ProviderUnreachableError,
 } from "../../oauth/platform-connection.js";
+import type { TokenExpiredError } from "../../security/token-manager.js";
 import {
   BadGatewayError,
   BadRequestError,
@@ -44,6 +45,7 @@ const STRIPPED_REQUEST_HEADERS = new Set([
   "authorization",
   "proxy-authorization",
   "proxy-authenticate",
+  "proxy-connection",
   "host",
   "content-length",
   "connection",
@@ -75,11 +77,20 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 /**
  * Provider segment for a base URL. An account pins one connection when the
  * provider has several.
+ *
+ * A provider key carrying `@` or `/` would parse back as a different provider,
+ * so it is rejected here, where a grant is minted, rather than silently
+ * misrouting a request later.
  */
 export function encodeProxyProviderSegment(
   provider: string,
   account?: string,
 ): string {
+  if (!provider || provider.includes("@") || provider.includes("/")) {
+    throw new BadRequestError(
+      `An OAuth proxy provider key may not be empty or contain "@" or "/": "${provider}"`,
+    );
+  }
   return account ? `${provider}@${encodeURIComponent(account)}` : provider;
 }
 
@@ -166,11 +177,16 @@ export function normalizeProxyPath(remainder: string): string {
 /**
  * Decoded query parameters, repeated keys collapsed into arrays in wire order.
  * Both connection classes re-encode these.
+ *
+ * The record has a null prototype so a caller's `__proto__`, `constructor`, or
+ * `toString` parameter is a plain key rather than an inherited value.
  */
 export function parseProxyQuery(
   search: string,
 ): Record<string, string | string[]> | undefined {
-  const query: Record<string, string | string[]> = {};
+  const query: Record<string, string | string[]> = Object.create(
+    null,
+  ) as Record<string, string | string[]>;
   for (const [key, value] of new URLSearchParams(search)) {
     const existing = query[key];
     if (existing === undefined) {
@@ -281,8 +297,11 @@ export function mapProxyRequestError(
   err: unknown,
   provider: string,
 ): RouteError {
-  if (err instanceof CredentialRequiredError) {
-    return new FailedDependencyError(err.message, reconnectDetails(provider));
+  if (err instanceof CredentialRequiredError || isBYOCredentialFailure(err)) {
+    return new FailedDependencyError(
+      errorMessage(err),
+      reconnectDetails(provider),
+    );
   }
   if (err instanceof InsufficientBalanceError) {
     return new PaymentRequiredError(err.message);
@@ -312,6 +331,33 @@ export function ambiguousConnectionError(
     `Multiple ${provider} connections are available (${accounts.join(", ")}). ` +
       `Pin one by putting its account in the provider segment of the base URL, for example "${example}".`,
     { provider, accounts, providerSegments },
+  );
+}
+
+/**
+ * A BYO connection reports a dead credential either as `TokenExpiredError`
+ * (no token, or a refresh that cannot succeed) or, when a refreshed request
+ * still comes back 401, as an error carrying `status: 401`. Both mean the same
+ * thing the platform's `CredentialRequiredError` does: reconnect.
+ */
+function isBYOCredentialFailure(err: unknown): boolean {
+  return isTokenExpiredError(err) || hasUnauthorizedStatus(err);
+}
+
+/**
+ * Matched by name rather than `instanceof`: importing the class would pull the
+ * token manager's DB and secure-key graph into this side-effect-free module.
+ */
+function isTokenExpiredError(err: unknown): err is TokenExpiredError {
+  return err instanceof Error && err.name === "TokenExpiredError";
+}
+
+function hasUnauthorizedStatus(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "status" in err &&
+    (err as { status: unknown }).status === 401
   );
 }
 
