@@ -59,7 +59,7 @@ The following are wired automatically once `PROVIDER_SEED_DATA` has an entry:
 - **Gateway proxy** (`gateway/src/http/routes/oauth-providers-proxy.ts`) — forwards to the runtime.
 - **OAuth store** (`oauth-store.ts`) — seeding uses upsert; schema already supports arbitrary providers.
 - **Provider serialization** (`provider-serializer.ts`) — generic over all providers.
-- **Passthrough proxy** (`../runtime/routes/oauth-proxy-routes.ts`): resolves any seeded or registered provider, so a new provider needs no proxy-specific work.
+- **Passthrough proxy** (`../runtime/routes/oauth-proxy-routes.ts`): resolves any seeded or registered provider, so a new provider needs no proxy-specific work beyond a `baseUrl`. That field is optional for a provider generally, but a BYO provider without one fails resolution, so every proxied request returns 424 until it is set.
 
 ## Passthrough Proxy for Third-Party CLIs
 
