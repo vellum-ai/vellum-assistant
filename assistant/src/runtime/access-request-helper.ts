@@ -291,8 +291,8 @@ export async function notifyGuardianOfAccessRequest(
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;
-  // Primary key of the gateway row; nothing parses its shape, and the insert
-  // is strict, so it is minted unique per create rather than per millisecond.
+  // Primary key of the gateway row; the insert is strict, so each create
+  // mints an id unique to itself. Nothing parses its shape.
   const requestId = randomUUID();
 
   // Access requests are decisionable: without a bound principal nobody could

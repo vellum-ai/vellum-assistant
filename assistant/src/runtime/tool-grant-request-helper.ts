@@ -154,10 +154,9 @@ export async function createOrReuseToolGrantRequest(
 
   const senderLabel = requesterIdentifier || requesterExternalUserId;
 
-  // The id is the gateway row's primary key and nothing parses its shape.
-  // Sibling tool calls in one turn escalate concurrently, so it must be
-  // unique per call, not per millisecond: a timestamp-derived id collides
-  // across siblings and the strict insert fails the turn.
+  // The id is the gateway row's primary key, the insert is strict, and
+  // sibling tool calls in one turn escalate concurrently, so each create
+  // mints an id unique to itself. Nothing parses its shape.
   const guardianRequest = await createGuardianRequest({
     id: randomUUID(),
     kind: "tool_grant_request",
