@@ -1,36 +1,27 @@
 /**
- * Map daemon title sentinels to locale-aware display copy.
+ * Display copy for a conversation title.
  *
- * The assistant persists English placeholders (`Generating title...`,
- * `Untitled Conversation`) so replaceability stays a stable string match.
- * Clients localize those sentinels at the edge that draws the title.
+ * Untitled vs generating is a condition (`titleState`, or an empty title),
+ * not a match against the title string. The daemon owns those constants
+ * (`assistant/src/i18n`) and emits `titleState` on summaries and title
+ * events. Older daemons omit the field; an empty title still falls back
+ * to untitled.
  */
 
 import { t, useTranslation, type TFunction } from "@/i18n";
 
-export const GENERATING_TITLE_SENTINEL = "Generating title...";
-export const UNTITLED_CONVERSATION_SENTINEL = "Untitled Conversation";
-export const UNTITLED_SENTINEL = "Untitled";
-
-const GENERATING_TITLE_SENTINELS = new Set([
-  GENERATING_TITLE_SENTINEL,
-  "Generating title…",
-]);
-
-const UNTITLED_SENTINELS = new Set([
-  UNTITLED_SENTINEL,
-  UNTITLED_CONVERSATION_SENTINEL,
-]);
+export type ConversationTitleState = "generating" | "untitled";
 
 export function resolveConversationTitleDisplay(
   title: string | null | undefined,
   copy: { generating: string; untitled: string },
+  titleState?: ConversationTitleState | null,
 ): string {
-  const trimmed = title?.trim() ?? "";
-  if (GENERATING_TITLE_SENTINELS.has(trimmed)) {
+  if (titleState === "generating") {
     return copy.generating;
   }
-  if (trimmed === "" || UNTITLED_SENTINELS.has(trimmed)) {
+  const trimmed = title?.trim() ?? "";
+  if (titleState === "untitled" || trimmed === "") {
     return copy.untitled;
   }
   return trimmed;
@@ -39,16 +30,23 @@ export function resolveConversationTitleDisplay(
 export function displayConversationTitle(
   title: string | null | undefined,
   translate: TFunction = t,
+  titleState?: ConversationTitleState | null,
 ): string {
-  return resolveConversationTitleDisplay(title, {
-    generating: translate("conversationTitle.generating"),
-    untitled: translate("conversationTitle.untitled"),
-  });
+  return resolveConversationTitleDisplay(
+    title,
+    {
+      generating: translate("conversationTitle.generating"),
+      untitled: translate("conversationTitle.untitled"),
+    },
+    titleState,
+  );
 }
 
 export function useDisplayConversationTitle(): (
   title: string | null | undefined,
+  titleState?: ConversationTitleState | null,
 ) => string {
   const { t: translate } = useTranslation();
-  return (title) => displayConversationTitle(title, translate);
+  return (title, titleState) =>
+    displayConversationTitle(title, translate, titleState);
 }

@@ -87,7 +87,7 @@ function ConversationRow({
   );
   const source = conversation.source ?? "vellum-assistant";
   const meta = [dateText, source].filter(Boolean).join(" · ");
-  const title = displayTitle(conversation.title);
+  const title = displayTitle(conversation.title, conversation.titleState);
 
   return (
     <div

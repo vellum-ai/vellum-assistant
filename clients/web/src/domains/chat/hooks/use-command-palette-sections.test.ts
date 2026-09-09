@@ -6,6 +6,7 @@ import {
   buildActionsSection,
   buildServerResultSections,
 } from "@/domains/chat/hooks/command-palette-utils";
+import type { TFunction } from "@/i18n";
 
 const searchResults: GlobalSearchResponse = {
   conversations: [
@@ -156,7 +157,7 @@ describe("buildServerResultSections", () => {
     expect(nullTitleItem!.title).toBe("Untitled");
   });
 
-  test("localizes the generating-title sentinel", () => {
+  test("does not sniff a generating title string without titleState", () => {
     const generatingResults: GlobalSearchResponse = {
       conversations: [
         {
@@ -171,7 +172,15 @@ describe("buildServerResultSections", () => {
       schedules: [],
       contacts: [],
     };
-    const sections = buildServerResultSections(generatingResults, new Set());
+    const translate = ((key: string) =>
+      key === "conversationTitle.generating"
+        ? "Generando título..."
+        : key) as TFunction;
+    const sections = buildServerResultSections(
+      generatingResults,
+      new Set(),
+      translate,
+    );
     expect(sections[0]!.items[0]!.title).toBe("Generating title...");
   });
 

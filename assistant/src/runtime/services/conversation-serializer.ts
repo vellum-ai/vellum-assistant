@@ -7,6 +7,12 @@
  */
 
 import { parseChannelId } from "../../channels/types.js";
+import {
+  classifyConversationTitle,
+  DEFAULT_LOCALE,
+  resolveConversationTitle,
+  type SupportedLocale,
+} from "../../i18n/index.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import { buildChannelBindingMetadata } from "../../messaging/channel-binding-metadata.js";
 import {
@@ -78,6 +84,7 @@ interface ForkLineage {
 function buildForkLineage(
   conversation: ConversationRow,
   parentCache: Map<string, ConversationRow | null>,
+  locale: SupportedLocale,
 ): ForkLineage {
   const parentConversationId = conversation.forkParentConversationId;
   const parentMessageId = conversation.forkParentMessageId;
@@ -101,7 +108,7 @@ function buildForkLineage(
     forkParent: {
       conversationId: parentConversationId,
       messageId: parentMessageId,
-      title: parentConversation.title ?? "Untitled",
+      title: resolveConversationTitle(parentConversation.title, locale),
     },
   };
 }
@@ -178,6 +185,12 @@ export function serializeConversationSummary(params: {
    * with no daemon-store coupling.
    */
   isProcessing: boolean;
+  /**
+   * Locale used to resolve stored title constants. Defaults to English so
+   * older clients that do not send Accept-Language keep the same title
+   * bytes they already persist.
+   */
+  locale?: SupportedLocale;
 }) {
   const {
     conversation,
@@ -186,14 +199,17 @@ export function serializeConversationSummary(params: {
     displayMeta,
     parentCache,
     isProcessing,
+    locale = DEFAULT_LOCALE,
   } = params;
   const originChannel = parseChannelId(conversation.originChannel);
   const assistantAttention = buildAssistantAttention(attentionState);
-  const forkLineage = buildForkLineage(conversation, parentCache);
+  const forkLineage = buildForkLineage(conversation, parentCache, locale);
+  const titleState = classifyConversationTitle(conversation.title);
 
   return {
     id: conversation.id,
-    title: conversation.title ?? "Untitled",
+    title: resolveConversationTitle(conversation.title, locale),
+    ...(titleState !== "custom" ? { titleState } : {}),
     createdAt: conversation.createdAt,
     updatedAt: conversation.updatedAt,
     lastMessageAt: conversation.lastMessageAt,
@@ -253,6 +269,7 @@ export function serializeConversationSummary(params: {
  */
 export function buildConversationDetailResponse(
   conversationId: string,
+  locale: SupportedLocale = DEFAULT_LOCALE,
 ): { conversation: ReturnType<typeof serializeConversationSummary> } | null {
   const conversation = getConversation(conversationId);
   if (!conversation || conversation.conversationType === "private") {
@@ -274,6 +291,7 @@ export function buildConversationDetailResponse(
       // Checks in-memory flag first (hot path), falls back to the
       // persisted `processing_started_at` column for cold conversations.
       isProcessing: isConversationProcessing(conversation.id),
+      locale,
     }),
   };
 }

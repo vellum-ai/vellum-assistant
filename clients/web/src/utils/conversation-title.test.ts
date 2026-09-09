@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   displayConversationTitle,
-  GENERATING_TITLE_SENTINEL,
   resolveConversationTitleDisplay,
-  UNTITLED_CONVERSATION_SENTINEL,
-  UNTITLED_SENTINEL,
 } from "@/utils/conversation-title";
 
 const copy = {
@@ -14,39 +11,35 @@ const copy = {
 };
 
 describe("resolveConversationTitleDisplay", () => {
-  test("maps the generating sentinel, including a unicode ellipsis", () => {
+  test("uses titleState generating, not the title string", () => {
     expect(
-      resolveConversationTitleDisplay(GENERATING_TITLE_SENTINEL, copy),
+      resolveConversationTitleDisplay("Weekly planning", copy, "generating"),
     ).toBe(copy.generating);
-    expect(resolveConversationTitleDisplay("Generating title…", copy)).toBe(
-      copy.generating,
-    );
   });
 
-  test("maps empty, Untitled, and Untitled Conversation to untitled copy", () => {
+  test("uses titleState untitled or an empty title", () => {
+    expect(
+      resolveConversationTitleDisplay("Untitled Conversation", copy, "untitled"),
+    ).toBe(copy.untitled);
     expect(resolveConversationTitleDisplay(null, copy)).toBe(copy.untitled);
-    expect(resolveConversationTitleDisplay(undefined, copy)).toBe(copy.untitled);
     expect(resolveConversationTitleDisplay("", copy)).toBe(copy.untitled);
     expect(resolveConversationTitleDisplay("   ", copy)).toBe(copy.untitled);
-    expect(resolveConversationTitleDisplay(UNTITLED_SENTINEL, copy)).toBe(
-      copy.untitled,
-    );
-    expect(
-      resolveConversationTitleDisplay(UNTITLED_CONVERSATION_SENTINEL, copy),
-    ).toBe(copy.untitled);
   });
 
-  test("returns a real title unchanged", () => {
-    expect(resolveConversationTitleDisplay("Auth Middleware Rewrite", copy)).toBe(
-      "Auth Middleware Rewrite",
-    );
+  test("returns a real title unchanged when titleState is absent", () => {
+    expect(
+      resolveConversationTitleDisplay("Auth Middleware Rewrite", copy),
+    ).toBe("Auth Middleware Rewrite");
+    expect(
+      resolveConversationTitleDisplay("Generating title...", copy),
+    ).toBe("Generating title...");
   });
 });
 
 describe("displayConversationTitle", () => {
   test("uses the English catalog in tests", () => {
     expect(displayConversationTitle(null)).toBe("Untitled");
-    expect(displayConversationTitle(GENERATING_TITLE_SENTINEL)).toBe(
+    expect(displayConversationTitle("Weekly planning", undefined, "generating")).toBe(
       "Generating title...",
     );
     expect(displayConversationTitle("Weekly planning")).toBe("Weekly planning");

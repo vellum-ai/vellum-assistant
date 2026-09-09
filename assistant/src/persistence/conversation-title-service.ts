@@ -7,6 +7,7 @@
  * overwritten, never user-provided custom titles.
  */
 
+import { messageKeyFromStored } from "../i18n/index.js";
 import {
   createTimeout,
   extractAllText,
@@ -104,6 +105,9 @@ const REPLACEABLE_PATTERNS = [
  */
 export function isReplaceableTitle(title: string | null): boolean {
   if (title == null || title.trim() === "") {
+    return true;
+  }
+  if (messageKeyFromStored(title) !== null) {
     return true;
   }
   return REPLACEABLE_PATTERNS.some((pattern) => pattern.test(title));

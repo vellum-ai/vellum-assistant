@@ -92,6 +92,7 @@ export function toConversation(raw: RawConversationSummary): Conversation {
   return {
     conversationId: raw.id,
     title: raw.title,
+    titleState: raw.titleState,
     createdAt: asNumber(raw.createdAt),
     lastMessageAt: asNumber(raw.lastMessageAt ?? raw.updatedAt),
     hasUnseenLatestAssistantMessage: attention?.hasUnseenLatestAssistantMessage,

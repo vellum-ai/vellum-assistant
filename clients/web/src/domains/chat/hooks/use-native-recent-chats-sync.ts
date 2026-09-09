@@ -59,7 +59,11 @@ export function useNativeRecentChatsSync(
       .slice(0, MAX_SYNCED_CHATS)
       .map((conversation) => ({
         id: conversation.conversationId,
-        title: displayConversationTitle(conversation.title, t),
+        title: displayConversationTitle(
+          conversation.title,
+          t,
+          conversation.titleState,
+        ),
       }));
     const serialized = JSON.stringify(chats);
     if (serialized === lastPayloadRef.current) {

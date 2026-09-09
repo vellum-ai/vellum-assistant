@@ -190,7 +190,10 @@ export function ChatConversationHeader({
                   {t("chatConversationHeader.archived")}
                 </span>
               )}
-              {displayTitle(activeConversation.title)}
+              {displayTitle(
+                activeConversation.title,
+                activeConversation.titleState,
+              )}
             </span>
             {channelHeaderLabel ? (
               <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">

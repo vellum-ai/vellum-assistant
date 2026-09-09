@@ -74,7 +74,7 @@ export function DeleteConversationConfirmDialog({
   const { t } = useTranslation("chat");
   const displayTitle = useDisplayConversationTitle();
   const [acknowledged, setAcknowledged] = useState(false);
-  const title = displayTitle(pending?.title);
+  const title = displayTitle(pending?.title, pending?.titleState);
 
   useEffect(() => {
     setAcknowledged(false);

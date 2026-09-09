@@ -17,6 +17,11 @@ export const ConversationTitleUpdatedEventSchema = z.object({
   conversationId: z.string(),
   /** New title. */
   title: z.string(),
+  /**
+   * Present when `title` is a daemon-owned placeholder. Clients localize
+   * from this state rather than matching the title string.
+   */
+  titleState: z.enum(["generating", "untitled"]).optional(),
 });
 
 export type ConversationTitleUpdatedEvent = z.infer<

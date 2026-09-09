@@ -2618,6 +2618,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  test("parses conversation_title_updated with titleState", () => {
+    const event = parseEvent({
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "Untitled",
+      titleState: "untitled",
+    });
+    expect(event).toEqual({
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "Untitled",
+      titleState: "untitled",
+    });
+  });
+
   test("returns unknown conversation_title_updated when conversationId is missing", () => {
     const data = {
       type: "conversation_title_updated",

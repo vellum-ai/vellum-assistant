@@ -15,6 +15,12 @@ import type { ExternalSourceLink } from "@/utils/external-source-link";
 export interface Conversation {
   conversationId: string;
   title?: string;
+  /**
+   * Daemon-owned placeholder kind. Present when `title` is generating or
+   * untitled. Clients localize from this field rather than matching the
+   * title string. Absent on custom titles and on older daemons.
+   */
+  titleState?: "generating" | "untitled";
   createdAt?: number;
   lastMessageAt?: number;
   hasUnseenLatestAssistantMessage?: boolean;

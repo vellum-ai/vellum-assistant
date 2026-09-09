@@ -87,6 +87,10 @@ The module-level dependency-injection pattern (`registerFooDeps()`) used by some
 
 Telemetry event types are defined by a platform-generated wire contract (`src/telemetry/telemetry-wire.generated.ts`) that `src/telemetry/types.ts` layers over, with pre-flush validation against it. Adding a new event type starts platform-side, not here. The mechanics, the drift guards, and the cross-repo ordering are documented next to the code they govern: see [`src/telemetry/AGENTS.md`](src/telemetry/AGENTS.md).
 
+## Daemon i18n
+
+User-facing copy the daemon persists or emits goes through `src/i18n/`. Persist a message key (or the English default when a column already stores English). Resolve with `t(key, locale)` at the HTTP/CLI/channel edge. Never persist a translated string. See [`src/i18n/AGENTS.md`](src/i18n/AGENTS.md).
+
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.

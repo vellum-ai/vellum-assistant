@@ -506,7 +506,11 @@ describe("useConversationSync", () => {
     queryClient.setQueryData<ConversationListPage>(
       conversationListQueryKey("asst-1"),
       listPage([
-        { conversationId: "conv-1", title: "Old Title" } as Conversation,
+        {
+          conversationId: "conv-1",
+          title: "Generating title...",
+          titleState: "generating",
+        } as Conversation,
       ]),
     );
     renderHook(() => useConversationSync("asst-1", true), {
@@ -528,6 +532,7 @@ describe("useConversationSync", () => {
       )?.conversations;
       const conv = cached?.find((c) => c.conversationId === "conv-1");
       expect(conv?.title).toBe("New Title");
+      expect(conv?.titleState).toBeUndefined();
     });
   });
 });

@@ -7149,6 +7149,11 @@ paths:
                           type: string
                         title:
                           type: string
+                        titleState:
+                          type: string
+                          enum:
+                            - generating
+                            - untitled
                         createdAt:
                           type: number
                         updatedAt:
@@ -7515,6 +7520,11 @@ paths:
                         type: string
                       title:
                         type: string
+                      titleState:
+                        type: string
+                        enum:
+                          - generating
+                          - untitled
                       createdAt:
                         type: number
                       updatedAt:
@@ -8777,6 +8787,11 @@ paths:
                         type: string
                       title:
                         type: string
+                      titleState:
+                        type: string
+                        enum:
+                          - generating
+                          - untitled
                       createdAt:
                         type: number
                       updatedAt:
