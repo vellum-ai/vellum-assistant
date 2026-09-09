@@ -64,6 +64,12 @@ interface FakeConversationConfig {
     outputTokens: number;
     estimatedCost: number;
   };
+  /**
+   * How long the loop keeps unwinding after the abort is raised, modelling the
+   * real one's final flush. It is this window that lets a parent-wide stop land
+   * between a budget stop and the run's teardown.
+   */
+  unwindDelayMs?: number;
 }
 
 /** Ordered record of the flush and the parent injection, for the budget tests. */
@@ -168,6 +174,10 @@ class FakeConversation {
         await new Promise<void>((resolve) => {
           this.resolveAbort = resolve;
         });
+      }
+      if (this.cfg.unwindDelayMs !== undefined) {
+        const delay = this.cfg.unwindDelayMs;
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
       }
       if (this.cfg.settledUsage) {
         this.usageStats = { ...this.cfg.settledUsage };
@@ -892,6 +902,76 @@ describe("SubagentManager run budgets", () => {
       outputTokens: 400,
       estimatedCost: 0.42,
     });
+    clearConversations();
+  });
+
+  test("a budget stop sends the settled usage to the client too", async () => {
+    // The durable row is only half the story. The terminal event went out from
+    // inside the abort, carrying the same pre-settlement totals, so a client
+    // that never re-reads the record would keep showing them.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    registerFakeParent(cfg.parentConversationId);
+    nextConversationConfig = {
+      waitForAbort: true,
+      settledUsage: {
+        inputTokens: 900,
+        outputTokens: 400,
+        estimatedCost: 0.42,
+      },
+    };
+
+    const statusEvents: {
+      status: string;
+      usage?: { inputTokens: number; outputTokens: number };
+    }[] = [];
+    const manager = new SubagentManager();
+    await manager.spawn(cfg, (msg) => {
+      if (msg.type === "subagent_status_changed") {
+        statusEvents.push(
+          msg as unknown as {
+            status: string;
+            usage?: { inputTokens: number; outputTokens: number };
+          },
+        );
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const aborted = statusEvents.filter((e) => e.status === "aborted");
+    // Two: the prompt one from the abort, then the settled one from teardown.
+    // The prompt one is what keeps the stop responsive, so it must still fire.
+    expect(aborted.length).toBe(2);
+    expect(aborted[aborted.length - 1].usage).toMatchObject({
+      inputTokens: 900,
+      outputTokens: 400,
+    });
+    clearConversations();
+  });
+
+  test("a parent stopped mid-run gets no deferred budget notification", async () => {
+    // The stop marks the child terminal, so the parent's abort sweep cannot
+    // suppress the notification the usual way: `abort` returns early on a
+    // terminal child. Without the sweep dropping it, the run's teardown injects
+    // into a conversation the user has just stopped.
+    const cfg = makeConfig({ maxRuntimeMs: 20 });
+    const parent = registerFakeParent(cfg.parentConversationId);
+    // The loop keeps unwinding after the budget stop raises its abort, which is
+    // the window the parent's stop has to land in.
+    nextConversationConfig = { waitForAbort: true, unwindDelayMs: 60 };
+
+    const manager = new SubagentManager();
+    const subagentId = await manager.spawn(cfg, () => {});
+    // Let the budget timer mark the child aborted, with its loop still unwinding.
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(manager.getState(subagentId)?.status).toBe("aborted");
+
+    // The user presses Stop on the parent.
+    manager.abortAllForParent(cfg.parentConversationId, () => {});
+
+    // Let the child's run finish unwinding and reach its teardown.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+
+    expect(parent.messages().join("\n")).not.toContain("stopped at its budget");
     clearConversations();
   });
 

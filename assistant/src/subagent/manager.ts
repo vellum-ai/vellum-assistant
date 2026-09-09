@@ -1122,14 +1122,18 @@ export class SubagentManager {
     } finally {
       this.clearRuntimeBudget(managed);
       // A run already terminal by the time the loop unwound had its record
-      // written from inside `abort`, which fires from a timer or an event tap
-      // while the loop is still awaited: the final turn's tokens had not been
-      // accrued yet, so the row holds pre-settlement usage (often zero). The
-      // try and catch above both refresh `state.usage` from the conversation
-      // before this runs, so persisting here is what puts the settled numbers
-      // on disk. The completion and failure paths rewrite what they just wrote.
+      // written and its terminal event sent from inside `abort`, which fires
+      // from a timer or an event tap while the loop is still awaited: the final
+      // turn's tokens had not been accrued yet, so both the row and the client
+      // hold pre-settlement usage (often zero). The try and catch above refresh
+      // `state.usage` from the conversation before this runs, so re-sending the
+      // same terminal status here is what carries the settled numbers to both.
+      // `setStatus` is idempotent for an unchanged status, and the client's
+      // `changeStatus` applies a terminal event's totals (its terminal-usage
+      // latch gates the incremental `usage_progress` path, not this one). The
+      // completion and failure paths re-send what they just sent.
       if (TERMINAL_STATUSES.has(managed.state.status)) {
-        this.persistState(managed.state);
+        this.setStatus(subagentId, managed.state.status, getSender());
       }
       // A budget stop aborts the child from a timer or an event tap, with
       // `runAgentLoop` still awaited above. Its notification waits until here,
@@ -1406,6 +1410,16 @@ export class SubagentManager {
 
     let count = 0;
     for (const childId of children) {
+      // A child stopped at its budget defers its parent notification to the
+      // run's teardown, which can land after this sweep. The parent is going
+      // away, so drop that pending notification rather than injecting into a
+      // conversation the user just stopped. `abort` cannot do this for us: it
+      // returns early on an already-terminal child, which is exactly the child
+      // whose notification is still pending.
+      const managed = this.subagents.get(childId);
+      if (managed) {
+        managed.budgetStopReason = undefined;
+      }
       if (this.abort(childId, parentSendToClient)) {
         count++;
       }
