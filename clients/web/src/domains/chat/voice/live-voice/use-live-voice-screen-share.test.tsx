@@ -1125,6 +1125,30 @@ describe("useLiveVoiceScreenShare: a helper that stalls", () => {
   });
 
   /**
+   * The helper's answer, arriving after the occasion gave up on it, is
+   * still its answer: nothing means the target cannot be captured, and the
+   * share comes down as it would for a prompt nothing.
+   */
+  test("a late nothing from the helper lowers the share", async () => {
+    shortenTheBound(SCREEN_SHARE_PICTURE_WAIT_MS);
+    let releaseFrame!: (frame: ScreenCaptureFrame | null) => void;
+    answerFrame = () =>
+      new Promise<ScreenCaptureFrame | null>((resolve) => {
+        releaseFrame = resolve;
+      });
+    renderShare();
+    share(WINDOW);
+    await flush();
+    await flush();
+    expect(useLiveVoiceStore.getState().screenShareTarget).toEqual(WINDOW);
+
+    releaseFrame(null);
+    await flush();
+    expect(useLiveVoiceStore.getState().screenShareTarget).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  /**
    * The question is still open when its own picture fails to come, so its
    * ask goes to the next picture that does: the stop edge is judged at the
    * question's bar rather than the ambient one.

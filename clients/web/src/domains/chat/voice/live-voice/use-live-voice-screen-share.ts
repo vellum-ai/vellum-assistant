@@ -235,7 +235,12 @@ export function useLiveVoiceScreenShare(): void {
     // stalled, and is not asked again until it has: the bridge has no way
     // to call a request back, so asking again would only pile up requests
     // and the pictures they eventually carry, none of which will be read.
-    const outstanding = new Set<{ readonly requestedAtMs: number }>();
+    type HelperRequest = {
+      readonly requestedAtMs: number;
+      /** Whether the occasion read the answer, or gave up waiting for it. */
+      read: boolean;
+    };
+    const outstanding = new Set<HelperRequest>();
     // A drawing the helper could not be asked for, or did not answer for in
     // time: the one frame here the user asked for by hand, so it is not
     // dropped with its occasion but taken the moment the helper answers
@@ -551,9 +556,10 @@ export function useLiveVoiceScreenShare(): void {
       drawing: SharedDrawing | null,
       run: number,
       picture: Promise<ScreenCaptureFrame | null>,
-      requestedAtMs: number,
+      request: HelperRequest,
       askedAtMs: number | null,
     ): Promise<void> => {
+      const { requestedAtMs } = request;
       const stale = (): boolean => cancelled || generation !== run;
       // An occasion that produces nothing to judge keeps its ask for the
       // next one; see `carriedAskMs`.
@@ -596,6 +602,7 @@ export function useLiveVoiceScreenShare(): void {
         }
         return;
       }
+      request.read = true;
       if (frame === null) {
         lowerShare();
         return;
@@ -684,23 +691,34 @@ export function useLiveVoiceScreenShare(): void {
           return;
         }
       }
-      const request = { requestedAtMs };
+      const request: HelperRequest = { requestedAtMs, read: false };
       outstanding.add(request);
-      const settled = (): void => {
+      const settled = (frame: ScreenCaptureFrame | null): void => {
         outstanding.delete(request);
+        if (cancelled || run !== generation) {
+          return;
+        }
+        // An answer the occasion gave up waiting for is still the helper's
+        // answer. Nothing, arriving late, means what it means arriving in
+        // time: the target cannot be captured, and the share comes down
+        // rather than asking again and again for what it will not get.
+        if (!request.read && frame === null) {
+          lowerShare();
+          return;
+        }
         // The helper is answering again. A drawing held back while it was
         // not is taken now, on the run it was made in: a later run's
         // subscriber bumps the generation and the take refuses it.
-        if (carriedDrawing !== null && !cancelled && run === generation) {
+        if (carriedDrawing !== null) {
           const held = carriedDrawing;
           carriedDrawing = null;
           share(held);
         }
       };
       const picture = captureCompanionScreen(target);
-      picture.then(settled, settled);
+      picture.then(settled, () => settled(null));
       queue = queue
-        .then(() => take(drawing, run, picture, requestedAtMs, askedAtMs))
+        .then(() => take(drawing, run, picture, request, askedAtMs))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
