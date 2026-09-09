@@ -28,6 +28,7 @@ mock.module("../../../config/env.js", () => ({
 }));
 
 import { enforcePolicy, type RoutePolicy } from "../route-policy.js";
+import { resolveScopeProfile } from "../scopes.js";
 import type { AuthContext, Scope } from "../types.js";
 
 /** Build a synthetic AuthContext for testing. */
@@ -63,6 +64,12 @@ const ACTOR_WRITE_POLICY: RoutePolicy = {
 const GATEWAY_INGRESS_POLICY: RoutePolicy = {
   requiredScopes: ["ingress.write"],
   allowedPrincipalTypes: ["svc_gateway"],
+};
+
+/** Policy guarding the OAuth passthrough route. */
+const OAUTH_PROXY_POLICY: RoutePolicy = {
+  requiredScopes: ["oauth.proxy"],
+  allowedPrincipalTypes: ["local"],
 };
 
 describe("enforcePolicy", () => {
@@ -141,6 +148,41 @@ describe("enforcePolicy", () => {
     // Has chat.write but not approval.write
     const ctx = buildTestContext({ scopes: ["chat.write"] });
     const result = enforcePolicy("compound", multiScopePolicy, ctx);
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("allows a local principal holding oauth.proxy", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "local",
+      scopes: ["oauth.proxy"],
+    });
+    expect(enforcePolicy("oauth/proxy", OAUTH_PROXY_POLICY, ctx)).toBeNull();
+  });
+
+  test("oauth.proxy opens no other route", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "local",
+      scopes: ["oauth.proxy"],
+    });
+    const result = enforcePolicy(
+      "settings",
+      { requiredScopes: ["settings.write"], allowedPrincipalTypes: ["local"] },
+      ctx,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("a fully scoped actor client cannot reach the oauth proxy route", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "actor",
+      scopes: [...resolveScopeProfile("actor_client_v1")],
+    });
+    const result = enforcePolicy("oauth/proxy", OAUTH_PROXY_POLICY, ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
