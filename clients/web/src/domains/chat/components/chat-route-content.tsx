@@ -953,8 +953,15 @@ export function ChatMainPanel({
         open
         message={error.message}
         onClose={() => {
-          if (typeof error.restoreContent === "string") {
-            useComposerStore.getState().setInput(error.restoreContent);
+          // The modal can be acknowledged long after the send it reports (a
+          // queued message can fail while its batch runs on), by which time
+          // the composer may hold a newer draft that must not be replaced.
+          const composer = useComposerStore.getState();
+          if (
+            typeof error.restoreContent === "string" &&
+            !composer.input.trim()
+          ) {
+            composer.setInput(error.restoreContent);
           }
           useChatSessionStore.getState().setError(null);
         }}

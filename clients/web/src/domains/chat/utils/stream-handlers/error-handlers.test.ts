@@ -55,6 +55,29 @@ describe("handleStreamError", () => {
     ).toBe(false);
   });
 
+  it("stays terminal for an error scoped to the turn", () => {
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: true }]),
+    );
+
+    handleStreamError(
+      { type: "error", message: "Something went wrong.", scope: "turn" },
+      ctx,
+    );
+
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      reason: "error",
+    });
+    expect(ctx.setError).toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).toHaveBeenCalled();
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(false);
+  });
+
   it("marks only the named send failed and leaves the running turn alone", () => {
     // GIVEN a queued batch member this tab still renders as an optimistic row
     useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
@@ -69,6 +92,7 @@ describe("handleStreamError", () => {
       {
         type: "error",
         message: "Failed to persist message.",
+        scope: "message",
         clientMessageId: "client-1",
       },
       ctx,
@@ -89,6 +113,66 @@ describe("handleStreamError", () => {
     });
 
     // AND the reply the batch is still generating keeps streaming
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+    expect(
+      findConversation(ctx.queryClient, "ast-1", "conv-1")?.isProcessing,
+    ).toBe(true);
+  });
+
+  it("treats a nonce with no scope as the message's, not the turn's", () => {
+    // A daemon that correlates by nonce alone still gets the message-scoped
+    // path: the nonce names the one send that failed.
+    useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+      displayAs: "modal",
+      restoreContent: "the batched send",
+    });
+    expect(ctx.endTurn).not.toHaveBeenCalled();
+    expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
+  });
+
+  it("keeps the turn alive for a message-scoped error that carries no nonce", () => {
+    // A sender that omits `clientMessageId` leaves nothing to correlate with,
+    // so the scope alone has to keep the failure off the terminal path.
+    useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
+    const ctx = makeCtx();
+    ctx.queryClient.setQueryData(
+      conversationListQueryKey("ast-1"),
+      listPage([{ conversationId: "conv-1", isProcessing: true }]),
+    );
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+      },
+      ctx,
+    );
+
+    expect(ctx.setNotice).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+    });
+    expect(ctx.setError).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
     expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
     expect(

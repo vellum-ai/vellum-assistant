@@ -62,14 +62,12 @@ export function DocumentComposerReplyWatcher() {
       useResolvedAssistantsStore.getState().activeAssistantId;
     return useResolvedAssistantsStore.subscribe((state) => {
       const { activeAssistantId } = state;
-      // No active assistant is a transient state during a reload, not a move
-      // to a different one.
-      if (
-        activeAssistantId === null ||
-        activeAssistantId === ownerAssistantId
-      ) {
+      if (activeAssistantId === ownerAssistantId) {
         return;
       }
+      // Going null is leaving the assistant too (logout, removing the paired
+      // assistant, the lifecycle reset), and no terminal for its
+      // conversations arrives until it is selected again.
       if (ownerAssistantId !== null) {
         const replyStore = useDocumentComposerReplyStore.getState();
         // The outgoing assistant's connection is detached, so no terminal

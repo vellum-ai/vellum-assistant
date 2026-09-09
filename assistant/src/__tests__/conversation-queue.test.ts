@@ -2315,8 +2315,68 @@ describe("Batched drain correctness fixes", () => {
       type: "error",
       conversationId: "conv-1",
       requestId: "req-nonce-mid",
+      scope: "message",
       clientMessageId: "cm-mid",
     });
+
+    // The siblings persisted, so neither is told anything failed.
+    expect(events2.find((e) => e.type === "error")).toBeUndefined();
+    expect(events4.find((e) => e.type === "error")).toBeUndefined();
+
+    // Cleanup: resolve the batched run.
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 20));
+  });
+
+  test("failed batch member with no nonce is still scoped to the message", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const events4: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A sender that supplies no nonce still has to be told the failure is
+    // one message's, not the turn's, so the scope carries it on its own.
+    addMessageShouldThrowForContent.add("scope-mid-marker");
+
+    conversation.enqueueMessage({
+      content: "scope-head",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-scope-head",
+    });
+    conversation.enqueueMessage({
+      content: "scope-mid-marker",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-scope-mid",
+    });
+    conversation.enqueueMessage({
+      content: "scope-tail",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-scope-tail",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const midError = events3.find((e) => e.type === "error");
+    expect(midError).toMatchObject({
+      type: "error",
+      conversationId: "conv-1",
+      requestId: "req-scope-mid",
+      scope: "message",
+    });
+    expect(midError).not.toHaveProperty("clientMessageId");
 
     // The siblings persisted, so neither is told anything failed.
     expect(events2.find((e) => e.type === "error")).toBeUndefined();

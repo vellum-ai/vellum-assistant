@@ -1578,12 +1578,14 @@ async function drainBatch(
         "Failed to persist batched queued message",
       );
       // The failure belongs to this one batch member, not the turn, so the
-      // event names the message a client tracks its send by.
+      // event carries the message scope and, when the sender supplied one,
+      // the nonce it tracks its send by.
       qm.onEvent({
         type: "error",
         conversationId: conversation.conversationId,
         requestId: qm.requestId,
         message,
+        scope: "message",
         ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
       });
 

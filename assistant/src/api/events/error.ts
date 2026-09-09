@@ -28,10 +28,19 @@ export const ErrorEventSchema = z.object({
   requestId: z.string().optional(),
   conversationId: z.string().optional(),
   /**
+   * What the error belongs to. `"message"` marks an error that belongs to one
+   * message rather than the turn: a queued message the daemon could not
+   * persist while the batch it was dequeued with runs on. Absent or `"turn"`
+   * is the turn's terminal error, which is what every other emit site means.
+   */
+  scope: z.enum(["turn", "message"]).optional(),
+  /**
    * The `clientMessageId` of the one message this error is about, when the
    * failure belongs to a single message rather than the turn: a queued
    * message the daemon could not persist while the batch it was dequeued
-   * with runs on. Clients that track sends by nonce end only that one.
+   * with runs on. Clients that track sends by nonce end only that one. The
+   * nonce is the correlation handle when the sender supplied one; `scope`
+   * says what kind of error it is regardless.
    */
   clientMessageId: z.string().optional(),
 });

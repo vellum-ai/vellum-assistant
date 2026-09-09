@@ -20,18 +20,20 @@ function resolveErrorDetail(event: ErrorEvent): string {
 }
 
 /**
- * An `error` that names a `clientMessageId` is that one message's, not the
- * turn's: a queued batch member the daemon could not persist while the batch it
- * was dequeued with runs on. The turn on screen keeps streaming and only that
- * send is marked failed. An `error` that names no message is the turn's
- * terminal.
+ * `scope` marks what kind of error this is. `"message"` is one message's
+ * failure rather than the turn's: a queued batch member the daemon could not
+ * persist while the batch it was dequeued with runs on, so the turn on screen
+ * keeps streaming and only that send is marked failed. A `clientMessageId` is
+ * the correlation handle for that send, and on its own it marks the error
+ * message-scoped too, for senders that supply the nonce without the scope.
+ * Everything else is the turn's terminal error.
  */
 export function handleStreamError(
   event: ErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
   const { clientMessageId } = event;
-  if (clientMessageId) {
+  if (event.scope === "message" || clientMessageId) {
     handleMessageScopedError(event, clientMessageId, ctx);
     return;
   }
@@ -56,22 +58,27 @@ export function handleStreamError(
 /**
  * The one message's failure: no `endTurn`, no `isProcessing` patch, no stream
  * cancel, because the turn the batch is running is still generating a reply.
+ * The rollback needs the nonce to know which optimistic row failed; without one
+ * the failure is still the message's, it just has no local row to name.
  */
 function handleMessageScopedError(
   event: ErrorEvent,
-  clientMessageId: string,
+  clientMessageId: string | undefined,
   ctx: StreamHandlerContext,
 ): void {
   const detail = resolveErrorDetail(event);
-  const failedSend = useChatSessionStore
-    .getState()
-    .optimisticSends.find((m) => messageMatchesKey(m, clientMessageId));
+  const failedSend = clientMessageId
+    ? useChatSessionStore
+        .getState()
+        .optimisticSends.find((m) => messageMatchesKey(m, clientMessageId))
+    : undefined;
 
-  if (!failedSend) {
-    // Another client's send, or one this tab holds no row for. There is
-    // nothing local to roll back, so the failure goes to the non-terminal
-    // channel `handleConversationNoticeEvent` uses: a warning banner in the
-    // composer area that leaves the turn and the stream alone.
+  if (!clientMessageId || !failedSend) {
+    // A send that carries no nonce, another client's send, or one this tab
+    // holds no row for. There is nothing local to roll back, so the failure
+    // goes to the non-terminal channel `handleConversationNoticeEvent` uses: a
+    // warning banner in the composer area that leaves the turn and the stream
+    // alone.
     ctx.setNotice({
       message: detail,
       code: event.code,

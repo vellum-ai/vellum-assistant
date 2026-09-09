@@ -1174,14 +1174,34 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastSuccessMock).not.toHaveBeenCalled();
     });
 
-    test("a pass through no active assistant leaves the wait up", () => {
+    test("leaving the assistant drops the wait and its marker", () => {
       useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
       acknowledgeRunning("conv-1");
       useConversationStore.getState().addProcessingConversationId("conv-1");
       render(<DocumentComposerReplyWatcher />);
 
-      // A reload drops the active id before settling on the same assistant.
+      // Logging out, removing the selected paired assistant, and the
+      // lifecycle reset all leave no assistant active.
       setActiveAssistant(null);
+
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+
+      // Coming back to the same assistant leaves the wait dropped, so a
+      // terminal for conv-1 belongs to some unrelated turn.
+      setActiveAssistant("assistant-1");
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
+    test("selecting the first assistant leaves the wait alone", () => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: null });
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      acknowledgeRunning("conv-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
       setActiveAssistant("assistant-1");
 
       expect(awaiting("conv-1")).toBe(true);
