@@ -42,6 +42,18 @@ export async function executeAcpSetModel(
 
   try {
     const state = await getAcpSessionManager().setModel(acpSessionId, model);
+    // An empty picker with nothing selected is the session saying the
+    // adapter's answer advertised no model at all, so the value asked for is
+    // exactly what cannot be claimed.
+    if (!state.model && state.availableModels?.length === 0) {
+      return {
+        content: unconfirmedSwitchMessage(
+          acpSessionId,
+          "the agent dropped its model selector",
+        ),
+        isError: true,
+      };
+    }
     return {
       content: JSON.stringify({
         acpSessionId,
@@ -83,5 +95,17 @@ function describeSetModelFailure(acpSessionId: string, err: unknown): string {
     return err.message;
   }
   const msg = err instanceof Error ? err.message : String(err);
-  return `Could not switch the model on ACP session "${acpSessionId}": ${msg}. Check the session with acp_status before relying on it.`;
+  return unconfirmedSwitchMessage(acpSessionId, msg);
+}
+
+/**
+ * The neutral answer for a switch nothing confirmed: it names what went wrong
+ * without ruling on which model the session is on, and points at the tool that
+ * can say.
+ */
+function unconfirmedSwitchMessage(
+  acpSessionId: string,
+  reason: string,
+): string {
+  return `Could not switch the model on ACP session "${acpSessionId}": ${reason}. Check the session with acp_status before relying on it.`;
 }
