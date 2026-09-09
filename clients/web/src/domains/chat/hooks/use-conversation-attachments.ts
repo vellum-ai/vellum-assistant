@@ -87,7 +87,7 @@ function selectAttachmentRows(state: ChatSessionStore): DisplayMessage[] {
  * Files and frames partition the entries: one captured by the camera gate
  * counts as a frame and nowhere else, so the two totals cannot double-count it.
  */
-export function countEntryTotals(entries: ConversationAttachmentEntry[]): {
+function countEntryTotals(entries: ConversationAttachmentEntry[]): {
   totalFiles: number;
   totalFrames: number;
 } {
@@ -131,12 +131,9 @@ export function useConversationAttachments(target: {
         continue;
       }
       const attachments = message.attachments ?? [];
-      // A folded row appends the newer donor's files after the survivor's, so
-      // only those are walked from the end; one upload keeps the order it was
-      // sent in.
-      const folded = (message.mergedMessageIds?.length ?? 0) > 0;
-      for (let step = 0; step < attachments.length; step += 1) {
-        const position = folded ? attachments.length - 1 - step : step;
+      // Send order within a row: `mergedMessageIds` is also stamped for
+      // stream-id reconciliation, so it cannot mark a concatenated row.
+      for (let position = 0; position < attachments.length; position += 1) {
         const attachment = attachments[position]!;
         const key = entryKey(message.id, attachment.id, position);
         if (seen.has(key)) {

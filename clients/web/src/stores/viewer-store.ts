@@ -653,10 +653,10 @@ export interface ViewerActions {
   closeMessageFiles: () => void;
 
   // --- Chat info panel ---
+  /** Open the chat-info panel for `target`, at the top level. */
   openChatInfo: (target: {
     assistantId: string;
     conversationId: string;
-    category?: ChatInfoCategory | null;
   }) => void;
   /**
    * Open the chat-info panel for `target`, or close it when it is already
@@ -1284,7 +1284,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeChatInfo: {
         assistantId: target.assistantId,
         conversationId: target.conversationId,
-        category: target.category ?? null,
+        category: null,
       },
       viewBeforeChatInfo: resolveViewBefore(get(), "viewBeforeChatInfo"),
     });

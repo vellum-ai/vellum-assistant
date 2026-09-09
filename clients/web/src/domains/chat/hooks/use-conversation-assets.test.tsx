@@ -223,7 +223,7 @@ describe("useConversationAssets status", () => {
     expect(result.current.status).toBe("pending");
   });
 
-  test("is error when either source failed", () => {
+  test("is error when either source failed with nothing cached", () => {
     const client = makePendingChatInfoQueryClient();
     client.setQueryData(appsGetQueryKey(QUERY_ARGS), { apps: [] });
     seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
@@ -231,6 +231,28 @@ describe("useConversationAssets status", () => {
     const { result } = renderAssets({ client });
 
     expect(result.current.status).toBe("error");
+  });
+
+  // A refetch that fails leaves the last documents in the cache, and those are
+  // still the conversation's files: reporting an error would discard them.
+  test("stays ready when a failed refetch left its data behind", () => {
+    const { result, client } = renderSeeded({
+      documents: [makeDocument("doc-1", 1_000)],
+    });
+    seedQueryFailure(client, documentsGetQueryKey(QUERY_ARGS));
+
+    expect(result.current.status).toBe("ready");
+    expect(result.current.files.map((file) => file.id)).toEqual(["doc-doc-1"]);
+  });
+
+  test("is ready once both sources hold data", () => {
+    const client = makePendingChatInfoQueryClient();
+    client.setQueryData(appsGetQueryKey(QUERY_ARGS), { apps: [] });
+    client.setQueryData(documentsGetQueryKey(QUERY_ARGS), { documents: [] });
+
+    const { result } = renderAssets({ client });
+
+    expect(result.current.status).toBe("ready");
   });
 });
 

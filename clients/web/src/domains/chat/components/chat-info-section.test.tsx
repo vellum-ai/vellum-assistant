@@ -1,7 +1,7 @@
 /**
  * `ChatInfoSection` decides how many tiles a row shows from one number: the
- * row's measured width. The suite drives that width and the window-size axis
- * through module mocks rather than a layout engine, since happy-dom reports a
+ * row's measured width. The suite drives that width through a module mock and
+ * the window-size axis through a `matchMedia` stub, since happy-dom reports a
  * zero box for everything.
  *
  * Tiles are plain elements here. The section is generic over its item type and
@@ -26,19 +26,16 @@ import {
   CHAT_INFO_DRAWER_WIDTH_PX,
   CHAT_INFO_NARROW_PHONE_PX,
   makeElementSizeMock,
-  makeIsMobileMock,
 } from "@/domains/chat/components/chat-info.test-helper";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 const widthRef = { value: CHAT_INFO_DRAWER_WIDTH_PX };
-const isMobileRef = { value: false };
 
 mock.module("@/hooks/use-element-size", () =>
   makeElementSizeMock(() => widthRef.value),
 );
 
-mock.module("@/hooks/use-is-mobile", () =>
-  makeIsMobileMock(() => isMobileRef.value),
-);
+const viewport = viewportAxesStub();
 
 const { ChatInfoSection, fitTileCount } =
   await import("@/domains/chat/components/chat-info-section");
@@ -98,11 +95,12 @@ function seeAll(): HTMLElement | null {
 
 beforeEach(() => {
   widthRef.value = CHAT_INFO_DRAWER_WIDTH_PX;
-  isMobileRef.value = false;
+  viewport.set({ narrow: false, coarsePointer: false });
 });
 
 afterEach(() => {
   cleanup();
+  viewport.restore();
 });
 
 afterAll(() => {
@@ -156,7 +154,7 @@ describe("ChatInfoSection", () => {
   });
 
   test("scrolls the whole fetched set on a narrow window", () => {
-    isMobileRef.value = true;
+    viewport.set({ narrow: true, coarsePointer: false });
     const { container } = renderSection({
       items: makeItems(5),
       tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
@@ -175,7 +173,7 @@ describe("ChatInfoSection", () => {
 
   test("counts the strip's reclaimed right inset toward the narrow-window fit", () => {
     // The strip shows the column plus the inset it reclaims on the right.
-    isMobileRef.value = true;
+    viewport.set({ narrow: true, coarsePointer: false });
     widthRef.value = NARROW_COLUMN_WIDTH;
 
     const fitted = renderSection({
@@ -197,7 +195,7 @@ describe("ChatInfoSection", () => {
   test("pays the reclaimed inset back on both edges of the strip", () => {
     // A strip that fits is then exactly as wide as its scroller, and one that
     // runs past the column stops with the inset showing past its last tile.
-    isMobileRef.value = true;
+    viewport.set({ narrow: true, coarsePointer: false });
     widthRef.value = NARROW_COLUMN_WIDTH;
 
     for (const itemCount of [2, 8]) {

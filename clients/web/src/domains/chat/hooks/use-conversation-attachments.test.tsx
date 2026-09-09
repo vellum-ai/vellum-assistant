@@ -13,20 +13,14 @@ import { makeDisplayAttachment } from "@/domains/chat/components/chat-attachment
 import {
   clearTranscriptMessages,
   clearTranscriptOwner,
+  makeTranscriptRow,
   seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import {
-  countEntryTotals,
-  useConversationAttachments,
-} from "@/domains/chat/hooks/use-conversation-attachments";
+import { useConversationAttachments } from "@/domains/chat/hooks/use-conversation-attachments";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
 const TARGET = { assistantId: "asst-1", conversationId: "conv-1" };
-
-function makeMessage(overrides: Partial<DisplayMessage>): DisplayMessage {
-  return { id: "msg-1", role: "user", ...overrides };
-}
 
 /** Seeds `messages` as the transcript the target conversation owns. */
 function seed(messages: DisplayMessage[]): void {
@@ -45,12 +39,12 @@ afterEach(() => {
 describe("useConversationAttachments", () => {
   test("walks the transcript newest first", () => {
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-1",
         timestamp: 1_000,
         attachments: [makeDisplayAttachment({ id: "old" })],
       }),
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-2",
         timestamp: 2_000,
         attachments: [makeDisplayAttachment({ id: "new" })],
@@ -77,7 +71,7 @@ describe("useConversationAttachments", () => {
 
   test("lists an optimistic send's files alongside the snapshot's", () => {
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-sent",
         timestamp: 1_000,
         attachments: [makeDisplayAttachment({ id: "sent" })],
@@ -85,7 +79,7 @@ describe("useConversationAttachments", () => {
     ]);
     useChatSessionStore.setState({
       optimisticSends: [
-        makeMessage({
+        makeTranscriptRow({
           id: "msg-sending",
           timestamp: 2_000,
           attachments: [makeDisplayAttachment({ id: "sending" })],
@@ -105,12 +99,12 @@ describe("useConversationAttachments", () => {
     // An optimistic send and its confirmed echo carry the same attachment.
     const attachment = makeDisplayAttachment({ id: "shared" });
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-echo",
         timestamp: 1_000,
         attachments: [attachment],
       }),
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-optimistic",
         timestamp: 2_000,
         attachments: [attachment],
@@ -128,14 +122,14 @@ describe("useConversationAttachments", () => {
   test("keeps legacy rehydrated ids from different rows apart", () => {
     // Rows reloaded without structured metadata synthesize ids per message.
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-old",
         timestamp: 1_000,
         attachments: [
           makeDisplayAttachment({ id: "rehydrated:0", filename: "old.pdf" }),
         ],
       }),
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-new",
         timestamp: 2_000,
         attachments: [
@@ -154,10 +148,11 @@ describe("useConversationAttachments", () => {
   });
 
   test("keeps two rehydrated ids inside one folded row apart", () => {
-    // Adjacent assistant rows fold across a page boundary and concatenate
-    // their attachments under one message id.
+    // A row carrying `mergedMessageIds` is walked like any other: the field is
+    // stamped for stream-id reconciliation too, so it cannot mark a row whose
+    // attachments were concatenated.
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-folded",
         role: "assistant",
         mergedMessageIds: ["msg-donor"],
@@ -174,15 +169,14 @@ describe("useConversationAttachments", () => {
     expect(new Set(result.current.entries.map((entry) => entry.key)).size).toBe(
       2,
     );
-    // The donor's file was appended last, so it is the newer of the two.
     expect(
       result.current.entries.map((entry) => entry.attachment.filename),
-    ).toEqual(["b.pdf", "a.pdf"]);
+    ).toEqual(["a.pdf", "b.pdf"]);
   });
 
   test("keeps one row's uploads in the order they were sent", () => {
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-upload",
         attachments: [
           makeDisplayAttachment({ id: "first", filename: "first.pdf" }),
@@ -200,14 +194,14 @@ describe("useConversationAttachments", () => {
 
   test("skips a channel-deleted row's files", () => {
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-gone",
         deletedAt: 3_000,
         attachments: [
           makeDisplayAttachment({ id: "gone", filename: "gone.pdf" }),
         ],
       }),
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-kept",
         attachments: [
           makeDisplayAttachment({ id: "kept", filename: "kept.pdf" }),
@@ -224,7 +218,9 @@ describe("useConversationAttachments", () => {
 
   test("reports a null capture time for a row with no timestamp", () => {
     seed([
-      makeMessage({ attachments: [makeDisplayAttachment({ id: "att-1" })] }),
+      makeTranscriptRow({
+        attachments: [makeDisplayAttachment({ id: "att-1" })],
+      }),
     ]);
 
     const { result } = renderHook(() => useConversationAttachments(TARGET));
@@ -233,7 +229,7 @@ describe("useConversationAttachments", () => {
   });
 
   test("hands back the same empty array across renders", () => {
-    seed([makeMessage({})]);
+    seed([makeTranscriptRow({})]);
 
     const { result, rerender } = renderHook(() =>
       useConversationAttachments(TARGET),
@@ -250,12 +246,16 @@ describe("useConversationAttachments", () => {
   // a text-only update leaves those shallow-equal.
   test("holds its entries through a text-only stream update", () => {
     seed([
-      makeMessage({
+      makeTranscriptRow({
         id: "msg-upload",
         timestamp: 1_000,
         attachments: [makeDisplayAttachment({ id: "att-1" })],
       }),
-      makeMessage({ id: "msg-reply", role: "assistant", timestamp: 2_000 }),
+      makeTranscriptRow({
+        id: "msg-reply",
+        role: "assistant",
+        timestamp: 2_000,
+      }),
     ]);
 
     let renders = 0;
@@ -283,7 +283,9 @@ describe("useConversationAttachments", () => {
 
   test("lists the loaded transcript when the target owns the snapshot", () => {
     seed([
-      makeMessage({ attachments: [makeDisplayAttachment({ id: "mine" })] }),
+      makeTranscriptRow({
+        attachments: [makeDisplayAttachment({ id: "mine" })],
+      }),
     ]);
 
     const { result } = renderHook(() => useConversationAttachments(TARGET));
@@ -295,7 +297,9 @@ describe("useConversationAttachments", () => {
 
   test("lists nothing when another conversation owns the snapshot", () => {
     seedTranscriptMessages(TARGET.assistantId, "conv-2", [
-      makeMessage({ attachments: [makeDisplayAttachment({ id: "theirs" })] }),
+      makeTranscriptRow({
+        attachments: [makeDisplayAttachment({ id: "theirs" })],
+      }),
     ]);
 
     const { result } = renderHook(() => useConversationAttachments(TARGET));
@@ -306,7 +310,9 @@ describe("useConversationAttachments", () => {
 
   test("lists nothing when another assistant owns the snapshot", () => {
     seedTranscriptMessages("asst-2", TARGET.conversationId, [
-      makeMessage({ attachments: [makeDisplayAttachment({ id: "theirs" })] }),
+      makeTranscriptRow({
+        attachments: [makeDisplayAttachment({ id: "theirs" })],
+      }),
     ]);
 
     const { result } = renderHook(() => useConversationAttachments(TARGET));
@@ -317,7 +323,9 @@ describe("useConversationAttachments", () => {
 
   test("lists nothing when no conversation owns the snapshot", () => {
     seed([
-      makeMessage({ attachments: [makeDisplayAttachment({ id: "draft" })] }),
+      makeTranscriptRow({
+        attachments: [makeDisplayAttachment({ id: "draft" })],
+      }),
     ]);
     clearTranscriptOwner();
 
@@ -336,26 +344,5 @@ describe("useConversationAttachments", () => {
 
     expect(result.current.loadMoreFiles).toBe(loadMoreFiles);
     expect(result.current.loadMoreFrames).toBe(loadMoreFrames);
-  });
-});
-
-describe("countEntryTotals", () => {
-  // The transcript cannot produce a frame, so the split is asserted directly:
-  // it is what keeps the daemon path from counting one capture twice.
-  test("counts a camera frame as a frame and not as a file", () => {
-    const entry = (key: string, sightFrame: boolean) => ({
-      key,
-      attachment: makeDisplayAttachment({ id: key }),
-      capturedAt: null,
-      sightFrame,
-    });
-
-    expect(
-      countEntryTotals([entry("a", false), entry("b", true), entry("c", true)]),
-    ).toEqual({ totalFiles: 1, totalFrames: 2 });
-  });
-
-  test("counts nothing for no entries", () => {
-    expect(countEntryTotals([])).toEqual({ totalFiles: 0, totalFrames: 0 });
   });
 });

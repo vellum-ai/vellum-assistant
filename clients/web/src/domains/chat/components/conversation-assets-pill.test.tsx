@@ -27,18 +27,20 @@ import * as motionReact from "motion/react";
 
 import {
   clearTranscriptMessages,
+  installChatInfoDomStubs,
   makeChatInfoQueryClient,
   makeDocumentSummary,
+  makePendingChatInfoQueryClient,
   seedChatInfoConversation,
+  seedQueryFailure,
 } from "@/domains/chat/components/chat-info.test-helper";
+import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 import type { DocumentSummary } from "@/types/document-types";
 
-const isMobileRef = { value: false };
+installChatInfoDomStubs();
 
-mock.module("@/hooks/use-is-mobile", () => ({
-  useIsMobile: () => isMobileRef.value,
-  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
-}));
+const viewport = viewportAxesStub();
 
 // `useReducedMotion` reads a cached media-query singleton, so a per-test
 // `matchMedia` stub can't flip it. Override just that export and drive it
@@ -54,6 +56,8 @@ const {
   ASSETS_PILL_UNSEEN_DOT_TESTID,
   ASSETS_PILL_UNSEEN_DOT_PULSE_CLASS,
 } = await import("@/domains/chat/components/conversation-assets-pill");
+const { ChatInfoPanel } =
+  await import("@/domains/chat/components/chat-info-panel");
 const { useUnseenDocumentChangesStore } =
   await import("@/domains/chat/unseen-document-changes-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
@@ -128,6 +132,44 @@ function renderPill({ withAssets = true }: { withAssets?: boolean } = {}) {
   };
 }
 
+/**
+ * The trigger and the panel together, hosted the way the chat layout hosts
+ * them: both read the real viewer store, so what one does the other sees.
+ */
+function ComposedChatInfo({ client }: { client: QueryClient }) {
+  const mainView = useViewerStore.use.mainView();
+  const activeChatInfo = useViewerStore.use.activeChatInfo();
+  const { closeChatInfo, setChatInfoCategory } = useViewerStore.getState();
+  return (
+    <QueryClientProvider client={client}>
+      <ConversationAssetsPill
+        assistantId={ASSISTANT_ID}
+        conversationId={CONVERSATION_ID}
+      />
+      {mainView === "chat-info" && activeChatInfo !== null ? (
+        <ChatInfoPanel
+          payload={activeChatInfo}
+          onClose={closeChatInfo}
+          onSelectCategory={setChatInfoCategory}
+        />
+      ) : null}
+    </QueryClientProvider>
+  );
+}
+
+function renderComposed() {
+  const client = makeChatInfoQueryClient();
+  seedConversation(client, [makeDocument()], CONVERSATION_ID);
+  render(<ComposedChatInfo client={client} />);
+
+  return {
+    /** Drop the conversation's last asset, as a delete would. */
+    emptyAssets: () => {
+      seedConversation(client, [], CONVERSATION_ID);
+    },
+  };
+}
+
 function markUnseen(conversationId = CONVERSATION_ID, surfaceId = SURFACE_ID) {
   useUnseenDocumentChangesStore
     .getState()
@@ -145,6 +187,7 @@ function chatInfoState() {
 
 beforeEach(() => {
   clearTranscriptMessages();
+  viewport.set({ narrow: false, coarsePointer: false });
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.getState().reset();
 });
@@ -152,7 +195,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   clearTranscriptMessages();
-  isMobileRef.value = false;
+  viewport.restore();
   reducedMotion = false;
   useUnseenDocumentChangesStore.setState({ changedDocuments: {} });
   useViewerStore.getState().reset();
@@ -240,7 +283,7 @@ describe("narrow window with a mouse", () => {
   // Room decides whether the count fits in the header cluster: a narrow window
   // gets the compact trigger and the same panel.
   beforeEach(() => {
-    isMobileRef.value = true;
+    viewport.set({ narrow: true, coarsePointer: false });
   });
 
   test("trigger is icon-only and keeps its accessible name", () => {
@@ -289,7 +332,9 @@ describe("conversation switch while the panel is open", () => {
 });
 
 describe("the last asset leaving while the panel is open", () => {
-  test("hides the trigger and takes the panel with it", async () => {
+  // The panel says it is empty and carries its own close control, so the
+  // trigger going does not have to take it down.
+  test("hides the trigger and leaves the panel open", async () => {
     const { emptyAssets } = renderPill();
 
     fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
@@ -301,9 +346,30 @@ describe("the last asset leaving while the panel is open", () => {
       expect(screen.queryByRole("button")).toBeNull();
     });
     expect(chatInfoState()).toEqual({
-      mainView: "chat",
-      activeChatInfo: null,
+      mainView: "chat-info",
+      activeChatInfo: {
+        assistantId: ASSISTANT_ID,
+        conversationId: CONVERSATION_ID,
+        category: null,
+      },
     });
+  });
+
+  test("leaves the panel showing the empty copy, trigger gone", async () => {
+    const { emptyAssets } = renderComposed();
+
+    fireEvent.click(screen.getByRole("button", { name: SEEN_LABEL }));
+    expect(screen.getByLabelText(`Open ${DOC_TITLE}`)).toBeTruthy();
+
+    emptyAssets();
+
+    await waitFor(() => {
+      expect(screen.getByText("No assets in this chat yet")).toBeTruthy();
+    });
+    expect(screen.queryByRole("button", { name: /^Conversation assets/ })).toBe(
+      null,
+    );
+    expect(chatInfoState().mainView).toBe("chat-info");
   });
 });
 
@@ -355,5 +421,31 @@ describe("empty asset list", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByTestId(ASSETS_PILL_UNSEEN_DOT_TESTID)).toBeNull();
     expect(unseenConversations()).toEqual([CONVERSATION_ID]);
+  });
+
+  // A first load that failed also counts nothing, and hiding the trigger there
+  // would leave the user no way to reach the panel that reports the failure.
+  test("keeps the trigger when a source could not be loaded", () => {
+    const client = makePendingChatInfoQueryClient();
+    seedQueryFailure(
+      client,
+      documentsGetQueryKey({
+        path: { assistant_id: ASSISTANT_ID },
+        query: { conversationId: CONVERSATION_ID },
+      }),
+    );
+
+    render(
+      <QueryClientProvider client={client}>
+        <ConversationAssetsPill
+          assistantId={ASSISTANT_ID}
+          conversationId={CONVERSATION_ID}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Conversation assets, 0 items" }),
+    ).toBeTruthy();
   });
 });

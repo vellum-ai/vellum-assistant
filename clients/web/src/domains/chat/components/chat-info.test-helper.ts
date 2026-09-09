@@ -29,7 +29,6 @@ import {
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type * as ElementSizeModule from "@/hooks/use-element-size";
-import type * as IsMobileModule from "@/hooks/use-is-mobile";
 import { makeAppSummary as makeSharedAppSummary } from "@/types/app-summary.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
@@ -218,16 +217,6 @@ export function makeElementSizeMock(
 ): Partial<typeof ElementSizeModule> {
   return {
     useElementSize: () => ({ ref: () => {}, size: { w: readWidth(), h: 0 } }),
-  };
-}
-
-/** The `@/hooks/use-is-mobile` module body a suite installs. */
-export function makeIsMobileMock(
-  readIsMobile: () => boolean,
-): Partial<typeof IsMobileModule> {
-  return {
-    useIsMobile: () => readIsMobile(),
-    MOBILE_MEDIA_QUERY: "(max-width: 767px)",
   };
 }
 

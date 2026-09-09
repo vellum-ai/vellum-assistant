@@ -13,12 +13,13 @@ import { ChevronLeft, Layers } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library";
 
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
 import {
   DetailShell,
   type DetailShellHeaderProps,
+  DetailShellNotice,
   DetailShellTitleWithCount,
 } from "@/components/detail-shell";
 import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
@@ -26,6 +27,7 @@ import {
   CHAT_INFO_APP_TILE_WIDTH_PX,
   ChatInfoAppTile,
 } from "@/domains/chat/components/chat-info-app-tile";
+import { ChatInfoCategoryGrid } from "@/domains/chat/components/chat-info-category-grid";
 import {
   CHAT_INFO_FILE_TILE_WIDTH_PX,
   ChatInfoFileTile,
@@ -48,19 +50,6 @@ import {
   useViewerStore,
 } from "@/stores/viewer-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
-
-/** The body when there is nothing to list: one quiet centred line. */
-function ChatInfoNotice({ children }: { children: ReactNode }) {
-  return (
-    <Typography
-      as="p"
-      variant="body-small-default"
-      className="py-10 text-center text-[var(--content-tertiary)]"
-    >
-      {children}
-    </Typography>
-  );
-}
 
 export interface ChatInfoPanelProps {
   payload: ChatInfoPayload;
@@ -207,15 +196,7 @@ export function ChatInfoPanel({
   };
 
   let body: ReactNode;
-  if (status === "pending") {
-    // Nothing at all rather than a line the loaded panel will replace: the
-    // sources land in a frame or two and a flash of copy reads as an answer.
-    body = null;
-  } else if (status === "error") {
-    body = <ChatInfoNotice>{t("chatInfoPanel.loadFailed")}</ChatInfoNotice>;
-  } else if (count === 0) {
-    body = <ChatInfoNotice>{t("chatInfoPanel.empty")}</ChatInfoNotice>;
-  } else if (level === "apps") {
+  if (level === "apps") {
     body = (
       <div
         className="grid gap-2"
@@ -236,31 +217,28 @@ export function ChatInfoPanel({
       </div>
     );
   } else if (level !== null) {
-    const items = categoryLists[level];
-    const hasMore = level === "files" ? hasMoreFiles : hasMoreFrames;
-    const loadMore = level === "files" ? loadMoreFiles : loadMoreFrames;
     body = (
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2">
-          {items.map((file) => (
-            <ChatInfoFileTile
-              key={file.id}
-              file={file}
-              assistantId={assistantId}
-              onOpen={handleOpenFile}
-            />
-          ))}
-        </div>
-        {hasMore && (
-          <Button variant="outlined" onClick={loadMore} className="self-start">
-            {t("chatInfoPanel.loadMore")}
-          </Button>
-        )}
-      </div>
+      <ChatInfoCategoryGrid
+        items={categoryLists[level]}
+        assistantId={assistantId}
+        hasMore={level === "files" ? hasMoreFiles : hasMoreFrames}
+        onLoadMore={level === "files" ? loadMoreFiles : loadMoreFrames}
+        onOpen={handleOpenFile}
+      />
     );
   } else {
+    // Every category holding anything is listed whatever the sources are
+    // doing, since the transcript attachments are on screen from the first
+    // paint. A source still loading says nothing at all: a flash of copy reads
+    // as an answer the loaded panel then replaces.
     body = (
       <div className="flex flex-col gap-8">
+        {status === "error" && (
+          <DetailShellNotice>{t("chatInfoPanel.loadFailed")}</DetailShellNotice>
+        )}
+        {status === "ready" && count === 0 && (
+          <DetailShellNotice>{t("chatInfoPanel.empty")}</DetailShellNotice>
+        )}
         {apps.length > 0 && (
           <ChatInfoSection
             title={categoryTitles.apps}
