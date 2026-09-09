@@ -440,6 +440,7 @@ function PanelItemSlotRow({
   activeVariant = "default",
   className,
   "aria-label": ariaLabel,
+  "aria-current": ariaCurrentProp,
   children,
   ref,
   ...rest
@@ -456,9 +457,9 @@ function PanelItemSlotRow({
         interactive: true,
         className,
       })}
-      aria-current={active ? "page" : undefined}
       aria-label={ariaLabel}
       {...rest}
+      aria-current={active ? "page" : ariaCurrentProp}
     >
       {children}
     </Slot>
