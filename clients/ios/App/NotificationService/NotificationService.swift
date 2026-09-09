@@ -29,6 +29,7 @@ final class NotificationService: UNNotificationServiceExtension {
     private var contentHandler: ((UNNotificationContent) -> Void)?
     private var unchangedContent: UNNotificationContent?
     private var rewrite: Task<Void, Never>?
+    private var expired = false
 
     override func didReceive(
         _ request: UNNotificationRequest,
@@ -55,8 +56,15 @@ final class NotificationService: UNNotificationServiceExtension {
             if let cached = cache.data(forHash: sender.avatarHash) {
                 avatar = cached
             } else {
-                guard let url = sender.avatarURL else {
+                let url: URL
+                switch sender.avatarURL {
+                case .url(let resolved):
+                    url = resolved
+                case .absent:
                     self.deliverWithoutAvatar(.missingURL, content: request.content)
+                    return
+                case .malformed:
+                    self.deliverWithoutAvatar(.invalidURL, content: request.content)
                     return
                 }
                 switch await cache.fetch(url: url, hash: sender.avatarHash) {
@@ -84,13 +92,21 @@ final class NotificationService: UNNotificationServiceExtension {
         }
         lock.lock()
         rewrite = task
+        let alreadyExpired = expired
         lock.unlock()
+        // The task is built before it can be stored, so an expiry landing in
+        // between finds nothing to cancel and the download outlives the
+        // notification it was for.
+        if alreadyExpired {
+            task.cancel()
+        }
     }
 
     /// Called when the extension runs out of its budget. Delivering the push as
     /// it arrived is the only alternative to the system dropping it silently.
     override func serviceExtensionTimeWillExpire() {
         lock.lock()
+        expired = true
         let content = unchangedContent
         let pending = rewrite
         rewrite = nil
@@ -98,32 +114,42 @@ final class NotificationService: UNNotificationServiceExtension {
         // Cancelling propagates into the avatar download, whose only bound
         // otherwise is an idle timeout the system has already outlasted.
         pending?.cancel()
-        if let content {
-            Self.logger.info("nse.expired: budget ran out before the rewrite finished")
-            deliver(content)
+        guard let content, deliver(content) else {
+            return
         }
+        Self.logger.info("nse.expired: budget ran out before the rewrite finished")
     }
 
-    /// Logs why the notification has no avatar, then delivers the push as it
-    /// arrived.
+    /// Delivers the push as it arrived, and logs why it has no avatar when this
+    /// is the delivery that reached the system. A cancelled download reports a
+    /// reason after the expiry callback has already delivered, and that reason
+    /// describes the cancellation rather than the notification the user saw.
     private func deliverWithoutAvatar(
         _ reason: AvatarCache.UnavailableReason,
         content: UNNotificationContent
     ) {
+        guard deliver(content) else {
+            return
+        }
         Self.logger.info(
             "nse.avatar_unavailable reason=\(reason.rawValue, privacy: .public)"
         )
-        deliver(content)
     }
 
-    /// Hands `content` to the system once. Later calls are dropped: iOS accepts
-    /// a single delivery per push, and the rewrite can finish just as the
-    /// expiry callback fires.
-    private func deliver(_ content: UNNotificationContent) {
+    /// Hands `content` to the system once and reports whether it did. Later
+    /// calls are dropped: iOS accepts a single delivery per push, and the
+    /// rewrite can finish just as the expiry callback fires.
+    @discardableResult
+    private func deliver(_ content: UNNotificationContent) -> Bool {
         lock.lock()
         let handler = contentHandler
         contentHandler = nil
+        unchangedContent = nil
         lock.unlock()
-        handler?(content)
+        guard let handler else {
+            return false
+        }
+        handler(content)
+        return true
     }
 }

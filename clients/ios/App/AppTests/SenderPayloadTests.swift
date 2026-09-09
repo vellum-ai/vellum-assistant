@@ -11,7 +11,7 @@ final class SenderPayloadTests: XCTestCase {
         return info
     }
 
-    func testParsesACompleteSenderBlock() {
+    func testParsesACompleteSenderBlock() throws {
         let parsed = SenderPayload.parse(
             userInfo: userInfo(sender: [
                 "id": "asst-123",
@@ -20,12 +20,13 @@ final class SenderPayloadTests: XCTestCase {
                 "avatar_hash": avatarHash,
             ])
         )
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
         XCTAssertEqual(
             parsed,
             SenderPayload(
                 id: "asst-123",
                 name: "Vellum",
-                avatarURL: URL(string: "https://storage.example.com/avatar.png"),
+                avatarURL: .url(url),
                 avatarHash: avatarHash
             )
         )
@@ -39,8 +40,24 @@ final class SenderPayloadTests: XCTestCase {
                 "avatar_hash": avatarHash,
             ])
         )
-        XCTAssertNil(parsed?.avatarURL)
+        XCTAssertEqual(parsed?.avatarURL, .absent)
         XCTAssertEqual(parsed?.avatarHash, avatarHash)
+    }
+
+    /// An unterminated IPv6 literal is invalid in a way percent-encoding cannot
+    /// rescue, so `URL(string:)` returns nil for it. A trimmed payload and a
+    /// URL the platform mangled both leave the push without an avatar, and the
+    /// two get their own reason tokens rather than sharing `no_url`.
+    func testSeparatesAnUnparseableAvatarUrlFromAnAbsentOne() {
+        let parsed = SenderPayload.parse(
+            userInfo: userInfo(sender: [
+                "id": "asst-123",
+                "name": "Vellum",
+                "avatar_url": "https://[::1",
+                "avatar_hash": avatarHash,
+            ])
+        )
+        XCTAssertEqual(parsed?.avatarURL, .malformed)
     }
 
     func testReturnsNilWithoutASenderBlock() {

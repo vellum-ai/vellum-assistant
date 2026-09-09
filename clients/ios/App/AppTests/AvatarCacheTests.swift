@@ -115,6 +115,26 @@ final class AvatarCacheTests: XCTestCase {
         XCTAssertEqual(storedFileCount(), 0)
     }
 
+    /// `attributesOfItem` reports a symlink's own size while `Data(contentsOf:)`
+    /// follows it, so a link is measured against the wrong file and the byte cap
+    /// bounds nothing. The target here holds the very bytes the name promises,
+    /// which leaves the entry's type as the only thing that can reject it.
+    func testDropsACachedEntryThatIsASymlink() throws {
+        let bytes = avatar(1)
+        let hash = AvatarCache.sha256Hex(bytes)
+        let link = try XCTUnwrap(cache.fileURL(forHash: hash))
+        let target = root.appendingPathComponent("elsewhere.png", isDirectory: false)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try bytes.write(to: target)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertNil(cache.data(forHash: hash))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: link.path))
+        // Only the link is removed: the container is shared with the app, whose
+        // own files a cache read has no business deleting.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: target.path))
+    }
+
     func testDropsACachedFileWhoseBytesNoLongerMatchItsName() throws {
         let hash = AvatarCache.sha256Hex(avatar(1))
         let url = try XCTUnwrap(cache.fileURL(forHash: hash))
@@ -152,6 +172,25 @@ final class AvatarCacheTests: XCTestCase {
         // rest of the response is never pulled into memory, buffered chunk or
         // not.
         XCTAssertEqual(feed.produced, 17)
+    }
+
+    /// The request's idle timeout only bounds a stall, so a body arriving
+    /// steadily but far too slowly needs a deadline of its own.
+    func testStopsReadingOnceTheDeadlineHasPassed() async throws {
+        let feed = ByteFeed(count: 4_096)
+        do {
+            _ = try await AvatarCache.readAtMost(
+                AvatarCache.maxBytes,
+                from: feed.stream(),
+                before: .distantPast
+            )
+            XCTFail("expected the read to give up on the deadline")
+        } catch let reason as AvatarCache.UnavailableReason {
+            XCTAssertEqual(reason, .timedOut)
+        }
+        // The deadline is checked once per stride rather than per byte, so the
+        // read stops at the first check instead of the first byte.
+        XCTAssertEqual(feed.produced, AvatarCache.deadlineCheckStride)
     }
 
     func testFetchRefusesANonHttpsURL() async throws {
@@ -204,6 +243,29 @@ final class AvatarCacheTests: XCTestCase {
         XCTAssertEqual(storedFileCount(), 0)
     }
 
+    /// A response that declares no length is read under the streaming cap
+    /// alone, which is the only thing standing between a lying host and the
+    /// extension's memory budget.
+    func testFetchRejectsAnUndeclaredBodyPastTheByteCap() async throws {
+        let oversized = Data(repeating: 0x41, count: AvatarCache.maxBytes + 1)
+        stubbedResponse.set(headerFields: [:], body: oversized)
+
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let result = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(oversized))
+        XCTAssertEqual(result.reason, .bodyTooLarge)
+        XCTAssertEqual(storedFileCount(), 0)
+    }
+
+    func testFetchRejectsANonOkStatus() async throws {
+        let bytes = avatar(1)
+        stubbedResponse.set(statusCode: 404, headerFields: [:], body: bytes)
+
+        let url = try XCTUnwrap(URL(string: "https://storage.example.com/avatar.png"))
+        let result = await cache.fetch(url: url, hash: AvatarCache.sha256Hex(bytes))
+        XCTAssertEqual(result.reason, .badStatus)
+        XCTAssertEqual(storedFileCount(), 0)
+    }
+
     func testFetchRejectsBytesThatDoNotMatchTheHash() async throws {
         stubbedResponse.set(headerFields: [:], body: avatar(2))
 
@@ -243,7 +305,7 @@ private final class CountingURLProtocol: URLProtocol {
               let stub = stubbedResponse.current,
               let response = HTTPURLResponse(
                   url: url,
-                  statusCode: 200,
+                  statusCode: stub.statusCode,
                   httpVersion: "HTTP/1.1",
                   headerFields: stub.headerFields
               )
@@ -264,6 +326,7 @@ private let stubbedResponse = StubbedResponse()
 
 private final class StubbedResponse: @unchecked Sendable {
     struct Stub {
+        let statusCode: Int
         let headerFields: [String: String]
         let body: Data
     }
@@ -275,8 +338,10 @@ private final class StubbedResponse: @unchecked Sendable {
 
     /// Headers with no `Content-Length` are what a chunked response looks like
     /// to `URLSession`: `expectedContentLength` comes back as -1.
-    func set(headerFields: [String: String], body: Data) {
-        lock.withLock { stub = Stub(headerFields: headerFields, body: body) }
+    func set(statusCode: Int = 200, headerFields: [String: String], body: Data) {
+        lock.withLock {
+            stub = Stub(statusCode: statusCode, headerFields: headerFields, body: body)
+        }
     }
 
     func clear() {

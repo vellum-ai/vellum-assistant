@@ -21,13 +21,23 @@ struct AvatarCache {
     static let maxEntries = 8
     static let maxBytes = 512 * 1024
     static let requestTimeout: TimeInterval = 8
+    /// The total wall-clock bound on one download. ``requestTimeout`` bounds
+    /// only how long a transfer may stall without new bytes, so without this a
+    /// host trickling a byte at a time would run until the extension's own
+    /// budget expired.
+    static let downloadBudget: TimeInterval = 6
     static let readChunkSize = 16 * 1024
+    /// Bytes between deadline checks. Reading the clock costs more than copying
+    /// the byte it guards, so it is amortized rather than paid per byte while
+    /// staying frequent enough to catch a body arriving one byte at a time.
+    static let deadlineCheckStride = 512
 
     /// Why no avatar reached the notification. Every cause has its own stable
     /// token, so the Console line names which one it was instead of standing
     /// for any of them.
     enum UnavailableReason: String, Error {
         case missingURL = "no_url"
+        case invalidURL = "invalid_url"
         case badHash = "bad_hash"
         case insecureURL = "insecure_url"
         case requestFailed = "request_failed"
@@ -35,6 +45,7 @@ struct AvatarCache {
         case declaredTooLarge = "declared_too_large"
         case bodyTooLarge = "body_too_large"
         case readFailed = "read_failed"
+        case timedOut = "timed_out"
         case digestMismatch = "digest_mismatch"
     }
 
@@ -59,21 +70,26 @@ struct AvatarCache {
     /// The cached bytes for `hash`, or `nil` when nothing is stored under it.
     ///
     /// The container is shared with the app, so a stored file is held to the
-    /// same bounds a download is: its size is read before its bytes, anything
-    /// past ``maxBytes`` is deleted unread, and a file that no longer matches
-    /// its own name is deleted rather than rendered.
+    /// same bounds a download is: only a regular file is read, its size is read
+    /// before its bytes, anything past ``maxBytes`` is deleted unread, and a
+    /// file that no longer matches its own name is deleted rather than
+    /// rendered.
     ///
     /// A hit stamps the file with the current time so eviction, which ranks by
     /// modification date, treats a recently used avatar as recent.
     func data(forHash hash: String) -> Data? {
-        guard let url = fileURL(forHash: hash) else {
+        guard let url = fileURL(forHash: hash),
+              let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+        else {
             return nil
         }
-        let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-        guard let size = attributes?[.size] as? Int else {
-            return nil
-        }
-        guard size <= Self.maxBytes else {
+        // `attributesOfItem` describes a symlink itself while `Data(contentsOf:)`
+        // follows it, so a link reports the wrong size and the cap bounds
+        // nothing. Anything that is not a regular file is poisoned.
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              let size = attributes[.size] as? Int,
+              size <= Self.maxBytes
+        else {
             try? FileManager.default.removeItem(at: url)
             return nil
         }
@@ -123,8 +139,8 @@ struct AvatarCache {
     ///
     /// ``requestTimeout`` is the request's idle timeout: it bounds how long the
     /// transfer may stall without new bytes, not how long it may run in total.
-    /// The total bound is the extension's own budget, whose expiry cancels the
-    /// task this runs in.
+    /// ``downloadBudget`` is the total bound, which a body arriving slowly
+    /// enough crosses without ever going idle; it surfaces as `timed_out`.
     func fetch(url: URL, hash: String) async -> Result<Data, UnavailableReason> {
         guard Self.isValidHash(hash) else {
             return .failure(.badHash)
@@ -159,6 +175,9 @@ struct AvatarCache {
                 from: bytes,
                 expecting: declared >= 0 ? Int(declared) : nil
             )
+        } catch let reason as UnavailableReason {
+            bytes.task.cancel()
+            return .failure(reason)
         } catch {
             bytes.task.cancel()
             return .failure(.readFailed)
@@ -183,18 +202,30 @@ struct AvatarCache {
     /// at a time: appending each byte to `Data` on its own costs a bounds check
     /// and a possible reallocation per byte, which is the whole of the
     /// extension's CPU budget on a 512 KB avatar.
+    ///
+    /// Throws ``UnavailableReason/timedOut`` once `deadline` passes, so a body
+    /// that keeps arriving too slowly to go idle is still bounded.
     static func readAtMost<Bytes: AsyncSequence>(
         _ limit: Int,
         from bytes: Bytes,
-        expecting expectedCount: Int? = nil
+        expecting expectedCount: Int? = nil,
+        before deadline: Date = Date().addingTimeInterval(downloadBudget)
     ) async throws -> Data? where Bytes.Element == UInt8 {
         var data = Data()
         data.reserveCapacity(min(limit, expectedCount ?? readChunkSize))
         var chunk = [UInt8](repeating: 0, count: min(limit, readChunkSize))
         var filled = 0
+        var sinceDeadlineCheck = 0
         for try await byte in bytes {
             if data.count + filled >= limit {
                 return nil
+            }
+            sinceDeadlineCheck += 1
+            if sinceDeadlineCheck == deadlineCheckStride {
+                sinceDeadlineCheck = 0
+                guard Date() < deadline else {
+                    throw UnavailableReason.timedOut
+                }
             }
             chunk[filled] = byte
             filled += 1
