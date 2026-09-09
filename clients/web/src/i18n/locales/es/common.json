@@ -409,8 +409,8 @@
     "reload": "Recargar"
   },
   "runtimeUpgradeBanner": {
-    "confirmMessage": "¿Actualizar a la versión {version}? El asistente no estará disponible brevemente durante la actualización.",
-    "confirmTitle": "Actualizar el runtime del asistente",
+    "confirmMessage": "Hay una nueva versión de tu asistente lista para instalar ({version}). Esto solo tomará un momento y tu asistente no estará disponible brevemente.",
+    "confirmTitle": "Actualiza tu asistente",
     "later": "Más tarde",
     "title": "Nueva versión del asistente disponible: {version}",
     "toastComplete": "Actualización completa. Tu asistente está en buen estado.",

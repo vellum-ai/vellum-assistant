@@ -411,8 +411,8 @@
     "reload": "Reload"
   },
   "runtimeUpgradeBanner": {
-    "confirmMessage": "Update to version {version}? The assistant will be briefly unavailable during the update.",
-    "confirmTitle": "Update assistant runtime",
+    "confirmMessage": "There's a new version of your assistant ready to install ({version}). This should only take a moment and your assistant will be unavailable briefly.",
+    "confirmTitle": "Update your assistant",
     "later": "Later",
     "title": "New assistant version available: {version}",
     "toastComplete": "Update complete. Your assistant is healthy.",
