@@ -8,7 +8,7 @@
  * it, so running the message there would persist a user row after it. Every
  * outcome but `released` takes the queue.
  */
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -25,8 +25,20 @@ let conversationProcessing = false;
 /** What the conversation reads as once the interrupt has answered. */
 let processingAfterInterrupt: boolean | null = null;
 
+/**
+ * What the synchronous gate answers. `eligible` is the only value that reaches
+ * `interruptRunningTurn`; everything else queues without a handover, which is
+ * what the flag-off and wrong-actor paths do.
+ */
+let interruptEligibility: "eligible" | "flag_off" = "eligible";
+
+/** Held open by the acknowledgement-timing test to stall the handover. */
+let interruptGate: Promise<void> = Promise.resolve();
+
 mock.module("../daemon/conversation-interrupt.js", () => ({
+  classifyInterruptEligibility: () => interruptEligibility,
   interruptRunningTurn: async () => {
+    await interruptGate;
     if (processingAfterInterrupt !== null) {
       conversationProcessing = processingAfterInterrupt;
     }
@@ -112,8 +124,22 @@ async function sendSignal(content: string): Promise<void> {
   await handleUserMessageSignal(filename);
 }
 
+/**
+ * Let the detached handover run. An eligible interrupt is acknowledged before
+ * the abort, the wait, the repair and the dispatch, so anything they do lands
+ * after `sendSignal` has already returned.
+ */
+async function settleHandover(): Promise<void> {
+  for (let i = 0; i < 10; i++) {
+    await Promise.resolve();
+  }
+  await new Promise((resolve) => setTimeout(resolve, 5));
+}
+
 beforeEach(() => {
   interruptOutcome = "released";
+  interruptEligibility = "eligible";
+  interruptGate = Promise.resolve();
   conversationProcessing = false;
   processingAfterInterrupt = null;
   enqueued.length = 0;
@@ -148,6 +174,7 @@ describe("CLI signal send after an interrupt", () => {
     processingAfterInterrupt = false;
 
     await sendSignal("what time is it");
+    await settleHandover();
 
     expect(enqueued).toEqual(["what time is it"]);
     expect(backgroundDispatches).toEqual([]);
@@ -168,25 +195,86 @@ describe("CLI signal send after an interrupt", () => {
     backgroundDispatchError = new Error(CONVERSATION_BUSY_MESSAGE);
 
     await sendSignal("answer me");
+    await settleHandover();
 
     expect(backgroundDispatches).toEqual([]);
     expect(enqueued).toEqual(["answer me"]);
     expect(drainKicks).toEqual(["signal_send_idle"]);
   });
 
-  test("still surfaces a dispatch failure that is not the busy race", async () => {
-    interruptOutcome = "released";
+  test("surfaces a dispatch failure on the idle path, where nothing was promised", async () => {
+    // No interrupt, so the acknowledgement is still the dispatch's own answer
+    // and a failure can be reported honestly rather than queued.
+    conversationProcessing = false;
     backgroundDispatchError = new Error("disk on fire");
 
-    // The signal handler catches and reports; what matters is that a genuine
-    // failure is not silently turned into a queued message.
     await sendSignal("hello");
+    await settleHandover();
 
     expect(enqueued).toEqual([]);
   });
 
+  test("queues any failure that lands after the send was acknowledged", async () => {
+    // Once accepted, the message is this handler's responsibility. The queue is
+    // the one place that survives, so even an unrecognised failure lands there
+    // rather than being dropped.
+    interruptOutcome = "released";
+    conversationProcessing = true;
+    processingAfterInterrupt = false;
+    backgroundDispatchError = new Error("disk on fire");
+
+    await sendSignal("still deliver me");
+    await settleHandover();
+
+    expect(enqueued).toEqual(["still deliver me"]);
+  });
+
+  test("writes the result before the handover, not after it", async () => {
+    // The CLI stops waiting for the result file after 10 s, and the handover
+    // alone can spend the abort budget plus the turn-boundary commit wait.
+    // Awaiting it here made the CLI report a failure for a send that went on to
+    // land, so the acknowledgement has to be written first.
+    conversationProcessing = true;
+    processingAfterInterrupt = false;
+    let releaseHandover = () => {};
+    interruptGate = new Promise<void>((resolve) => {
+      releaseHandover = resolve;
+    });
+
+    const filename = `user-message.sig-${++signalSeq}`;
+    writeFileSync(
+      join(signalsDir, filename),
+      JSON.stringify({
+        requestId: "req-ack-first",
+        conversationKey: "conv-key",
+        content: "answer me",
+        sourceChannel: "cli",
+        interface: "cli",
+        bypassSecretCheck: true,
+      }),
+    );
+
+    await handleUserMessageSignal(filename);
+
+    // Back with the handover still stalled: the result file is already written
+    // and the dispatch has not run.
+    const written = JSON.parse(
+      readFileSync(join(signalsDir, `${filename}.result`), "utf-8"),
+    ) as { ok: boolean; accepted: boolean; requestId: string };
+    expect(written).toMatchObject({
+      ok: true,
+      accepted: true,
+      requestId: "req-ack-first",
+    });
+    expect(backgroundDispatches).toEqual([]);
+
+    releaseHandover();
+    await settleHandover();
+    expect(backgroundDispatches).toEqual(["answer me"]);
+  });
+
   test("queues on `declined`, which is what the flag-off path answers", async () => {
-    interruptOutcome = "declined";
+    interruptEligibility = "flag_off";
     conversationProcessing = true;
 
     await sendSignal("hello");

@@ -18,7 +18,10 @@ import { v7 as uuidv7 } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import { resolveTurnCommitWaitMs } from "../daemon/abort-watchdog.js";
-import { interruptRunningTurn } from "../daemon/conversation-interrupt.js";
+import {
+  classifyInterruptEligibility,
+  interruptRunningTurn,
+} from "../daemon/conversation-interrupt.js";
 import { isConversationBusyError } from "../daemon/conversation-messaging.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
@@ -113,17 +116,6 @@ async function dispatchUserMessage(params: {
     }
   }
 
-  // Under `interrupt-on-send` this message stops the turn in flight and takes
-  // its place, so a busy conversation is made idle here and the same
-  // background dispatch an idle conversation uses runs it. The CLI carries no
-  // actor principal, so it is the guardian by the routes layer's convention
-  // and always allowed to interrupt.
-  const interruptOutcome = conversation.isProcessing()
-    ? await interruptRunningTurn(conversation, {
-        origin: "signals/user-message",
-      })
-    : "released";
-
   /**
    * Put the message on the queue and make sure something will drain it.
    *
@@ -203,37 +195,87 @@ async function dispatchUserMessage(params: {
     return { accepted: !result.rejected };
   };
 
-  // Every outcome but `released` queues, whatever the flag now reads. A `busy`
-  // that comes back after the interrupted turn has already ended is the case
-  // this must not treat as idle: its history carries a durable `tool_use` the
-  // repair could not answer, and running the message here would persist a user
-  // row after it. The idle kick inside is what gets the queued message drained.
-  if (interruptOutcome !== "released") {
-    return queueSignalMessage();
-  }
+  /**
+   * Hand the message to the turn dispatch, queueing instead if the
+   * conversation is claimed again before it can take it.
+   */
+  const dispatchSignalMessage = async (): Promise<void> => {
+    try {
+      await processMessageInBackground(conversationId, params.content, {
+        attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+        sourceChannel: params.sourceChannel,
+        sourceInterface: params.sourceInterface,
+      });
+    } catch (err) {
+      if (isConversationBusyError(err)) {
+        // `released` proves the interrupted turn let go, not that this send got
+        // the conversation: an idle waiter registered earlier (channel
+        // admission, an agent wake) can take it on the same transition. The
+        // dispatch then refuses, and without this the CLI's message would be
+        // lost to an internal error. Queue it, exactly as the HTTP route does
+        // when it loses the same race.
+        log.info(
+          { conversationId },
+          "Conversation was claimed again before the released send could dispatch; queueing instead",
+        );
+        queueSignalMessage();
+        return;
+      }
+      throw err;
+    }
+  };
 
-  try {
-    await processMessageInBackground(conversationId, params.content, {
-      attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
-      sourceChannel: params.sourceChannel,
-      sourceInterface: params.sourceInterface,
-    });
-  } catch (err) {
-    if (isConversationBusyError(err)) {
-      // `released` proves the interrupted turn let go, not that this send got
-      // the conversation: an idle waiter registered earlier (channel
-      // admission, an agent wake) can take it on the same transition. The
-      // dispatch then refuses, and without this the CLI's message would be
-      // lost to an internal error. Queue it, exactly as the HTTP route does
-      // when it loses the same race.
-      log.info(
-        { conversationId },
-        "Conversation was claimed again before the released send could dispatch; queueing instead",
-      );
+  if (conversation.isProcessing()) {
+    // Under `interrupt-on-send` this message stops the turn in flight and takes
+    // its place. The CLI carries no actor principal, so it is the guardian by
+    // the routes layer's convention and always allowed to interrupt.
+    //
+    // Decided synchronously so the acceptance can be written before any of the
+    // handover happens. The CLI stops waiting for the result file after 10 s,
+    // and the handover alone can spend the abort budget plus the turn-boundary
+    // commit wait, so awaiting it here made the CLI report a failure for a send
+    // that went on to land.
+    const interruptOptions = { origin: "signals/user-message" };
+    if (
+      classifyInterruptEligibility(conversation, interruptOptions) !==
+      "eligible"
+    ) {
+      // Anything not eligible queues, exactly as the flag-off path does.
       return queueSignalMessage();
     }
-    throw err;
+    void interruptRunningTurn(conversation, interruptOptions)
+      .then(async (outcome) => {
+        // Every outcome but `released` queues. A `busy` that comes back after
+        // the interrupted turn has already ended is the case this must not
+        // treat as idle: its history carries a durable `tool_use` the repair
+        // could not answer, and running the message there would persist a user
+        // row after it.
+        if (outcome !== "released") {
+          queueSignalMessage();
+          return;
+        }
+        await dispatchSignalMessage();
+      })
+      .catch((err) => {
+        // Already accepted, so the message is this handler's responsibility and
+        // has to land somewhere. The queue is what survives.
+        log.error(
+          { err, conversationId },
+          "Interrupting signal send failed after acceptance; falling back to the queue",
+        );
+        try {
+          queueSignalMessage();
+        } catch (queueErr) {
+          log.error(
+            { err: queueErr, conversationId },
+            "Queue fallback for a failed interrupting signal send also failed",
+          );
+        }
+      });
+    return { accepted: true };
   }
+
+  await dispatchSignalMessage();
   return { accepted: true };
 }
 

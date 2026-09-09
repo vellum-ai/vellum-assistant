@@ -3026,6 +3026,31 @@ export async function handleSendMessage(
   };
 
   if (conversation.isProcessing()) {
+    // A retransmission of a send this route has already accepted but not yet
+    // persisted. The interrupt answers `202` and then does the abort, the
+    // waits, the repair and the persist off the response, so for that whole
+    // stretch a second copy finds no running turn of its own and no row, and
+    // both would race the unique `clientMessageId` insert with one losing.
+    const reservedRequestId = clientMessageId
+      ? conversation.inFlightSendRequestIds.get(clientMessageId)
+      : undefined;
+    if (reservedRequestId) {
+      log.info(
+        {
+          conversationId: mapping.conversationId,
+          clientMessageId,
+          requestId: reservedRequestId,
+        },
+        "Duplicate send for one already accepted and still in flight; answering with its id",
+      );
+      return {
+        accepted: true,
+        messageId: reservedRequestId,
+        requestId: reservedRequestId,
+        conversationId: mapping.conversationId,
+      };
+    }
+
     // The narrowest form of the same retransmission problem, and it has to be
     // checked first: a turn arms its abort controller and takes the processing
     // lock BEFORE it inserts its row (`persistUserMessage`), so for that window
@@ -3126,6 +3151,19 @@ export async function handleSendMessage(
       }
     };
 
+    // Reserved before the detach, not inside it: the whole point is that a
+    // retransmission arriving while this runs finds the reservation already
+    // there. Released once the handover is over, by which time either a row
+    // exists for the durable check to find or the send is on the queue.
+    if (clientMessageId) {
+      conversation.inFlightSendRequestIds.set(clientMessageId, sendRequestId);
+    }
+    const releaseInFlightSend = (): void => {
+      if (clientMessageId) {
+        conversation.inFlightSendRequestIds.delete(clientMessageId);
+      }
+    };
+
     void (async () => {
       const outcome = await interruptRunningTurn(
         conversation,
@@ -3136,36 +3174,39 @@ export async function handleSendMessage(
         return;
       }
       await completeSend(true);
-    })().catch(async (err) => {
-      // The message is this request's responsibility and it has already been
-      // accepted, so a failure in here must still land it somewhere. The queue
-      // is the one place that survives: it runs on the next drain, and
-      // `queueSend` never takes the enqueue's idle fast path.
-      log.error(
-        {
-          err,
-          conversationId: mapping.conversationId,
-          requestId: sendRequestId,
-        },
-        "Interrupting send failed after acceptance; falling back to the queue",
-      );
-      try {
-        await queueAfterAcceptance("handover_failed");
-      } catch (queueErr) {
+    })()
+      .catch(async (err) => {
+        // The message is this request's responsibility and it has already been
+        // accepted, so a failure in here must still land it somewhere. The queue
+        // is the one place that survives: it runs on the next drain, and
+        // `queueSend` never takes the enqueue's idle fast path.
         log.error(
-          { err: queueErr, conversationId: mapping.conversationId },
-          "Queue fallback for a failed interrupting send also failed",
+          {
+            err,
+            conversationId: mapping.conversationId,
+            requestId: sendRequestId,
+          },
+          "Interrupting send failed after acceptance; falling back to the queue",
         );
-        broadcastMessage({
-          type: "error",
-          conversationId: mapping.conversationId,
-          requestId: sendRequestId,
-          code: "SEND_FAILED",
-          message: "Your message could not be delivered. Please send it again.",
-          errorCategory: "internal",
-        });
-      }
-    });
+        try {
+          await queueAfterAcceptance("handover_failed");
+        } catch (queueErr) {
+          log.error(
+            { err: queueErr, conversationId: mapping.conversationId },
+            "Queue fallback for a failed interrupting send also failed",
+          );
+          broadcastMessage({
+            type: "error",
+            conversationId: mapping.conversationId,
+            requestId: sendRequestId,
+            code: "SEND_FAILED",
+            message:
+              "Your message could not be delivered. Please send it again.",
+            errorCategory: "internal",
+          });
+        }
+      })
+      .finally(releaseInFlightSend);
 
     // `messageId` as well as `requestId`, because the response contract is not
     // suspended for an interrupt: `postChatMessage` rejects an accepted,

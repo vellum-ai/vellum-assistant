@@ -500,6 +500,21 @@ export class Conversation {
    */
   currentTurnClientMessageId?: string;
   /**
+   * `clientMessageId` to `requestId` for sends this conversation has accepted
+   * but not yet persisted.
+   *
+   * {@link currentTurnClientMessageId} covers a retry that races a turn already
+   * starting. This covers the window the interrupt opens ahead of that: a send
+   * is answered `202` and its abort, waits, repair and persist all run
+   * afterwards, so a retransmission arriving in between finds no running turn
+   * of its own to recognise and no row yet either, and both copies would race
+   * the unique `clientMessageId` insert with one losing. Reserved
+   * synchronously before the handover is detached, so the second copy is
+   * recognised and answered with the first's id.
+   * @internal
+   */
+  readonly inFlightSendRequestIds = new Map<string, string>();
+  /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
    * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
    * the main reply apart from background agent-loop work (compaction,

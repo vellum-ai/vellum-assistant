@@ -227,6 +227,7 @@ function createFakeConversation(conversationId: string): Conversation {
     emitActivityState: () => {},
     enqueueMessage: () => ({ queued: true, requestId: crypto.randomUUID() }),
     kickDrainQueue: async () => {},
+    inFlightSendRequestIds: new Map<string, string>(),
     getQueueDepth: () => 0,
     handleConfirmationResponse: () => {},
     handleSecretResponse: () => {},
@@ -1097,6 +1098,57 @@ describe("host-proxy preactivation across an interrupt", () => {
         : undefined,
     );
     expect(row.role).toBe("user");
+  });
+
+  test("a retransmit during an accepted handover answers with the first send's id", async () => {
+    // The interrupt answers `202` and then does the abort, the waits, the
+    // repair and the persist off the response. For that whole stretch a second
+    // copy of the same send finds no running turn of its own and no row yet, so
+    // without a reservation both would race the unique `clientMessageId` insert
+    // and one would lose.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-inflight-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    const clientMessageId = `cmid-${crypto.randomUUID()}`;
+    const conv = getOrCreateFakeConversation(conversationId) as Conversation & {
+      processing: boolean;
+      owner: number;
+      abortController: AbortController | null;
+    };
+    conv.processing = true;
+    conv.owner = 1;
+    // A turn that does not release, so the first send is still mid-handover
+    // when the retransmission arrives.
+    conv.abortController = new AbortController();
+
+    const first = await sendMacosMessage(
+      conversationKey,
+      "answer me",
+      clientMessageId,
+    );
+    const firstBody = (await first.json()) as { requestId?: string };
+    expect(typeof firstBody.requestId).toBe("string");
+    expect(conv.inFlightSendRequestIds.get(clientMessageId)).toBe(
+      firstBody.requestId,
+    );
+
+    const retry = await sendMacosMessage(
+      conversationKey,
+      "answer me",
+      clientMessageId,
+    );
+    const retryBody = (await retry.json()) as {
+      messageId?: string;
+      requestId?: string;
+    };
+
+    // The same id both times, so the client's single optimistic row is
+    // reconciled against one row rather than two racing inserts.
+    expect(retryBody.requestId).toBe(firstBody.requestId);
+    expect(retryBody.messageId).toBe(firstBody.requestId);
+
+    conv.processing = false;
+    conv.owner = 0;
   });
 
   test("a retransmitted send answers from the existing row instead of interrupting", async () => {
