@@ -1,4 +1,17 @@
 import {
+  Archive,
+  Code2,
+  FileAudio,
+  File as FileIcon,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType2,
+  FileVideo,
+  type LucideIcon,
+} from "lucide-react";
+
+import {
   baseMimeType,
   extensionOf,
   GENERIC_MIME_TYPES,
@@ -84,6 +97,23 @@ export type AttachmentIconKind =
   | "document"
   | "text"
   | "file";
+
+/**
+ * Glyph every surface draws for an attachment of a given kind. Components
+ * rather than elements, so each caller sizes the icon for its own tile.
+ */
+export const ATTACHMENT_ICON_BY_KIND: Record<AttachmentIconKind, LucideIcon> = {
+  image: FileImage,
+  video: FileVideo,
+  audio: FileAudio,
+  pdf: FileType2,
+  code: Code2,
+  archive: Archive,
+  spreadsheet: FileSpreadsheet,
+  document: FileText,
+  text: FileText,
+  file: FileIcon,
+};
 
 /** The canonical PDF type plus the aliases publishers use in the wild. */
 const PDF_MIME_TYPES = new Set([

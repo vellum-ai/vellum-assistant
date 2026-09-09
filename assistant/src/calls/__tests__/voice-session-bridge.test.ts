@@ -12,6 +12,7 @@
  * covered by `src/__tests__/conversation-wait-for-idle.test.ts`.
  */
 import {
+  afterEach,
   beforeEach,
   describe,
   expect,
@@ -35,8 +36,18 @@ mock.module("../../daemon/conversation-store.js", () => ({
 // production (a BYO provider resolves the profile key through its own column
 // of the intent matrix), so it is scripted rather than read from a catalog.
 let pinProfileSupportsVision = true;
+// Vision capability of the conversation's own profile, which an escalated
+// leg is pinned to. Scripted for the same reason.
+let conversationProfileSupportsVision = true;
+// Per-profile answers that outrank the two switches above, for a mix whose
+// arms differ.
+const visionByProfile = new Map<string, boolean>();
 mock.module("../../plugin-api/vision-support.js", () => ({
-  doesSupportVision: () => pinProfileSupportsVision,
+  doesSupportVision: (profile: string) =>
+    visionByProfile.get(profile) ??
+    (profile === "latency-optimized"
+      ? pinProfileSupportsVision
+      : conversationProfileSupportsVision),
 }));
 
 // Attachment hydration for the parked-camera-frame path. Only `att-frame-*`
@@ -126,6 +137,8 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 }));
 
 import { setConfig } from "../../__tests__/helpers/set-config.js";
+import { selectWinningProfile } from "../../config/llm-resolver.js";
+import { getConfig } from "../../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../../daemon/abort-watchdog.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../../plugin-api/constants.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
@@ -162,6 +175,9 @@ interface WaitForIdleCall {
 
 interface FakeConversation {
   conversationId: string;
+  /** Per-conversation profile pin an escalated leg follows; absent = none. */
+  inferenceProfile?: string | null;
+  inferenceProfileExpiresAt?: number | null;
   callSessionId: string | undefined;
   forcePromptSideEffects: boolean;
   currentRequestId: string | undefined;
@@ -208,6 +224,10 @@ function makeFakeConversation(opts: {
   workingDir?: string;
   /** In-memory history the profile pin reads; undefined models a text-only call. */
   messages?: Array<{ role: string; content: unknown[] }>;
+  /** Per-conversation profile pin; undefined models an unpinned conversation. */
+  inferenceProfile?: string;
+  /** Expiry of that pin; a past stamp models a lapsed session pin. */
+  inferenceProfileExpiresAt?: number;
 }) {
   const waitForIdleCalls: WaitForIdleCall[] = [];
   const confirmationDecisions: Array<{ requestId: string; decision: string }> =
@@ -224,6 +244,12 @@ function makeFakeConversation(opts: {
     | undefined;
   const conversation: FakeConversation = {
     conversationId: "conv-voice-bridge-test",
+    ...(opts.inferenceProfile !== undefined
+      ? { inferenceProfile: opts.inferenceProfile }
+      : {}),
+    ...(opts.inferenceProfileExpiresAt !== undefined
+      ? { inferenceProfileExpiresAt: opts.inferenceProfileExpiresAt }
+      : {}),
     // The workspace boundary the reach check compares paths against. A real
     // conversation always has one; without it the approval gate fails closed.
     workingDir: opts.workingDir ?? "/tmp/workspace-voice-bridge-test",
@@ -2581,19 +2607,19 @@ describe("transcript hygiene (teardown pass)", () => {
   });
 });
 
-describe("startVoiceTurn image-bearing profile pin", () => {
-  /** A persisted user message carrying a photo taken mid-call. */
-  const PHOTO_HISTORY = [
-    { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
-    {
-      role: "user",
-      content: [
-        { type: "text", text: "here's a photo:" },
-        { type: "image", source: { type: "base64", data: "abc" } },
-      ],
-    },
-  ];
+/** A persisted user message carrying a photo taken mid-call. */
+const PHOTO_HISTORY = [
+  { role: "user", content: [{ type: "text", text: "here's a photo:" }] },
+  {
+    role: "user",
+    content: [
+      { type: "text", text: "here's a photo:" },
+      { type: "image", source: { type: "base64", data: "abc" } },
+    ],
+  },
+];
 
+describe("startVoiceTurn image-bearing profile pin", () => {
   beforeEach(() => {
     pinProfileSupportsVision = true;
   });
@@ -2680,5 +2706,190 @@ describe("startVoiceTurn image-bearing profile pin", () => {
     });
 
     expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+});
+
+describe("startVoiceTurn escalated-leg profile pin", () => {
+  beforeEach(() => {
+    pinProfileSupportsVision = true;
+    conversationProfileSupportsVision = true;
+  });
+
+  afterEach(() => {
+    setConfig("llm", {});
+  });
+
+  async function runOptionsFor(opts: {
+    messages?: Array<{ role: string; content: unknown[] }>;
+    inferenceProfile?: string;
+    inferenceProfileExpiresAt?: number;
+    turn?: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const fake = makeFakeConversation({
+      processing: false,
+      ...(opts.messages ? { messages: opts.messages } : {}),
+      ...(opts.inferenceProfile
+        ? { inferenceProfile: opts.inferenceProfile }
+        : {}),
+      ...(opts.inferenceProfileExpiresAt !== undefined
+        ? { inferenceProfileExpiresAt: opts.inferenceProfileExpiresAt }
+        : {}),
+    });
+    fakeConversation = fake.conversation;
+    let runOptions: Record<string, unknown> = {};
+    fake.conversation.runAgentLoop = async (...args: unknown[]) => {
+      runOptions = args[2] as Record<string, unknown>;
+    };
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+      ...(opts.turn ?? {}),
+    });
+    return runOptions;
+  }
+
+  test("with no chat-model selection the leg keeps the call-site profile", async () => {
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.overrideProfile).toBeUndefined();
+    expect(runOptions.forceOverrideProfile).toBeUndefined();
+  });
+
+  test("the workspace chat-model selection pins the leg", async () => {
+    // `callAgent`'s chain never consults `llm.activeProfile`, so without the
+    // pin the hand-off would land on the site's shipped default while the
+    // same conversation's typed turns run on the user's pick.
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({});
+
+    expect(runOptions.callSite).toBe("callAgent");
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("the conversation's own pin wins over the workspace selection", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      inferenceProfile: "cost-optimized",
+    });
+
+    expect(runOptions.overrideProfile).toBe("cost-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("a lapsed conversation pin falls back to the workspace selection", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      inferenceProfile: "cost-optimized",
+      inferenceProfileExpiresAt: Date.now() - 1,
+    });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("only the escalated leg follows the conversation", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const frontDoor = await runOptionsFor({
+      turn: { routingLeg: "front-door" },
+    });
+    expect(frontDoor.callSite).toBe("voiceFrontDoor");
+    expect(frontDoor.overrideProfile).toBeUndefined();
+
+    const unrouted = await runOptionsFor({ turn: { routingLeg: undefined } });
+    expect(unrouted.callSite).toBe("callAgent");
+    expect(unrouted.overrideProfile).toBeUndefined();
+  });
+
+  test("an image stays on a conversation profile whose model takes it", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("an image hands a text-only conversation profile to the image pin", async () => {
+    // A model that rejects the image fails the whole leg, so the image pin
+    // outranks the conversation's choice for this one turn.
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    conversationProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("latency-optimized");
+    expect(runOptions.forceOverrideProfile).toBe(true);
+  });
+
+  test("an image with no image-capable profile anywhere keeps the conversation profile", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+    conversationProfileSupportsVision = false;
+    pinProfileSupportsVision = false;
+
+    const runOptions = await runOptionsFor({ messages: PHOTO_HISTORY });
+
+    expect(runOptions.overrideProfile).toBe("quality-optimized");
+  });
+
+  test("an explicit routing pin wins over the conversation profile", async () => {
+    setConfig("llm", { activeProfile: "quality-optimized" });
+
+    const runOptions = await runOptionsFor({
+      turn: { overrideProfile: "balanced" },
+    });
+
+    expect(runOptions.overrideProfile).toBe("balanced");
+  });
+
+  test("a mix is judged by the arm serving this conversation, not by any arm", async () => {
+    // A mix reads as vision-capable when any arm is, but dispatch expands it
+    // to one arm from the conversation seed. Only that arm's model sees the
+    // image, so only that arm's capability decides whether the image pin
+    // takes over. The pin itself stays the mix's own name, so dispatch lands
+    // on the same arm.
+    const llm = {
+      activeProfile: "voice-mix",
+      profiles: {
+        "voice-mix": {
+          mix: [
+            { profile: "quality-optimized", weight: 1 },
+            { profile: "cost-optimized", weight: 1 },
+          ],
+        },
+      },
+    };
+    setConfig("llm", llm);
+    let chosenArm: string | undefined;
+    selectWinningProfile("mainAgent", getConfig().llm, {
+      selectionSeed: "conv-voice-bridge-test",
+      onMixSelected: ({ chosenProfile }) => {
+        chosenArm = chosenProfile;
+      },
+    });
+    expect(chosenArm).toBeDefined();
+    const otherArm =
+      chosenArm === "quality-optimized"
+        ? "cost-optimized"
+        : "quality-optimized";
+    try {
+      // Only the unchosen arm takes images: judged as "any arm", the mix
+      // would keep the pin off and the image would reach a text-only model.
+      visionByProfile.set(chosenArm!, false);
+      visionByProfile.set(otherArm, true);
+      const textOnlyArm = await runOptionsFor({ messages: PHOTO_HISTORY });
+      expect(textOnlyArm.overrideProfile).toBe("latency-optimized");
+
+      // Only the chosen arm takes images: no pin needed, the mix stands.
+      visionByProfile.set(chosenArm!, true);
+      visionByProfile.set(otherArm, false);
+      const visionArm = await runOptionsFor({ messages: PHOTO_HISTORY });
+      expect(visionArm.overrideProfile).toBe("voice-mix");
+    } finally {
+      visionByProfile.clear();
+    }
   });
 });

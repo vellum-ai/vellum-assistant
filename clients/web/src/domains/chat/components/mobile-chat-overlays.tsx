@@ -1,7 +1,8 @@
 /**
  * Portal-based mobile overlay container for the app, document,
  * subagent-detail, workflow-detail, acp-run-detail, background-task-detail,
- * tool-detail, activity-steps, message-files, and channel-transcript viewers.
+ * tool-detail, activity-steps, message-files, chat-info, and
+ * channel-transcript viewers.
  * Reads from Zustand stores directly so the parent (ActiveChatView) doesn't
  * need to assemble inline handlers.
  *
@@ -19,7 +20,7 @@ import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { type ChatInfoCategory, useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 import { MobileChannelTranscriptOverlay } from "@/domains/chat/channel-sidecar/mobile-channel-transcript-overlay";
@@ -27,6 +28,7 @@ import { MobileAcpRunDetailOverlay } from "@/domains/chat/components/mobile-acp-
 import { MobileActivityStepsOverlay } from "@/domains/chat/components/mobile-activity-steps-overlay";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileBackgroundTaskDetailOverlay } from "@/domains/chat/components/mobile-background-task-detail-overlay";
+import { MobileChatInfoOverlay } from "@/domains/chat/components/mobile-chat-info-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileMessageFilesOverlay } from "@/domains/chat/components/mobile-message-files-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
@@ -50,6 +52,7 @@ export function MobileChatOverlays() {
   const activeToolDetail = useViewerStore.use.activeToolDetail();
   const activeActivitySteps = useViewerStore.use.activeActivitySteps();
   const activeMessageFiles = useViewerStore.use.activeMessageFiles();
+  const activeChatInfo = useViewerStore.use.activeChatInfo();
   const activeWorkflowRunId = useViewerStore.use.activeWorkflowRunId();
   const activeAcpRunId = useViewerStore.use.activeAcpRunId();
   const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
@@ -161,6 +164,17 @@ export function MobileChatOverlays() {
     useViewerStore.getState().closeMessageFiles();
   }, []);
 
+  const handleCloseChatInfo = useCallback(() => {
+    useViewerStore.getState().closeChatInfo();
+  }, []);
+
+  const handleSelectChatInfoCategory = useCallback(
+    (category: ChatInfoCategory | null) => {
+      useViewerStore.getState().setChatInfoCategory(category);
+    },
+    [],
+  );
+
   const handleCloseChannelTranscript = useCallback(() => {
     useViewerStore.getState().closeChannelTranscript();
   }, []);
@@ -252,6 +266,11 @@ export function MobileChatOverlays() {
       <MobileMessageFilesOverlay
         payload={mainView === "message-files" ? activeMessageFiles : null}
         onClose={handleCloseMessageFiles}
+      />
+      <MobileChatInfoOverlay
+        payload={mainView === "chat-info" ? activeChatInfo : null}
+        onClose={handleCloseChatInfo}
+        onSelectCategory={handleSelectChatInfoCategory}
       />
       <MobileChannelTranscriptOverlay
         sidecarRef={

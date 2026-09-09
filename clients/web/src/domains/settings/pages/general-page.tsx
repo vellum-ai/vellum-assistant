@@ -24,6 +24,7 @@ import { NativeAppCard } from "@/domains/settings/components/native-app-card";
 import { PairDeviceCard } from "@/domains/settings/pair-device/pair-device-card";
 import { PreferencesModal } from "@/domains/settings/components/preferences-modal";
 import { PreviewReleaseChannel } from "@/domains/settings/components/preview-release-channel";
+import { PreviewUiChannel } from "@/domains/settings/components/preview-ui-channel";
 import { ResizeCard } from "@/domains/settings/components/resize-card";
 import { RetireAssistant } from "@/domains/settings/components/retire-assistant";
 import { ShowTipsRow } from "@/domains/settings/components/show-tips-row";
@@ -276,6 +277,7 @@ export function GeneralPage() {
               {t("generalPage.updatesLoginNotice")}
             </PlatformLoginNotice>
           )}
+          <PreviewUiChannel />
         </div>
       </DetailCard>
       {infraGate === "full" && platformAssistant && (

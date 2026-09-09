@@ -14,6 +14,10 @@ import { homedir } from "node:os";
 import { dirname, join, posix, resolve, sep } from "node:path";
 import { gunzipSync } from "node:zlib";
 
+import {
+  MALFORMED_USTAR_SIZE,
+  parseUstarSizeField,
+} from "../archive/ustar-size.js";
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
 import { isBunVirtualPath } from "../util/bundled-asset.js";
@@ -28,6 +32,35 @@ import {
 } from "./platform-compatibility.js";
 
 const log = getLogger("catalog-install");
+
+/**
+ * `bun install` argv for a skill's declared dependencies. Lifecycle scripts
+ * are suppressed: skill archives (catalog tarballs, skills.sh, ClawHub) are
+ * unsigned, so a `preinstall`/`postinstall` hook would be arbitrary code
+ * execution at install time. Mirrors plugin install in
+ * `cli/lib/install-plugin-dependencies.ts`.
+ */
+export const SKILL_DEPENDENCY_INSTALL_ARGS: readonly string[] = Object.freeze([
+  "install",
+  "--omit=dev",
+  "--ignore-scripts",
+  "--no-save",
+]);
+
+export class SkillArchiveError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SkillArchiveError";
+  }
+}
+
+function parseTarSize(header: Buffer): number {
+  try {
+    return parseUstarSizeField(header);
+  } catch {
+    throw new SkillArchiveError(MALFORMED_USTAR_SIZE);
+  }
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -302,11 +335,13 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
     // File type (byte 156): '5' = directory, '0' or '\0' = regular file
     const typeFlag = header[156];
 
-    // File size (bytes 124-135, octal)
-    const sizeStr = header.subarray(124, 136).toString("utf-8").trim();
-    const size = parseInt(sizeStr, 8) || 0;
+    const size = parseTarSize(header);
 
     offset += 512; // past header
+    const paddedSize = Math.ceil(size / 512) * 512;
+    if (offset + paddedSize > tarBuffer.length) {
+      throw new SkillArchiveError("tar entry size exceeds archive length");
+    }
 
     // Skip directories and empty names
     if (name && typeFlag !== 53 /* '5' */) {
@@ -325,7 +360,7 @@ export function extractTarToDir(tarBuffer: Buffer, destDir: string): boolean {
     }
 
     // Skip to next header (data padded to 512 bytes)
-    offset += Math.ceil(size / 512) * 512;
+    offset += paddedSize;
   }
   return foundSkillMd;
 }
@@ -419,7 +454,7 @@ export async function installSkillDependenciesIfPresent(
   const env = { ...process.env };
   addToPathEnv(env, [join(homedir(), ".bun", "bin")]);
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("bun", ["install"], {
+    const child = spawn("bun", [...SKILL_DEPENDENCY_INSTALL_ARGS], {
       cwd: skillDir,
       stdio: "inherit",
       env,

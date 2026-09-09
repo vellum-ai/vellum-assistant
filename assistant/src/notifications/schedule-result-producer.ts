@@ -39,6 +39,7 @@ import type { ContentBlock } from "../providers/types.js";
 import { emitNotificationSignal } from "./emit-signal.js";
 import { hasNotifiedSourceContextSince } from "./events-store.js";
 import {
+  decodeLiteralLineBreaks,
   sanitizeNotificationTitle,
   stripMarkdownForPreview,
   truncate,
@@ -143,7 +144,7 @@ function resolveRunOutput(latestRow: MessageRow): string | undefined {
   if (!flattened) {
     return undefined;
   }
-  return truncate(text.trim(), MAX_RESULT_BODY_CHARS);
+  return truncate(decodeLiteralLineBreaks(text.trim()), MAX_RESULT_BODY_CHARS);
 }
 
 /**

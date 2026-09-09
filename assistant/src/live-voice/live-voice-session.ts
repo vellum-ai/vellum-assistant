@@ -97,6 +97,11 @@ import {
   dismissesUiSurface,
   revealsUiSurface,
 } from "./activity-label.js";
+import {
+  buildDuplexContinuationLabel,
+  createContinuationLabeler,
+  type LiveVoiceContinuationLabeler,
+} from "./continuation-label.js";
 import { LiveActivityReporter } from "./live-activity-reporter.js";
 import type {
   LiveVoiceAudioArchiveResult,
@@ -421,6 +426,12 @@ export interface LiveVoiceSessionOptions {
    * the real SubagentManager-backed implementation; tests inject a stub.
    */
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  /**
+   * Names the background continuation from the interrupted transcript. The
+   * factory wires the provider-backed implementation; tests inject a stub.
+   * Absent, the continuation carries the deterministic transcript label.
+   */
+  labelBackgroundContinuation?: LiveVoiceContinuationLabeler;
   /**
    * Returns the pending teardown promise for a conversation's most recent
    * turn. The barge-in path awaits it before forking the background
@@ -1153,6 +1164,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
+  private readonly labelBackgroundContinuation: LiveVoiceContinuationLabeler | null;
   // Reads the interrupted turn's teardown promise so the barge-in path can wait
   // for it to settle before forking the continuation.
   private readonly getTurnTeardown:
@@ -1440,6 +1452,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.archiveAudio = options.archiveAudio ?? null;
     this.spawnBackgroundContinuation =
       options.spawnBackgroundContinuation ?? null;
+    this.labelBackgroundContinuation =
+      options.labelBackgroundContinuation ?? null;
     this.getTurnTeardown = options.getTurnTeardown ?? null;
     this.detachTeardownSettleTimeoutMs =
       options.detachTeardownSettleTimeoutMs ??
@@ -3057,6 +3071,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const controller = new AbortController();
     this.detachControllers.add(controller);
     const detachStartedAtMs = Date.now();
+    // Start naming the continuation now so the model call overlaps the
+    // teardown wait below instead of adding to the handoff. `labelAbort`
+    // cancels it on every skip path (see the `finally`); a stop aborts it
+    // through the detach controller.
+    const labelAbort = new AbortController();
+    const labelPromise = this.requestContinuationLabel(
+      interruptedRequest,
+      AbortSignal.any([controller.signal, labelAbort.signal]),
+    );
     void (async () => {
       try {
         // Wait for the interrupted turn's teardown to settle its partial into
@@ -3112,11 +3135,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
           return;
         }
+        const forkReadyAtMs = Date.now();
+        const label =
+          (await labelPromise) ??
+          buildDuplexContinuationLabel(interruptedRequest);
         log.debug(
           {
             turnId: turn.turnId,
-            teardownWaitMs: Date.now() - detachStartedAtMs,
+            teardownWaitMs: forkReadyAtMs - detachStartedAtMs,
+            // Label latency past the teardown wait it overlapped.
+            labelWaitMs: Date.now() - forkReadyAtMs,
             interruptedRequest,
+            label,
           },
           "Voice duplex continuation starting",
         );
@@ -3127,7 +3157,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
-          label: `voice-continue-${turn.turnId}`,
+          label,
           signal: controller.signal,
         });
         // Route the completed continuation's answer. Re-check the stop guards
@@ -3201,9 +3231,43 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
         }
       } finally {
+        // No-op once the label resolved; cancels a still-running label call
+        // on every skip path above.
+        labelAbort.abort();
         this.detachControllers.delete(controller);
       }
     })();
+  }
+
+  // Resolves the model-phrased label for a continuation, or null when there
+  // is nothing to name it from, no labeler is wired, or the call missed
+  // (timeout, abort, provider error, model declined). Never rejects: the
+  // caller falls back to the deterministic transcript label on null.
+  private async requestContinuationLabel(
+    interruptedRequest: string,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    const labeler = this.labelBackgroundContinuation;
+    if (!labeler || interruptedRequest.length === 0) {
+      return null;
+    }
+    const startedAtMs = Date.now();
+    try {
+      const label = (
+        await labeler({
+          parentConversationId: this.conversationId,
+          interruptedRequest,
+          signal,
+        })
+      )?.trim();
+      return label && label.length > 0 ? label : null;
+    } catch (err) {
+      log.debug(
+        { err, aborted: signal.aborted, ranMs: Date.now() - startedAtMs },
+        "Voice duplex continuation label fell back to the transcript",
+      );
+      return null;
+    }
   }
 
   // Abort every background continuation this session started and drop its
@@ -5789,11 +5853,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
-    // No overrideProfile: the escalated leg runs on the call-site default —
-    // the exact profile an un-routed voice turn would use (see
-    // voice-triage-escalate.ts). The bridge phrase the caller just heard is
-    // handed along so the escalated continuation rule can quote it and ban
-    // a re-announcing echo ("Let me check…" twice in a row).
+    // No overrideProfile here: the bridge pins the escalated leg to the
+    // conversation's own profile, the model the caller's typed turns already
+    // run on (see voice-triage-escalate.ts). The bridge phrase the caller
+    // just heard is handed along so the escalated continuation rule can
+    // quote it and ban a re-announcing echo ("Let me check…" twice in a
+    // row).
     void this.startAssistantLeg(activeTurn, {
       content: ESCALATION_CONTINUATION_CONTENT,
       routingLeg: "escalated",
@@ -7061,6 +7126,8 @@ export function createLiveVoiceSession(
         : options.streamTtsAudio,
     spawnBackgroundContinuation:
       options.spawnBackgroundContinuation ?? defaultSpawnBackgroundContinuation,
+    labelBackgroundContinuation:
+      options.labelBackgroundContinuation ?? createContinuationLabeler(),
     getTurnTeardown: options.getTurnTeardown ?? getConversationTurnTeardown,
     // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
     // persist only their transcribed text, so the recorded audio never lands
