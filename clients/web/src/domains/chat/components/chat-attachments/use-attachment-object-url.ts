@@ -79,19 +79,22 @@ export function useAttachmentObjectUrl(
   // object URL is minted for a picture nothing renders.
   const shownBlob = !previewUrl && enabled ? (blob ?? null) : null;
 
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  // The URL is held with the blob it was minted from, so a caller that switches
+  // attachments is never handed the previous one's picture for a frame.
+  const [held, setHeld] = useState<{ blob: Blob; url: string } | null>(null);
   useEffect(() => {
     if (!shownBlob) {
-      setObjectUrl(null);
+      setHeld(null);
       return;
     }
     const url = URL.createObjectURL(shownBlob);
-    setObjectUrl(url);
+    setHeld({ blob: shownBlob, url });
     return () => {
       URL.revokeObjectURL(url);
-      setObjectUrl(null);
+      setHeld(null);
     };
   }, [shownBlob]);
+  const objectUrl = held?.blob === shownBlob ? held.url : null;
 
   return {
     url: previewUrl ?? objectUrl,

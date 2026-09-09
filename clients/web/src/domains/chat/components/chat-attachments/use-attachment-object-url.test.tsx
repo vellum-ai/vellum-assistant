@@ -157,6 +157,54 @@ describe("useAttachmentObjectUrl", () => {
     expect(result.current.url).toBeNull();
   });
 
+  test("serves no URL at all on the first render after the caller switches attachment", () => {
+    // The preview gallery walks next and previous under one mounted hook, so
+    // the frame the switch renders must not still paint the previous file.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false, retryOnMount: false } },
+    });
+    client.setQueryData(
+      attachmentContentQueryKey("asst-1", "att-a"),
+      new Blob(["a"]),
+    );
+    client.setQueryData(
+      attachmentContentQueryKey("asst-1", "att-b"),
+      new Blob(["b"]),
+    );
+
+    const renders: Array<{ url: string | null; isPending: boolean }> = [];
+    const { rerender } = renderHook(
+      ({ attachment }: { attachment: Attachment }) => {
+        const value = useAttachmentObjectUrl("asst-1", attachment, true);
+        renders.push({ url: value.url, isPending: value.isPending });
+        return value;
+      },
+      {
+        initialProps: {
+          attachment: { id: "att-a", previewUrl: null } as Attachment,
+        },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+
+    expect(renders.at(-1)).toEqual({
+      url: "blob:attachment-0",
+      isPending: false,
+    });
+    const firstAfterSwitch = renders.length;
+
+    rerender({ attachment: { id: "att-b", previewUrl: null } });
+
+    expect(renders[firstAfterSwitch]).toEqual({ url: null, isPending: true });
+    expect(renders.at(-1)).toEqual({
+      url: "blob:attachment-1",
+      isPending: false,
+    });
+    expect(revoked).toEqual(["blob:attachment-0"]);
+  });
+
   test("calls a synthetic history id a legacy one, whose bytes were never kept", () => {
     const { result } = renderObjectUrl({
       id: "rehydrated:2",
