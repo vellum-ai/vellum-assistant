@@ -16,7 +16,7 @@ The full cross-repo checklist lives with the serializer registry it governs, in 
 
 ### Emitting an outbox-backed event
 
-For a normal (outbox-backed) event, the sync PR is all the daemon needs — **no manual edits in this directory**. `OUTBOX_TELEMETRY_EVENT_NAMES` (in `types.ts`) and its flush source (in `telemetry-event-sources.ts`) are both **derived from the wire contract**, so a newly-synced type is outbox-backed and flushed automatically. Just call the generic, fully-typed recorder from your feature code:
+For a normal (outbox-backed) event, `OUTBOX_TELEMETRY_EVENT_NAMES` (in `types.ts`) and its flush source (in `telemetry-event-sources.ts`) are both **derived from the wire contract**, so a newly-synced type is outbox-backed and flushed automatically. The sync PR still carries three touchpoints whenever it adds a type: a sample in `__tests__/telemetry-event-fixtures.ts` (with a `types.ts` alias when the sample wants one), the payload-order pin in `telemetry-event-sources.test.ts`, and a regenerated `assistant/openapi.yaml`. Then call the generic, fully-typed recorder from your feature code:
 
 ```ts
 import { recordTelemetryEvent } from "./telemetry-events-outbox.js";
