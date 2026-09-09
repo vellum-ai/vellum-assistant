@@ -106,8 +106,15 @@ describe("empty-response hook under the tool-gated reply surface", () => {
     expect(second.messages).toEqual([]);
   });
 
-  test("stays quiet when the last tool-bearing response reported the outcome", async () => {
-    const ctx = makeCtx({ messages: [workOnlyTurn, priorSendTurn] });
+  // Whether the user was already told the outcome is the host's answer, handed
+  // over on the context, so the nudge here and the raw-text fallback in the
+  // loop cannot disagree. The message fixtures below name the shape the host
+  // was judging; the decision turns on the flag.
+  test("stays quiet when the host says the outcome was reported", async () => {
+    const ctx = makeCtx({
+      messages: [workOnlyTurn, priorSendTurn],
+      userToldOutcome: true,
+    });
     await postModelCall(ctx);
     expect(ctx.decision).toBe("stop");
     expect(ctx.messages).toEqual([workOnlyTurn, priorSendTurn]);
@@ -116,7 +123,10 @@ describe("empty-response hook under the tool-gated reply surface", () => {
   test("nudges when a progress update was followed by work the user never heard about", async () => {
     // send_user_message("Checking your calendar.") + bash in one response, then
     // a terminal text-only response: the result never reached the user.
-    const ctx = makeCtx({ messages: [progressUpdateThenWorkTurn] });
+    const ctx = makeCtx({
+      messages: [progressUpdateThenWorkTurn],
+      userToldOutcome: false,
+    });
     await postModelCall(ctx);
     expect(ctx.decision).toBe("continue");
     expect(ctx.messages.at(-1)?.content).toEqual([
@@ -125,7 +135,18 @@ describe("empty-response hook under the tool-gated reply surface", () => {
   });
 
   test("nudges when the last tool-bearing response was work with no message", async () => {
-    const ctx = makeCtx({ messages: [priorSendTurn, workOnlyTurn] });
+    const ctx = makeCtx({
+      messages: [priorSendTurn, workOnlyTurn],
+      userToldOutcome: false,
+    });
+    await postModelCall(ctx);
+    expect(ctx.decision).toBe("continue");
+  });
+
+  test("nudges when a host that does not report it leaves the flag absent", async () => {
+    // Absent reads as "not told", which keeps the fallback available: an extra
+    // nudge costs a call, a suppressed fallback costs the reply.
+    const ctx = makeCtx({ messages: [priorSendTurn] });
     await postModelCall(ctx);
     expect(ctx.decision).toBe("continue");
   });

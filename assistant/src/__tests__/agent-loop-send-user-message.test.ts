@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import { resetEmptyResponseNudgeStoreForTests } from "../plugins/defaults/empty-response/nudge-state-store.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type {
   ContentBlock,
@@ -84,6 +85,9 @@ function loopWith(provider: ReturnType<typeof createMockProvider>["provider"]) {
 describe("agent loop under the tool-gated reply surface", () => {
   beforeEach(() => {
     resetPluginRegistryAndRegisterDefaults();
+    // The nudge is one-shot per conversation and every case here shares one
+    // id, so without this the first suppressed run consumes it for the file.
+    resetEmptyResponseNudgeStoreForTests();
   });
 
   test("streams the tool's message and never the model's plain text", async () => {
@@ -269,6 +273,13 @@ describe("agent loop under the tool-gated reply surface", () => {
 });
 
 describe("a send_user_message call that delivers nothing", () => {
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+    // The nudge is one-shot per conversation and every case here shares one
+    // id, so without this the first suppressed run consumes it for the file.
+    resetEmptyResponseNudgeStoreForTests();
+  });
+
   /** A call the executor rejects: the name is right, the message is not. */
   function blankSend(message: unknown, id = "tu_blank"): ProviderResponse {
     return {
@@ -322,6 +333,53 @@ describe("a send_user_message call that delivers nothing", () => {
       suppressAssistantText: true,
     });
 
+    expect(streamedText(events)).toContain("Two meetings today.");
+  });
+
+  test("one usable and one blank call in a response is not an outcome", async () => {
+    // The loop counts an outcome only when EVERY call delivered, and the hook
+    // now reads that same answer off the context. Counting the response as a
+    // report would suppress the fallback on the terminal turn, so the user
+    // would get "Looking now." and never the result.
+    const { provider, calls } = createMockProvider([
+      {
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_ok",
+            name: "send_user_message",
+            input: { message: "Looking now." },
+          },
+          {
+            type: "tool_use",
+            id: "tu_blank",
+            name: "send_user_message",
+            input: { message: "  " },
+          },
+        ] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "tool_use",
+      },
+      textResponse("Two meetings today."),
+      textResponse("Two meetings today."),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+      // The nudge is main-agent only, so the plugin's half of the contract is
+      // only observable on that call site.
+      callSite: "mainAgent",
+    });
+
+    // Three provider calls: the mixed response, the nudge retry, and the turn
+    // that ends. A hook reading the mixed response as a report would skip the
+    // nudge and the run would stop at two.
+    expect(calls).toHaveLength(3);
     expect(streamedText(events)).toContain("Two meetings today.");
   });
 

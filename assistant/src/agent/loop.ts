@@ -115,6 +115,32 @@ function recordSendUserMessageOutcome(
   }
 }
 
+/**
+ * Whether a response reported the OUTCOME of the work before it: it called
+ * tools, and every one of them delivered a message to the user.
+ *
+ * `undefined` when the response called no tools, which is the terminal one and
+ * leaves the answer where the last tool-bearing response left it.
+ *
+ * One rule, read by the loop's own fallback decision and handed to the
+ * `post-model-call` hook chain on the context, so the plugin that owns the
+ * nudge cannot reach a different answer than the loop that owns the fallback.
+ * A plugin cannot import this (plugins are self-contained), so the host
+ * computes it and passes the answer.
+ */
+function reportsOutcomeToUser(
+  toolUseBlocks: ReadonlyArray<{
+    type: string;
+    name?: string;
+    input?: Record<string, unknown>;
+  }>,
+): boolean | undefined {
+  if (toolUseBlocks.length === 0) {
+    return undefined;
+  }
+  return toolUseBlocks.every((block) => deliveredUserMessage(block) !== null);
+}
+
 /** Fraction of the preflight budget at which a checkpoint triggers mid-loop compaction. */
 const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 
@@ -2088,6 +2114,13 @@ export class AgentLoop {
               messages: [...history],
               stopReason: response.stopReason,
               assistantTextSuppressed: suppressAssistantText,
+              // Judged on the content the hook is about to see. A response
+              // with no tool calls contributes nothing, so the answer carried
+              // in from the last tool-bearing response stands.
+              userToldOutcome:
+                reportsOutcomeToUser(
+                  message.content.filter((block) => block.type === "tool_use"),
+                ) ?? userToldOutcome,
               decision: "stop",
             };
             const result = await traceAsyncSection(
@@ -2415,15 +2448,9 @@ export class AgentLoop {
         // tools is announcing work whose result the user has not seen. A
         // response with no tool calls at all is the terminal one and leaves
         // the answer where the last tool-bearing response left it.
-        if (toolUseBlocks.length > 0) {
-          // Counted by what the call actually delivers, not by its name: a
-          // call the executor rejects streams nothing, so it cannot have told
-          // the user anything. Counting it would leave a later text-only turn
-          // with the fallback suppressed and no reply anywhere.
-          const sendCalls = toolUseBlocks.filter(
-            (block) => deliveredUserMessage(block) !== null,
-          ).length;
-          userToldOutcome = sendCalls > 0 && sendCalls === toolUseBlocks.length;
+        const reported = reportsOutcomeToUser(toolUseBlocks);
+        if (reported !== undefined) {
+          userToldOutcome = reported;
         }
 
         // The turn is being kept. Stream what `send_user_message` carries
