@@ -360,10 +360,15 @@ export class AcpSessionManager {
       opts.sendToVellum(msg);
     };
 
+    // The callback reads agentProcess, constructed just below, and only runs
+    // once the agent is connected and sending notifications.
     const clientHandler = new VellumAcpClientHandler(
       acpSessionId,
       wrappedSend,
       opts.parentConversationId,
+      (configOptions) => {
+        agentProcess.applyConfigOptionsUpdate(configOptions);
+      },
     );
 
     const agentProcess = new AcpAgentProcess(

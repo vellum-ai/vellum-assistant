@@ -64,8 +64,9 @@ export class AcpAgentProcess {
 
   /**
    * Session config options as last reported by the agent: on session
-   * create/load/resume, and on every setConfigOption response (which carries
-   * the full refreshed set). Empty until one of those resolves.
+   * create/load/resume, on every setConfigOption response, and on every
+   * config_option_update notification. Each carries the full refreshed set.
+   * Empty until one of those arrives.
    */
   private lastConfigOptions: SessionConfigOption[] = [];
 
@@ -398,6 +399,14 @@ export class AcpAgentProcess {
   ): SessionConfigOption[] {
     this.lastConfigOptions = configOptions ?? [];
     return this.lastConfigOptions;
+  }
+
+  /**
+   * Refreshes the cache from a `config_option_update` notification, which
+   * carries the agent's full option set rather than a delta.
+   */
+  applyConfigOptionsUpdate(configOptions: SessionConfigOption[]): void {
+    this.cacheConfigOptions(configOptions);
   }
 
   /**

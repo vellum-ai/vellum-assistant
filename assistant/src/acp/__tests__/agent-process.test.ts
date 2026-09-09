@@ -301,6 +301,31 @@ describe("AcpAgentProcess config options", () => {
     expect(proc.supportsModelSelection).toBe(false);
   });
 
+  test("applyConfigOptionsUpdate replaces the cached set", async () => {
+    const proc = makeProcess();
+    stubSessionResponses(proc, [modelOption("sonnet")]);
+    await proc.createSession("/tmp/project");
+
+    const refreshed = [modelOption("opus")];
+    proc.applyConfigOptionsUpdate(refreshed);
+
+    expect(proc.configOptions).toEqual(refreshed);
+    expect(proc.modelConfigOption).toEqual(refreshed[0]);
+    expect(proc.supportsModelSelection).toBe(true);
+  });
+
+  test("applyConfigOptionsUpdate can drop the model selector", async () => {
+    const proc = makeProcess();
+    stubSessionResponses(proc, [modelOption("sonnet")]);
+    await proc.createSession("/tmp/project");
+
+    proc.applyConfigOptionsUpdate([]);
+
+    expect(proc.configOptions).toEqual([]);
+    expect(proc.modelConfigOption).toBeUndefined();
+    expect(proc.supportsModelSelection).toBe(false);
+  });
+
   test("setConfigOption forwards the value and caches the refreshed set", async () => {
     const proc = makeProcess();
     const calls: unknown[] = [];
