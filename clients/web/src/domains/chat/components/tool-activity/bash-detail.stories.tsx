@@ -90,9 +90,8 @@ export const EmptyOutput: Story = {
 };
 
 /**
- * The legacy `cmd` spelling. Persisted calls still carry it, and the JSON view
- * this replaced showed it, so reading only `command` would lose the command on
- * older conversations.
+ * The legacy `cmd` spelling, which persisted calls still carry. Reading only
+ * `command` would leave the command blank on those conversations.
  */
 export const LegacyCommandKey: Story = {
   args: {

@@ -12,12 +12,12 @@ import { FileChangeDetail } from "./file-change-detail";
  * The body for every tool that changes one file: `file_edit`, `file_write` and
  * their `host_` twins.
  *
- * The pairs to read across are the point of this page. An edit and a write are
- * the same event with different amounts of detail attached, so they share a
- * label pair rather than each inventing wording, and the rule that only a
- * successful call gets "Changes" is written once. A write with its own body
- * did not have that rule, and a declined write presented its content as a file
- * that had been written.
+ * Read this page in pairs. An edit and a write are the same event with
+ * different amounts of detail attached, so they share a label pair rather than
+ * each inventing wording, and the rule that only a successful call reads as
+ * "Changes" holds for both. Which body renders follows the tool rather than
+ * the input keys, so a write carrying an unread `old_string` still shows its
+ * file.
  */
 const meta = {
   title: "Chat/ToolActivity/FileChangeDetail",
@@ -119,6 +119,44 @@ export const EditCreatesFile: Story = {
         old_string: "",
         new_string:
           'export const COMMAND_KEYS = ["command", "cmd"] as const;\n',
+      },
+    },
+  },
+};
+
+/**
+ * A write whose input carries an unread `old_string`. The write schemas are
+ * `z.looseObject`, so this is a valid call; keying the rendering off the input
+ * would show an empty diff in place of the file.
+ */
+export const WriteWithStrayEditKeys: Story = {
+  args: {
+    ...write,
+    detail: {
+      ...fileWriteDetail,
+      input: {
+        path: "clients/web/src/domains/chat/utils/tool-input.ts",
+        content: 'export const FILE_PATH_KEYS = ["path"] as const;\n',
+        old_string: "",
+        new_string: "",
+      },
+    },
+  },
+};
+
+/**
+ * Both path spellings present. `path` is the one the tool reads, so it is the
+ * one named here.
+ */
+export const BothPathSpellings: Story = {
+  args: {
+    ...write,
+    detail: {
+      ...fileWriteDetail,
+      input: {
+        path: "clients/web/src/executed.ts",
+        file_path: "clients/web/src/ignored.ts",
+        content: "const a = 1;\n",
       },
     },
   },

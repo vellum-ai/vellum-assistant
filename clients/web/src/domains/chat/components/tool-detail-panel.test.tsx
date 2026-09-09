@@ -407,6 +407,51 @@ describe("ToolDetailPanel", () => {
     expect(getByText("src/deep/module.ts")).toBeDefined();
   });
 
+  test("shows a write's file even when its input carries stray edit keys", () => {
+    const { getByText, queryByTestId } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_write",
+          // The write schemas are `z.looseObject`, so unread fields survive
+          // validation. The rendering follows the tool, not the input keys.
+          input: {
+            path: "src/a.ts",
+            content: "const written = true;",
+            old_string: "",
+            new_string: "",
+          },
+          result: "Wrote 1 line to src/a.ts",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("const written = true;")).toBeDefined();
+    expect(queryByTestId("file-diff")).toBeNull();
+  });
+
+  test("names the path the tool reads when both spellings are present", () => {
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel
+        detail={makeDetail({
+          toolName: "file_write",
+          // `path` is what the executor reads, and what the alias table
+          // rewrites the other spelling into, so it wins either way.
+          input: {
+            path: "src/executed.ts",
+            file_path: "src/ignored.ts",
+            content: "const a = 1;",
+          },
+          result: "Wrote 1 line",
+        })}
+        onClose={noop}
+      />,
+    );
+
+    expect(getByText("src/executed.ts")).toBeDefined();
+    expect(queryByText("src/ignored.ts")).toBeNull();
+  });
+
   test("labels a denied write as requested, the same as a denied edit", () => {
     const { getByText, queryByText } = render(
       <ToolDetailPanel
