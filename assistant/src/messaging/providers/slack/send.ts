@@ -399,7 +399,7 @@ export async function sendSlackReaction(
   action: "add" | "remove",
 ): Promise<ChannelDeliveryResult> {
   const method = action === "add" ? "reactions.add" : "reactions.remove";
-  const bareName = name.replace(/^:+|:+$/g, "");
+  const bareName = slackReactionName(name);
   try {
     await callSlackApi(method, {
       channel,
@@ -425,6 +425,15 @@ export async function sendSlackReaction(
 }
 
 /**
+ * The bare name Slack's reaction methods take: wrapping colons are how a
+ * person types a name, not part of it. Delivery and the recorded identity
+ * both read the spelling through this, so they cannot disagree about it.
+ */
+function slackReactionName(emoji: string): string {
+  return emoji.replace(/^:+|:+$/g, "");
+}
+
+/**
  * What a name the assistant reacts with means on Slack: the character for a
  * standard emoji, resolved from Slack's own list, or Slack's name for a
  * workspace emoji only the workspace can render.
@@ -432,7 +441,7 @@ export async function sendSlackReaction(
 export function describeSlackReactionEmoji(
   emoji: string,
 ): ReactionEmojiIdentity {
-  const bareName = emoji.replace(/^:+|:+$/g, "");
+  const bareName = slackReactionName(emoji);
   const character = slackEmojiCharacter(bareName);
   return character !== undefined
     ? { emojiKind: "unicode", emojiName: character }
