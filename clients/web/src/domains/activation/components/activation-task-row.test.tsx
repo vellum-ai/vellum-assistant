@@ -68,10 +68,23 @@ describe("ActivationTaskRow", () => {
     const { getByRole, getByText, queryByLabelText, queryByRole } = render(
       <ActivationTaskRow task={TASK} expanded />,
     );
-    expect(getByText(TASK.chip)).not.toBeNull();
-    expect(getByRole("button", { name: "Write your own" })).not.toBeNull();
+    const chip = getByText(TASK.chip);
+    const writeYourOwn = getByRole("button", { name: "Write your own" });
+    expect(chip).not.toBeNull();
+    expect(writeYourOwn).not.toBeNull();
+    expect(
+      chip.compareDocumentPosition(writeYourOwn) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(queryByLabelText("Custom:")).toBeNull();
     expect(queryByRole("button", { name: "Send" })).toBeNull();
+    expect(document.activeElement?.tagName).not.toBe("INPUT");
+  });
+
+  test("opening Custom focuses the field", () => {
+    const view = render(<ActivationTaskRow task={TASK} expanded />);
+    openCustom(view);
+    expect(view.getByLabelText("Custom:")).toBe(document.activeElement);
   });
 
   test("the Custom field launches with what was typed", () => {

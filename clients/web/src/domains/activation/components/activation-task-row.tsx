@@ -216,63 +216,66 @@ export function ActivationTaskRow({
     body = (
       <div className="flex w-full flex-col items-start gap-3">
         {callToAction}
-        <ConversationStarterChip
-          label={task.chip}
-          variant="compact"
-          disabled={pending}
-          onSelect={() => onLaunch?.()}
-          className="bg-[var(--feed-digest-weak)] [--vbtn-fg:var(--feed-digest-strong)]"
-        />
-        {customOpen ? (
-          <div className="flex w-full flex-col gap-1">
-            <Typography
-              as="label"
-              variant="label-medium-default"
-              htmlFor={customId}
-              className="text-[var(--content-secondary)]"
-            >
-              {t("row.customLabel")}
-            </Typography>
-            <div className="relative flex w-full items-center">
-              <Input
-                id={customId}
-                fullWidth
-                autoFocus
-                value={custom}
-                placeholder={t("row.customPlaceholder")}
-                disabled={pending}
-                onChange={(event) => setCustom(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    submitCustom();
-                  }
-                }}
-                className="pr-11"
-              />
-              {/* Floats over the field's right edge, as in the mock: the
-                  field runs full width underneath it. */}
-              <Button
-                variant="primary"
-                size="compact"
-                iconOnly={<ArrowUp />}
-                aria-label={t("row.send")}
-                disabled={pending || custom.trim().length === 0}
-                onClick={submitCustom}
-                className="absolute right-1.5 h-7 w-7 rounded-[7px]"
-              />
-            </div>
-          </div>
-        ) : (
-          <Button
-            variant="link"
+        <div className="flex w-full flex-col items-start gap-1">
+          <ConversationStarterChip
+            label={task.chip}
+            variant="compact"
             disabled={pending}
-            className="text-body-medium-default [--vbtn-fg:var(--content-tertiary)]"
-            onClick={() => setCustomOpen(true)}
-          >
-            {t("row.writeYourOwn")}
-          </Button>
-        )}
+            onSelect={() => onLaunch?.()}
+            className="bg-[var(--feed-digest-weak)] [--vbtn-fg:var(--feed-digest-strong)]"
+          />
+          {customOpen ? (
+            <div className="mt-2 flex w-full flex-col gap-1">
+              <Typography
+                as="label"
+                variant="label-medium-default"
+                htmlFor={customId}
+                className="text-[var(--content-secondary)]"
+              >
+                {t("row.customLabel")}
+              </Typography>
+              <div className="relative flex w-full items-center">
+                <Input
+                  id={customId}
+                  fullWidth
+                  autoFocus
+                  value={custom}
+                  placeholder={t("row.customPlaceholder")}
+                  disabled={pending}
+                  onChange={(event) => setCustom(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      submitCustom();
+                    }
+                  }}
+                  className="pr-11"
+                />
+                {/* Floats over the field's right edge, as in the mock: the
+                    field runs full width underneath it. */}
+                <Button
+                  variant="primary"
+                  size="compact"
+                  iconOnly={<ArrowUp />}
+                  aria-label={t("row.send")}
+                  disabled={pending || custom.trim().length === 0}
+                  onClick={submitCustom}
+                  className="absolute right-1.5 h-7 w-7 rounded-[7px]"
+                />
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="link"
+              size="compact"
+              disabled={pending}
+              className="h-auto min-h-0 px-0 text-label-medium-default [--vbtn-fg:var(--content-tertiary)]"
+              onClick={() => setCustomOpen(true)}
+            >
+              {t("row.writeYourOwn")}
+            </Button>
+          )}
+        </div>
       </div>
     );
   }
