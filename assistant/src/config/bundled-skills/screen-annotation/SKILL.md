@@ -22,7 +22,7 @@ thing themselves.
 This is the opposite errand from computer use. Nothing here clicks, types or
 drives anything: the marks are a way of pointing while you talk, for someone
 who wants to learn where a control is rather than have it operated for them.
-The ring is drawn outside the bounds you give and never takes the mouse, so
+A mark is drawn clear of what it indicates and never takes the mouse, so
 what you point at stays visible and clickable the whole time.
 
 ## Requires a screen share
@@ -35,7 +35,7 @@ fails saying so. Ask them to share their screen from the call, then point.
 
 **Name the thing.** `{"target": "color balance", "caption": "Click this"}`.
 The name is looked up on the surface itself, which knows where its controls
-actually are, so the ring lands on the thing rather than near it.
+actually are, and an arrow is drawn at it.
 
 **The label, not a description of it.** What is matched is the control's own
 name. Casing, spacing and punctuation are forgiven, so `Color Balance` finds
@@ -43,23 +43,28 @@ name. Casing, spacing and punctuation are forgiven, so `Color Balance` finds
 nothing, because no control is called that. Give the label on its own:
 `stabilization`, `Send`, `Search`.
 
+The arrow points at the middle of the control and stops just short, so what
+you are sending someone to stays visible the whole time.
+
 You are answered with what was drawn and the name it resolved to, which is not
 always the name you asked for. Say the resolved one out loud: it is the word
 the user can see.
 
 A name the surface does not carry draws nothing and comes back with the names
 it does carry. That is the answer, not a setback: the thing is nearly always
-one of those, so read the list and point again. Do not fall back to guessing
-coordinates for something that simply is not there. What the user calls
-something and what the surface calls it often differ, which is what the list
-is for: they may say "white balance" where the control reads `color balance`,
-or "the stabilization button" where it reads `stabilization`.
+one of those, so read the list and point again. **Never fall back to
+coordinates for a control you could not find.** A mark drawn at a guess is
+worse than no mark, because someone follows it; the words you say are the
+better tool for a thing you cannot point at. What the user calls something and
+what the surface calls it often differ, which is what the list is for: they
+may say "white balance" where the control reads `color balance`, or "the
+stabilization button" where it reads `stabilization`.
 
-## Coordinates, for what has no name
+## Coordinates, for an extent
 
-Only for something the surface cannot name: a region of an image, a spot on a
-canvas, a control a plugin draws itself. You will know, because naming it
-comes back saying so.
+For when the size of the thing is the message rather than where it is: a
+region of an image, an area of a canvas, a panel spoken of as a whole. These
+draw a ring around the bounds instead of an arrow at a place.
 
 Fractions of the shared surface, `0` to `1`, measured against **the picture of
 that surface you were last shown**. `x` and `y` are the top-left corner,
@@ -81,7 +86,7 @@ it. Wait for a frame of the new one and point again.
 ## How to point
 
 **One thing at a time.** A mark is where to look next. A screen with four
-rings on it is not four times as helpful; it is a diagram, and nobody knows
+marks on it is not four times as helpful; it is a diagram, and nobody knows
 which one to start with. Point at the current step, talk, then point at the
 next one.
 
@@ -91,13 +96,13 @@ caption is drawn over the user's own work in a window they cannot scroll or
 dismiss, and it is capped at 80 characters for that reason.
 
 **Say it as well as draw it.** The marks are a gesture that accompanies
-speech, the way a person points while explaining. A ring with no words is a
+speech, the way a person points while explaining. A mark with no words is a
 riddle.
 
 **Take them down when they stop being true.** Call `screen_clear_marks` when
 the step is done, when the user has moved on, or when the conversation has
 left the screen behind. Marks come down on their own if the share ends or
-moves, but a ring left standing over a finished step is one the user has to
+moves, but a mark left standing over a finished step is one the user has to
 work out is stale.
 
 ## Walking someone through several steps
@@ -113,7 +118,7 @@ off and just want the answer. Keep it to the count and the landmarks; the
 detail belongs to each step as you reach it.
 
 **One step, then stop.** Point at it, say what to do, and then wait. The
-temptation is to narrate the next step while the ring for this one is still
+temptation is to narrate the next step while the mark for this one is still
 up, and that leaves them doing step one with instructions for step two in
 their ear. Silence is the cue that it is their turn.
 
@@ -122,20 +127,21 @@ picture shows this one done, or when they tell you it is. Do not move on
 because a plausible amount of time has passed. If the next picture shows the
 step not done, or done to the wrong thing, point at the same place again with
 a shorter caption and say what you saw. Pointing at the next step while the
-previous one is still open is how someone ends up two steps behind a ring.
+previous one is still open is how someone ends up two steps behind a mark.
 
 **Going back is just pointing again.** There is no undo. If they went past
 something, or want to see step two again, point at step two. Say which step
-it is, so the words and the ring agree about where you both are.
+it is, so the words and the mark agree about where you both are.
 
 **Close it out.** When the last step is done, clear the marks and say so, in a
-word. A ring left on the final button is a ring the user has to work out is
+word. A mark left on the final button is one the user has to work out is
 stale, and a walkthrough that ends without an ending leaves them waiting for
 step five of four.
 
 ## Shapes
 
-Today a mark is a rectangle, drawn as a ring around whatever it encloses. To
-point at something that is not rectangular, give the bounds of the area it
-sits in rather than trying to trace it: a ring around a slider's track, or
-around the corner of a canvas where a handle lives.
+A mark is either an arrow at a place or a ring around an extent, and naming a
+control gives you the arrow. Reach for the ring only when the extent is the
+thing being said: "this whole panel", "this part of the picture". A ring
+around one button says something about where that button ends, which is
+rarely what you mean and is the part most likely to be wrong.

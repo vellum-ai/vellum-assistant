@@ -28,6 +28,7 @@ mock.module("@/runtime/companion-surface", () => ({
   // sends is `companion-share-annotation.test.tsx`'s subject, and this file
   // only cares whether the layer is on the page at all.
   annotateCompanionShare: () => undefined,
+  setCompanionFrameScrolling: () => undefined,
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
@@ -65,7 +66,13 @@ const marksOf = (container: HTMLElement): HTMLElement[] =>
     ),
   );
 
-const MARK = { x: 0.1, y: 0.2, width: 0.2, height: 0.1 };
+const MARK = {
+  kind: "region" as const,
+  x: 0.1,
+  y: 0.2,
+  width: 0.2,
+  height: 0.1,
+};
 
 const LISTENING_CALL = {
   phase: "listening" as const,
