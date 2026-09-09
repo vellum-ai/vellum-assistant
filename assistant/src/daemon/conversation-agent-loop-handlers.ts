@@ -158,19 +158,77 @@ function shouldPersistProviderErrorAsAssistantMessage(classified: {
 /**
  * Persist the history-stripped marker after the loop strips runtime injections
  * for compaction / overflow recovery. The marker is a durability hint, not
- * turn-critical state — a transient SQLite write failure (SQLITE_BUSY,
+ * turn-critical state: a transient SQLite write failure (SQLITE_BUSY,
  * disk-full, read-only FS) must not abort the turn, so failures log a warning
- * and continue.
+ * and continue. Returns whether the marker is durable, which gates the
+ * memory-injection ledger reset ({@link resetInjectionLedgersForStrip}).
  */
-export function markHistoryStrippedBestEffort(conversationId: string): void {
+function markHistoryStrippedBestEffort(conversationId: string): boolean {
   try {
     setConversationHistoryStrippedAt(conversationId, Date.now());
+    return true;
   } catch (err) {
     log.warn(
       { err, conversationId },
       "Failed to persist history-stripped marker after compaction strip (non-fatal)",
     );
+    return false;
   }
+}
+
+/**
+ * Reset the memory-injection ledgers for an injection strip of the durable
+ * history. The history-stripped marker is what keeps `loadFromDb` from
+ * rehydrating the stripped blocks: a reset without it would leave a restart
+ * rehydrating blocks the ledgers no longer claim, so each would inject again
+ * beside its rehydrated copy. `historyStripMarkerDurable` reports a marker
+ * write for this strip that already succeeded (the loop's `history_stripped`
+ * dispatch), which counts as durable without a second write; otherwise the
+ * marker is written here. When no write succeeds, the reset is skipped while
+ * the durable history can still be committed with its injections intact, so
+ * the rehydrated blocks and the claiming ledgers agree.
+ * `historyAlreadyStripped` states that it cannot (a compacted result has
+ * already lost its frozen blocks to the summary), and the ledgers reset
+ * regardless: leaving them claiming sections whose blocks are gone would point
+ * every later selection at nothing, while a reload rehydrating the kept tail's
+ * blocks unclaimed costs one duplicate until the newest-copy filter retires
+ * it. Every skipped or marker-less reset is logged. `compactedMessageCount` is
+ * the summarized count, 0 when nothing was summarized. Returns whether the
+ * reset ran behind a durable marker and every ledger cleared, so the caller
+ * can commit a history whose frozen blocks are the ones the ledgers claim.
+ */
+export async function resetInjectionLedgersForStrip(
+  ctx: Pick<Conversation, "conversationId" | "graphMemory">,
+  compactedMessageCount: number,
+  options: {
+    historyStripMarkerDurable?: boolean;
+    historyAlreadyStripped?: boolean;
+  } = {},
+): Promise<boolean> {
+  const markerDurable =
+    (options.historyStripMarkerDurable ?? false) ||
+    markHistoryStrippedBestEffort(ctx.conversationId);
+  if (!markerDurable) {
+    if (!options.historyAlreadyStripped) {
+      log.warn(
+        { conversationId: ctx.conversationId },
+        "History-stripped marker not durable; leaving the memory-injection ledgers intact",
+      );
+      return false;
+    }
+    log.warn(
+      { conversationId: ctx.conversationId },
+      "History-stripped marker not durable; resetting the memory-injection ledgers for the compacted history anyway",
+    );
+  }
+  const cleared = await ctx.graphMemory.onCompacted(compactedMessageCount);
+  if (!cleared) {
+    log.warn(
+      { conversationId: ctx.conversationId },
+      "Memory-injection ledger reset incomplete; a ledger still claims sections",
+    );
+  }
+  return markerDurable && cleared;
 }
 
 // ── Partial-persistence tunables ─────────────────────────────────────
@@ -418,6 +476,26 @@ export interface EventHandlerState {
    */
   readonly compactionStartMessages: Map<string, Message[]>;
   /**
+   * `compactionId`s whose `history_stripped` dispatch made the
+   * history-stripped marker durable. The paired `compaction_completed`
+   * dispatch consumes (deletes) the entry and resets the memory-injection
+   * ledgers on its strength, so a marker that is already durable needs no
+   * second write there.
+   */
+  readonly durableHistoryStripMarkers: Set<string>;
+  /**
+   * `compactionId`s whose `compaction_completed` dispatch reset the
+   * memory-injection ledgers on a pipeline run that compacted nothing. Handed
+   * to the loop as its run's `injectionLedgerResets`: the loop consumes the
+   * entry after the dispatch settles and strips its continuation base only
+   * when one is present, so a skipped reset (marker not durable, or a
+   * ledger whose clear failed) keeps the frozen blocks the ledgers still
+   * claim in the live history. A compacted
+   * result continues from the summary output regardless, so no entry is
+   * recorded for it.
+   */
+  readonly injectionLedgerResets: Set<string>;
+  /**
    * Cursor into the turn's latency-mark list marking how far prior calls have
    * already been serialized, so each `usage` event emits only its own call's
    * latency segment. Advances on every `handleUsage`.
@@ -564,14 +642,17 @@ export interface EventHandlerDeps {
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
    * `compaction_completed` dispatch case (when `compacted`) with the
-   * loop's compaction result and the stripped pre-compaction history. Supplied
-   * by the orchestrator because the body writes Conversation DB-record fields,
-   * projects Slack provenance, and emits transport the loop is intentionally
-   * blind to.
+   * loop's compaction result, the stripped pre-compaction history, and
+   * whether the pair's `history_stripped` dispatch already made the
+   * history-stripped marker durable (so the memory-injection ledger reset
+   * needs no second marker write). Supplied by the orchestrator because the
+   * body writes Conversation DB-record fields, projects Slack provenance, and
+   * emits transport the loop is intentionally blind to.
    */
   readonly applyCompaction: (
     result: ContextWindowResult,
     messages: Message[],
+    historyStripMarkerDurable: boolean,
   ) => Promise<void>;
   /**
    * Per-turn first-token latency instrumentation. The orchestrator stamps the
@@ -644,6 +725,8 @@ export function createEventHandlerState(): EventHandlerState {
     lastStreamedContentSeq: undefined,
     flushedContentSeq: undefined,
     compactionStartMessages: new Map(),
+    durableHistoryStripMarkers: new Set(),
+    injectionLedgerResets: new Set(),
     latencyCursor: 0,
     deferredFinalizeEffects: [],
     revealCandidateRefs: [],
@@ -3085,8 +3168,11 @@ export async function handleMessageComplete(
   }
 
   try {
+    // The loop advances `turnCount` after the turn ends, so here it is still
+    // the `turnIndex` the injector stamped on this turn's v3 rows.
     backfillMemoryV3SelectionMessageId(
       deps.ctx.conversationId,
+      deps.ctx.turnCount,
       assistantMessageId,
     );
   } catch (err) {
@@ -3502,30 +3588,69 @@ export async function dispatchAgentEvent(
         deps.onEvent(event);
         break;
       case "compaction_completed": {
-        // Always commit the stripped pre-compaction history as the durable
-        // message base so re-injection re-applies onto the stripped history
-        // even when the pipeline ran but did not compact. The base is
-        // re-derived from the buffered start event's messages (the end event
-        // carries only the pipeline's output). When the pipeline did compact,
-        // commit the durable result (DB-record fields, Slack provenance,
-        // SSE) — which overwrites `ctx.messages` with the compacted history.
-        // This runs before the loop's `reinject` hook (the loop awaits this
-        // dispatch), so the committed history is in place in time. A failed
-        // durable commit re-throws below to abort the turn rather than
-        // re-injecting against half-applied state.
+        // Commit the pre-compaction history as the durable message base in
+        // the shape the memory-injection ledger reset leaves it: stripped of
+        // its injections when the ledgers reset (so re-injection re-applies
+        // onto the stripped history even when the pipeline ran but did not
+        // compact), with its injections intact when the reset was skipped
+        // (the history-stripped marker could not be made durable, or a
+        // ledger clear failed): the ledgers then still claim the frozen
+        // blocks, the persisted rows still carry them, and a reload
+        // rehydrates them with no marker to skip them. The base is
+        // re-derived from the buffered start event's
+        // messages (the end event carries only the pipeline's output). When
+        // the pipeline did compact, commit the durable result (DB-record
+        // fields, Slack provenance, SSE), which overwrites `ctx.messages`
+        // with the compacted history. This runs before the loop's `reinject`
+        // hook (the loop awaits this dispatch), so the committed history is
+        // in place in time. A failed durable commit re-throws below to abort
+        // the turn rather than re-injecting against half-applied state.
         recordCompactionEndBestEffort(deps.ctx.conversationId, event);
         const startMessages = state.compactionStartMessages.get(
           event.compactionId,
         );
         state.compactionStartMessages.delete(event.compactionId);
+        // Whether the pair's `history_stripped` dispatch made the marker
+        // durable; both branches below reset the injection ledgers on that
+        // strength instead of requiring a second successful marker write.
+        const historyStripMarkerDurable =
+          state.durableHistoryStripMarkers.delete(event.compactionId);
         // Fall back to the pipeline's output when the start event was never
         // buffered — on the no-compaction path it is the stripped input.
         const strippedBase = startMessages
           ? stripInjectionsForCompaction(startMessages)
           : event.messages;
-        deps.ctx.messages = strippedBase;
         if (event.compacted) {
-          await deps.applyCompaction(event, strippedBase);
+          deps.ctx.messages = strippedBase;
+          await deps.applyCompaction(
+            event,
+            strippedBase,
+            historyStripMarkerDurable,
+          );
+        } else {
+          // The strip alone leaves durable history without the frozen memory
+          // blocks the injection ledgers claim (nothing eligible to summarize,
+          // or an overflow rung that reduced without summarizing), so the
+          // ledgers reset as `applyCompactionResult` resets them on a real
+          // compaction; otherwise every later turn points at sections whose
+          // blocks are gone. Nothing was summarized, so the count is zero, as
+          // on `/clean`. The loop reads the outcome from
+          // `injectionLedgerResets` and continues from the matching shape
+          // (`AgentLoop.compact`), so the re-injection that follows renders a
+          // section the reset left unclaimed once, with no frozen copy left on
+          // an earlier message, and points at a section a skipped reset still
+          // claims where its frozen copy still sits.
+          const ledgersReset = await resetInjectionLedgersForStrip(
+            deps.ctx,
+            0,
+            { historyStripMarkerDurable },
+          );
+          if (ledgersReset) {
+            state.injectionLedgerResets.add(event.compactionId);
+            deps.ctx.messages = strippedBase;
+          } else {
+            deps.ctx.messages = startMessages ?? event.messages;
+          }
         }
         break;
       }
@@ -3533,8 +3658,13 @@ export async function dispatchAgentEvent(
         // Record the history-stripped DB marker right after the loop strips
         // injections (before the pipeline). Best-effort: a transient marker
         // write must not abort the turn, so unlike `compaction_completed` this
-        // is not on the re-throw allowlist below.
-        markHistoryStrippedBestEffort(deps.ctx.conversationId);
+        // is not on the re-throw allowlist below. A durable write is recorded
+        // for the pair so the `compaction_completed` dispatch resets the
+        // injection ledgers without a second write; a failure here only defers
+        // the marker to the re-attempt there.
+        if (markHistoryStrippedBestEffort(deps.ctx.conversationId)) {
+          state.durableHistoryStripMarkers.add(event.compactionId);
+        }
         break;
       case "error":
         handleError(state, deps, event);

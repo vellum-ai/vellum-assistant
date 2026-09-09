@@ -221,7 +221,12 @@ the gateway's Channel Identity Vocabulary, which covers the wire side.
   reconciliation in `outbound-post-reconciliation.ts` back-fills from the
   transport's delivery results, the assistant's own reaction rows write it
   (`daemon/reaction-record.ts`), and bot-authored Slack backfill rows write
-  it. Every channel except Slack writes it for inbound rows too: a reaction
+  it. A notification the pipeline delivers to a channel and a message the
+  messaging tool sends to a channel chat are recorded the same way, but
+  only after the adapter acknowledges the send (`notifications/delivered-post-record.ts`):
+  the row is written with the sent text and the neutral envelope, then the
+  same reconciliation stamps the acknowledged id, so a failed or pending
+  delivery never has a row. Every channel except Slack writes it for inbound rows too: a reaction
   row carries the whole shape (`inbound-stages/reaction-intercept.ts`), and
   an edit or a delete stamps `editedAt` / `deletedAt` onto whatever the row
   already said about itself through `mergeProviderMessageMetadata`

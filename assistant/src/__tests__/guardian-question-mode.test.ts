@@ -1,23 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  applyGuardianReplyMechanics,
   buildGuardianCodeOnlyClarification,
   buildGuardianDisambiguationExample,
   buildGuardianDisambiguationLabel,
   buildGuardianInvalidActionReply,
   buildGuardianReplyDirective,
-  buildGuardianRequestCodeInstruction,
-  guardianCopyCarriesReplyMechanics,
-  hasGuardianRequestCodeInstruction,
+  buildQuestionDeliveryText,
   parseGuardianQuestionPayload,
   parseInteractiveApprovalPayload,
   resolveGuardianInstructionModeForRequest,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
-  stripConflictingGuardianRequestInstructions,
-  stripGuardianRequestCodeInstructions,
+  stripGuardianReplyMechanicsFromCopy,
 } from "../notifications/guardian-question-mode.js";
+import { stripRequestCodeDirectives } from "../notifications/notification-utils.js";
 
 describe("guardian-question-mode", () => {
   test("parses pending_question payload as discriminated union", () => {
@@ -152,25 +149,6 @@ describe("guardian-question-mode", () => {
     expect(resolved).toBeNull();
   });
 
-  test("answer-mode instruction detection rejects approval phrasing", () => {
-    const code = "A1B2C3";
-    const wrongInstruction = buildGuardianRequestCodeInstruction(
-      code,
-      "approval",
-    );
-    const correctInstruction = buildGuardianRequestCodeInstruction(
-      code,
-      "answer",
-    );
-
-    expect(
-      hasGuardianRequestCodeInstruction(wrongInstruction, code, "answer"),
-    ).toBe(false);
-    expect(
-      hasGuardianRequestCodeInstruction(correctInstruction, code, "answer"),
-    ).toBe(true);
-  });
-
   test("buildGuardianReplyDirective uses mode-specific wording", () => {
     expect(buildGuardianReplyDirective("A1B2C3", "approval")).toBe(
       'Reply "A1B2C3 approve" or "A1B2C3 reject".',
@@ -237,28 +215,7 @@ describe("guardian-question-mode", () => {
     );
   });
 
-  test("stripConflictingGuardianRequestInstructions removes opposite-mode instructions", () => {
-    const approvalText =
-      'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".';
-    const answerText = 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".';
-
-    expect(
-      stripConflictingGuardianRequestInstructions(
-        approvalText,
-        "A1B2C3",
-        "answer",
-      ),
-    ).toBe("");
-    expect(
-      stripConflictingGuardianRequestInstructions(
-        answerText,
-        "A1B2C3",
-        "approval",
-      ),
-    ).toBe("");
-  });
-
-  test("stripGuardianRequestCodeInstructions removes both-mode directives and bare code mentions", () => {
+  test("stripRequestCodeDirectives removes both-mode directives and bare code mentions", () => {
     const text = [
       "Alice is asking to run ls /tmp.",
       "Approval code: A1B2C3",
@@ -266,14 +223,16 @@ describe("guardian-question-mode", () => {
       'Reply "A1B2C3 <your answer>".',
     ].join("\n");
 
-    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(
+    expect(stripRequestCodeDirectives(text, "A1B2C3")).toBe(
       "Alice is asking to run ls /tmp.",
     );
   });
 
-  test("stripGuardianRequestCodeInstructions leaves unrelated text and other codes intact", () => {
+  test("stripRequestCodeDirectives leaves other codes intact and strips a paraphrased directive for ours", () => {
     const text = 'Approval code: ZZZZZZ. Reply "A1B2C3 approve" if you agree.';
-    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(text);
+    expect(stripRequestCodeDirectives(text, "A1B2C3")).toBe(
+      "Approval code: ZZZZZZ.",
+    );
   });
 
   test("parseInteractiveApprovalPayload accepts approval-mode payloads with a requestId", () => {
@@ -288,110 +247,101 @@ describe("guardian-question-mode", () => {
     ).not.toBeNull();
   });
 
-  test("guardianCopyCarriesReplyMechanics: chat channels carry them, card surfaces do not", () => {
-    const approval = {
-      requestId: "req-1",
-      requestCode: "A1B2C3",
-      requestKind: "tool_grant_request",
-      questionText: "Allow bash?",
-      toolName: "bash",
-    };
-    const question = {
-      requestId: "req-2",
-      requestCode: "A1B2C3",
-      requestKind: "pending_question",
-      questionText: "Which one?",
-    };
-    // The bell, the banner, and the push act through the card whatever the mode.
-    expect(guardianCopyCarriesReplyMechanics("vellum", approval)).toBe(false);
-    expect(guardianCopyCarriesReplyMechanics("vellum", question)).toBe(false);
-    expect(guardianCopyCarriesReplyMechanics("platform", question)).toBe(false);
-    // Slack draws buttons for approvals only; a question is answered by text.
-    expect(guardianCopyCarriesReplyMechanics("slack", approval)).toBe(false);
-    expect(guardianCopyCarriesReplyMechanics("slack", question)).toBe(true);
-    expect(guardianCopyCarriesReplyMechanics("telegram", approval)).toBe(true);
-    expect(guardianCopyCarriesReplyMechanics("telegram", question)).toBe(true);
-  });
-
-  test("applyGuardianReplyMechanics enforces into chat copy, strips from card-surface copy, and is idempotent", () => {
-    const signal = {
-      sourceEventName: "guardian.question",
-      contextPayload: {
-        requestId: "req-2",
-        requestCode: "a1b2c3",
-        requestKind: "pending_question",
-        questionText: "Which one?",
-      },
-    } as const;
-    const copy = {
-      title: "Question",
-      body: "Which one?\n\n1. Left\n2. Right",
-      conversationSeedMessage: "Which one?\n\n1. Left\n2. Right",
-    };
-    const instruction = 'Reference code: A1B2C3. Reply "A1B2C3 <your answer>".';
-
-    const telegram = applyGuardianReplyMechanics(copy, "telegram", signal);
-    expect(telegram.body).toBe(`${copy.body}\n\n${instruction}`);
-    expect(telegram.conversationSeedMessage).toBe(
-      `${copy.body}\n\n${instruction}`,
-    );
-    expect(applyGuardianReplyMechanics(telegram, "telegram", signal)).toEqual(
-      telegram,
-    );
-
-    const vellum = applyGuardianReplyMechanics(telegram, "vellum", signal);
-    expect(vellum).toEqual(copy);
-    expect(applyGuardianReplyMechanics(copy, "vellum", signal)).toEqual(copy);
-
-    // Any other signal passes through untouched.
+  test("buildQuestionDeliveryText numbers the options and carries no code", () => {
     expect(
-      applyGuardianReplyMechanics(copy, "telegram", {
-        ...signal,
-        sourceEventName: "schedule.notify",
+      buildQuestionDeliveryText({
+        questionText: "Which one?",
+        options: [{ label: "Left" }, { label: "Right" }],
       }),
-    ).toEqual(copy);
+    ).toBe("Which one?\n\n1. Left\n2. Right");
+    expect(buildQuestionDeliveryText({ questionText: "Which one?" })).toBe(
+      "Which one?",
+    );
   });
 
-  test("applyGuardianReplyMechanics replaces an instruction-only field with the question text on a card surface", () => {
-    const signal = {
-      sourceEventName: "guardian.question",
-      contextPayload: {
-        requestId: "req-3",
-        requestCode: "A1B2C3",
-        requestKind: "tool_grant_request",
-        questionText: "Allow bash to run ls /tmp?",
-        toolName: "bash",
-      },
-    } as const;
+  test("stripGuardianReplyMechanicsFromCopy removes either mode's instruction and bare code mentions", () => {
+    const copy = {
+      title: "Tool Grant Request",
+      body: 'Allow bash?\n\nReference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+      deliveryText: 'Allow bash? Reply "A1B2C3 <your answer>".',
+      conversationSeedMessage: "Allow bash?\n\nApproval code: A1B2C3.",
+    };
+    const stripped = stripGuardianReplyMechanicsFromCopy(
+      copy,
+      "A1B2C3",
+      "Allow bash to run ls /tmp?",
+    );
+    expect(stripped.title).toBe("Tool Grant Request");
+    expect(stripped.body).toBe("Allow bash?");
+    expect(stripped.deliveryText).toBe("Allow bash?");
+    expect(stripped.conversationSeedMessage).toBe("Allow bash?");
+    // Idempotent: clean copy passes through unchanged.
+    expect(
+      stripGuardianReplyMechanicsFromCopy(stripped, "A1B2C3", "x"),
+    ).toEqual(stripped);
+  });
+
+  test("stripGuardianReplyMechanicsFromCopy replaces an instruction-only field with the question and a code-only title with the headline", () => {
     const instructionOnly = {
       title: "Tool Grant Request. Approval code: A1B2C3",
       body: 'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
       deliveryText: "Approval code: A1B2C3",
     };
-    const vellum = applyGuardianReplyMechanics(
+    const stripped = stripGuardianReplyMechanicsFromCopy(
       instructionOnly,
-      "vellum",
-      signal,
+      "A1B2C3",
+      "Allow bash to run ls /tmp?",
     );
-    expect(vellum.title).toBe("Tool Grant Request.");
-    expect(vellum.body).toBe("Allow bash to run ls /tmp?");
-    expect(vellum.deliveryText).toBe("Allow bash to run ls /tmp?");
-    // A title is a headline, so a code-only one keeps its text.
-    expect(
-      applyGuardianReplyMechanics(
+    expect(stripped.title).toBe("Tool Grant Request.");
+    expect(stripped.body).toBe("Allow bash to run ls /tmp?");
+    expect(stripped.deliveryText).toBe("Allow bash to run ls /tmp?");
+    // A title is a headline, so a code-only one keeps its text; a body with
+    // no question to fall back on keeps its text rather than going empty.
+    // A title is a headline, so a mechanics-only one becomes the kind's
+    // deterministic title; a body with no question to fall back on keeps
+    // its text rather than going empty.
+    for (const ask of [undefined, ""]) {
+      const bare = stripGuardianReplyMechanicsFromCopy(
         { ...instructionOnly, title: "Approval code: A1B2C3" },
-        "vellum",
-        signal,
-      ).title,
-    ).toBe("Approval code: A1B2C3");
+        "A1B2C3",
+        ask,
+      );
+      expect(bare.title).toBe("Guardian Question");
+      expect(bare.body).toBe(instructionOnly.body);
+    }
+  });
 
-    // With no question text to fall back on, the field keeps its text rather
-    // than becoming empty copy the broadcaster would skip.
-    const bare = applyGuardianReplyMechanics(instructionOnly, "vellum", {
-      ...signal,
-      contextPayload: { ...signal.contextPayload, questionText: "" },
-    });
-    expect(bare.body).toBe(instructionOnly.body);
+  test("stripRequestCodeDirectives matches the code and verb whatever the quoting", () => {
+    for (const body of [
+      "Allow bash? Reply `A1B2C3 approve` to allow it.",
+      "Allow bash? Reply \u201cA1B2C3 approve\u201d to allow it.",
+      "Allow bash? Reply A1B2C3 approve to allow it.",
+      "Allow bash? Reply 'A1B2C3 <your answer>' when ready.",
+    ]) {
+      expect(stripRequestCodeDirectives(body, "A1B2C3")).toBe("Allow bash?");
+    }
+    // The code alone, or beside a word that is not a reply verb, is content.
+    expect(
+      stripRequestCodeDirectives(
+        "Ticket A1B2C3 approves the budget.",
+        "A1B2C3",
+      ),
+    ).toBe("Ticket A1B2C3 approves the budget.");
+  });
+
+  test("stripRequestCodeDirectives removes paraphrased and negated directives as whole sentences", () => {
+    expect(
+      stripRequestCodeDirectives(
+        'Allow bash? Reply "A1B2C3 approve" to allow it, or do not reply "A1B2C3 reject". Thanks.',
+        "A1B2C3",
+      ),
+    ).toBe("Allow bash? Thanks.");
+    expect(
+      stripRequestCodeDirectives(
+        "Use reference code A1B2C3 for this request.\nThe code ZZ9999 is a ticket.",
+        "A1B2C3",
+      ),
+    ).toBe("The code ZZ9999 is a ticket.");
   });
 
   test("parseInteractiveApprovalPayload rejects answer-mode and unparseable payloads", () => {

@@ -12,17 +12,15 @@
     "clearAll": "Borrar todas"
   },
   "category": {
-    "security": "Seguridad",
-    "email": "Correo",
-    "scheduling": "Programación",
-    "background": "Segundo plano",
-    "system": "Sistema",
-    "guardianAction": "Acción del guardián requerida",
+    "guardianAction": "Necesita tu aprobación",
+    "guardianAnswer": "Necesita tu respuesta",
     "guardianQuestion": "Pregunta del guardián",
     "guardianRequest": "Solicitud del guardián"
   },
   "homeRecapRow": {
-    "actionsTitle": "Acciones de la actualización"
+    "actionsTitle": "Acciones de la actualización",
+    "approve": "Aprobar",
+    "reject": "Rechazar"
   },
   "homeToolPermissionCard": {
     "missingScopes": "Permisos faltantes",
@@ -40,7 +38,10 @@
     "ariaLabelUnread": "Notificaciones (sin leer)",
     "heading": "Notificaciones",
     "loadFailed": "No se pudieron cargar las notificaciones.",
-    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo."
+    "actionFailed": "No se pudo iniciar esa conversación. Vuelve a intentarlo.",
+    "decisionNotPermitted": "No tienes permiso para decidir sobre esta solicitud.",
+    "decisionNotApplied": "No se pudo aplicar esa decisión.",
+    "decisionFollowThroughFailed": "Tu decisión se registró, pero el paso siguiente falló."
   },
   "notificationsBellDetail": {
     "back": "Volver a las notificaciones"

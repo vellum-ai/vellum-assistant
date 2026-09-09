@@ -45,6 +45,7 @@ import { pendingHelp } from "./commands/pending.help.js";
 import { platformHelp } from "./commands/platform/index.help.js";
 import { pluginsHelp } from "./commands/plugins.help.js";
 import { psHelp } from "./commands/ps.help.js";
+import { roadmapHelp } from "./commands/roadmap.help.js";
 import { routesHelp } from "./commands/routes.help.js";
 import { schedulesHelp } from "./commands/schedules.help.js";
 import { sequenceHelp } from "./commands/sequence.help.js";
@@ -97,6 +98,7 @@ export const CLI_COMMAND_HELP: readonly CliCommandHelp[] = [
   pluginsHelp,
   monitoringHelp,
   psHelp,
+  roadmapHelp,
   routesHelp,
   schedulesHelp,
   sequenceHelp,

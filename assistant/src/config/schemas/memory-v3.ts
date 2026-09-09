@@ -144,43 +144,12 @@ export const MemoryV3LearnedEdgesSchema = z
   );
 
 /**
- * Per-turn section-spotlight tuning: how many of the current turn's selected
- * finder hits render their matched section into the `<memory_spotlight>`
- * block, and how many previous turns' spotlight entries are carried along
- * before they age out. Each turn keeps the block it was sent with. A new
- * spotlight is added only on the new tail. Size is bounded by
- * `n × (windowTurns + 1)` entries.
- */
-export const MemoryV3SpotlightSchema = z
-  .object({
-    n: z
-      .number({ error: "memory.v3.spotlight.n must be a number" })
-      .int("memory.v3.spotlight.n must be an integer")
-      .positive("memory.v3.spotlight.n must be a positive integer")
-      .default(6)
-      .describe(
-        "Number of the current turn's selected finder hits whose matched sections render into the spotlight block.",
-      ),
-    windowTurns: z
-      .number({ error: "memory.v3.spotlight.windowTurns must be a number" })
-      .int("memory.v3.spotlight.windowTurns must be an integer")
-      .nonnegative(
-        "memory.v3.spotlight.windowTurns must be a non-negative integer",
-      )
-      .default(2)
-      .describe(
-        "Number of previous turns whose spotlight entries are carried into the current block before aging out (0 = current turn only).",
-      ),
-  })
-  .describe("Memory v3 ephemeral section-spotlight tuning.");
-
-/**
- * Prune-valve bounds on the resident (non-pruned) frozen-card footprint.
+ * Prune-valve bounds on the resident (non-pruned) frozen-section footprint.
  *
- * Frozen cards accumulate in history with no per-turn bound, so the valve is
- * the structural backstop: once resident card bytes exceed
- * `maxResidentBytes`, the least-recently-selected non-core/non-hot cards are
- * pruned until the footprint is back at `targetResidentBytes`.
+ * Frozen sections accumulate in history with no per-turn bound, so the valve
+ * is the structural backstop: once resident section bytes exceed
+ * `maxResidentBytes`, the least-recently-selected sections are pruned, with
+ * no lane exemptions, until the footprint is back at `targetResidentBytes`.
  *
  * Defaults rationale: production v2 ran 303KB of accumulated memory unpruned
  * on the widest observed conversation — 384KB max / 256KB target make the
@@ -194,7 +163,7 @@ export const MemoryV3PruneSchema = z
       .positive("memory.v3.prune.maxResidentBytes must be a positive integer")
       .default(393216 /* 384KB */)
       .describe(
-        "Resident (non-pruned) card bytes above which the prune valve fires.",
+        "Resident (non-pruned) injected-section bytes above which the prune valve fires.",
       ),
     targetResidentBytes: z
       .number({
@@ -206,14 +175,14 @@ export const MemoryV3PruneSchema = z
       )
       .default(262144 /* 256KB */)
       .describe(
-        "Resident card bytes a fired prune reduces the footprint to (must be below maxResidentBytes).",
+        "Resident injected-section bytes a fired prune reduces the footprint to (must be below maxResidentBytes).",
       ),
   })
   .refine((value) => value.targetResidentBytes < value.maxResidentBytes, {
     error:
       "memory.v3.prune.targetResidentBytes must be less than memory.v3.prune.maxResidentBytes",
   })
-  .describe("Memory v3 prune-valve (resident card footprint) bounds.");
+  .describe("Memory v3 prune-valve (resident section footprint) bounds.");
 
 /**
  * Entity-lane tuning: the heading-anchored named-entity match. A distinctive
@@ -249,6 +218,59 @@ export const MemoryV3EntitySchema = z
   .describe(
     "Memory v3 entity-lane (heading-anchored named-entity match) tuning.",
   );
+
+/**
+ * Rare-term lane tuning: a query word rare across the corpus surfaces its top
+ * `perTerm` sections by single-term BM25F as their own finder lines, tagged
+ * with the word. A word that rare is a near-certain signal on its own,
+ * whatever the rest of the message is about: additive BM25 lets the
+ * message's bulk theme pick a page's section, and a query on the clause
+ * alone cannot rank a page whose only distinctive token is that word. Rare
+ * is corpus-relative: `maxDf` is the absolute df ceiling and `maxDfFraction`
+ * lowers it on a smaller corpus (the rule is on that field).
+ */
+export const MemoryV3RareTermSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "memory.v3.rareTerm.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the rare-term lane runs: surface the sections a query word rare across the corpus occurs in, regardless of the message's bulk theme. Recall-additive and a synchronous in-memory pass.",
+      ),
+    maxDf: z
+      .number({ error: "memory.v3.rareTerm.maxDf must be a number" })
+      .int("memory.v3.rareTerm.maxDf must be an integer")
+      .positive("memory.v3.rareTerm.maxDf must be a positive integer")
+      .default(12)
+      .describe(
+        "Highest number of sections a query word may occur in and still count as rare, before maxDfFraction lowers the ceiling on a smaller corpus. A word the corpus does not hold never matches; there is no token-shape filtering.",
+      ),
+    maxDfFraction: z
+      .number({ error: "memory.v3.rareTerm.maxDfFraction must be a number" })
+      .positive("memory.v3.rareTerm.maxDfFraction must be greater than 0")
+      .max(1, "memory.v3.rareTerm.maxDfFraction must be at most 1")
+      .default(0.002)
+      .describe(
+        "Fraction of the corpus's section count that bounds the rare-word ceiling: the ceiling in force is min(maxDf, max(1, floor(sectionCount * maxDfFraction))), so what counts as rare scales with the corpus. At the default, a corpus of 6,000 sections or more runs at maxDf and a corpus of a few hundred sections counts only a word unique to one section as rare (an absolute ceiling would make most of its ordinary words rare). 1 leaves maxDf as the sole ceiling.",
+      ),
+    perTerm: z
+      .number({ error: "memory.v3.rareTerm.perTerm must be a number" })
+      .int("memory.v3.rareTerm.perTerm must be an integer")
+      .positive("memory.v3.rareTerm.perTerm must be a positive integer")
+      .default(2)
+      .describe(
+        "Sections surfaced per rare word: its top single-term BM25F hits.",
+      ),
+    cap: z
+      .number({ error: "memory.v3.rareTerm.cap must be a number" })
+      .int("memory.v3.rareTerm.cap must be an integer")
+      .positive("memory.v3.rareTerm.cap must be a positive integer")
+      .default(24)
+      .describe(
+        "Hard cap on rare-term lines surfaced per turn, rarest words first.",
+      ),
+  })
+  .describe("Memory v3 rare-term lane (single distinctive query word) tuning.");
 
 /**
  * Per-turn injection-gate tuning: thresholds the retrieval signals must clear
@@ -330,10 +352,9 @@ export const MemoryV3GateSchema = z
     "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when `enabled` is on).",
   );
 
-// NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old
-// per-turn carry set) used to live here. Existing user config files may still
-// contain the key; zod default unknown-key stripping accepts and ignores it,
-// so legacy configs keep parsing. Do not make this object `.strict()`.
+// Persisted config files can carry unsupported tuning keys this object does
+// not declare; zod's default unknown-key stripping accepts and drops them, so
+// such a config keeps parsing. Do not make this object `.strict()`.
 //
 // The retrieval tuning defaults across these sub-schemas (hotSet.k, freshSet.k,
 // learnedEdges.cap, edge.{seedCount,perSeed,cap}) and the top-level needleK /
@@ -355,9 +376,6 @@ export const MemoryV3ConfigSchema = z
     freshSet: MemoryV3FreshSetSchema.default(MemoryV3FreshSetSchema.parse({})),
     learnedEdges: MemoryV3LearnedEdgesSchema.default(
       MemoryV3LearnedEdgesSchema.parse({}),
-    ),
-    spotlight: MemoryV3SpotlightSchema.default(
-      MemoryV3SpotlightSchema.parse({}),
     ),
     needleK: z
       .number({ error: "memory.v3.needleK must be a number" })
@@ -391,6 +409,14 @@ export const MemoryV3ConfigSchema = z
       .describe(
         "Per-chunk article budget for the span-query dense pass: the current message's clause spans (merged into at most 8 contiguous chunks) re-run through the dense lane as separate queries, union-additive into the candidate pool. 0 disables the pass; it is also inert when denseK is 0 or the message yields fewer than two chunks. Deliberately small next to denseK — the pass rescues motifs a long message's single query vector averages away, not a second full sweep.",
       ),
+    finderSectionsPerPage: z
+      .number({ error: "memory.v3.finderSectionsPerPage must be a number" })
+      .int("memory.v3.finderSectionsPerPage must be an integer")
+      .positive("memory.v3.finderSectionsPerPage must be a positive integer")
+      .default(3)
+      .describe(
+        "Maximum finder lines one page may carry in the selector pool per turn, its entity and rare-term lines aside. Each distinct matched section a finder lane surfaces for a page is its own line, kept in surfacing order (needle, dense, reply, span) until the cap; a section-less edge or learned hit counts as one line. An entity line and a rare-term line neither count against the cap nor yield to it (the entity lane's own cap and rareTerm.cap bound those per turn), so a heading the message names and a rare word's section both surface however many lines their page already carries.",
+      ),
     selectorEnabled: z
       .boolean({ error: "memory.v3.selectorEnabled must be a boolean" })
       .default(true)
@@ -406,6 +432,7 @@ export const MemoryV3ConfigSchema = z
       ),
     edge: MemoryV3EdgeSchema.default(MemoryV3EdgeSchema.parse({})),
     entity: MemoryV3EntitySchema.default(MemoryV3EntitySchema.parse({})),
+    rareTerm: MemoryV3RareTermSchema.default(MemoryV3RareTermSchema.parse({})),
     gate: MemoryV3GateSchema.default(MemoryV3GateSchema.parse({})),
   })
   .describe("Memory v3 — section-grain lane retrieval");

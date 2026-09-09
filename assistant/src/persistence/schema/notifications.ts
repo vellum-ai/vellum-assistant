@@ -104,6 +104,14 @@ export const notificationDeliveries = sqliteTable(
     sentAt: integer("sent_at"),
     conversationId: text("conversation_id"),
     messageId: text("message_id"),
+    /**
+     * The assistant row a successful channel delivery was recorded as, once
+     * the channel acknowledged it. `messageId` keeps its meaning (provider
+     * id for a channel delivery, row id for a vellum delivery); this names
+     * the row for the edit and delete paths. NULL for vellum and platform
+     * deliveries and for any channel delivery that did not succeed.
+     */
+    canonicalMessageId: text("canonical_message_id"),
     conversationStrategy: text("conversation_strategy"),
     conversationAction: text("conversation_action"),
     conversationTargetId: text("conversation_target_id"),

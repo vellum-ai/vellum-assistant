@@ -59,9 +59,12 @@ let byokSuppression = false;
 let byokGateCandidates: boolean[] = [];
 
 mock.module("@/hooks/use-byok-credit-banner-gate", () => ({
-  useSuppressCreditBannersForByok: (candidate: boolean) => {
+  // Always settled: what these tests drive is the suppression half of the
+  // verdict. The unsettled half is exercised where it is read, in
+  // `preferences-usage-panel.test.tsx`.
+  useByokCreditRouteVerdict: (candidate: boolean) => {
     byokGateCandidates.push(candidate);
-    return candidate && byokSuppression;
+    return { suppress: candidate && byokSuppression, settled: true };
   },
 }));
 
@@ -156,6 +159,7 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: true,
+      settled: true,
     });
   });
 
@@ -193,6 +197,7 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: true,
+      settled: true,
     });
   });
 
@@ -244,6 +249,7 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: true,
+      settled: true,
     });
   });
 
@@ -341,6 +347,10 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: true,
+      // The all-false shape here describes what is not yet known. An enabled
+      // query with nothing back has not settled, and a surface that paints
+      // these flags has to wait rather than read the falses as answers.
+      settled: false,
     });
   });
 
@@ -384,6 +394,7 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: false,
+      settled: true,
     });
   });
 
@@ -406,6 +417,7 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: true,
+      settled: true,
     });
   });
 
@@ -447,6 +459,7 @@ describe("useBillingBalanceStatus", () => {
       availableUsageBalance: null,
       totalUsageBalance: null,
       enabled: false,
+      settled: true,
     });
   });
 });

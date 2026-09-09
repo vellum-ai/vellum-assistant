@@ -24,6 +24,11 @@ describe("feature flag catalog", () => {
     expect(ASSISTANT_FLAG_DEFAULTS.selfIntroGreeting).toBe(false);
   });
 
+  test("exposes vellum hosted inference as an assistant flag defaulting off", () => {
+    expect(ASSISTANT_FLAG_DEFAULTS.vellumHostedInference).toBe(false);
+    expect("vellumHostedInference" in CLIENT_FLAG_DEFAULTS).toBe(false);
+  });
+
   test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
     expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
       false,
@@ -96,6 +101,17 @@ describe("feature flag catalog", () => {
   test("does not expose GA summarize-up-to-here as a feature flag", () => {
     expect("summarizeUpToHere" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("summarizeUpToHere" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+  });
+
+  test("does not expose GA desktop presence suppression as a feature flag", () => {
+    expect("desktopPresenceSuppression" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("desktopPresenceSuppression" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("desktopPresenceSuppression" in CLIENT_STRING_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect("desktopPresenceSuppression" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(
+      false,
+    );
   });
 });
 

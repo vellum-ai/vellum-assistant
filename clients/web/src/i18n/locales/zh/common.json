@@ -158,19 +158,38 @@
     "allow": "允许",
     "calling": "正在呼叫…",
     "callingNamed": "正在呼叫 {name}…",
+    "captureKind": "来源类型",
+    "captureNothing": "没有可显示的内容",
+    "capturePicker": "教学来源",
+    "captureScreen": "屏幕 {n}",
+    "captureScreens": "屏幕",
+    "captureTabs": "Chrome 标签页",
+    "captureWindows": "窗口",
     "deny": "拒绝",
+    "draw": "绘制",
     "endSession": "结束会话",
     "muteAssistant": "静音助手",
     "muteMicrophone": "静音麦克风",
     "notNow": "暂不",
+    "offerCopy": "复制",
+    "offerDiscard": "丢弃",
+    "offerHeard": "{app} 已粘贴了那段",
+    "offerNowhere": "没有地方可以放",
+    "offerQuit": "退出 {app}",
+    "offerUse": "使用 Vellum 的版本",
+    "offerVersion": "Vellum 听到的是",
     "openVellum": "打开 Vellum",
+    "share": "共享",
+    "sharePicker": "共享来源",
     "showSummary": "显示摘要",
     "stopTeaching": "停止教学",
     "summarizing": "正在摘要",
     "talk": "交谈",
     "teach": "教学",
     "unmuteAssistant": "取消助手静音",
-    "unmuteMicrophone": "取消麦克风静音"
+    "unmuteMicrophone": "取消麦克风静音",
+    "dictating": "正在聆听",
+    "dictatingTranscribing": "正在思考"
   },
   "contentActionBar": {
     "copiedAria": "已复制",
@@ -762,12 +781,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 账户已连接。",
-    "authPopupClosed": "{name} 连接失败：授权弹窗已关闭。",
     "authorizationError": "{name} 错误：{code}",
     "authorizationFailed": "{name} 授权失败",
     "popupBlocked": "弹窗被阻止。请启用弹窗并重试。",
-    "popupClosed": "{name} 连接失败：弹窗已关闭。",
-    "startFailed": "启动 {name} 授权失败。"
+    "startFailed": "启动 {name} 授权失败。",
+    "startFailedWithReason": "启动 {name} 授权失败：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的浏览器阻止了助手尝试打开的页面。",
@@ -866,5 +884,10 @@
       "label": "完全访问",
       "description": "自动批准所有操作，包括高风险和无法识别的命令。助手将绝不请求权限确认。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小时",
+    "everyMinutes": "每 {count} 分钟",
+    "retrospectiveSubtitle": "在对话活动后触发"
   }
 }

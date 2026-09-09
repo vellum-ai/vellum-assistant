@@ -117,7 +117,7 @@ export interface HistoryPaginationResult {
   backgroundToolCompletions: BackgroundTaskEntry[] | undefined;
   /** First-time load with no cached data available. */
   isLoading: boolean;
-  /** At least one successful fetch has completed. */
+  /** Whether the current query status is successful. */
   isSuccess: boolean;
   /** The query errored. */
   isError: boolean;

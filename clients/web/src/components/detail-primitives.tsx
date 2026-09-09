@@ -5,8 +5,8 @@
  *
  * Extracted from `tool-detail-panel.tsx` so tool-specific activity renderers
  * (`domains/chat/components/tool-activity/`) can compose them without importing
- * the panel that in turn imports those renderers. `tool-detail-panel` re-exports
- * `CodeBlock` and `SectionLabel` so its existing consumers are unaffected.
+ * the panel that in turn imports those renderers. Every consumer imports them
+ * from here.
  */
 
 import { Check, Copy } from "lucide-react";
@@ -143,11 +143,24 @@ export function ClampedContent({
  * `HARD_MAX_TOOL_RESULT_CHARS` (400,000), which is not a height any panel can
  * absorb.
  */
-export function CodeBlock({ text }: { text: string }) {
+export function CodeBlock({
+  text,
+  tone = "default",
+}: {
+  text: string;
+  /** `error` tints the text, so a failed result reads as one at a glance. */
+  tone?: "default" | "error";
+}) {
   return (
     <div className="relative rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] p-3">
       <ClampedContent length={text.length}>
-        <pre className="font-mono text-xs whitespace-pre-wrap break-words text-[var(--content-default)]">
+        <pre
+          className={`font-mono text-xs whitespace-pre-wrap break-words ${
+            tone === "error"
+              ? "text-[var(--system-negative-strong)]"
+              : "text-[var(--content-default)]"
+          }`}
+        >
           {text}
         </pre>
       </ClampedContent>

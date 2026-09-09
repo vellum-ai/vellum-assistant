@@ -15,10 +15,12 @@ export const CONVERSATION_KEYED_MEMORY_TABLES: readonly string[] = [
   "memory_v2_activation_logs",
   "memory_recall_logs",
   "memory_v3_selections",
+  "memory_v3_pools",
   "activation_sessions",
   "activation_state",
   "conversation_graph_memory_state",
   "memory_v3_ever_injected",
+  "memory_v3_injected_sections",
   "memory_retrospective_state",
   // Re-derivable, but carries its conversation_id column, so a conversation
   // delete purges it here. A single-message delete (conversation survives) is

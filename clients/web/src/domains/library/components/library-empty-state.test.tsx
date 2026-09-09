@@ -1,47 +1,43 @@
 /**
  * Tests for LibraryEmptyState.
  *
- * Renders to static markup via `react-dom/server` and asserts on the emitted
- * HTML. The focus is the file-picker `accept` filter: on desktop the picker is
- * constrained to `.vellum`, while touch devices (where iOS ignores extension
- * filters) get an unrestricted picker so the bundle is actually selectable.
+ * The empty state is a single entry point: start a conversation. Importing a
+ * `.vellum` bundle is offered by the library header instead, so the component
+ * must not carry an import button or a file picker of its own.
  */
 
-import { describe, expect, test } from "bun:test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { afterEach, describe, expect, test } from "bun:test";
+
+import { cleanup, render, screen } from "@testing-library/react";
 
 import { LibraryEmptyState } from "./library-empty-state";
 
-function render(opts: {
-  accept: string | undefined;
-  onNewConversation?: () => void;
-}) {
-  return renderToStaticMarkup(
-    createElement(LibraryEmptyState, {
-      accept: opts.accept,
-      fileInputRef: { current: null },
-      isImporting: false,
-      onImportBundle: () => {},
-      onNewConversation: opts.onNewConversation,
-    }),
-  );
-}
+afterEach(() => {
+  cleanup();
+});
 
 describe("LibraryEmptyState", () => {
-  test("constrains the picker to .vellum when an accept filter is given", () => {
-    const html = render({ accept: ".vellum" });
-    expect(html).toContain('accept=".vellum"');
+  test("offers the new-conversation entry point", () => {
+    render(<LibraryEmptyState onNewConversation={() => {}} />);
+
+    expect(screen.getByText("Your library is empty")).not.toBeNull();
+    expect(
+      screen.getByRole("button", { name: "New Conversation" }),
+    ).not.toBeNull();
   });
 
-  test("leaves the picker unrestricted when accept is undefined (touch)", () => {
-    const html = render({ accept: undefined });
-    expect(html).not.toContain("accept=");
+  test("renders no import button and no file input", () => {
+    const { container } = render(
+      <LibraryEmptyState onNewConversation={() => {}} />,
+    );
+
+    expect(screen.queryByText(/import/i)).toBeNull();
+    expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 
-  test("always renders the import and new-conversation entry points", () => {
-    const html = render({ accept: ".vellum", onNewConversation: () => {} });
-    expect(html).toContain("Import .vellum File");
-    expect(html).toContain("New Conversation");
+  test("omits the button when no conversation callback is given", () => {
+    render(<LibraryEmptyState />);
+
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

@@ -21,6 +21,10 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { hasReceivedUserMessage } from "../runtime/pre-first-message-gate.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
+import {
+  hourInTimeZone,
+  resolveScheduleTimezone,
+} from "../schedule/schedule-timezone.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
@@ -117,8 +121,10 @@ function refreshBackgroundWakeIntentSoon(reason: string): void {
 }
 
 export interface HeartbeatDeps {
-  /** Override for current hour (0-23), for testing. */
+  /** Override for current hour (0-23), for testing. Used when no timezone is resolved. */
   getCurrentHour?: () => number;
+  /** Override for "now", for testing timezone-aware active hours. */
+  now?: () => Date;
 }
 
 export interface ManagedWakeHeartbeatRunOptions {
@@ -351,7 +357,7 @@ export class HeartbeatService {
       const nextRunAt = computeNextRunAt({
         syntax: "cron",
         expression: config.cronExpression!,
-        timezone: config.timezone,
+        timezone: resolveScheduleTimezone(config.timezone),
       });
       this._nextRunAt = nextRunAt;
       if (this.timer) {
@@ -543,22 +549,15 @@ export class HeartbeatService {
 
     // Active hours guard — only applied when both bounds are set.
     // The schema rejects configs where only one bound is provided.
+    // Hours are wall-clock in the heartbeat timezone (explicit, then the
+    // user's configured/detected zone). Host-local is the last resort so a
+    // managed container whose clock is UTC does not treat 8:00-22:00 as UTC.
     if (
       !force &&
       config.activeHoursStart != null &&
       config.activeHoursEnd != null
     ) {
-      let hour: number;
-      if (this.cronMode && config.timezone) {
-        const parts = new Intl.DateTimeFormat("en-US", {
-          timeZone: config.timezone,
-          hourCycle: "h23",
-          hour: "numeric",
-        }).formatToParts(new Date());
-        hour = Number(parts.find((p) => p.type === "hour")!.value);
-      } else {
-        hour = this.deps.getCurrentHour?.() ?? new Date().getHours();
-      }
+      const hour = currentHourForHeartbeat(config, this.deps);
       if (
         !isWithinActiveHours(
           hour,
@@ -569,6 +568,7 @@ export class HeartbeatService {
         log.debug(
           {
             hour,
+            timezone: resolveScheduleTimezone(config.timezone),
             activeHoursStart: config.activeHoursStart,
             activeHoursEnd: config.activeHoursEnd,
           },
@@ -1011,6 +1011,18 @@ function isDiskPressureBackgroundLocked(logKey: string): boolean {
   return true;
 }
 
+function currentHourForHeartbeat(
+  config: HeartbeatConfig,
+  deps: HeartbeatDeps,
+): number {
+  const now = deps.now?.() ?? new Date();
+  const timezone = resolveScheduleTimezone(config.timezone);
+  if (timezone) {
+    return hourInTimeZone(timezone, now);
+  }
+  return deps.getCurrentHour?.() ?? now.getHours();
+}
+
 /**
  * Check if the given hour falls within the active window.
  * Handles overnight windows (e.g. start=22, end=6).
@@ -1025,4 +1037,51 @@ function isWithinActiveHours(
   }
   // Overnight window: e.g. 22-6 means 22,23,0,1,2,3,4,5
   return hour >= start || hour < end;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function rawObject(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Cron next-run is computed in the resolved timezone at schedule time. Interval
+ * active hours are evaluated live, so only cron needs a reschedule when the
+ * fallback zone changes and heartbeat.timezone is unset.
+ */
+export function shouldRescheduleHeartbeatForTimezoneChange(
+  previousRaw: Record<string, unknown>,
+  nextRaw: Record<string, unknown>,
+): boolean {
+  const nextHeartbeat = rawObject(nextRaw.heartbeat);
+  if (stringOrNull(nextHeartbeat?.timezone)) {
+    return false;
+  }
+  if (!stringOrNull(nextHeartbeat?.cronExpression)) {
+    return false;
+  }
+  const previousUi = rawObject(previousRaw.ui);
+  const nextUi = rawObject(nextRaw.ui);
+  return (
+    stringOrNull(previousUi?.userTimezone) !==
+      stringOrNull(nextUi?.userTimezone) ||
+    stringOrNull(previousUi?.detectedTimezone) !==
+      stringOrNull(nextUi?.detectedTimezone)
+  );
+}
+
+export function rescheduleHeartbeatIfTimezoneChanged(
+  previousRaw: Record<string, unknown>,
+  nextRaw: Record<string, unknown>,
+): void {
+  if (!shouldRescheduleHeartbeatForTimezoneChange(previousRaw, nextRaw)) {
+    return;
+  }
+  HeartbeatService.getInstance()?.reconfigure();
 }

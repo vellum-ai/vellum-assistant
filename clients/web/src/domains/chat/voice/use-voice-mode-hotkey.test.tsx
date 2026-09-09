@@ -4,8 +4,6 @@ import { MemoryRouter } from "react-router";
 
 import type { HotkeyEvent } from "@/runtime/hotkey";
 
-let fnSupported = false;
-let fnRegistrationSucceeds = true;
 let chordSupported = false;
 let chordRegistrationSucceeds = true;
 let emitHotkeyEvent: ((event: HotkeyEvent) => void) | null = null;
@@ -20,10 +18,7 @@ const setNativeVoiceModeChord = mock(async (_activator: unknown) => {
   return chordRegistrationSucceeds;
 });
 mock.module("@/runtime/hotkey", () => ({
-  supportsFnPushToTalk: () => fnSupported,
   supportsVoiceModeChord: () => chordSupported,
-  setFnPushToTalkEnabled: async (enable: boolean) =>
-    enable ? fnRegistrationSucceeds : true,
   setNativeVoiceModeChord,
   subscribeToHotkeyEvents: (callback: (event: HotkeyEvent) => void) => {
     emitHotkeyEvent = callback;
@@ -42,13 +37,13 @@ mock.module("@/runtime/hotkey", () => ({
 }));
 
 /**
- * The shared entry the companion surface's Talk also calls. Mocked rather than
+ * The shared toggle the voice key's double tap also calls. Mocked rather than
  * exercised: what belongs to this hook is *that* a press reaches it, not what
  * happens afterwards, which `start-voice-request` owns and tests.
  */
-const startVoiceFromSurface = mock(() => {});
+const toggleVoiceFromSurface = mock(() => {});
 mock.module("@/domains/chat/voice/live-voice/start-voice-request", () => ({
-  startVoiceFromSurface,
+  toggleVoiceFromSurface,
 }));
 
 const { useLiveVoiceStore } =
@@ -58,7 +53,6 @@ const {
   keyboardDefaultActivator,
   writeVoiceModeActivator,
 } = await import("@/utils/voice-mode-activation");
-const { FN_PTT_ACTIVATOR } = await import("@/utils/ptt-activator");
 const { useVoiceModeHotkey } =
   await import("@/domains/chat/voice/use-voice-mode-hotkey");
 
@@ -88,15 +82,13 @@ function chordEvent(): KeyboardEvent {
 }
 
 beforeEach(() => {
-  fnSupported = false;
-  fnRegistrationSucceeds = true;
   chordSupported = false;
   chordRegistrationSucceeds = true;
   onElectron = false;
   emitHotkeyEvent = null;
   emitRegistrationChange = null;
   setNativeVoiceModeChord.mockClear();
-  startVoiceFromSurface.mockClear();
+  toggleVoiceFromSurface.mockClear();
   stop.mockClear();
   localStorage.removeItem(LS_VOICE_MODE_ACTIVATION_KEY);
   useLiveVoiceStore.getState().reset();
@@ -124,7 +116,7 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(event);
 
-    expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -136,18 +128,17 @@ describe("useVoiceModeHotkey", () => {
 
     textarea.dispatchEvent(chordEvent());
 
-    expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+    expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     textarea.remove();
   });
 
-  test("ends the session instead of starting a second one", () => {
+  test("hands a press during a session to the same toggle, which ends it", () => {
     useLiveVoiceStore.getState().setState("listening");
     renderVoiceModeHotkey();
 
     window.dispatchEvent(chordEvent());
 
-    expect(stop).toHaveBeenCalledTimes(1);
-    expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
   });
 
   test("ignores a chord that is not the binding", () => {
@@ -161,7 +152,7 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(event);
 
-    expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
   });
 
@@ -171,7 +162,7 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(chordEvent());
 
-    expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
   });
 
   test("stays out of the way when disabled for the host", () => {
@@ -179,7 +170,7 @@ describe("useVoiceModeHotkey", () => {
 
     window.dispatchEvent(chordEvent());
 
-    expect(startVoiceFromSurface).not.toHaveBeenCalled();
+    expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
   });
 
   test("starts the same way off a chat route as on one", () => {
@@ -193,65 +184,7 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(chordEvent());
     });
 
-    expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
-  });
-
-  describe("Fn", () => {
-    beforeEach(() => {
-      fnSupported = true;
-    });
-
-    /**
-     * Fn only ever fires because the user went to Settings and chose it. It is
-     * not the default and cannot become one: the Globe key belongs to the OS
-     * (Start Dictation, on a lot of machines) and to whatever the user has it
-     * doing, so an install that took it would be one press doing two things.
-     */
-    test("does nothing until it has been chosen in settings", () => {
-      renderVoiceModeHotkey();
-
-      emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
-
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
-    });
-
-    test("toggles on the down edge and ignores the release", () => {
-      writeVoiceModeActivator(FN_PTT_ACTIVATOR);
-      renderVoiceModeHotkey();
-
-      emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
-
-      // The user has already lifted the key that started the session; the
-      // release edge only ever meant something to push to talk.
-      emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "up" });
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
-    });
-
-    test("a refused registration binds no chord in its place", async () => {
-      // No helper, or Input Monitoring ungranted. There is nothing to fall
-      // back to and nothing to fall back for: the host's global Talk shortcut
-      // is the keyboard way in, and unlike Fn it needs no permission grant.
-      onElectron = true;
-      fnRegistrationSucceeds = false;
-      renderVoiceModeHotkey();
-
-      await waitFor(() => {
-        expect(fnRegistrationSucceeds).toBe(false);
-      });
-      window.dispatchEvent(chordEvent());
-
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
-    });
-
-    test("ignores host Fn events once the binding is a chord", () => {
-      writeVoiceModeActivator(keyboardDefaultActivator());
-      renderVoiceModeHotkey();
-
-      emitHotkeyEvent?.({ kind: "fnPushToTalk", state: "down" });
-
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
-    });
+    expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
   });
 
   describe("on the desktop app", () => {
@@ -263,7 +196,7 @@ describe("useVoiceModeHotkey", () => {
 
       window.dispatchEvent(chordEvent());
 
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+      expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
     });
 
     test("still binds the chord off Electron, where there is no globalShortcut", () => {
@@ -272,7 +205,7 @@ describe("useVoiceModeHotkey", () => {
 
       window.dispatchEvent(chordEvent());
 
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+      expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -314,7 +247,7 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(
         new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
       );
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+      expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
 
       // Press and release with nothing in between fires once, on release.
       window.dispatchEvent(
@@ -327,7 +260,7 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(
         new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
       );
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+      expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
 
     test("losing window focus mid-hold disarms the tap", () => {
@@ -348,7 +281,7 @@ describe("useVoiceModeHotkey", () => {
         new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
       );
 
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+      expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
     });
 
     test("registers the bare-modifier binding with the helper's global hook", async () => {
@@ -379,7 +312,7 @@ describe("useVoiceModeHotkey", () => {
       emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
       emitHotkeyEvent?.({ kind: "voiceModeChord", state: "up" });
 
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+      expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
 
     test("the DOM tap stays quiet while native capture is live", async () => {
@@ -403,7 +336,7 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(
         new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
       );
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+      expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
 
       // The host reporting the registration lost hands the tap back to the
       // focused-window listener.
@@ -418,7 +351,7 @@ describe("useVoiceModeHotkey", () => {
       window.dispatchEvent(
         new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
       );
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+      expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
 
     test("a refused chord registration keeps the focused-window tap", async () => {
@@ -443,7 +376,7 @@ describe("useVoiceModeHotkey", () => {
         new KeyboardEvent("keyup", { key: "Alt", cancelable: true }),
       );
 
-      expect(startVoiceFromSurface).toHaveBeenCalledTimes(1);
+      expect(toggleVoiceFromSurface).toHaveBeenCalledTimes(1);
     });
 
     test("ignores native taps once the binding is not a bare modifier", async () => {
@@ -455,7 +388,7 @@ describe("useVoiceModeHotkey", () => {
 
       emitHotkeyEvent?.({ kind: "voiceModeChord", state: "down" });
 
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+      expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
     });
 
     test("stays rejected on the macOS desktop host", () => {
@@ -475,7 +408,7 @@ describe("useVoiceModeHotkey", () => {
         new KeyboardEvent("keyup", { key: "Control", cancelable: true }),
       );
 
-      expect(startVoiceFromSurface).not.toHaveBeenCalled();
+      expect(toggleVoiceFromSurface).not.toHaveBeenCalled();
     });
   });
 });

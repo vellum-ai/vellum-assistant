@@ -286,6 +286,18 @@ export async function markMessageRead(
   );
 }
 
+/** Map in-memory file parts to Graph fileAttachment objects. */
+export function toOutlookFileAttachments(
+  attachments: Array<{ filename: string; mimeType: string; data: Buffer }>,
+): OutlookSendFileAttachment[] {
+  return attachments.map((att) => ({
+    "@odata.type": "#microsoft.graph.fileAttachment",
+    name: att.filename,
+    contentType: att.mimeType,
+    contentBytes: att.data.toString("base64"),
+  }));
+}
+
 /** Create a draft message in the user's Drafts folder. */
 export async function createDraft(
   connection: OAuthConnection,
@@ -293,7 +305,7 @@ export async function createDraft(
 ): Promise<OutlookMessage> {
   return request<OutlookMessage>(connection, "/v1.0/me/messages", {
     method: "POST",
-    body: JSON.stringify(draft),
+    body: JSON.stringify({ ...draft, isDraft: true }),
   });
 }
 

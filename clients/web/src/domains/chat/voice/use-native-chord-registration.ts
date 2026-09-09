@@ -12,7 +12,7 @@ import { watchSetting } from "@/utils/local-settings";
 /**
  * Keeps the host helper's global chord registered for exactly as long as the
  * voice mode binding wants it. The Windows counterpart of
- * `useNativeFnRegistration`: an Electron `globalShortcut` cannot express a
+ * `useVoiceKey`: an Electron `globalShortcut` cannot express a
  * bare-modifier chord, so the helper's keyboard hook watches it system-wide
  * and reports a completed tap over the hotkey bridge.
  *

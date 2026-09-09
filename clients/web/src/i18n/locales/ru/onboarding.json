@@ -134,9 +134,6 @@
   "stepIndicator": {
     "ariaLabel": "Шаг {current} из {total}"
   },
-  "googleCalendar": {
-    "authorizationFailed": "Не удалось начать авторизацию Google Calendar."
-  },
   "introductionScreen": {
     "greetingNamed": "Привет, {name}!",
     "greeting": "Привет!",
@@ -255,7 +252,6 @@
     "bodyLoadingWithClaims": "Ещё проверяю остальное. Просмотр по мере появления.",
     "bodyReadyWithClaims": "Я поискал в интернете. Смело убирай всё, что неправда.",
     "bodyLoadingEmpty": "Ещё собираю это вместе…",
-    "bodyReadyEmpty": "Мало что нашлось, дозаполним по ходу диалога.",
     "removeClaim": "Убрать «{claim}»",
     "notMe": "Это не я",
     "stillSearching": "Ещё ищу…"

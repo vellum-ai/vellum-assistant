@@ -5,6 +5,8 @@ import {
   EyeOff,
   Mic,
   MicOff,
+  Pencil,
+  ScreenShare,
   ScrollText,
   Volume2,
   VolumeX,
@@ -20,7 +22,10 @@ import type {
   Ref,
 } from "react";
 
-import type { CompanionDictating } from "@vellumai/ipc-contract";
+import type {
+  CompanionDictating,
+  CompanionDictationOffer,
+} from "@vellumai/ipc-contract";
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
@@ -150,6 +155,20 @@ export type CompanionSurfacePhase =
    */
   | "dictating"
   /**
+   * Offer: the pill held open by Vellum's version of a dictation another app
+   * has already pasted.
+   *
+   * Nothing on macOS owns a key, so a hold of the voice key with another
+   * dictation app running dictates twice. Rather than paste beside that app's
+   * words, Vellum shows its own and asks: use them instead, get that app off
+   * the key, or leave it. Open regardless of the pointer, for the reason
+   * `summary` is: a question waiting on an answer rather than a hint.
+   *
+   * It ranks below `dictating`, since a new hold is a new question, and above
+   * `watching`, since it lasts seconds rather than minutes.
+   */
+  | "offer"
+  /**
    * Call: the pill held open by a live-voice session, or by the press that
    * asked for one.
    *
@@ -213,55 +232,74 @@ const ASSISTANT_TURN_PHASES = new Set(["transcribing", "thinking", "speaking"]);
 const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
 
 /**
- * The capsule the creature collapses into at rest.
+ * The pill the surface rests in, in its two sizes.
  *
- * At rest this surface is a marker rather than a mascot. It sits on the desktop
- * all day over whatever the user is actually working in, and a character
- * standing there is a character in the way; a thin capsule says the assistant
- * is here and reachable and asks for nothing. The creature comes back the
- * moment the pointer arrives, which is the only time anyone is looking at it.
+ * The shape is a lit line in the assistant's colour with nothing inside it.
+ * The edge is what makes it findable on a busy desktop, where a small block of
+ * colour is not, and being hollow is what keeps it from taking the screen away
+ * from whatever the user is actually working in.
  *
- * As wide as the artwork it stands in for ({@link AVATAR_IMAGE}), so the
- * collapse reads as the creature tucking into its own width rather than as a
- * differently sized object taking its place. The height is the one authored
- * number here: thin enough to read as a marker, tall enough to see against a
- * busy desktop.
+ * **Two sizes, because the shape gives way to the creature.** `idle` is the
+ * marker: the creature is tucked behind it and peeks out of it every few
+ * seconds. `closing` is where it ends when a hand arrives and the creature
+ * stands up, which is on the creature's own artwork: the marker draws in from
+ * both ends until it is a ring the size of the creature, and goes out as the
+ * creature reaches full size. One gesture, and the thing it hands the surface
+ * over to is the creature.
  *
- * **The box it is drawn in does not shrink with it.** That box is the drag
- * handle, the point the host positions the window around, and the rect the
- * pointer is hit-tested against, so shrinking it would move the anchor the host
- * measures every drag and clamp against, and would make the surface hardest to
- * hit exactly when it is smallest. What changes is the shape drawn inside it.
+ * **Inward, not outward.** The pill used to grow into a frame the creature
+ * stood inside. The marker is wide and the creature is not, so that read as
+ * the surface swelling under the pointer and then the creature appearing in
+ * the middle of it, which is two events; drawing in reads as one shape
+ * becoming the other. It also leaves nothing lit behind the standing creature,
+ * which is the state hover is actually for.
  *
- * **Nor does the capsule grow with the sizes.** It is drawn at these numbers on
- * every setting, countering the scale the avatar's node carries (see
- * `restingScale` in {@link Avatar}). Sizing the creature is a statement about
- * the creature: someone who wants a big mascot when they look at it has not
- * asked for a big lozenge sitting over their work all day, and the marker is
- * the one part of this surface nobody chose to be looking at. Countering the
- * transform rather than the lengths is what keeps the border, the radius and
- * the ring identical at every setting instead of thickening with the scale.
+ * **Only `closing` scales with the creature**, because it lands on it. `idle`
+ * holds one size on every setting: sizing the creature is a statement about
+ * the creature, and someone who wants a big mascot when they look at it has
+ * not asked for a big lozenge sitting over their work all day. The rim holds
+ * one thickness for the same reason, so the line stays a line instead of
+ * thickening into a frame.
  */
-const RESTING_HEIGHT = 10;
+const RESTING_PILL = {
+  /** The marker. Wider than the artwork it stands in for, and hollow. */
+  idle: { width: 64, height: 14 },
+  /**
+   * Where the line ends up: the creature's own artwork, squared, so a
+   * `rounded-full` shape drawn at it is a ring on the creature's edge. Scaled
+   * with the creature by the caller, since the creature is what it lands on.
+   */
+  closing: AVATAR_IMAGE,
+  /** The lit line's thickness, at every size and every setting. */
+  rim: 2,
+  /** How far that line throws light, as the nearer of its two blooms. */
+  bloom: 4,
+};
 
 /**
- * The capsule's box, which is exactly the accent the user sees: no rim.
+ * The box the creature peeks over at rest, which is the idle pill's own.
  *
- * It wore a dark hairline for a while, to put an edge between the working ring
- * and a capsule painted the ring's own colour. It went because a creature
- * peeking out from behind a bordered pill reads as peeking out of a slot in a
- * device, and the pill is meant to be the creature's own colour and nothing
- * else. The ring still carries a turn at rest: its bright arc orbits and its
- * light falls on the desktop, and neither needs a dark line to be seen.
- *
- * One statement of it, because two things are sized from it and they must not
- * drift. The capsule is drawn at it, and the box the working ring rides matches
- * it at rest so the ring hugs the shape rather than the air around it.
+ * One statement of it, because the pill is drawn at it and `CompanionPeek`
+ * measures the creature's rise against it, and two readings of where the rim
+ * is would put the eyes somewhere other than on it.
  */
-const RESTING_BOX = {
-  width: AVATAR_IMAGE,
-  height: RESTING_HEIGHT,
-};
+const PEEK_CAPSULE = RESTING_PILL.idle;
+
+/**
+ * The resting pill's edge: one lit line in the assistant's colour, the light it
+ * throws, and the shadow that holds it off a desktop this surface does not own.
+ *
+ * Two blooms rather than one. The tight one keeps the line reading as a line
+ * at a glance, and the wide one is what separates the shape from a busy
+ * wallpaper behind it; either alone reads as a smudge or as a sticker.
+ */
+const restingRim = (accentHex: string, rim: number, bloom: number): string =>
+  [
+    `inset 0 0 0 ${rim}px color-mix(in srgb, ${accentHex} 78%, transparent)`,
+    `0 0 ${bloom}px color-mix(in srgb, ${accentHex} 85%, transparent)`,
+    `0 0 ${bloom * 4}px color-mix(in srgb, ${accentHex} 42%, transparent)`,
+    "0 8px 24px rgba(0, 0, 0, 0.45)",
+  ].join(", ");
 
 /**
  * The clearance every round thing inside the pill keeps from its edge.
@@ -304,6 +342,41 @@ export const NAME_DWELL_MS = 500;
 const TRANSCRIPT_WIDTH = 244;
 
 /**
+ * The width of the offer's line in the pill: a few words and, where there is
+ * one, the other app's name. The words themselves are on the card beside it.
+ */
+const OFFER_WIDTH = 200;
+
+/**
+ * The width of the call's status line: what the session is doing, and where
+ * the turn says more than its phase does, what it is doing it to.
+ *
+ * Stated for the reason the transcript's is. The line is passed through from
+ * the session, so it changes several times a call ("Listening…" to
+ * "Thinking…" to "Reading a file"), and a box as wide as its content
+ * would hand the pill a different width for each of them: the bar would
+ * breathe in and out under the user's hand while the controls on it slid
+ * sideways, on a surface that floats over another app's work. So the line has
+ * one width whatever is in it, the pill takes its call width once, and a line
+ * longer than the box is truncated rather than bought room for.
+ *
+ * Wide enough for the phase copy in the languages the app ships, with room for
+ * the short activity lines a turn adds; anything past that is a line long
+ * enough that its first words are the ones worth reading.
+ */
+const CALL_LINE_WIDTH = 120;
+
+/**
+ * The controls at the end of the call row, together: five buttons of a
+ * 16-point glyph in 8 points of padding either side, the gap between each
+ * pair, and the gap between the line and the first of them.
+ *
+ * Only used to state the call's fallback below, which is exact rather than a
+ * guess now that the line beside them has a width of its own.
+ */
+const CALL_CONTROLS_WIDTH = 5 * 32 + 5 * 4;
+
+/**
  * Body widths to use until the content has been measured.
  *
  * The body alone, since the avatar is a sibling of the pill rather than
@@ -342,9 +415,17 @@ export const FALLBACK_WIDTHS: Record<
   // has a stated width whatever is in it, so this is the state's actual width
   // rather than a guess at one.
   dictating: TRANSCRIPT_WIDTH + 32,
-  // The line and the four controls of the handlebar, with Teach held down and
-  // so spelling its name out, which is the widest a call draws.
-  call: 332,
+  // The offer's line beside the icon and the row's own clearance, with a
+  // stated width for the reason the transcript's has one.
+  offer: OFFER_WIDTH + 32,
+  // The line and the five controls of the handlebar, which is the widest a
+  // call draws: Teach and Share are absent on a page that offers neither, and
+  // the dial and the approval both stand fewer controls in the same row. The
+  // line has a stated width, so this is the state's actual width rather than a
+  // guess at one.
+  // The `4` is the line's own lead-in, which is a margin rather than one of
+  // the row's gaps.
+  call: 4 + CALL_LINE_WIDTH + CALL_CONTROLS_WIDTH,
 };
 
 export interface CompanionSurfaceProps {
@@ -426,6 +507,17 @@ export interface CompanionSurfaceProps {
    */
   rootRef?: Ref<HTMLDivElement>;
   /**
+   * The pill the surface rests in, for the host to hit-test the same way it
+   * hit-tests the pill that carries content.
+   *
+   * Its own ref because exactly one of the two is ever drawn, and the window
+   * has to be armed over whichever it is. Without this the resting pill is a
+   * 150pt shape the pointer falls straight through into whatever application
+   * is behind it, which is the surface being visible and unreachable at the
+   * one time it is on screen all day.
+   */
+  restingPillRef?: Ref<HTMLDivElement>;
+  /**
    * The avatar's own element.
    *
    * Handed out for the reason {@link CompanionSurfaceProps.rootRef} is, and
@@ -466,6 +558,71 @@ export interface CompanionSurfaceProps {
    * only one that knows which edge a press is.
    */
   onWatch?: () => void;
+  /**
+   * The press of Teach with no session running, when the surface has something
+   * to do with it other than start one: open the picker.
+   *
+   * Its own callback rather than a flag on {@link CompanionSurfaceProps.onWatch}
+   * because the two presses go different places. A stop is the session's and
+   * leaves for the window that owns it; the way in, when there is a choice to
+   * make first, stays on the page that draws the choice. Absent, Teach starts
+   * the session the way it always did.
+   */
+  onTeach?: () => void;
+  /**
+   * Whether the picker Teach opens is on screen, which draws Teach held down
+   * for as long as it is. The card itself arrives on
+   * {@link CompanionSurfaceProps.picker}.
+   */
+  picking?: boolean;
+  /**
+   * Whether the call is being shown the screen, which draws Share held down
+   * for as long as it is. Its own prop for the reason `watching` is: it is
+   * the session's, and the control that ends it belongs to the share rather
+   * than to whatever the pill is drawing.
+   */
+  sharing?: boolean;
+  /**
+   * Whether Share is offered on the call row at all, which is whether the
+   * window holding the session says the session can be shown anything. Off
+   * unless positively on, the way {@link CompanionSurfaceProps.watchEnabled}
+   * is read, and for the same reason: the control starts capturing the
+   * user's screen.
+   */
+  shareEnabled?: boolean;
+  /**
+   * Whether the picker Share opens is on screen, which draws Share held down
+   * for as long as it is. The card itself arrives on
+   * {@link CompanionSurfaceProps.picker}, the same slot Teach's does.
+   */
+  sharePicking?: boolean;
+  /** The press of Share with nothing shared: open the picker. */
+  onShare?: () => void;
+  /**
+   * The press of Share while something is shared: the stop. Its own
+   * callback rather than a toggle, the split {@link CompanionSurfaceProps.onTeach}
+   * makes: the way in stays on the page that draws the choice, and the stop
+   * leaves for the window that owns the session.
+   */
+  onStopShare?: () => void;
+  /**
+   * Whether the frame around the shared surface is taking the mouse, which
+   * draws Draw held down for as long as it is.
+   *
+   * The one state on this row that is the shell's rather than the session's:
+   * it is a fact about a window the shell opened. Off unless positively on,
+   * the way {@link CompanionSurfaceProps.watching} is read, and for a version
+   * of the same reason: a control drawn held down over a frame that is not
+   * taking presses is a promise about where the user's next click goes.
+   */
+  annotating?: boolean;
+  /**
+   * The press of Draw, carrying the state it is asking for rather than being
+   * a toggle. The mode is the shell's and the shell may refuse it (a share
+   * that has ended takes it down), so the press says what it wants and the
+   * pushed state says what happened.
+   */
+  onAnnotate?: (annotating: boolean) => void;
   /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
@@ -528,6 +685,21 @@ export interface CompanionSurfaceProps {
    * comes back is {@link CompanionSurfaceProps.watchRetro} going absent.
    */
   onWatchRetro?: (open: boolean) => void;
+  /**
+   * A dictation's words while the offer of them stands, and why they were
+   * not simply typed where the user was. Its own prop for the reason
+   * {@link CompanionSurfaceProps.watchRetro} is: a call outranks the phase,
+   * and an offer must not lose its answer because the user picked up the
+   * phone.
+   */
+  dictationOffer?: CompanionDictationOffer;
+  /**
+   * The card offering those words and the answers to them, drawn beside the
+   * surface while the offer stands. Composed by the caller for the reason the
+   * picker is: the card is a sibling of the pill, and the page that owns the
+   * answer owns it.
+   */
+  offer?: ReactNode;
 
   /**
    * Whether Teach is offered on the call row at all, which is the feature flag
@@ -576,6 +748,12 @@ export interface CompanionSurfaceProps {
    */
   intro?: ReactNode;
   /**
+   * The picker Teach opens, drawn beside the surface while a choice is being
+   * made. Composed by the caller for the reason the introduction is: the card
+   * is a sibling of the pill, and the page that owns the choice owns it.
+   */
+  picker?: ReactNode;
+  /**
    * What a keyboard dictation has got to, when one is running. See
    * {@link CompanionDictating}.
    */
@@ -599,22 +777,35 @@ export function CompanionSurface({
   optionsBox = COMPANION_BASE_AVATAR_BOX,
   cardGrowth = "up",
   rootRef,
+  restingPillRef,
   avatarRef,
   onSurfacePointerDown,
   onSurfaceContextMenu,
   spotlight,
   onWatch,
+  onTeach,
+  picking = false,
+  sharing = false,
+  shareEnabled = false,
+  sharePicking = false,
+  onShare,
+  onStopShare,
+  annotating = false,
+  onAnnotate,
   onAvatarClick,
   working = false,
   watching = false,
   watchRetro,
   onWatchRetro,
+  dictationOffer,
+  offer,
   watchEnabled = false,
   dictating,
   dictationText = "",
   call,
   onControl,
   intro,
+  picker,
 }: CompanionSurfaceProps) {
   const { t } = useTranslation();
   /**
@@ -625,13 +816,18 @@ export function CompanionSurface({
    * reading the screen. Hover opens nothing, because the creature is the call
    * button and there is nothing else on an idle surface to offer.
    */
+  /**
+   * Whether the creature is out of the pill's idle size and standing in it,
+   * which the pointer alone does: every phase past hover draws a pill with
+   * something in it, and the creature stands beside that one.
+   */
+  const creatureOut = phase !== "resting";
   const expanded =
     phase === "call" ||
     phase === "dictating" ||
+    phase === "offer" ||
     phase === "summary" ||
     phase === "watching";
-  /** Whether the creature is out of its capsule, which hover alone does. */
-  const creatureOut = phase !== "resting";
   /**
    * Whether the hand has dwelt on the creature long enough to be told its
    * name for a press.
@@ -747,6 +943,29 @@ export function CompanionSurface({
   // when `growth` flips, and the creature the host measures every drag, clamp
   // and direction check against is not.
   const placement = edgeAt(growth, avatarHalf + gap);
+
+  /**
+   * The creature's box over the one this file's lengths are authored for.
+   *
+   * The closing ring takes it, because it lands on the creature; the idle
+   * marker and the rim do not. See {@link RESTING_PILL}.
+   */
+  const restingScale = avatarBox / COMPANION_BASE_AVATAR_BOX;
+
+  /**
+   * The lit line's box: the marker, or the ring it draws in to on the
+   * creature's own edge as the creature stands up.
+   *
+   * Read off `creatureOut` rather than off `hovered`, so the one thing that
+   * decides whether the creature is standing decides where the line goes. The
+   * two are the same gesture: the marker becomes the creature.
+   */
+  const restingBox = creatureOut
+    ? {
+        width: RESTING_PILL.closing * restingScale,
+        height: RESTING_PILL.closing * restingScale,
+      }
+    : RESTING_PILL.idle;
 
   /**
    * Whether the introduction's card is drawn beside the surface.
@@ -869,7 +1088,11 @@ export function CompanionSurface({
           style={{ paddingInline: INNER_GAP }}
         >
           <div
-            className="relative flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
+            // Not positioned, on purpose: the controls' captions stand above
+            // this row and would be clipped by it, and an absolute box escapes
+            // its ancestors' clipping only while its containing block is
+            // outside them. See `PillButton`.
+            className="flex min-w-0 items-center gap-1 overflow-hidden transition-opacity duration-200"
             ref={contentRef}
             // Faded out is not gone: the body stays mounted while collapsed
             // so it can be measured, which would otherwise leave its
@@ -891,8 +1114,17 @@ export function CompanionSurface({
                 assistantName={assistantName}
                 watching={watching}
                 watchEnabled={watchEnabled}
+                picking={picking}
+                sharing={sharing}
+                shareEnabled={shareEnabled}
+                sharePicking={sharePicking}
+                annotating={annotating}
                 onControl={onControl}
                 onWatch={onWatch}
+                onTeach={onTeach}
+                onShare={onShare}
+                onStopShare={onStopShare}
+                onAnnotate={onAnnotate}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -901,11 +1133,93 @@ export function CompanionSurface({
               />
             ) : phase === "summary" && watchRetro !== undefined ? (
               <SummaryBody retro={watchRetro} onWatchRetro={onWatchRetro} />
+            ) : phase === "offer" && dictationOffer !== undefined ? (
+              <OfferBody offer={dictationOffer} />
             ) : (
               <IdleBody watching={watching} onWatch={onWatch} />
             )}
           </div>
         </div>
+      </div>
+      {/* The pill the surface rests in: the assistant's own colour as a lit
+        edge and nothing inside it. A marker with the creature tucked behind
+        it until a pointer arrives, then drawn in onto the creature and out.
+        See {@link RESTING_PILL}.
+
+        A sibling of the pill that carries content rather than the same
+        element, and the two cross-fade. They are different shapes in different
+        places: this one is centred on the creature the way the call's bar is,
+        and every pill with something in it hangs off the creature's side. One
+        element animating between the two would have to jump its anchor from
+        the centre to an edge mid-transition, which reads as the surface
+        flinching.
+
+        **The footprint and the line are two nodes, and only the line moves.**
+        This one is the marker's own box and never changes size, because it is
+        what the pointer is hit-tested against: a shape that drew in from under
+        the hand that arrived would take the surface out from under it, the
+        pointer would land on the desktop, the creature would tuck back, and
+        the marker would return under the same stationary pointer to start
+        again. So the reach stays the marker's for as long as the creature is
+        out, and staying anywhere the marker covered keeps it out.
+
+        A drag handle, as the creature and the pill both are. It is the largest
+        thing on screen at rest, so it is what a hand reaches for to move the
+        surface, and a shape that ignored the press would read as broken.
+        `aria-hidden` because it says nothing the creature beside it does not
+        already say: the creature carries the accessible name and the press. */}
+      <div
+        className="absolute cursor-grab active:cursor-grabbing"
+        style={{
+          width: inUnits(RESTING_PILL.idle.width),
+          height: inUnits(RESTING_PILL.idle.height),
+          // **The reach is not the drawing.** This box outlives the line
+          // inside it, and it is drawn after the pill that carries content and
+          // centred on the same point the call's bar stands on, so a live call
+          // would hand its presses to an invisible sheet instead of to mute
+          // and end. It takes the pointer only while the creature is in it.
+          pointerEvents: creatureOut ? "none" : undefined,
+          // Centred on the point the host put the window around, which is the
+          // point the creature holds. The creature is a sibling drawn on that
+          // same point, so centring the pill on it is what puts the creature
+          // in the middle of the pill without either one being laid out in
+          // terms of the other.
+          left: "50%",
+          top: lineAt(cardGrowth, 0),
+          transform: "translate(-50%, -50%)",
+        }}
+        onPointerDown={onSurfacePointerDown}
+        onContextMenu={onSurfaceContextMenu}
+        ref={restingPillRef}
+        aria-hidden
+      >
+        {/* The lit line itself, centred in that footprint: the marker at rest,
+          and the ring on the creature's own edge once the creature is out.
+          Drawn in rather than grown, so the marker reads as becoming the
+          creature rather than as swelling around it. */}
+        <div
+          className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,opacity] duration-300"
+          style={{
+            width: inUnits(restingBox.width),
+            height: inUnits(restingBox.height),
+            transform: "translate(-50%, -50%)",
+            transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+            // A reader who asked for stillness keeps the fade and loses the
+            // draw-in: the line travelling in across the screen is the thing
+            // they asked not to have.
+            transitionProperty: reduce ? "opacity" : undefined,
+            boxShadow: restingRim(
+              accentHex,
+              inUnits(RESTING_PILL.rim),
+              inUnits(RESTING_PILL.bloom),
+            ),
+            // Gone the moment the creature is out, which is what the draw-in
+            // hands the surface over to. Not unmounted: the fade is what makes
+            // the two read as one surface changing shape rather than one
+            // object replacing another.
+            opacity: creatureOut ? 0 : 1,
+          }}
+        />
       </div>
       {/* The creature's name for a press, the way the Dock names an icon: a
           small label centred above it rather than a control standing beside
@@ -920,8 +1234,9 @@ export function CompanionSurface({
           the same word as its accessible name, and a reader told it twice is
           told about two things. Mounted throughout and faded, so its arrival
           after the dwell is a fade rather than a pop. */}
-      <CompanionNameCaption
-        named={named}
+      <Caption
+        className={named ? "opacity-100" : "opacity-0"}
+        data-companion-name={named ? "shown" : "hidden"}
         style={{
           left: "50%",
           top: lineAt(cardGrowth, 0),
@@ -953,19 +1268,20 @@ export function CompanionSurface({
         // uses while a reply is streaming: one vocabulary for "it is working"
         // wherever the user meets it.
         busy={assistantWorking || watching || summarizing}
-        // At rest the creature tucks into a capsule. The same answer the pill's
-        // own width reads, so the two collapse together and the surface goes to
-        // its resting shape as one thing.
+        // At rest the creature is tucked behind the marker and peeks out of
+        // it. The same answer the resting pill's own box reads, so the pill
+        // grows as the creature stands up and the two are one gesture.
         //
         // Except while the introduction is on screen. Its first beat presents
         // the creature by name and deliberately does not open the pill
         // (`introPhase` answers null for `meet`), so the phase is `resting`
         // with a card pointing at a creature that is not drawn. A card
-        // introducing the capsule is the one thing this collapse must not do.
+        // introducing an empty marker is the one thing this must not do.
         collapsed={!creatureOut && !introDrawn}
-        // The capsule is drawn at one size on every setting, so it counters
-        // what this node carries. That is the avatar's box over the authored
-        // one: the options scale on the box above cancels against `avatarRel`.
+        // The peek rides the marker, which is drawn at one size on every
+        // setting, so it counters what this node carries. That is the avatar's
+        // box over the authored one: the options scale on the box above
+        // cancels against `avatarRel`.
         restingScale={COMPANION_BASE_AVATAR_BOX / avatarBox}
         style={{
           left: creatureLeft,
@@ -994,6 +1310,8 @@ export function CompanionSurface({
         onClick={onAvatarClick}
       />
       {intro}
+      {picker}
+      {offer}
     </div>
   );
 }
@@ -1025,30 +1343,38 @@ const NAME_CAPTION_FILL = "rgba(28, 28, 30, 0.55)";
 const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
 
 /**
- * The creature's name for a press, the way the Dock names an icon: a small
- * rectangle above it with a beak pointing down at it.
+ * A name for a thing under the pointer, the way the Dock names an icon: a
+ * small rectangle above it with a beak pointing down at it. The creature's
+ * name for a press, and each pill control's name for the pointer on it.
  *
- * Text only, no icon: the avatar beneath it is the icon already, and the
+ * Text only, no icon: what sits beneath it is the icon already, and the
  * Dock's own tooltip carries nothing but the name. A small rectangle rather
  * than the pill's stadium shape, so the two never share a silhouette.
+ *
+ * Placed by the caller: `className` carries whether it is shown and any lift
+ * off the thing it names, `style` any offsets the layout works out. Absolute
+ * with no offsets of its own, so a caller that sets none gets the static
+ * position, which is what the pill's controls rely on.
+ *
+ * `aria-hidden` throughout: whatever it names carries the same word as its
+ * accessible name, and a reader told it twice is told about two things.
  */
-function CompanionNameCaption({
-  named,
+function Caption({
+  className,
   style,
   label,
+  ...data
 }: {
-  named: boolean;
-  style: CSSProperties;
+  className: string;
+  style?: CSSProperties;
   label: string;
-}) {
+} & Partial<Record<`data-${string}`, string>>) {
   return (
     <span
-      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${
-        named ? "opacity-100" : "opacity-0"
-      }`}
+      className={`pointer-events-none absolute rounded-md px-2 py-1 text-[11px] font-medium whitespace-nowrap text-white/90 shadow-md shadow-black/30 transition-opacity duration-200 ${NAME_CAPTION_GLASS} ${className}`}
       style={{ ...style, backgroundColor: NAME_CAPTION_FILL }}
-      data-companion-name={named ? "shown" : "hidden"}
       aria-hidden
+      {...data}
     >
       {label}
       {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
@@ -1123,15 +1449,15 @@ function Avatar({
   busy?: boolean;
   attentive?: boolean;
   /**
-   * Whether the surface is at rest, where the creature gives way to the
-   * capsule. See {@link RESTING_HEIGHT}.
+   * Whether the surface is at rest, where the creature is tucked behind the
+   * marker and peeks out of it. See {@link RESTING_PILL}.
    */
   collapsed?: boolean;
   /**
-   * What the capsule scales by to undo the scale this node already carries, so
-   * it is drawn at one size whatever the creature is sized to. Applies to the
-   * capsule alone: the expanded shape is the creature's own box and grows with
-   * it, which is the whole point of the setting.
+   * What the peek scales by to undo the scale this node already carries, so it
+   * rides a marker drawn at one size whatever the creature is sized to.
+   * Applies to the peek alone: the standing creature is its own box and grows
+   * with it, which is the whole point of the setting.
    */
   restingScale?: number;
   style?: CSSProperties;
@@ -1160,47 +1486,22 @@ function Avatar({
       onContextMenu={onContextMenu}
       onClick={onClick}
     >
-      {/* The capsule itself, drawn whole in the assistant's own colour.
-
-        The colour is all that is left of the creature at this size, so it is
-        the shape rather than a mark on it: a dark lozenge carrying a dot is
-        chrome with a light in it, and what this wants to be is the assistant,
-        small. It is also what keeps the marker findable on a busy desktop,
-        which matters more here than anywhere else on the surface: at rest this
-        is the only thing saying the assistant is there at all.
-
-        **It holds its size and fades where it stands.** Sized on itself rather
-        than filling the box above, which grows to the creature's. Nothing about
-        the resting shape moves: the creature is what grows out of the pill and
-        shrinks back into it, and one thing moving is what makes that legible.
-
-        The pill's own material is deliberately not borrowed: a white rim over a
-        saturated colour reads as a highlight on it and muddies the one thing
-        the shape is for, and it wears no dark rim either; see
-        {@link RESTING_BOX}. The shadow stays, since it is what holds any of
-        this against a desktop the surface does not own. */}
-      <div
-        className="companion-capsule absolute top-1/2 left-1/2 rounded-full shadow-lg shadow-black/40 transition-opacity duration-200"
-        style={{
-          width: RESTING_BOX.width,
-          height: RESTING_BOX.height,
-          transform: `translate(-50%, -50%) scale(${restingScale})`,
-          background: accentHex,
-          opacity: collapsed ? 1 : 0,
-        }}
-        aria-hidden
-      />
-      {/* Once in a while the creature looks out of the capsule: it rises from
+      {/* Once in a while the creature looks out of the marker: it rises from
         behind the top or bottom edge far enough to show its eyes, holds a
-        moment, and ducks back; see `CompanionPeek`, which is the chat page's
-        composer peek over a smaller rim. Only for a composed creature: a
-        custom image has nobody to peek. Rides the capsule's transform and
-        fade, so it is drawn at the capsule's one size on every setting and
-        goes with it when the creature comes out for real. */}
+        moment, and ducks back; see `CompanionPeek`. Only for a composed
+        creature: a custom image has nobody to peek.
+
+        The pill it rises over is hollow, which costs the peek nothing: the
+        rise is drawn through a clip that shows only the slice above the rim,
+        so what hides the rest of the creature is the clip and never a fill.
+
+        Rides the marker's own scale and fade, so it is drawn at the marker's
+        one size on every setting and goes with it when the creature comes out
+        for real. */}
       {character !== undefined ? (
         <CompanionPeek
           character={character}
-          capsule={RESTING_BOX}
+          capsule={PEEK_CAPSULE}
           // A working creature holds a focused pose, and stops blinking for the
           // same reason. The creature is carrying the state; nothing else
           // should.
@@ -1212,9 +1513,9 @@ function Avatar({
           }}
         />
       ) : null}
-      {/* The creature, tucking into the capsule rather than blinking out of
-        it. A wrapper of its own because the scale is a `transform` and the bob
-        below already owns one. */}
+      {/* The creature standing up out of the marker. A wrapper of its own
+        because the scale is a `transform` and the bob below already owns
+        one. */}
       <div
         className="transition-[opacity,transform] duration-300"
         style={{
@@ -1346,6 +1647,31 @@ function DictatingBody({
 }
 
 /**
+ * The pill's line while a dictation's words are on offer beside it.
+ *
+ * Only why they are being offered: the other app that pasted its own version,
+ * or that nothing in front would take them. The words and the answers are on
+ * the card ({@link CompanionSurfaceProps.offer}), since the pill is one line
+ * tall and the words have to be read whole.
+ */
+function OfferBody({ offer }: { offer: CompanionDictationOffer }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-2 px-1">
+      <AudioLines className="size-4 shrink-0" aria-hidden />
+      <span
+        className="truncate text-[12px] text-white/85"
+        style={{ width: OFFER_WIDTH }}
+      >
+        {offer.reason === "claimed"
+          ? t("companionSurface.offerHeard", { app: offer.app })
+          : t("companionSurface.offerNowhere")}
+      </span>
+    </div>
+  );
+}
+
+/**
  * Expanded with no call and no words: the row of a session reading the screen.
  *
  * **The way in is the creature, not a control.** Talk is a press on the
@@ -1370,11 +1696,9 @@ function IdleBody({
  * The way into a watch session and the way out of it, on the call row.
  *
  * One control for both edges, held down for as long as the session runs, so
- * the row says which press ends it. `pressed` rather than `active`, because
- * this one is a state and not a look: a reader is told a session is running,
- * where everything else this surface does about it is a colour they never
- * receive. Its pinned word is what lets a looking user find the press without
- * hunting under icons.
+ * the row says which press ends it. `pressed` because this one is a state and
+ * not a look: a reader is told a session is running, where everything else
+ * this surface does about it is a colour they never receive.
  *
  * Absent entirely when Watch is not offered, rather than disabled: a user who
  * cannot have the feature is not owed a control that explains itself by
@@ -1386,15 +1710,24 @@ function IdleBody({
  * carried Teach carries the stop instead, the same stop the idle row draws.
  * Hiding the way in is the whole of what the flag does; leaving a capture
  * with nothing that ends it is not something a flag is allowed to cause.
+ *
+ * **The way in may be a question first.** Where the page can ask what to
+ * read, the press with no session running opens its picker rather than a
+ * session, and Teach is drawn held down for the asking; the pick is what
+ * starts the session. The stop is never a question.
  */
 function TeachButton({
   watching,
   watchEnabled,
+  picking,
   onWatch,
+  onTeach,
 }: {
   watching: boolean;
   watchEnabled: boolean;
+  picking: boolean;
   onWatch?: () => void;
+  onTeach?: () => void;
 }) {
   const { t } = useTranslation();
   if (!watchEnabled) {
@@ -1404,9 +1737,14 @@ function TeachButton({
     <PillButton
       icon={<Eye className="size-4" />}
       label={t("companionSurface.teach")}
-      revealLabel
-      pressed={watching}
-      onClick={onWatch}
+      // Held down for the session and for the choice before it alike: both
+      // are states this press is in the middle of, and the second press ends
+      // either one.
+      pressed={watching || picking}
+      // The stop is the session's whatever the page wants of a start. A page
+      // with no picker leaves `onTeach` unset and both edges take `onWatch`,
+      // which is the toggle it always was.
+      onClick={watching ? onWatch : (onTeach ?? onWatch)}
     />
   );
 }
@@ -1497,15 +1835,33 @@ function CallBody({
   assistantName,
   watching,
   watchEnabled,
+  picking,
+  sharing,
+  shareEnabled,
+  sharePicking,
+  annotating,
   onControl,
   onWatch,
+  onTeach,
+  onShare,
+  onStopShare,
+  onAnnotate,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
   watching: boolean;
   watchEnabled: boolean;
+  picking: boolean;
+  sharing: boolean;
+  shareEnabled: boolean;
+  sharePicking: boolean;
+  annotating: boolean;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
+  onTeach?: () => void;
+  onShare?: () => void;
+  onStopShare?: () => void;
+  onAnnotate?: (annotating: boolean) => void;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1524,7 +1880,9 @@ function CallBody({
         <TeachButton
           watching={watching}
           watchEnabled={watchEnabled}
+          picking={picking}
           onWatch={onWatch}
+          onTeach={onTeach}
         />
         <EndCallButton onControl={onControl} />
       </>
@@ -1556,12 +1914,15 @@ function CallBody({
 
   return (
     <>
-      {/* Sized to its content, not shrunk to fit. The pill measures this row to
-          decide how wide to be, so a label that collapses under pressure would
-          measure its own collapsed self: the width and the truncation would
-          chase each other down. The cap is what keeps a pathological label from
-          growing the pill without bound. */}
-      <span className="ml-1 max-w-[120px] shrink-0 truncate text-[12px] text-white/85">
+      {/* One width, whatever the session is saying. See
+          {@link CALL_LINE_WIDTH}. `shrink-0` because the pill measures this row
+          to decide how wide to be, and a box that collapsed under pressure
+          would measure its own collapsed self: the width and the truncation
+          would chase each other down. */}
+      <span
+        className="ml-1 shrink-0 truncate text-[12px] text-white/85"
+        style={{ width: CALL_LINE_WIDTH }}
+      >
         {line}
       </span>
       {/* Beside what the session is doing rather than beside the end control:
@@ -1572,7 +1933,26 @@ function CallBody({
       <TeachButton
         watching={watching}
         watchEnabled={watchEnabled}
+        picking={picking}
         onWatch={onWatch}
+        onTeach={onTeach}
+      />
+      {/* Beside Teach, since the two are the same gesture aimed at different
+          ends: Teach has the screen read for a lesson, Share has it shown to
+          the call. Not on the dial, where there is no session to show. */}
+      <ShareButton
+        sharing={sharing}
+        shareEnabled={shareEnabled}
+        sharePicking={sharePicking}
+        onShare={onShare}
+        onStopShare={onStopShare}
+      />
+      {/* Behind Share and only while one is running, because it acts on what
+          is being shared: there is nothing to draw on until there is. */}
+      <DrawButton
+        sharing={sharing}
+        annotating={annotating}
+        onAnnotate={onAnnotate}
       />
       <PillButton
         icon={
@@ -1608,6 +1988,87 @@ function CallBody({
       />
       <EndCallButton onControl={onControl} />
     </>
+  );
+}
+
+/**
+ * Show the call the screen, or stop, on the call row beside Teach.
+ *
+ * The same shape as {@link TeachButton}, edge for edge: absent entirely where
+ * the call cannot be shown anything rather than disabled, held down for the
+ * share and for the choice before it, and the stop is the press on the held
+ * control and never a question. A share already running when the answer
+ * turns negative keeps its stop, for the reason Teach's exit outlives its
+ * door.
+ *
+ * One name for both edges, the way Teach has one: the held-down state and
+ * `aria-pressed` say which press this is, and a control that renamed itself
+ * to "Stop" would be a caption where the row wants an affordance.
+ */
+function ShareButton({
+  sharing,
+  shareEnabled,
+  sharePicking,
+  onShare,
+  onStopShare,
+}: {
+  sharing: boolean;
+  shareEnabled: boolean;
+  sharePicking: boolean;
+  onShare?: () => void;
+  onStopShare?: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!shareEnabled && !sharing) {
+    return null;
+  }
+  return (
+    <PillButton
+      icon={<ScreenShare className="size-4" />}
+      label={t("companionSurface.share")}
+      pressed={sharing || sharePicking}
+      onClick={sharing ? onStopShare : onShare}
+    />
+  );
+}
+
+/**
+ * Draw on what the call is being shown, on the call row behind Share.
+ *
+ * Absent unless a share is running, rather than disabled: it acts on the
+ * shared surface, and before there is one it is not a control that is
+ * unavailable, it is a control with nothing to be about. The same reason
+ * {@link ShareButton} is absent off a call.
+ *
+ * The one control on this row whose press changes what the *desktop* does
+ * rather than what the session does: while it is held down the frame around
+ * the shared surface takes the mouse, so a press out there is a mark instead
+ * of a click on the app underneath. That is a big thing to do quietly, which
+ * is why it is a mode with a control drawn held down for as long as it lasts
+ * rather than something that happens on a modifier nobody can see.
+ */
+function DrawButton({
+  sharing,
+  annotating,
+  onAnnotate,
+}: {
+  sharing: boolean;
+  annotating: boolean;
+  onAnnotate?: (annotating: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  if (!sharing) {
+    return null;
+  }
+  return (
+    <PillButton
+      icon={<Pencil className="size-4" />}
+      label={t("companionSurface.draw")}
+      pressed={annotating}
+      onClick={() => {
+        onAnnotate?.(!annotating);
+      }}
+    />
   );
 }
 
@@ -1709,29 +2170,64 @@ function StopWatchingButton({ onWatch }: { onWatch?: () => void }) {
 }
 
 /**
+ * Where a control's caption sits: standing on the pill's top edge, with only
+ * its beak crossing into the pill to point at the control below.
+ *
+ * The caption starts out centred on the control (see {@link PillButton}), so
+ * the lift is its own half height, which puts its bottom edge on the control's
+ * centre, plus half the pill's `h-11` row to carry that edge up to the row's
+ * top. 22px is the one number the caption and the row share, and it holds at
+ * every avatar size: the whole surface is drawn scaled, so both are in the
+ * same units.
+ *
+ * Not further up. Growing downward the canvas keeps only its own pad above the
+ * pill, which a caption standing here clears by around 7px, and one lifted
+ * clear of the pill's edge would be cut off by the top of the window.
+ */
+const CONTROL_CAPTION_LIFT = "-translate-y-[calc(50%+22px)]";
+
+/**
  * A control in the pill.
  *
- * `label` is always the accessible name; it is only drawn when the pill has
- * room for words, which is why the call's controls are icon-only without being
- * unlabelled.
+ * `label` is always the accessible name. It is drawn in the row only when the
+ * pill has room for words (`showLabel`); everywhere else the control is an
+ * icon with its name in a {@link Caption} above it, the way the Dock names an
+ * icon under the pointer, so the call's controls are icon-only without being
+ * unlabelled and the pill is one width whatever the pointer is doing.
  *
- * **`active` and `pressed` are two props because they are two different
- * claims.** `active` is a look: the demo reel draws a control as though a
- * pointer were on it, and a highlight staged for a recording is not a state the
- * control is in. `pressed` is the control's own on or off, which is a state,
- * and reporting a highlight as one would tell a reader that Talk is switched on
- * because a clip wanted it lit.
+ * **The caption is `:hover`, deliberately, and this is the one place on the
+ * surface where that is not a matter of taste.** The host's window is
+ * click-through, so the page derives its own hover by hit-testing coordinates
+ * against the pill on every forwarded mouse-move rather than trusting
+ * `mouseenter` (`companion-surface-page.tsx`). A per-control reveal driven off
+ * React's mouse events would be betting on the events that page does not
+ * receive. The held-down background on this very button runs on `:hover`, so
+ * a caption on the same mechanism works exactly where the rest of the control
+ * does.
  *
- * `pressed` draws the same held-down look, so the state a looking user reads
- * off the background and the state a reader is told cannot come apart.
+ * **The caption escapes the row's clipping by having a different containing
+ * block.** The row hides its overflow so nothing is drawn past the pill while
+ * the width catches up with the content, and a caption standing above the row
+ * is exactly that overflow. Overflow clips only what the clipping box
+ * contains, so the caption is positioned against the row's parent instead:
+ * this button is not positioned and neither is the row, and with no offsets
+ * of its own the caption takes its static position, which for the child of a
+ * flex container is where it would sit as the sole item. `justify-center` and
+ * `items-center` put that on the control's centre, and from there the caption
+ * lifts by {@link CONTROL_CAPTION_LIFT}. Nothing measures anything.
+ *
+ * `pressed` is the control's own on or off, which is a state: a button
+ * reporting a state it does not have is one assistive technology describes
+ * wrongly, so it is undefined for everything that does not toggle, which is
+ * most of this surface. Where it is set it draws the held-down look as well,
+ * so the state a looking user reads off the background and the state a reader
+ * is told cannot come apart.
  */
 function PillButton({
   icon,
   label,
   tone,
   showLabel = false,
-  revealLabel = false,
-  active = false,
   pressed,
   onClick,
 }: {
@@ -1739,66 +2235,22 @@ function PillButton({
   label: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
-  /**
-   * Draw the label while the pointer is on this control, and not otherwise.
-   *
-   * **CSS, deliberately, and this is the one place on the surface where that is
-   * not a matter of taste.** The host's window is click-through, so the page
-   * derives its own hover by hit-testing coordinates against the pill on every
-   * forwarded mouse-move rather than trusting `mouseenter`
-   * (`companion-surface-page.tsx`). A per-control reveal driven off React's
-   * mouse events would be betting on the events that page does not receive.
-   * The held-down background on this very button runs on
-   * `:hover`, so a reveal on the same mechanism works exactly where the rest of
-   * the control does.
-   *
-   * The pill measures its own contents, so a label appearing resizes this row
-   * and the surface grows to fit it on its own. Nothing here has to say how
-   * wide the word is.
-   */
-  revealLabel?: boolean;
-  /** Drawn as though the pointer were on it. A look, not a state. */
-  active?: boolean;
-  /**
-   * On or off, for a control that genuinely toggles.
-   *
-   * Undefined for everything that does not, which is most of this surface: a
-   * button reporting a state it does not have is one assistive technology
-   * describes wrongly. Where it is set it carries the whole of that state to a
-   * reader, since the ring and the held-down background are both things only a
-   * looking user gets.
-   */
   pressed?: boolean;
   onClick?: () => void;
 }) {
-  /**
-   * A revealed label held open with no pointer in the room.
-   *
-   * Both cases are ones where the word has to be readable without a hand on the
-   * control. `active` is the demo reel pointing at a control, and a control
-   * pointed at in a recording nobody can hover is one whose name has to be
-   * drawn. `pressed` is a control holding a session open, and the row's job
-   * then is to say which press ends it, which it cannot do as an icon the user
-   * would have to go looking under.
-   */
-  const pinned = active || pressed === true;
   return (
     <button
       type="button"
       aria-label={label}
       aria-pressed={pressed}
-      // Only where the word is nowhere else. A tooltip over a control that
-      // reveals its own label on the same hover is the same word twice, a
-      // second later and a few pixels away.
-      title={showLabel || revealLabel ? undefined : label}
       onClick={onClick}
       // A press on a control is not the start of a drag. Without this the
       // surface would move under a click meant to activate something on it.
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
-        pinned ? "bg-white/15" : ""
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
+        pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"
           ? "text-[#ff6b6b]"
@@ -1808,18 +2260,18 @@ function PillButton({
       }`}
     >
       {icon}
-      {showLabel && <span>{label}</span>}
-      {revealLabel && (
-        // `data-label` is the reveal's contract, and it is here because the
+      {showLabel ? (
+        <span>{label}</span>
+      ) : (
+        // `data-label` is the caption's contract, and it is here because the
         // behaviour itself is a stylesheet: a test running without Tailwind
         // sees a span either way, so the attribute is the only honest way to
         // hold that this word is hidden until the pointer arrives.
-        <span
-          data-label={pinned ? "pinned" : "hover"}
-          className={pinned ? "" : "hidden group-hover:inline"}
-        >
-          {label}
-        </span>
+        <Caption
+          label={label}
+          className={`opacity-0 group-hover:opacity-100 ${CONTROL_CAPTION_LIFT}`}
+          data-label="hover"
+        />
       )}
     </button>
   );

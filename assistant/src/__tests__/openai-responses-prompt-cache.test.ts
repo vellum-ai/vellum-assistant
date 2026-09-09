@@ -1,9 +1,10 @@
 /**
  * Prompt caching on the OpenAI Responses transport: request-wide
- * `prompt_cache_key` emission for every direct-API model (routing affinity for
- * implicit-mode models, opt-in explicit mode for breakpoint-capable ones),
- * explicit `prompt_cache_options` and block-level `prompt_cache_breakpoint`
- * anchor placement for GPT-5.6+ (turn-start / previous-turn / advancing tail,
+ * `prompt_cache_key` emission for every Responses model (routing affinity for
+ * implicit-mode models, including the Codex subscription endpoint; opt-in
+ * explicit mode for breakpoint-capable direct-API models), explicit
+ * `prompt_cache_options` and block-level `prompt_cache_breakpoint` anchor
+ * placement for GPT-5.6+ (turn-start / previous-turn / advancing tail,
  * mirroring the Anthropic client), the `disableCache`
  * explicit-mode-with-zero-markers opt-out, and the unflagged-model and Codex
  * regression guards.
@@ -389,17 +390,50 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(breakpointedItemIndexes()).toEqual([0]);
   });
 
-  test("codex subscription endpoint gets no cache params", async () => {
+  test("codex subscription endpoint sends prompt_cache_key but no explicit-mode params", async () => {
     const provider = makeProvider("gpt-5.6-sol", true);
     await provider.sendMessage([userMsg("hi")], {
       config: { promptCacheKey: "conv-1" },
     });
 
+    // Codex uses implicit prefix caching. The key is a supported routing
+    // field (same as the official Codex client); prompt_cache_options,
+    // breakpoints, and prompt_cache_retention are not.
+    expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
     expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
-    expect(lastStreamParams?.prompt_cache_key).toBeUndefined();
+    expect(lastStreamParams?.prompt_cache_retention).toBeUndefined();
     expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
       "prompt_cache_breakpoint",
     );
+  });
+
+  test("codex subscription endpoint keeps prompt_cache_key stable across append-only turns", async () => {
+    const provider = makeProvider("gpt-5.6-sol", true);
+    await provider.sendMessage([userMsg("hi")], {
+      config: { promptCacheKey: "conv-1" },
+    });
+    expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
+
+    await provider.sendMessage(
+      [userMsg("hi"), assistantMsg("ok"), userMsg("again")],
+      { config: { promptCacheKey: "conv-1" } },
+    );
+
+    expect(lastStreamParams?.prompt_cache_key).toBe("conv-1");
+    expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
+    expect(lastStreamParams?.prompt_cache_retention).toBeUndefined();
+    expect(JSON.stringify(lastStreamParams?.input)).not.toContain(
+      "prompt_cache_breakpoint",
+    );
+  });
+
+  test("codex subscription endpoint omits prompt_cache_key when absent", async () => {
+    const provider = makeProvider("gpt-5.6-sol", true);
+    await provider.sendMessage([userMsg("hi")]);
+
+    expect(lastStreamParams?.prompt_cache_key).toBeUndefined();
+    expect(lastStreamParams?.prompt_cache_options).toBeUndefined();
+    expect(lastStreamParams?.prompt_cache_retention).toBeUndefined();
   });
 
   test("never mutates the caller's messages", async () => {
@@ -412,12 +446,17 @@ describe("OpenAIResponsesProvider explicit prompt caching (GPT-5.6+)", () => {
     expect(JSON.stringify(messages)).not.toContain("prompt_cache_breakpoint");
   });
 
-  test("catalog flags exactly the GPT-5.6 direct-openai rows", () => {
+  test("catalog flags GPT-5.6 and GPT-6 Astra direct-openai rows", () => {
     const openai = PROVIDER_CATALOG.find((p) => p.id === "openai");
     const flagged = (openai?.models ?? [])
       .filter((m) => m.supportsPromptCacheBreakpoints)
       .map((m) => m.id)
       .sort();
-    expect(flagged).toEqual(["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"]);
+    expect(flagged).toEqual([
+      "gpt-5.6-luna",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-6-astra",
+    ]);
   });
 });

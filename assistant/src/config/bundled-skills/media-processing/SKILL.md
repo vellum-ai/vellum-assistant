@@ -25,7 +25,7 @@ The processing pipeline follows a sequential 3-phase flow:
 
 1. **Ingest** (`ingest_media`) - Register a media file, detect MIME type, extract duration, deduplicate by content hash.
 2. **Preprocess** (`extract_keyframes`) - Detect dead time, segment the video into windows, extract downscaled keyframes, build a subject registry, and write a pipeline manifest.
-3. **Map** (`analyze_keyframes`) - Send each segment's frames to Gemini 2.5 Flash with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability, and automatic retries.
+3. **Map** (`analyze_keyframes`) - Send each segment's frames to the configured Gemini vision model with assistant-provided extraction instructions and a JSON Schema for guaranteed structured output. Supports concurrency pooling, cost tracking, resumability, and automatic retries.
 4. **Reduce / Query** (`query_media`) - Send all map output to Claude for intelligent analysis and Q&A. Supports arbitrary natural language queries about video content.
 5. **Clip** (`generate_clip`) - Extract video clips around specific moments.
 
@@ -85,7 +85,7 @@ Parameters:
 - `asset_id` (required) - ID of the media asset.
 - `query` (required) - Natural language query about the video data.
 - `system_prompt` - Optional system prompt for Claude.
-- `model` - LLM model to use (default: `claude-sonnet-4-6`).
+- `model` - LLM model to use. Defaults to the assistant's active chat model.
 
 ### generate_clip
 
@@ -110,7 +110,7 @@ Handles dead-time detection, video segmentation, keyframe extraction, and subjec
 
 ### Gemini Map (services/gemini-map.ts)
 
-Sends video segments to Gemini 2.5 Flash with structured output schemas. Handles concurrency pooling, cost tracking, resumability, and retries.
+Sends video segments to the configured Gemini vision model with structured output schemas. Handles concurrency pooling, cost tracking, resumability, and retries.
 
 ### Reduce (services/reduce.ts)
 

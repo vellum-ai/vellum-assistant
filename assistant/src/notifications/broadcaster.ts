@@ -11,6 +11,7 @@
 
 import { v4 as uuid } from "uuid";
 
+import { isChannelId } from "../channels/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import type { ApprovalUIMetadata } from "../runtime/channel-approval-types.js";
@@ -21,11 +22,13 @@ import {
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import { isGuardianSensitiveEvent } from "./adapters/macos.js";
+import { resolveMessageText } from "./adapters/shared.js";
 import {
   pairDeliveryWithConversation,
   type PairingResult,
 } from "./conversation-pairing.js";
 import { composeFallbackCopy } from "./copy-composer.js";
+import { recordDeliveredChannelPost } from "./delivered-post-record.js";
 import {
   createDelivery,
   findDeliveryByDecisionAndChannel,
@@ -825,6 +828,52 @@ export class NotificationBroadcaster {
   }
 
   /**
+   * Record a channel delivery the adapter just acknowledged as an assistant
+   * row in the chat's home conversation, and return that row's id.
+   *
+   * Only for channel deliveries (`continue_existing_conversation`, the
+   * strategy every external channel adapter has): pairing resolved the home
+   * conversation before the send and wrote no row, so this is the one write.
+   * Vellum and platform deliveries keep their own pairing rows. Returns
+   * undefined when there is nothing to record (no home, no chat, no provider
+   * id) and when the write fails: the post is already on the channel, so a
+   * lost row is logged rather than turning the delivery into a failure.
+   */
+  private async recordDeliveredPost(
+    dispatch: PendingChannelDispatch,
+    signal: NotificationSignal,
+    providerMessageId: string | undefined,
+  ): Promise<string | undefined> {
+    const { channel, destination, payload, pairing } = dispatch;
+    const externalChatId = destination.bindingContext?.externalChatId;
+    if (
+      !providerMessageId ||
+      pairing.strategy !== "continue_existing_conversation" ||
+      !pairing.conversationId ||
+      !externalChatId ||
+      !isChannelId(channel)
+    ) {
+      return undefined;
+    }
+    try {
+      const recorded = await recordDeliveredChannelPost({
+        conversationId: pairing.conversationId,
+        channel,
+        externalChatId,
+        text: resolveMessageText(payload),
+        providerMessageId,
+      });
+      return recorded.messageId;
+    } catch (err) {
+      log.warn(
+        { err, channel, signalId: signal.signalId, providerMessageId },
+        "Failed to record a delivered notification as a conversation row; the send itself succeeded",
+      );
+      return undefined;
+    }
+  }
+
+  /**
    * Dispatch a prepared payload through its channel adapter and record the
    * outcome (delivery row status + results entry). Returns the adapter's
    * result, or null when the send threw. The recorded result tracks what the
@@ -856,14 +905,28 @@ export class NotificationBroadcaster {
         // through conversation pairing instead.
         const resolvedMessageId =
           adapterResult.messageId ?? pairing.messageId ?? undefined;
+        // A channel delivery becomes a conversation row only now, with the
+        // id the channel assigned: pairing resolved the chat's home
+        // conversation before the send and wrote nothing there. A failed
+        // send therefore leaves no row anywhere.
+        const canonicalMessageId = await this.recordDeliveredPost(
+          dispatch,
+          signal,
+          adapterResult.messageId,
+        );
         if (hasPersistedDecision) {
           try {
             updateDeliveryStatus(
               deliveryId,
               "sent",
               undefined,
-              adapterResult.messageId
-                ? { messageId: adapterResult.messageId }
+              adapterResult.messageId || canonicalMessageId
+                ? {
+                    ...(adapterResult.messageId
+                      ? { messageId: adapterResult.messageId }
+                      : {}),
+                    ...(canonicalMessageId ? { canonicalMessageId } : {}),
+                  }
                 : undefined,
             );
           } catch (statusErr) {

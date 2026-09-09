@@ -1695,13 +1695,16 @@ export class ContactStore {
    * and left to reconciliation, same soft-fail pattern as info reads
    * throughout the contacts gateway.
    *
-   * Returns the survivor contact with channels + info, or throws if either
-   * contact is not found in the gateway DB.
+   * Returns the survivor contact with channels + info, plus whether the mirror
+   * op landed: a merge that committed gateway-side without it left the donor's
+   * notes on an orphaned assistant row instead of combining them, which the
+   * caller has to report. Throws if either contact is not found in the gateway
+   * DB.
    */
   async mergeContacts(
     keepId: string,
     mergeId: string,
-  ): Promise<ContactWithInfo | null> {
+  ): Promise<{ contact: ContactWithInfo | null; mirrored: boolean }> {
     if (keepId === mergeId) {
       throw new MergeContactsError("Cannot merge a contact with itself");
     }
@@ -1775,14 +1778,15 @@ export class ContactStore {
       tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
     });
 
+    let mirrored = false;
     // Best-effort mirror: one transactional daemon op (notes concat + channel
     // reparent + donor delete), so partial application is impossible and no
     // compensation is needed — a failed mirror leaves a stale donor for
-    // reconciliation. The user_file slug is resolved here because its
-    // principal-sibling reuse needs the gateway DB; the daemon uses it only
-    // for the dual-write-gap INSERT of a survivor missing from the mirror,
-    // so a resolution failure degrades to undefined (null user_file on that
-    // rare INSERT) rather than skipping the merge op.
+    // reconciliation, reported through the returned flag. The user_file slug is
+    // resolved here because its principal-sibling reuse needs the gateway DB;
+    // the daemon uses it only for the dual-write-gap INSERT of a survivor
+    // missing from the mirror, so a resolution failure degrades to undefined
+    // (null user_file on that rare INSERT) rather than skipping the merge op.
     try {
       let resolvedUserFile: string | undefined;
       try {
@@ -1804,6 +1808,7 @@ export class ContactStore {
           resolvedUserFile,
         },
       });
+      mirrored = true;
     } catch (err) {
       // Unknown method = old daemon without the typed op: the donor is already
       // gone gateway-side but stays alive in the mirror, with no fallback —
@@ -1822,7 +1827,7 @@ export class ContactStore {
     }
 
     // Read back the survivor with info join.
-    return this.getContactWithInfo(keepId);
+    return { contact: await this.getContactWithInfo(keepId), mirrored };
   }
 
   // ---------------------------------------------------------------------------

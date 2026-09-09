@@ -32,6 +32,8 @@ Reading, searching, or summarizing the user's inbox is a **messaging task** — 
 
 When a platform is connected (auth test succeeds), always use the messaging API tools for that platform. Never fall back to browser automation, shell commands (bash, curl), or any other approach for operations that messaging tools can handle. The messaging tools handle authentication internally - never try to access tokens or call APIs directly. Browser automation is only appropriate for initial credential setup (OAuth consent screens), not for day-to-day messaging operations.
 
+On Gmail and Outlook, `messaging_send` creates a real mailbox draft for review. It does not send. Recipients are optional on Outlook: if the user has not named a To address, still create the draft (use a non-email `conversation_id` such as `drafts`) and tell them only after the tool returns a draft ID. If draft creation fails or is interrupted, say so and offer the email copy in chat. Do not claim a draft exists until the tool succeeds.
+
 **Exception: Slack.** Slack messaging should use the Slack Web API directly via CLI, not messaging tools. See the **slack** skill for details.
 
 ## Connection Setup

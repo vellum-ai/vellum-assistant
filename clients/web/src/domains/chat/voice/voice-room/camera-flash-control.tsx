@@ -17,6 +17,11 @@
  * viewBox it is drawn on, the 2-unit stroke it is drawn with, and the 20px it
  * renders at, which is the size every other glyph in the control row takes.
  *
+ * Live runs the same button on two of the three states, since what it drives
+ * there is a lamp: {@link liveFlashMode} maps the stored preference onto the
+ * pair and {@link nextLiveFlashMode} walks it, while the caller names the
+ * result as a light rather than as a flash.
+ *
  * Presentational only. The caller owns the mode, what a press does, and the
  * accessible name. Leftover props land on the button, which is what lets a
  * `Tooltip` wrap it.
@@ -40,6 +45,26 @@ const FLASH_CYCLE: Record<FlashMode, FlashMode> = {
 /** The mode a press on `current` selects. */
 export function nextFlashMode(current: FlashMode): FlashMode {
   return FLASH_CYCLE[current];
+}
+
+/** The two states a lamp has, as a subset of the modes the flash cycles. */
+export type LiveFlashMode = Extract<FlashMode, "off" | "on">;
+
+/**
+ * The mode this control stands for while Live runs.
+ *
+ * Live holds a lamp on rather than firing a flash for a photo, and a lamp has
+ * no "when the scene is dark enough" state, so a stored `auto` reads as off.
+ * The preference behind it is not rewritten: photo mode opens on whatever the
+ * user set there.
+ */
+export function liveFlashMode(current: FlashMode): LiveFlashMode {
+  return current === "on" ? "on" : "off";
+}
+
+/** The mode a press selects while Live runs: two states, no auto between them. */
+export function nextLiveFlashMode(current: FlashMode): LiveFlashMode {
+  return liveFlashMode(current) === "on" ? "off" : "on";
 }
 
 export interface CameraFlashControlProps extends Omit<

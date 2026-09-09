@@ -3,7 +3,13 @@
  *
  * These tests assert the v3 orchestration engine and the live injector:
  *   - {@link observeTurn} runs orchestration and selection rows land in
- *     `memory_v3_selections` with the new lane source tags;
+ *     `memory_v3_selections` with the new lane source tags, while the turn's
+ *     full candidate pool and verdict land in one `memory_v3_pools` row that
+ *     the turn-end backfill stamps alongside the selections, touching only
+ *     that turn's rows;
+ *   - a turn observed again replaces its selection rows and its pool row as
+ *     one transaction, so both describe the latest observation, and a failed
+ *     pool write leaves the earlier observation's rows in place in both;
  *   - {@link observeTurn} is skipped when global memory is disabled;
  *   - live on → the injector returns the rendered `<memory>` block;
  *   - an empty selection under live → `null`;
@@ -31,14 +37,18 @@ import { setConfig } from "../../../../../__tests__/helpers/set-config.js";
 import { ESCALATION_CONTINUATION_CONTENT } from "../../../../../calls/voice-triage-escalate.js";
 import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { ensureMemoryV3SelectionsSchema } from "../../../../../persistence/migrations/338-move-memory-v3-selections-to-memory-db.js";
-import { ensureMemoryV3EverInjectedSchema } from "../../../../../persistence/migrations/345-move-memory-v3-ever-injected-to-memory-db.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import {
+  ensureMemoryV3InjectedSectionsSchema,
+  ensureMemoryV3PoolsSchema,
+} from "../plugin-schema.js";
 import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type MemoryRoutingTurn,
+  type Section,
   type SectionIndex,
   type SelectionSource,
 } from "../types.js";
@@ -60,7 +70,6 @@ const realEdge = { ...(await import("../edge.js")) };
 const realSectionDenseStore = {
   ...(await import("../section-dense-store.js")),
 };
-const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
@@ -79,6 +88,9 @@ const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
 const realLanesVersionStore = {
   ...(await import("../lanes-version-store.js")),
+};
+const realJobsStore = {
+  ...(await import("../../../../../persistence/jobs-store.js")),
 };
 
 let shadowMockActive = false;
@@ -107,6 +119,9 @@ let selectorEnabledCfg = false;
 // Mutable `memory.v3.gate.enabled` config kill-switch carried by the mocked
 // config (default on, mirroring the schema default).
 let gateEnabledCfg = true;
+// Mutable `memory.v3.rareTerm.enabled` switch carried by the mocked config
+// (default on, mirroring the schema default).
+let rareTermEnabledCfg = true;
 let messages: Array<{
   role: string;
   content: string;
@@ -126,39 +141,55 @@ const CAPABILITY_CONTENT = "use the kumquat skill to do the thing";
 
 // The orchestrate result the spy returns. `lanes` records where each pooled
 // slug lived: page-core in the core lane, page-hot in the hot lane, page-fresh
-// in the fresh lane, and the finder entries page-1 → "needle", page-2 → "dense",
-// page-3 → "edge";
-// `attributeSelections` reads it directly. `matchedSections` carries the
-// matched section for the slugs that had one (page-1/page-2) — consumed by the
-// live injector's progressive disclosure, independent of source attribution.
+// in the fresh lane, the always-candidate skill in the always lane (pooled but
+// NOT selected, so the pool record carries an unchosen entry), and the finder
+// entries page-1 → "needle", page-2 → "dense", page-3 → "edge";
+// `attributeSelections` reads it directly. The finder lines for page-1 and
+// page-2 carry a matched section, which their selections carry too (consumed
+// by the live injector, independent of source attribution).
+const PAGE_1_LEAD: Section = {
+  article: "page-1",
+  title: "",
+  text: "x",
+  ordinal: 0,
+};
+const PAGE_2_LEAD: Section = {
+  article: "page-2",
+  title: "",
+  text: "y",
+  ordinal: 0,
+};
 const orchestrateSpy = mock(
   async (): Promise<OrchestrateResult> => ({
     selections: [
-      { slug: "page-core", pinned: false },
-      { slug: "page-hot", pinned: false },
-      { slug: "page-fresh", pinned: false },
-      { slug: "page-1", pinned: true },
-      { slug: "page-2", pinned: false },
-      { slug: "page-3", pinned: false },
-      { slug: "page-4", pinned: false },
-      { slug: "page-5", pinned: false },
+      { slug: "page-core", sections: [] },
+      { slug: "page-hot", sections: [] },
+      { slug: "page-fresh", sections: [] },
+      { slug: "page-1", sections: [PAGE_1_LEAD] },
+      { slug: "page-2", sections: [PAGE_2_LEAD] },
+      { slug: "page-3", sections: [] },
+      { slug: "page-4", sections: [] },
+      { slug: "page-5", sections: [] },
     ],
-    matchedSections: new Map([
-      ["page-1", { article: "page-1", title: "", text: "x", ordinal: 0 }],
-      ["page-2", { article: "page-2", title: "", text: "y", ordinal: 0 }],
-    ]),
     lanes: {
       core: ["page-core"],
       hot: ["page-hot"],
       fresh: ["page-fresh"],
+      always: [CAPABILITY_SLUG],
       finder: [
-        { slug: "page-1", descriptor: "", lane: "needle" },
-        { slug: "page-2", descriptor: "", lane: "dense" },
+        {
+          slug: "page-1",
+          section: PAGE_1_LEAD,
+          descriptor: "",
+          lane: "needle",
+        },
+        { slug: "page-2", section: PAGE_2_LEAD, descriptor: "", lane: "dense" },
         { slug: "page-3", descriptor: "", lane: "edge" },
         { slug: "page-4", descriptor: "", lane: "reply" },
         { slug: "page-5", descriptor: "", lane: "learned" },
       ],
     },
+    selectorRan: true,
   }),
 );
 
@@ -168,6 +199,12 @@ let edgeBuilds = 0;
 let learnedGraphBuilds = 0;
 let ensureCollectionCalls = 0;
 let ensureCollectionThrows = false;
+// What the section store's chunker rebuild hold reports at lane init: true
+// mirrors a hold this init started, which the lane answers by enqueuing the
+// rebuild. `enqueuedJobs` records the job types the mocked store enqueued.
+let holdDenseReadsSlot = false;
+let enqueueThrows = false;
+const enqueuedJobs: string[] = [];
 
 // Stable-prefix lane inputs, driven per test: what the curated core file
 // yields and what the frecency hot set computes. `hotSetOpts` captures the
@@ -184,7 +221,7 @@ let hotSetOpts: HotSetOptions | null = null;
 let capturedPageBody: ((slug: string) => Promise<string>) | null = null;
 
 // Shared in-memory DBs so writes are observable from the test. The selection
-// and everInjected rows live on the dedicated memory connection (`memorySqlite`,
+// and injected-section rows live on the dedicated memory connection (`memorySqlite`,
 // resolved through the stubbed `getMemorySqlite`).
 let testSqlite: Database;
 let memorySqlite: Database;
@@ -199,7 +236,9 @@ function makeDb() {
   memorySqlite = new Database(":memory:");
   ensureMemoryV3SelectionsSchema(memorySqlite);
   // The live injector's net-new dedup reads/writes the everInjected store.
-  ensureMemoryV3EverInjectedSchema(memorySqlite);
+  ensureMemoryV3InjectedSectionsSchema(memorySqlite);
+  // `observeTurn` records each turn's candidate pool next to its selections.
+  ensureMemoryV3PoolsSchema(memorySqlite);
   return db;
 }
 
@@ -234,7 +273,6 @@ function seedMemoryConfig(): void {
       live: liveEnabled,
       hotSet: { k: 8, halfLifeDays: 14 },
       freshSet: { k: 8 },
-      spotlight: { n: 6, windowTurns: 2 },
       needleK: 12,
       denseK: 0,
       replyQueryK: 0,
@@ -249,6 +287,13 @@ function seedMemoryConfig(): void {
       },
       edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
       entity: { enabled: true, idfFloor: 4, cap: 8 },
+      rareTerm: {
+        enabled: rareTermEnabledCfg,
+        maxDf: 12,
+        maxDfFraction: 0.002,
+        perTerm: 2,
+        cap: 24,
+      },
       // Gate tuning (schema defaults) with the mutable `enabled` kill-switch,
       // threaded through to orchestrate as-is.
       gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
@@ -374,9 +419,9 @@ mock.module("../../../../../util/platform.js", () => ({
 
 // Capability stores: `renderCapabilityBody` (reached from `initLanes`' pageBody)
 // and `renderCapabilityContent` (the live injector's short form) resolve
-// synthetic slugs through these. Spread the real module so the prefix
-// predicates (`isSkillSlug`/`isCliCommandSlug`) stay intact; override only the
-// content lookup so the capability slug resolves.
+// synthetic slugs through these. Spread the real module so its other exports
+// stay intact; override only the content lookup so the capability slug
+// resolves.
 mock.module("../../substrate/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
@@ -463,7 +508,40 @@ mock.module("../section-dense-store.js", () => ({
       throw new Error("qdrant unavailable");
     }
   },
+  holdSectionDenseReadsUntilRebuilt: async (onRebuildPending?: () => void) => {
+    if (!shadowMockActive) {
+      return realSectionDenseStore.holdSectionDenseReadsUntilRebuilt(
+        onRebuildPending,
+      );
+    }
+    // The store kicks the rebuild through the callback lane init registers.
+    if (holdDenseReadsSlot) {
+      onRebuildPending?.();
+    }
+    return holdDenseReadsSlot;
+  },
 }));
+
+mock.module("../../../../../persistence/jobs-store.js", () => ({
+  ...realJobsStore,
+  enqueueMemoryJob: (
+    ...args: Parameters<typeof realJobsStore.enqueueMemoryJob>
+  ) => {
+    if (!shadowMockActive) {
+      return realJobsStore.enqueueMemoryJob(...args);
+    }
+    if (enqueueThrows) {
+      throw new Error("memory_jobs unavailable");
+    }
+    enqueuedJobs.push(args[0]);
+    return `job-${enqueuedJobs.length}`;
+  },
+}));
+
+// Captured after the substrate mocks above: orchestrate reaches
+// `capabilities.ts`, whose default resolvers bind the skill and CLI stores
+// at evaluation, so an earlier import would bind the real stores.
+const realOrchestrate = { ...(await import("../orchestrate.js")) };
 
 mock.module("../orchestrate.js", () => ({
   ...realOrchestrate,
@@ -502,12 +580,14 @@ const {
   resetShadowLanesForTests,
   invalidateLanes,
   attributeSelections,
-  writeSelections,
+  writeTurnLog,
   backfillMemoryV3SelectionMessageId,
 } = await import("../shadow-plugin.js");
 const { memoryV3Injector, resetMemoryV3InjectorStateForTests } =
   await import("../injector.js");
 const { MemoryV3RetrievalUnavailableError } = await import("../pool-select.js");
+const { buildPoolRecord, readPoolForMessageIds } =
+  await import("../pool-log-store.js");
 
 /** Seed the real config from the current mutable knobs, then run the real
  *  `observeTurn` — mirrors how each test sets its knobs immediately before
@@ -523,10 +603,58 @@ afterAll(() => {
 
 function readRows() {
   return memorySqlite
+    .query(`SELECT slug, source FROM memory_v3_selections ORDER BY slug`)
+    .all() as Array<{ slug: string; source: SelectionSource }>;
+}
+
+function readPools() {
+  return memorySqlite
     .query(
-      `SELECT slug, source, pinned FROM memory_v3_selections ORDER BY slug`,
+      `SELECT conversation_id, turn, message_id, pool_size, selected_count,
+              selector_ran, candidates_json
+       FROM memory_v3_pools ORDER BY turn`,
     )
-    .all() as Array<{ slug: string; source: SelectionSource; pinned: number }>;
+    .all() as Array<{
+    conversation_id: string;
+    turn: number;
+    message_id: string | null;
+    pool_size: number;
+    selected_count: number;
+    selector_ran: number;
+    candidates_json: string;
+  }>;
+}
+
+/** The `chosen` verdict per pooled slug, read from the single pool row. */
+function chosenBySlug(): Record<string, boolean> {
+  const pools = readPools();
+  expect(pools).toHaveLength(1);
+  const candidates = JSON.parse(pools[0]!.candidates_json) as Array<{
+    slug: string;
+    chosen: boolean;
+  }>;
+  return Object.fromEntries(candidates.map((c) => [c.slug, c.chosen]));
+}
+
+/** An orchestrate result over a fixed three-page finder pool (page-1 via the
+ *  needle lane, page-2 via dense, page-3 via edge) whose selector kept exactly
+ *  `kept`. */
+function poolOf(kept: string[]): OrchestrateResult {
+  return {
+    selections: kept.map((slug) => ({ slug, sections: [] })),
+    lanes: {
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [
+        { slug: "page-1", descriptor: "", lane: "needle" },
+        { slug: "page-2", descriptor: "", lane: "dense" },
+        { slug: "page-3", descriptor: "", lane: "edge" },
+      ],
+    },
+    selectorRan: true,
+  };
 }
 
 beforeEach(() => {
@@ -538,6 +666,7 @@ beforeEach(() => {
   extraRealConceptPages = 0;
   selectorEnabledCfg = false;
   gateEnabledCfg = true;
+  rareTermEnabledCfg = true;
   messages = [
     {
       role: "user",
@@ -551,6 +680,9 @@ beforeEach(() => {
   learnedGraphBuilds = 0;
   ensureCollectionCalls = 0;
   ensureCollectionThrows = false;
+  holdDenseReadsSlot = false;
+  enqueueThrows = false;
+  enqueuedJobs.length = 0;
   capturedPageBody = null;
   coreSetSlugs = [];
   hotSetResult = [];
@@ -575,7 +707,7 @@ async function produce(conversationId: string, turnIndex: number) {
     requestId: "r1",
     conversationId,
     turnIndex,
-    // v3 cards are personal memory, so the injector only produces for an actor
+    // v3 sections are personal memory, so the injector only produces for an actor
     // allowed to see them. These cases are about the commit hook, not the gate.
     trust: { trustClass: "guardian", sourceChannel: "vellum" } as never,
   });
@@ -597,26 +729,61 @@ describe("memory-v3 engine", () => {
     expect(readRows()).toHaveLength(0);
   });
 
-  test("selection writes and the message-id backfill no-op when the memory database is unavailable", () => {
+  test("the turn-log write and the message-id backfill no-op when the memory database is unavailable", () => {
     memoryDbAvailable = false;
+    const result = poolOf(["page-1"]);
     expect(() =>
-      writeSelections("conv-1", 1, [
-        {
-          slug: "page-1",
-          source: "needle",
-          pinned: 0,
-          sectionOrdinal: null,
-          sectionTitle: null,
-        },
-      ]),
+      writeTurnLog(
+        "conv-1",
+        1,
+        attributeSelections(result),
+        buildPoolRecord(result),
+      ),
     ).not.toThrow();
     expect(() =>
-      backfillMemoryV3SelectionMessageId("conv-1", "m-1"),
+      backfillMemoryV3SelectionMessageId("conv-1", 1, "m-1"),
     ).not.toThrow();
 
     // Nothing landed while the connection was down.
     memoryDbAvailable = true;
     expect(readRows()).toHaveLength(0);
+    expect(readPools()).toHaveLength(0);
+  });
+
+  test("the turn log persists each row's section key, adding the column to a selections table created without it", () => {
+    // `makeDb` stands the table up as migration 338 leaves it, without
+    // `section_key`; the writer's first use of the connection adds it.
+    const result = poolOf(["page-1"]);
+    writeTurnLog(
+      "conv-1",
+      1,
+      [
+        {
+          slug: "page-1",
+          source: "needle",
+          sectionOrdinal: 3,
+          sectionTitle: "Notes",
+          sectionKey: "Notes#1",
+        },
+      ],
+      buildPoolRecord(result),
+    );
+
+    expect(
+      memorySqlite
+        .query(
+          `SELECT slug, section_ordinal, section_title, section_key
+           FROM memory_v3_selections`,
+        )
+        .all(),
+    ).toEqual([
+      {
+        slug: "page-1",
+        section_ordinal: 3,
+        section_title: "Notes",
+        section_key: "Notes#1",
+      },
+    ]);
   });
 
   test("observeTurn runs orchestration and writes rows with per-lane sources", async () => {
@@ -629,22 +796,254 @@ describe("memory-v3 engine", () => {
     // dense-only page-2 logs "dense", not "needle". The result is
     // current-turn selections only.
     expect(rows).toEqual([
-      // page-1 was surfaced by the needle lane → "needle", pinned.
-      { slug: "page-1", source: "needle", pinned: 1 },
+      // page-1 was surfaced by the needle lane → "needle".
+      { slug: "page-1", source: "needle" },
       // page-2 was surfaced by the dense lane → "dense".
-      { slug: "page-2", source: "dense", pinned: 0 },
+      { slug: "page-2", source: "dense" },
       // page-3 was surfaced by the edge lane → "edge".
-      { slug: "page-3", source: "edge", pinned: 0 },
+      { slug: "page-3", source: "edge" },
       // page-4 was first surfaced by the reply-query pass → "reply".
-      { slug: "page-4", source: "reply", pinned: 0 },
+      { slug: "page-4", source: "reply" },
       // page-5 was first surfaced by the learned-edge pass → "learned".
-      { slug: "page-5", source: "learned", pinned: 0 },
+      { slug: "page-5", source: "learned" },
       // page-core / page-hot / page-fresh sit in the stable prefix →
       // "core" / "hot" / "fresh".
-      { slug: "page-core", source: "core", pinned: 0 },
-      { slug: "page-fresh", source: "fresh", pinned: 0 },
-      { slug: "page-hot", source: "hot", pinned: 0 },
+      { slug: "page-core", source: "core" },
+      { slug: "page-fresh", source: "fresh" },
+      { slug: "page-hot", source: "hot" },
     ]);
+
+    // The same turn leaves exactly one pool row: every stable-prefix card
+    // (core, hot, fresh, always) and every finder line in pool order, each
+    // `chosen` iff the slug has a selection row above. The always-candidate
+    // skill was pooled but not selected, so it is the one unchosen entry.
+    const pools = readPools();
+    expect(pools).toHaveLength(1);
+    expect(pools[0]).toMatchObject({
+      conversation_id: "conv-1",
+      turn: 2,
+      message_id: null,
+      pool_size: 9,
+      selected_count: 8,
+      selector_ran: 1,
+    });
+    const card = (slug: string, lane: string, chosen: boolean) => ({
+      slug,
+      lane,
+      section_title: null,
+      section_key: null,
+      chosen,
+    });
+    expect(JSON.parse(pools[0]!.candidates_json)).toEqual([
+      card("page-core", "core", true),
+      card("page-hot", "hot", true),
+      card("page-fresh", "fresh", true),
+      card(CAPABILITY_SLUG, "always", false),
+      // Finder lines carry the slug's matched section when one was recorded.
+      {
+        slug: "page-1",
+        lane: "needle",
+        section_title: "",
+        section_key: "",
+        chosen: true,
+      },
+      {
+        slug: "page-2",
+        lane: "dense",
+        section_title: "",
+        section_key: "",
+        chosen: true,
+      },
+      card("page-3", "edge", true),
+      card("page-4", "reply", true),
+      card("page-5", "learned", true),
+    ]);
+  });
+
+  test("a rare-term selection persists source rare and its pool line's lane", async () => {
+    const inventory: Section = {
+      article: "page-rare",
+      title: "Inventory",
+      text: "x",
+      ordinal: 1,
+    };
+    orchestrateSpy.mockImplementationOnce(async () => ({
+      selections: [{ slug: "page-rare", sections: [inventory] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          {
+            slug: "page-rare",
+            section: inventory,
+            terms: ["turnip"],
+            descriptor: "",
+            lane: "rare",
+          },
+        ],
+      },
+      selectorRan: true,
+    }));
+
+    await observeTurn("conv-1", 2);
+
+    expect(readRows()).toEqual([{ slug: "page-rare", source: "rare" }]);
+    expect(JSON.parse(readPools()[0]!.candidates_json)).toEqual([
+      {
+        slug: "page-rare",
+        lane: "rare",
+        section_title: "Inventory",
+        section_key: "Inventory",
+        chosen: true,
+      },
+    ]);
+  });
+
+  test("the turn-end backfill stamps the message id onto the turn's selections and pool", async () => {
+    await observeTurn("conv-1", 2);
+
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-assistant");
+
+    const stamped = memorySqlite
+      .query(`SELECT DISTINCT message_id FROM memory_v3_selections`)
+      .all();
+    expect(stamped).toEqual([{ message_id: "m-assistant" }]);
+    expect(readPools().map((pool) => pool.message_id)).toEqual(["m-assistant"]);
+  });
+
+  test("the turn-end backfill leaves an earlier turn's unstamped rows alone", async () => {
+    // Turn 1 wrote its rows but never reached its backfill (the turn crashed
+    // or was cancelled), so they still carry a NULL message id when turn 2
+    // stamps its own.
+    await observeTurn("conv-1", 1);
+    await observeTurn("conv-1", 2);
+
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-turn-2");
+
+    const stamped = memorySqlite
+      .query(
+        `SELECT DISTINCT turn, message_id FROM memory_v3_selections ORDER BY turn`,
+      )
+      .all();
+    expect(stamped).toEqual([
+      { turn: 1, message_id: null },
+      { turn: 2, message_id: "m-turn-2" },
+    ]);
+    expect(readPools().map((pool) => [pool.turn, pool.message_id])).toEqual([
+      [1, null],
+      [2, "m-turn-2"],
+    ]);
+    // The inspector resolves turn 2's message to turn 2's pool, never to the
+    // stale earlier row.
+    expect(readPoolForMessageIds(["m-turn-2"])?.turn).toBe(2);
+  });
+
+  test("a closed-gate turn persists an empty pool with selector_ran = 0, not the stable prefix as rejected", async () => {
+    // The gate hard-skipped selection: the result still carries the stable
+    // lanes as computed, but the selector never saw them.
+    orchestrateSpy.mockImplementationOnce(async () => ({
+      selections: [],
+      lanes: {
+        core: ["page-core"],
+        hot: ["page-hot"],
+        fresh: ["page-fresh"],
+        always: [CAPABILITY_SLUG],
+        finder: [],
+      },
+      selectorRan: false,
+    }));
+
+    await observeTurn("conv-1", 2);
+
+    expect(readRows()).toHaveLength(0);
+    const pools = readPools();
+    expect(pools).toHaveLength(1);
+    expect(pools[0]).toMatchObject({
+      conversation_id: "conv-1",
+      turn: 2,
+      pool_size: 0,
+      selected_count: 0,
+      selector_ran: 0,
+      candidates_json: "[]",
+    });
+
+    // The pool-only turn is still stamped, so the inspector can find it.
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-skipped");
+    expect(readPools().map((pool) => pool.message_id)).toEqual(["m-skipped"]);
+  });
+
+  test("a turn observed again replaces its selection rows in step with its pool", async () => {
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-1", "page-2"]),
+    );
+    await observeTurn("conv-1", 2);
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-first");
+
+    // The same turn index is observed again (a retried turn) and the selector
+    // now keeps page-3 instead of page-1.
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-2", "page-3"]),
+    );
+    await observeTurn("conv-1", 2);
+
+    // Exactly the later observation's rows: page-1, kept only by the earlier
+    // observation, does not survive as a stale selection.
+    expect(readRows()).toEqual([
+      { slug: "page-2", source: "dense" },
+      { slug: "page-3", source: "edge" },
+    ]);
+    // The single pool row records the same verdict.
+    expect(chosenBySlug()).toEqual({
+      "page-1": false,
+      "page-2": true,
+      "page-3": true,
+    });
+    expect(readPools()[0]).toMatchObject({ turn: 2, selected_count: 2 });
+
+    // The re-observation is a fresh, unstamped turn in both tables: the
+    // earlier message id no longer resolves it, and its own turn-end backfill
+    // stamps every row.
+    expect(readPoolForMessageIds(["m-first"])).toBeNull();
+    const stampedIds = () =>
+      memorySqlite
+        .query(`SELECT DISTINCT message_id FROM memory_v3_selections`)
+        .all();
+    expect(stampedIds()).toEqual([{ message_id: null }]);
+    backfillMemoryV3SelectionMessageId("conv-1", 2, "m-second");
+    expect(stampedIds()).toEqual([{ message_id: "m-second" }]);
+    expect(readPoolForMessageIds(["m-second"])?.turn).toBe(2);
+  });
+
+  test("a failed pool write leaves the earlier observation's selections and pool in place", async () => {
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-1", "page-2"]),
+    );
+    await observeTurn("conv-1", 2);
+
+    // Refuse every pool write from here on: the re-observation's pool
+    // statement fails after its selection rows were replaced, and the
+    // transaction rolls the replacement back with it.
+    memorySqlite.run(
+      `CREATE TRIGGER refuse_pool_writes BEFORE INSERT ON memory_v3_pools
+       BEGIN SELECT RAISE(ABORT, 'pool write refused'); END`,
+    );
+    orchestrateSpy.mockImplementationOnce(async () =>
+      poolOf(["page-2", "page-3"]),
+    );
+    // The write is best-effort: the turn itself still gets its result.
+    expect(await observeTurn("conv-1", 2)).not.toBeNull();
+
+    expect(readRows()).toEqual([
+      { slug: "page-1", source: "needle" },
+      { slug: "page-2", source: "dense" },
+    ]);
+    expect(chosenBySlug()).toEqual({
+      "page-1": true,
+      "page-2": true,
+      "page-3": false,
+    });
   });
 
   test("the turn carries the tail of the previous assistant reply for the reply-query pass", async () => {
@@ -684,26 +1083,190 @@ describe("memory-v3 engine", () => {
     expect(turn.previousAssistantMessage).toBeUndefined();
   });
 
+  test("a page with lines from two lanes is attributed the lane of the line whose section was selected", () => {
+    const bulk: Section = {
+      article: "page-two",
+      title: "Bulk theme",
+      text: "page-two - Bulk theme\nthe long part",
+      ordinal: 1,
+    };
+    const inventory: Section = {
+      article: "page-two",
+      title: "Inventory",
+      text: "page-two - Inventory\nturnip",
+      ordinal: 4,
+    };
+    const lanes = {
+      core: [],
+      hot: [],
+      fresh: [],
+      always: [],
+      finder: [
+        {
+          slug: "page-two",
+          section: bulk,
+          descriptor: "",
+          lane: "needle" as const,
+        },
+        {
+          slug: "page-two",
+          section: inventory,
+          terms: ["turnip"],
+          descriptor: "",
+          lane: "rare" as const,
+        },
+      ],
+    };
+    const sourceOf = (sections: Section[]) =>
+      attributeSelections({
+        selections: [{ slug: "page-two", sections }],
+        lanes,
+        selectorRan: true,
+      })[0]!.source;
+    // Only the rare line was picked: the rare lane is credited.
+    expect(sourceOf([inventory])).toBe("rare");
+    // Only the needle line was picked.
+    expect(sourceOf([bulk])).toBe("needle");
+    // Both picked: the first selected section's line decides.
+    expect(sourceOf([inventory, bulk])).toBe("rare");
+    // No section (the page's card): the page's first line decides.
+    expect(sourceOf([])).toBe("needle");
+  });
+
   test("a selection of a core page a finder also hit attributes to core (pool position wins)", () => {
     const rows = attributeSelections({
-      selections: [{ slug: "page-core", pinned: false }],
-      matchedSections: new Map(),
+      selections: [{ slug: "page-core", sections: [] }],
       lanes: {
         core: ["page-core"],
         hot: [],
         fresh: [],
+        always: [],
         // The needle also hit the core page this turn — the row still logs
         // "core" because that is where the candidate lived in the pool.
         finder: [{ slug: "page-core", descriptor: "", lane: "needle" }],
       },
+      selectorRan: true,
     });
     expect(rows).toEqual([
       {
         slug: "page-core",
         source: "core",
-        pinned: 0,
         sectionOrdinal: null,
         sectionTitle: null,
+        sectionKey: null,
+      },
+    ]);
+  });
+
+  test("a finder hit records the matched section's key beside its title and ordinal, so a repeat of a heading keeps its occurrence", () => {
+    const repeatedNotes: Section = {
+      article: "page-1",
+      title: "Notes",
+      text: "page-1 - Notes\nsecond notes",
+      ordinal: 3,
+      occurrence: 1,
+    };
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1", sections: [repeatedNotes] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          {
+            slug: "page-1",
+            section: repeatedNotes,
+            descriptor: "",
+            lane: "needle",
+          },
+        ],
+      },
+      selectorRan: true,
+    });
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "needle",
+        sectionOrdinal: 3,
+        sectionTitle: "Notes",
+        sectionKey: "Notes#1",
+      },
+    ]);
+  });
+
+  test("a page selected on several sections logs its first selected section under the lane of that section's line", () => {
+    const details: Section = {
+      article: "page-1",
+      title: "Details",
+      text: "page-1 - Details\ndetails",
+      ordinal: 1,
+    };
+    const notes: Section = {
+      article: "page-1",
+      title: "Notes",
+      text: "page-1 - Notes\nnotes",
+      ordinal: 2,
+    };
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1", sections: [notes, details] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          { slug: "page-1", section: details, descriptor: "", lane: "needle" },
+          { slug: "page-1", section: notes, descriptor: "", lane: "span" },
+        ],
+      },
+      selectorRan: true,
+    });
+    // "Notes" was selected first and its line came from the span lane.
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "span",
+        sectionOrdinal: 2,
+        sectionTitle: "Notes",
+        sectionKey: "Notes",
+      },
+    ]);
+  });
+
+  test("a selection of a rare-term line records source rare with its section", () => {
+    const inventory: Section = {
+      article: "page-1",
+      title: "Inventory",
+      text: "x",
+      ordinal: 2,
+    };
+    const rows = attributeSelections({
+      selections: [{ slug: "page-1", sections: [inventory] }],
+      lanes: {
+        core: [],
+        hot: [],
+        fresh: [],
+        always: [],
+        finder: [
+          {
+            slug: "page-1",
+            section: inventory,
+            terms: ["turnip"],
+            descriptor: "",
+            lane: "rare",
+          },
+        ],
+      },
+      selectorRan: true,
+    });
+    expect(rows).toEqual([
+      {
+        slug: "page-1",
+        source: "rare",
+        sectionOrdinal: 2,
+        sectionTitle: "Inventory",
+        sectionKey: "Inventory",
       },
     ]);
   });
@@ -874,6 +1437,67 @@ describe("memory-v3 engine", () => {
     expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
   });
 
+  test("rareTerm enabled (default) with the selector on → threads the lane tuning into orchestrate", async () => {
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = true;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { rareTerm?: unknown };
+    expect(deps.rareTerm).toEqual({
+      enabled: true,
+      maxDf: 12,
+      maxDfFraction: 0.002,
+      perTerm: 2,
+      cap: 24,
+    });
+  });
+
+  test("rareTerm.enabled:false → the lane threads nothing even with the selector on", async () => {
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = true;
+    rareTermEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { rareTerm?: unknown };
+    expect(deps.rareTerm).toBeUndefined();
+  });
+
+  test("the lean profile's selector-off turns the rare-term lane off with it", async () => {
+    // Sparse corpus: the lean profile disables the selector, and every pooled
+    // line is injected unjudged, so rare lines (judge candidates, not
+    // evidence) stay out of the pool.
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { selectorEnabled?: boolean; rareTerm?: unknown };
+    expect(deps.selectorEnabled).toBe(false);
+    expect(deps.rareTerm).toBeUndefined();
+  });
+
+  test("rareTerm follows the configured selector per turn on an established corpus", async () => {
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+    const offDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { rareTerm?: unknown };
+    expect(offDeps.rareTerm).toBeUndefined();
+
+    // A live config edit turning the selector on brings the lane with it on
+    // the next turn, with no lane rebuild.
+    selectorEnabledCfg = true;
+    await observeTurn("conv-1", 1);
+    const onDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[1]![1] as { rareTerm?: unknown };
+    expect(onDeps.rareTerm).toBeDefined();
+  });
+
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
     // The core file lists a live page and a dangling slug; the hot set returns
     // a live page and a deleted one (selection rows can outlive their pages).
@@ -905,21 +1529,24 @@ describe("memory-v3 engine", () => {
     expect(readRows()).toHaveLength(0);
   });
 
-  test("live on → produce returns the net-new CARD block and logs", async () => {
+  test("live on → produce returns the net-new SECTION block and logs", async () => {
     liveEnabled = true;
     const block = await produce("conv-1", 0);
     expect(block).not.toBeNull();
     expect(block!.placement).toBe("after-memory-prefix");
     expect(block!.text.startsWith("<memory>\n")).toBe(true);
     expect(block!.text.endsWith("\n</memory>")).toBe(true);
-    // Turn 1: every selection is net-new and renders as a compact card —
-    // the page header plus the page's head section (the fixture body has no
-    // `## ` headings, so the whole body is the head and no TOC line renders).
-    for (const slug of ["page-core", "page-hot", "page-1", "page-2"]) {
+    // Turn 1: every selection is net-new. A page selected without a matched
+    // section renders its lead (the fixture body has no `## ` headings, so
+    // the whole body is the lead); a page with a matched section renders
+    // that section's text under its header.
+    for (const slug of ["page-core", "page-hot", "page-fresh", "page-3"]) {
       expect(block!.text).toContain(
         `# memory/concepts/${slug}.md\nbody for ${slug}`,
       );
     }
+    expect(block!.text).toContain("# memory/concepts/page-1.md\nx");
+    expect(block!.text).toContain("# memory/concepts/page-2.md\ny");
     // Selections are still logged in live mode.
     expect(readRows().length).toBeGreaterThan(0);
   });
@@ -928,7 +1555,7 @@ describe("memory-v3 engine", () => {
     liveEnabled = true;
     const first = await produce("conv-1", 0);
     expect(first!.text.length).toBeGreaterThan(0);
-    // Same orchestrate fixture on the next turn → zero net-new cards. The
+    // Same orchestrate fixture on the next turn → zero net-new sections. The
     // block is still produced (its presence keys v2 suppression downstream).
     const repeat = await produce("conv-1", 1);
     expect(repeat).not.toBeNull();
@@ -939,8 +1566,8 @@ describe("memory-v3 engine", () => {
     liveEnabled = true;
     orchestrateSpy.mockImplementationOnce(async () => ({
       selections: [],
-      matchedSections: new Map(),
-      lanes: { core: [], hot: [], fresh: [], finder: [] },
+      lanes: { core: [], hot: [], fresh: [], always: [], finder: [] },
+      selectorRan: false,
     }));
     const block = await produce("conv-1", 0);
     expect(block).toBeNull();
@@ -1132,5 +1759,33 @@ describe("memory-v3 infrastructure-failure handling", () => {
     });
 
     expect(await produce("conv-nonfatal-live", 0)).toBeNull();
+  });
+});
+
+describe("memory-v3 dense read hold at lane init", () => {
+  test("a lane init that starts the hold enqueues the maintain job at once", async () => {
+    holdDenseReadsSlot = true;
+
+    await observeTurn("conv-1", 0);
+
+    expect(enqueuedJobs).toEqual(["memory_v3_maintain"]);
+    expect(orchestrateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("a lane init with nothing to rebuild enqueues nothing", async () => {
+    await observeTurn("conv-1", 0);
+
+    expect(enqueuedJobs).toEqual([]);
+  });
+
+  test("a failed enqueue leaves the lanes up; the maintenance backstop runs the rebuild", async () => {
+    holdDenseReadsSlot = true;
+    enqueueThrows = true;
+
+    await observeTurn("conv-1", 0);
+
+    expect(enqueuedJobs).toEqual([]);
+    expect(needleBuilds).toBe(1);
+    expect(orchestrateSpy).toHaveBeenCalledTimes(1);
   });
 });

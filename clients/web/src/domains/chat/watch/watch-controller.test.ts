@@ -1,4 +1,5 @@
 import { LIVE_VOICE_AUDIO_FORMAT_PARAMS } from "@/domains/chat/voice/live-voice/protocol";
+import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
@@ -88,10 +89,13 @@ const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
+const { MIN_VERSION: TARGET_MIN_VERSION } =
+  await import("@/lib/backwards-compat/watch-capture-target");
 const { MIN_VERSION: RETRO_MIN_VERSION } =
   await import("@/lib/backwards-compat/watch-retro-completion");
 const {
   buildWatchStreamWsUrl,
+  watchStreamParams,
   isWatchSessionActive,
   resolveWatchStreamWsUrl,
   stopWatch,
@@ -214,13 +218,22 @@ let sockets: FakeWebSocket[] = [];
 let capture = createCaptureFake();
 
 /** Toggle through the fakes, so no test touches a real socket or the mic. */
-type Timeouts = { readyTimeoutMs?: number; drainTimeoutMs?: number };
+type Timeouts = {
+  readyTimeoutMs?: number;
+  drainTimeoutMs?: number;
+  target?: WatchCaptureTarget;
+};
+
+/** Every target the resolver was handed, one per dial, absence included. */
+const resolvedTargets: (WatchCaptureTarget | undefined)[] = [];
 
 const toggle = ({
   readyTimeoutMs = 50,
   drainTimeoutMs = 25,
+  target,
 }: Timeouts = {}): Promise<void> => {
   return toggleWatch({
+    ...(target === undefined ? {} : { target }),
     webSocketFactory: (url) => {
       const ws = new FakeWebSocket(url);
       sockets.push(ws);
@@ -230,9 +243,13 @@ const toggle = ({
     // Stands in for the mint alone. The self-hosted branch still runs the real
     // resolver, so the cases about a missing actor token and a paired ingress
     // exercise the rules rather than this stub's idea of them.
-    resolveWsUrl: async (assistantId: string) => {
+    resolveWsUrl: async (
+      assistantId: string,
+      dialTarget?: WatchCaptureTarget,
+    ) => {
+      resolvedTargets.push(dialTarget);
       if (ingressUrl !== null) {
-        return resolveWatchStreamWsUrl(assistantId);
+        return resolveWatchStreamWsUrl(assistantId, dialTarget);
       }
       mintCalls.push(assistantId);
       if (mintGate) {
@@ -357,9 +374,38 @@ afterEach(() => {
   useAssistantIdentityStore.getState().clearIdentity();
   activeAssistantId = null;
   assistantListeners.clear();
+  resolvedTargets.length = 0;
 });
 
 describe("the watch stream URL", () => {
+  /**
+   * The pick rides the stream as one integer parameter per shape, so the
+   * daemon reads a number and never parses a string; no pick is the URL the
+   * daemon always understood.
+   */
+  test("carries the capture target as the daemon reads it", () => {
+    expect(watchStreamParams(undefined)).toEqual(
+      LIVE_VOICE_AUDIO_FORMAT_PARAMS,
+    );
+    expect(watchStreamParams({ kind: "display", displayId: 5 })).toEqual({
+      ...LIVE_VOICE_AUDIO_FORMAT_PARAMS,
+      captureDisplayId: "5",
+    });
+    expect(watchStreamParams({ kind: "window", windowId: 4242 })).toEqual({
+      ...LIVE_VOICE_AUDIO_FORMAT_PARAMS,
+      captureWindowId: "4242",
+    });
+    const url = new URL(
+      buildWatchStreamWsUrl({
+        ingressUrl: "https://gateway.example.com",
+        token: "actor-jwt",
+        target: { kind: "window", windowId: 4242 },
+      }),
+    );
+    expect(url.searchParams.get("captureWindowId")).toBe("4242");
+    expect(url.searchParams.get("captureDisplayId")).toBeNull();
+  });
+
   test("carries the actor token and the capture's audio format", () => {
     const url = new URL(
       buildWatchStreamWsUrl({
@@ -372,6 +418,60 @@ describe("the watch stream URL", () => {
     expect(url.searchParams.get("token")).toBe("actor-jwt");
     expect(url.searchParams.get("mimeType")).toBe("audio/pcm");
     expect(url.searchParams.get("sampleRate")).toBe("16000");
+  });
+});
+
+/**
+ * What the session is told to read. The target rides the dial and is
+ * reported back beside the flag, and it is dropped before the dial on an
+ * assistant that would ignore it, so the frame drawn from the store never
+ * claims less is read than is.
+ */
+describe("the capture target of a watch session", () => {
+  const WINDOW: WatchCaptureTarget = { kind: "window", windowId: 4242 };
+
+  test("rides the dial and is reported with the flag", async () => {
+    activate("asst-1", TARGET_MIN_VERSION);
+    await startPending({ target: WINDOW });
+    expect(resolvedTargets).toEqual([WINDOW]);
+    expect(socket().url).toContain("captureWindowId=4242");
+    // Not before the runtime has answered: a target beside a false flag would
+    // be a frame around a window nothing is reading.
+    expect(useWatchStore.getState().target).toBeUndefined();
+    await serverReady();
+    expect(useWatchStore.getState()).toMatchObject({
+      watching: true,
+      target: WINDOW,
+    });
+  });
+
+  test("goes with the flag when the session ends", async () => {
+    activate("asst-1", TARGET_MIN_VERSION);
+    await startRunning({ target: WINDOW });
+    await stopAndSettle();
+    expect(useWatchStore.getState()).toMatchObject({
+      watching: false,
+      target: undefined,
+    });
+  });
+
+  test("is dropped before the dial on an assistant that would ignore it", async () => {
+    // Serves the stream, predates the parameters.
+    activate("asst-1", RETRO_MIN_VERSION);
+    await startRunning({ target: WINDOW });
+    expect(resolvedTargets).toEqual([undefined]);
+    expect(socket().url).not.toContain("captureWindowId");
+    expect(useWatchStore.getState()).toMatchObject({
+      watching: true,
+      target: undefined,
+    });
+  });
+
+  test("is nothing for a press that chose nothing", async () => {
+    activate("asst-1", TARGET_MIN_VERSION);
+    await startRunning();
+    expect(resolvedTargets).toEqual([undefined]);
+    expect(useWatchStore.getState().target).toBeUndefined();
   });
 });
 

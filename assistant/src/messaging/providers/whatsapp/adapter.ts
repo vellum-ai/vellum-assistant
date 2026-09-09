@@ -82,7 +82,12 @@ export const whatsappMessagingProvider: MessagingProvider = {
   ): Promise<SendResult> {
     const assistantId = options?.assistantId;
 
-    await whatsapp.sendMessage(conversationId, text);
+    const sent = await whatsapp.sendMessage(conversationId, text);
+    if (!sent.messageId) {
+      throw new Error(
+        "WhatsApp accepted the message but returned no message id",
+      );
+    }
 
     // Upsert external conversation binding so the conversation key mapping
     // exists for the next inbound WhatsApp message from this number.
@@ -102,8 +107,10 @@ export const whatsappMessagingProvider: MessagingProvider = {
       // Best-effort — don't fail the send if binding upsert fails
     }
 
+    // The id is the one the Cloud API assigned, so a later reaction or
+    // delete carrying that id resolves to this send.
     return {
-      id: `whatsapp-${Date.now()}`,
+      id: sent.messageId,
       timestamp: Date.now(),
       conversationId,
     };

@@ -59,7 +59,7 @@ The `memory v2` help should list at least these four: `validate`, `reembed`, `re
 assistant inference session open quality-optimized --ttl 2h
 ```
 
-If `quality-optimized` isn't a profile name on this workspace, list the available profiles and open the session against the highest-quality one (the entry pointing at a frontier model — Claude Opus, GPT-5, Gemini 2.5 Pro, etc.):
+If `quality-optimized` isn't a profile name on this workspace, list the available profiles and open the session against the one labelled highest-quality. Do not match on model name: the profile roster is per-workspace and the models behind each label change between releases.
 
 ```
 assistant config get llm.profiles

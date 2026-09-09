@@ -45,11 +45,13 @@ let nativeSourceOptions: NativeFrameSourceOptions | null = null;
 const nativeStart = mock(() => {});
 const nativeStop = mock(() => {});
 const nativeInvalidate = mock(() => {});
+const nativeSampleNow = mock(() => {});
 mock.module("@/lib/camera/native-frame-source", () => ({
   createNativeFrameSource: (options: NativeFrameSourceOptions) => {
     nativeSourceOptions = options;
     return {
       start: nativeStart,
+      sampleNow: nativeSampleNow,
       invalidate: nativeInvalidate,
       stop: nativeStop,
     };
@@ -242,6 +244,13 @@ async function keepFrame(): Promise<void> {
   await flush();
 }
 
+/** The ids the session was handed, in send order, without their timings. */
+function sentFrameIds(spies: {
+  sightFrame: { mock: { calls: unknown[][] } };
+}): unknown[] {
+  return spies.sightFrame.mock.calls.map(([id]) => id);
+}
+
 /**
  * Replace the running gate's `reset` with a spy.
  *
@@ -255,6 +264,18 @@ function watchGateReset() {
   return spy;
 }
 
+/**
+ * The same, for the one-shot arm, on whichever sampler is running.
+ *
+ * Both are handed the very gate the hook keeps, so replacing the method on the
+ * object the source was given is what the hook calls.
+ */
+function watchGateArm() {
+  const spy = mock((_nowMs: number) => {});
+  (samplerOptions ?? nativeSourceOptions)!.gate.armForcedKeep = spy;
+  return spy;
+}
+
 beforeEach(() => {
   samplerOptions = null;
   samplerStart.mockClear();
@@ -263,6 +284,7 @@ beforeEach(() => {
   nativeStart.mockClear();
   nativeStop.mockClear();
   nativeInvalidate.mockClear();
+  nativeSampleNow.mockClear();
   captureNativeVoiceCameraSample.mockClear();
   captureVideoFrame.mockClear();
   uploadChatAttachment.mockClear();
@@ -534,7 +556,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     await keepFrame();
 
     expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
     // The daemon owns a frame it was told about and reclaims it if the
     // persist fails, so nothing here may delete the row.
@@ -576,7 +598,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     });
     await flush();
 
-    expect(controls.sightFrame.mock.calls).toEqual([["att-1"], ["att-2"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-1", "att-2"]);
   });
 
   test("ignores frames the gate skipped", async () => {
@@ -602,7 +624,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
 
     await keepFrame();
 
-    expect(controls.sightFrame).toHaveBeenNthCalledWith(2, "att-2");
+    expect(sentFrameIds(controls)[1]).toBe("att-2");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
     expect(revoke).toHaveBeenCalledWith(first!.previewUrl);
     revoke.mockRestore();
@@ -616,7 +638,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
 
     await keepFrame();
 
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
     expect(view.result.current.heldFrame).toBeNull();
     // The daemon never saw this id, so nothing there will ever collect it.
     expect(deleteChatAttachment).toHaveBeenCalledWith(ASSISTANT_ID, "att-1");
@@ -652,10 +674,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.sightFrame.mock.calls).toEqual([
-      ["att-older"],
-      ["att-newer"],
-    ]);
+    expect(sentFrameIds(controls)).toEqual(["att-older", "att-newer"]);
     // The pulse follows the sends, so it settles on the newest scene.
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-newer");
     expect(deleteChatAttachment).not.toHaveBeenCalled();
@@ -714,7 +733,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.sightFrame.mock.calls).toEqual([["att-newer"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-newer"]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-newer");
   });
 
@@ -746,7 +765,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
     });
 
     // The pre-flip frame is a view of somewhere the camera is not pointing.
-    expect(controls.sightFrame.mock.calls).toEqual([["att-after-flip"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-after-flip"]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-after-flip");
     expect(deleteChatAttachment).toHaveBeenCalledWith(
       ASSISTANT_ID,
@@ -785,7 +804,7 @@ describe("useVoiceRoomSight: sharing a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(successor.sightFrame.mock.calls).toEqual([["att-new-session"]]);
+    expect(sentFrameIds(successor)).toEqual(["att-new-session"]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-new-session");
   });
 
@@ -811,12 +830,12 @@ describe("useVoiceRoomSight: sharing a keep", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
-    expect(controls.sightFrame.mock.calls).toEqual([
-      ["att-1"],
-      ["att-2"],
-      ["att-3"],
-      ["att-4"],
-      ["att-5"],
+    expect(sentFrameIds(controls)).toEqual([
+      "att-1",
+      "att-2",
+      "att-3",
+      "att-4",
+      "att-5",
     ]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-5");
 
@@ -1161,7 +1180,7 @@ describe("useVoiceRoomSight: an assistant that cannot take the frame", () => {
     // reclaim, one orphan per keep, while the room implies it is sharing.
     const { view } = renderSight();
     await keepFrame();
-    expect(controls.sightFrame).toHaveBeenCalledWith("att-1");
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
 
     act(() => {
       useLiveVoiceStore.getState().noteSightFrameRefused(true);
@@ -1369,7 +1388,7 @@ describe("useVoiceRoomSight: a keep the assistant could not persist", () => {
 
     await keepFrame();
 
-    expect(controls.sightFrame).toHaveBeenLastCalledWith("att-2");
+    expect(sentFrameIds(controls).at(-1)).toBe("att-2");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
   });
 });
@@ -1486,7 +1505,7 @@ describe("useVoiceRoomSight: transport reconnect", () => {
 
     await keepFrame();
 
-    expect(controls.sightFrame).toHaveBeenLastCalledWith("att-2");
+    expect(sentFrameIds(controls).at(-1)).toBe("att-2");
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-2");
   });
 
@@ -1523,7 +1542,7 @@ describe("useVoiceRoomSight: closing and flipping", () => {
       view.rerender({ cameraOpen: false, facing: "environment" });
     });
 
-    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
     expect(view.result.current.heldFrame).toBeNull();
     expect(revoke).toHaveBeenCalledWith(held!.previewUrl);
     expect(deleteChatAttachment).not.toHaveBeenCalled();
@@ -1566,12 +1585,12 @@ describe("useVoiceRoomSight: closing and flipping", () => {
       view.unmount();
     });
 
-    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
   });
 
   test("clears the pulse when the camera flips", async () => {
     // The frame on screen is the old camera's view, and the new camera's first
-    // keep is an exposure warmup plus a rate floor away, so leaving it up would
+    // keep is an exposure warmup and a settle away, so leaving it up would
     // show the user's own face as what the call is seeing of the room.
     const { view } = renderSight();
     await keepFrame();
@@ -1581,7 +1600,7 @@ describe("useVoiceRoomSight: closing and flipping", () => {
       view.rerender({ cameraOpen: true, facing: "user" });
     });
 
-    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
     expect(view.result.current.heldFrame).toBeNull();
     expect(reset).toHaveBeenCalledTimes(1);
     expect(deleteChatAttachment).not.toHaveBeenCalled();
@@ -1617,7 +1636,7 @@ describe("useVoiceRoomSight: closing and flipping", () => {
     });
 
     expect(successor.sightFrame).not.toHaveBeenCalled();
-    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
     expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
@@ -1660,7 +1679,7 @@ describe("useVoiceRoomSight: the native preview", () => {
     expect(new Uint8Array(await uploaded!.arrayBuffer())).toEqual(
       new Uint8Array([9, 8, 7]),
     );
-    expect(controls.sightFrame.mock.calls).toEqual([["att-1"]]);
+    expect(sentFrameIds(controls)).toEqual(["att-1"]);
     expect(view.result.current.heldFrame?.attachmentId).toBe("att-1");
     // The pulse is an object URL over those same bytes, given back by the same
     // `hold` the browser path uses.
@@ -1796,7 +1815,7 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
 
     expect(nativeInvalidate).toHaveBeenCalledTimes(1);
     // Told, not restarted: the replacement camera is one tick away rather than
-    // a whole interval, and the gate keeps the rate floor a rebuild would drop.
+    // a whole interval, and the gate keeps the history a rebuild would drop.
     expect(nativeStop).not.toHaveBeenCalled();
     expect(nativeStart).toHaveBeenCalledTimes(1);
   });
@@ -1854,5 +1873,181 @@ describe("useVoiceRoomSight: refusing the native sample a change caught in fligh
     // keep, so the picture and the decision are of the same camera.
     expect(nativeInvalidate).not.toHaveBeenCalled();
     expect(samplerStop).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The frame for the question being asked.
+ *
+ * The gate keeps on its own schedule, and the daemon reads the conversation the
+ * instant an utterance closes, so a question asked just after the camera moved
+ * is answered about the scene before it. The moment the user starts speaking is
+ * the only signal the client has for "this is the one", and these cover what it
+ * is composed from, that it fires once per utterance, and that it reaches the
+ * keep through the same path every other keep takes.
+ */
+describe("useVoiceRoomSight: a frame for the question being asked", () => {
+  /** Put the session on the server VAD, which is where an utterance exists. */
+  function goHandsFree(): void {
+    act(() => {
+      useLiveVoiceStore.getState().setHandsFree(true);
+    });
+  }
+
+  function openUtterance(open: boolean): void {
+    act(() => {
+      useLiveVoiceStore.getState().setUtteranceOpen(open);
+    });
+  }
+
+  test("arms the gate when a hands-free utterance opens", () => {
+    goHandsFree();
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).toHaveBeenCalledTimes(1);
+  });
+
+  test("arms once per utterance, however the store is written to inside it", () => {
+    goHandsFree();
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+    // A mute and an unmute mid-sentence are two more writes this hook reads,
+    // and neither is a new question.
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(false);
+    });
+    expect(armed).toHaveBeenCalledTimes(1);
+
+    // The next utterance is a new question and gets its own frame.
+    openUtterance(false);
+    openUtterance(true);
+    expect(armed).toHaveBeenCalledTimes(2);
+  });
+
+  test("arms when a manual session opens the user's turn", () => {
+    // Push-to-talk has no VAD and no utterance: the session reaching
+    // `listening` is where forwarding starts, which is the press.
+    act(() => {
+      useLiveVoiceStore.getState().setState("connecting");
+    });
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    expect(armed).toHaveBeenCalledTimes(1);
+  });
+
+  test("arms nothing while the mic is muted", () => {
+    goHandsFree();
+    act(() => {
+      useLiveVoiceStore.getState().setMuted(true);
+    });
+    renderSight({ live: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  test("arms nothing once Live is off", () => {
+    goHandsFree();
+    const { view } = renderSight({ live: true });
+    const armed = watchGateArm();
+
+    act(() => {
+      view.result.current.setLive(false);
+    });
+    openUtterance(true);
+
+    // Nothing is sampling, so there is nothing for a keep to be made of and
+    // no consent to make it under.
+    expect(armed).not.toHaveBeenCalled();
+  });
+
+  test("asks the native poll for a sample instead of waiting for its tick", () => {
+    goHandsFree();
+    renderSight({ live: true, nativePreview: true });
+    const armed = watchGateArm();
+
+    openUtterance(true);
+
+    expect(armed).toHaveBeenCalledTimes(1);
+    expect(nativeSampleNow).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not nudge a browser sampler, whose next frame is a moment away", () => {
+    goHandsFree();
+    renderSight({ live: true });
+
+    openUtterance(true);
+
+    expect(nativeSampleNow).not.toHaveBeenCalled();
+  });
+
+  test("the keep that answers the arm reports the distance from it", async () => {
+    // Which frame a turn read is the daemon's to log; how long the question's
+    // own frame took to reach it is this side's. A forced keep carries the
+    // arm it answers, and an ambient keep says it was the cadence's.
+    goHandsFree();
+    renderSight({ live: true });
+
+    openUtterance(true);
+    act(() => {
+      samplerOptions?.onDecision(
+        { ...KEEP, reason: "forced" as const },
+        performance.now(),
+      );
+    });
+    await flush();
+    await keepFrame();
+
+    const [forced, ambient] = controls.sightFrame.mock.calls;
+    expect(forced).toEqual([
+      "att-1",
+      expect.objectContaining({
+        reason: "forced",
+        armToKeepMs: expect.any(Number),
+        bytes: expect.any(Number),
+      }),
+    ]);
+    expect(ambient?.[1]).toEqual(expect.objectContaining({ reason: "novel" }));
+    expect(ambient?.[1]).not.toHaveProperty("armToKeepMs");
+  });
+
+  test("does not arm for an utterance that was already open when Live began", () => {
+    goHandsFree();
+    openUtterance(true);
+
+    renderSight({ live: true, nativePreview: true });
+
+    // The ask happened before there was a camera streaming, and the fresh
+    // gate's first keep covers that scene anyway.
+    expect(nativeSampleNow).not.toHaveBeenCalled();
+  });
+
+  test("the forced keep travels the same path as every other one", async () => {
+    goHandsFree();
+    renderSight({ live: true });
+    openUtterance(true);
+
+    // The arm decides WHICH frame is kept; the keep itself is the sampler's
+    // own decision callback, so consent, capture order, the upload and the
+    // thumbnail are inherited rather than duplicated.
+    await keepFrame();
+
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(1);
+    expect(controls.sightFrame).toHaveBeenCalledTimes(1);
   });
 });

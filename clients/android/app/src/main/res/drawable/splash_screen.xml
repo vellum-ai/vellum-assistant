@@ -6,8 +6,8 @@
         </shape>
     </item>
     <item
-        android:width="92dp"
-        android:height="92dp"
+        android:width="288dp"
+        android:height="288dp"
         android:gravity="center"
-        android:drawable="@drawable/vellum_mark" />
+        android:drawable="@drawable/vellum_logo" />
 </layer-list>

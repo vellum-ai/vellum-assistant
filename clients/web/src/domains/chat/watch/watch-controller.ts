@@ -95,6 +95,7 @@ import {
 } from "@/domains/chat/voice/live-voice/pcm-capture";
 import { LIVE_VOICE_AUDIO_FORMAT_PARAMS } from "@/domains/chat/voice/live-voice/protocol";
 import { beginWatchRetro } from "@/domains/chat/watch/watch-retro";
+import { supportsWatchCaptureTarget } from "@/lib/backwards-compat/watch-capture-target";
 import { supportsWatchRetroCompletion } from "@/lib/backwards-compat/watch-retro-completion";
 import { resolveSupportsWatchSessions } from "@/lib/backwards-compat/watch-sessions";
 import {
@@ -102,6 +103,7 @@ import {
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import type { WatchCaptureTarget } from "@vellumai/ipc-contract";
 
 /**
  * What a watch session looks like from outside: whether one is running, and
@@ -130,6 +132,16 @@ interface WatchState {
    * something and never inherit a step from the session before it.
    */
   captureCount: number;
+  /**
+   * What the running session reads, when it was started on a pick.
+   *
+   * Written in the same store write as `watching` on both edges, so a surface
+   * never sees a target beside a session that is not running or a running
+   * session beside the target of the one before it. Undefined for a session
+   * reading the whole screen, which is every session started without a pick
+   * and every session on an assistant too old to be told what to read.
+   */
+  target?: WatchCaptureTarget;
 }
 
 export const useWatchStore = create<WatchState>(() => ({
@@ -194,6 +206,13 @@ interface WatchCapture {
 
 /** Injection seams for tests. */
 export interface WatchControllerOptions {
+  /**
+   * What the session should read, when the press chose. Only the start edge
+   * reads it, and only against an assistant that understands a target on its
+   * stream; otherwise the session reads the whole screen, as it always did,
+   * and reports no target.
+   */
+  target?: WatchCaptureTarget;
   webSocketFactory?: (url: string) => WebSocket;
   captureFactory?: (options: LiveVoiceAudioCaptureOptions) => WatchCapture;
   /**
@@ -206,7 +225,10 @@ export interface WatchControllerOptions {
    * stand-in instead. The three seams above exist for the same reason, and
    * this one covers the only remaining dependency a session start has.
    */
-  resolveWsUrl?: (assistantId: string) => Promise<string>;
+  resolveWsUrl?: (
+    assistantId: string,
+    target?: WatchCaptureTarget,
+  ) => Promise<string>;
   /** Overrides {@link READY_TIMEOUT_MS}, so a test need not wait it out. */
   readyTimeoutMs?: number;
   /** Overrides {@link STOP_DRAIN_TIMEOUT_MS}, for the same reason. */
@@ -272,16 +294,44 @@ const WATCH_STREAM_ROUTE = "/v1/watch/stream";
 export function buildWatchStreamWsUrl({
   ingressUrl,
   token,
+  target,
 }: {
   ingressUrl: string;
   token: string;
+  target?: WatchCaptureTarget;
 }): string {
   return buildSelfHostedGatewayWsUrl({
     ingressUrl,
     routePath: WATCH_STREAM_ROUTE,
     token,
-    params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
+    params: watchStreamParams(target),
   });
+}
+
+/**
+ * The stream's query parameters: the audio format, and the capture target
+ * when there is one.
+ *
+ * One parameter per shape rather than one encoded value, so the daemon's
+ * upgrade handler reads two integers and never parses a string of this
+ * module's devising. Both absent is the whole screen, which is what the
+ * daemon read before it knew either parameter, so an assistant that predates
+ * them is handed a URL it already understands.
+ *
+ * Exported for unit tests.
+ */
+export function watchStreamParams(
+  target: WatchCaptureTarget | undefined,
+): Record<string, string> {
+  if (target === undefined) {
+    return LIVE_VOICE_AUDIO_FORMAT_PARAMS;
+  }
+  return {
+    ...LIVE_VOICE_AUDIO_FORMAT_PARAMS,
+    ...(target.kind === "display"
+      ? { captureDisplayId: String(target.displayId) }
+      : { captureWindowId: String(target.windowId) }),
+  };
 }
 
 /**
@@ -311,6 +361,7 @@ export function buildWatchStreamWsUrl({
  */
 export async function resolveWatchStreamWsUrl(
   assistantId: string,
+  target?: WatchCaptureTarget,
 ): Promise<string> {
   const ingressUrl = getSelfHostedIngressUrl();
   if (ingressUrl) {
@@ -324,7 +375,7 @@ export async function resolveWatchStreamWsUrl(
         "Self-hosted watch has no actor token yet; the gateway isn't ready.",
       );
     }
-    return buildWatchStreamWsUrl({ ingressUrl, token });
+    return buildWatchStreamWsUrl({ ingressUrl, token, target });
   }
 
   const { token } = await mintVelayWsToken(assistantId);
@@ -332,7 +383,7 @@ export async function resolveWatchStreamWsUrl(
     assistantId,
     routePath: WATCH_STREAM_ROUTE,
     token,
-    params: LIVE_VOICE_AUDIO_FORMAT_PARAMS,
+    params: watchStreamParams(target),
   });
 }
 
@@ -361,6 +412,7 @@ function openSession(
   ownerAssistantId: string,
   wsUrl: string,
   options: WatchControllerOptions,
+  target: WatchCaptureTarget | undefined,
 ): void {
   if (!isPcmCaptureSupported()) {
     console.info("watch-controller: skipping (no AudioWorklet)");
@@ -464,7 +516,7 @@ function openSession(
       // subscriber with a change that did not happen, which on this bridge is
       // an IPC message and a repaint of a floating window.
       if (useWatchStore.getState().watching) {
-        useWatchStore.setState({ watching: false });
+        useWatchStore.setState({ watching: false, target: undefined });
       }
     }
   };
@@ -694,8 +746,11 @@ function openSession(
     readyTimer = cancel(readyTimer);
     // The capture count belongs to this session and starts at none, in the
     // same write as the flag: a surface that read a leftover count beside a
-    // freshly true flag would mark a capture this session has not taken.
-    useWatchStore.setState({ watching: true, captureCount: 0 });
+    // freshly true flag would mark a capture this session has not taken. The
+    // target rides the same write for the same reason: it is what this
+    // session reads, and a frame drawn from it must never outlive or predate
+    // the flag it belongs to.
+    useWatchStore.setState({ watching: true, captureCount: 0, target });
     void capture.start().then((result) => {
       // Mic denied, or a device another app is holding. There is nothing to
       // narrate over, so the session ends rather than sitting open on silence.
@@ -886,6 +941,25 @@ export async function toggleWatch(
     return;
   }
   /**
+   * The target, or nothing where the assistant would ignore it.
+   *
+   * An assistant that predates the parameters answers a URL carrying them
+   * with a whole-screen session, and a frame drawn around the window the user
+   * picked would then claim a read that never happened. So the target is
+   * dropped before the dial rather than after, and the session reports none:
+   * the frame follows what is read, whatever was asked. Read as a snapshot
+   * here since the version was resolved for this assistant a moment ago.
+   */
+  const target =
+    options.target !== undefined && supportsWatchCaptureTarget(assistantId)
+      ? options.target
+      : undefined;
+  if (options.target !== undefined && target === undefined) {
+    console.info(
+      "watch-controller: reading the whole screen (this assistant cannot be aimed)",
+    );
+  }
+  /**
    * The transport, resolved last and while the attempt still holds the slot.
    *
    * On a managed assistant this mints a single-use velay token, which is a
@@ -903,6 +977,7 @@ export async function toggleWatch(
   try {
     wsUrl = await (options.resolveWsUrl ?? resolveWatchStreamWsUrl)(
       assistantId,
+      target,
     );
   } catch (err) {
     releaseAttempt();
@@ -925,7 +1000,7 @@ export async function toggleWatch(
   // through the registered `stop` above, which sets `cancelled`. Released here
   // so `openSession` can register the real session in it.
   releaseAttempt();
-  openSession(assistantId, wsUrl, options);
+  openSession(assistantId, wsUrl, options, target);
 }
 
 /**

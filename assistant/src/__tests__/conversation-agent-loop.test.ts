@@ -13,6 +13,7 @@ import {
 
 import type { LoopToolExecutor } from "../agent/loop.js";
 import type { AssistantEvent } from "../api/index.js";
+import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import {
   queueConversationNotice,
   resetConversationNoticesForTests,
@@ -338,6 +339,7 @@ let mockStoredMessages: unknown[] = [];
 const updateMessageContentMock = mock(() => {});
 const finalizeMessageContentMock = mock(() => {});
 const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+const updateConversationContextWindowMock = mock(() => {});
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
   isConversationProcessing: () => false,
@@ -358,7 +360,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getConversationOriginInterface: () => null,
   addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
-  updateConversationContextWindow: () => {},
+  updateConversationContextWindow: updateConversationContextWindowMock,
   updateConversationSlackContextWatermark:
     updateConversationSlackContextWatermarkMock,
   updateConversationTitle: () => {},
@@ -504,7 +506,11 @@ const getSlackCompactionWatermarkForPrefixMock = mock(
 );
 mock.module("../daemon/conversation-runtime-assembly.js", () => ({
   applyRuntimeInjections: applyRuntimeInjectionsMock,
-  stripInjectionsForCompaction: (msgs: Message[]) => msgs,
+  // The real strip, not a pass-through: this module re-exports it, and a
+  // module mock overrides the re-exported binding at its source, so a stub
+  // here would turn the compaction strip the loop and the event dispatcher
+  // import from `context/strip-injections.js` into a no-op as well.
+  stripInjectionsForCompaction,
   isSlackChannelConversation: () => false,
   getSlackCompactionWatermarkForPrefix:
     getSlackCompactionWatermarkForPrefixMock,
@@ -683,6 +689,16 @@ import {
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
+import type { PostCompactContext } from "../hooks/types.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  wrapMemoryBlock,
+  wrapMemoryPointerBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
+import {
+  getActiveSections as getV3ActiveSections,
+  recordInjected as recordV3Injected,
+} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { asConversation } from "./helpers/mock-conversation.js";
 import {
   createMockProvider,
@@ -838,7 +854,7 @@ function makeCtx(
     modelOverride: undefined,
 
     graphMemory: {
-      onCompacted: async () => {},
+      onCompacted: async () => true,
       prepareMemory: async () => ({
         runMessages: [],
         injectedTokens: 0,
@@ -906,6 +922,40 @@ function makeCompactionResult(
     summaryModel: "mock-model",
     summaryText: "summary",
     ...overrides,
+  };
+}
+
+/**
+ * `makeCtx` overrides for a real loop that appends a tool turn, is rejected as
+ * context-too-large on the following call, and recovers on the retry, so the
+ * reactive overflow ladder runs between the rejection and the recovery.
+ */
+function overflowAfterToolTurnScenario(): NonNullable<
+  Parameters<typeof makeCtx>[0]
+> {
+  return {
+    providerResponses: [
+      toolUseResponse("t1", "file_read", {}),
+      new ContextOverflowError(
+        "context_length_exceeded: 250000 tokens > 200000 maximum",
+        "mock-provider",
+        { actualTokens: 250_000, maxTokens: 200_000 },
+      ),
+      textResponse("recovered"),
+    ],
+    loopTools: [
+      {
+        name: "file_read",
+        description: "Read a file",
+        input_schema: { type: "object", properties: {} },
+      },
+    ],
+    toolExecutor: async () => ({ content: "ok", isError: false }),
+    contextWindowManager: {
+      updateConfig: () => {},
+      shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+      maybeCompact: async () => ({ compacted: false }),
+    } as unknown as Conversation["contextWindowManager"],
   };
 }
 
@@ -4429,30 +4479,7 @@ describe("session-agent-loop", () => {
       // context-too-large error on the following call — reactive overflow
       // recovery strips that appended history when it compacts before a final
       // call recovers.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("t1", "file_read", {}),
-          new ContextOverflowError(
-            "context_length_exceeded: 250000 tokens > 200000 maximum",
-            "mock-provider",
-            { actualTokens: 250_000, maxTokens: 200_000 },
-          ),
-          textResponse("recovered"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+      const ctx = makeCtx(overflowAfterToolTurnScenario());
 
       // WHEN the loop runs the turn to completion
       await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
@@ -4483,35 +4510,648 @@ describe("session-agent-loop", () => {
       // context-too-large error on the following call, driving the
       // overflow-recovery strip whose marker-write helper is stubbed to throw,
       // before a final call recovers.
-      const ctx = makeCtx({
-        providerResponses: [
-          toolUseResponse("t1", "file_read", {}),
-          new ContextOverflowError(
-            "context_length_exceeded: 250000 tokens > 200000 maximum",
-            "mock-provider",
-            { actualTokens: 250_000, maxTokens: 200_000 },
-          ),
-          textResponse("recovered"),
-        ],
-        loopTools: [
-          {
-            name: "file_read",
-            description: "Read a file",
-            input_schema: { type: "object", properties: {} },
-          },
-        ],
-        toolExecutor: async () => ({ content: "ok", isError: false }),
-        contextWindowManager: {
-          updateConfig: () => {},
-          shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-          maybeCompact: async () => ({ compacted: false }),
-        } as unknown as Conversation["contextWindowManager"],
-      });
+      const ctx = makeCtx(overflowAfterToolTurnScenario());
 
-      // Must not throw — the strip-site marker write is wrapped in try/catch.
+      // Must not throw: the strip-site marker write is wrapped in try/catch.
       await expect(
         runAgentLoopImpl(ctx, "hello", "msg-1", () => {}),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe("injection ledger reset after an injection strip", () => {
+    // The durable base is injection-stripped on every pipeline run, so the
+    // frozen memory blocks the ledgers claim leave history whether or not a
+    // summary lands. The ledgers must reset either way, and before the
+    // post-compaction hook re-injects onto the stripped base; otherwise the
+    // next turn classifies a re-selected section as resident and points at a
+    // block that is gone. The reset is gated on the history-stripped marker:
+    // without it a restart rehydrates the stripped blocks, so cleared ledgers
+    // would inject each section again beside its rehydrated copy.
+
+    /** Seed the real memory-v3 section store with one resident section (and
+     *  prove the store is live in this process, so an empty read after the
+     *  run is a reset rather than a degraded store), then arrange a real
+     *  graph memory whose `onCompacted` records its position in `order`
+     *  before running for real, and a post-compact hook that records when
+     *  re-injection ran. */
+    function arrangeResidentSectionAndObservers(conversationId: string) {
+      recordV3Injected(conversationId, [
+        { slug: "page-a", key: "", bytes: 100 },
+      ]);
+      expect(getV3ActiveSections(conversationId)).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      const order: string[] = [];
+      const graphMemory = new ConversationGraphMemory(conversationId);
+      const original = graphMemory.onCompacted.bind(graphMemory);
+      const onCompacted = spyOn(graphMemory, "onCompacted").mockImplementation(
+        async (count: number) => {
+          order.push("reset");
+          return await original(count);
+        },
+      );
+      registerPlugin({
+        manifest: { name: "test-observe-post-compact", version: "1.0.0" },
+        hooks: {
+          "post-compact": async () => {
+            order.push("post_compact");
+          },
+        },
+      });
+      return { graphMemory, onCompacted, order };
+    }
+
+    /** A manager whose pipeline runs (recorded in `order`) and finds nothing
+     *  eligible to summarize, dropping the estimate back under budget so the
+     *  provider call proceeds. */
+    function noopPipelineManager(
+      order: string[],
+    ): Conversation["contextWindowManager"] {
+      return {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (messages: Message[]) => {
+          order.push("pipeline");
+          mockEstimateTokens = 1000;
+          return { compacted: false, messages };
+        },
+      } as unknown as Conversation["contextWindowManager"];
+    }
+
+    test("a budget-gate run that finds nothing to summarize resets the ledgers before re-injection", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // Above the loop's first-call gate threshold, so it compacts in place
+      // before its first provider call.
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker written at the strip is durable, so the ledgers reset
+      // exactly once on its strength (no second marker write), as a strip
+      // with no summary, and before the post-compaction hook re-injected onto
+      // the stripped base
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(1);
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
+        "test-conv",
+        expect.any(Number),
+      );
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      // AND the section store no longer claims the section, so the next turn
+      // injects it net-new instead of pointing at a block that is gone
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    /** Stub the marker write so the first write succeeds and every later
+     *  write fails, as a transient SQLite error (SQLITE_BUSY) landing between
+     *  the strip and the reset would. */
+    function failMarkerWritesAfterTheFirst(): void {
+      let markerWrites = 0;
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        markerWrites += 1;
+        if (markerWrites > 1) {
+          throw new Error("SQLITE_BUSY");
+        }
+      });
+    }
+
+    /** A manager whose pipeline runs (recorded in `order`) and compacts,
+     *  summarizing two persisted messages and dropping the estimate back under
+     *  budget so the provider call proceeds. */
+    function compactingPipelineManager(
+      order: string[],
+    ): Conversation["contextWindowManager"] {
+      return {
+        updateConfig: () => {},
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async (messages: Message[]) => {
+          order.push("pipeline");
+          mockEstimateTokens = 1000;
+          return {
+            ...makeCompactionResult({
+              messages: [
+                { role: "user", content: [{ type: "text", text: "summary" }] },
+                messages[messages.length - 1]!,
+              ],
+              compactedPersistedMessages: 2,
+              compactedMessages: 2,
+            }),
+            compacted: true,
+            summaryFailed: false,
+          };
+        },
+      } as unknown as Conversation["contextWindowManager"];
+    }
+
+    test("resets the ledgers on the strip's durable marker write when a later marker write would fail", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failMarkerWritesAfterTheFirst();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker the strip wrote is durable, so the reset does not
+      // depend on a re-attempt that would fail: the ledgers reset once,
+      // before re-injection, and the store no longer claims the section
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("resets the ledgers on the strip's durable marker write when the pipeline compacts and a later marker write would fail", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failMarkerWritesAfterTheFirst();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: compactingPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the durable commit resets the ledgers with the summarized count
+      // on the strip's marker, without depending on a re-attempt that fails
+      expect(onCompacted.mock.calls).toEqual([[2]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    test("an overflow rung that reduces without summarizing resets the ledgers before re-injection", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      // Reducer: a truncation rung that reduces the history with no summary.
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const ctx = makeCtx({ ...overflowAfterToolTurnScenario(), graphMemory });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(new Map());
+    });
+
+    /**
+     * The resident section's frozen memory-v3 block as it sits on an earlier
+     * turn's user message. A reset clears its residency, so re-injection
+     * renders the section net-new; a skipped reset leaves it resident, so
+     * re-injection points at it instead.
+     */
+    const FROZEN_SECTION_BLOCK = wrapMemoryBlock("## page-a\nbody");
+    /** The pointer re-injection emits for the section while it is resident. */
+    const SECTION_POINTER_BLOCK = wrapMemoryPointerBlock("page-a");
+
+    /** Earlier turns whose user message carries the frozen section block. */
+    function historyWithFrozenSection(): Message[] {
+      return [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Earlier turn" },
+            { type: "text", text: FROZEN_SECTION_BLOCK },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Earlier reply" }],
+        },
+      ];
+    }
+
+    /** The number of text blocks across `messages` whose text is `text`. */
+    function countTextBlocks(messages: Message[], text: string): number {
+      return messages
+        .flatMap((message) => message.content)
+        .filter((block) => block.type === "text" && block.text === text).length;
+    }
+
+    /**
+     * Register a post-compact hook standing in for the memory plugin's
+     * re-injection: it records the history it receives beside the durable
+     * history at that moment, then partitions the section by residency the
+     * way the real injector does (a section the store still claims gets a
+     * pointer on the tail; one a reset left unclaimed renders net-new there)
+     * and writes the result back onto the context, as the real hook does.
+     */
+    function registerReinjectingPostCompactHook(ctx: Conversation): {
+      received: Array<{ history: Message[]; durable: Message[] }>;
+    } {
+      const received: Array<{ history: Message[]; durable: Message[] }> = [];
+      registerPlugin({
+        manifest: { name: "test-reinject-post-compact", version: "1.0.0" },
+        hooks: {
+          "post-compact": async (hookCtx: PostCompactContext) => {
+            received.push({
+              history: hookCtx.history,
+              durable: structuredClone(ctx.messages),
+            });
+            const resident = getV3ActiveSections(ctx.conversationId).has(
+              "page-a",
+            );
+            const tail = hookCtx.history[hookCtx.history.length - 1]!;
+            hookCtx.history = [
+              ...hookCtx.history.slice(0, -1),
+              {
+                ...tail,
+                content: [
+                  ...tail.content,
+                  {
+                    type: "text",
+                    text: resident
+                      ? SECTION_POINTER_BLOCK
+                      : FROZEN_SECTION_BLOCK,
+                  },
+                ],
+              },
+            ];
+          },
+        },
+      });
+      return { received };
+    }
+
+    /** Stub the marker write to fail at the strip and again at the
+     *  re-attempt that precedes the reset, as a SQLite lock held across the
+     *  compaction (SQLITE_BUSY) would. */
+    function failEveryMarkerWrite(): void {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+    }
+
+    test("continues a budget-gate run that found nothing to summarize from the stripped base, so a section re-injected after the reset reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, and a pipeline run that finds nothing to summarize
+      const { graphMemory, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the hook re-injected onto the history the durable commit holds:
+      // the stripped base, with the frozen block gone from the earlier message
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(history).toEqual(durable);
+      // AND the provider call that followed carried the section exactly once,
+      // rendered net-new on the tail
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+    });
+
+    test("continues an overflow rung that reduced without summarizing from the stripped base, so the retry carries a re-injected section once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, and a truncation rung that reduces with no summary
+      const { graphMemory, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const scenario = overflowAfterToolTurnScenario();
+      const { provider, calls } = createMockProvider(
+        scenario.providerResponses!,
+        "mock-provider",
+      );
+      const ctx = makeCtx({
+        ...scenario,
+        graphMemory,
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn through the rejection and the retry
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the hook re-injected onto the stripped base the durable commit
+      // holds, not the rung's reduced copy of the injected history
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(0);
+      expect(history).toEqual(durable);
+      // AND the rejected call carried the frozen copy while the retry after
+      // the rung carried the re-injected copy alone, so recovery regained no
+      // tokens it set out to remove
+      expect(calls).toHaveLength(3);
+      expect(countTextBlocks(calls[1]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+    });
+
+    test("continues a budget-gate run whose strip marker cannot be made durable from the injected history, so the section the intact ledgers still claim reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a pipeline run that finds nothing to summarize, and a
+      // marker write that fails at the strip and at the re-attempt
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN both marker writes failed, so no reset ran and the store still
+      // claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the history the durable commit holds:
+      // the injected history, the frozen block still on the earlier message
+      // where the store's residency expects it
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the provider call that followed carried the section exactly once:
+      // the frozen copy, pointed at rather than rendered again
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[0]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("continues a budget-gate run whose ledger clear fails from the injected history, so the section the ledgers still claim reaches the provider once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a pipeline run that finds nothing to summarize, a
+      // marker write that succeeds, and a ledger clear that fails
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      onCompacted.mockImplementation(async () => {
+        order.push("reset");
+        return false;
+      });
+      const { provider, calls } = createMockProvider(
+        [textResponse("response")],
+        "mock-provider",
+      );
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the marker landed at the strip and the reset ran but reported an
+      // incomplete clear, so the store still claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(1);
+      expect(onCompacted.mock.calls).toEqual([[0]]);
+      expect(order).toEqual(["pipeline", "reset", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the injected history the durable commit
+      // holds, the frozen block still on the earlier message where the
+      // store's residency expects it
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the provider call carried the section exactly once: the frozen
+      // copy, pointed at rather than rendered again
+      expect(calls).toHaveLength(1);
+      expect(countTextBlocks(calls[0]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[0]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("continues an overflow rung whose strip marker cannot be made durable from the rung's reduced history with its injections intact, so the retry carries the section the intact ledgers still claim once", async () => {
+      // GIVEN a resident section whose frozen block sits on an earlier turn's
+      // user message, a truncation rung that reduces with no summary, and a
+      // marker write that fails at the strip and at the re-attempt
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      mockReducerStepFn = (msgs: Message[]) => {
+        order.push("pipeline");
+        return {
+          messages: msgs,
+          tier: "tool_result_truncation",
+          state: {
+            appliedTiers: ["tool_result_truncation"],
+            injectionMode: "full",
+            exhausted: false,
+          },
+          estimatedTokens: 5000,
+        };
+      };
+      const scenario = overflowAfterToolTurnScenario();
+      const { provider, calls } = createMockProvider(
+        scenario.providerResponses!,
+        "mock-provider",
+      );
+      const ctx = makeCtx({
+        ...scenario,
+        graphMemory,
+        loopProvider: provider,
+        messages: historyWithFrozenSection(),
+      });
+      const { received } = registerReinjectingPostCompactHook(ctx);
+
+      // WHEN the loop runs the turn through the rejection and the retry
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN no reset ran and the store still claims the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+      // AND the hook re-injected onto the injected history the durable commit
+      // holds, the frozen block still on the earlier message
+      expect(received).toHaveLength(1);
+      const { history, durable } = received[0]!;
+      expect(countTextBlocks(durable, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(history, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(history).toEqual(durable);
+      // AND the retry after the rung carried the frozen copy once, pointed at
+      // rather than rendered again
+      expect(calls).toHaveLength(3);
+      expect(countTextBlocks(calls[2]!.messages, FROZEN_SECTION_BLOCK)).toBe(1);
+      expect(countTextBlocks(calls[2]!.messages, SECTION_POINTER_BLOCK)).toBe(
+        1,
+      );
+    });
+
+    test("leaves the ledgers intact when the history-stripped marker cannot be written", async () => {
+      const { graphMemory, onCompacted, order } =
+        arrangeResidentSectionAndObservers("test-conv");
+      failEveryMarkerWrite();
+      mockEstimateTokens = 90_000;
+      const ctx = makeCtx({
+        graphMemory,
+        contextWindowManager: noopPipelineManager(order),
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      // THEN the reset re-attempted the write (no write for the strip had
+      // succeeded) and that failed too, so no reset ran: a restart rehydrates
+      // the frozen blocks with no marker to skip them, so the store must keep
+      // claiming the section
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledTimes(2);
+      expect(onCompacted).not.toHaveBeenCalled();
+      expect(order).toEqual(["pipeline", "post_compact"]);
+      expect(getV3ActiveSections("test-conv")).toEqual(
+        new Map([["page-a", new Set([""])]]),
+      );
+    });
+
+    test("applyCompactionResult resets the ledgers only once the marker is written", async () => {
+      const order: string[] = [];
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        order.push("marker");
+      });
+      const onCompacted = mock(async (_count: number) => {
+        order.push("reset");
+        return true;
+      });
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult(),
+        () => {},
+        "req-1",
+      );
+
+      expect(onCompacted.mock.calls).toEqual([[4]]);
+      expect(order).toEqual(["marker", "reset"]);
+    });
+
+    test("applyCompactionResult leaves the ledgers intact when the compaction commit throws, so a reload of the un-compacted history finds its frozen blocks still claimed", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      updateConversationContextWindowMock.mockImplementationOnce(() => {
+        throw new Error("SQLITE_READONLY");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await expect(
+        applyCompactionResult(ctx, makeCompactionResult(), () => {}, "req-1"),
+      ).rejects.toThrow("SQLITE_READONLY");
+
+      expect(onCompacted).not.toHaveBeenCalled();
+    });
+
+    test("applyCompactionResult resets the ledgers even when the marker cannot be written, since the compacted history has already lost its frozen blocks", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("db write failed");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      // The marker write is best-effort, so the durable commit still lands.
+      await expect(
+        applyCompactionResult(ctx, makeCompactionResult(), () => {}, "req-1"),
+      ).resolves.toBeUndefined();
+
+      expect(setConversationHistoryStrippedAtMock).toHaveBeenCalledWith(
+        "test-conv",
+        expect.any(Number),
+      );
+      // The summary output carries no frozen block, so the ledgers must not
+      // keep claiming sections whose blocks are gone.
+      expect(onCompacted.mock.calls).toEqual([[4]]);
+    });
+
+    test("applyCompactionResult resets the ledgers on an already-durable marker without a second write", async () => {
+      setConversationHistoryStrippedAtMock.mockImplementation(() => {
+        throw new Error("SQLITE_BUSY");
+      });
+      const onCompacted = mock(async (_count: number) => true);
+      const ctx = makeCtx({
+        graphMemory: { onCompacted } as unknown as Conversation["graphMemory"],
+      });
+
+      await applyCompactionResult(
+        ctx,
+        makeCompactionResult(),
+        () => {},
+        "req-1",
+        { historyStripMarkerDurable: true },
+      );
+
+      // The strip's marker write already succeeded, so the reset neither
+      // needs nor attempts another write that would fail here.
+      expect(setConversationHistoryStrippedAtMock).not.toHaveBeenCalled();
+      expect(onCompacted.mock.calls).toEqual([[4]]);
     });
   });
 });
