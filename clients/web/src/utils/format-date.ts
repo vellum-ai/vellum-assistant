@@ -1,13 +1,15 @@
+import { currentLocale } from "@/i18n";
+
 /**
  * Format a date as a short, human-readable string (e.g., "27 May" or "27 May 2025").
  * Omits the year when it matches the current year, unless `alwaysShowYear` is set.
- * `locale` defaults to the browser's; pass the app's where the two can differ.
+ * `locale` defaults to the app's active locale; pass one to pin the formatting.
  */
 export function formatFriendlyDate(
   date: Date,
   opts?: { alwaysShowYear?: boolean; locale?: string },
 ): string {
-  return date.toLocaleDateString(opts?.locale, {
+  return date.toLocaleDateString(opts?.locale ?? currentLocale(), {
     day: "numeric",
     month: "short",
     year:
@@ -30,7 +32,10 @@ function formatTimeOfDay(date: Date, locale?: string): string {
  * today, the friendly date for an older one. A run of captures from a single
  * session all fall on one date, so the date alone would label them identically.
  */
-export function formatCaptureTime(ms: number, locale?: string): string {
+export function formatCaptureTime(
+  ms: number,
+  locale: string = currentLocale(),
+): string {
   const date = new Date(ms);
   const now = new Date();
   const isToday =

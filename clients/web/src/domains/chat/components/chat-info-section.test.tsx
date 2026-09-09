@@ -86,7 +86,7 @@ function renderSection({
       tileWidth={tileWidth}
       seeAllAriaLabel={SEE_ALL_ARIA}
       onSeeAll={onSeeAll}
-      renderTile={(item, _index, layout) => (
+      renderTile={(item, layout) => (
         <div key={item.id} data-testid={TILE_TESTID} data-layout={layout}>
           {item.id}
         </div>
@@ -126,10 +126,6 @@ describe("fitTileCount", () => {
     [100, CHAT_INFO_FILE_TILE_WIDTH_PX, 1],
   ])("fits %p / %p tiles on one line", (rowWidth, tileWidth, expected) => {
     expect(fitTileCount(rowWidth, tileWidth)).toBe(expected);
-  });
-
-  test("a wider gutter fits fewer tiles on the same row", () => {
-    expect(fitTileCount(DRAWER_WIDTH, CHAT_INFO_APP_TILE_WIDTH_PX, 40)).toBe(2);
   });
 });
 
@@ -195,19 +191,47 @@ describe("ChatInfoSection", () => {
       tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
     });
     expect(seeAll()).toBeNull();
-    // Nothing runs past the edge, so the strip claims no trailing inset.
-    expect(fitted.container.querySelector("[data-overflow]")).toBeNull();
     fitted.unmount();
 
-    const overflowing = renderSection({
+    renderSection({
       items: makeItems(3),
       count: 3,
       tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
     });
     expect(seeAll()).not.toBeNull();
-    expect(
-      overflowing.container.querySelector("[data-overflow]"),
-    ).not.toBeNull();
+  });
+
+  test("pays the reclaimed inset back on both edges of the strip", () => {
+    // A strip that fits is then exactly as wide as its scroller, and one that
+    // runs past the column stops with the inset showing past its last tile.
+    isMobileRef.value = true;
+    widthRef.value = NARROW_COLUMN_WIDTH;
+
+    for (const itemCount of [2, 8]) {
+      const { container, unmount } = renderSection({
+        items: makeItems(itemCount),
+        count: itemCount,
+        tileWidth: CHAT_INFO_APP_TILE_WIDTH_PX,
+      });
+      const strip = container.querySelector(
+        '[data-slot="scroll-shadow"][data-orientation="horizontal"]',
+      );
+      expect(strip?.className).toContain("px-[var(--chat-info-strip-bleed)]");
+      unmount();
+    }
+  });
+
+  test("names the section by its title", () => {
+    const { container } = renderSection({
+      items: makeItems(2),
+      tileWidth: CHAT_INFO_FILE_TILE_WIDTH_PX,
+    });
+
+    const labelledBy = container
+      .querySelector("section")
+      ?.getAttribute("aria-labelledby");
+    expect(labelledBy).toBeTruthy();
+    expect(document.getElementById(labelledBy!)?.textContent).toBe("Apps");
   });
 
   test("calls onSeeAll when the control is activated", () => {

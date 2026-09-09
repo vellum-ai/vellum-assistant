@@ -7,6 +7,7 @@
  * fit rule.
  */
 
+import { useId } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
 import { Button, ScrollShadow, Typography } from "@vellumai/design-library";
@@ -18,25 +19,23 @@ import {
 import { useElementSize } from "@/hooks/use-element-size";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
-import { cn } from "@/utils/misc";
 
-/** Gutter between tiles, the pixel value behind the rows' `gap-2`. */
-export const CHAT_INFO_TILE_GAP_PX = 8;
+/** Gutter between tiles, read by both the fit rule and the rows that draw it. */
+const CHAT_INFO_TILE_GAP_PX = 8;
 
 /** Feeds the strip's own margin and padding classes below. */
 const STRIP_BLEED_STYLE = {
   "--chat-info-strip-bleed": `${DETAIL_SHELL_BODY_INSET_PX}px`,
 } as CSSProperties;
 
+const TILE_ROW_STYLE: CSSProperties = { gap: CHAT_INFO_TILE_GAP_PX };
+
 /** Whole tiles that fit on one line of `rowWidth`, never fewer than one. */
-export function fitTileCount(
-  rowWidth: number,
-  tileWidth: number,
-  gap = CHAT_INFO_TILE_GAP_PX,
-): number {
+export function fitTileCount(rowWidth: number, tileWidth: number): number {
   if (!(rowWidth > 0)) {
     return 1;
   }
+  const gap = CHAT_INFO_TILE_GAP_PX;
   return Math.max(1, Math.floor((rowWidth + gap) / (tileWidth + gap)));
 }
 
@@ -48,7 +47,7 @@ export interface ChatInfoSectionProps<T> {
   /** Fixed (strip) or minimum (fitted row) width of one tile, for the fit computation. */
   tileWidth: number;
   /** Returns the tile element with its own `key`: the caller owns tile identity. */
-  renderTile: (item: T, index: number, layout: "fitted" | "strip") => ReactNode;
+  renderTile: (item: T, layout: "fitted" | "strip") => ReactNode;
   seeAllAriaLabel: string;
   onSeeAll: () => void;
 }
@@ -67,6 +66,7 @@ export function ChatInfoSection<T>({
   onSeeAll,
 }: ChatInfoSectionProps<T>) {
   const { t } = useTranslation("chat");
+  const titleId = useId();
   const { ref, size } = useElementSize();
   const isMobile = useIsMobile();
   // The strip runs through the body's right inset, so that width counts too.
@@ -75,15 +75,17 @@ export function ChatInfoSection<T>({
     tileWidth,
   );
   const showSeeAll = count > fit;
-  // Trailing padding only when tiles run past the edge: a strip that fits
-  // must not scroll into blank inset or fade an edge nothing hides behind.
-  const stripOverflows = items.length > fit;
 
   return (
-    <section className="flex flex-col gap-3" style={STRIP_BLEED_STYLE}>
+    <section
+      aria-labelledby={titleId}
+      className="flex flex-col gap-3"
+      style={STRIP_BLEED_STYLE}
+    >
       <div className="flex items-center justify-between gap-3">
         <span className="flex min-w-0 items-center gap-1">
           <Typography
+            id={titleId}
             variant="title-small"
             className="truncate text-[var(--content-emphasised)]"
           >
@@ -119,26 +121,22 @@ export function ChatInfoSection<T>({
           `DetailShell`'s body inset so tiles run to the viewport edge. */}
       <div ref={ref} className="w-full">
         {isMobile ? (
+          // The reclaimed inset is paid back as padding on both edges, so a
+          // line that fits inside the column is exactly as wide as its
+          // scroller and does not scroll, while a longer one stops with the
+          // inset showing past its last tile.
           <ScrollShadow
             orientation="horizontal"
             hideScrollBar
-            className={cn(
-              "-mx-[var(--chat-info-strip-bleed)] pl-[var(--chat-info-strip-bleed)]",
-              stripOverflows && "pr-[var(--chat-info-strip-bleed)]",
-            )}
+            className="-mx-[var(--chat-info-strip-bleed)] px-[var(--chat-info-strip-bleed)]"
           >
-            <div
-              className="flex w-max gap-2"
-              data-overflow={stripOverflows || undefined}
-            >
-              {items.map((item, index) => renderTile(item, index, "strip"))}
+            <div className="flex w-max" style={TILE_ROW_STYLE}>
+              {items.map((item) => renderTile(item, "strip"))}
             </div>
           </ScrollShadow>
         ) : (
-          <div className="flex w-full gap-2">
-            {items
-              .slice(0, fit)
-              .map((item, index) => renderTile(item, index, "fitted"))}
+          <div className="flex w-full" style={TILE_ROW_STYLE}>
+            {items.slice(0, fit).map((item) => renderTile(item, "fitted"))}
           </div>
         )}
       </div>

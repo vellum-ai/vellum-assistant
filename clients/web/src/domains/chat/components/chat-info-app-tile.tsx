@@ -8,7 +8,10 @@ import { useCallback } from "react";
 import { cn, Typography } from "@vellumai/design-library";
 
 import { AppPreviewThumbnail } from "@/components/app-card";
-import { AppAssetActions } from "@/domains/chat/components/conversation-asset-actions";
+import {
+  AppAssetActions,
+  AssetActionsSlot,
+} from "@/domains/chat/components/conversation-asset-actions";
 import { useTranslation } from "@/i18n";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
@@ -63,16 +66,13 @@ export function ChatInfoAppTile({
         />
       </button>
 
-      <span
-        data-reveal=""
-        className="absolute right-1 top-1 rounded-md bg-[var(--surface-lift)]"
-      >
+      <AssetActionsSlot>
         <AppAssetActions
           assistantId={assistantId}
           app={app}
           onRequestDelete={onRequestDelete}
         />
-      </span>
+      </AssetActionsSlot>
 
       <Typography
         variant="body-small-default"
