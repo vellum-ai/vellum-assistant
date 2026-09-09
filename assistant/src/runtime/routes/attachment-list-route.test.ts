@@ -89,12 +89,11 @@ function setLinkId(attachmentId: string, linkId: string): void {
     .run();
 }
 
-function setRole(messageId: string, role: string): void {
-  getDb()
-    .update(messages)
-    .set({ role })
-    .where(eq(messages.id, messageId))
-    .run();
+/** The grouped row the agent loop writes for a turn's tool results. */
+function toolResultContent(toolUseId: string): string {
+  return JSON.stringify([
+    { type: "tool_result", tool_use_id: toolUseId, content: "ok" },
+  ]);
 }
 
 const PNG_BASE64 = "iVBORw0K";
@@ -271,7 +270,7 @@ describe("GET /v1/attachments", () => {
     expect(listing.total).toBe(5);
   });
 
-  test("omits attachments carried only by a tool or system row", async () => {
+  test("omits attachments carried only by a tool-result or system row", async () => {
     const conversation = createConversation("Machine rows");
 
     const systemPhoto = await newAttachment("system.png");
@@ -282,12 +281,14 @@ describe("GET /v1/attachments", () => {
     setCreatedAt(systemRow.id, 1000);
 
     const toolPhoto = await newAttachment("tool.png");
-    const toolRow = await addMessage(conversation.id, "user", "tool output", {
-      skipIndexing: true,
-    });
+    const toolRow = await addMessage(
+      conversation.id,
+      "user",
+      toolResultContent("toolu_01"),
+      { skipIndexing: true },
+    );
     linkAttachmentToMessage(toolRow.id, toolPhoto, 0);
     setCreatedAt(toolRow.id, 2000);
-    setRole(toolRow.id, "tool");
 
     const spokenPhoto = await newAttachment("spoken.png");
     const spoken = await addMessage(conversation.id, "user", "mine", {
@@ -300,6 +301,50 @@ describe("GET /v1/attachments", () => {
 
     expect(result.attachments.map((a) => a.id)).toEqual([spokenPhoto]);
     expect(result.total).toBe(1);
+  });
+
+  test("lists a tool image once, on the assistant reply that carries the promoted copy", async () => {
+    const conversation = createConversation("Screenshot turn");
+
+    const toolCopy = await newAttachment("tool-copy.png");
+    const toolRow = await addMessage(
+      conversation.id,
+      "user",
+      toolResultContent("toolu_screenshot"),
+      { skipIndexing: true },
+    );
+    linkAttachmentToMessage(toolRow.id, toolCopy, 0);
+    setCreatedAt(toolRow.id, 1000);
+
+    const promotedCopy = await newAttachment("promoted.png");
+    const reply = await addMessage(conversation.id, "assistant", "here it is", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(reply.id, promotedCopy, 0);
+    setCreatedAt(reply.id, 2000);
+
+    const photo = await newAttachment("mine.png");
+    const spoken = await addMessage(conversation.id, "user", "and mine", {
+      skipIndexing: true,
+    });
+    linkAttachmentToMessage(spoken.id, photo, 0);
+    setCreatedAt(spoken.id, 3000);
+
+    const result = listAttachments({ conversationId: conversation.id });
+
+    expect(result.attachments.map((a) => a.id)).toEqual([photo, promotedCopy]);
+    expect(result.attachments.map((a) => a.id)).not.toContain(toolCopy);
+    expect(result.total).toBe(2);
+
+    const excluded = listAttachments({
+      conversationId: conversation.id,
+      sightFrames: "exclude",
+    });
+    expect(excluded.attachments.map((a) => a.id)).toEqual([
+      photo,
+      promotedCopy,
+    ]);
+    expect(excluded.total).toBe(2);
   });
 
   test("lists an attachment carried twice once, under the newest carrier", async () => {

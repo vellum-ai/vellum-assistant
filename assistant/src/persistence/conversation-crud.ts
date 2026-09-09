@@ -2733,7 +2733,9 @@ export interface ConversationAttachmentListing {
  *
  * Driven from `messages` so the lineage predicate rides
  * `idx_messages_conversation_created_at`. An attachment linked to more than
- * one row is listed once, on the newest row that carries it.
+ * one row is listed once, on the newest row that carries it. Tool-result rows
+ * are left out: the transcript never shows them, and the assistant row carries
+ * the promoted copy of every image a tool produced.
  *
  * The lineage-wide select still reads every linked row: an exact `total` and
  * the metadata-derived flags are only known after the role and visibility
@@ -2755,6 +2757,7 @@ export function listConversationAttachments(
       messageId: messages.id,
       messageCreatedAt: messages.createdAt,
       role: messages.role,
+      content: messages.content,
       metadata: messages.metadata,
     })
     .from(messages)
@@ -2790,6 +2793,9 @@ export function listConversationAttachments(
     }
     // A channel-deleted row renders as a tombstone, so its files stay hidden.
     if (row.metadata !== null && isChannelDeletedMetadata(row.metadata)) {
+      continue;
+    }
+    if (isToolResultMessage(row.role, row.content)) {
       continue;
     }
     seen.add(row.id);
