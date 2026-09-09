@@ -185,6 +185,66 @@ paths:
                   - acpSessionId
                   - closed
                 additionalProperties: false
+  /v1/acp/{id}/set-model:
+    post:
+      operationId: acp_by_id_setmodel_post
+      summary: Set ACP session model
+      description:
+        Switch a live ACP session onto one of the models its adapter advertises. The adapter applies it to the next
+        turn, so a turn already in flight finishes on the model it started with.
+      tags:
+        - acp
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                model:
+                  type: string
+                  description: A value from the session's availableModels list.
+              required:
+                - model
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  acpSessionId:
+                    type: string
+                  model:
+                    type: string
+                  availableModels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        value:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        group:
+                          type: string
+                      required:
+                        - value
+                        - label
+                      additionalProperties: false
+                required:
+                  - acpSessionId
+                  - availableModels
+                additionalProperties: false
   /v1/acp/{id}/steer:
     post:
       operationId: acp_by_id_steer_post
@@ -469,6 +529,25 @@ paths:
                           type: string
                         authErrorCode:
                           type: string
+                        model:
+                          type: string
+                        availableModels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              value:
+                                type: string
+                              label:
+                                type: string
+                              description:
+                                type: string
+                              group:
+                                type: string
+                            required:
+                              - value
+                              - label
+                            additionalProperties: false
                         usedTokens:
                           type: number
                         contextSize:
@@ -548,6 +627,9 @@ paths:
                 cwd:
                   type: string
                   description: Working directory
+                model:
+                  description: Optional model id or alias to request for the session.
+                  type: string
               required:
                 - agent
                 - task
@@ -565,6 +647,9 @@ paths:
                   protocolSessionId:
                     type: string
                   agent:
+                    type: string
+                  modelWarning:
+                    description: Why the requested model was not applied. The session is running on the agent's own model.
                     type: string
                 required:
                   - acpSessionId

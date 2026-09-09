@@ -285,10 +285,14 @@ describe("AcpSessionManager: model selection at spawn", () => {
     agentId?: string;
     agentModel?: string;
     requestedModel?: string;
-  }): Promise<{ state: AcpSessionState; sent: AssistantEvent[] }> {
+  }): Promise<{
+    state: AcpSessionState;
+    sent: AssistantEvent[];
+    modelWarning?: string;
+  }> {
     const manager = new AcpSessionManager(5);
     const sent: AssistantEvent[] = [];
-    const { acpSessionId } = await manager.spawn(
+    const { acpSessionId, modelWarning } = await manager.spawn(
       opts.agentId ?? "agent-model",
       { command: "echo", args: ["hi"], model: opts.agentModel },
       "task",
@@ -300,6 +304,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     return {
       state: manager.getStatus(acpSessionId) as AcpSessionState,
       sent,
+      modelWarning,
     };
   }
 
@@ -347,6 +352,28 @@ describe("AcpSessionManager: model selection at spawn", () => {
     expect(sent.map((e) => e.type)).toEqual(["acp_session_spawned"]);
     // A model that cannot be applied is not a failed spawn.
     expect(state.status).toBe("running");
+  });
+
+  test("a caller who asked for a model is told the agent cannot select one", async () => {
+    const { modelWarning } = await spawnWithModel({
+      conversationId: "conv-no-selector-warned",
+      requestedModel: "opus",
+    });
+
+    expect(modelWarning).toBe(
+      'Agent "agent-model" does not support model selection, so the ' +
+        "session is running on the agent's own model.",
+    );
+  });
+
+  test("an inherited model on an agent with no selector warns nobody", async () => {
+    config.setConfig({ defaultModel: "opus" });
+
+    const { modelWarning } = await spawnWithModel({
+      conversationId: "conv-no-selector-inherited",
+    });
+
+    expect(modelWarning).toBeUndefined();
   });
 
   test("an explicit request outranks every other rung", async () => {

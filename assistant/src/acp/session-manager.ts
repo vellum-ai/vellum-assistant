@@ -143,6 +143,22 @@ export class AcpModelSelectionUnsupportedError extends Error {
 }
 
 /**
+ * Thrown when a live switch names a value the session's adapter does not
+ * offer. The picker is built out of exactly those options, so this is a
+ * caller mistake rather than an adapter failure, and callers map it to their
+ * transport's bad-request shape.
+ */
+export class AcpModelNotOfferedError extends Error {
+  constructor(acpSessionId: string, model: string, available: string[]) {
+    super(
+      `ACP session "${acpSessionId}" does not offer model "${model}". ` +
+        `Available: ${available.join(", ") || "none"}`,
+    );
+    this.name = "AcpModelNotOfferedError";
+  }
+}
+
+/**
  * Wraps failures from the resume-then-steer phase of `steerOrResume` so
  * transport callers can distinguish them (HTTP 424 with the actionable
  * resume hint) from plain steer failures (404). The message mirrors the
@@ -357,10 +373,11 @@ export class AcpSessionManager {
     });
     const { process: agentProcess, state } = entry;
 
+    const requestedModel = options?.model?.trim() || undefined;
     // Resolved before the adapter is asked for anything, so the ladder is
     // walked once against the config and conversation the spawn was made in.
     const resolvedModel = resolveAcpModel({
-      requestedModel: options?.model,
+      requestedModel,
       conversationPreference: readConversationModelPreference(
         parentConversationId,
         agentId,
@@ -407,13 +424,14 @@ export class AcpSessionManager {
       entry,
       configOptions,
       resolvedModel,
+      requestedModel !== undefined,
     );
 
     // Only an explicit request becomes the conversation's preference, and only
     // once the session is confirmed to be on it. Inherited rungs are already
     // recorded where they came from, and re-recording them here would freeze a
     // config default into the conversation.
-    if (options?.model && !modelWarning) {
+    if (requestedModel && !modelWarning) {
       this.rememberModelChoice(entry);
     }
 
@@ -463,11 +481,17 @@ export class AcpSessionManager {
    * leaves the run on the adapter's default and comes back as the message to
    * relay, because a session that is live and working is worth more than one
    * that never started over a model name.
+   *
+   * `explicitlyRequested` says the caller named this model rather than
+   * inheriting it, which is what decides whether an adapter with no model
+   * selector is worth a warning: someone who asked for a model is owed the
+   * news that it was not applied, while an inherited rung is only logged.
    */
   private async pinSessionModel(
     entry: SessionEntry,
     configOptions: SessionConfigOption[],
     resolvedModel: string | undefined,
+    explicitlyRequested = false,
   ): Promise<string | undefined> {
     const { state } = entry;
     const info = this.applyModelInfo(entry, configOptions);
@@ -479,7 +503,9 @@ export class AcpSessionManager {
         { acpSessionId: state.id, agentId: state.agentId, resolvedModel },
         "ACP agent advertises no model selector; running on its own model",
       );
-      return undefined;
+      return explicitlyRequested
+        ? `Agent "${state.agentId}" does not support model selection, so the session is running on the agent's own model.`
+        : undefined;
     }
 
     try {
@@ -718,9 +744,10 @@ export class AcpSessionManager {
 
     const available = state.availableModels ?? [];
     if (!available.some((option) => option.value === model)) {
-      throw new Error(
-        `ACP session "${acpSessionId}" does not offer model "${model}". ` +
-          `Available: ${available.map((option) => option.value).join(", ") || "none"}`,
+      throw new AcpModelNotOfferedError(
+        acpSessionId,
+        model,
+        available.map((option) => option.value),
       );
     }
 

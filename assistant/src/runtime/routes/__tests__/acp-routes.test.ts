@@ -11,7 +11,12 @@
  * silently auto-installs allowlisted adapter packages via a sandboxed `bun`
  * global install before failing with the install hint. `execFile` is stubbed
  * via the shared `installExecFileStub` helper so tests can script
- * `bun add --global` outcomes.
+ * `bun add --global` outcomes. It also threads the optional `model` through to
+ * the session manager and relays the warning a refused model comes back with.
+ *
+ * `POST /v1/acp/:id/set-model`: the transport mapping of a live model switch,
+ * including the errors the session manager distinguishes and the fact that the
+ * route is ungated (no guardian approval, unlike spawn and resume).
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -43,6 +48,8 @@ interface FakeSessionState {
   completedAt?: number;
   error?: string;
   stopReason?: string;
+  model?: string;
+  availableModels?: Array<{ value: string; label: string }>;
   latestUsage?: {
     usedTokens: number;
     contextSize: number;
@@ -55,10 +62,27 @@ interface FakeSessionState {
 
 let fakeInMemorySessions: FakeSessionState[] = [];
 
-const spawnMock = mock(async () => ({
+interface SpawnResult {
+  acpSessionId: string;
+  protocolSessionId: string;
+  modelWarning?: string;
+}
+
+const DEFAULT_SPAWN_RESULT: SpawnResult = {
   acpSessionId: "acp-route-session",
   protocolSessionId: "proto-route-session",
-}));
+};
+let spawnResult: SpawnResult = DEFAULT_SPAWN_RESULT;
+const spawnMock = mock(async () => spawnResult);
+
+const defaultSetModelImpl = async (): Promise<FakeSessionState> => {
+  throw new Error("setModel was not scripted for this test");
+};
+let setModelImpl: (id: string, model: string) => Promise<FakeSessionState> =
+  defaultSetModelImpl;
+const setModelMock = mock((id: string, model: string) =>
+  setModelImpl(id, model),
+);
 
 const defaultSteerOrResumeImpl = async (
   _id: string,
@@ -80,6 +104,7 @@ mock.module("../../../acp/index.js", () => ({
     getBufferedUpdates: () => [],
     spawn: spawnMock,
     steerOrResume: steerOrResumeMock,
+    setModel: setModelMock,
   }),
 }));
 
@@ -139,11 +164,19 @@ import {
   insertHistoryRow,
 } from "../../../acp/__tests__/helpers/acp-history-db.js";
 import {
+  AcpModelNotOfferedError,
+  AcpModelSelectionUnsupportedError,
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../../acp/session-manager.js";
 import { initializeDb } from "../../../persistence/db-init.js";
-import { FailedDependencyError, NotFoundError } from "../errors.js";
+import {
+  BadRequestError,
+  ConflictError,
+  FailedDependencyError,
+  InternalError,
+  NotFoundError,
+} from "../errors.js";
 
 const { ROUTES } = await import("../acp-routes.js");
 const {
@@ -184,6 +217,8 @@ interface ResponseShape {
     outputTokens?: number;
     eventLog?: unknown[];
     authErrorCode?: string;
+    model?: string;
+    availableModels?: Array<{ value: string; label: string }>;
   }>;
 }
 
@@ -192,6 +227,9 @@ beforeEach(() => {
   clearHistory();
   resetExecFileStub();
   spawnMock.mockClear();
+  spawnResult = DEFAULT_SPAWN_RESULT;
+  setModelMock.mockClear();
+  setModelImpl = defaultSetModelImpl;
   steerOrResumeMock.mockClear();
   steerOrResumeImpl = defaultSteerOrResumeImpl;
   _resetAdapterInstallCacheForTests();
@@ -335,6 +373,58 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     expect(s).toBeDefined();
     expect(s!.inputTokens).toBeUndefined();
     expect(s!.outputTokens).toBeUndefined();
+  });
+
+  test("carries the model for both layers and the picker for live ones only", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-model",
+        agentId: "agent-live",
+        acpSessionId: "proto-live",
+        parentConversationId: "conv-model",
+        status: "running",
+        startedAt: 9000,
+        model: "opus",
+        availableModels: [
+          { value: "sonnet", label: "Sonnet" },
+          { value: "opus", label: "Opus" },
+        ],
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-model",
+      agentId: "agent-hist",
+      acpSessionId: "proto-hist",
+      parentConversationId: "conv-model",
+      startedAt: 1000,
+      status: "completed",
+      model: "sonnet",
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const live = body.sessions.find((s) => s.id === "live-model");
+    const hist = body.sessions.find((s) => s.id === "hist-model");
+    expect(live).toMatchObject({
+      model: "opus",
+      availableModels: [
+        { value: "sonnet", label: "Sonnet" },
+        { value: "opus", label: "Opus" },
+      ],
+    });
+    // A finished run records what it ran on, but has no process left to ask
+    // what it could switch to.
+    expect(hist?.model).toBe("sonnet");
+    expect(hist?.availableModels).toBeUndefined();
+  });
+
+  test("omits the model for history rows written without one", async () => {
+    insertHistoryRow({ id: "hist-no-model", status: "completed" });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const s = body.sessions.find((row) => row.id === "hist-no-model");
+    expect(s?.model).toBeUndefined();
   });
 
   test("dedupes by id with in-memory winning on collision", async () => {
@@ -685,6 +775,178 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     await expect(promise).rejects.toBeInstanceOf(FailedDependencyError);
     await expect(promise).rejects.toThrow(
       "custom-bin is not on PATH. Install 'custom-bin' and ensure it is on PATH.",
+    );
+  });
+});
+
+describe("POST /v1/acp/spawn: model selection", () => {
+  test("threads the requested model to the session manager", async () => {
+    const handler = getSpawnHandler();
+    await handler({ body: { ...SPAWN_BODY, model: "opus" } });
+
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect((spawnMock.mock.calls[0] as unknown[])[6]).toEqual({
+      model: "opus",
+    });
+  });
+
+  test("a spawn that names no model asks the manager for none", async () => {
+    const handler = getSpawnHandler();
+    await handler({ body: SPAWN_BODY });
+
+    const options = (spawnMock.mock.calls[0] as unknown[])[6] as {
+      model?: string;
+    };
+    expect(options.model).toBeUndefined();
+  });
+
+  test("a refused model is a warning on an otherwise successful spawn", async () => {
+    spawnResult = {
+      ...DEFAULT_SPAWN_RESULT,
+      modelWarning: "Invalid value for config option model: nope",
+    };
+
+    const handler = getSpawnHandler();
+    const body = (await handler({
+      body: { ...SPAWN_BODY, model: "nope" },
+    })) as Record<string, unknown>;
+
+    expect(body).toEqual({
+      acpSessionId: "acp-route-session",
+      protocolSessionId: "proto-route-session",
+      agent: "claude",
+      modelWarning: "Invalid value for config option model: nope",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/acp/:id/set-model: live model switching
+// ---------------------------------------------------------------------------
+
+function getSetModelRoute() {
+  const route = ROUTES.find(
+    (r) => r.endpoint === "acp/:id/set-model" && r.method === "POST",
+  );
+  if (!route) {
+    throw new Error("acp/:id/set-model POST route not found");
+  }
+  return route;
+}
+
+const SWITCHED_STATE: FakeSessionState = {
+  id: "live-1",
+  agentId: "claude",
+  acpSessionId: "proto-1",
+  parentConversationId: "conv-1",
+  status: "running",
+  startedAt: 1000,
+  model: "claude-opus-4-5",
+  availableModels: [
+    { value: "sonnet", label: "Sonnet" },
+    { value: "opus", label: "Opus" },
+  ],
+};
+
+describe("POST /v1/acp/:id/set-model", () => {
+  test("returns the selection the adapter confirmed", async () => {
+    setModelImpl = async () => SWITCHED_STATE;
+
+    const body = (await getSetModelRoute().handler({
+      pathParams: { id: "live-1" },
+      body: { model: "opus" },
+    })) as Record<string, unknown>;
+
+    expect(setModelMock).toHaveBeenCalledWith("live-1", "opus");
+    expect(body).toEqual({
+      acpSessionId: "live-1",
+      model: "claude-opus-4-5",
+      availableModels: [
+        { value: "sonnet", label: "Sonnet" },
+        { value: "opus", label: "Opus" },
+      ],
+    });
+  });
+
+  test("switching a running agent asks for no guardian approval", async () => {
+    setModelImpl = async () => SWITCHED_STATE;
+
+    await getSetModelRoute().handler({
+      pathParams: { id: "live-1" },
+      body: { model: "opus" },
+    });
+
+    expect(confirmationRequests).toEqual([]);
+    expect(broadcasts).toEqual([]);
+  });
+
+  test("is a chat.write route", () => {
+    expect(getSetModelRoute().policy?.requiredScopes).toEqual(["chat.write"]);
+  });
+
+  test("a missing or non-string model is a bad request", async () => {
+    const { handler } = getSetModelRoute();
+
+    await expect(
+      handler({ pathParams: { id: "live-1" }, body: {} }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    await expect(
+      handler({ pathParams: { id: "live-1" }, body: { model: 7 } }),
+    ).rejects.toBeInstanceOf(BadRequestError);
+    expect(setModelMock).not.toHaveBeenCalled();
+  });
+
+  test("an unknown session is not found", async () => {
+    setModelImpl = async () => {
+      throw new AcpSessionNotFoundError("live-1");
+    };
+
+    await expect(
+      getSetModelRoute().handler({
+        pathParams: { id: "live-1" },
+        body: { model: "opus" },
+      }),
+    ).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  test("an agent with no model selector is a conflict, not a missing session", async () => {
+    setModelImpl = async () => {
+      throw new AcpModelSelectionUnsupportedError("live-1");
+    };
+
+    const promise = getSetModelRoute().handler({
+      pathParams: { id: "live-1" },
+      body: { model: "opus" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(ConflictError);
+    await expect(promise).rejects.toThrow("advertises no model selector");
+  });
+
+  test("a model the session does not offer is a bad request", async () => {
+    setModelImpl = async () => {
+      throw new AcpModelNotOfferedError("live-1", "gpt-5", ["sonnet", "opus"]);
+    };
+
+    const promise = getSetModelRoute().handler({
+      pathParams: { id: "live-1" },
+      body: { model: "gpt-5" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(BadRequestError);
+    await expect(promise).rejects.toThrow('does not offer model "gpt-5"');
+  });
+
+  test("an adapter refusal surfaces as a server error", async () => {
+    setModelImpl = async () => {
+      throw new Error("Invalid value for config option model: opus");
+    };
+
+    const promise = getSetModelRoute().handler({
+      pathParams: { id: "live-1" },
+      body: { model: "opus" },
+    });
+    await expect(promise).rejects.toBeInstanceOf(InternalError);
+    await expect(promise).rejects.toThrow(
+      "Invalid value for config option model: opus",
     );
   });
 });
