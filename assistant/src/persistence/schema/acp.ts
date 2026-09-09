@@ -7,6 +7,8 @@ import {
   text,
 } from "drizzle-orm/sqlite-core";
 
+import { conversations } from "./conversations.js";
+
 /**
  * ACP (Agent Client Protocol) session history. Persists completed ACP
  * sessions so the sessions UI has data across daemon restarts.
@@ -92,12 +94,17 @@ export const acpRefusedCredentials = sqliteTable("acp_refused_credentials", {
  * their model vocabularies do not overlap. Values are adapter aliases (for
  * example "opus"), not Assistant catalog ids.
  *
+ * Cascades from the conversation, so a preference never outlives the
+ * conversation it was chosen for and no delete path has to remember it.
+ *
  * Created by migration 378.
  */
 export const acpConversationModelPreference = sqliteTable(
   "acp_conversation_model_preference",
   {
-    parentConversationId: text("parent_conversation_id").notNull(),
+    parentConversationId: text("parent_conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
     agentId: text("agent_id").notNull(),
     model: text("model").notNull(),
     updatedAt: integer("updated_at").notNull(),

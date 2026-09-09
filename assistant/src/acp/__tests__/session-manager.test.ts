@@ -21,6 +21,7 @@ import { initializeDb } from "../../persistence/db-init.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
 import { installAcpConfigStub } from "./helpers/acp-config-stub.js";
+import { seedConversationRow } from "./helpers/acp-history-db.js";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
@@ -290,6 +291,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     sent: AssistantEvent[];
     modelWarning?: string;
   }> {
+    seedConversationRow(opts.conversationId);
     const manager = new AcpSessionManager(5);
     const sent: AssistantEvent[] = [];
     const { acpSessionId, modelWarning } = await manager.spawn(
@@ -378,6 +380,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("an explicit request outranks every other rung", async () => {
     config.setConfig({ defaultModel: "haiku" });
+    seedConversationRow("conv-ladder");
     upsertAcpConversationModelPreference({
       parentConversationId: "conv-ladder",
       agentId: "agent-model",
@@ -398,6 +401,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("the conversation preference outranks the agent and global defaults", async () => {
     config.setConfig({ defaultModel: "haiku" });
+    seedConversationRow("conv-ladder");
     upsertAcpConversationModelPreference({
       parentConversationId: "conv-ladder",
       agentId: "agent-model",
@@ -537,6 +541,7 @@ async function spawnSwitchable(conversationId: string): Promise<{
   sent: AssistantEvent[];
 }> {
   scriptedConfigOptions = [[modelOption("sonnet")]];
+  seedConversationRow(conversationId);
   const manager = new AcpSessionManager(5);
   const sent: AssistantEvent[] = [];
   const { acpSessionId } = await manager.spawn(
@@ -990,6 +995,7 @@ async function spawnPinnedToDefault(conversationId: string): Promise<{
   acpSessionId: string;
   sent: AssistantEvent[];
 }> {
+  seedConversationRow(conversationId);
   config.setConfig({ defaultModel: "sonnet" });
   scriptedConfigOptions = [[modelOption("default")]];
   const manager = new AcpSessionManager(5);

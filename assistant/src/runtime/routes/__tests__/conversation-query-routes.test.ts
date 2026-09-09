@@ -53,7 +53,12 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 }));
 
 import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
-import { getConfig, loadRawConfig } from "../../../config/loader.js";
+import {
+  getConfig,
+  loadConfig,
+  loadRawConfig,
+} from "../../../config/loader.js";
+import { AssistantConfigSchema } from "../../../config/schema.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import {
@@ -1327,6 +1332,41 @@ describe("PATCH /v1/config fallbackProfile write protection", () => {
     ).rejects.toThrow(/Automatic fallbacks are code-owned/);
     expect(persistedProfile("custom").fallbackProfile).toBeUndefined();
     expect(initializeProvidersCalls).toBe(0);
+  });
+});
+
+describe("PATCH /v1/config clearing acp.defaultModel", () => {
+  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+
+  beforeEach(() => {
+    rawConfigFixture = {
+      acp: {
+        defaultModel: "opus",
+        agents: { claude: { command: "claude-agent-acp", args: [] } },
+      },
+    };
+    seedRawConfig();
+  });
+
+  test("removes the key rather than persisting a schema-invalid null", async () => {
+    await patchRoute.handler({ body: { acp: { defaultModel: null } } });
+
+    const acp = loadRawConfig().acp as Record<string, unknown>;
+    expect("defaultModel" in acp).toBe(false);
+    expect(acp.agents).toEqual({
+      claude: { command: "claude-agent-acp", args: [] },
+    });
+  });
+
+  test("the config it leaves behind loads without a validation warning", async () => {
+    await patchRoute.handler({ body: { acp: { defaultModel: null } } });
+
+    // A persisted `null` fails `acp.defaultModel` and sends every later load
+    // down the salvage ladder, warning each time.
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    const acp = loadConfig().acp;
+    expect(acp.defaultModel).toBeUndefined();
+    expect(Object.keys(acp.agents)).toEqual(["claude"]);
   });
 });
 

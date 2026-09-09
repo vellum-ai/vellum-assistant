@@ -2,7 +2,8 @@
  * Migration 378 creates `acp_conversation_model_preference`, the record of
  * which model a conversation's next run on an agent starts on. Its composite
  * primary key is what makes an explicit choice replace the previous one per
- * agent rather than accumulate.
+ * agent rather than accumulate, and its conversation column cascades so a
+ * preference never outlives the conversation it was chosen for.
  */
 
 import { Database } from "bun:sqlite";
@@ -34,6 +35,27 @@ describe("migrateCreateAcpConversationModelPreference", () => {
     migrateCreateAcpConversationModelPreference(db);
 
     expect(tableNames(db)).toContain("acp_conversation_model_preference");
+  });
+
+  test("the conversation column cascades", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
+    raw.exec("PRAGMA foreign_keys = ON");
+    raw.exec("CREATE TABLE conversations (id TEXT PRIMARY KEY)");
+    migrateCreateAcpConversationModelPreference(db);
+    raw.exec("INSERT INTO conversations (id) VALUES ('conv-1')");
+    raw.exec(
+      `INSERT INTO acp_conversation_model_preference
+         (parent_conversation_id, agent_id, model, updated_at)
+       VALUES ('conv-1', 'claude', 'opus', 10)`,
+    );
+
+    raw.exec("DELETE FROM conversations WHERE id = 'conv-1'");
+
+    const count = raw
+      .prepare("SELECT COUNT(*) AS n FROM acp_conversation_model_preference")
+      .get() as { n: number };
+    expect(count.n).toBe(0);
   });
 
   test("re-running preserves existing rows", () => {
