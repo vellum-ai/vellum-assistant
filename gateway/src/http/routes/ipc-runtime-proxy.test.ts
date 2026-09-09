@@ -9,6 +9,8 @@
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import "../../__tests__/test-preload.js";
 
+import type { ScopeProfile } from "../../auth/types.js";
+
 // ---------------------------------------------------------------------------
 // Mock implementations
 // ---------------------------------------------------------------------------
@@ -69,6 +71,27 @@ const ROUTE_SCHEMA = [
       allowedPrincipalTypes: ["actor"],
     },
   },
+  // A policy that names principals but no scope. `enforcePolicy` treats it
+  // exactly like `policy: null`, so the IPC fast path must too.
+  {
+    operationId: "debug_ping",
+    endpoint: "debug/ping",
+    method: "GET",
+    policy: {
+      requiredScopes: [],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+    },
+  },
+  // The OAuth passthrough proxy: the one route an oauth_proxy_v1 grant opens.
+  {
+    operationId: "oauth_proxy_get",
+    endpoint: "oauth/proxy/:provider/:path*",
+    method: "GET",
+    policy: {
+      requiredScopes: ["oauth.proxy"],
+      allowedPrincipalTypes: ["local"],
+    },
+  },
 ];
 
 const defaultIpcImpl = (
@@ -99,7 +122,7 @@ const validateEdgeTokenMock = mock(
     | { ok: true; claims: Record<string, string | number> }
     | { ok: false; reason: string } => ({
     ok: true,
-    claims: { sub: "test", scope_profile: "test" },
+    claims: { sub: "actor:asst_1:user_1", scope_profile: "actor_client_v1" },
   }),
 );
 
@@ -230,7 +253,7 @@ describe("tryIpcProxy", () => {
     validateEdgeTokenMock.mockReset();
     validateEdgeTokenMock.mockImplementation(() => ({
       ok: true,
-      claims: { sub: "test", scope_profile: "test" },
+      claims: { sub: "actor:asst_1:user_1", scope_profile: "actor_client_v1" },
     }));
   });
 
@@ -438,7 +461,7 @@ describe("tryIpcProxy", () => {
     }));
 
     const config = makeConfig({ runtimeProxyRequireAuth: true });
-    const req = makeRequest("/v1/health", {
+    const req = makeRequest("/v1/oauth/proxy/stripe_link/v1/accounts", {
       headers: {
         authorization: "Bearer valid",
         "x-vellum-subject": "local:self:oauth-proxy.attacker",
@@ -651,6 +674,143 @@ describe("policy enforcement", () => {
 
     const body = (await result!.json()) as { error: { message: string } };
     expect(body.error.message).toContain("Unable to determine principal type");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: single-route grants on the IPC fast path
+//
+// An oauth_proxy_v1 grant is printed for a user to export into a stock
+// third-party CLI's environment. Setting one request header engages this fast
+// path, and the daemon's IPC server runs no policy check behind it, so the
+// containment has to hold here.
+// ---------------------------------------------------------------------------
+
+/** Subject shapes that parse for each profile under test. */
+const SUB_BY_PROFILE: Record<ScopeProfile, string> = {
+  actor_client_v1: "actor:asst_1:user_1",
+  gateway_ingress_v1: "svc:gateway:self",
+  gateway_service_v1: "svc:gateway:self",
+  local_v1: "local:asst_1:conv_1",
+  oauth_proxy_v1: "local:asst_1:oauth-proxy.stripe_link",
+  speech_relay_v1: "svc:daemon:self",
+  ui_page_v1: "svc:gateway:self",
+};
+
+/**
+ * Which profiles may reach a route that names no scope. Exhaustive over
+ * ScopeProfile so a new profile has to be classified here rather than
+ * inheriting whichever answer the compiler happens to allow.
+ */
+const REACHES_UNSCOPED_ROUTES: Record<ScopeProfile, boolean> = {
+  actor_client_v1: true,
+  gateway_ingress_v1: true,
+  gateway_service_v1: true,
+  local_v1: true,
+  oauth_proxy_v1: false,
+  speech_relay_v1: false,
+  ui_page_v1: true,
+};
+
+function mockClaims(profile: ScopeProfile) {
+  validateEdgeTokenMock.mockImplementation(() => ({
+    ok: true,
+    claims: {
+      iss: "vellum-auth",
+      aud: "vellum-gateway",
+      sub: SUB_BY_PROFILE[profile],
+      scope_profile: profile,
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      policy_epoch: 1,
+    },
+  }));
+}
+
+const AUTHED_CONFIG = () => makeConfig({ runtimeProxyRequireAuth: true });
+
+describe("single-route grants on the IPC fast path", () => {
+  beforeEach(() => {
+    ipcCallAssistantMock.mockReset();
+    ipcCallAssistantMock.mockImplementation(defaultIpcImpl);
+    validateEdgeTokenMock.mockReset();
+  });
+
+  test.each(Object.entries(REACHES_UNSCOPED_ROUTES))(
+    "%s on a null-policy route",
+    async (profile, allowed) => {
+      mockClaims(profile as ScopeProfile);
+      const req = makeRequest("/v1/health", {
+        headers: { authorization: "Bearer valid" },
+      });
+      const result = await tryIpcProxy(req, AUTHED_CONFIG());
+      expect(result!.status).toBe(allowed ? 200 : 403);
+    },
+  );
+
+  test.each(Object.entries(REACHES_UNSCOPED_ROUTES))(
+    "%s on a route whose policy names no scope",
+    async (profile, allowed) => {
+      mockClaims(profile as ScopeProfile);
+      const req = makeRequest("/v1/debug/ping", {
+        headers: { authorization: "Bearer valid" },
+      });
+      const result = await tryIpcProxy(req, AUTHED_CONFIG());
+      expect(result!.status).toBe(allowed ? 200 : 403);
+    },
+  );
+
+  test("a proxy grant reaches no route over IPC beyond the passthrough", async () => {
+    mockClaims("oauth_proxy_v1");
+    const req = makeRequest("/v1/health", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, AUTHED_CONFIG());
+
+    expect(result!.status).toBe(403);
+    const body = (await result!.json()) as { error: { code: string } };
+    expect(body.error.code).toBe("FORBIDDEN");
+    // Refused before the daemon is called: nothing downstream re-checks.
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("the passthrough proxy route still serves a proxy grant over IPC", async () => {
+    mockClaims("oauth_proxy_v1");
+    const req = makeRequest("/v1/oauth/proxy/stripe_link/v1/accounts", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, AUTHED_CONFIG());
+
+    expect(result!.status).toBe(200);
+    const [opId] = ipcCallAssistantMock.mock.calls[0] as [string];
+    expect(opId).toBe("oauth_proxy_get");
+  });
+
+  test("the passthrough proxy route still falls back to HTTP for a binary reply", async () => {
+    mockClaims("oauth_proxy_v1");
+    ipcCallAssistantMock.mockImplementation((method: string) => {
+      if (method === "get_route_schema") return Promise.resolve(ROUTE_SCHEMA);
+      return Promise.reject(
+        new IpcHandlerError(
+          "Binary/streaming responses are not supported over the IPC transport; use HTTP",
+          421,
+          "BINARY_UNSUPPORTED_OVER_IPC",
+        ),
+      );
+    });
+
+    const req = makeRequest("/v1/oauth/proxy/stripe_link/v1/accounts", {
+      headers: { authorization: "Bearer valid" },
+    });
+    expect(await tryIpcProxy(req, AUTHED_CONFIG())).toBeNull();
+  });
+
+  test("a speech-relay token is refused on an unprotected route", async () => {
+    mockClaims("speech_relay_v1");
+    const req = makeRequest("/v1/health", {
+      headers: { authorization: "Bearer valid" },
+    });
+    const result = await tryIpcProxy(req, AUTHED_CONFIG());
+    expect(result!.status).toBe(403);
   });
 });
 
