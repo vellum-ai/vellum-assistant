@@ -398,6 +398,8 @@ export class HostAppControlProxy extends HostProxyBase<
         signal,
         undefined,
         resolvedTargetClientId,
+        undefined,
+        sourceActorPrincipalId,
       );
       if (input.tool === "start") {
         if (payload.state === "running") {

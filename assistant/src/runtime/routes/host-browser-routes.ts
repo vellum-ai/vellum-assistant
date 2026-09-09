@@ -149,6 +149,30 @@ export async function resolveHostBrowserResultByRequestId(
         message: err instanceof Error ? err.message : "Same-actor check failed",
       };
     }
+  } else if (peeked.targetActorPrincipalId) {
+    const headerMap = headers ?? {};
+    const submittingClientId =
+      headerMap["x-vellum-client-id"]?.trim() || undefined;
+    const submittingActorPrincipalId =
+      await resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      );
+    try {
+      enforceSameActorOrThrow({
+        sourceActorPrincipalId: submittingActorPrincipalId,
+        targetActorPrincipalId: peeked.targetActorPrincipalId,
+        targetClientId: submittingClientId ?? "",
+        op: "host_browser",
+        hubForMissingTarget: assistantEventHub,
+      });
+    } catch (err) {
+      return {
+        ok: false,
+        code: "FORBIDDEN",
+        status: 403,
+        message: err instanceof Error ? err.message : "Same-actor check failed",
+      };
+    }
   }
 
   const normalizedContent = typeof content === "string" ? content : "";
