@@ -1434,6 +1434,43 @@ describe("session-agent-loop", () => {
       expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
+    test("re-syncs the system prompt once the cleanup-mode policy is known", async () => {
+      // Sections gated on the turn's resolved tool surface (the
+      // parallel-delegation guidance, which needs the skill dispatcher that
+      // cleanup mode withholds) are built by the first sync, which runs before
+      // the disk-pressure decision. A cleanup-mode turn therefore syncs a
+      // second time, with the flag already set.
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "local-owner",
+      };
+      const observed: Array<boolean | undefined> = [];
+      const ctx = makeCtx();
+      ctx.syncLoopSystemPrompt = () => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+      };
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(observed).toEqual([undefined, true]);
+    });
+
+    test("does not re-sync the system prompt on an ordinary turn", async () => {
+      // The mode is cleared at the end of every turn, so the first sync
+      // already ran under the answer the turn keeps. A second rebuild would
+      // cost every turn a prompt render for nothing.
+      mockDiskPressureDecision = { action: "allow-normal" };
+      const observed: Array<boolean | undefined> = [];
+      const ctx = makeCtx();
+      ctx.syncLoopSystemPrompt = () => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+      };
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observed).toEqual([undefined]);
+    });
+
     test("keeps the cleanup-mode flag set across overflow recovery reinjection", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",

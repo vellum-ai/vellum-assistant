@@ -930,7 +930,7 @@ export function isToolActiveForContext(
  * The spawn tool ships inside the bundled `subagent` skill, so it is never
  * called by name: `skill_load` activates the skill and `skill_execute`
  * dispatches to `subagent_spawn` inside it, which the executor gates as the
- * resolved inner tool. All three are therefore required — any one of them
+ * resolved inner tool. All three are therefore required: any one of them
  * missing leaves no callable path to a subagent.
  */
 const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [

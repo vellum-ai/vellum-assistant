@@ -722,6 +722,16 @@ export async function runAgentLoopImpl(
   );
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
+  if (ctx.diskPressureCleanupModeActive) {
+    // The prompt synced above was built before this turn's disk-pressure
+    // policy was known. Cleanup mode narrows the turn to
+    // `DISK_PRESSURE_CLEANUP_TOOL_NAMES`, so sections gated on the resolved
+    // tool surface (the parallel-delegation guidance, which needs the skill
+    // dispatcher cleanup mode withholds) must be re-derived against it.
+    // Skipped otherwise: the mode is cleared at the end of every turn, so an
+    // ordinary turn already synced under the same answer.
+    ctx.syncLoopSystemPrompt();
+  }
   const toolsDisabledForTurn = ctx.toolsDisabledDepth > 0;
 
   ctx.lastAssistantAttachments = [];

@@ -58,6 +58,15 @@ describe("canSpawnSubagentsForTurn", () => {
     );
   });
 
+  test("a disk-pressure cleanup turn answers no", () => {
+    // Cleanup mode narrows the surface to `DISK_PRESSURE_CLEANUP_TOOL_NAMES`,
+    // which carries `skill_load` but neither the dispatcher nor the spawn tool.
+    withExclude([]);
+    expect(
+      canSpawnSubagentsForTurn(ctx({ diskPressureCleanupModeActive: true })),
+    ).toBe(false);
+  });
+
   test("a wire-scoped background run whose allowlist omits the path answers no", () => {
     withExclude([]);
     expect(
