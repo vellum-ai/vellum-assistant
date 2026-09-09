@@ -1,19 +1,28 @@
 /**
- * Fixtures for the Chat Info stories.
+ * Fixtures and the seeded-conversation decorator for the Chat Info stories.
  *
  * The panel reads its assets through the real hooks, so a story has to fill
  * the two sources those hooks go to: the query cache holds the conversation's
  * apps and documents, and the chat-session store holds the transcript the
- * attachments are derived from. Everything here seeds one of those, so the
- * panel story and the mobile-overlay story can show the same conversation.
+ * attachments are derived from. {@link inChatInfoConversation} fills both, on a
+ * client of the story's own, before the story's first paint.
  *
- * No JSX and no test-runner import: this is data plus the calls that install
- * it, and the decorators that use it live in the story files.
+ * A story declares its conversation through `parameters.chatInfo` rather than
+ * by wrapping itself in a second decorator, so the panel, the mobile overlay,
+ * and the chat header each mount exactly one seeded conversation.
  */
 
-import type { QueryClient } from "@tanstack/react-query";
+import type { Decorator } from "@storybook/react-vite";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import {
+  CHAT_INFO_T0,
+  makeAppSummary,
+  makeDocumentSummary,
+} from "@/domains/chat/components/chat-info.test-helper";
 import type {
   DisplayAttachment,
   DisplayMessage,
@@ -28,8 +37,6 @@ import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
 export const CHAT_INFO_ASSISTANT_ID = "story-assistant";
 export const CHAT_INFO_CONVERSATION_ID = "story-conversation";
-
-const T0 = 1_760_000_000_000;
 
 /** Name, icon, and preview lines for each app a story can ask for. */
 const APP_SEEDS: Array<{ name: string; icon: string; lines: string[] }> = [
@@ -96,23 +103,22 @@ const APP_SEEDS: Array<{ name: string; icon: string; lines: string[] }> = [
 ];
 
 /** A small page for the preview iframe, in system colours so it reads in either theme. */
-function previewHtml(title: string, lines: string[]): string {
+export function chatInfoPreviewHtml(title: string, lines: string[]): string {
   const items = lines.map((line) => `<li>${line}</li>`).join("");
   return `<!doctype html><meta charset="utf-8"><title>${title}</title><style>body{margin:0;padding:24px;font-family:system-ui,sans-serif;background:Canvas;color:CanvasText}h1{margin:0 0 12px;font-size:28px}ul{margin:0;padding-left:22px;font-size:18px;line-height:1.7}</style><h1>${title}</h1><ul>${items}</ul>`;
 }
 
 /** The first `count` fixture apps, newest first. */
-export function chatInfoApps(count: number): AppSummary[] {
-  return APP_SEEDS.slice(0, count).map((seed, index) => ({
-    id: `app-${index + 1}`,
-    name: seed.name,
-    icon: seed.icon,
-    createdAt: T0,
-    updatedAt: T0 + (count - index) * 1_000,
-    version: "1.0.0",
-    contentId: `content-${index + 1}`,
-    origin: "workspace",
-  }));
+function chatInfoApps(count: number): AppSummary[] {
+  return APP_SEEDS.slice(0, count).map((seed, index) =>
+    makeAppSummary({
+      id: `app-${index + 1}`,
+      name: seed.name,
+      icon: seed.icon,
+      updatedAt: CHAT_INFO_T0 + (count - index) * 1_000,
+      contentId: `content-${index + 1}`,
+    }),
+  );
 }
 
 const DOCUMENT_TITLES = [
@@ -122,15 +128,19 @@ const DOCUMENT_TITLES = [
 ];
 
 /** The first `count` fixture documents, newest first. */
-export function chatInfoDocuments(count: number): DocumentSummary[] {
-  return DOCUMENT_TITLES.slice(0, count).map((title, index) => ({
-    surfaceId: `surface-${index + 1}`,
-    conversationId: CHAT_INFO_CONVERSATION_ID,
-    title,
-    wordCount: 320 + index * 140,
-    createdAt: T0,
-    updatedAt: T0 + (count - index) * 1_000,
-  }));
+function chatInfoDocuments(
+  count: number,
+  conversationId: string,
+): DocumentSummary[] {
+  return DOCUMENT_TITLES.slice(0, count).map((title, index) =>
+    makeDocumentSummary({
+      surfaceId: `surface-${index + 1}`,
+      conversationId,
+      title,
+      wordCount: 320 + index * 140,
+      updatedAt: CHAT_INFO_T0 + (count - index) * 1_000,
+    }),
+  );
 }
 
 /**
@@ -138,15 +148,13 @@ export function chatInfoDocuments(count: number): DocumentSummary[] {
  * assistant's reply. This is the source `useConversationAttachments` reads,
  * so the panel's Documents & Images row lists exactly these files.
  */
-export function chatInfoMessages(
-  attachments: DisplayAttachment[],
-): DisplayMessage[] {
+function chatInfoMessages(attachments: DisplayAttachment[]): DisplayMessage[] {
   const half = Math.ceil(attachments.length / 2);
   return [
     {
       id: "msg-user",
       role: "user",
-      timestamp: T0,
+      timestamp: CHAT_INFO_T0,
       textSegments: ["Here are the shots from the harbour."],
       contentOrder: [{ type: "text", id: "0" }],
       attachments: attachments.slice(0, half),
@@ -154,7 +162,7 @@ export function chatInfoMessages(
     {
       id: "msg-assistant",
       role: "assistant",
-      timestamp: T0 + 1_000,
+      timestamp: CHAT_INFO_T0 + 1_000,
       textSegments: ["Added them to the trip notes."],
       contentOrder: [{ type: "text", id: "0" }],
       attachments: attachments.slice(half),
@@ -162,16 +170,41 @@ export function chatInfoMessages(
   ];
 }
 
+/** The conversation a story asks for through `parameters.chatInfo`. */
+export interface ChatInfoStoryConversation {
+  assistantId: string;
+  conversationId: string;
+  appCount: number;
+  documentCount: number;
+  attachments: DisplayAttachment[];
+}
+
+/** A worked-in trip conversation, the set most stories are shown against. */
+const DEFAULT_CONVERSATION: ChatInfoStoryConversation = {
+  assistantId: CHAT_INFO_ASSISTANT_ID,
+  conversationId: CHAT_INFO_CONVERSATION_ID,
+  appCount: 12,
+  documentCount: 2,
+  attachments: makePreviewableImages(2),
+};
+
 /**
  * Fills the query cache the way the daemon would, and primes each app's html
  * so the tiles render a live preview instead of the icon placeholder.
  */
-export function seedChatInfoQueries(
+function seedChatInfoQueries(
   client: QueryClient,
-  { apps, documents }: { apps: AppSummary[]; documents: DocumentSummary[] },
+  {
+    assistantId,
+    conversationId,
+    appCount,
+    documentCount,
+  }: ChatInfoStoryConversation,
 ): void {
-  const path = { assistant_id: CHAT_INFO_ASSISTANT_ID };
-  const query = { conversationId: CHAT_INFO_CONVERSATION_ID };
+  const apps = chatInfoApps(appCount);
+  const documents = chatInfoDocuments(documentCount, conversationId);
+  const path = { assistant_id: assistantId };
+  const query = { conversationId };
   client.setQueryData(appsGetQueryKey({ path, query }), { apps });
   // The app options menu reads the unscoped list to know whether a pin exists.
   client.setQueryData(appsGetQueryKey({ path }), { apps });
@@ -179,15 +212,15 @@ export function seedChatInfoQueries(
   for (const [index, app] of apps.entries()) {
     const seed = APP_SEEDS[index % APP_SEEDS.length]!;
     primeAppHtmlCache(
-      CHAT_INFO_ASSISTANT_ID,
+      assistantId,
       app.id,
-      previewHtml(app.name, seed.lines),
+      chatInfoPreviewHtml(app.name, seed.lines),
     );
   }
 }
 
 /** Installs `messages` as the rendered transcript. */
-export function seedChatInfoTranscript(messages: DisplayMessage[]): void {
+function seedChatInfoTranscript(messages: DisplayMessage[]): void {
   useChatSessionStore.getState().seedSnapshot(CHAT_INFO_CONVERSATION_ID, {
     messages,
     hasMore: false,
@@ -198,6 +231,40 @@ export function seedChatInfoTranscript(messages: DisplayMessage[]): void {
 }
 
 /** Drops the seeded transcript, so a story cannot leak into the next one. */
-export function resetChatInfoTranscript(): void {
+function resetChatInfoTranscript(): void {
   useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
 }
+
+/**
+ * Seeds the two sources the panel's hooks read, on a client of this story's
+ * own so one story's conversation cannot leak into the next through the
+ * preview's shared one.
+ *
+ * The seed runs in a `useState` initializer, which React calls during this
+ * decorator's own render, so the rows are in place for the story's first
+ * paint rather than one commit later.
+ */
+export const inChatInfoConversation: Decorator =
+  function InChatInfoConversation(Story, { parameters }) {
+    const [client] = useState(() => {
+      const conversation: ChatInfoStoryConversation = {
+        ...DEFAULT_CONVERSATION,
+        ...(parameters.chatInfo as
+          | Partial<ChatInfoStoryConversation>
+          | undefined),
+      };
+      const created = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+      });
+      seedChatInfoQueries(created, conversation);
+      seedChatInfoTranscript(chatInfoMessages(conversation.attachments));
+      return created;
+    });
+    useEffect(() => resetChatInfoTranscript, []);
+
+    return (
+      <QueryClientProvider client={client}>
+        <Story />
+      </QueryClientProvider>
+    );
+  };

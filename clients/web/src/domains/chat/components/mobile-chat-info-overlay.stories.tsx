@@ -14,53 +14,23 @@
  * Only ever mounted on a narrow window, hence the Mobile viewport on the meta.
  */
 
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
-import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
   CHAT_INFO_ASSISTANT_ID,
   CHAT_INFO_CONVERSATION_ID,
-  chatInfoApps,
-  chatInfoDocuments,
-  chatInfoMessages,
-  resetChatInfoTranscript,
-  seedChatInfoQueries,
-  seedChatInfoTranscript,
+  inChatInfoConversation,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 
 import { MobileChatInfoOverlay } from "./mobile-chat-info-overlay";
-
-/** Seeds the two sources the panel's hooks read, on a client of this story's own. */
-const inConversation: Decorator = function InConversation(Story) {
-  const [client] = useState(() => {
-    const created = new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-    });
-    seedChatInfoQueries(created, {
-      apps: chatInfoApps(12),
-      documents: chatInfoDocuments(2),
-    });
-    seedChatInfoTranscript(chatInfoMessages(makePreviewableImages(2)));
-    return created;
-  });
-  useEffect(() => resetChatInfoTranscript, []);
-
-  return (
-    <QueryClientProvider client={client}>
-      <Story />
-    </QueryClientProvider>
-  );
-};
 
 const meta: Meta<typeof MobileChatInfoOverlay> = {
   title: "Chat/MobileChatInfoOverlay",
   component: MobileChatInfoOverlay,
   parameters: { layout: "fullscreen" },
   globals: { viewport: { value: "sbMobile", isRotated: false } },
-  decorators: [inConversation],
+  decorators: [inChatInfoConversation],
   args: {
     payload: {
       assistantId: CHAT_INFO_ASSISTANT_ID,

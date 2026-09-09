@@ -19,42 +19,27 @@ import {
   SAMPLE_PREVIEWS,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
-import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
-import type { DocumentSummary } from "@/types/document-types";
+import { CHAT_INFO_ASSISTANT_ID } from "@/domains/chat/components/chat-info-story-fixtures";
+import {
+  CHAT_INFO_T0,
+  makeDocumentAsset,
+  makeDocumentSummary,
+  makeFileAsset,
+  makeFrameAsset,
+} from "@/domains/chat/components/chat-info.test-helper";
 import { decodeBase64Payload } from "@/utils/base64";
 
 import { ChatInfoFileTile } from "./chat-info-file-tile";
 
-const ASSISTANT_ID = "story-assistant";
+const DOCUMENT_FILE = makeDocumentAsset(
+  makeDocumentSummary({
+    surfaceId: "surface-trip-notes",
+    title: "Trip Notes",
+    wordCount: 842,
+  }),
+);
 
-const DOC: DocumentSummary = {
-  surfaceId: "surface-trip-notes",
-  conversationId: "conv-1",
-  title: "Trip Notes",
-  wordCount: 842,
-  createdAt: 1_760_000_000_000,
-  updatedAt: 1_760_000_100_000,
-};
-
-const DOCUMENT_FILE: ConversationFileAsset = {
-  kind: "document",
-  id: `doc-${DOC.surfaceId}`,
-  title: DOC.title,
-  doc: DOC,
-};
-
-function attachmentFile(
-  attachment: ReturnType<typeof makeDisplayAttachment>,
-): ConversationFileAsset {
-  return {
-    kind: "attachment",
-    id: `att-${attachment.id}`,
-    title: attachment.filename,
-    attachment,
-  };
-}
-
-const INLINE_IMAGE = attachmentFile(
+const INLINE_IMAGE = makeFileAsset(
   makeDisplayAttachment({
     id: "harbour-at-dawn",
     filename: "harbour-at-dawn.png",
@@ -69,10 +54,10 @@ const LAZY_IMAGE_ATTACHMENT = makeDisplayAttachment({
   filename: "ferry-deck.png",
   sizeBytes: 190_464,
 });
-const LAZY_IMAGE = attachmentFile(LAZY_IMAGE_ATTACHMENT);
+const LAZY_IMAGE = makeFileAsset(LAZY_IMAGE_ATTACHMENT);
 
 /** A legacy row: a synthetic id the content endpoint can never resolve. */
-const LAZY_IMAGE_UNAVAILABLE = attachmentFile(
+const LAZY_IMAGE_UNAVAILABLE = makeFileAsset(
   makeDisplayAttachment({
     id: "rehydrated:0",
     filename: "gulls-at-dusk.png",
@@ -80,7 +65,7 @@ const LAZY_IMAGE_UNAVAILABLE = attachmentFile(
   }),
 );
 
-const PDF_FILE = attachmentFile(
+const PDF_FILE = makeFileAsset(
   makeDisplayAttachment({
     id: "coast-guide",
     filename: "coast-guide.pdf",
@@ -89,7 +74,7 @@ const PDF_FILE = attachmentFile(
   }),
 );
 
-const VIDEO_FILE = attachmentFile(
+const VIDEO_FILE = makeFileAsset(
   makeDisplayAttachment({
     id: "harbour-tour",
     filename: "harbour-tour.mp4",
@@ -99,26 +84,23 @@ const VIDEO_FILE = attachmentFile(
   }),
 );
 
-const FRAME_FILE: ConversationFileAsset = {
-  kind: "frame",
-  id: "frame-capture-1",
-  title: "camera-frame-01.jpg",
-  attachment: makeDisplayAttachment({
+const FRAME_FILE = makeFrameAsset(
+  makeDisplayAttachment({
     id: "camera-frame-01",
     filename: "camera-frame-01.jpg",
     mimeType: "image/jpeg",
     sizeBytes: 98_304,
     previewUrl: SAMPLE_PREVIEWS[3]!,
   }),
-  capturedAt: Date.UTC(2026, 4, 27, 9, 41),
-};
+  CHAT_INFO_T0,
+);
 
 const storyClient = new QueryClient({
   defaultOptions: { queries: { retry: false, staleTime: Infinity } },
 });
 // The bytes the daemon would return, decoded from a sample preview data URL.
 storyClient.setQueryData(
-  attachmentContentQueryKey(ASSISTANT_ID, LAZY_IMAGE_ATTACHMENT.id),
+  attachmentContentQueryKey(CHAT_INFO_ASSISTANT_ID, LAZY_IMAGE_ATTACHMENT.id),
   new Blob([decodeBase64Payload(SAMPLE_PREVIEWS[2]!)!], { type: "image/png" }),
 );
 
@@ -135,7 +117,7 @@ const meta: Meta<typeof ChatInfoFileTile> = {
   decorators: [withSeededBytes],
   args: {
     file: DOCUMENT_FILE,
-    assistantId: ASSISTANT_ID,
+    assistantId: CHAT_INFO_ASSISTANT_ID,
     onOpen: fn(),
   },
 };

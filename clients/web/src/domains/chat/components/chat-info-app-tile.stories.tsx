@@ -11,43 +11,42 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 
+import {
+  CHAT_INFO_ASSISTANT_ID,
+  chatInfoPreviewHtml,
+} from "@/domains/chat/components/chat-info-story-fixtures";
+import { makeAppSummary } from "@/domains/chat/components/chat-info.test-helper";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
 import { ChatInfoAppTile } from "./chat-info-app-tile";
 
-const ASSISTANT_ID = "story-assistant";
-
-function makeApp(id: string, name: string, icon: string): AppSummary {
-  return {
-    id,
-    name,
-    icon,
-    createdAt: 1_760_000_000_000,
-    updatedAt: 1_760_000_100_000,
-    version: "1.0.0",
-    contentId: `${id}-content`,
-    origin: "workspace",
-  };
-}
-
-const TRIP_PLANNER = makeApp("app-trip-planner", "Trip Planner", "🧭");
-const PACKING_LIST = makeApp("app-packing-list", "Packing List", "🧳");
-const FERRY_TIMES = makeApp("app-ferry-times", "Ferry Times", "⛴️");
-const LONG_NAME = makeApp(
-  "app-itinerary",
-  "Coastal Itinerary and Harbour Tour Booking Planner",
-  "🗺️",
-);
+const TRIP_PLANNER = makeAppSummary({
+  id: "app-trip-planner",
+  name: "Trip Planner",
+});
+const PACKING_LIST = makeAppSummary({
+  id: "app-packing-list",
+  name: "Packing List",
+  icon: "🧳",
+});
+const FERRY_TIMES = makeAppSummary({
+  id: "app-ferry-times",
+  name: "Ferry Times",
+  icon: "⛴️",
+});
+const LONG_NAME = makeAppSummary({
+  id: "app-itinerary",
+  name: "Coastal Itinerary and Harbour Tour Booking Planner",
+  icon: "🗺️",
+});
 /** Never primed, so its preview never resolves and the tile keeps the icon. */
-const NO_PREVIEW = makeApp("app-field-notes", "Field Notes", "📓");
-
-/** A small page for the preview iframe, using system colours so it reads in either theme. */
-function previewHtml(title: string, items: string[]): string {
-  const list = items.map((item) => `<li>${item}</li>`).join("");
-  return `<!doctype html><meta charset="utf-8"><title>${title}</title><style>body{margin:0;padding:24px;font-family:system-ui,sans-serif;background:Canvas;color:CanvasText}h1{margin:0 0 12px;font-size:28px}ul{margin:0;padding-left:22px;font-size:18px;line-height:1.7}</style><h1>${title}</h1><ul>${list}</ul>`;
-}
+const NO_PREVIEW = makeAppSummary({
+  id: "app-field-notes",
+  name: "Field Notes",
+  icon: "📓",
+});
 
 const PRIMED: Array<[AppSummary, string[]]> = [
   [TRIP_PLANNER, ["Book the ferry", "Pack a rain shell", "Confirm the tour"]],
@@ -57,7 +56,11 @@ const PRIMED: Array<[AppSummary, string[]]> = [
 ];
 
 for (const [app, items] of PRIMED) {
-  primeAppHtmlCache(ASSISTANT_ID, app.id, previewHtml(app.name, items));
+  primeAppHtmlCache(
+    CHAT_INFO_ASSISTANT_ID,
+    app.id,
+    chatInfoPreviewHtml(app.name, items),
+  );
 }
 
 const storyClient = new QueryClient({
@@ -65,7 +68,7 @@ const storyClient = new QueryClient({
 });
 // The options menu reads the app list to know whether the app is pinned.
 storyClient.setQueryData(
-  appsGetQueryKey({ path: { assistant_id: ASSISTANT_ID } }),
+  appsGetQueryKey({ path: { assistant_id: CHAT_INFO_ASSISTANT_ID } }),
   {
     apps: [TRIP_PLANNER, PACKING_LIST, FERRY_TIMES, LONG_NAME, NO_PREVIEW],
   },
@@ -84,7 +87,7 @@ const meta: Meta<typeof ChatInfoAppTile> = {
   decorators: [withPrimedPreviews],
   args: {
     app: TRIP_PLANNER,
-    assistantId: ASSISTANT_ID,
+    assistantId: CHAT_INFO_ASSISTANT_ID,
     onOpen: fn(),
     onRequestDelete: fn(),
   },

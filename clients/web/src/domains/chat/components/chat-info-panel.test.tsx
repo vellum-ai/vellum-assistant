@@ -29,15 +29,23 @@ import {
 import type { ReactElement } from "react";
 
 import * as appHtmlCache from "@/utils/app-html-cache";
-import type * as ConversationAssetsModule from "@/domains/chat/hooks/use-conversation-assets";
+import * as conversationAssetsModule from "@/domains/chat/hooks/use-conversation-assets";
+import {
+  CHAT_INFO_T0,
+  makeAppSummary,
+  makeAttachmentEntry,
+  makeDocumentSummary,
+} from "@/domains/chat/components/chat-info.test-helper";
 import type * as ElementSizeModule from "@/hooks/use-element-size";
 import type * as IsMobileModule from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
-import type { DocumentSummary } from "@/types/document-types";
 
-type ConversationAssets = ConversationAssetsModule.ConversationAssets;
-type ConversationFileAsset = ConversationAssetsModule.ConversationFileAsset;
+type ConversationAssets = conversationAssetsModule.ConversationAssets;
+
+// Captured before the module is replaced below, so the fixtures are built by
+// the real mapping the hook runs.
+const { toConversationFileAssets } = conversationAssetsModule;
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
@@ -95,10 +103,13 @@ mock.module(
 );
 
 const assetsRef = { value: null as ConversationAssets | null };
-const assetsTargets: ConversationAssetsModule.ConversationAssetsTarget[] = [];
+const assetsTargets: conversationAssetsModule.ConversationAssetsTarget[] = [];
+// Keeps the rest of the module real, so a file that reads another of its
+// exports is unaffected by this process-global replacement.
 mock.module(
   "@/domains/chat/hooks/use-conversation-assets",
-  (): Partial<typeof ConversationAssetsModule> => ({
+  (): Partial<typeof conversationAssetsModule> => ({
+    ...conversationAssetsModule,
     useConversationAssets: (target) => {
       assetsTargets.push(target);
       return assetsRef.value!;
@@ -122,80 +133,53 @@ const { makeDisplayAttachment, SAMPLE_PREVIEWS } =
 // Fixtures
 // ---------------------------------------------------------------------------
 
-const APPS: AppSummary[] = Array.from({ length: 12 }, (_, index) => ({
-  id: `app-${index + 1}`,
-  name: `App ${index + 1}`,
-  icon: "🧭",
-  createdAt: 1_700_000_000_000,
-  updatedAt: 1_700_000_000_000 + index,
-  version: "1.0.0",
-  contentId: `content-${index + 1}`,
-  origin: "workspace",
-}));
+const APPS: AppSummary[] = Array.from({ length: 12 }, (_, index) =>
+  makeAppSummary({
+    id: `app-${index + 1}`,
+    name: `App ${index + 1}`,
+    contentId: `content-${index + 1}`,
+    updatedAt: CHAT_INFO_T0 + index,
+  }),
+);
 
-function makeDoc(surfaceId: string, title: string): DocumentSummary {
-  return {
-    surfaceId,
-    conversationId: CONVERSATION_ID,
-    title,
-    wordCount: 120,
-    createdAt: 1_700_000_000_000,
-    updatedAt: 1_700_000_000_001,
-  };
+const TRIP_NOTES = makeDocumentSummary({
+  surfaceId: "surface-trip-notes",
+  conversationId: CONVERSATION_ID,
+  title: "Trip Notes",
+});
+const PACKING_LIST = makeDocumentSummary({
+  surfaceId: "surface-packing-list",
+  conversationId: CONVERSATION_ID,
+  title: "Packing List",
+});
+
+function imageEntry(index: number) {
+  return makeAttachmentEntry(
+    makeDisplayAttachment({
+      id: `img-${index}`,
+      filename: `photo-${index}.png`,
+      previewUrl: SAMPLE_PREVIEWS[index]!,
+    }),
+  );
 }
 
-const TRIP_NOTES = makeDoc("surface-trip-notes", "Trip Notes");
-const PACKING_LIST = makeDoc("surface-packing-list", "Packing List");
-
-function documentAsset(doc: DocumentSummary): ConversationFileAsset {
-  return {
-    kind: "document",
-    id: `doc-${doc.surfaceId}`,
-    title: doc.title,
-    doc,
-  };
+function frameEntry(index: number) {
+  return makeAttachmentEntry(
+    makeDisplayAttachment({
+      id: `frame-${index}`,
+      filename: `frame-${index}.png`,
+      previewUrl: SAMPLE_PREVIEWS[index]!,
+    }),
+    { sightFrame: true },
+  );
 }
 
-function imageAsset(index: number): ConversationFileAsset {
-  const attachment = makeDisplayAttachment({
-    id: `img-${index}`,
-    filename: `photo-${index}.png`,
-    previewUrl: SAMPLE_PREVIEWS[index]!,
-  });
-  return {
-    kind: "attachment",
-    id: `att-${attachment.id}`,
-    title: attachment.filename,
-    attachment,
-  };
-}
-
-function frameAsset(index: number): ConversationFileAsset {
-  const attachment = makeDisplayAttachment({
-    id: `frame-${index}`,
-    filename: `frame-${index}.png`,
-    previewUrl: SAMPLE_PREVIEWS[index]!,
-  });
-  return {
-    kind: "frame",
-    id: `frame-${attachment.id}`,
-    title: attachment.filename,
-    attachment,
-    capturedAt: null,
-  };
-}
-
-const FILES: ConversationFileAsset[] = [
-  documentAsset(TRIP_NOTES),
-  documentAsset(PACKING_LIST),
-  imageAsset(0),
-  imageAsset(1),
-];
-const FRAMES: ConversationFileAsset[] = [
-  frameAsset(2),
-  frameAsset(3),
-  frameAsset(4),
-];
+// Built by the hook's own mapping, so these fixtures carry the ids and shapes
+// the panel is handed in the app rather than a hand-written copy of them.
+const { files: FILES, frames: FRAMES } = toConversationFileAssets(
+  [TRIP_NOTES, PACKING_LIST],
+  [imageEntry(0), imageEntry(1), frameEntry(2), frameEntry(3), frameEntry(4)],
+);
 
 const loadMoreFiles = mock((): void => undefined);
 const loadMoreFrames = mock((): void => undefined);
@@ -242,6 +226,14 @@ const onClose = mock((): void => undefined);
 const onSelectCategory = mock(
   (_category: ChatInfoCategory | null): void => undefined,
 );
+
+// The viewer store is a module singleton, so the real actions this suite
+// stands in for are put back before the next file loads.
+const {
+  closeChatInfo: realCloseChatInfo,
+  loadApp: realLoadApp,
+  loadDocument: realLoadDocument,
+} = useViewerStore.getState();
 
 function renderPanel(ui: ReactElement) {
   const client = new QueryClient({
@@ -299,6 +291,11 @@ afterEach(() => {
 // `mock.module` is process-global in this runner, so the module graph is put
 // back before the next file loads.
 afterAll(() => {
+  useViewerStore.setState({
+    closeChatInfo: realCloseChatInfo,
+    loadApp: realLoadApp,
+    loadDocument: realLoadDocument,
+  });
   mock.restore();
 });
 

@@ -5,7 +5,9 @@
  * Nothing here is a stand-in. Every story seeds the two sources the panel's
  * real hooks read (the query cache for apps and documents, the chat-session
  * store for the transcript the attachments come from), so the rows are built
- * by the shipped code path and the app tiles render live previews.
+ * by the shipped code path and the app tiles render live previews. One
+ * decorator does that seeding for every story; a story that wants a different
+ * conversation names it in `parameters.chatInfo`.
  *
  * The frame is the shipped drawer, so a story opens at its 400px default and
  * the rows fit what that width holds. Drag the drawer's left edge to walk the
@@ -16,9 +18,7 @@
  */
 
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { fn, userEvent, within } from "storybook/test";
 
 import {
@@ -28,80 +28,40 @@ import {
 import {
   CHAT_INFO_ASSISTANT_ID,
   CHAT_INFO_CONVERSATION_ID,
-  chatInfoApps,
-  chatInfoDocuments,
-  chatInfoMessages,
-  resetChatInfoTranscript,
-  seedChatInfoQueries,
-  seedChatInfoTranscript,
+  type ChatInfoStoryConversation,
+  inChatInfoConversation,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
-import type { DisplayAttachment } from "@/domains/chat/types/types";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
 
 import { ChatInfoPanel } from "./chat-info-panel";
 
-interface Conversation {
-  appCount: number;
-  documentCount: number;
-  attachments: DisplayAttachment[];
-}
-
-/** A worked-in trip conversation, the set most stories are shown against. */
-const SMALL_TRIP: Conversation = {
-  appCount: 12,
-  documentCount: 2,
-  attachments: makePreviewableImages(2),
-};
-
-/** A file-heavy conversation, so the Documents & Images grid is worth seeing. */
-const FILE_HEAVY: Conversation = {
+/**
+ * A file-heavy conversation, so the Documents & Images grid is worth seeing.
+ * The mixed set's leading image is dropped: it repeats `img-0` from the
+ * previewable set, and two entries sharing an attachment id collapse to one
+ * tile.
+ */
+const FILE_HEAVY: Partial<ChatInfoStoryConversation> = {
   appCount: 3,
   documentCount: 3,
-  attachments: [...makePreviewableImages(8), ...makeMixedAttachments()],
+  attachments: [
+    ...makePreviewableImages(8),
+    ...makeMixedAttachments().slice(1),
+  ],
 };
 
-function ChatInfoConversation({
-  appCount,
-  documentCount,
-  attachments,
-  children,
-}: Conversation & { children: ReactNode }) {
-  // Own client per story, so one story's conversation cannot leak into the
-  // next through the preview's shared one.
-  const [client] = useState(() => {
-    const created = new QueryClient({
-      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-    });
-    seedChatInfoQueries(created, {
-      apps: chatInfoApps(appCount),
-      documents: chatInfoDocuments(documentCount),
-    });
-    seedChatInfoTranscript(chatInfoMessages(attachments));
-    return created;
-  });
-  useEffect(() => resetChatInfoTranscript, []);
-
-  return (
-    <QueryClientProvider client={client}>
-      <DetailPanelStoryFrame>{children}</DetailPanelStoryFrame>
-    </QueryClientProvider>
-  );
-}
-
-function inConversation(conversation: Conversation): Decorator {
-  return (Story) => (
-    <ChatInfoConversation {...conversation}>
-      <Story />
-    </ChatInfoConversation>
-  );
-}
+const inDrawer: Decorator = (Story) => (
+  <DetailPanelStoryFrame>
+    <Story />
+  </DetailPanelStoryFrame>
+);
 
 const meta: Meta<typeof ChatInfoPanel> = {
   title: "Chat/ChatInfoPanel",
   component: ChatInfoPanel,
   parameters: { layout: "fullscreen" },
-  decorators: [inConversation(SMALL_TRIP)],
+  decorators: [inChatInfoConversation, inDrawer],
   args: {
     payload: {
       assistantId: CHAT_INFO_ASSISTANT_ID,
@@ -128,13 +88,9 @@ export const Default: Story = {};
  * so every tile is on show and neither header carries a See All.
  */
 export const FewAssets: Story = {
-  decorators: [
-    inConversation({
-      appCount: 1,
-      documentCount: 1,
-      attachments: [],
-    }),
-  ],
+  parameters: {
+    chatInfo: { appCount: 1, documentCount: 1, attachments: [] },
+  },
 };
 
 /**
@@ -153,7 +109,7 @@ export const AppsSeeAll: Story = {
 
 /** The same drill-in for Documents & Images, where the tiles wrap rather than grid. */
 export const FilesSeeAll: Story = {
-  decorators: [inConversation(FILE_HEAVY)],
+  parameters: { chatInfo: FILE_HEAVY },
   args: {
     payload: {
       assistantId: CHAT_INFO_ASSISTANT_ID,
@@ -178,8 +134,7 @@ export const NarrowPhone: Story = {
  * transition, because their `onSelectCategory` is a spy; this one owns the
  * category itself, so See All actually walks the panel to its second level.
  */
-export const LevelTwoInteraction: StoryObj = {
-  decorators: [inConversation(SMALL_TRIP)],
+export const LevelTwoInteraction: Story = {
   render: function LevelTwoInteraction() {
     const [category, setCategory] = useState<ChatInfoCategory | null>(null);
     return (
