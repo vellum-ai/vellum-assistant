@@ -238,6 +238,23 @@ describe("the minted grant", () => {
     );
   });
 
+  test("pins an unlabeled connection selected by ID", async () => {
+    resolution = { ...resolution, connection: connection(null) };
+    const result = await grant({
+      provider: "stripe_link",
+      account: "conn-byo",
+    });
+
+    expect(resolverCalls).toEqual([
+      { provider: "stripe_link", options: { account: "conn-byo" } },
+    ]);
+    expect(result.account).toBe("conn-byo");
+    expect(result.path).toBe("/v1/oauth/proxy/stripe_link@conn-byo");
+    expect(claimsOf(result.token).sub).toBe(
+      "local:self:oauth-proxy.stripe_link@conn-byo",
+    );
+  });
+
   test("leaves the segment unpinned when nothing names an account", async () => {
     resolution = { ...resolution, connection: connection(null) };
 

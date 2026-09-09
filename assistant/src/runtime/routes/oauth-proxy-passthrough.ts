@@ -120,27 +120,28 @@ export const PROXY_LOCATION_HEADER = "x-vellum-proxy-location";
  * provider has several; an empty label pins nothing, leaving the bare provider
  * key as the segment and an unpinned subject to match.
  *
- * A provider key carrying `@` or `/` would parse back as a different provider,
- * and one carrying `:` would split {@link proxyGrantSubject} into a fourth
- * component that both subject parsers reject, so a grant minted with it could
- * never be used. Both are refused at mint time rather than misrouting or
- * failing opaquely later.
+ * Keys stay literal in both the URL segment and {@link proxyGrantSubject}, so
+ * only URL-unreserved characters are allowed and dot segments are refused.
  */
 export function encodeProxyProviderSegment(
   provider: string,
   account?: string,
 ): string {
+  assertProxyProviderKey(provider);
+  return account ? `${provider}@${encodeAccount(account)}` : provider;
+}
+
+function assertProxyProviderKey(provider: string): void {
   if (
     !provider ||
-    provider.includes("@") ||
-    provider.includes("/") ||
-    provider.includes(":")
+    provider === "." ||
+    provider === ".." ||
+    /[^A-Za-z0-9._~-]/.test(provider)
   ) {
     throw new BadRequestError(
-      `An OAuth proxy provider key may not be empty or contain "@", "/", or ":": "${provider}"`,
+      `Invalid OAuth proxy provider key "${provider}": use letters, digits, "-", "_", ".", or "~", excluding "." and "..".`,
     );
   }
-  return account ? `${provider}@${encodeAccount(account)}` : provider;
 }
 
 /**
@@ -174,11 +175,7 @@ export function parseProxyProviderSegment(segment: string): {
   const provider = at === -1 ? segment : segment.slice(0, at);
   const account = at === -1 ? "" : segment.slice(at + 1);
 
-  if (!provider || provider.includes("/") || provider.includes(":")) {
-    throw new BadRequestError(
-      `Invalid OAuth proxy provider segment: "${segment}"`,
-    );
-  }
+  assertProxyProviderKey(provider);
 
   return account ? { provider, account } : { provider };
 }
@@ -321,6 +318,7 @@ export function materializeProxyResponse(
     : STRIPPED_RESPONSE_HEADERS;
 
   const headers: Record<string, string> = {};
+  const redirect = upstream.status >= 300 && upstream.status < 400;
   let location: string | undefined;
   for (const [name, value] of Object.entries(upstream.headers ?? {})) {
     const lower = name.toLowerCase();
@@ -329,7 +327,7 @@ export function materializeProxyResponse(
     if (stripped.has(lower) || lower.startsWith("x-vellum-")) {
       continue;
     }
-    if (lower === "location") {
+    if (lower === "location" && redirect) {
       location = value;
       continue;
     }

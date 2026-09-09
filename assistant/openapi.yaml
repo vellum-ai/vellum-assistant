@@ -24600,7 +24600,7 @@ paths:
                 type: string
                 format: binary
         "400":
-          description: Malformed provider segment or proxied path
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
         "402":
           description: The managed account is out of balance
         "403":
@@ -24644,7 +24644,7 @@ paths:
             application/octet-stream:
               schema: *a1
         "400":
-          description: Malformed provider segment or proxied path
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
         "402":
           description: The managed account is out of balance
         "403":
@@ -24688,7 +24688,7 @@ paths:
             application/octet-stream:
               schema: *a1
         "400":
-          description: Malformed provider segment or proxied path
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
         "402":
           description: The managed account is out of balance
         "403":
@@ -24732,7 +24732,7 @@ paths:
             application/octet-stream:
               schema: *a1
         "400":
-          description: Malformed provider segment or proxied path
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
         "402":
           description: The managed account is out of balance
         "403":
@@ -24776,7 +24776,7 @@ paths:
             application/octet-stream:
               schema: *a1
         "400":
-          description: Malformed provider segment or proxied path
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
         "402":
           description: The managed account is out of balance
         "403":
@@ -24820,7 +24820,7 @@ paths:
             application/octet-stream:
               schema: *a1
         "400":
-          description: Malformed provider segment or proxied path
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
         "402":
           description: The managed account is out of balance
         "403":

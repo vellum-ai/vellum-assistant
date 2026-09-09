@@ -41,7 +41,9 @@ const WEBHOOK_PATH_RE = /^\/webhooks\//;
  */
 function mintUnauthenticatedExchangeToken(authHeader: string | null): string {
   const grant = presentedProxyGrant(authHeader);
-  if (!grant) return mintServiceToken();
+  if (!grant) {
+    return mintServiceToken();
+  }
   return mintExchangeToken(grant, grant.scope_profile);
 }
 
@@ -59,13 +61,17 @@ function mintUnauthenticatedExchangeToken(authHeader: string | null): string {
  * daemon route and holds strictly less than the service token it displaces.
  */
 function presentedProxyGrant(authHeader: string | null): TokenClaims | null {
-  if (!authHeader?.toLowerCase().startsWith("bearer ")) return null;
+  if (!authHeader?.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
   const token = authHeader.slice(7);
   const result = validateEdgeToken(token);
   if (!result.ok || result.claims.scope_profile !== "oauth_proxy_v1") {
     return null;
   }
-  if (!admitActorToken(token, result.claims)) return null;
+  if (!admitActorToken(token, result.claims)) {
+    return null;
+  }
   return result.claims;
 }
 

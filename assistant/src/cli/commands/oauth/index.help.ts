@@ -878,7 +878,7 @@ Examples:
         {
           flags: "--account <account>",
           description:
-            "Pin one connected account (required when several are connected)",
+            "Pin an account label or connection ID (required when several are connected)",
         },
         {
           flags: "--ttl <seconds>",
@@ -912,7 +912,12 @@ Environment variables (printed as \`export\` lines with --export):
   VELLUM_OAUTH_PROXY_EXPIRES_AT   When the grant stops working
 
 Use 'assistant oauth status <provider>' to find account identifiers for
---account.
+--account. Unlabeled connections can be selected by their connection ID.
+
+Managed connections forward Content-Type, Accept, User-Agent, and X-Request-Id.
+Requests with unsupported headers, including If-Match and Idempotency-Key,
+are rejected before calling the provider. A connection using your own OAuth
+app can preserve those headers.
 
 Examples:
   $ assistant oauth proxy-url stripe_link

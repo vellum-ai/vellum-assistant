@@ -75,7 +75,7 @@ Wire semantics live in `../runtime/routes/oauth-proxy-passthrough.ts`. The remai
 
 ### Provider segment
 
-The first segment is `provider` or `provider@account`, the account pinning one connection when a provider has several. `encodeProxyProviderSegment` refuses a provider key that is empty or holds `@`, `/`, or `:`: the first two would parse back as a different provider, and a `:` would split the grant subject into a fourth component that no subject parser accepts, yielding a grant that could never verify. Accounts are percent-encoded for the same reason. When several accounts are connected and none is pinned, both answer 409, but they say different things. The mint names the accounts, because the caller is the local operator choosing one. The proxy names none, because its caller is the third-party binary holding the grant; it says to mint a grant pinned with `--account`, which is the only thing that resolves it. Rewriting the segment would not, since the subject check runs before resolution.
+The first segment is `provider` or `provider@account`, the account pinning one connection when a provider has several. Proxy provider keys contain only ASCII letters, digits, `.`, `_`, `~`, and `-`, and cannot be `.` or `..`. Encoding and parsing share this validation so URL delimiters, percent escapes, and normalization cannot change the provider or grant subject. Accounts are percent-encoded for the same reason. When several accounts are connected and none is pinned, both answer 409, but they say different things. The mint names the accounts, because the caller is the local operator choosing one. Unlabeled BYO connections can be selected with their exact connection ID; account-label matches take precedence, and provider, client, and active-status filters apply to either selector. The proxy names none, because its caller is the third-party binary holding the grant; it says to mint a grant pinned with `--account`, which is the only thing that resolves it. Rewriting the segment would not, since the subject check runs before resolution.
 
 ### Grant
 
@@ -111,7 +111,7 @@ The route asks each connection for `rawResponseBody: true`, `manualRedirect: tru
 
 A BYO connection honors the first three: the provider's bytes come back untouched, the query reaches the provider as the caller wrote it, and a 3xx is surfaced rather than followed, since following it would replay a POST upstream as a GET the caller never asked for and hide the 3xx from the client whose job it is to handle it. It needs no `singleAttempt`, having made its one attempt already; its only retry follows a provider 401, which rejected the request before it took effect.
 
-The 3xx status survives; its target does not stay in `location`. `materializeProxyResponse` moves it onto `x-vellum-proxy-location` and drops `location`, so nothing auto-follows the redirect back to the provider carrying the grant as its bearer token. A client that keeps `Authorization` across hosts (`curl --location-trusted`, a hand-rolled redirect loop) would otherwise hand a live daemon credential to the third party on the first hop. The target stays readable under a name nothing follows.
+The 3xx status survives; its target does not stay in `location`. `materializeProxyResponse` moves it onto `x-vellum-proxy-location` and drops `location`, so nothing auto-follows the redirect back to the provider carrying the grant as its bearer token. A client that keeps `Authorization` across hosts (`curl --location-trusted`, a hand-rolled redirect loop) would otherwise hand a live daemon credential to the third party on the first hop. The target stays readable under a name nothing follows. Non-redirect responses, including `201 Created`, retain `location`.
 
 A managed connection is proxied by the platform, which parses the response and rebuilds the request server-side, so most of that does not survive:
 
@@ -124,7 +124,7 @@ A managed connection is proxied by the platform, which parses the response and r
 
 Managed mode inherits the platform proxy's narrowing too:
 
-- Request headers are narrowed to `content-type`, `accept`, `user-agent`, and `x-request-id`, plus the provider's configured defaults.
+- Request headers are limited to `content-type`, `accept`, `user-agent`, and `x-request-id`, plus the provider's configured defaults. The passthrough route rejects unsupported headers with 400 before sending the provider request, including conditional, idempotency, and provider-version headers. Node fetch defaults `accept-language: *` and `sec-fetch-mode: cors` are discarded. This check applies only to passthrough requests; other managed connection callers keep their existing behavior.
 - Response headers are narrowed to `Content-Type`, `X-Rate-Limit-Remaining`, and `X-Rate-Limit-Reset`.
 - Request and response bodies are size-capped platform-side.
 
@@ -132,8 +132,8 @@ The proxy is byte-exact on BYO connections only, and `stripe_link`, the connecti
 
 ### Security invariants
 
-- The caller's `authorization` never reaches the provider. `sanitizeInboundHeaders` also drops proxy-auth, hop-by-hop framing, `host`, `cookie`, `accept-encoding`, forwarding hints, every `x-forwarded-*`, and every `x-vellum-*`, so an inbound header cannot forge a gateway signal. Content type, accept, user agent, and other custom `x-*` headers pass through.
-- The response is stripped in the same spirit. `set-cookie` and `set-cookie2` go, so a provider cannot plant state on the daemon's own origin; the request side already drops an inbound `cookie`, so one could never round-trip anyway. Every provider-supplied `x-vellum-*` goes, since that namespace is this daemon's on both sides of the hop. `location` is relocated to `x-vellum-proxy-location`. Framing headers go because the response is re-framed on the way out.
+- The caller's `authorization` never reaches the provider. `sanitizeInboundHeaders` also drops proxy-auth, hop-by-hop framing, `host`, `cookie`, `accept-encoding`, forwarding hints, every `x-forwarded-*`, and every `x-vellum-*`, so an inbound header cannot forge a gateway signal. Content type, accept, user agent, and other custom `x-*` headers pass through on BYO connections; managed passthrough requests also face the header check above.
+- The response is stripped in the same spirit. `set-cookie` and `set-cookie2` go, so a provider cannot plant state on the daemon's own origin; the request side already drops an inbound `cookie`, so one could never round-trip anyway. Every provider-supplied `x-vellum-*` goes, since that namespace is this daemon's on both sides of the hop. `location` is relocated to `x-vellum-proxy-location` only for 3xx responses. Framing headers go because the response is re-framed on the way out.
 - Nothing logs the grant or the credential. The proxy logs provider, method, path, and status; the mint logs provider, account, and TTL.
 - The route calls `connection.request()` only, so the raw token stays inside the connection.
 

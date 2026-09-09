@@ -63,6 +63,34 @@ export function unhonoredManagedOptions(req: OAuthConnectionRequest): string[] {
   return UNHONORED_MANAGED_OPTIONS.filter((option) => Boolean(req[option]));
 }
 
+const MANAGED_PROXY_REQUEST_HEADERS = new Set([
+  "content-type",
+  "accept",
+  "user-agent",
+  "x-request-id",
+]);
+
+/** Node fetch defaults can be dropped; other unsupported headers need caller handling. */
+export function prepareManagedProxyHeaders(headers: Record<string, string>): {
+  headers: Record<string, string>;
+  unsupportedHeaders: string[];
+} {
+  const forwarded: Record<string, string> = {};
+  const unsupportedHeaders: string[] = [];
+  for (const [name, value] of Object.entries(headers)) {
+    const lower = name.toLowerCase();
+    if (MANAGED_PROXY_REQUEST_HEADERS.has(lower)) {
+      forwarded[lower] = value;
+    } else if (
+      !(lower === "accept-language" && value.trim() === "*") &&
+      !(lower === "sec-fetch-mode" && value.trim() === "cors")
+    ) {
+      unsupportedHeaders.push(lower);
+    }
+  }
+  return { headers: forwarded, unsupportedHeaders: unsupportedHeaders.sort() };
+}
+
 export interface PlatformOAuthConnectionOptions {
   id: string;
   provider: string;

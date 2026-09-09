@@ -117,6 +117,53 @@ describe("provider segment", () => {
     ).toThrow(BadRequestError);
   });
 
+  test.each([
+    ".",
+    "..",
+    "vendor#fragment",
+    "vendor?query",
+    "vendor%2Fregion",
+    "vendor\\region",
+    "vendor region",
+    "vendor\tregion",
+    "vendor\rregion",
+    "vendor\n",
+    "vendor\u0000region",
+    "vendor\u007fregion",
+    "vendor\u0085region",
+    "vendor\u00a0region",
+    "vendor\u00e9",
+    "vendor\uD800",
+  ])("rejects URL-unstable provider key %j on mint and parse", (provider) => {
+    for (const account of [undefined, "a@example.com"]) {
+      expect(() => encodeProxyProviderSegment(provider, account)).toThrow(
+        BadRequestError,
+      );
+      expect(() => proxyGrantSubject(provider, account)).toThrow(
+        BadRequestError,
+      );
+      const segment = account ? `${provider}@${account}` : provider;
+      expect(() => parseProxyProviderSegment(segment)).toThrow(BadRequestError);
+    }
+  });
+
+  test.each(["Vendor.region-1_~", ".vendor", "vendor..", "..."])(
+    "preserves safe custom provider key %s in URLs and subjects",
+    (provider) => {
+      const segment = encodeProxyProviderSegment(provider);
+      const url = proxyUrl(`${segment}/v1/items`);
+
+      expect(segment).toBe(provider);
+      expect(url.pathname).toBe(`${PROXY_PATH_PREFIX}${provider}/v1/items`);
+      expect(parseProxyProviderSegment(decodeURIComponent(segment))).toEqual({
+        provider,
+      });
+      expect(proxyGrantSubject(provider)).toBe(
+        `local:self:oauth-proxy.${provider}`,
+      );
+    },
+  );
+
   test("percent-encoding keeps a subject-hostile account safe", () => {
     // A colon or a newline in an account never reaches the subject or the
     // header verbatim, so the account needs no rejection of its own.
@@ -387,25 +434,49 @@ describe("materializeProxyResponse", () => {
     expect(response.headers).toEqual({ "CONTENT-TYPE": "text/plain" });
   });
 
-  test("a redirect keeps its status and moves its target off `location`", () => {
-    const response = materializeProxyResponse(
-      upstream({
-        status: 302,
-        headers: {
-          Location: "https://files.example.com/blob/abc",
-          "content-type": "text/plain",
-        },
-        body: "moved",
-      }),
-      "POST",
-    );
+  test.each([300, 301, 302, 303, 304, 305, 307, 308, 399])(
+    "%i keeps its status and moves its target off `location`",
+    (status) => {
+      const response = materializeProxyResponse(
+        upstream({
+          status,
+          headers: {
+            Location: "https://files.example.com/blob/abc",
+            "content-type": "text/plain",
+          },
+          body: "moved",
+        }),
+        "POST",
+      );
 
-    expect(response.status).toBe(302);
-    expect(response.headers).toEqual({
-      "content-type": "text/plain",
-      [PROXY_LOCATION_HEADER]: "https://files.example.com/blob/abc",
-    });
-  });
+      expect(response.status).toBe(status);
+      expect(response.headers).toEqual({
+        "content-type": "text/plain",
+        [PROXY_LOCATION_HEADER]: "https://files.example.com/blob/abc",
+      });
+    },
+  );
+
+  test.each([200, 201, 202, 204, 400, 409, 500])(
+    "%i preserves Location without exposing the redirect header",
+    (status) => {
+      const response = materializeProxyResponse(
+        upstream({
+          status,
+          headers: {
+            Location: "https://api.example.com/resources/created",
+            "x-vellum-proxy-location": "https://evil.example.com/steal",
+          },
+        }),
+        "POST",
+      );
+
+      expect(response.status).toBe(status);
+      expect(response.headers).toEqual({
+        Location: "https://api.example.com/resources/created",
+      });
+    },
+  );
 
   test("a provider cannot author the daemon's own header namespace", () => {
     const response = materializeProxyResponse(

@@ -74,7 +74,7 @@ const byoConnection: OAuthConnection = {
  * lives inside `PlatformOAuthConnection` rather than in the route.
  */
 function realManagedConnection(
-  fetchImpl: () => Promise<Response>,
+  fetchImpl: (path: string, init?: RequestInit) => Promise<Response>,
 ): PlatformOAuthConnection {
   return new PlatformOAuthConnection({
     id: "conn-managed",
@@ -494,6 +494,95 @@ describe("header handling", () => {
     expect(headers["user-agent"]).toBe("link-cli/1.0");
     expect(headers.accept).toBe("application/json");
   });
+
+  for (const [method, name] of [
+    ["PUT", "If-Match"],
+    ["DELETE", "If-Match"],
+    ["POST", "Idempotency-Key"],
+    ["GET", "Range"],
+    ["POST", "Prefer"],
+    ["GET", "Stripe-Version"],
+    ["GET", "X-Custom-Option"],
+  ]) {
+    test(`rejects managed ${method} with ${name} before the platform call`, async () => {
+      let attempts = 0;
+      resolution.connection = realManagedConnection(async () => {
+        attempts++;
+        return Response.json({ status: 200, headers: {}, body: {} });
+      });
+
+      const response = await callProxy({
+        method,
+        headers: { [name]: "private-header-value" },
+      });
+
+      expect(response.status).toBe(400);
+      const error = (await envelope(response)).error;
+      expect(error.code).toBe("BAD_REQUEST");
+      expect(error.message).toContain(name.toLowerCase());
+      expect(JSON.stringify(error)).not.toContain("private-header-value");
+      expect(attempts).toBe(0);
+    });
+  }
+
+  for (const method of ["GET", "POST"]) {
+    test(`forwards managed ${method} with Node CLI defaults`, async () => {
+      let attempts = 0;
+      const forwardedHeaders = {
+        "content-type": "application/json",
+        accept: "application/json",
+        "user-agent": "link-cli/1.0",
+        "x-request-id": "request-123",
+      };
+      resolution.connection = realManagedConnection(async (_path, init) => {
+        attempts++;
+        const body = JSON.parse(init?.body as string);
+        expect(body.request.headers).toEqual(forwardedHeaders);
+        return Response.json({ status: 200, headers: {}, body: {} });
+      });
+
+      const response = await callProxy({
+        method,
+        ...(method === "POST" ? { body: "{}" } : {}),
+        headers: {
+          ...forwardedHeaders,
+          "accept-language": "*",
+          "sec-fetch-mode": "cors",
+          "accept-encoding": "gzip, deflate",
+          connection: "keep-alive",
+        },
+      });
+
+      expect(response.status).toBe(200);
+      expect(attempts).toBe(1);
+    });
+  }
+
+  test("rejects non-default managed fetch metadata and language preferences", async () => {
+    resolution.connection = managedConnection();
+    const response = await callProxy({
+      headers: { "Sec-Fetch-Mode": "navigate", "Accept-Language": "en" },
+    });
+
+    expect(response.status).toBe(400);
+    expect((await envelope(response)).error.message).toContain(
+      "accept-language, sec-fetch-mode",
+    );
+    expect(captured).toBeUndefined();
+  });
+
+  test("preserves conditional and custom headers on a BYO connection", async () => {
+    const headers = {
+      "if-match": '"version-1"',
+      "idempotency-key": "request-123",
+      "stripe-version": "2024-06-20",
+      "x-custom-option": "example",
+    };
+    const response = await callProxy({ method: "PUT", headers, body: "{}" });
+
+    expect(response.status).toBe(200);
+    expect(requireCaptured().headers).toMatchObject(headers);
+  });
 });
 
 // ── Raw emission ────────────────────────────────────────────────────────────
@@ -776,7 +865,7 @@ describe("grant binding", () => {
     expect(response.status).toBe(400);
     const { error } = await envelope(response);
     expect(error.code).toBe("BAD_REQUEST");
-    expect(error.message).toContain("Invalid OAuth proxy provider segment");
+    expect(error.message).toContain("Invalid OAuth proxy provider key");
     expect(resolverCalls).toHaveLength(0);
   });
 

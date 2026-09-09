@@ -19,7 +19,10 @@ import {
 import type { OAuthConnectionResolution } from "../../oauth/connection-resolver.js";
 import { resolveOAuthConnectionWithMeta } from "../../oauth/connection-resolver.js";
 import { getProvider } from "../../oauth/oauth-store.js";
-import { PlatformOAuthConnection } from "../../oauth/platform-connection.js";
+import {
+  PlatformOAuthConnection,
+  prepareManagedProxyHeaders,
+} from "../../oauth/platform-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -99,7 +102,7 @@ export async function handleOAuthProxy(
   }
   const path = normalizeProxyPath(remainder);
   const query = parseProxyQuery(args.rawUrl.search);
-  const headers = sanitizeInboundHeaders(args.headers ?? {});
+  let headers = sanitizeInboundHeaders(args.headers ?? {});
 
   let resolution: OAuthConnectionResolution;
   try {
@@ -115,8 +118,20 @@ export async function handleOAuthProxy(
   }
 
   const { connection } = resolution;
-  if (method === "HEAD" && connection instanceof PlatformOAuthConnection) {
-    throw new MethodNotAllowedError("Managed connections do not support HEAD");
+  if (connection instanceof PlatformOAuthConnection) {
+    if (method === "HEAD") {
+      throw new MethodNotAllowedError(
+        "Managed connections do not support HEAD",
+      );
+    }
+    const managedHeaders = prepareManagedProxyHeaders(headers);
+    const { unsupportedHeaders } = managedHeaders;
+    if (unsupportedHeaders.length > 0) {
+      throw new BadRequestError(
+        `Managed OAuth connections cannot forward these request headers: ${unsupportedHeaders.join(", ")}. The request was not sent to the provider.`,
+      );
+    }
+    headers = managedHeaders.headers;
   }
 
   // A Buffer travels as raw bytes on BYO and as base64 on the platform, in
@@ -185,7 +200,10 @@ const BINARY_BODY = {
 } as const;
 
 const ERROR_RESPONSES: Record<string, { description: string }> = {
-  "400": { description: "Malformed provider segment or proxied path" },
+  "400": {
+    description:
+      "Malformed provider segment or proxied path, or request headers unsupported by a managed connection",
+  },
   "402": { description: "The managed account is out of balance" },
   "403": {
     description: "The grant was minted for a different provider or account",

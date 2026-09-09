@@ -115,11 +115,15 @@ LINK_API_BASE_URL="$VELLUM_OAUTH_PROXY_BASE_URL" \
 
 The tool sends the grant as its own bearer token; the proxy strips it, substitutes the provider credential, and forwards the request, so the provider token never reaches the tool. The grant opens one provider (and one account, when several are connected) and nothing else, and it expires: 900 seconds by default, `--ttl <seconds>` to change it within 60 to 3600. Pin an account with `--account`, and run `assistant oauth status <provider-key>` to find the identifier.
 
+An unlabeled connection can be selected with `--account <connection-id>`. For bring-your-own connections, an exact account-label match takes precedence over a connection-ID match.
+
 A side-effect request made through the proxy still needs the `assistant ui confirm` gate described above.
 
 **Fidelity depends on the connection's mode.** On a bring-your-own connection the passthrough is byte-exact: the provider's response bytes and the query string arrive as written. A managed connection is proxied by the Vellum platform, which parses the response and rebuilds the query, so duplicate JSON keys and integers past 2^53 can change, `%20` becomes `+`, a valueless `?flag` becomes `flag=`, redirects are followed server-side instead of handed back, and HEAD is rejected. A provider that signs its own query string therefore works only on a bring-your-own connection. Check the mode with `assistant oauth mode <provider-key>`.
 
 A 3xx that does reach you keeps its status, but its target moves to the `x-vellum-proxy-location` response header, so nothing follows it automatically while carrying the grant. A tool that must follow one reads that header.
+
+Managed connections forward only `Content-Type`, `Accept`, `User-Agent`, and `X-Request-Id`. Requests with other headers, including `If-Match`, `Idempotency-Key`, and provider-version headers, return 400 before reaching the provider. Node fetch defaults `Accept-Language: *` and `Sec-Fetch-Mode: cors` are discarded. Use a bring-your-own connection when the CLI requires unsupported headers; do not remove write safeguards to bypass the rejection. Non-redirect responses, including `201 Created`, preserve `Location` on bring-your-own connections.
 
 ### OAuth Token Escape Hatch
 
