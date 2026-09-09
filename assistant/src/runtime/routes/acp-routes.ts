@@ -269,6 +269,7 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
     cwd,
     conversationId,
     broadcastMessage,
+    {},
   );
 
   log.info({ acpSessionId, protocolSessionId, agent }, "ACP spawn succeeded");

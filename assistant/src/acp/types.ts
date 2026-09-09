@@ -4,6 +4,8 @@
 
 import type { StopReason } from "@agentclientprotocol/sdk";
 
+import type { AcpModelOption } from "./model-config.js";
+
 /**
  * Configuration for a single ACP agent process.
  */
@@ -12,6 +14,12 @@ export interface AcpAgentConfig {
   args: string[];
   description?: string;
   env?: Record<string, string>;
+  /**
+   * Model this agent's sessions start on, from `acp.agents.<id>.model`. An
+   * adapter-reported alias, outranked only by an explicit request and the
+   * conversation's own preference.
+   */
+  model?: string;
   /**
    * Identity of the Claude token `prepareAgentEnv` resolved into `env`,
    * whichever source it came from. Recorded on the history row when Claude
@@ -51,6 +59,14 @@ export interface AcpSessionState {
   authErrorCredential?: string;
   /** Latest context-window usage gauge, from the most recent `usage_update`. */
   latestUsage?: AcpUsageSnapshot;
+  /**
+   * Model the session is running on, as the adapter reports it. Absent while
+   * the adapter advertises no model selector, which is how the feature stays
+   * invisible for agents that cannot switch models.
+   */
+  model?: string;
+  /** Models this session can switch to, flattened from the adapter's selector. */
+  availableModels?: AcpModelOption[];
 }
 
 /** Context-window usage snapshot tracked from ACP `usage_update`. */

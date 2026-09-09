@@ -124,7 +124,7 @@ const spawnMock = mock(
     _cwd: string,
     _parentConversationId: string,
     _sendToVellum: (msg: unknown) => void,
-    _parentToolUseId?: string,
+    _options?: { parentToolUseId?: string; model?: string },
   ) => ({
     acpSessionId: "acp-session-test",
     protocolSessionId: "proto-session-test",
@@ -223,8 +223,10 @@ describe("executeAcpSpawn - happy path", () => {
 
     expect(result.isError).toBe(false);
     expect(spawnMock).toHaveBeenCalledTimes(1);
-    // parentToolUseId is the 7th positional arg to spawn().
-    expect(spawnMock.mock.calls[0][6]).toBe("toolu_abc123");
+    // The options bag is the 7th positional arg to spawn().
+    expect(spawnMock.mock.calls[0][6]).toEqual({
+      parentToolUseId: "toolu_abc123",
+    });
   });
 
   test("default-profile fallback when user config is empty", async () => {

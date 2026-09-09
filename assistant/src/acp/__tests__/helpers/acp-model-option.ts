@@ -1,0 +1,28 @@
+/**
+ * Shared test fixture: the `SessionConfigOption` an adapter advertises for
+ * model selection, shaped the way claude-agent-acp reports one (a `select`
+ * with id and category `model`).
+ */
+
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+
+/** A model selector currently sitting on `currentValue`. */
+export function modelOption(currentValue: string): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue,
+    options: [
+      { value: "sonnet", name: "Sonnet" },
+      { value: "opus", name: "Opus", description: "Most capable" },
+    ],
+  };
+}
+
+/** `modelOption`'s options as `deriveModelInfo` flattens them. */
+export const MODEL_OPTION_MODELS = [
+  { value: "sonnet", label: "Sonnet" },
+  { value: "opus", label: "Opus", description: "Most capable" },
+];

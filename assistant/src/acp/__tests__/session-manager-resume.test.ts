@@ -12,6 +12,10 @@
 import { tmpdir } from "node:os";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+
+import { modelOption } from "./helpers/acp-model-option.js";
+
 // ---------------------------------------------------------------------------
 // Fake AcpAgentProcess with scriptable capabilities and history replay.
 // ---------------------------------------------------------------------------
@@ -31,6 +35,14 @@ let promptThrowsSync = false;
  * the resume has not yet settled.
  */
 let resumeSessionGate: Promise<void> | null = null;
+/** Config options session/resume and session/load report back. */
+let resumeConfigOptions: SessionConfigOption[] = [];
+/** Every `setConfigOption` the manager dispatched during a resume. */
+const setConfigOptionCalls: Array<{
+  sessionId: string;
+  configId: string;
+  value: string | boolean;
+}> = [];
 const fakeInstances: FakeAcpAgentProcess[] = [];
 
 class FakeAcpAgentProcess {
@@ -69,32 +81,44 @@ class FakeAcpAgentProcess {
 
   async createSession(
     _cwd: string,
-  ): Promise<{ sessionId: string; configOptions: [] }> {
+  ): Promise<{ sessionId: string; configOptions: SessionConfigOption[] }> {
     return { sessionId: "proto-new", configOptions: [] };
   }
 
   async loadSession(
     sessionId: string,
     cwd: string,
-  ): Promise<{ configOptions: [] }> {
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     this.loadSessionCalls.push({ sessionId, cwd });
     // Replay history through the client handler before resolving, exactly
     // as a real agent does per the ACP spec for session/load.
     for (const text of replayChunks) {
       await this.emitChunk(text);
     }
-    return { configOptions: [] };
+    return { configOptions: resumeConfigOptions };
   }
 
   async resumeSession(
     sessionId: string,
     cwd: string,
-  ): Promise<{ configOptions: [] }> {
+  ): Promise<{ configOptions: SessionConfigOption[] }> {
     if (resumeSessionGate) {
       await resumeSessionGate;
     }
     this.resumeSessionCalls.push({ sessionId, cwd });
-    return { configOptions: [] };
+    return { configOptions: resumeConfigOptions };
+  }
+
+  /** Answers the way an adapter does: the selector now sits on `value`. */
+  async setConfigOption(
+    sessionId: string,
+    configId: string,
+    value: string | boolean,
+  ): Promise<SessionConfigOption[]> {
+    setConfigOptionCalls.push({ sessionId, configId, value });
+    return typeof value === "string"
+      ? [modelOption(value)]
+      : resumeConfigOptions;
   }
 
   /** Drives an agent_message_chunk through the real client handler. */
@@ -219,6 +243,7 @@ const BUN_ADD_KEY = `${BUN_BIN} add`;
 
 import type { AcpSessionUpdateEvent } from "../../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../../api/index.js";
+import { getAcpConversationModelPreference } from "../../persistence/acp-model-preference.js";
 import { getSqlite } from "../../persistence/db-connection.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { AcpSessionState } from "../types.js";
@@ -274,6 +299,8 @@ beforeEach(() => {
   prepareAgentEnvGate = null;
   prepareAgentEnvCommands = [];
   resumeSessionGate = null;
+  resumeConfigOptions = [];
+  setConfigOptionCalls.length = 0;
   resolveImpl = () => ({
     ok: true,
     agent: { command: "claude-agent-acp", args: [] },
@@ -719,6 +746,58 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(row.context_size).toBe(200_000);
     expect(row.cost_amount).toBe(0.05);
     expect(row.cost_currency).toBe("USD");
+  });
+
+  test("re-terminate after a resume keeps the recorded model when the adapter reports no selector", async () => {
+    fakeCaps.resume = true;
+    insertHistoryRow({
+      id: "resume-model-1",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      model: "claude-opus-4-5",
+    });
+
+    const manager = new AcpSessionManager(4);
+    await manager.resumeFromHistory("resume-model-1", () => {});
+
+    // Seeded from the row, so the terminal upsert rewrites it instead of
+    // NULLing a column the resumed run never touched.
+    expect((manager.getStatus("resume-model-1") as AcpSessionState).model).toBe(
+      "claude-opus-4-5",
+    );
+    expect(setConfigOptionCalls).toEqual([]);
+
+    await manager.steer("resume-model-1", "keep going");
+    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(readHistoryRow("resume-model-1")!.model).toBe("claude-opus-4-5");
+  });
+
+  test("resume puts the fresh adapter process back on the recorded model", async () => {
+    fakeCaps.resume = true;
+    // A new adapter process starts on its own default, not the model the
+    // original run was pinned to.
+    resumeConfigOptions = [modelOption("default")];
+    insertHistoryRow({ id: "resume-model-2", model: "opus" });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-model-2", (msg) => sent.push(msg));
+
+    expect(setConfigOptionCalls).toEqual([
+      { sessionId: "proto-old", configId: "model", value: "opus" },
+    ]);
+    const state = manager.getStatus("resume-model-2") as AcpSessionState;
+    expect(state.model).toBe("opus");
+    expect(sent.map((m) => m.type)).toEqual([
+      "acp_session_spawned",
+      "acp_session_model_update",
+    ]);
+    // Resuming is not choosing: the conversation preference is untouched.
+    expect(
+      getAcpConversationModelPreference("conv-1", "claude"),
+    ).toBeUndefined();
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {
