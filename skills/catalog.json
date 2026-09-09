@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T14:45:13.000Z"
+      "updatedAt": "2026-09-09T15:00:26.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -970,7 +970,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T14:45:13.000Z"
+      "updatedAt": "2026-09-09T15:00:26.000Z"
     },
     {
       "id": "telegram-setup",
@@ -1189,7 +1189,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-04T16:57:56.000Z"
+      "updatedAt": "2026-09-09T18:36:25.000Z"
     },
     {
       "id": "vellum-self-knowledge",
