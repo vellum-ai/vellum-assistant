@@ -72,6 +72,30 @@ const log = getLogger("agent-loop");
 const SEND_USER_MESSAGE_CHECK = "send_user_message_delivery";
 
 /**
+ * The user-facing message a `send_user_message` block carries, or null when
+ * the block is not one or carries nothing usable.
+ *
+ * One predicate for the two readers that must agree: what gets streamed to the
+ * user, and what counts as having told them the outcome. A call whose
+ * `message` is blank or not a string is rejected by the executor and streams
+ * nothing, so counting it as delivery would suppress the raw-text fallback on
+ * a later turn and leave the user with no reply at all.
+ */
+function deliveredUserMessage(block: {
+  type: string;
+  name?: string;
+  input?: Record<string, unknown>;
+}): string | null {
+  if (block.type !== "tool_use" || block.name !== SEND_USER_MESSAGE_TOOL_NAME) {
+    return null;
+  }
+  const message = block.input?.["message"];
+  return typeof message === "string" && message.trim().length > 0
+    ? message
+    : null;
+}
+
+/**
  * Count one outcome of the tool-gated reply surface: the model was nudged for
  * a `send_user_message` call, or the run ended without one and the raw text
  * was surfaced as the fallback. Tagged with the model that served the call.
@@ -2152,14 +2176,8 @@ export class AgentLoop {
           }
           const messages: string[] = [];
           for (const block of content) {
-            if (block.type !== "tool_use") {
-              continue;
-            }
-            if (block.name !== SEND_USER_MESSAGE_TOOL_NAME) {
-              continue;
-            }
-            const message = block.input["message"];
-            if (typeof message === "string" && message.trim().length > 0) {
+            const message = deliveredUserMessage(block);
+            if (message !== null) {
               messages.push(message);
             }
           }
@@ -2398,8 +2416,12 @@ export class AgentLoop {
         // response with no tool calls at all is the terminal one and leaves
         // the answer where the last tool-bearing response left it.
         if (toolUseBlocks.length > 0) {
+          // Counted by what the call actually delivers, not by its name: a
+          // call the executor rejects streams nothing, so it cannot have told
+          // the user anything. Counting it would leave a later text-only turn
+          // with the fallback suppressed and no reply anywhere.
           const sendCalls = toolUseBlocks.filter(
-            (block) => block.name === SEND_USER_MESSAGE_TOOL_NAME,
+            (block) => deliveredUserMessage(block) !== null,
           ).length;
           userToldOutcome = sendCalls > 0 && sendCalls === toolUseBlocks.length;
         }
