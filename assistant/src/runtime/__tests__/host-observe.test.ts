@@ -131,6 +131,50 @@ describe("observeHostScreen", () => {
     expect(pendingInteractions.getAll()).toHaveLength(0);
   });
 
+  /**
+   * The user's pick travels as the request's input and nothing else does. The
+   * helper reads these two keys, so a target has to arrive as exactly one of
+   * them and an absent target as neither.
+   */
+  test("carries a window target as the request's input", async () => {
+    const observation = observe({
+      captureTarget: { kind: "window", windowId: 4211 },
+    });
+
+    const request = sentMessages.find((m) => m.type === "host_cu_request");
+    expect(request?.input).toEqual({ captureWindowId: 4211 });
+
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    expect(await observation).toEqual({ ok: true, axTree: "Window [1]" });
+  });
+
+  /**
+   * The helper diffs each tree against the last one filed under the same
+   * key, and the diff names what changed, so a session's key has to be its
+   * own or the first read of one session is described against the last one.
+   */
+  test("files the request under the caller's state key", async () => {
+    const observation = observe({ stateKey: "watch:sess-1" });
+
+    const request = sentMessages.find((m) => m.type === "host_cu_request");
+    expect(request?.conversationId).toBe("watch:sess-1");
+
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    expect(await observation).toEqual({ ok: true, axTree: "Window [1]" });
+  });
+
+  test("carries a display target as the request's input", async () => {
+    const observation = observe({
+      captureTarget: { kind: "display", displayId: 69734400 },
+    });
+
+    const request = sentMessages.find((m) => m.type === "host_cu_request");
+    expect(request?.input).toEqual({ captureDisplayId: 69734400 });
+
+    await postResult({ requestId: sentRequestId(), axTree: "Window [1]" });
+    expect(await observation).toEqual({ ok: true, axTree: "Window [1]" });
+  });
+
   test("times out cleanly and unregisters the pending interaction", async () => {
     const result = await observe({ timeoutMs: 20 });
 

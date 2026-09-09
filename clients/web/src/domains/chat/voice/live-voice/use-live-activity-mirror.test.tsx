@@ -151,6 +151,7 @@ const { useLiveActivityMirror } =
 const { useLiveVoiceStore } =
   await import("@/domains/chat/voice/live-voice/live-voice-store");
 const { useAvatarAccentVar } = await import("@/hooks/use-avatar-accent-var");
+const { resolveAvatarAccentHex } = await import("@/utils/avatar-accent");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
 const { BUNDLED_COMPONENTS } =
@@ -186,7 +187,9 @@ const ORANGE_AVATAR: Avatar = {
 function renderMirror(avatar: Avatar = ORANGE_AVATAR) {
   return renderHook(
     ({ components, traits }: Avatar) => {
-      useAvatarAccentVar(components, traits, null);
+      useAvatarAccentVar(
+        resolveAvatarAccentHex({ components, traits, customImageUrl: null }),
+      );
       useLiveActivityMirror();
     },
     { initialProps: avatar },

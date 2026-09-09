@@ -31,7 +31,6 @@ import { ContextCompactedEventSchema } from "./events/context-compacted.js";
 import { ContextWindowUsageEventSchema } from "./events/context-window-usage.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationInferenceProfileUpdatedEventSchema } from "./events/conversation-inference-profile-updated.js";
-import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
@@ -154,6 +153,14 @@ export {
   type DocumentMutationTool,
   REOPENABLE_DOCUMENT_MUTATION_TOOL_NAMES,
 } from "./constants/document-tools.js";
+export {
+  PERSONALITY_AXIS_IDS,
+  PERSONALITY_DIRECTION_AXES,
+  PERSONALITY_SLIDER_DEFAULT,
+  PERSONALITY_SLIDERS_PATH,
+  type PersonalityAxisId,
+  type PersonalityDirectionAxis,
+} from "./constants/personality-sliders.js";
 export {
   MIN_INPUT_RESERVE_TOKENS,
   type ProfileConfigIssue,
@@ -321,12 +328,6 @@ export {
   type ConversationInferenceProfileUpdatedEvent,
   ConversationInferenceProfileUpdatedEventSchema,
 } from "./events/conversation-inference-profile-updated.js";
-export {
-  type ConversationListInvalidatedEvent,
-  ConversationListInvalidatedEventSchema,
-  type ConversationListInvalidatedReason,
-  ConversationListInvalidatedReasonSchema,
-} from "./events/conversation-list-invalidated.js";
 export {
   type ConversationNoticeEvent,
   ConversationNoticeEventSchema,
@@ -839,6 +840,10 @@ export {
   MemoryV2ConfigSnapshotSchema,
 } from "./responses/memory-v2-activation-log.js";
 export {
+  type MemoryV3Pool,
+  type MemoryV3PoolCandidate,
+  MemoryV3PoolCandidateSchema,
+  MemoryV3PoolSchema,
   type MemoryV3SelectionLog,
   MemoryV3SelectionLogSchema,
   type MemoryV3SelectionRow,
@@ -987,7 +992,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ContextWindowUsageEventSchema,
   ConversationErrorEventSchema,
   ConversationInferenceProfileUpdatedEventSchema,
-  ConversationListInvalidatedEventSchema,
   ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
   DiskPressureStatusChangedEventSchema,

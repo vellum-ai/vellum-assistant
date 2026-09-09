@@ -70,6 +70,10 @@
     "updateFailed": "無法更新「{label}」。您的變更已還原。"
   },
   "avatarManagementModal": {
+    "accent": "強調色",
+    "accentAutomatic": "自動",
+    "accentPickerLabel": "強調色",
+    "accentReset": "重設",
     "body": "身體",
     "color": "顏色",
     "eyes": "眼睛",
@@ -152,18 +156,40 @@
   },
   "companionSurface": {
     "allow": "允許",
+    "calling": "正在呼叫…",
+    "callingNamed": "正在呼叫 {name}…",
+    "captureKind": "來源類型",
+    "captureNothing": "沒有可顯示的內容",
+    "capturePicker": "教學來源",
+    "captureScreen": "螢幕 {n}",
+    "captureScreens": "螢幕",
+    "captureTabs": "Chrome 分頁",
+    "captureWindows": "視窗",
     "deny": "拒絕",
     "endSession": "結束會話",
     "muteAssistant": "將助理靜音",
     "muteMicrophone": "將麥克風靜音",
     "notNow": "暫不",
+    "offerCopy": "複製",
+    "offerDiscard": "捨棄",
+    "offerHeard": "{app} 已貼上那段",
+    "offerNowhere": "沒有地方可以放",
+    "offerQuit": "結束 {app}",
+    "offerUse": "使用 Vellum 的版本",
+    "offerVersion": "Vellum 聽到的是",
+    "openVellum": "開啟 Vellum",
+    "share": "共享",
+    "sharePicker": "共享來源",
     "showSummary": "顯示摘要",
     "stopTeaching": "停止教學",
     "summarizing": "正在摘要",
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
-    "unmuteMicrophone": "解除麥克風靜音"
+    "unmuteMicrophone": "解除麥克風靜音",
+    "dictating": "正在聆聽",
+    "dictatingTranscribing": "正在思考",
+    "draw": "繪製"
   },
   "contentActionBar": {
     "copiedAria": "已複製",
@@ -755,12 +781,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 帳號已連線。",
-    "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
     "authorizationError": "{name} 錯誤：{code}",
     "authorizationFailed": "{name} 授權失敗",
     "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
-    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
-    "startFailed": "無法啟動 {name} 授權。"
+    "startFailed": "無法啟動 {name} 授權。",
+    "startFailedWithReason": "無法啟動 {name} 授權：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",
@@ -802,7 +827,11 @@
     "body": "語音提供者、轉錄和 API 金鑰位於<modelsLink>模型與服務</modelsLink>中。"
   },
   "voiceTranscriptToggles": {
-    "recommendedOff": "建議關閉"
+    "recommendedOff": "建議關閉",
+    "userTranscriptLabel": "顯示你說的話",
+    "userTranscriptDescription": "在你說話時即時轉錄文字。",
+    "assistantTranscriptLabel": "顯示助手說的話",
+    "assistantTranscriptDescription": "在語音回覆旁同步顯示文字。"
   },
   "windowsMenuBar": {
     "developer": "開發人員",
@@ -837,5 +866,28 @@
       "discord": "下載您的助理頭像，以上傳為機器人圖示。",
       "telegram": "下載您的助理頭像，然後透過 /setuserpic 傳送給 BotFather。"
     }
+  },
+  "thresholdPresets": {
+    "strict": {
+      "label": "嚴格",
+      "description": "執行任何操作前均需確認。不自動批准任何操作。"
+    },
+    "conservative": {
+      "label": "保守",
+      "description": "自動批准低風險操作，例如網路搜尋以及在其自身工作區中讀寫檔案。"
+    },
+    "relaxed": {
+      "label": "寬鬆",
+      "description": "自動批准低風險與中等風險操作，例如修改其工作區之外的檔案。"
+    },
+    "fullAccess": {
+      "label": "完全存取",
+      "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
+    }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小時",
+    "everyMinutes": "每 {count} 分鐘",
+    "retrospectiveSubtitle": "在對話活動後觸發"
   }
 }

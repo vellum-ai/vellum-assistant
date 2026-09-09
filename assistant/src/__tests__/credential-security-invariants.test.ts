@@ -223,6 +223,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
       "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
+      "runtime/routes/roadmap-routes.ts", // signs public-roadmap calls with the assistant API key (outbound Authorization header only; the value never reaches a response, a log, or the CLI process)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup

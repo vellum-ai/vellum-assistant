@@ -16,8 +16,8 @@
  *
  * Hermetic by design: the embedding backend, qdrant client, and `getConfig`
  * are mocked at the module level so the suite never reaches a real backend.
- * The skill-store cache (`getSkillCapability`, `isSkillSlug`) is mocked so
- * each test can stage skill content without touching the real catalog.
+ * The skill-store cache (`getSkillCapability`) is mocked so each test can
+ * stage skill content without touching the real catalog.
  * The activation-store uses an in-memory SQLite database so writes are
  * real but contained.
  *
@@ -140,9 +140,6 @@ mock.module("../../substrate/skill-store.js", () => ({
       : idOrSlug;
     return skillState.entries.get(id) ?? null;
   },
-  isSkillSlug: (slug: string) => slug.startsWith("skills/"),
-  SKILL_SLUG_PREFIX: "skills/",
-  skillSlugFor: (id: string) => `skills/${id}`,
   // PR 4 added `listSkillEntries`; `page-index.ts` (transitively imported
   // via `page-store.ts` and `skill-store.ts`) consumes it at module-init
   // time. Tests stage skill content via `skillState.entries`; expose them
@@ -181,9 +178,6 @@ mock.module("../../substrate/cli-command-store.js", () => ({
       : idOrSlug;
     return cliCommandState.entries.get(id) ?? null;
   },
-  isCliCommandSlug: (slug: string) => slug.startsWith("cli-commands/"),
-  CLI_COMMAND_SLUG_PREFIX: "cli-commands/",
-  cliCommandSlugFor: (name: string) => `cli-commands/${name}`,
   listCliCommandEntries: () => Array.from(cliCommandState.entries.values()),
 }));
 

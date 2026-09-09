@@ -414,20 +414,15 @@ describe("processMessage displayContent", () => {
       type: "text",
       text: modelContent,
     });
-    const inMemoryFileBlock = inMemoryMessage.content[1] as unknown as Record<
-      string,
-      unknown
-    >;
-    expect(inMemoryFileBlock._attachmentId).toBe("att-1");
-    expect(inMemoryFileBlock).toMatchObject({
+    expect(inMemoryMessage.content[1]).toEqual({
       type: "file",
       source: {
-        type: "base64",
+        type: "workspace_ref",
         media_type: "application/pdf",
-        data: Buffer.from("pdf bytes").toString("base64"),
+        attachmentId: "att-stored",
+        sizeBytes: 9,
         filename: "attachment.pdf",
       },
-      extracted_text: undefined,
     });
   });
 

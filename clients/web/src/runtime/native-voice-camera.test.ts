@@ -20,6 +20,7 @@ spyOn(Capacitor, "getPlatform").mockImplementation(() =>
 const startSpy = mock(async () => {});
 const stopSpy = mock(async () => {});
 const captureSpy = mock(async () => ({ value: "jpeg-base64" }));
+const captureSampleSpy = mock(async () => ({ value: "sample-base64" }));
 const flipSpy = mock(async () => {});
 
 mock.module("@capacitor-community/camera-preview", () => ({
@@ -27,6 +28,7 @@ mock.module("@capacitor-community/camera-preview", () => ({
     start: startSpy,
     stop: stopSpy,
     capture: captureSpy,
+    captureSample: captureSampleSpy,
     flip: flipSpy,
   },
 }));
@@ -34,6 +36,7 @@ mock.module("@capacitor-community/camera-preview", () => ({
 const {
   NATIVE_VOICE_CAMERA_ACTIVE_CLASS,
   captureNativeVoiceCameraFrame,
+  captureNativeVoiceCameraSample,
   flipNativeVoiceCamera,
   startNativeVoiceCamera,
   stopNativeVoiceCamera,
@@ -46,10 +49,14 @@ beforeEach(() => {
   startSpy.mockClear();
   stopSpy.mockClear();
   captureSpy.mockClear();
+  captureSampleSpy.mockClear();
   flipSpy.mockClear();
   startSpy.mockImplementation(async () => {});
   stopSpy.mockImplementation(async () => {});
   captureSpy.mockImplementation(async () => ({ value: "jpeg-base64" }));
+  captureSampleSpy.mockImplementation(async () => ({
+    value: "sample-base64",
+  }));
   flipSpy.mockImplementation(async () => {});
   document.documentElement.classList.remove(
     NATIVE_VOICE_CAMERA_ACTIVE_CLASS,
@@ -161,6 +168,31 @@ describe("native voice camera", () => {
         NATIVE_VOICE_CAMERA_ACTIVE_CLASS,
       ),
     ).toBe(false);
+  });
+
+  test("samples the live preview through the native bridge", async () => {
+    nativeMobile = true;
+
+    expect(await captureNativeVoiceCameraSample(60)).toBe("sample-base64");
+    expect(captureSampleSpy).toHaveBeenCalledWith({ quality: 60 });
+    // The sample comes off the preview's own buffer, not the photo pipeline,
+    // so it must not disturb the capture path running beside it.
+    expect(captureSpy).not.toHaveBeenCalled();
+  });
+
+  test("answers null for a sample an older shell cannot serve", async () => {
+    const debugSpy = spyOn(console, "debug").mockImplementation(() => {});
+    // A shell without the plugin and a camera being torn down are the same
+    // answer here: no sample, and nothing for the caller to handle.
+    expect(await captureNativeVoiceCameraSample(60)).toBe(null);
+    expect(captureSampleSpy).not.toHaveBeenCalled();
+
+    nativeMobile = true;
+    captureSampleSpy.mockImplementation(async () => {
+      throw new Error("camera stopping");
+    });
+    expect(await captureNativeVoiceCameraSample(60)).toBe(null);
+    debugSpy.mockRestore();
   });
 
   test("drives the voice camera hook without an HTML video stream", async () => {

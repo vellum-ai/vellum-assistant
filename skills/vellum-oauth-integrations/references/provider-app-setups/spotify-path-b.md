@@ -59,9 +59,17 @@ Tell the user:
 
 Wait for the Client ID, then ask for the secret:
 
-> Now click **View app secret** to reveal it, then send it to me. Send it as a standalone message with no other text.
+> Click **View app secret** to reveal it. Don't paste it in chat: I'll open a secure prompt for you to enter it.
 
-Note: Spotify app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
+Then open the secure prompt:
+
+```bash
+assistant credentials prompt --service spotify --field client_secret \
+  --label "OAuth Client Secret" \
+  --description "Paste the app secret from the app settings page."
+```
+
+Then follow [Prompt outcomes](../CONFIGURING_APPLICATIONS.md#prompt-outcomes) before registering the app; the secret is only stored on exit 0.
 
 ## Path B Step 5: Register, Authorize, and Verify
 

@@ -196,8 +196,11 @@ describe("runConversationTurn persistence", () => {
     // send-message route.
     expect(listInvalidations()).toEqual([creationTags(result.conversationId)]);
     expect(
-      broadcasts.filter((msg) => msg.type === "conversation_list_invalidated"),
-    ).toEqual([{ type: "conversation_list_invalidated", reason: "created" }]);
+      broadcasts.filter(
+        (msg) =>
+          (msg as { type: string }).type === "conversation_list_invalidated",
+      ),
+    ).toEqual([]);
   });
 
   test("adopts a caller-supplied conversation id verbatim when no row exists", async () => {

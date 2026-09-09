@@ -5,7 +5,6 @@ import {
   useUnreadConversationCount,
 } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { resolveRenderedAvatarAccentHex } from "@/hooks/use-avatar-accent-var";
 import { useTranslation } from "@/i18n";
 import {
   clearWidgetSnapshot,
@@ -371,11 +370,7 @@ export function useNativeWidgetSnapshotSync(
       ),
     [avatar.customImageUrl, avatar.components, avatar.traits],
   );
-  const avatarAccentHex = resolveRenderedAvatarAccentHex(
-    avatar.components,
-    avatar.traits,
-    avatar.customImageUrl,
-  );
+  const avatarAccentHex = avatar.accentHex;
   // The avatar query is in the resolution guard alongside the conversation
   // queries the caller passes, and holds a sync the same way they do. It serves
   // the null avatar while it loads and settles after them often enough to be

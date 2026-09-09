@@ -2,6 +2,7 @@ import type { BackgroundJobErrorKind } from "../runtime/background-job-runner.js
 import { getLogger } from "../util/logger.js";
 import { activityFailedDedupeKey } from "./activity-failed-dedupe.js";
 import { emitNotificationSignal } from "./emit-signal.js";
+import { resolveVisibleInSourceNow } from "./resolve-visible-in-source.js";
 import type { NotificationSourceChannel } from "./signal.js";
 
 const log = getLogger("background-failure-signal");
@@ -45,6 +46,15 @@ export interface BackgroundFailureReport {
    * Used only when the failure carries no attribution of its own.
    */
   fallbackProviderScope?: string;
+  /**
+   * Conversation this failure is displayed in, when the caller has one.
+   * Set it only when the notification would duplicate what is already on
+   * screen; `sourceContextId` is polymorphic and cannot be trusted for this.
+   * Holding a conversation id is not enough on its own: the caller has to
+   * know that this particular failure was rendered there, otherwise
+   * suppression destroys the only signal the user would ever get.
+   */
+  presenceConversationId?: string;
 }
 
 /**
@@ -101,7 +111,9 @@ export function emitBackgroundFailureSignal(
       requiresAction: false,
       urgency: "medium",
       isAsyncBackground: true,
-      visibleInSourceNow: false,
+      visibleInSourceNow: resolveVisibleInSourceNow({
+        conversationId: report.presenceConversationId,
+      }),
     },
   }).catch((emitErr) => {
     log.warn(

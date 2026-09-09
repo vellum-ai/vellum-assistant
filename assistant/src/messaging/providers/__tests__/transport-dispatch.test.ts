@@ -23,6 +23,10 @@ const slack = {
   ),
 };
 const telegram = {
+  // Spread the real module so a stub listing only what today's tests touch
+  // cannot break the next import a transport adds; the mocks below then
+  // override exactly the calls this suite asserts on.
+  ...(await import("../telegram-bot/send.js")),
   editTelegramMessage: mock((..._args: unknown[]) => Promise.resolve()),
   sendTelegramReaction: mock((..._args: unknown[]) =>
     Promise.resolve({ ok: true }),
@@ -90,8 +94,12 @@ function payload(
 
 beforeEach(() => {
   for (const group of [slack, telegram, whatsapp, a2a, discord]) {
-    for (const spy of Object.values(group)) {
-      spy.mockClear();
+    for (const value of Object.values(group)) {
+      // A group spreads its real module so a stub cannot fall behind the
+      // exports a transport imports, which means it also carries constants
+      // and untouched functions. Only the spies have anything to clear.
+      const spy = value as { mockClear?: () => void };
+      spy.mockClear?.();
     }
   }
 });

@@ -44,9 +44,6 @@ import {
 /** Kill switch for this producer, on by default. */
 const ASSISTANT_REPLY_PUSH_FLAG = "assistant-reply-push" as const;
 
-/** Gates the desktop-attended suppression below, on by default. */
-const DESKTOP_PRESENCE_FLAG = "desktop-presence-suppression" as const;
-
 /** Gates the web-focused suppression below, on by default. */
 const WEB_PRESENCE_FLAG = "web-presence-suppression" as const;
 
@@ -250,7 +247,6 @@ export async function emitAssistantReplyNotification(params: {
     // own OS evidence. A turn sent from the phone still needs its push while the
     // desktop sits idle within the attendance window.
     const desktopAttended =
-      isAssistantFeatureFlagEnabled(DESKTOP_PRESENCE_FLAG) &&
       isDesktopOriginatedUserMessage(initiatingMetadata) &&
       readDesktopAttended(rlog);
 

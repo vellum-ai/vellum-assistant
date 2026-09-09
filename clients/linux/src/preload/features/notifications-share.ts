@@ -11,6 +11,7 @@ import type {
   BridgeCapabilityRegistry,
   CapabilityModule,
 } from "@vellumai/electron-desktop/capability-registry";
+import { createWindowAttentionSubscriber } from "@vellumai/electron-desktop/preload";
 
 // Renderer bridge for native notifications and file sharing, mirroring the
 // macOS preload surface channel-for-channel so the renderer's runtime
@@ -38,6 +39,7 @@ const notificationsShare: CapabilityModule<
           ipcRenderer.off(NOTIFICATIONS_ACTION, handler);
         };
       },
+      onWindowAttention: createWindowAttentionSubscriber(ipcRenderer),
     });
     bridge.contribute("share", {
       shareFile: (bytes: Uint8Array, filename: string) =>

@@ -71,7 +71,6 @@ mock.module("../../../../../util/logger.js", () => ({
 }));
 
 mock.module("../../substrate/skill-store.js", () => ({
-  SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => skillState.entries,
   listAlwaysCandidateSkillSlugs: () => [],
 }));

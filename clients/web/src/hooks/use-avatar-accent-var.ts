@@ -1,64 +1,95 @@
 import { useEffect } from "react";
 
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { BUNDLED_COLORS } from "@/utils/avatar-bundled-colors";
+import { contrastForeground, legibleAccentFill } from "@/utils/avatar-tone";
 
 /**
  * The CSS custom property carrying the active assistant's avatar accent hex
  * (e.g. `#E9642F` for the orange character). Set on `<html>` by
- * {@link useAvatarAccentVar}; absent when no character avatar is active
- * (custom-image avatars, `kind: "none"`, avatar still loading), so consumers
- * must read it with a `var(--avatar-accent, <fallback>)` fallback.
+ * {@link useAvatarAccentVar}; absent while the avatar has no colour (still
+ * loading, or an uploaded image the daemon could not read), so consumers
+ * read it with a `var(--avatar-accent, <fallback>)` fallback.
  */
 export const AVATAR_ACCENT_CSS_VAR = "--avatar-accent";
 
 /**
- * Resolve the accent hex for a character avatar's selected color id, checking
- * the daemon-served palette first and falling back to the bundled copy so the
- * hex resolves even before `character-components` loads.
+ * The ink that reads on a surface filled with that accent: black or white,
+ * whichever wins on WCAG contrast (`contrastForeground`). The accent carries no
+ * luminance guarantee, and the palette's yellow is light enough that white text
+ * on it is about 1.6:1, so any surface that fills itself with the accent takes
+ * its foreground from here rather than assuming white.
+ *
+ * Published and cleared alongside {@link AVATAR_ACCENT_CSS_VAR}, so the same
+ * `var(--avatar-accent, <fallback>)` reasoning applies: absent means there is
+ * no accent, and the consumer's own fallback ink stands.
  */
-export function resolveAvatarAccentHex(
-  components: CharacterComponents | null,
-  traits: CharacterTraits | null,
-): string | null {
-  const colorId = traits?.color;
-  if (!colorId) {
-    return null;
-  }
-  const palette = components?.colors ?? BUNDLED_COLORS;
-  return palette.find((c) => c.id === colorId)?.hex ?? null;
-}
+export const AVATAR_ACCENT_INK_CSS_VAR = "--avatar-accent-ink";
 
 /**
- * Accent hex of the avatar as `ChatAvatar` *actually renders it*.
+ * The accent as a surface that can be FILLED with it and still carry text:
+ * the accent itself wherever text reads on it, and the nearest colour where it
+ * does otherwise (see `legibleAccentFill`). Chrome drawn over video rather than
+ * under text keeps reading {@link AVATAR_ACCENT_CSS_VAR}, which is the colour
+ * the assistant actually is.
  *
- * {@link resolveAvatarAccentHex} resolves only an *explicit* trait color and
- * returns null otherwise — but a traits-less assistant still renders in color,
- * because `ChatAvatar` falls back to the first palette color. Surfaces that
- * tint themselves to the avatar the user is looking at (the voice room's
- * listening waves, the iOS Live Activity) must mirror that fallback, or a
- * default-avatar assistant gets an indigo/gray treatment beside its green
- * avatar.
- *
- * Null for custom-image / no-character avatars — there is no color to match.
- * `customImageUrl` gates that explicitly rather than being inferred from the
- * absence of components: an uploaded avatar can carry lingering character
- * components, but the image is what renders, so no character color must leak
- * into a surface tinting itself to "the avatar you are looking at".
+ * Published and cleared with the other two.
  */
-export function resolveRenderedAvatarAccentHex(
-  components: CharacterComponents | null,
-  traits: CharacterTraits | null,
-  customImageUrl: string | null,
-): string | null {
-  if (customImageUrl) {
-    return null;
+export const AVATAR_ACCENT_FILL_CSS_VAR = "--avatar-accent-fill";
+
+/**
+ * The accent trio as an inline style, for the element that PUBLISHES an
+ * accent. Empty for an assistant with no accent, since nothing above the
+ * document root can be inherited and every consumer wants its own fallback.
+ *
+ * An element nested under a publisher needs {@link scopedAvatarAccentVars}
+ * instead, which has an inherited value to shadow.
+ *
+ * One function so the three cannot be published apart: the ink is chosen
+ * against the fill, and an element carrying any two of them is a surface
+ * painted in one colour and lettered for another.
+ */
+export function avatarAccentVars(
+  accentHex: string | null | undefined,
+): Record<string, string> {
+  if (!accentHex) {
+    return {};
   }
-  return (
-    resolveAvatarAccentHex(components, traits) ??
-    components?.colors?.[0]?.hex ??
-    null
-  );
+  const fill = legibleAccentFill(accentHex);
+  return {
+    [AVATAR_ACCENT_CSS_VAR]: accentHex,
+    [AVATAR_ACCENT_FILL_CSS_VAR]: fill,
+    [AVATAR_ACCENT_INK_CSS_VAR]: contrastForeground(fill),
+  };
+}
+
+/** Every property {@link useAvatarAccentVar} owns on the document root. */
+const ACCENT_VAR_NAMES = [
+  AVATAR_ACCENT_CSS_VAR,
+  AVATAR_ACCENT_FILL_CSS_VAR,
+  AVATAR_ACCENT_INK_CSS_VAR,
+] as const;
+
+/**
+ * The same trio for a subtree NESTED under the document root's, where absence
+ * has to be declared rather than left out.
+ *
+ * Custom properties inherit, so an element that publishes nothing inherits the
+ * root's accent, which belongs to the assistant the app has selected rather
+ * than the one this subtree is about. A colourless call under a coloured
+ * assistant would then wear that assistant's colour. The three names take the
+ * CSS-wide `initial` instead, which resolves a custom property to the
+ * guaranteed-invalid value and sends every `var(--x, fallback)` below to its
+ * OWN fallback: the waves to their indigo, the camera chrome to its crimson.
+ * A concrete trio here could only pick one of those and would be wrong for the
+ * other.
+ */
+export function scopedAvatarAccentVars(
+  accentHex: string | null | undefined,
+): Record<string, string> {
+  const published = avatarAccentVars(accentHex);
+  if (Object.keys(published).length > 0) {
+    return published;
+  }
+  return Object.fromEntries(ACCENT_VAR_NAMES.map((name) => [name, "initial"]));
 }
 
 /**
@@ -67,72 +98,62 @@ export function resolveRenderedAvatarAccentHex(
  *
  * The avatar lives in React Query, so every reactive reader needs a
  * `QueryClientProvider` and re-renders when it settles. That is wrong for
- * imperative platform mirrors — the iOS Live Activity mirror runs entirely
+ * imperative platform mirrors: the iOS Live Activity mirror runs entirely
  * inside an effect at `ChatLayout` scope specifically so session churn never
  * re-renders the layout. `RootLayout` already holds the avatar for the active
  * assistant, so it publishes here once and those readers just look.
  *
  * {@link useAvatarAccentVar} is mounted in exactly one place, so in practice
- * there is one publisher — but nothing enforces that, so it only ever *writes*
- * this, never clears it. A second or transient mount can therefore not null out
- * what the surviving publisher published.
+ * there is one publisher, but nothing enforces that, so it only ever *writes*
+ * this, never clears it. A second or transient mount can therefore not null
+ * out what the surviving publisher published.
  */
-let renderedAvatarAccentHex: string | null = null;
+let publishedAvatarAccentHex: string | null = null;
 
 /**
- * The active assistant's rendered avatar accent (see
- * {@link resolveRenderedAvatarAccentHex}), or null before `RootLayout` has
- * published one / when the avatar has no color to match.
+ * The active assistant's avatar accent as `RootLayout` last published it, or
+ * null before it has published one / while the avatar has no colour.
  */
-export function getRenderedAvatarAccentHex(): string | null {
-  return renderedAvatarAccentHex;
+export function getPublishedAvatarAccentHex(): string | null {
+  return publishedAvatarAccentHex;
 }
 
 /**
- * Publishes the avatar accent as `--avatar-accent` on the document root so
- * any component can tint itself to the assistant's color from plain CSS —
- * no query subscription needed at the consumption site. Mounted once in
- * `RootLayout` next to the favicon / Electron icon syncs, which derive from
- * the same avatar query.
- *
- * It also publishes the *rendered* accent for non-React readers — see
- * {@link getRenderedAvatarAccentHex}. The two deliberately differ: the CSS var
- * stays the strict "explicit trait color" signal its consumers expect (a
- * default avatar leaves `var(--avatar-accent, …)` on its fallback), while the
- * rendered accent carries the palette fallback the avatar is actually drawn
- * with.
+ * Publishes the avatar accent as `--avatar-accent`, and the ink that reads on
+ * it as `--avatar-accent-ink`, on the document root so any component can tint
+ * itself to the assistant's colour from plain CSS, with no query subscription
+ * at the consumption site, and as the value
+ * {@link getPublishedAvatarAccentHex} hands to non-React readers. Mounted
+ * once in `RootLayout` next to the favicon / Electron icon syncs, fed the
+ * `accentHex` the avatar query resolves (see `utils/avatar-accent.ts`).
  */
-export function useAvatarAccentVar(
-  components: CharacterComponents | null,
-  traits: CharacterTraits | null,
-  customImageUrl: string | null,
-): void {
-  const hex = resolveAvatarAccentHex(components, traits);
+export function useAvatarAccentVar(accentHex: string | null): void {
   useEffect(() => {
     const root = document.documentElement;
-    if (hex) {
-      root.style.setProperty(AVATAR_ACCENT_CSS_VAR, hex);
-    } else {
-      root.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+    const vars = avatarAccentVars(accentHex);
+    for (const name of ACCENT_VAR_NAMES) {
+      const value = vars[name];
+      if (value) {
+        root.style.setProperty(name, value);
+      } else {
+        root.style.removeProperty(name);
+      }
     }
     return () => {
-      root.style.removeProperty(AVATAR_ACCENT_CSS_VAR);
+      for (const name of ACCENT_VAR_NAMES) {
+        root.style.removeProperty(name);
+      }
     };
-  }, [hex]);
+  }, [accentHex]);
 
-  const renderedHex = resolveRenderedAvatarAccentHex(
-    components,
-    traits,
-    customImageUrl,
-  );
   // Publish-only, with no cleanup. "One publisher" is a convention, not
   // something the module can enforce, and clearing on unmount makes a second or
-  // transient mount wipe the surviving publisher's value on the way out — which
-  // the survivor never re-publishes, because its own dep did not change. A
+  // transient mount wipe the surviving publisher's value on the way out, which
+  // the survivor never re-publishes because its own dep did not change. A
   // stale accent beats a null one: the next publish overwrites it, whereas null
   // silently downgrades the island to the native neutral gray. Nothing here is
   // per-mount state, so there is nothing to leak.
   useEffect(() => {
-    renderedAvatarAccentHex = renderedHex;
-  }, [renderedHex]);
+    publishedAvatarAccentHex = accentHex;
+  }, [accentHex]);
 }

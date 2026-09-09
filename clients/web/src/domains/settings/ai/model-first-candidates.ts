@@ -20,6 +20,7 @@
  */
 
 import {
+  catalogEnabledFlags,
   getVisibleModelsForProvider,
   MODELS_BY_PROVIDER,
   vendorDisplayName,
@@ -86,16 +87,14 @@ export interface ModelFirstOption {
   readonly family: string | null;
   /** Every route that can serve it, connected ones first. */
   readonly candidates: readonly ProviderCandidate[];
-  /** Distinct provider kinds among the candidates. */
-  readonly providerCount: number;
-  /** The one route's label, when a single provider kind serves the model. */
-  readonly soleProviderLabel: string | null;
 }
 
 export interface ModelFirstInput {
   readonly connections: readonly ProviderConnection[];
-  /** Whether feature-flagged catalog entries are visible. */
+  /** Whether developer-gated catalog entries are visible. */
   readonly developerMode: boolean;
+  /** Whether Vellum-hosted GPU catalog entries are visible. */
+  readonly hostedInference: boolean;
   readonly activeAssistantIsSelfHosted: boolean;
   /** Provider id to display name. */
   readonly labelFor: (provider: ConnectionProvider) => string;
@@ -295,7 +294,13 @@ export function resolveModelFirstOptions(
       continue;
     }
 
-    const models = getVisibleModelsForProvider(kind, input.developerMode);
+    const models = getVisibleModelsForProvider(
+      kind,
+      catalogEnabledFlags({
+        developerMode: input.developerMode,
+        hostedInference: input.hostedInference,
+      }),
+    );
     if (models.length === 0) {
       continue;
     }
@@ -315,16 +320,7 @@ export function resolveModelFirstOptions(
 
   return order.map((displayName) => {
     const candidates = byDisplayName.get(displayName) ?? [];
-    const providerKinds = new Set(
-      candidates.map((candidate) => candidate.provider),
-    );
     const first = candidates[0];
-    const soleProviderLabel =
-      providerKinds.size === 1 && first !== undefined
-        ? candidates.length === 1
-          ? first.label
-          : input.labelFor(first.provider)
-        : null;
     // A model the static catalog does not know (a custom endpoint's own list)
     // is filed under the route that serves it, which is the only answer
     // available and the one the user picked it from.
@@ -335,8 +331,6 @@ export function resolveModelFirstOptions(
       vendor: entry?.vendor ?? null,
       family: entry?.family ?? null,
       candidates,
-      providerCount: providerKinds.size,
-      soleProviderLabel,
     };
   });
 }

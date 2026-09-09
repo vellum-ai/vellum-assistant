@@ -816,6 +816,44 @@ describe("classifyConversationError", () => {
       );
     });
 
+    it("classifies an OpenCode 401 ModelError as model-not-found, not an invalid key", () => {
+      providerRoutingSources.opencode = "user-key";
+      const err = new ProviderError(
+        "OpenCode API error (401): Model muse-spark-1.3-contributor is not supported [type=ModelError]",
+        "opencode",
+        401,
+        { reason: "model_not_found" },
+      );
+
+      const result = classifyConversationError(err, {
+        ...baseCtx,
+        profileName: "custom-profile",
+        connectionName: "opencode-personal",
+      });
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_not_found");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).toContain("wasn't found by the provider");
+      expect(result.userMessage).not.toContain("API key");
+    });
+
+    it("classifies a reason-less OpenCode 401 ModelError via the message, not credentials", () => {
+      providerRoutingSources.opencode = "user-key";
+      const err = new ProviderError(
+        "OpenCode API error (401): Model muse-spark-1.3-contributor is not supported [type=ModelError]",
+        "opencode",
+        401,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_model_not_found");
+      expect(result.retryable).toBe(false);
+      expect(result.userMessage).not.toContain("API key");
+    });
+
     it("classifies managed-proxy auth failures as managed credential refresh failures", () => {
       providerRoutingSources.anthropic = "managed-proxy";
       const err = new ProviderError(

@@ -12,11 +12,26 @@ on:
       - 'assistant/src/avatar/**'
       - 'packages/avatar-catalog/**'
       - 'clients/android/app/src/main/res/**'
+      # The per-flavor resources hold each environment's launcher color.
+      - 'clients/android/app/src/dev/res/**'
+      - 'clients/android/app/src/staging/res/**'
+      - 'clients/android/app/src/production/res/**'
       # The generator also owns the manifest's activity-alias block.
       - 'clients/android/app/src/main/AndroidManifest.xml'
       - 'clients/ios/App/App/AppIcon.icon/**'
       - 'clients/ios/App/App/AppIcon-Dev.icon/**'
       - 'clients/ios/App/App/AppIcon-Staging.icon/**'
+      # The xcconfigs name the icon bundle each environment builds against,
+      # and the desktop shells keep their own per-environment icon manifests.
+      - 'clients/ios/App/App/Config/**'
+      - 'clients/macos/build-resources/icons/**'
+      - 'clients/linux/build-resources/icons/**'
+      # Linux converts its ground at build time, and the drift guard runs that
+      # renderer's own conversion, so a change to it has to re-run the guard.
+      - 'clients/linux/scripts/generate-icon.sh'
+      # Windows ships rendered ICOs instead of a manifest, and the drift guard
+      # decodes their grounds.
+      - 'clients/windows/build-resources/icons/**'
       # Both native shells embed the web layer's marketing attribution
       # allowlist; the same drift tests pin the two copies to it.
       - 'clients/web/src/domains/account/social-auth.ts'

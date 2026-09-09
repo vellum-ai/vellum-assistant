@@ -125,7 +125,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Send a message, reply to a thread, or create a draft. On Gmail, always creates a draft for review. Supports replies (via thread_id), attachments (via attachment_paths, Gmail and Outlook), and all messaging platforms.",
+      "description": "Send a message, reply to a thread, or create a draft. On Gmail and Outlook, always creates a real mailbox draft for review (recipients optional on Outlook). Supports replies (via thread_id), attachments (via attachment_paths, Gmail and Outlook), and all messaging platforms.",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -141,7 +141,7 @@
           },
           "conversation_id": {
             "type": "string",
-            "description": "Conversation/channel ID. For Gmail new messages, use the recipient email address."
+            "description": "Conversation/channel ID. For Gmail or Outlook new messages, use the recipient email address. On Outlook, a non-email placeholder still creates a Drafts-folder draft with no To address."
           },
           "text": {
             "type": "string",
@@ -149,11 +149,11 @@
           },
           "subject": {
             "type": "string",
-            "description": "Email subject line (Gmail only)"
+            "description": "Email subject line (Gmail and Outlook)"
           },
           "in_reply_to": {
             "type": "string",
-            "description": "Message-ID header for replies (Gmail only)"
+            "description": "Message ID to reply to. Gmail: RFC 822 Message-ID header. Outlook: Graph message ID, creates a reply draft."
           },
           "attachment_paths": {
             "type": "array",

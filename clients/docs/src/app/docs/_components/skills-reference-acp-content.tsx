@@ -35,9 +35,9 @@ export function SkillsReferenceACPContent() {
           <p className="mb-0 text-zinc-600">
             The protocol adapter is installed automatically the first time you use an agent. For
             Claude Code that is everything: sign-in runs through an in-app Connect card, so there is
-            nothing to install yourself. Codex additionally needs the Codex CLI (version 0.111 or
-            higher) already on your PATH, since its adapter calls that CLI and inherits its
-            sign-in. Say &ldquo;Set up ACP&rdquo; to walk through it. Naming Claude Code or Codex is
+            nothing to install yourself. The Codex adapter, @agentclientprotocol/codex-acp,
+            includes Codex and reuses your existing Codex login. Say
+            &ldquo;Set up ACP&rdquo; to walk through authentication. Naming Claude Code or Codex is
             also enough: the assistant offers once to connect it here, then continues.
           </p>
         </section>

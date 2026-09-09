@@ -45,7 +45,23 @@ assistant credentials prompt --service <provider-key> --field client_secret \
   --description "Copy the Client Secret from the app credentials page and paste it here."
 ```
 
-Do NOT collect the client secret conversationally.
+Do NOT collect the client secret conversationally. Never solicit the secret in chat and never store a chat-pasted value with `assistant credentials set`. Always collect it through the secure `assistant credentials prompt` flow so it never transits the conversation.
+
+### Prompt outcomes
+
+`assistant credentials prompt` has three outcomes, and only one of them stores the value. Check the exit code before Step 2. The Client ID may be requested in the same turn the prompt is opened (see the guidance above about presenting both inputs together); it is only the registration in Step 2 that has to wait for the outcome.
+
+- **Exit `0`** - the secret is stored. Proceed to Step 2.
+- **Exit `75`** - the channel has no secure input surface, so the command generated a one-time collection link instead and printed it. Nothing is stored yet. Relay that link to the user in-channel, tell them the value is entered on that page rather than in chat, and wait for them to say they are done. Then verify the credential exists before Step 2:
+
+  ```bash
+  assistant credentials inspect --service <provider-key> --field client_secret
+  ```
+
+  `inspect` masks the value (it shows only the first 4 characters), so it confirms storage without revealing the secret. If the credential is still missing, the user has not finished the page: ask again rather than registering the app.
+
+- **Exit `130`** - the user dismissed the prompt. Nothing is stored. This is a valid choice, not a failure: ask whether they want to try again or stop.
+- **Any other non-zero exit** - a real error. Report it and troubleshoot before continuing.
 
 **Step 2: Register the app**
 

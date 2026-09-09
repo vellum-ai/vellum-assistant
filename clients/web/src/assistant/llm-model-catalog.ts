@@ -153,6 +153,15 @@ export const MODELS_BY_PROVIDER = {
   ],
   openai: [
     {
+      id: "gpt-6-astra",
+      displayName: "GPT-6 Astra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
       id: "gpt-5.6-sol",
       displayName: "GPT-5.6 Sol",
       contextWindowTokens: 1_050_000,
@@ -236,8 +245,18 @@ export const MODELS_BY_PROVIDER = {
   ],
   gemini: [
     {
+      id: "gemini-3.8-flash",
+      displayName: "Gemini 3.8 Flash",
+      contextWindowTokens: 1_048_576,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 65_536,
+      supportsThinking: true,
+      thinkingFloor: "low",
+    },
+    {
       id: "gemini-3.7-flash",
       displayName: "Gemini 3.7 Flash",
+      family: "gemini-flash",
       contextWindowTokens: 1_048_576,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 65_536,
@@ -389,18 +408,10 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
     },
     {
-      id: "accounts/fireworks/models/glm-5p2",
-      displayName: "GLM 5.2",
-      vendor: "zhipu",
-      contextWindowTokens: 1_040_000,
-      defaultContextWindowTokens: 200_000,
-      maxOutputTokens: 131_072,
-      supportsThinking: true,
-    },
-    {
       id: "accounts/fireworks/models/glm-5p3",
       displayName: "GLM 5.3",
       vendor: "zhipu",
+      family: "glm",
       contextWindowTokens: 1_040_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 131_072,
@@ -417,6 +428,16 @@ export const MODELS_BY_PROVIDER = {
       supportsThinking: true,
       adaptiveThinkingOnly: true,
     },
+    {
+      id: "accounts/fireworks/models/glm-5p2",
+      displayName: "GLM 5.2",
+      vendor: "zhipu",
+      family: "glm",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
     // Kimi K2.5 (kimi-k2p5) is intentionally absent: Fireworks serves it
     // on-demand/dedicated only, so serverless calls 404.
     {
@@ -428,15 +449,6 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 512_000,
       supportsThinking: true,
-    },
-    {
-      id: "accounts/fireworks/models/minimax-m2p7",
-      displayName: "MiniMax M2.7",
-      vendor: "minimax",
-      family: "minimax-m",
-      contextWindowTokens: 196_608,
-      defaultContextWindowTokens: 196_608,
-      maxOutputTokens: 25_000,
     },
     {
       id: "accounts/fireworks/models/deepseek-v4-pro-0813",
@@ -577,6 +589,25 @@ export const MODELS_BY_PROVIDER = {
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 64_000,
       supportsThinking: true,
+    },
+    {
+      id: "openai/gpt-6-astra",
+      displayName: "GPT-6 Astra",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
+    },
+    {
+      id: "openai/gpt-6-astra-pro",
+      displayName: "GPT-6 Astra Pro",
+      vendor: "openai",
+      contextWindowTokens: 1_050_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 272_000,
     },
     {
       id: "openai/gpt-5.6-sol",
@@ -854,7 +885,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.3",
-      displayName: "GLM-5.3",
+      displayName: "GLM 5.3",
       vendor: "zhipu",
       family: "glm",
       contextWindowTokens: 1_048_576,
@@ -864,7 +895,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.3-flash",
-      displayName: "GLM-5.3 Flash",
+      displayName: "GLM 5.3 Flash",
       vendor: "zhipu",
       contextWindowTokens: 1_310_720,
       defaultContextWindowTokens: 200_000,
@@ -873,7 +904,7 @@ export const MODELS_BY_PROVIDER = {
     },
     {
       id: "z-ai/glm-5.2",
-      displayName: "GLM-5.2",
+      displayName: "GLM 5.2",
       vendor: "zhipu",
       family: "glm",
       contextWindowTokens: 1_048_576,
@@ -1124,7 +1155,7 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 32_768,
       defaultContextWindowTokens: 32_768,
       maxOutputTokens: 32_768,
-      featureFlag: "settings-developer-nav",
+      featureFlag: "vellum-hosted-inference",
     },
   ],
   "openai-compatible": [],
@@ -1320,6 +1351,7 @@ export function getManagedUpstreamForModel(
 // the "chatgpt" identity's model list resolves here like every provider's;
 // the settings domain re-exports it from codex-subscription-models.
 export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
@@ -1331,23 +1363,34 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
 ]);
 
 export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
+export const HOSTED_INFERENCE_CATALOG_FLAG = "vellum-hosted-inference";
+
+export function catalogEnabledFlags(args: {
+  developerMode?: boolean;
+  hostedInference?: boolean;
+}): Record<string, boolean> {
+  return {
+    [DEVELOPER_MODE_CATALOG_FLAG]: args.developerMode === true,
+    [HOSTED_INFERENCE_CATALOG_FLAG]: args.hostedInference === true,
+  };
+}
 
 export function isCatalogModelVisible(
   model: Pick<LlmCatalogModel, "featureFlag">,
-  developerMode: boolean,
+  enabledFlags: Readonly<Record<string, boolean>>,
 ): boolean {
   if (!model.featureFlag) {
     return true;
   }
-  return model.featureFlag === DEVELOPER_MODE_CATALOG_FLAG && developerMode;
+  return enabledFlags[model.featureFlag] === true;
 }
 
 export function getVisibleModelsForProvider(
   provider: string,
-  developerMode: boolean,
+  enabledFlags: Readonly<Record<string, boolean>>,
 ): readonly LlmCatalogModel[] {
   return getModelsForProvider(provider).filter((model) =>
-    isCatalogModelVisible(model, developerMode),
+    isCatalogModelVisible(model, enabledFlags),
   );
 }
 

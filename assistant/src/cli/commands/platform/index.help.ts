@@ -71,20 +71,42 @@ Examples:
     },
     {
       name: "credits",
-      description: "Show the organization's remaining credit balance",
+      description:
+        "Show the organization's credit balance, plan-credit usage, and daily-limit state",
       helpText: `
-Fetches the org's credit balance from the platform billing summary.
+Fetches the org's credit balance, plan-included credit usage, extra credit,
+upcoming expiry, today's spend, and daily-limit state from the platform
+billing summary.
 
 Fields:
-  remaining   Effective balance (settled minus pending charges) in USD
-  settled     On-ledger balance in USD
-  pending     Estimated pending compute charges not yet settled, in USD
-  unit        Balance currency (USD)
-  stale       True when pending-charge data may be stale or unavailable
-  as_of       When this balance was read (response receipt time)
+  remaining              Effective balance (settled minus pending charges) in USD
+  settled                On-ledger balance in USD
+  pending                Estimated pending compute charges not yet settled, in USD
+  unit                   Balance currency (USD)
+  stale                  True when pending-charge data may be stale or unavailable
+  as_of                  When this balance was read (response receipt time)
+  daily_spend            Today's (UTC) spend counted against the daily limit, in USD
+                         (excludes spend covered by plan-included credits)
+  daily_limit            Daily credit limit in USD, or null when none is set
+  daily_limit_reached    True when today's spend has hit the limit and it is enforced
+  daily_limit_snoozed    True when the limit is skipped for the rest of today
+  low_balance_threshold  Low-balance alert threshold in USD
+  low_balance_warning    True when the balance is below the threshold and auto top-up is off
+  plan_credit_remaining  Unused plan-included credit (initial credit, Pro bundle) in USD
+  plan_credit_total      What those plan-included grants were worth in total, in USD
+  plan_credit_used_fraction
+                         Share of plan credit used, 0 to 1 (the in-app usage meter)
+  plan_credits_spent     True when plan credit is used up or expired (extra_credit_remaining
+                         says whether anything still funds usage); null with no reading
+  extra_credit_remaining Credit bought or earned on top of plan credit, in USD
+  credits_expiring_soon  Credit on grants expiring within 30 days, in USD
+  next_credit_expiry_at  Earliest upcoming grant expiry (ISO 8601), or null
 
-Combine with 'assistant usage daily' to compute runway (remaining divided
-by rolling daily average) and warn before credits run out.
+Grant fields are null when the platform does not report grant figures. Plan
+credit mixes grants with different lifetimes (only the Pro bundle turns over
+with the billing cycle), so it has no single reset date. next_credit_expiry_at
+is the earliest expiry across all grants, plan-included or not, and
+'assistant platform subscription' gives the billing cycle boundary.
 
 Requires platform credentials (run 'assistant platform connect' first or
 ensure VELLUM_PLATFORM_URL is set and credentials are stored).

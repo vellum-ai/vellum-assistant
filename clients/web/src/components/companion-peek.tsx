@@ -28,18 +28,19 @@ import {
  * eyes ride the edge on every creature rather than a fixed slice of body) and
  * the same choreography: a springy rise, a hold, and a quick duck.
  *
- * **Over the top or under the bottom.** Each peek draws one of the two at
- * random, independently of the last, so it can come up the same way twice
- * running and the next one is never a foregone conclusion. Under the bottom
- * the creature hangs upside down, which is what the chat page does when its
- * hello hangs off the composer's bottom rim. The geometry is measured once,
- * for the top, and the whole frame is turned over for the bottom, which is
- * what keeps the eyes riding the rim either way. The capsule's ends are not
- * edges it comes out of: a creature cut sideways is far taller than the
- * capsule's end, and it read as a separate thing beside the pill. Nor does
- * the capsule stretch to meet it: a collar joining the two was tried and read
- * as a second shape rather than as the pill, and the plain rise reads as the
- * creature behind the pill, which is what it is.
+ * **Over the top, at one of three places along it.** Each peek draws one at
+ * random, independently of the last, so it can come up in the same place twice
+ * running and the next one is never a foregone conclusion. The rise itself is
+ * the same wherever it happens: one geometry, measured once, moved along the
+ * rim.
+ *
+ * Never downward. The surface rests a couple of points off the bottom of the
+ * display, so a creature rising that way has nowhere to rise into and is cut
+ * off by the edge of the screen.
+ *
+ * The capsule does not stretch to meet it: a collar joining the two was tried
+ * and read as a second shape rather than as the pill, and the plain rise reads
+ * as the creature behind the pill, which is what it is.
  *
  * **The creature's actual artwork.** The peeking creature is `AnimatedAvatar`,
  * so it blinks and breathes while it is up, and a custom uploaded image has no
@@ -68,16 +69,35 @@ export interface PeekInterval {
   max: number;
 }
 
-/** The edges the creature can come out of. */
-export const PEEK_EDGES = ["top", "bottom"] as const;
+/**
+ * The places along the top rim the creature can come up at.
+ *
+ * All three are the top. Only the bottom rim was ever the other way, and it is
+ * gone: the surface rests a couple of points off the bottom of the display, so
+ * a creature rising downward has nowhere to rise into and is cut off by the
+ * edge of the screen at every peek.
+ *
+ * Where along the rim is what varies instead. A creature that always came up
+ * on the pill's centre line reads as one door in a wall; three places on a
+ * pill wide enough to hold them reads as a creature moving about behind it.
+ */
+export const PEEK_EDGES = ["top", "topLeft", "topRight"] as const;
 export type PeekEdge = (typeof PEEK_EDGES)[number];
 
 /**
- * One draw of an edge, a coin toss. `random` is a parameter so the two halves
- * can be stated as a test.
+ * One draw of a place, uniform over the three. `random` is a parameter so each
+ * third can be stated as a test.
+ *
+ * Independent of the last draw, which is the point: it can come up in the same
+ * place twice running and the next one is never a foregone conclusion.
  */
-export const pickEdge = (random: () => number = Math.random): PeekEdge =>
-  random() < 0.5 ? "top" : "bottom";
+export const pickEdge = (random: () => number = Math.random): PeekEdge => {
+  const draw = random();
+  if (draw < 1 / 3) {
+    return "top";
+  }
+  return draw < 2 / 3 ? "topLeft" : "topRight";
+};
 
 /** How long the creature stays up, in milliseconds, before ducking. */
 export const PEEK_HOLD_MS = 1600;
@@ -212,27 +232,36 @@ export interface PeekCapsule {
 }
 
 /**
- * Where the clip box, measured for the top (rim side down, creature rising
- * up), sits for each edge, and how it is turned so its rim side faces the
- * capsule.
+ * Where the clip box sits for each place: on the capsule's top rim, a quarter,
+ * a half or three quarters of the way along it.
  *
- * For the bottom the box is placed under the capsule and turned over, which
- * carries the clip with it: overflow is cut in the box's own frame, so a
- * turned box still hides everything past its rim side.
+ * The box's bottom edge is the rim in every case, so nothing is turned and the
+ * creature always rises the same way. Quarters rather than the ends: the box
+ * is drawn about its own centre, and a creature coming up over a rounded end
+ * would rise past the point the rim has already curved away beneath it.
+ *
+ * `capsule` is what the places are measured along, since the box does not
+ * otherwise know how long a rim it is riding.
  */
 export const frameFor = (
   edge: PeekEdge,
   box: { width: number; height: number },
-): { slot: CSSProperties; turn: number } => {
-  const slot = {
-    width: box.width,
-    height: box.height,
-    left: "50%",
-    marginLeft: -box.width / 2,
+  capsule: PeekCapsule = { width: 0, height: 0 },
+): { slot: CSSProperties } => {
+  const along =
+    edge === "topLeft"
+      ? capsule.width / 4
+      : edge === "topRight"
+        ? (capsule.width * 3) / 4
+        : capsule.width / 2;
+  return {
+    slot: {
+      width: box.width,
+      height: box.height,
+      bottom: "100%",
+      left: along - box.width / 2,
+    },
   };
-  return edge === "top"
-    ? { slot: { ...slot, bottom: "100%" }, turn: 0 }
-    : { slot: { ...slot, top: "100%" }, turn: 180 };
 };
 
 export function CompanionPeek({
@@ -288,7 +317,7 @@ export function CompanionPeek({
     if (count === 0) {
       return;
     }
-    // Drawn while the creature is still down, so the frame turns unseen.
+    // Drawn while the creature is still down, so the frame moves unseen.
     setDrawnEdge(pickEdge());
     setRisen(true);
     const timer = setTimeout(() => {
@@ -306,7 +335,7 @@ export function CompanionPeek({
   const geometry = peekGeometry(metrics, capsule.width);
   const up = held || risen;
   const edge = fixedEdge ?? drawnEdge;
-  const frame = frameFor(edge, geometry.clip);
+  const frame = frameFor(edge, geometry.clip, capsule);
 
   return (
     // Sized as the capsule's own box and placed where the caller puts the
@@ -322,15 +351,11 @@ export function CompanionPeek({
       data-edge={edge}
       aria-hidden
     >
-      {/* The slot against the chosen edge, and inside it the window the
-        creature rises into, turned so its rim side faces the capsule.
-        Overflow hidden is what makes the creature come out from behind the
-        capsule rather than up in front of it. */}
+      {/* The slot at the chosen place on the rim, and inside it the window
+        the creature rises into. Overflow hidden is what makes the creature
+        come out from behind the capsule rather than up in front of it. */}
       <div className="absolute" style={frame.slot}>
-        <div
-          className="absolute inset-0 overflow-hidden"
-          style={{ transform: `rotate(${frame.turn}deg)` }}
-        >
+        <div className="absolute inset-0 overflow-hidden">
           <motion.div
             className="absolute left-1/2"
             style={{

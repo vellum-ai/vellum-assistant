@@ -93,6 +93,14 @@ export interface ConversationRowListProps {
    * the direct path renders a {@link LoadMoreSentinel} after the rows.
    */
   onEndReached?: () => void;
+  /**
+   * Caps this section's rows shorter than the shared
+   * {@link SIDEBAR_SECTION_MAX_HEIGHT}, scrolling within itself past the
+   * cap. The assistant-initiated section passes five rows' worth so its
+   * realizations stay a glanceable stack. Ignored by `unbounded` and
+   * ancestor-scrolled lists, which have no cap of their own to shrink.
+   */
+  maxHeight?: number;
 }
 
 export function ConversationRowList({
@@ -101,6 +109,7 @@ export function ConversationRowList({
   unbounded,
   isLast,
   onEndReached,
+  maxHeight,
 }: ConversationRowListProps) {
   const { overlayCards, scrollParent: contextScrollParent } =
     useConversationListContext();
@@ -137,7 +146,7 @@ export function ConversationRowList({
     ) : (
       <div
         className="overflow-y-auto"
-        style={{ maxHeight: SIDEBAR_SECTION_MAX_HEIGHT }}
+        style={{ maxHeight: maxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}
       >
         {rows}
       </div>
@@ -189,7 +198,9 @@ export function ConversationRowList({
       {windowed}
     </div>
   ) : (
-    <div style={{ height: SIDEBAR_SECTION_MAX_HEIGHT }}>{windowed}</div>
+    <div style={{ height: maxHeight ?? SIDEBAR_SECTION_MAX_HEIGHT }}>
+      {windowed}
+    </div>
   );
 }
 export interface ConversationNavSectionProps extends ConversationRowListProps {
@@ -197,6 +208,12 @@ export interface ConversationNavSectionProps extends ConversationRowListProps {
   value: string;
   label: string;
   icon?: LucideIcon;
+  /** Leading glyph for a section whose mark is not a Lucide icon. */
+  iconNode?: ReactNode;
+  /** Forwarded to `CollapsibleNavSection.Section`: extra label-span classes. */
+  labelClassName?: string;
+  /** Forwarded to `CollapsibleNavSection.Section`: extra header-row classes. */
+  headerClassName?: string;
   trailing?: ReactNode;
   /**
    * Bulk/group actions for this section's header. Rendered as a right-click
@@ -223,6 +240,9 @@ export function ConversationNavSection({
   value,
   label,
   icon,
+  iconNode,
+  labelClassName,
+  headerClassName,
   trailing,
   groupMenu,
   collapsedIndicator,
@@ -240,7 +260,10 @@ export function ConversationNavSection({
       value={value}
       card={overlayCards}
       icon={icon}
+      iconNode={iconNode}
       label={label}
+      labelClassName={labelClassName}
+      headerClassName={headerClassName}
       trailing={trailing}
       contextMenuContent={
         hasMenu

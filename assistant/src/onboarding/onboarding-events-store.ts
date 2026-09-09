@@ -130,9 +130,10 @@ export function recordActivationEvent(params: {
  * `telemetry/live-voice-funnel.ts` for why duration and turn count are derived
  * from that pairing rather than carried as fields.
  *
- * `screen` carries the end reason on the ended event (the started event has no
- * dimension beyond the step itself). Returns null when usage data collection is
- * disabled or the telemetry database is unavailable.
+ * `screen` carries the end reason on the ended event and the originating
+ * client and entry point on the started one (see `liveVoiceStartScreen`).
+ * Returns null when usage data collection is disabled or the telemetry
+ * database is unavailable.
  *
  * **Never throws.** These fire from `LiveVoiceSession.start()` and `.close()`,
  * which are the user's call itself: the outbox insert raises on a telemetry DB
@@ -176,14 +177,19 @@ export function recordLiveVoiceSessionEvent(params: {
   );
 }
 
-/** Record the "a live-voice session was attempted" milestone. */
-export function recordLiveVoiceSessionStarted(
-  sessionId: string,
-): OnboardingEvent | null {
+/**
+ * Record the "a live-voice session was attempted" milestone, with where it
+ * was attempted from.
+ */
+export function recordLiveVoiceSessionStarted(params: {
+  sessionId: string;
+  screen: string;
+}): OnboardingEvent | null {
   return recordLiveVoiceSessionEvent({
     stepName: LIVE_VOICE_STEPS.sessionStarted.stepName,
     stepIndex: LIVE_VOICE_STEPS.sessionStarted.stepIndex,
-    sessionId,
+    sessionId: params.sessionId,
+    screen: params.screen,
   });
 }
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { CodeTabs } from "@/app/docs/_components/code-tabs";
 import { DocsContent } from "@/app/docs/_components/docs-content";
+import { DocsVideo } from "@/app/docs/_components/docs-video";
 import { SectionHeading } from "@/app/docs/_components/section-heading";
 import { TableOfContents } from "@/app/docs/_components/table-of-contents";
 
@@ -45,6 +46,8 @@ export function HostingOptionsPairADeviceContent() {
         breadcrumb="Docs / Hosting options / Pair a device"
         subtitle="Reach a self-hosted assistant from your phone or another computer."
       >
+        <DocsVideo video="mobile-pairing" />
+
         <section id="overview">
           <SectionHeading id="overview" level={2}>
             Overview

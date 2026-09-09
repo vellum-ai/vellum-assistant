@@ -16,11 +16,6 @@ Use browser automation for collection and `host_bash` helper scripts for determi
 
 - `host_bash` for `assistant browser` CLI commands and helper scripts in `scripts/`.
 
-## Hard constraints
-
-- Do not call `assistant browser chrome relay`.
-- Do not use legacy relay-backed influencer scripts.
-
 ## Step graph (state machine)
 
 ### Step 1: Route intent

@@ -71,6 +71,7 @@ export function VoiceTranscriptToggles({
   showDescription = false,
   showRecommendedBadge = false,
 }: VoiceTranscriptTogglesProps) {
+  const { t } = useTranslation();
   const showUserTranscript = useVoicePrefsStore.use.showUserTranscript();
   const showAssistantTranscript =
     useVoicePrefsStore.use.showAssistantTranscript();
@@ -92,6 +93,23 @@ export function VoiceTranscriptToggles({
     },
   };
 
+  const getToggleLabel = (prefKey: VoiceTranscriptPrefKey, fallback: string) => {
+    if (prefKey === "showUserTranscript") {
+      return t("voiceTranscriptToggles.userTranscriptLabel", fallback);
+    }
+    return t("voiceTranscriptToggles.assistantTranscriptLabel", fallback);
+  };
+
+  const getToggleDescription = (
+    prefKey: VoiceTranscriptPrefKey,
+    fallback: string,
+  ) => {
+    if (prefKey === "showUserTranscript") {
+      return t("voiceTranscriptToggles.userTranscriptDescription", fallback);
+    }
+    return t("voiceTranscriptToggles.assistantTranscriptDescription", fallback);
+  };
+
   return (
     <>
       {VOICE_TRANSCRIPT_TOGGLES.map((def) => {
@@ -99,8 +117,12 @@ export function VoiceTranscriptToggles({
         return (
           <TranscriptToggleRow
             key={def.prefKey}
-            label={def.label}
-            description={showDescription ? def.description : undefined}
+            label={getToggleLabel(def.prefKey, def.label)}
+            description={
+              showDescription
+                ? getToggleDescription(def.prefKey, def.description)
+                : undefined
+            }
             showBadge={showRecommendedBadge}
             checked={binding.checked}
             onChange={binding.onChange}

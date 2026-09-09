@@ -17,6 +17,13 @@ import type { IpcHandle } from "./ipc";
 
 export interface HotkeysIpc {
   handle: IpcHandle;
+  /**
+   * Catalog commands this shell does not offer. They render no row and take
+   * no override, and their global shortcut is never registered because the
+   * shell passes no handler for them. The macOS shell excludes Talk: its
+   * voice key (a double tap of Fn) is the keyboard way into a call there.
+   */
+  exclude?: readonly string[];
 }
 
 export type { HotkeyScope, ResolvedHotkey };
@@ -55,7 +62,10 @@ const HOTKEY_CATALOG: readonly HotkeyCommand[] = [
   { key: "nextConversation", label: "Next conversation", scope: "menu" },
 ];
 
-const CATALOG_KEYS = new Set(HOTKEY_CATALOG.map((command) => command.key));
+let excludedKeys: ReadonlySet<string> = new Set();
+
+const offeredCatalog = (): HotkeyCommand[] =>
+  HOTKEY_CATALOG.filter((command) => !excludedKeys.has(command.key));
 
 /**
  * Commands the app binds but does not expose for rebinding. Their accelerators
@@ -103,7 +113,7 @@ const resolveCommand = (
  * conflict, so carrying it would only add noise.
  */
 export const resolveHotkeyCatalog = (): ResolvedHotkey[] => [
-  ...HOTKEY_CATALOG.map((command) => resolveCommand(command, true)),
+  ...offeredCatalog().map((command) => resolveCommand(command, true)),
   ...RESERVED_COMMANDS.map((command) => resolveCommand(command, false)).filter(
     (entry) => entry.accelerator !== "",
   ),
@@ -118,7 +128,7 @@ export const resolveHotkeyCatalog = (): ResolvedHotkey[] => [
  * and rebuild the menu.
  */
 const writeHotkey = (key: string, accelerator: string | null): void => {
-  if (!CATALOG_KEYS.has(key)) {
+  if (!offeredCatalog().some((command) => command.key === key)) {
     throw new Error(`Unknown hotkey command: ${key}`);
   }
   if (
@@ -153,10 +163,11 @@ let teardown: (() => void) | null = null;
  * broadcast to every window whenever the hotkeys setting changes (including
  * changes a different window initiated) so open settings views stay in sync.
  */
-export const installHotkeysIpc = ({ handle }: HotkeysIpc): void => {
+export const installHotkeysIpc = ({ handle, exclude = [] }: HotkeysIpc): void => {
   if (teardown) {
     return;
   }
+  excludedKeys = new Set(exclude);
 
   handle("vellum:hotkeys:get", z.tuple([]), () => resolveHotkeyCatalog());
   handle(
@@ -180,4 +191,5 @@ export const installHotkeysIpc = ({ handle }: HotkeysIpc): void => {
 export const __resetForTesting = (): void => {
   teardown?.();
   teardown = null;
+  excludedKeys = new Set();
 };

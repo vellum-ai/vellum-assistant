@@ -60,5 +60,4 @@ bash command="rm -rf /tmp/vellum-eval/"
 - **Iteration limit:** Max 3 attempts before asking the user for guidance.
 - **After successful test:** Persist with `scaffold_managed_skill` only after explicit user consent.
 - **Timeout:** Use `timeout_seconds=10` (or up to 20 for complex snippets).
-- **Error handling:** Read stdout/stderr from the bash output to diagnose failures.
 - **Never persist or delete skills without explicit user confirmation.**

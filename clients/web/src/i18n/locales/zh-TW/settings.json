@@ -248,15 +248,24 @@
     "adjust": "調整",
     "capProgress": " / 本月 {cap}",
     "connectCardBanner": "自動加值需要您綁定一張信用卡。",
+    "dailyLimitLookupError": "無法檢查每日點數限制，自動加值需要該限制。請重試以繼續。",
     "declinedCutoffNotice": "多次付款失敗後，我們已暫停自動加值。請新增付款方式以重新開啟自動加值。",
     "disableError": "無法停用自動加值。請再試一次。",
     "dismiss": "關閉",
     "loadError": "無法載入自動加值設定。",
     "loading": "載入中…",
+    "retry": "重試",
     "summary": "當餘額低於 {threshold} 時，自動加值 {amount}",
     "toggleHelper": "自動加值僅在方案用量耗盡時發生",
     "toggleLabel": "啟用自動加值",
     "updateError": "無法儲存自動加值設定。請再試一次。"
+  },
+  "autoTopUpDailyLimitModal": {
+    "cancel": "停用自動加值",
+    "message": "自動加值需要設定每日點數限制。請設定一個限制以儲存自動加值設定，或停用自動加值。",
+    "save": "儲存",
+    "saving": "儲存中…",
+    "title": "設定每日點數限制"
   },
   "autoTopUpDisableConfirm": {
     "disable": "停用",
@@ -446,12 +455,12 @@
     "urlPlaceholder": "在此貼上回呼 URL..."
   },
   "checkoutBonusModal": {
-    "body": "領取一次性 {amount} 點數，我們將直接將其新增至您的帳戶餘額。無需付款。",
-    "claim": "領取 {amount} 點數",
+    "body": "領取一次性 {amount} 額外用量，我們將直接將其新增至您的使用餘額。無需付款。",
+    "claim": "領取 {amount} 額外用量",
     "decline": "不用了，謝謝",
-    "errorToast": "無法新增點數。請再試一次。",
-    "grantedToast": "{amount} 點數已新增至您的帳戶。",
-    "title": "我們贈送您 {amount}",
+    "errorToast": "無法新增額外用量。請再試一次。",
+    "grantedToast": "{amount} 額外用量已新增至您的使用餘額。",
+    "title": "我們贈送您 {amount} 額外用量",
     "unavailableToast": "此優惠已不再提供。"
   },
   "checkoutPage": {
@@ -989,6 +998,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 帳號",
+    "cancel": "取消",
     "connectAccount": "連接帳號",
     "connectAccountLower": "連接帳號",
     "connectToContinue": "連接帳號以繼續",
@@ -1034,6 +1044,7 @@
     "loadError": "載入 MCP 伺服器失敗。請檢查助理是否正在執行。",
     "loading": "正在載入 MCP 伺服器...",
     "reloadAriaLabel": "重新載入 MCP 伺服器",
+    "reloadButton": "重新整理",
     "reloadTooltip": "重新載入所有伺服器",
     "removeDialogConfirm": "移除",
     "removeDialogMessage": "您確定要移除「{serverId}」嗎？這將會中斷此伺服器提供的所有工具。",
@@ -1063,15 +1074,19 @@
     "totalTools": "{count, plural, other {# 個工具}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "關閉",
     "authenticate": "驗證",
+    "authenticatedBadge": "已驗證",
     "authenticating": "正在驗證...",
     "configure": "設定",
     "configureTooltip": "設定",
     "estimatedTokens": "~{count} 個權杖",
+    "moreActions": "{serverId} 的更多操作",
     "oauthBadge": "OAuth",
     "reAuth": "重新驗證",
     "reAuthTooltip": "重新驗證 OAuth",
     "registeredTools": "{count, plural, other {# 個已註冊工具}}",
+    "removeServer": "刪除伺服器",
     "removeServerAriaLabel": "移除 {serverId}",
     "removeServerTooltip": "移除伺服器",
     "revoke": "撤銷",
@@ -1522,6 +1537,18 @@
     "selectModelError": "請選擇模型。",
     "selectModelPlaceholder": "選擇模型",
     "selectProviderPlaceholder": "選擇供應商…"
+  },
+  "profileModalitiesSection": {
+    "audio": "音訊",
+    "enableAria": "啟用{modality}",
+    "enabledColumn": "啟用",
+    "helper": "只有在模態已啟用且標示為模型支援時，才會傳給模型。未以此方式傳送的圖片會改為文字說明。",
+    "image": "圖片",
+    "resolvedOff": "不傳給模型",
+    "resolvedOn": "傳給模型",
+    "supportedAria": "模型支援{modality}",
+    "supportedColumn": "模型支援",
+    "title": "模態"
   },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的動作",
@@ -2167,8 +2194,6 @@
     "customKey": "自訂",
     "defaultBadge": "預設",
     "enableVoiceShortcut": "啟用語音模式捷徑",
-    "fnKeyLabel": "Fn",
-    "fnRefusedNote": "Fn 需要輸入監控。請在「系統設定」中授予權限，或設定自訂捷徑。",
     "focusedTabNote": "按鍵通話僅在此分頁為焦點時有效，且瀏覽器可能會在頁面偵測到某些捷徑（例如 Ctrl+T）之前將其攔截。若要啟用始終開啟的按鍵通話功能，請使用 Vellum 桌面應用程式。",
     "grantMicrophoneAccessHint": "授予麥克風存取權限，以列出可用的輸入裝置。",
     "interruptSensitivityAriaLabel": "打斷靈敏度",
@@ -2186,7 +2211,6 @@
     "pauseBeforeReplyDescription": "您停止說話後，助理等待多久才回覆。較長的暫停時間可讓您在句子中間整理思緒，而不會被打斷。",
     "pauseBeforeReplyLabel": "回覆前暫停",
     "pressShortcut": "按下捷徑…",
-    "recommendedBadge": "建議",
     "recordingPrompt": "按下組合鍵或按鍵…",
     "resetToDefaults": "重設為預設值",
     "savedMicrophone": "已儲存的麥克風",
@@ -2209,7 +2233,22 @@
     "turnTakingTitle": "輪流說話",
     "voiceShortcutSubtitle": "在應用程式中的任何位置按下捷徑，以開始或結束語音對話。",
     "voiceShortcutSubtitleDesktop": "用於開始/結束語音對話的全域捷徑。",
-    "voiceShortcutTitle": "語音模式捷徑"
+    "voiceShortcutTitle": "語音模式捷徑",
+    "captionsRecommendation": "我們建議初次使用時保持關閉，體驗更接近真實對話。"
+  },
+  "voiceKeyCard": {
+    "allowInputMonitoring": "允許輸入監控",
+    "customHint": "按住 Cmd、Ctrl、Option、Shift 中的兩個或更多鍵，然後放開。",
+    "customLabel": "自訂",
+    "fnDictationNote": "如果 macOS 聽寫在連按兩次 Fn 時啟動，請在「系統設定」的「鍵盤」中關閉它。",
+    "fnLabel": "Fn",
+    "needsInputMonitoring": "在允許輸入監控之前，無法監聽此鍵。",
+    "offLabel": "關閉",
+    "recordingPrompt": "按住修飾鍵…",
+    "refusedNote": "無法監聽此鍵。請重新啟動 App 後再試一次。",
+    "subtitle": "按住可在游標處聽寫或詢問所選內容。連按兩次可開始或結束通話。",
+    "title": "語音鍵",
+    "voiceOverNote": "Control 和 Option 是 VoiceOver 的修飾鍵。如果你使用 VoiceOver，其指令會優先佔用這些鍵。"
   },
   "voicePickerCard": {
     "changeButton": "變更",
@@ -2282,5 +2321,87 @@
     "redirectHint": "將此網址新增至您的 OAuth 應用程式的重新導向設定中。",
     "redirectUrl": "重新導向網址",
     "waitingAuthorization": "等待授權中..."
+  },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "夥伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "獨立",
+        "right": "協作"
+      },
+      "genzBoomer": {
+        "left": "Z 世代",
+        "right": "嬰兒潮世代"
+      },
+      "playfulSerious": {
+        "left": "活潑",
+        "right": "嚴肅"
+      },
+      "politeUnfiltered": {
+        "left": "有禮",
+        "right": "直率"
+      }
+    },
+    "loadError": "無法載入個性滑桿。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "儲存",
+    "saveErrorToast": "無法儲存個性滑桿。請再試一次。",
+    "saveSuccessToast": "個性滑桿已儲存。",
+    "saving": "正在儲存…",
+    "subtitle": "將這些滑桿值儲存到此助手。這不會改寫身分檔案。",
+    "title": "個性"
+  },
+  "sidebar": {
+    "general": "一般",
+    "model": "模型與服務",
+    "integrations": "整合",
+    "credentials": "憑證",
+    "notifications": "通知",
+    "voice": "語音",
+    "sounds": "聲音",
+    "privacy": "權限與隱私",
+    "bookmarks": "書籤",
+    "usage": "用量",
+    "billingUsage": "帳單與用量",
+    "community": "社群",
+    "debug": "偵錯",
+    "developer": "開發者",
+    "personality": "個性",
+    "logout": "登出",
+    "login": "登入",
+    "title": "設定"
+  },
+  "debugPage": {
+    "tabs": {
+      "general": "一般",
+      "terminal": "終端機",
+      "doctor": "診斷",
+      "conversations": "對話"
+    }
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "新增 API 金鑰",
+    "cancelConnect": "取消設定",
+    "chooseFromList": "從清單中選取",
+    "connectedTag": "已連線",
+    "customModelAriaLabel": "自訂模型 ID",
+    "customModelHint": "輸入提供商所需的精確模型識別碼。該識別碼將按原樣發送至連線。",
+    "customModelOption": "輸入自訂模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "無相符的模型",
+    "modelPlaceholder": "搜尋模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 個可用模型} other {# 個可用模型}}。使用上下方向鍵瀏覽，按 Enter 鍵選取。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推薦",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "設定",
+    "signInTag": "登入",
+    "soleProviderHint": "僅 {name} 提供此模型。"
   }
 }

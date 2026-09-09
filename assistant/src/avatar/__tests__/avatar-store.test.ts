@@ -32,7 +32,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { clearAvatar, setCharacter, setImage } from "../avatar-store.js";
+import {
+  backfillAccent,
+  clearAvatar,
+  setAccent,
+  setCharacter,
+  setImage,
+} from "../avatar-store.js";
 
 // A valid trait triple drawn from the real component set.
 const VALID_TRAITS = { bodyShape: "blob", eyeStyle: "curious", color: "green" };
@@ -43,11 +49,18 @@ const ASCII_FILENAME = "character-ascii.txt";
 const MANIFEST_FILENAME = "avatar.json";
 const NATIVE_RENDER_TEST_TIMEOUT_MS = 15_000;
 
+/** A 4x4 PNG of one red (#c81e1e), so an accent can be read out of it. */
+const RED_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEklEQVQImWM4ISf3HxkzkC4AAEG4IDHG8wOiAAAAAElFTkSuQmCC",
+  "base64",
+);
+
 interface ManifestShape {
   kind: string;
   traits: Record<string, unknown> | null;
   source: string | null;
   image: { updatedAt: string; etag: string } | null;
+  accent: { hex: string; source: string } | null;
 }
 
 describe("avatar-store", () => {
@@ -117,6 +130,8 @@ describe("avatar-store", () => {
         expect(manifest!.source).toBe("builder");
         expect(manifest!.image).not.toBeNull();
         expect(manifest!.image!.etag).toMatch(/^[0-9a-f]{16}$/);
+        // The accent is the chosen palette colour.
+        expect(manifest!.accent).toEqual({ hex: "#4C9B50", source: "palette" });
       },
       NATIVE_RENDER_TEST_TIMEOUT_MS,
     );
@@ -135,8 +150,8 @@ describe("avatar-store", () => {
   });
 
   describe("setImage", () => {
-    test("writes the PNG and an image manifest", () => {
-      setImage(Buffer.from("fake png bytes"), "upload");
+    test("writes the PNG and an image manifest", async () => {
+      await setImage(Buffer.from("fake png bytes"), "upload");
 
       expect(existsSync(path(IMAGE_FILENAME))).toBe(true);
       expect(readFileSync(path(IMAGE_FILENAME)).toString()).toBe(
@@ -153,14 +168,24 @@ describe("avatar-store", () => {
       expect(manifest!.image!.updatedAt).toMatch(
         /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
       );
+      // Bytes that do not decode carry no colour, and that is not a failure.
+      expect(manifest!.accent).toBeNull();
     });
 
-    test("removes stale character sidecars on transition", () => {
+    test("reads the accent out of the image", async () => {
+      await setImage(RED_PNG, "upload");
+      expect(readManifestFile()!.accent).toEqual({
+        hex: "#c81e1e",
+        source: "derived",
+      });
+    });
+
+    test("removes stale character sidecars on transition", async () => {
       // Seed legacy character artifacts.
       writeFileSync(path(TRAITS_FILENAME), JSON.stringify(VALID_TRAITS));
       writeFileSync(path(ASCII_FILENAME), "ascii art");
 
-      setImage(Buffer.from("png"), "ai");
+      await setImage(Buffer.from("png"), "ai");
 
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
       expect(existsSync(path(ASCII_FILENAME))).toBe(false);
@@ -168,12 +193,109 @@ describe("avatar-store", () => {
       expect(readManifestFile()!.kind).toBe("image");
     });
 
-    test("is idempotent across repeated calls", () => {
-      setImage(Buffer.from("v1"), "upload");
-      setImage(Buffer.from("v2"), "upload");
+    test("is idempotent across repeated calls", async () => {
+      await setImage(Buffer.from("v1"), "upload");
+      await setImage(Buffer.from("v2"), "upload");
 
       expect(readFileSync(path(IMAGE_FILENAME)).toString()).toBe("v2");
       expect(readManifestFile()!.kind).toBe("image");
+    });
+  });
+
+  describe("setAccent", () => {
+    test("writes a custom accent over an image without touching the artifacts", async () => {
+      await setImage(RED_PNG, "upload");
+      const before = readManifestFile()!;
+
+      const state = await setAccent("#12ab34");
+      expect(state?.accent).toEqual({ hex: "#12ab34", source: "custom" });
+      const after = readManifestFile()!;
+      expect(after.accent).toEqual({ hex: "#12ab34", source: "custom" });
+      expect(after.image).toEqual(before.image);
+      expect(readFileSync(path(IMAGE_FILENAME))).toEqual(RED_PNG);
+    });
+
+    test("null returns an image to the colour read out of it", async () => {
+      await setImage(RED_PNG, "upload");
+      await setAccent("#12ab34");
+
+      const state = await setAccent(null);
+      expect(state?.accent).toEqual({ hex: "#c81e1e", source: "derived" });
+      expect(readManifestFile()!.accent).toEqual({
+        hex: "#c81e1e",
+        source: "derived",
+      });
+    });
+
+    test("null returns a character to its palette colour", async () => {
+      // Seeded as a manifest rather than through setCharacter, whose native
+      // renderer may be absent here.
+      writeFileSync(
+        path(MANIFEST_FILENAME),
+        JSON.stringify({
+          kind: "character",
+          traits: { ...VALID_TRAITS, color: "orange" },
+          source: "builder",
+          image: null,
+          accent: { hex: "#12ab34", source: "custom" },
+        }),
+      );
+
+      const state = await setAccent(null);
+      expect(state?.accent).toEqual({ hex: "#E9642F", source: "palette" });
+    });
+
+    test("refuses when there is no avatar, writing nothing", async () => {
+      expect(await setAccent("#12ab34")).toBeNull();
+      expect(readManifestFile()).toBeNull();
+    });
+  });
+
+  describe("backfillAccent", () => {
+    const imageState = (etag: string) => ({
+      kind: "image" as const,
+      traits: null,
+      source: "upload" as const,
+      image: { updatedAt: "2026-01-01T00:00:00.000Z", etag },
+      accent: null,
+    });
+
+    test("reads an image's accent out of the PNG on disk and persists it", async () => {
+      writeFileSync(path(IMAGE_FILENAME), RED_PNG);
+      const state = imageState("backfill-red");
+      writeFileSync(path(MANIFEST_FILENAME), JSON.stringify(state));
+
+      const result = await backfillAccent(state);
+      expect(result.accent).toEqual({ hex: "#c81e1e", source: "derived" });
+      expect(readManifestFile()!.accent).toEqual({
+        hex: "#c81e1e",
+        source: "derived",
+      });
+    });
+
+    test("leaves a state that already has an accent, or none to derive, alone", async () => {
+      const withAccent = {
+        ...imageState("has-accent"),
+        accent: { hex: "#12ab34", source: "custom" as const },
+      };
+      expect(await backfillAccent(withAccent)).toBe(withAccent);
+
+      const none = {
+        kind: "none" as const,
+        traits: null,
+        source: null,
+        image: null,
+        accent: null,
+      };
+      expect(await backfillAccent(none)).toBe(none);
+      expect(readManifestFile()).toBeNull();
+    });
+
+    test("returns the state unchanged, and writes nothing, when the image cannot be read", async () => {
+      writeFileSync(path(IMAGE_FILENAME), Buffer.from("not a png"));
+      const state = imageState("backfill-bad");
+      expect(await backfillAccent(state)).toBe(state);
+      expect(readManifestFile()).toBeNull();
     });
   });
 

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
+import {
+  messageCopyText,
+  messagePlainText,
+} from "@/domains/chat/utils/message-plain-text";
 
 describe("messagePlainText", () => {
   it("joins consecutive text blocks, inserting a space only between non-whitespace boundaries", () => {
@@ -79,5 +82,19 @@ describe("messagePlainText", () => {
     // THEN both yield an empty string
     expect(messagePlainText(empty)).toBe("");
     expect(messagePlainText(undefined)).toBe("");
+  });
+});
+
+describe("messageCopyText", () => {
+  it("offers nothing for a row deleted on its channel", () => {
+    expect(
+      messageCopyText({
+        contentBlocks: [{ type: "text", text: "gone" }],
+        deletedAt: 1725100001000,
+      }),
+    ).toBe("");
+    expect(
+      messageCopyText({ contentBlocks: [{ type: "text", text: "here" }] }),
+    ).toBe("here");
   });
 });

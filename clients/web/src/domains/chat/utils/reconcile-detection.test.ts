@@ -69,6 +69,17 @@ describe("serverSnapshotHasNewContent", () => {
     ).toBe(false);
   });
 
+  test("true when a matched row was deleted on its channel", () => {
+    // The stored text stays as it was, so only the marker distinguishes the
+    // fetched row from the cached one.
+    expect(
+      serverSnapshotHasNewContent(
+        [{ ...assistantRow("a1", "hello"), deletedAt: 1725100001000 }],
+        [assistantRow("a1", "hello")],
+      ),
+    ).toBe(true);
+  });
+
   test("false when the server matches the local view", () => {
     expect(
       serverSnapshotHasNewContent(

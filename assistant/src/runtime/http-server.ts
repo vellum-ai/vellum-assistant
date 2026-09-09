@@ -56,6 +56,7 @@ import { authenticateRequest } from "./auth/middleware.js";
 import { parseSub } from "./auth/subject.js";
 import { verifyToken } from "./auth/token-service.js";
 import { sweepFailedEvents } from "./channel-retry-sweep.js";
+import type { HostCaptureTarget } from "./host-observe.js";
 import { httpError, type HttpErrorCode } from "./http-errors.js";
 import { HttpRouter } from "./http-router.js";
 import {
@@ -102,6 +103,7 @@ import {
   activeWatchStreamSessions,
   closeWatchIngress,
   drainWatchRetros,
+  parseWatchCaptureTarget,
   WatchStreamSession,
 } from "./routes/watch-routes.js";
 
@@ -175,6 +177,19 @@ interface SttStreamWebSocketData {
  */
 interface LiveVoiceWebSocketData {
   wsType: "live-voice";
+  /**
+   * The guardian the gateway admitted this socket for, when it named one.
+   *
+   * The runtime cannot work this out for itself: the gateway dials with a
+   * service token, so every socket arrives as the same caller, and any
+   * identity resolved here would be a second reading of a binding that can
+   * change between the admission and the read. Absent when the gateway
+   * admitted nobody, which the session reads as a turn with no actor.
+   *
+   * Trusted because it arrives on this dial, which only the gateway can make
+   * (see {@link verifyGatewayServiceToken}), and never from a client header.
+   */
+  guardianPrincipalId?: string;
 }
 
 /**
@@ -190,6 +205,8 @@ interface WatchStreamWebSocketData {
   conversationId?: string;
   /** Desktop client to observe, when the actor has more than one connected. */
   clientId?: string;
+  /** What the session reads, when the client picked one display or window. */
+  captureTarget?: HostCaptureTarget;
   /** The session ID for tracking in the active sessions registry. */
   sessionId: string;
   /** Bound at open time so the close handler tears down the exact session. */
@@ -348,6 +365,11 @@ export class RuntimeHttpServer {
                 send: (frame) => {
                   ws.send(JSON.stringify(frame));
                 },
+                ...(liveVoiceWs.data.guardianPrincipalId
+                  ? {
+                      guardianPrincipalId: liveVoiceWs.data.guardianPrincipalId,
+                    }
+                  : {}),
                 // Lets the daemon hang up on a client that stopped answering.
                 // A normal close (not a retryable one) so the client ends the
                 // call rather than reconnecting into a session that is gone.
@@ -377,6 +399,9 @@ export class RuntimeHttpServer {
                 ? { conversationId: watchData.conversationId }
                 : {}),
               ...(watchData.clientId ? { clientId: watchData.clientId } : {}),
+              ...(watchData.captureTarget
+                ? { captureTarget: watchData.captureTarget }
+                : {}),
             });
             watchData.session = session;
             activeWatchStreamSessions.set(watchData.sessionId, session);
@@ -1045,9 +1070,14 @@ export class RuntimeHttpServer {
       return tokenError;
     }
 
+    const guardianPrincipalId =
+      new URL(req.url).searchParams.get("guardianPrincipalId")?.trim() ||
+      undefined;
+
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "live-voice",
+        ...(guardianPrincipalId ? { guardianPrincipalId } : {}),
       } satisfies LiveVoiceWebSocketData,
     });
     if (!upgraded) {
@@ -1093,6 +1123,10 @@ export class RuntimeHttpServer {
     const conversationId =
       wsUrl.searchParams.get("conversationId")?.trim() || undefined;
     const clientId = wsUrl.searchParams.get("clientId")?.trim() || undefined;
+    const parsedTarget = parseWatchCaptureTarget(wsUrl.searchParams);
+    if ("error" in parsedTarget) {
+      return new Response(parsedTarget.error, { status: 400 });
+    }
 
     const upgraded = server.upgrade(req, {
       data: {
@@ -1101,6 +1135,7 @@ export class RuntimeHttpServer {
         sampleRate,
         conversationId,
         clientId,
+        captureTarget: parsedTarget.captureTarget,
         sessionId: crypto.randomUUID(),
       } satisfies WatchStreamWebSocketData,
     });

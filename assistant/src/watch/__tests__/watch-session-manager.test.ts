@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, jest, test } from "bun:test";
 
 import { getConversation } from "../../persistence/conversation-crud.js";
 import { initializeDb } from "../../persistence/db-init.js";
-import type { HostObservation } from "../../runtime/host-observe.js";
+import type {
+  HostCaptureTarget,
+  HostObservation,
+  observeHostScreen,
+} from "../../runtime/host-observe.js";
 import { WatchSessionManager } from "../watch-session-manager.js";
 import { renderWatchTimeline } from "../watch-timeline.js";
 
@@ -196,6 +200,76 @@ describe("watch session manager", () => {
     expect(calls).toHaveLength(1);
     await settle();
     expect(renderWatchTimeline(started.sessionId).totalEntries).toBe(1);
+
+    manager.stop();
+  });
+
+  /**
+   * The pick is the session's for its whole life: every read carries it, and a
+   * session started without one carries none rather than a key set to nothing.
+   */
+  test("reads the window the session was started on, every time", async () => {
+    const targets: (HostCaptureTarget | undefined)[] = [];
+    const manager = new WatchSessionManager({
+      now: () => nowMs,
+      observe: async (options) => {
+        targets.push(options.captureTarget);
+        return richObservation();
+      },
+    });
+    const target: HostCaptureTarget = { kind: "window", windowId: 4211 };
+    const result = manager.start({
+      sourceActorPrincipalId: PRINCIPAL_ID,
+      captureTarget: target,
+    });
+    expect(result.status).toBe("started");
+    await settle();
+    await elapse(6_000);
+    await manager.handleNarrationStart();
+
+    expect(targets).toEqual([target, target]);
+
+    manager.stop();
+  });
+
+  test("keys the helper's state by the session, so no two share it", async () => {
+    const keys: (string | undefined)[] = [];
+    const manager = new WatchSessionManager({
+      now: () => nowMs,
+      observe: async (received) => {
+        keys.push(received.stateKey);
+        return richObservation();
+      },
+    });
+    const first = start(manager);
+    await settle();
+    manager.stop();
+    const second = start(manager);
+    await settle();
+    manager.stop();
+
+    expect(first.status).toBe("started");
+    expect(second.status).toBe("started");
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toMatch(/^watch:/);
+    expect(keys[1]).toMatch(/^watch:/);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  test("names no target for a session started without one", async () => {
+    const options: Parameters<typeof observeHostScreen>[0][] = [];
+    const manager = new WatchSessionManager({
+      now: () => nowMs,
+      observe: async (received) => {
+        options.push(received);
+        return richObservation();
+      },
+    });
+    start(manager);
+    await settle();
+
+    expect(options).toHaveLength(1);
+    expect("captureTarget" in options[0]!).toBe(false);
 
     manager.stop();
   });

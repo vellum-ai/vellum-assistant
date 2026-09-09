@@ -87,6 +87,12 @@ development for `clients/web` components — the ones tied to the app
 `@vellumai/design-library`. Design-system primitives live in their own
 Storybook (`packages/design-library`, port 6006).
 
+Both Storybooks are published off `main` and cross-link to each other
+from the toolbar above the canvas:
+
+- Web: <https://storybook.vellum.ai/web/main/>
+- Design library: <https://storybook.vellum.ai/design-library/main/>
+
 ```bash
 cd clients/web
 bun run storybook          # dev server → http://localhost:6007

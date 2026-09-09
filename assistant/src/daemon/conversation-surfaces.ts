@@ -54,6 +54,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { resolveAppId } from "../tools/apps/resolve-app-id.js";
+import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -68,6 +69,7 @@ import {
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
+import { resolveHostCuTarget } from "./host-cu-target.js";
 import type {
   AnySurfaceData,
   CardSurfaceData,
@@ -87,6 +89,7 @@ import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
+import { turnActorPrincipalId } from "./turn-actor.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -1800,13 +1803,19 @@ function maybeEmitActivationMoment(ctx: Conversation, surfaceId: string): void {
   recordActivationMoment(ctx, moment);
 }
 
+/** The action result for an enqueue the message queue refused. */
+const QUEUE_FULL_RESULT: SurfaceActionResult = {
+  accepted: false,
+  error: "queue_full",
+};
+
 /**
  * Record a surface action the message queue refused.
  *
- * The route answers `{ ok: true }` for a rejected enqueue and the client
- * optimistically completes the card on that, so the user sees an answered card
- * that the next history reseed reverts. Nothing else on this path logs, so
- * without this the only user-visible cause of a reverted card leaves no trace.
+ * The rejection reaches the client as a failed submit, so the card stays
+ * answerable and nothing is marked completed. Nothing else on this path logs,
+ * so without this a saturated queue leaves no trace of which actions it
+ * turned away.
  */
 function logSurfaceActionRejected(
   ctx: Conversation,
@@ -2247,7 +2256,7 @@ export async function handleSurfaceAction(
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
       logSurfaceActionRejected(ctx, surfaceId, actionId, stored?.surfaceType);
-      return;
+      return QUEUE_FULL_RESULT;
     }
 
     // Terminal user commit accepted — record the activation milestone if this
@@ -2500,7 +2509,7 @@ export async function handleSurfaceAction(
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
     logSurfaceActionRejected(ctx, surfaceId, actionId, pending.surfaceType);
-    return;
+    return QUEUE_FULL_RESULT;
   }
 
   // Terminal user commit accepted — record the activation milestone if this
@@ -2990,61 +2999,25 @@ export async function surfaceProxyResolver(
     // validate at the tool-resolution layer for the same reason. The proxy
     // re-checks same-user (single authoritative gate); using the shared
     // helper keeps log payload and error wording identical at both layers.
-    const sourceActorPrincipalId =
-      ctx.currentTurnSourceActorPrincipalId ??
-      ctx.currentTurnAuthContext?.actorPrincipalId ??
-      ctx.authContext?.actorPrincipalId;
-    if (targetClientId != null) {
-      const client = assistantEventHub.getClientById(targetClientId);
-      if (!client) {
-        return {
-          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        };
-      }
-      if (!client.capabilities.includes("host_cu")) {
-        return {
-          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        };
-      }
-      const rejection = enforceSameActorOrErrorResult({
-        hub: assistantEventHub,
-        sourceActorPrincipalId,
-        targetClientId,
-        op: "host_cu",
-      });
-      if (rejection) {
-        return rejection;
-      }
+    const sourceActorPrincipalId = turnActorPrincipalId(ctx);
+    const target = resolveHostCuTarget({
+      toolName,
+      targetClientId,
+      sourceActorPrincipalId,
+    });
+    if (target.kind === "error") {
+      return target.result;
     }
+    targetClientId = target.targetClientId;
 
-    // Untargeted CU must resolve to exactly one same-user capable client
-    // before dispatch. Otherwise the proxy would broadcast without a target
-    // actor binding, which is unsafe in shared runtimes.
-    if (targetClientId == null) {
-      const resolved = pickSameUserAutoResolve({
-        hub: assistantEventHub,
-        capability: "host_cu",
-        sourceActorPrincipalId,
-      });
-      if (resolved.kind === "ambiguous") {
-        return ambiguousSameUserError("host_cu");
-      }
-      if (resolved.kind === "match") {
-        targetClientId = resolved.clientId;
-      } else if (
-        assistantEventHub.listClientsByCapability("host_cu").length > 0
-      ) {
-        return {
-          content:
-            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
-          isError: true,
-        };
-      }
+    // Pointing at the screen is not a computer-use step. It drives nothing
+    // and the user does the acting, so counting it against
+    // `maxStepsPerSession` would let a long walkthrough exhaust a budget
+    // meant for actions and be told to call `computer_use_done`, which has
+    // nothing to do with what it was doing.
+    if (toolName !== POINT_AT_PROXY_TOOL) {
+      hostCuProxy.recordAction(toolName, input, reasoning);
     }
-
-    hostCuProxy.recordAction(toolName, input, reasoning);
     return hostCuProxy.request(
       toolName,
       input,
@@ -3101,10 +3074,7 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    const sourceActorPrincipalId =
-      ctx.currentTurnSourceActorPrincipalId ??
-      ctx.currentTurnAuthContext?.actorPrincipalId ??
-      ctx.authContext?.actorPrincipalId;
+    const sourceActorPrincipalId = turnActorPrincipalId(ctx);
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {

@@ -79,6 +79,12 @@ async function convertHtml(
     }
   });
 
+  // Decoration, not content: structured-data payloads and embedded players
+  // hold no prose; anything hidden from assistive tech (arrow glyphs, icons,
+  // duration badges) is redundant with the text beside it; and a decorative
+  // image (alt="") would convert to a bare "![](...)" artifact.
+  $('script, iframe, [aria-hidden="true"], img[alt=""]').remove();
+
   const main = $(".docs-main").first();
 
   let title = fallbackTitle;
