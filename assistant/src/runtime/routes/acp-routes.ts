@@ -1,8 +1,8 @@
 /**
  * Route handlers for ACP (Agent Communication Protocol) session lifecycle.
  *
- * Exposes spawn, steer, cancel, close, sessions, and permission operations
- * over HTTP and IPC.
+ * Exposes spawn, steer, cancel, close, set-model, sessions, and permission
+ * operations over HTTP and IPC.
  */
 import { randomUUID } from "node:crypto";
 
@@ -21,11 +21,16 @@ import {
 } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import {
+  AcpModelNotOfferedError,
+  AcpModelSelectionUnsupportedError,
   AcpResumeError,
   AcpSessionNotFoundError,
 } from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
-import type { AssistantEvent } from "../../api/index.js";
+import {
+  AcpSessionModelUpdateEventSchema,
+  type AssistantEvent,
+} from "../../api/index.js";
 import { getConfig } from "../../config/loader.js";
 import { createGuardianRequestForConfirmation } from "../../permissions/confirmation-guardian-request.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -53,6 +58,10 @@ const log = getLogger("acp-routes");
 const DEFAULT_SESSION_LIMIT = 50;
 const MAX_SESSION_LIMIT = 500;
 
+/** The option shape the `acp_session_model_update` event already publishes. */
+const acpModelOptionsSchema =
+  AcpSessionModelUpdateEventSchema.shape.availableModels;
+
 const sessionEntrySchema = z.object({
   id: z.string(),
   agentId: z.string(),
@@ -68,6 +77,9 @@ const sessionEntrySchema = z.object({
   /** Credential failure that ended the run, when one did. Drives the inline
    *  Connect card on reopen; cleared when a replacement token is stored. */
   authErrorCode: z.string().optional(),
+  model: z.string().optional(),
+  /** Models a live session can switch to. Absent for history rows. */
+  availableModels: acpModelOptionsSchema.optional(),
   usedTokens: z.number().optional(),
   contextSize: z.number().optional(),
   costAmount: z.number().optional(),
@@ -214,6 +226,7 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   const task = body?.task as string | undefined;
   const conversationId = body?.conversationId as string | undefined;
   const cwd = (body?.cwd as string | undefined) ?? process.cwd();
+  const model = body?.model as string | undefined;
 
   if (!agent || !task || !conversationId) {
     throw new BadRequestError("agent, task, and conversationId are required");
@@ -262,18 +275,67 @@ async function spawnSession({ body, abortSignal }: RouteHandlerArgs) {
   );
 
   const manager = getAcpSessionManager();
-  const { acpSessionId, protocolSessionId } = await manager.spawn(
+  const { acpSessionId, protocolSessionId, modelWarning } = await manager.spawn(
     agent,
     agentConfig,
     task,
     cwd,
     conversationId,
     broadcastMessage,
-    {},
+    { model },
   );
 
   log.info({ acpSessionId, protocolSessionId, agent }, "ACP spawn succeeded");
-  return { acpSessionId, protocolSessionId, agent };
+  // A refused model is a warning, not a failed spawn: the session is live on
+  // the agent's own model.
+  return {
+    acpSessionId,
+    protocolSessionId,
+    agent,
+    ...(modelWarning ? { modelWarning } : {}),
+  };
+}
+
+/**
+ * Switches a live ACP session onto one of the models its adapter advertises.
+ *
+ * Ungated on purpose: the host subprocess is already running and already
+ * approved, and choosing which model it answers with starts nothing new. The
+ * guardian prompt belongs to spawn and resume, which do.
+ */
+async function setSessionModel({ pathParams, body }: RouteHandlerArgs) {
+  const id = pathParams?.id as string;
+  const model = body?.model;
+
+  if (typeof model !== "string" || !model) {
+    throw new BadRequestError("model is required");
+  }
+
+  try {
+    const state = await getAcpSessionManager().setModel(id, model);
+    return {
+      acpSessionId: state.id,
+      model: state.model,
+      availableModels: state.availableModels ?? [],
+    };
+  } catch (err) {
+    if (err instanceof AcpSessionNotFoundError) {
+      throw new NotFoundError("ACP session not found");
+    }
+    // The session is alive and well, so a missing selector is a conflict with
+    // its state, not a session that is gone.
+    if (err instanceof AcpModelSelectionUnsupportedError) {
+      throw new ConflictError(err.message);
+    }
+    if (err instanceof AcpModelNotOfferedError) {
+      throw new BadRequestError(err.message);
+    }
+    throw new InternalError(
+      err instanceof Error
+        ? err.message
+        : "Failed to set the ACP session model",
+    );
+  }
 }
 
 async function steerSession({ pathParams, body }: RouteHandlerArgs) {
@@ -641,11 +703,48 @@ export const ROUTES: RouteDefinition[] = [
       task: z.string().describe("Task description"),
       conversationId: z.string(),
       cwd: z.string().describe("Working directory").optional(),
+      model: z
+        .string()
+        .optional()
+        .describe("Optional model id or alias to request for the session."),
     }),
     responseBody: z.object({
       acpSessionId: z.string(),
       protocolSessionId: z.string(),
       agent: z.string(),
+      modelWarning: z
+        .string()
+        .optional()
+        .describe(
+          "Why the requested model was not applied. The session is running " +
+            "on the agent's own model.",
+        ),
+    }),
+  },
+  {
+    operationId: "acp_set_model",
+    endpoint: "acp/:id/set-model",
+    method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: setSessionModel,
+    summary: "Set ACP session model",
+    description:
+      "Switch a live ACP session onto one of the models its adapter " +
+      "advertises. The adapter applies it to the next turn, so a turn " +
+      "already in flight finishes on the model it started with.",
+    tags: ["acp"],
+    requestBody: z.object({
+      model: z
+        .string()
+        .describe("A value from the session's availableModels list."),
+    }),
+    responseBody: z.object({
+      acpSessionId: z.string(),
+      model: z.string().optional(),
+      availableModels: acpModelOptionsSchema,
     }),
   },
   {
@@ -853,6 +952,8 @@ function listMergedSessions(opts: { limit: number; conversationId?: string }): {
       parentToolUseId: s.parentToolUseId,
       authErrorCode: s.authErrorCode,
       authErrorCredential: s.authErrorCredential,
+      model: s.model,
+      availableModels: s.availableModels,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,
       costAmount: s.latestUsage?.costAmount,
@@ -929,6 +1030,9 @@ function toMergedSession(
     parentToolUseId: row.parentToolUseId ?? undefined,
     authErrorCode: row.authErrorCode ?? undefined,
     authErrorCredential: row.authErrorCredential ?? undefined,
+    // The model the run ended on, and no picker: a history row has no live
+    // process to ask what it could switch to.
+    model: row.model ?? undefined,
     usedTokens: row.usedTokens ?? undefined,
     contextSize: row.contextSize ?? undefined,
     costAmount: row.costAmount ?? undefined,
