@@ -620,6 +620,9 @@ const currentState = (): CompanionSurfaceState => {
     // being pointed at whether the shell holds marks or has never heard of
     // them.
     coachmarks: coachmarks.length === 0 ? undefined : coachmarks,
+    // Main's as well: where the frame window sits is main's, and this is the
+    // part of that window the menu bar is drawn over.
+    frameInsetTop: publishFrameInsetTop(),
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -901,14 +904,25 @@ const refreshGrowth = (): void => {
   // across displays need not change either growth, and a session outlives
   // the surface being hidden, so its frame has to follow the display with
   // no surface on screen at all.
+  //
+  // The same events move the menu bar over that frame, and the frame's
+  // renderer holds the inset it was last pushed. So a push is due when the
+  // inset moved, on its own account: the growth below can be unchanged, or
+  // there can be no surface to measure it for, while the label sits under a
+  // bar that just got taller.
+  let frameInsetMoved = false;
   if (
     getFloatingWindow(WATCH_FRAME_KIND) !== null &&
     context.captureTarget?.kind !== "window"
   ) {
     syncWatchFrame();
+    frameInsetMoved = frameInsetTop() !== publishedFrameInsetTop;
   }
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   const centre = avatarCentre(win);
@@ -920,6 +934,9 @@ const refreshGrowth = (): void => {
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   growth = nextGrowth;
@@ -1585,6 +1602,67 @@ const framedTarget = (): WatchCaptureTarget | "screen" | null => {
   return context.screenShare ?? null;
 };
 
+/**
+ * The display a whole-screen frame goes on: the picked one by its id, else
+ * the one under the surface, or under the cursor when the surface is hidden.
+ * See {@link syncWatchFrame} for why each.
+ *
+ * For a target that is not a window. A window frame is placed by following
+ * the window, and the display it happens to be on is not a fact the frame
+ * is about.
+ */
+const framedDisplay = (
+  target: Extract<WatchCaptureTarget, { kind: "display" }> | undefined,
+): Display => {
+  if (target !== undefined) {
+    const display = screen
+      .getAllDisplays()
+      .find((candidate) => candidate.id === target.displayId);
+    if (display !== undefined) {
+      return display;
+    }
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  return displayUnder(
+    win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
+  );
+};
+
+/**
+ * How much of the top of the frame window the menu bar draws over, when a
+ * whole display is framed. See `CompanionSurfaceState.frameInsetTop`.
+ *
+ * Read from the same display {@link syncWatchFrame} places the frame on, so
+ * the inset and the window it describes cannot come from different screens.
+ * Nothing for a window frame, whose top edge is the window's own.
+ */
+const frameInsetTop = (): number | undefined => {
+  const framed = framedTarget();
+  if (framed === null) {
+    return undefined;
+  }
+  const target = framed === "screen" ? undefined : framed;
+  if (target?.kind === "window") {
+    return undefined;
+  }
+  const display = framedDisplay(target);
+  return Math.max(display.workArea.y - display.bounds.y, 0);
+};
+
+/**
+ * The inset the renderers were last handed, so {@link refreshGrowth} can
+ * tell a display event that moved the menu bar from one that did not.
+ *
+ * Every state a renderer receives is built by `currentState`, whether pushed
+ * or pulled on mount, so recording it there is what keeps this honest.
+ */
+let publishedFrameInsetTop: number | undefined;
+
+const publishFrameInsetTop = (): number | undefined => {
+  publishedFrameInsetTop = frameInsetTop();
+  return publishedFrameInsetTop;
+};
+
 const syncWatchFrame = (): void => {
   // Before the frame is placed or taken down, so a mode that has lost its
   // share is off by the time a window could be left holding the mouse for it,
@@ -1606,21 +1684,7 @@ const syncWatchFrame = (): void => {
     return;
   }
   stopFollowingWindow();
-  if (target?.kind === "display") {
-    const display = screen
-      .getAllDisplays()
-      .find((candidate) => candidate.id === target.displayId);
-    if (display !== undefined) {
-      placeWatchFrame(display.bounds);
-      return;
-    }
-  }
-  const win = getFloatingWindow(COMPANION_KIND);
-  placeWatchFrame(
-    displayUnder(
-      win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
-    ).bounds,
-  );
+  placeWatchFrame(framedDisplay(target).bounds);
 };
 
 /**

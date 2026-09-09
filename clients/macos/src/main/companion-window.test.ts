@@ -3024,6 +3024,84 @@ describe("Share on the companion surface", () => {
     expect(glow).toBeNull();
   });
 
+  /**
+   * A whole display is framed to its full bounds, and the menu bar draws
+   * over the top of that window. What the frame draws at its top has to
+   * start below the bar, and only the shell knows how tall it is.
+   */
+  test("reports the menu bar's height over a framed display", () => {
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 25, width: 1920, height: 1055 },
+    };
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(state().frameInsetTop).toBe(25);
+  });
+
+  /**
+   * The bar can change height under a running share, and the frame's
+   * renderer holds whatever it was last pushed. The events that move the
+   * bar are the ones that place the frame again, so the inset travels with
+   * that placement, whether or not the surface's own growth changed and
+   * whether or not the surface is on screen at all.
+   */
+  test("pushes the inset again when the menu bar changes height", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(glowPushes.at(-1)?.frameInsetTop).toBe(0);
+    glowPushes.length = 0;
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 37, width: 1920, height: 1043 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glowPushes.at(-1)?.frameInsetTop).toBe(37);
+  });
+
+  test("pushes the inset again with the surface hidden", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    companionOpen = false;
+    glowPushes.length = 0;
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 37, width: 1920, height: 1043 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glowPushes.at(-1)?.frameInsetTop).toBe(37);
+  });
+
+  /** A display event that left the bar alone is not a reason to push. */
+  test("does not push for a display event that left the bar alone", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    glowPushes.length = 0;
+    fireDisplayEvent("display-metrics-changed");
+    expect(glowPushes).toHaveLength(0);
+  });
+
+  test("reports no inset over a framed window", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "window", windowId: 7 } }),
+    );
+    expect(state().frameInsetTop).toBeUndefined();
+  });
+
+  test("reports no inset with nothing framed", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().frameInsetTop).toBeUndefined();
+  });
+
   test("the share ends with the window holding it", () => {
     send(
       "vellum:companion:setContext",

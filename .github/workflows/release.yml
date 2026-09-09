@@ -2651,11 +2651,7 @@ jobs:
     needs: [extract-version, publish-meta-prod, publish-meta-staging, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: >-
       ${{
-        (
-          (needs.extract-version.outputs.is_staging == 'true' && vars.WINDOWS_STAGING_RELEASE_ENABLED == 'true')
-          || (needs.extract-version.outputs.is_staging != 'true' && vars.WINDOWS_PRODUCTION_RELEASE_ENABLED == 'true')
-        )
-        && always() && !cancelled()
+        always() && !cancelled()
         && needs.extract-version.result == 'success'
         && needs.push-assistant-manifest.result == 'success'
         && needs.push-gateway-manifest.result == 'success'

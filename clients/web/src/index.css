@@ -362,7 +362,7 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 .companion-watch-frame-flash {
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, white 70%, var(--companion-ring-accent, #5eead4));
+  box-shadow: inset 0 0 0 4px color-mix(in srgb, white 70%, var(--companion-ring-accent, #5eead4));
   opacity: 0;
   animation: companion-watch-frame-flash 700ms ease-out 1;
 }
@@ -373,7 +373,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * exactly as bright as it was. `--companion-ring-accent` is set per instance
  * by the companion's windows, and the frame is handed the assistant's own
  * accent so the edge and the call pill are one light. The call bar's own
- * light is the working ring above, travelling the bar's edge. */
+ * light is the working ring above, travelling the bar's edge.
+ *
+ * Three bands, outermost first: the accent, a white hairline, then a dark
+ * rim on the inside. An accent alone is lost against a wallpaper or a page
+ * near its own colour, and against white a pale accent is a smudge; the
+ * hairline holds it off a dark background and the rim holds it off a light
+ * one, so the edge stays found on every background the surface can have. */
 @keyframes companion-watch-frame-in {
   from { opacity: 0; }
 }
@@ -384,15 +390,73 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 .companion-watch-frame {
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 85%, transparent);
+  box-shadow:
+    inset 0 0 0 4px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 92%, transparent),
+    inset 0 0 0 5px color-mix(in srgb, white 75%, transparent),
+    inset 0 0 0 7px color-mix(in srgb, black 35%, transparent);
   animation:
     companion-watch-frame-in 300ms ease-out 1,
     companion-call-breathe 3s ease-in-out infinite;
 }
 
-/* Held drawn rather than dropped: the frame is what says the surface is read. */
+/* What is happening to the framed surface, in words, at the top of it. The
+ * edge says a surface is leaving the machine; this says which way and to whom,
+ * and stays up for as long as the edge does. Top centre, where every screen
+ * sharing tool the user has met puts the same sentence. Dark with an accent
+ * rim, the coachmark caption's treatment, for the caption's reason: only the
+ * rim can tie the label to the edge at a contrast that holds on any palette.
+ * `--companion-frame-inset` is how much of the window's top the menu bar
+ * draws over when a whole display is framed, set by the page from what the
+ * shell reports; a label placed against the edge would sit under the bar.
+ * Above the user's ink and the assistant's marks, which mount after it and
+ * would otherwise paint over it in document order: a stroke across the top
+ * of the screen must not take the one line that says the screen is shared.
+ * Takes no presses whatever it is over, since it inherits the page's
+ * `pointer-events: none`, so sitting above the drawing layer costs it
+ * nothing. */
+.companion-watch-frame-label {
+  position: fixed;
+  z-index: 1;
+  top: calc(10px + var(--companion-frame-inset, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% - 40px);
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #fff;
+  background: color-mix(in srgb, black 78%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
+    0 1px 6px color-mix(in srgb, black 35%, transparent);
+  animation: companion-watch-frame-in 300ms ease-out 1;
+}
+
+/* The live dot beside the words, breathing in time with the edge. */
+.companion-watch-frame-label-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--companion-ring-accent, #5eead4);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 30%, transparent);
+  animation: companion-call-breathe 3s ease-in-out infinite;
+}
+
+/* Held drawn rather than dropped: the frame is what says the surface is read,
+ * and the label is what says how. */
 @media (prefers-reduced-motion: reduce) {
-  .companion-watch-frame {
+  .companion-watch-frame,
+  .companion-watch-frame-label,
+  .companion-watch-frame-label-dot {
     animation: none;
   }
 }

@@ -91,8 +91,6 @@ export interface ModelFirstOption {
 
 export interface ModelFirstInput {
   readonly connections: readonly ProviderConnection[];
-  /** Whether developer-gated catalog entries are visible. */
-  readonly developerMode: boolean;
   /** Whether Vellum-hosted GPU catalog entries are visible. */
   readonly hostedInference: boolean;
   readonly activeAssistantIsSelfHosted: boolean;
@@ -297,7 +295,6 @@ export function resolveModelFirstOptions(
     const models = getVisibleModelsForProvider(
       kind,
       catalogEnabledFlags({
-        developerMode: input.developerMode,
         hostedInference: input.hostedInference,
       }),
     );

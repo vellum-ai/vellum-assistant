@@ -72,7 +72,6 @@ describe("route policy coverage", () => {
     // registry had no entry for these endpoints, so `enforcePolicy`
     // returned allowed). Migration preserves behavior. Triage these
     // and assign real policies in a follow-up PR:
-    //   - PATCH/DELETE documents/:id/comments/:commentId
     //   - integrations/a2a/invite/accept
     const INTENTIONALLY_UNPROTECTED = new Set([
       // A — design-intentional
@@ -89,7 +88,6 @@ describe("route policy coverage", () => {
       "playground/seeded-conversations",
       "playground/seeded-conversations/:id",
       // C — pre-existing latent unprotected (follow-up audit owed)
-      "documents/:id/comments/:commentId",
       "integrations/a2a/invite/accept",
     ]);
 

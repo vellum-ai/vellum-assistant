@@ -191,6 +191,14 @@
     "dictating": "正在聆听",
     "dictatingTranscribing": "正在思考"
   },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的屏幕",
+    "sharingScreenNamed": "正在与 {name} 分享你的屏幕",
+    "sharingWindow": "正在分享一个窗口",
+    "sharingWindowNamed": "正在与 {name} 分享一个窗口",
+    "teaching": "正在教学",
+    "teachingNamed": "正在教 {name}"
+  },
   "contentActionBar": {
     "copiedAria": "已复制",
     "copyFailed": "无法复制文件内容。",

@@ -2051,6 +2051,22 @@ export interface CompanionSurfaceState {
   coachmarks?: readonly CompanionCoachmark[];
 
   /**
+   * How far below the top of the framed surface anything the frame draws
+   * there has to start, in the frame window's own pixels, to be seen.
+   *
+   * Main's, because it is a fact about where main put the window: a whole
+   * display is framed to its full bounds so the edge is the screen's, and the
+   * menu bar draws over the top of that window. A label placed against the
+   * edge would sit under the bar. This is the bar's height, read from the
+   * gap between the display's bounds and its work area.
+   *
+   * Absent for a window frame, whose top edge is the window's own title bar
+   * and inside the frame, and absent when nothing is framed. A shell that
+   * predates the field reads as no inset, which is the frame as it was.
+   */
+  frameInsetTop?: number;
+
+  /**
    * Whether Watch is offered at all, as the flag was last evaluated for the
    * signed-in user.
    *
