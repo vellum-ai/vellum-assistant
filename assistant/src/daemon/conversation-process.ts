@@ -310,6 +310,13 @@ async function buildPassthroughBatch(
     if (!sameTrustIdentity(candidate.trustContext, head.trustContext)) {
       break;
     }
+    // The batch runs as one turn under one `cron_run_id`, so members from
+    // different firings (or a firing's message beside an unscheduled one)
+    // must not coalesce: the tail's LLM spend would be billed to the head's
+    // firing, or to no firing at all.
+    if ((candidate.cronRunId ?? null) !== (head.cronRunId ?? null)) {
+      break;
+    }
     if (classifySlash(candidate.content) !== "passthrough") {
       break;
     }
@@ -1758,6 +1765,7 @@ async function drainBatch(
     isHiddenPrompt?: boolean;
     notifyUserMessageId?: string;
     turnTrustContext?: TrustContext;
+    cronRunId?: string | null;
   } = {
     isUserMessage: true,
     // Same reason as the single-message drain: the loop re-initializes the
@@ -1784,6 +1792,12 @@ async function drainBatch(
     successfulBatch.every((qm) => isHiddenMessageMetadata(qm.metadata))
   ) {
     drainLoopOptions.isHiddenPrompt = true;
+  }
+  // Every member carries the same attribution (`buildPassthroughBatch` refuses
+  // to coalesce across firings), so the head's stands for the batch.
+  const batchCronRunId = batch[0]?.cronRunId;
+  if (batchCronRunId) {
+    drainLoopOptions.cronRunId = batchCronRunId;
   }
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue

@@ -886,6 +886,121 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(3);
   });
 
+  test("[experimental] batched siblings run under their firing's cron run id", async () => {
+    // A batched drain runs after the enqueuing turn has ended, so the firing's
+    // attribution has to travel on the queued messages. Without it the batch's
+    // LLM spend is recorded with a null `cron_run_id` and the schedule's cost
+    // is undercounted.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-9",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      cronRunId: "cron-run-9",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // One batched run carrying the firing both members belong to.
+    expect(pendingRuns.length).toBe(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-9");
+  });
+
+  test("[experimental] queued siblings from different firings do NOT batch", async () => {
+    // The batch runs as one turn under one `cron_run_id`, so coalescing across
+    // firings would bill the tail's spend to the head's schedule.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-a",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      cronRunId: "cron-run-b",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-a");
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Three runs, not two: each firing keeps its own attribution.
+    expect(pendingRuns.length).toBe(3);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-b");
+  });
+
+  test("[experimental] a firing's message does NOT batch with an unscheduled one", async () => {
+    // Same head-wins hazard in the other direction: an ordinary user message
+    // coalesced into a firing's batch would be billed to that schedule.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-c",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-c");
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(pendingRuns.length).toBe(3);
+    // Not merely a different value: the unscheduled turn claims no firing.
+    expect(conversation.currentTurnCronRunId ?? null).toBeNull();
+  });
+
   // `Conversation.clientOs` is a live field that only a transport-carrying
   // message refreshes, so a transport-less drain (a surface action, a signal)
   // persists the OS of an earlier send. Both rows keep that OS for telemetry;
