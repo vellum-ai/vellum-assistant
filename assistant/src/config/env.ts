@@ -14,7 +14,7 @@
  */
 
 import { getLogger } from "../util/logger.js";
-import { checkUnrecognizedEnvVars } from "./env-registry.js";
+import { checkUnrecognizedEnvVars, getIsPlatform } from "./env-registry.js";
 import { getConfig } from "./loader.js";
 
 const log = getLogger("env");
@@ -95,6 +95,21 @@ export function getRuntimeHttpHost(): string {
  */
 export function isHttpAuthDisabled(): boolean {
   return str("DISABLE_HTTP_AUTH")?.toLowerCase() === "true";
+}
+
+/**
+ * True when the platform-managed auth bypass is in effect: DISABLE_HTTP_AUTH
+ * and IS_PLATFORM both set, the pair a vembda pod runs with.
+ *
+ * The narrow reading of the bypass, for authorization decisions that must not
+ * turn off on a host the platform does not manage. `DISABLE_HTTP_AUTH` alone
+ * is a dev flag whose whole meaning is "the platform handles auth", so a leak
+ * of it onto another host must not also surrender a route's policy or a
+ * grant's binding. Mirrors `isPlatformAuthBypassActive` in
+ * `gateway/src/http/middleware/auth.ts`.
+ */
+export function isPlatformAuthBypassActive(): boolean {
+  return isHttpAuthDisabled() && getIsPlatform();
 }
 
 // ── Qdrant ───────────────────────────────────────────────────────────────────

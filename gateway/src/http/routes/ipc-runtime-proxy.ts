@@ -13,13 +13,13 @@
  */
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
-import { resolveScopeProfile } from "../../auth/scopes.js";
-import { parseSub } from "../../auth/subject.js";
 import {
-  toDaemonSubject,
-  validateEdgeToken,
-} from "../../auth/token-exchange.js";
-import type { ScopeProfile, TokenClaims } from "../../auth/types.js";
+  isNarrowScopeProfile,
+  resolveScopeProfile,
+} from "../../auth/scopes.js";
+import { parseSub } from "../../auth/subject.js";
+import { validateEdgeToken } from "../../auth/token-exchange.js";
+import type { TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import {
   IpcHandlerError,
@@ -111,6 +111,19 @@ export async function tryIpcProxy(
       { status: 404 },
     );
   }
+  // A passthrough forwards caller-authored paths, so undecodable ones arrive
+  // here routinely. Same answer the daemon's own router gives them.
+  if ("malformedPath" in match) {
+    return Response.json(
+      {
+        error: {
+          code: "BAD_REQUEST",
+          message: "Malformed percent-encoding in URL path parameter",
+        },
+      },
+      { status: 400 },
+    );
+  }
 
   // --- Policy enforcement --------------------------------------------------
   // The policy comes straight from the daemon's route schema (see
@@ -154,19 +167,16 @@ export async function tryIpcProxy(
     }
   });
 
-  // Override caller-supplied identity headers (`x-vellum-actor-principal-id`,
-  // `x-vellum-principal-type`, `x-vellum-subject`) with values derived from
-  // the verified JWT claims. The daemon's IPC adapter
-  // (`injectLocalActorHeader`) preserves any inbound
-  // `x-vellum-actor-principal-id`, so without this step a malicious client
-  // could spoof another user's principal id by setting the header explicitly.
-  // Mirrors the HTTP adapter's behavior in
-  // `assistant/src/runtime/routes/http-adapter.ts`.
+  // Drop the caller-supplied identity headers and re-derive them from the
+  // verified JWT claims. The daemon's IPC adapter (`injectLocalActorHeader`)
+  // preserves any inbound `x-vellum-actor-principal-id`, so without this step
+  // a malicious client could spoof another user's principal id by setting the
+  // header explicitly. `x-vellum-subject` goes too, defense in depth behind
+  // that adapter's own unconditional delete.
   delete headers["x-vellum-actor-principal-id"];
   delete headers["x-vellum-principal-type"];
   delete headers["x-vellum-subject"];
   if (claims) {
-    headers["x-vellum-subject"] = toDaemonSubject(claims.sub);
     const sub = parseSub(claims.sub);
     if (sub.ok) {
       headers["x-vellum-principal-type"] = sub.principalType;
@@ -298,33 +308,14 @@ export async function tryIpcProxy(
 // ---------------------------------------------------------------------------
 
 /**
- * Profiles broad enough to reach a route that names no scope of its own.
- * A profile outside this set is minted for a single route and handed to code
- * outside this install's trust boundary, so it reaches only a route whose
- * policy names the scope it carries. New profiles land outside the set and
- * therefore fail closed.
- *
- * Mirrors `UNSCOPED_ROUTE_PROFILES` in
- * `assistant/src/runtime/auth/route-policy.ts`. The daemon's IPC server runs
- * no policy check of its own, so this fast path is the only place the rule
- * applies to IPC-served requests.
- */
-const UNSCOPED_ROUTE_PROFILES: ReadonlySet<ScopeProfile> =
-  new Set<ScopeProfile>([
-    "actor_client_v1",
-    "gateway_ingress_v1",
-    "gateway_service_v1",
-    "local_v1",
-    "ui_page_v1",
-  ]);
-
-/**
  * Enforce the route's scope/principal policy against the caller's token.
  * Returns a 403 Response when denied, null when allowed.
  *
  * A route naming no scope (`policy` null, or empty `requiredScopes`) is
- * unprotected (e.g. health, debug) for the broad profiles in
- * {@link UNSCOPED_ROUTE_PROFILES}, and closed to every other profile.
+ * unprotected (e.g. health, debug) for a broad profile, and closed to a narrow
+ * one (see {@link isNarrowScopeProfile}). The daemon's IPC server runs no
+ * policy check of its own, so this fast path is the only place that rule
+ * applies to IPC-served requests.
  */
 function enforceRoutePolicy(
   policy: RouteSchemaPolicy | null,
@@ -338,7 +329,7 @@ function enforceRoutePolicy(
   // unprotected one refuses it rather than admitting any valid token.
   if (
     (policy?.requiredScopes.length ?? 0) === 0 &&
-    !UNSCOPED_ROUTE_PROFILES.has(claims.scope_profile)
+    isNarrowScopeProfile(claims.scope_profile)
   ) {
     log.warn(
       { path, scopeProfile: claims.scope_profile },

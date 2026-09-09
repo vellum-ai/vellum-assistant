@@ -75,7 +75,7 @@ const OAUTH_PROXY_POLICY: RoutePolicy = {
 };
 
 describe("enforcePolicy", () => {
-  test("policy: null is treated as unprotected (always allowed)", () => {
+  test("policy: null is unprotected for a broad scope profile", () => {
     authDisabled = false;
     const ctx = buildTestContext({ scopes: [] });
     const result = enforcePolicy("_internal/health", null, ctx);
@@ -189,7 +189,7 @@ describe("enforcePolicy", () => {
     expect(result!.status).toBe(403);
   });
 
-  test("empty requiredScopes admits any principal of allowed type", () => {
+  test("empty requiredScopes admits a broad-profile principal of allowed type", () => {
     authDisabled = false;
     const openPolicy: RoutePolicy = {
       requiredScopes: [],
