@@ -159,10 +159,15 @@ for packaging and signing through `electron-builder`, because
 [Azure Artifact Signing does not support Windows ARM runners](https://github.com/Azure/artifact-signing-action#runner-requirements).
 The workflow verifies every manifest binary and the installer with
 `Get-AuthenticodeSignature`, requiring valid signatures from the configured
-publisher while allowing Azure certificate rotation, and publishes to the
+publisher while allowing Azure certificate rotation. Three bundled Microsoft
+runtime DLL paths also accept valid Microsoft Windows catalog signatures,
+which PowerShell prefers over embedded signatures. The workflow publishes to the
 `vellum-ai-<env>-releases/win-electron/<arch>/` feed: installer and blockmap
 first, then the `<env>.yml` channel manifest. Dev also publishes the installer
 as `vellum-assistant-dev-<arch>.exe` for stable download-page links.
+
+The builder always writes `latest.yml`, including for prerelease versions;
+CD uploads it under the environment's `<env>.yml` channel name.
 
 The executable, installer, and uninstaller use the environment-specific icon
 from `build-resources/icons/<environment>/icon.ico`, matching the local, dev,
