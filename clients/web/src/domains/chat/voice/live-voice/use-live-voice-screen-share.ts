@@ -304,15 +304,20 @@ export function useLiveVoiceScreenShare(): void {
      * occasion came, and `requestedAtMs` is when: the picture's lower bound,
      * since the gate must not spend a question's arm on a picture taken
      * before the question, and the helper's answer time is only an upper
-     * bound on when its picture was taken. `run` is the generation the
-     * occasion was queued under, read again here since the share it was
-     * queued for may have stopped or moved while it waited.
+     * bound on when its picture was taken. `askedAtMs` is when the question
+     * this occasion opens started, for the start of one, and null for every
+     * other occasion; the gate is armed with it here, in queue order, so a
+     * later question's ask cannot overwrite this one's before this one's
+     * picture is judged. `run` is the generation the occasion was queued
+     * under, read again here since the share it was queued for may have
+     * stopped or moved while it waited.
      */
     const take = async (
       drawing: SharedDrawing | null,
       run: number,
       picture: Promise<ScreenCaptureFrame | null>,
       requestedAtMs: number,
+      askedAtMs: number | null,
     ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
       if (stale()) {
@@ -355,6 +360,14 @@ export function useLiveVoiceScreenShare(): void {
             "[live-voice screen share] frame could not be judged; skipped",
           );
           return;
+        }
+        if (askedAtMs !== null) {
+          // The ask is placed just before its own picture is judged, and
+          // stands from when the question started: the picture was asked
+          // for at the same moment, so it can spend the ask, and the ask
+          // runs out on the question's clock rather than the queue's.
+          armedAtMs = askedAtMs;
+          gate.armForcedKeep(askedAtMs);
         }
         const decision = gate.offer(grid, nowMs, requestedAtMs);
         if (!decision.keep) {
@@ -446,7 +459,10 @@ export function useLiveVoiceScreenShare(): void {
       }
     };
 
-    const share = (drawing: SharedDrawing | null = null): void => {
+    const share = (
+      drawing: SharedDrawing | null = null,
+      askedAtMs: number | null = null,
+    ): void => {
       // Stamped now rather than when the occasion is dequeued, so a stop or
       // a reconnect that lands while it waits is one it cannot outlive.
       const run = generation;
@@ -456,7 +472,7 @@ export function useLiveVoiceScreenShare(): void {
       const requestedAtMs = performance.now();
       const picture = captureCompanionScreen(target);
       queue = queue
-        .then(() => take(drawing, run, picture, requestedAtMs))
+        .then(() => take(drawing, run, picture, requestedAtMs, askedAtMs))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
@@ -535,14 +551,12 @@ export function useLiveVoiceScreenShare(): void {
       if (session.muted) {
         return;
       }
-      if (next) {
-        // The question is starting, and the frame the turn reads is the one
-        // taken now. Ask the gate for it at the bar a question earns, ahead
-        // of the capture, so the picture provably postdates the ask.
-        armedAtMs = performance.now();
-        gate.armForcedKeep(armedAtMs);
-      }
-      share();
+      // The question is starting, and the frame the turn reads is the one
+      // taken now, at the bar a question earns. The ask travels with the
+      // occasion rather than going to the gate here: the picture is judged
+      // in its turn, and an ask placed now would be the gate's by the time
+      // an earlier picture is judged.
+      share(null, next ? performance.now() : null);
     });
 
     return () => {

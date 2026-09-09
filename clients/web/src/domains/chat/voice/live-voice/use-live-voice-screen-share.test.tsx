@@ -955,6 +955,45 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
   });
 });
 
+/**
+ * Occasions are judged in the order they came, and an ask belongs to the
+ * occasion it came with. A second question starting while the first's
+ * picture still waits its turn must not take the first's ask off the gate.
+ */
+describe("useLiveVoiceScreenShare: two questions in the queue", () => {
+  test("each question's frame is judged at its own ask", async () => {
+    const first = holdNextUpload();
+    renderShare();
+    share(WINDOW);
+    await flush();
+    // The first question starts on a modest change, and its picture waits
+    // behind the share-start frame. Then the user stops, and a second
+    // question starts on a new view, all while that frame is still up.
+    show("a+");
+    speak(true);
+    speak(false);
+    show("b");
+    speak(true);
+    await flush();
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(4);
+    expect(controls.sightFrame).not.toHaveBeenCalled();
+
+    first.finish();
+    await flush();
+    // The first question's frame is kept at the question's bar, its stop
+    // edge is the same view, and the second question's frame is new.
+    const uploaded = await Promise.all(
+      uploadChatAttachment.mock.calls.map(([, file]) => file.text()),
+    );
+    expect(uploaded).toEqual(["a", "a+", "b"]);
+    expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
+      "att-1",
+      "att-2",
+      "att-3",
+    ]);
+  });
+});
+
 describe("useLiveVoiceScreenShare: the boundary a frame in flight can cross", () => {
   /**
    * A reconnect keeps the share and the session generation on purpose, and
