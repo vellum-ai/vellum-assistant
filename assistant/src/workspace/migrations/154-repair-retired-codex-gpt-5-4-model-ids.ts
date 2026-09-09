@@ -38,7 +38,9 @@ import type { WorkspaceMigration } from "./types.js";
  * A winner on an API-key or managed route still serves the model, and a mix
  * with any other arm is ambiguous and left alone. The chain skips the rungs
  * the resolver skips: a profile whose provider names no connection row, and
- * user-owned shadows of code-owned names, which resolution ignores.
+ * user-owned shadows of code-owned names, which resolution ignores. An
+ * unusable mix arm skips the rung for the seeds that pick it, so such a mix
+ * is subscription-routed only when the rest of the chain is too.
  *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
@@ -255,6 +257,18 @@ const CODE_OWNED_PROFILE_NAMES = new Set([
   "latency-optimized-backup",
 ]);
 
+// Frozen `OS_BETA_PROFILE_KEY`: a materialized managed stub of this name
+// resolves to its code-owned vellum body; with no stub the name is missing.
+const OS_BETA_PROFILE_KEY = "os-beta";
+
+/**
+ * Outcome of one rung. `"skipped"` means the resolver passes over it;
+ * `"partial"` is a mix whose usable arms all route through the
+ * subscription while its unusable arms skip the rung, so the mix is
+ * subscription-routed only when the rest of the chain is.
+ */
+type Route = boolean | "skipped" | "partial";
+
 // Frozen snapshot of `CALL_SITE_DEFAULTS[site].profile`: the intent a site
 // resolves through the default provider once every named rung is skipped.
 // A site absent here (`vision`, `workflowLeaf`) anchors on balanced.
@@ -319,28 +333,55 @@ function winnerIsSubscriptionRouted(
     site === "mainAgent"
       ? [llm.activeProfile, siteConfig?.profile]
       : [siteConfig?.profile];
-  for (const name of rungs) {
-    const route = namedProfileRoute(name, llm, lookup, true);
-    if (route !== "skipped") {
-      return route;
+  return chainRoute(
+    rungs,
+    0,
+    CALL_SITE_INTENTS[site] ?? "balanced",
+    llm,
+    lookup,
+  );
+}
+
+/** Route of the chain from rung `start` on, anchored by the shipped intent. */
+function chainRoute(
+  rungs: unknown[],
+  start: number,
+  intent: string,
+  llm: Record<string, unknown>,
+  lookup: ProviderLookup,
+): boolean {
+  for (let i = start; i < rungs.length; i++) {
+    const route = namedProfileRoute(rungs[i], llm, lookup, true);
+    if (route === "skipped") {
+      continue;
     }
+    if (route === "partial") {
+      return chainRoute(rungs, i + 1, intent, llm, lookup);
+    }
+    return route;
   }
-  return defaultIntentRoute(CALL_SITE_INTENTS[site] ?? "balanced", llm, lookup);
+  return defaultIntentRoute(intent, llm, lookup);
 }
 
 /**
- * Route of a named rung, or `"skipped"` when the resolver passes over it.
- * A default key without a user-owned shadow resolves to the default
- * provider's column; any other missing name is skipped.
+ * Route of a named rung. A default key without a user-owned shadow resolves
+ * to the default provider's column, a materialized OS Beta stub to its
+ * code-owned vellum body; any other missing name is skipped.
  */
 function namedProfileRoute(
   name: unknown,
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
   allowMix: boolean,
-): boolean | "skipped" {
+): Route {
   if (typeof name !== "string" || name.length === 0) {
     return "skipped";
+  }
+  if (name === OS_BETA_PROFILE_KEY) {
+    const stub = readObject(readObject(llm.profiles)?.[name]);
+    if (stub !== null && stub.source === "managed") {
+      return stub.status === "disabled" ? "skipped" : false;
+    }
   }
   const shadow = userShadow(name, llm);
   if (shadow === null) {
@@ -354,7 +395,8 @@ function namedProfileRoute(
 /**
  * Route of a shipped intent: a usable user-owned shadow wins, otherwise the
  * pure catalog column of the default provider stands (the anchor is
- * code-owned and always resolves).
+ * code-owned and always resolves). A partial mix is anchored by that same
+ * column for the seeds that pick an unusable arm.
  */
 function defaultIntentRoute(
   intent: string,
@@ -364,7 +406,9 @@ function defaultIntentRoute(
   const shadow = userShadow(intent, llm);
   const route =
     shadow === null ? undefined : usableShadowRoute(shadow, llm, lookup, true);
-  return route ?? defaultProviderIsSubscription(llm, lookup.isSubscription);
+  return typeof route === "boolean"
+    ? route
+    : defaultProviderIsSubscription(llm, lookup.isSubscription);
 }
 
 /**
@@ -386,29 +430,34 @@ function userShadow(
 /**
  * Route of a user-owned shadow, or undefined when the resolver treats it as
  * unusable (disabled, incomplete, or a provider that names no connection
- * row). A mix (top level only; arms cannot nest) is subscription-routed
- * only when every arm provably is: the arm is a seeded pick, so any other
- * arm makes the route ambiguous.
+ * row). A mix (top level only; arms cannot nest) picks an arm by seed: any
+ * arm on another route makes the mix ambiguous (false); an unusable arm
+ * skips the rung for its seeds, so a mix of subscription and unusable arms
+ * is `"partial"`, and one of only unusable arms is unusable itself.
  */
 function usableShadowRoute(
   shadow: Record<string, unknown>,
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
   allowMix: boolean,
-): boolean | undefined {
+): Route | undefined {
   if (shadow.status === "disabled") {
     return undefined;
   }
   if (Array.isArray(shadow.mix)) {
-    return (
-      allowMix &&
-      shadow.mix.length > 0 &&
-      shadow.mix.every(
-        (arm) =>
-          namedProfileRoute(readObject(arm)?.profile, llm, lookup, false) ===
-          true,
-      )
+    if (!allowMix || shadow.mix.length === 0) {
+      return false;
+    }
+    const arms = shadow.mix.map((arm) =>
+      namedProfileRoute(readObject(arm)?.profile, llm, lookup, false),
     );
+    if (arms.some((route) => route !== true && route !== "skipped")) {
+      return false;
+    }
+    if (arms.every((route) => route === "skipped")) {
+      return undefined;
+    }
+    return arms.every((route) => route === true) ? true : "partial";
   }
   if (typeof shadow.provider !== "string" || typeof shadow.model !== "string") {
     return undefined;

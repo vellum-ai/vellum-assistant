@@ -415,6 +415,84 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     expect(llm.callSites.recall.model).toBe(STALE);
   });
 
+  test("resolves a materialized OS Beta stub to its code-owned body", () => {
+    // The stub expands to the vellum body, which still serves the model.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: { recall: { profile: "os-beta", model: STALE } },
+        profiles: { "os-beta": { source: "managed" } },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    let llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.recall.model).toBe(STALE);
+
+    // A disabled stub, or no stub at all, skips the rung.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          recall: { profile: "os-beta", model: STALE },
+          heartbeatAgent: { profile: "os-beta", model: STALE_MINI },
+        },
+        profiles: { "os-beta": { source: "managed", status: "disabled" } },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
+    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
+  });
+
+  test("anchors a mix with unusable arms on the rest of the chain", () => {
+    const profiles = {
+      codex: { provider: "chatgpt", model: "gpt-5.6-terra" },
+      off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
+      blend: {
+        mix: [
+          { profile: "codex", weight: 1 },
+          { profile: "off", weight: 1 },
+        ],
+      },
+      allOff: {
+        mix: [
+          { profile: "off", weight: 1 },
+          { profile: "off", weight: 1 },
+        ],
+      },
+    };
+
+    // Seeds that pick the disabled arm skip the rung and land on the
+    // chatgpt default column, so every seed routes through the subscription.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          recall: { profile: "blend", model: STALE },
+          heartbeatAgent: { profile: "allOff", model: STALE_MINI },
+        },
+        profiles,
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    let llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
+    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
+
+    // Under a vellum default those seeds still serve the model.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum" },
+        callSites: { recall: { profile: "blend", model: STALE } },
+        profiles,
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.recall.model).toBe(STALE);
+  });
+
   test("leaves providerless call-site pins alone when the winner is not subscription-routed", () => {
     seedRows([{ name: "openai-key", provider: "openai", auth: API_KEY_AUTH }]);
     const config = {
