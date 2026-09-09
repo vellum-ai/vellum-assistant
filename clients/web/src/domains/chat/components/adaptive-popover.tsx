@@ -4,9 +4,10 @@
  *
  * The split is not a style preference. A popover anchored near the bottom of a
  * phone screen opens into the thumb's own reach and lands under the soft
- * keyboard, so the touch path has to be a sheet. The chat controls that open a
- * panel share this one implementation, so a fix to the touch path cannot land
- * on one and miss the others.
+ * keyboard, so the touch path has to be a sheet. The agents control and the
+ * progress card open their panels through here, so a fix to the touch path
+ * reaches both. `InChatPluginPill` writes the same branch by hand, so a fix
+ * here does not reach it.
  *
  * Branches on {@link useTouchMobile} (coarse pointer AND phone width), not on
  * width alone: a narrow desktop window still wants the popover, since a bottom

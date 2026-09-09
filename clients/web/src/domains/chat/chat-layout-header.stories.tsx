@@ -31,6 +31,7 @@ import { Button } from "@vellumai/design-library";
 
 import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ChatLayoutHeader } from "@/domains/chat/chat-layout-header";
+import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import { inChatInfoConversation } from "@/domains/chat/components/chat-info-story-fixtures";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
@@ -219,9 +220,11 @@ export const MobileBaseline: Story = {
 
 /**
  * The Chat Info panel is open on this conversation, so the Assets glyph carries
- * the `active` fill that marks it as the selected view.
+ * the `active` fill that marks it as the selected view. Two transcript images
+ * join the app, so the trigger counts both of the sources it reads.
  */
 export const AssetsPanelOpen: Story = {
   args: { isMobile: false },
+  parameters: { chatInfo: { attachments: makePreviewableImages(2) } },
   decorators: [withChatInfoOpen],
 };

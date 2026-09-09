@@ -9,6 +9,10 @@
  * decorator does that seeding for every story; a story that wants a different
  * conversation names it in `parameters.chatInfo`.
  *
+ * There is no Camera Frames story. The seeded transcript carries no frame tag,
+ * so that row has nothing to build from until frames come from the daemon's
+ * attachment list.
+ *
  * The frame is the shipped drawer, so a story opens at its 400px default and
  * the rows fit what that width holds. Drag the drawer's left edge to walk the
  * fit rule out to the mock's wider column.
