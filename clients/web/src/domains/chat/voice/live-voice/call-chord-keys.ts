@@ -6,7 +6,10 @@
  * shows a user what to press, and it has no session of its own.
  */
 
-import { formatAcceleratorHint } from "@vellumai/design-library";
+import {
+  detectShortcutPlatform,
+  formatAcceleratorHint,
+} from "@vellumai/design-library";
 
 import type { CompanionCallShortcuts } from "@/components/companion-surface";
 
@@ -22,15 +25,22 @@ export const CALL_MUTE_MIC_KEY = "m";
 /** Mute the assistant's audio, or unmute it. */
 export const CALL_MUTE_ASSISTANT_KEY = "a";
 
+/** The key-cap vocabulary a hint is written in, as the design library names it. */
+type ShortcutPlatform = NonNullable<
+  Parameters<typeof formatAcceleratorHint>[1]
+>;
+
 /**
  * Each chord as the pill writes it beside the control's name (`⌥S`), in the
  * vocabulary of the host the pill is drawn on. Spelt from the same constants
  * the binding is armed with, so the caption cannot promise a key the host is
  * not listening for.
  */
-export function callChordHints(): CompanionCallShortcuts {
+export function callChordHints(
+  platform: ShortcutPlatform = detectShortcutPlatform(),
+): CompanionCallShortcuts {
   const hint = (key: string): string =>
-    formatAcceleratorHint(`Alt+${key.toUpperCase()}`);
+    formatAcceleratorHint(`Alt+${key.toUpperCase()}`, platform);
   return {
     share: hint(CALL_SHARE_KEY),
     draw: hint(CALL_DRAW_KEY),
