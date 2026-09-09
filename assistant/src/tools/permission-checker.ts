@@ -267,17 +267,19 @@ export class PermissionChecker {
       }
 
       // Platform-hosted mode: auto-approve sandboxed bash for guardians.
-      // The sandbox provides the security boundary — prompting is unnecessary
-      // friction. host_bash is excluded because it runs unsandboxed on the
-      // user's machine and warrants explicit approval.
+      // The sandbox provides the security boundary, so prompting is
+      // unnecessary friction. host_bash is excluded because it runs
+      // unsandboxed on the user's machine and warrants explicit approval.
       // Deny rules are still respected (checked above). requireFreshApproval
-      // is preserved as a belt-and-suspenders guard.
+      // is preserved as a belt-and-suspenders guard, and noApprovalChannel
+      // opts a caller out of every unattended shortcut in this function.
       if (
         result.decision === "prompt" &&
         context.isPlatformHosted &&
         name === "bash" &&
         resolveCapabilities(context.trustClass).canSelfApproveTools &&
-        !context.requireFreshApproval
+        !context.requireFreshApproval &&
+        !context.noApprovalChannel
       ) {
         log.info(
           { toolName: name, riskLevel },
@@ -306,10 +308,15 @@ export class PermissionChecker {
         // denied — unattended sessions must not auto-approve operations that
         // could cause significant damage if triggered by prompt injection
         // from untrusted content.
+        // Exception: a caller with no approval channel has asked for the
+        // opposite of an auto-approve. The guardian is at the call site and
+        // will read the denial, so the answer is to report that the tool
+        // needs approval, not to grant it on their behalf.
         if (
           context.isInteractive === false &&
           resolveCapabilities(context.trustClass).canSelfApproveTools &&
-          !context.requireFreshApproval
+          !context.requireFreshApproval &&
+          !context.noApprovalChannel
         ) {
           // getAutoApproveThreshold returns from cache (populated by check() above).
           // Deferred inside the non-interactive branch so interactive prompts

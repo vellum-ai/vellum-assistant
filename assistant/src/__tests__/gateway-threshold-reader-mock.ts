@@ -100,6 +100,12 @@ export function installThresholdReaderMock(): void {
       }
       return thresholdReaderMock.roomDefault;
     },
+    // Cache invalidation has nothing to invalidate here: the stubs above read
+    // `thresholdReaderMock` on every call. They are still exported because a
+    // module that imports one of them fails to load against a mock that omits
+    // it, whatever the test itself is about.
+    invalidateContactThresholdCache: () => {},
+    invalidateAllContactThresholdCaches: () => {},
     _clearGlobalCacheForTesting: () => {},
   }));
 }

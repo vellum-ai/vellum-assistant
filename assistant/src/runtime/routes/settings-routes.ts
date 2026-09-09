@@ -64,6 +64,10 @@ import {
   getToolOwner,
 } from "../../tools/registry.js";
 import {
+  runToolStandalone,
+  UnknownToolError,
+} from "../../tools/run-standalone.js";
+import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../../tools/schema-transforms.js";
@@ -72,7 +76,7 @@ import { pathExists } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -677,6 +681,49 @@ function buildRegisteredToolEntries(): ToolListEntry[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * Execute one registered tool outside the agent loop, on behalf of
+ * `assistant tools run`.
+ *
+ * The daemon runs it rather than the CLI process because the registry is
+ * per-process: skill, plugin, and MCP tools are registered here over the
+ * daemon's lifetime and exist nowhere else, so a CLI process that resolves the
+ * name itself reaches only core built-ins and workspace tools. `tools list`
+ * reads this same registry over IPC, so both halves of the command agree on
+ * what exists.
+ *
+ * Permission behavior is {@link runToolStandalone}'s: the caller is the
+ * guardian with no approval channel, so read-only and low-risk tools execute
+ * and anything that would prompt is denied in the result. The route's own
+ * contribution to that is the identity it admits, which the policy below pins
+ * to local principals holding `settings.write`.
+ */
+async function handleToolRun({ body = {} }: RouteHandlerArgs) {
+  const { toolName, input } = body as {
+    toolName?: string;
+    input?: Record<string, unknown>;
+  };
+
+  if (!toolName || typeof toolName !== "string") {
+    throw new BadRequestError("toolName is required");
+  }
+  if (
+    input !== undefined &&
+    (typeof input !== "object" || input === null || Array.isArray(input))
+  ) {
+    throw new BadRequestError("input must be a JSON object");
+  }
+
+  try {
+    return await runToolStandalone(toolName, input ?? {});
+  } catch (err) {
+    if (err instanceof UnknownToolError) {
+      throw new NotFoundError(err.message);
+    }
+    throw err;
+  }
+}
+
 async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
   const {
     toolName,
@@ -1085,6 +1132,27 @@ export const ROUTES: RouteDefinition[] = [
       isInteractive: z.boolean(),
     }),
     handler: handleToolPermissionSimulate,
+  },
+  {
+    operationId: "tools_run_post",
+    endpoint: "tools/run",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      // Local callers only. This is the transport for `assistant tools run`,
+      // and there is no reason for a remote actor to drive tool execution
+      // outside a conversation.
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
+    summary: "Execute one registered tool",
+    description:
+      "Run a single tool outside the agent loop, against the daemon's live registry (core built-ins plus the skill, plugin, and MCP tools registered over the daemon's lifetime). The run is non-interactive and non-guardian: read-only / low-risk tools execute, and any tool whose permission check resolves to a prompt is denied in the returned result rather than blocking, since there is no client to approve it. 404 when no tool of that name is registered.",
+    tags: ["tools"],
+    requestBody: z.object({
+      toolName: z.string(),
+      input: z.object({}).passthrough().optional(),
+    }),
+    handler: handleToolRun,
   },
   {
     operationId: "diagnostics_envvars_get",

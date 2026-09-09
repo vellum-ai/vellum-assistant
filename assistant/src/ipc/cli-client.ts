@@ -59,6 +59,13 @@ export interface CliIpcCallResult<T = unknown> {
    */
   errorDetails?: unknown;
   /**
+   * Set when the call never reached a daemon: the socket is absent, refused,
+   * or did not accept a connection in time. Distinguishes "no assistant is
+   * running" from a daemon that answered with an error, which is what a
+   * command needs before it can fall back to doing the work itself.
+   */
+  notConnected?: boolean;
+  /**
    * Set when the call was abandoned because `timeoutMs` elapsed with no
    * response. Distinct from every other `ok: false` shape: the request WAS
    * delivered and the daemon may still be executing it — closing the client
@@ -114,6 +121,7 @@ export async function cliIpcCall<T = unknown>(
       finish({
         ok: false,
         error: `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`,
+        notConnected: true,
       });
     }, CONNECT_TIMEOUT_MS);
 
@@ -126,12 +134,13 @@ export async function cliIpcCall<T = unknown>(
     socket.on("error", (err) => {
       const code = (err as NodeJS.ErrnoException).code;
       log.debug({ err, code, method, socketPath }, "CLI IPC socket error");
+      const refused = code === "ENOENT" || code === "ECONNREFUSED";
       finish({
         ok: false,
-        error:
-          code === "ENOENT" || code === "ECONNREFUSED"
-            ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
-            : `Connection error: ${code ?? err.message}`,
+        error: refused
+          ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
+          : `Connection error: ${code ?? err.message}`,
+        ...(refused && { notConnected: true }),
       });
     });
 
@@ -143,6 +152,7 @@ export async function cliIpcCall<T = unknown>(
           error: hadError
             ? `Could not connect to the assistant at ${socketPath}.\nRun \`assistant status\` to check, or \`assistant gateway start\` to start it.`
             : "Connection closed before response",
+          ...(hadError && { notConnected: true }),
         });
       }
     });

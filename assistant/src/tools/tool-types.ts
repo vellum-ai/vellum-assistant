@@ -273,6 +273,11 @@ export interface ToolContext {
    * side-effecting tools.
    */
   requireFreshApproval?: boolean;
+  /**
+   * True when the invocation has no channel that can carry an approval back.
+   * See the ToolContext field of the same name in `types.ts`.
+   */
+  noApprovalChannel?: boolean;
   /** Approval callback for proxy policy decisions that require user confirmation. */
   proxyApprovalCallback?: ProxyApprovalCallback;
   /** Optional principal identifier propagated to sub-tool confirmation flows. */

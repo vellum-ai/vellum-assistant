@@ -291,6 +291,15 @@ export interface ToolContext {
    */
   requireFreshApproval?: boolean;
   /**
+   * True when the invocation has no channel that can carry an approval back.
+   * The guardian is present at the call site (a local CLI run, say) but no
+   * client is attached to answer a prompt, so a `prompt` decision is a
+   * denial: the unattended auto-approve shortcuts do not stand in for the
+   * missing human, and the threshold lane stays headless rather than
+   * autonomous.
+   */
+  noApprovalChannel?: boolean;
+  /**
    * Approval callback for proxy policy decisions that require user confirmation.
    * @legacy
    */

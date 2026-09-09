@@ -26,12 +26,22 @@ export function channelCoordinatesFromToolContext(
 
 /**
  * Derive the execution context from the tool context fields.
- * - Guardian + non-interactive → "background" (scheduled jobs, reminders)
- * - Non-interactive (non-guardian) → "headless"
- * - Otherwise → "conversation"
+ * - Guardian + non-interactive -> "background" (scheduled jobs, reminders)
+ * - Non-interactive (non-guardian, or with no approval channel) -> "headless"
+ * - Otherwise -> "conversation"
+ *
+ * `noApprovalChannel` keeps a guardian out of the autonomous lane. The
+ * autonomous threshold is what an owner sets for work the assistant does on
+ * its own; an invocation the guardian typed and is waiting on is not that,
+ * and reading their autonomous ceiling for it would auto-allow more than they
+ * granted the surface in front of them.
  */
 function deriveExecutionContext(context?: ToolContext): ExecutionContext {
-  if (context?.isInteractive === false && context.trustClass === "guardian") {
+  if (
+    context?.isInteractive === false &&
+    context.trustClass === "guardian" &&
+    context.noApprovalChannel !== true
+  ) {
     return "background";
   }
   if (context?.isInteractive === false) {

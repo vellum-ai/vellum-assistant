@@ -17,10 +17,13 @@ list to the tools available to one conversation as of its most recent turn —
 including skill/MCP tools it registered over its lifecycle.
 
 'tools run' executes a single tool directly, outside the agent loop. It runs
-in-process from the filesystem (core built-ins + workspace tools), and is
-non-interactive and non-guardian: read-only / low-risk tools execute, while
-prompt-gated tools are auto-denied (there is no client to approve them). A
-tool error exits non-zero so it composes in scripts.
+through the assistant when one is up, so it reaches the same registry 'tools
+list' reports, skill, plugin, and MCP tools included. With no assistant
+running it falls back to running in-process, where only core built-ins and
+workspace tools exist. Either way the run is non-interactive and non-guardian:
+read-only / low-risk tools execute, while prompt-gated tools are auto-denied
+(there is no client to approve them). A tool error exits non-zero so it
+composes in scripts.
 
 Examples:
   $ assistant tools list
@@ -31,6 +34,7 @@ Examples:
   $ assistant tools list --agent "a staff security engineer"
   $ assistant tools list --agent subagent_abc123 --json
   $ assistant tools run web_fetch --input '{"url":"https://example.com"}'
+  $ assistant tools run mcp__linear__list_issues --input '{}'
   $ assistant tools run file_read --input-file args.json
   $ echo '{"path":"."}' | assistant tools run list_dir --input-file -`,
   subcommands: [

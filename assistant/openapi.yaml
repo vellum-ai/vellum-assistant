@@ -33919,6 +33919,36 @@ paths:
                   - schemas
                   - tools
                 additionalProperties: false
+  /v1/tools/run:
+    post:
+      operationId: tools_run_post
+      summary: Execute one registered tool
+      description:
+        "Run a single tool outside the agent loop, against the daemon's live registry (core built-ins plus the
+        skill, plugin, and MCP tools registered over the daemon's lifetime). The run is non-interactive and
+        non-guardian: read-only / low-risk tools execute, and any tool whose permission check resolves to a prompt is
+        denied in the returned result rather than blocking, since there is no client to approve it. 404 when no tool of
+        that name is registered."
+      tags:
+        - tools
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                toolName:
+                  type: string
+                input:
+                  type: object
+                  properties: {}
+                  additionalProperties: {}
+              required:
+                - toolName
+      responses:
+        "200":
+          description: Successful response
   /v1/tools/simulate-permission:
     post:
       operationId: tools_simulatepermission_post
