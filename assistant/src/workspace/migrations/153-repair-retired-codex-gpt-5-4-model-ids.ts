@@ -16,10 +16,11 @@ import type { WorkspaceMigration } from "./types.js";
  * fragment keeps its model.
  *
  * A fragment routes through the subscription when its `provider` is the
- * `chatgpt` routing identity, or when its `provider` or legacy
- * `provider_connection` binding names a `provider_connections` row that is
- * the subscription (row kind `chatgpt`, or an `oauth_subscription` auth on
- * the pre-DB-migration-366 row shape). The identity form fails
+ * `chatgpt` routing identity, or when the `provider_connections` row it
+ * dispatches to is the subscription (row kind `chatgpt`, or an
+ * `oauth_subscription` auth on the pre-DB-migration-366 row shape). The row
+ * is named by the legacy `provider_connection` binding when present (dispatch
+ * honors it first), otherwise by an entry-name `provider`. The identity form fails
  * `LLMSchema.superRefine` once the allowlist drops the model, and the
  * loader's per-section salvage then resets the whole `llm` section; the
  * entry-bound form bypasses the auto-resolution compat gate and 400s on
@@ -28,7 +29,7 @@ import type { WorkspaceMigration } from "./types.js";
  *
  * A providerless call-site pin overlays the profile that wins that site
  * (`llm.activeProfile` for mainAgent, then the site's `profile`, then the
- * default column of `llm.defaultProvider`). With the model outside the
+ * site's shipped intent resolved through `llm.defaultProvider`). With the model outside the
  * allowlist a `chatgpt` winner no longer serves it, so the resolver implies
  * provider `openai` and a subscription-only workspace has no connection for
  * it; a winner pinning the subscription row keeps that pin and 400s. Such a
@@ -170,19 +171,24 @@ function repairFragment(
 }
 
 /**
- * Whether a fragment's own routing goes through the subscription: its
- * `provider` (the identity or a subscription entry name) or its legacy
- * `provider_connection` binding, which dispatch honors ahead of the
- * declared provider and accepts a ChatGPT row for an expected `openai`.
+ * Whether a fragment's own routing goes through the subscription. The
+ * `chatgpt` identity always does (the schema rejects the pair regardless
+ * of any binding). Otherwise the legacy `provider_connection` binding is
+ * authoritative when present, since dispatch honors it ahead of the
+ * declared provider; only an unbound fragment is judged by its `provider`.
  */
 function fragmentIsSubscriptionBound(
   fragment: Record<string, unknown>,
   isSubscriptionProvider: (provider: unknown) => boolean,
 ): boolean {
-  return (
-    isSubscriptionProvider(fragment.provider) ||
-    isSubscriptionProvider(fragment.provider_connection)
-  );
+  if (fragment.provider === CHATGPT_IDENTITY) {
+    return true;
+  }
+  const binding = fragment.provider_connection;
+  if (typeof binding === "string" && binding.length > 0) {
+    return isSubscriptionProvider(binding);
+  }
+  return isSubscriptionProvider(fragment.provider);
 }
 
 // Frozen snapshot of `DEFAULT_PROFILE_KEYS`: a reference to one of these
@@ -195,12 +201,59 @@ const DEFAULT_PROFILE_KEYS = new Set([
   "latency-optimized",
 ]);
 
+// Frozen snapshot of `CALL_SITE_DEFAULTS[site].profile`: the intent a site
+// resolves through the default provider once every named rung is skipped.
+// A site absent here (`vision`, `workflowLeaf`) anchors on balanced.
+const CALL_SITE_INTENTS: Record<string, string> = {
+  mainAgent: "balanced",
+  subagentSpawn: "balanced",
+  compactionAgent: "balanced",
+  patternScan: "balanced",
+  narrativeRefinement: "balanced",
+  callAgent: "balanced",
+  memoryConsolidation: "balanced",
+  identityIntro: "balanced",
+  emptyStateGreeting: "balanced",
+  memoryRouter: "cost-optimized",
+  memoryV3SelectL2: "balanced",
+  recall: "balanced",
+  conversationStarters: "balanced",
+  filingAgent: "cost-optimized",
+  memoryExtraction: "cost-optimized",
+  memoryRetrieval: "cost-optimized",
+  memoryRetrospective: "cost-optimized",
+  memoryV2Migration: "cost-optimized",
+  memoryV2Sweep: "cost-optimized",
+  memoryV2Consolidation: "balanced",
+  conversationSummarization: "cost-optimized",
+  conversationTitle: "cost-optimized",
+  approvalCopy: "cost-optimized",
+  approvalConversation: "cost-optimized",
+  trustRuleSuggestion: "cost-optimized",
+  styleAnalyzer: "cost-optimized",
+  inference: "cost-optimized",
+  heartbeatAgent: "cost-optimized",
+  commitMessage: "cost-optimized",
+  replySuggestion: "cost-optimized",
+  guardianQuestionCopy: "cost-optimized",
+  notificationDecision: "cost-optimized",
+  preferenceExtraction: "cost-optimized",
+  interactionClassifier: "latency-optimized",
+  voiceProgressNarration: "latency-optimized",
+  voiceFrontDoor: "latency-optimized",
+  voiceContinuationLabel: "cost-optimized",
+  inviteInstructionGenerator: "cost-optimized",
+  skillCategoryInference: "cost-optimized",
+  homeGreeting: "cost-optimized",
+  homeSuggestedPrompts: "cost-optimized",
+};
+
 /**
  * Whether the profile that wins `site` dispatches through the subscription.
  * Mirrors the resolver's single-winner chain: `llm.activeProfile` (mainAgent
- * only), then `llm.callSites[site].profile`, then the default column of
- * `llm.defaultProvider`. A named rung the resolver would skip falls through
- * to the next one.
+ * only), then `llm.callSites[site].profile`, then the site's shipped intent
+ * through `llm.defaultProvider`. A named rung the resolver would skip
+ * (missing, disabled, incomplete) falls through to the next one.
  */
 function winnerIsSubscriptionRouted(
   site: string,
@@ -213,28 +266,24 @@ function winnerIsSubscriptionRouted(
       ? [llm.activeProfile, siteConfig?.profile]
       : [siteConfig?.profile];
   for (const name of rungs) {
-    const route = profileIsSubscriptionRouted(
-      name,
-      llm,
-      isSubscriptionProvider,
-      true,
-    );
+    const route = namedProfileRoute(name, llm, isSubscriptionProvider, true);
     if (route !== "skipped") {
       return route;
     }
   }
-  return defaultProviderIsSubscription(llm, isSubscriptionProvider);
+  return defaultIntentRoute(
+    CALL_SITE_INTENTS[site] ?? "balanced",
+    llm,
+    isSubscriptionProvider,
+  );
 }
 
 /**
- * Whether a named profile dispatches through the subscription, or
- * `"skipped"` when the resolver would pass over it (missing, disabled, or
- * incomplete). A default key without a usable user-owned shadow resolves to
- * the default provider's column. A mix (top level only; arms cannot nest)
- * is subscription-routed only when every arm provably is: the arm is a
- * seeded pick, so any other arm makes the route ambiguous.
+ * Route of a named rung, or `"skipped"` when the resolver passes over it.
+ * A default key without a user-owned shadow resolves to the default
+ * provider's column; any other missing name is skipped.
  */
-function profileIsSubscriptionRouted(
+function namedProfileRoute(
   name: unknown,
   llm: Record<string, unknown>,
   isSubscriptionProvider: (provider: unknown) => boolean,
@@ -243,14 +292,59 @@ function profileIsSubscriptionRouted(
   if (typeof name !== "string" || name.length === 0) {
     return "skipped";
   }
-  const shadow = readObject(readObject(llm.profiles)?.[name]);
-  if (shadow === null || shadow.source === "managed") {
+  const shadow = userShadow(name, llm);
+  if (shadow === null) {
     return DEFAULT_PROFILE_KEYS.has(name)
       ? defaultProviderIsSubscription(llm, isSubscriptionProvider)
       : "skipped";
   }
+  return (
+    usableShadowRoute(shadow, llm, isSubscriptionProvider, allowMix) ??
+    "skipped"
+  );
+}
+
+/**
+ * Route of a shipped intent: a usable user-owned shadow wins, otherwise the
+ * pure catalog column of the default provider stands (the anchor is
+ * code-owned and always resolves).
+ */
+function defaultIntentRoute(
+  intent: string,
+  llm: Record<string, unknown>,
+  isSubscriptionProvider: (provider: unknown) => boolean,
+): boolean {
+  const shadow = userShadow(intent, llm);
+  const route =
+    shadow === null
+      ? undefined
+      : usableShadowRoute(shadow, llm, isSubscriptionProvider, true);
+  return route ?? defaultProviderIsSubscription(llm, isSubscriptionProvider);
+}
+
+/** A user-owned `llm.profiles` entry; a managed stub is not a shadow. */
+function userShadow(
+  name: string,
+  llm: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const shadow = readObject(readObject(llm.profiles)?.[name]);
+  return shadow === null || shadow.source === "managed" ? null : shadow;
+}
+
+/**
+ * Route of a user-owned shadow, or undefined when the resolver treats it as
+ * unusable (disabled or incomplete). A mix (top level only; arms cannot
+ * nest) is subscription-routed only when every arm provably is: the arm is
+ * a seeded pick, so any other arm makes the route ambiguous.
+ */
+function usableShadowRoute(
+  shadow: Record<string, unknown>,
+  llm: Record<string, unknown>,
+  isSubscriptionProvider: (provider: unknown) => boolean,
+  allowMix: boolean,
+): boolean | undefined {
   if (shadow.status === "disabled") {
-    return "skipped";
+    return undefined;
   }
   if (Array.isArray(shadow.mix)) {
     return (
@@ -258,7 +352,7 @@ function profileIsSubscriptionRouted(
       shadow.mix.length > 0 &&
       shadow.mix.every(
         (arm) =>
-          profileIsSubscriptionRouted(
+          namedProfileRoute(
             readObject(arm)?.profile,
             llm,
             isSubscriptionProvider,
@@ -268,9 +362,7 @@ function profileIsSubscriptionRouted(
     );
   }
   if (typeof shadow.provider !== "string" || typeof shadow.model !== "string") {
-    return DEFAULT_PROFILE_KEYS.has(name)
-      ? defaultProviderIsSubscription(llm, isSubscriptionProvider)
-      : "skipped";
+    return undefined;
   }
   return fragmentIsSubscriptionBound(shadow, isSubscriptionProvider);
 }

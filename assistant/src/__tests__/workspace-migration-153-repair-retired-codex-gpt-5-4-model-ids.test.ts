@@ -98,6 +98,13 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
           codex: { provider: "chatgpt", model: STALE, source: "user" },
           budget: { provider: "chatgpt", model: STALE_MINI },
           current: { provider: "chatgpt", model: "gpt-5.6-terra" },
+          // The identity fails schema validation regardless of a stray
+          // binding, so it is repaired without consulting the rows.
+          strayBinding: {
+            provider: "chatgpt",
+            provider_connection: "openai-key",
+            model: STALE,
+          },
         },
       },
     });
@@ -106,6 +113,7 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
 
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.default.model).toBe(REPLACEMENT);
+    expect(llm.profiles.strayBinding.model).toBe(REPLACEMENT);
     expect(llm.callSites.recall.model).toBe(REPLACEMENT_MINI);
     expect(llm.callSites.recall.maxTokens).toBe(4096);
     // Non-exact matches and malformed leaves are untouched.
@@ -159,7 +167,14 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
   });
 
   test("leaves API-key, other-vendor, providerless, and dangling fragments untouched", () => {
-    seedRows([{ name: "openai-key", provider: "openai", auth: API_KEY_AUTH }]);
+    seedRows([
+      { name: "openai-key", provider: "openai", auth: API_KEY_AUTH },
+      {
+        name: "chatgpt-subscription",
+        provider: "chatgpt",
+        auth: SUBSCRIPTION_AUTH,
+      },
+    ]);
     const config = {
       llm: {
         // Explicit vendors keep the model: API-key OpenAI still serves it
@@ -177,6 +192,12 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
           keyBound: { provider: "openai-key", model: STALE },
           // Entry name with no row: nothing proves it is the subscription.
           dangling: { provider: "ghost", model: STALE },
+          // Dispatch honors the explicit binding ahead of the provider.
+          keyOverride: {
+            provider: "chatgpt-subscription",
+            provider_connection: "openai-key",
+            model: STALE,
+          },
         },
       },
     };
@@ -274,6 +295,50 @@ describe("153-repair-retired-codex-gpt-5-4-model-ids migration", () => {
 
     const llm = readConfig().llm as Record<string, any>;
     expect(llm.callSites.recall.model).toBe(REPLACEMENT);
+  });
+
+  test("resolves a skipped named rung through the site's shipped intent", () => {
+    // A disabled site pin falls through to the site's intent, which a
+    // user-owned subscription shadow of that key wins even under a
+    // non-subscription default provider.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum" },
+        callSites: {
+          heartbeatAgent: { profile: "off", model: STALE },
+          recall: { profile: "off", model: STALE },
+        },
+        profiles: {
+          off: { provider: "chatgpt", model: "gpt-5.5", status: "disabled" },
+          "cost-optimized": { provider: "chatgpt", model: "gpt-5.6-luna" },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    let llm = readConfig().llm as Record<string, any>;
+    // heartbeatAgent ships the cost-optimized intent; recall ships balanced,
+    // whose catalog column is the vellum default provider's.
+    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT);
+    expect(llm.callSites.recall.model).toBe(STALE);
+
+    // The reverse: a user-owned API-key shadow of the intent wins over a
+    // chatgpt default provider.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          recall: { model: STALE },
+          heartbeatAgent: { model: STALE_MINI },
+        },
+        profiles: {
+          balanced: { provider: "openai", model: "gpt-5.5" },
+        },
+      },
+    });
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    llm = readConfig().llm as Record<string, any>;
+    expect(llm.callSites.recall.model).toBe(STALE);
+    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
   });
 
   test("leaves providerless call-site pins alone when the winner is not subscription-routed", () => {
