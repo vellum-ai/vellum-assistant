@@ -664,6 +664,10 @@ export class AcpSessionManager {
    * One link of a session's model-switch chain: validates the value against
    * the options the adapter advertised, asks for the switch, then records and
    * publishes what came back.
+   *
+   * A session torn down while the round trip was in flight takes the answer
+   * with it: the caller's request is no longer actionable, so it comes back
+   * as not-found rather than mutating a state nobody reads.
    */
   private async applyModelSwitch(
     acpSessionId: string,
@@ -671,6 +675,9 @@ export class AcpSessionManager {
     model: string,
   ): Promise<AcpSessionState> {
     const { state, modelConfigId } = entry;
+    if (!this.isEntryLive(acpSessionId, entry)) {
+      throw new AcpSessionNotFoundError(acpSessionId);
+    }
     if (!modelConfigId) {
       throw new AcpModelSelectionUnsupportedError(acpSessionId);
     }
@@ -688,10 +695,54 @@ export class AcpSessionManager {
       modelConfigId,
       model,
     );
+    if (!this.isEntryLive(acpSessionId, entry)) {
+      throw new AcpSessionNotFoundError(acpSessionId);
+    }
     this.applyModelInfo(entry, refreshed);
-    this.rememberModelChoice(entry);
-    this.sendModelEvent(acpSessionId, entry);
+    if (!this.clearVanishedModelSelector(acpSessionId, entry, true)) {
+      this.rememberModelChoice(entry);
+      this.sendModelEvent(acpSessionId, entry);
+    }
     return state;
+  }
+
+  /**
+   * Whether `entry` is still this manager's live entry for `acpSessionId`.
+   * A response that lands after close, cancellation, or prompt completion has
+   * nothing left to update: the terminal row is already written, so applying
+   * it would leave history on one model and clients on another.
+   */
+  private isEntryLive(acpSessionId: string, entry: SessionEntry): boolean {
+    return (
+      this.sessions.get(acpSessionId) === entry &&
+      (entry.state.status === "running" ||
+        entry.state.status === "initializing")
+    );
+  }
+
+  /**
+   * Drops the live model snapshot a vanished selector took with it and
+   * publishes the empty picker. `applyModelInfo` keeps the recorded model for
+   * adapters that never had one, which here would leave the client on options
+   * `setModel` now rejects. Returns whether it fired, so callers skip the
+   * publish and the preference write that assume a model is still there.
+   */
+  private clearVanishedModelSelector(
+    acpSessionId: string,
+    entry: SessionEntry,
+    hadSelector: boolean,
+  ): boolean {
+    if (!hadSelector || entry.modelConfigId) {
+      return false;
+    }
+    entry.state.model = undefined;
+    entry.state.availableModels = [];
+    entry.sendToVellum({
+      type: "acp_session_model_update",
+      acpSessionId,
+      availableModels: [],
+    });
+    return true;
   }
 
   /**
@@ -732,17 +783,7 @@ export class AcpSessionManager {
     const hadSelector = entry.modelConfigId !== undefined;
     this.applyModelInfo(entry, configOptions);
 
-    // A selector that disappears mid-session takes the live snapshot with it.
-    // applyModelInfo keeps the recorded model for adapters that never had one,
-    // which here would leave the client on options setModel now rejects.
-    if (hadSelector && !entry.modelConfigId) {
-      entry.state.model = undefined;
-      entry.state.availableModels = [];
-      entry.sendToVellum({
-        type: "acp_session_model_update",
-        acpSessionId,
-        availableModels: [],
-      });
+    if (this.clearVanishedModelSelector(acpSessionId, entry, hadSelector)) {
       return;
     }
 

@@ -524,6 +524,13 @@ async function spawnSwitchable(conversationId: string): Promise<{
   return { manager, acpSessionId, sent };
 }
 
+/** Resolves once the manager has dispatched `count` `setConfigOption` calls. */
+async function waitForConfigOptionCalls(count: number): Promise<void> {
+  while (setConfigOptionCalls.length < count) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+}
+
 describe("AcpSessionManager: live model switching", () => {
   test("applies the model, publishes it, and remembers what the adapter confirmed", async () => {
     const { manager, acpSessionId, sent } = await spawnSwitchable("conv-set");
@@ -653,6 +660,96 @@ describe("AcpSessionManager: live model switching", () => {
       "Invalid value for config option model: opus",
     );
     await expect(next).resolves.toMatchObject({ model: "sonnet" });
+  });
+
+  test("a response that drops the selector clears the model and empties the picker", async () => {
+    const { manager, acpSessionId, sent } = await spawnSwitchable(
+      "conv-switch-dropped",
+    );
+    setConfigOptionResult = [
+      {
+        type: "select",
+        id: "mode",
+        name: "Mode",
+        currentValue: "default",
+        options: [{ value: "default", name: "Default" }],
+      },
+    ];
+
+    const state = await manager.setModel(acpSessionId, "opus");
+
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    expect(sent).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        availableModels: [],
+      },
+    ]);
+    expect(
+      getAcpConversationModelPreference("conv-switch-dropped", "agent-model"),
+    ).toBeUndefined();
+    await expect(manager.setModel(acpSessionId, "opus")).rejects.toBeInstanceOf(
+      AcpModelSelectionUnsupportedError,
+    );
+  });
+
+  test("a response landing after the session closed changes nothing", async () => {
+    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-late");
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setConfigOptionResponder = async (value) => {
+      await held;
+      return [modelOption(String(value))];
+    };
+
+    const switched = manager.setModel(acpSessionId, "opus");
+    await waitForConfigOptionCalls(1);
+    manager.close(acpSessionId);
+    release();
+
+    await expect(switched).rejects.toBeInstanceOf(AcpSessionNotFoundError);
+    expect(state.model).toBe("sonnet");
+    expect(sent).toEqual([]);
+    expect(
+      getAcpConversationModelPreference("conv-late", "agent-model"),
+    ).toBeUndefined();
+  });
+
+  test("a switch queued behind a slow one never reaches a closed session", async () => {
+    const { manager, acpSessionId } = await spawnSwitchable("conv-late-queued");
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setConfigOptionResponder = async (value) => {
+      await held;
+      return [modelOption(String(value))];
+    };
+
+    // Settled up front: the queued switch rejects while the first one is
+    // still being awaited, and an unhandled rejection would fail the test.
+    const settled = Promise.allSettled([
+      manager.setModel(acpSessionId, "opus"),
+      manager.setModel(acpSessionId, "sonnet"),
+    ]);
+    await waitForConfigOptionCalls(1);
+    manager.close(acpSessionId);
+    release();
+
+    const outcomes = await settled;
+    for (const outcome of outcomes) {
+      expect(outcome.status).toBe("rejected");
+      expect((outcome as PromiseRejectedResult).reason).toBeInstanceOf(
+        AcpSessionNotFoundError,
+      );
+    }
+    // The queued switch never reached the adapter.
+    expect(setConfigOptionCalls.map((call) => call.value)).toEqual(["opus"]);
   });
 
   test("an adapter refusal surfaces verbatim and leaves the session as it was", async () => {
