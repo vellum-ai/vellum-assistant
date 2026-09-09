@@ -106,8 +106,8 @@ interface Seeded {
 /**
  * A conversation carrying one attachment of every kind the listing has to tell
  * apart: plain photos, a standalone camera keep, a frame parked on a spoken
- * turn beside an ordinary photo, plus a hidden row and an unfinalized row that
- * must not surface at all.
+ * turn beside an ordinary photo, plus a hidden row, a channel-deleted row, and
+ * an unfinalized row that must not surface at all.
  */
 async function seedConversation(): Promise<Seeded> {
   const conversation = createConversation("Camera thread");
@@ -151,6 +151,27 @@ async function seedConversation(): Promise<Seeded> {
   });
   linkAttachmentToMessage(hidden.id, hiddenPhoto, 0);
   setCreatedAt(hidden.id, 5000);
+
+  const deletedPhoto = await newAttachment("deleted.png");
+  const channelDeleted = await addMessage(
+    conversation.id,
+    "user",
+    "sent then deleted",
+    {
+      metadata: {
+        providerMeta: JSON.stringify({
+          source: "slack",
+          conversationExternalId: "chan-1",
+          messageId: "msg-1",
+          eventKind: "message",
+          deletedAt: 1700000001000,
+        }),
+      },
+      skipIndexing: true,
+    },
+  );
+  linkAttachmentToMessage(channelDeleted.id, deletedPhoto, 0);
+  setCreatedAt(channelDeleted.id, 5500);
 
   const streamingPhoto = await newAttachment("streaming.png");
   const streaming = await addMessage(conversation.id, "user", "mid write", {
@@ -217,15 +238,18 @@ describe("GET /v1/attachments", () => {
     });
   });
 
-  test("omits hidden and unfinalized rows", async () => {
+  test("omits hidden, channel-deleted, and unfinalized rows", async () => {
     const seeded = await seedConversation();
 
-    const filenames = listAttachments({
+    const listing = listAttachments({
       conversationId: seeded.conversationId,
-    }).attachments.map((a) => a.filename);
+    });
+    const filenames = listing.attachments.map((a) => a.filename);
 
     expect(filenames).not.toContain("hidden.png");
+    expect(filenames).not.toContain("deleted.png");
     expect(filenames).not.toContain("streaming.png");
+    expect(listing.total).toBe(5);
   });
 
   test("splits the set on sightFrames, and total follows the filter", async () => {

@@ -2736,8 +2736,9 @@ export interface ConversationAttachmentListing {
  * one row is listed once, on the newest row that carries it.
  *
  * The lineage-wide select still reads every linked row: an exact `total` and
- * the metadata-derived flags are only known after the role/hidden filter and
- * the dedupe, so that whole-lineage scan is the cost the exact count carries.
+ * the metadata-derived flags are only known after the role and visibility
+ * filters and the dedupe, so that whole-lineage scan is the cost the exact
+ * count carries.
  */
 export function listConversationAttachments(
   conversationId: string,
@@ -2777,6 +2778,10 @@ export function listConversationAttachments(
     }
     const parsed = parseMessageMetadata(row.metadata);
     if (isHiddenMessageMetadata(parsed)) {
+      continue;
+    }
+    // A channel-deleted row renders as a tombstone, so its files stay hidden.
+    if (row.metadata !== null && isChannelDeletedMetadata(row.metadata)) {
       continue;
     }
     seen.add(row.id);
