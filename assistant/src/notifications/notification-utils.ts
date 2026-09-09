@@ -25,6 +25,21 @@ export function nonEmpty(value: string | null | undefined): string | undefined {
 }
 
 /**
+ * Models sometimes write the two-character sequence `\n` (or `\t`) instead of
+ * a real line break. Turn those into actual newlines so a briefing stored as
+ * a notification body still parses as markdown.
+ *
+ * Real newlines and tabs are left alone. A backslash that is not part of `\n`
+ * or `\t` is left alone too.
+ */
+export function decodeLiteralLineBreaks(text: string): string {
+  if (!text.includes("\\")) {
+    return text;
+  }
+  return text.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+}
+
+/**
  * Safely read a string property from an unknown-typed payload object.
  * Returns `undefined` when the payload is falsy, not an object, or the
  * key does not hold a string value.

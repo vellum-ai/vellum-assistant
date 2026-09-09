@@ -24,6 +24,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
+| Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
@@ -797,6 +798,47 @@ graph LR
     TL -->|"rendered timeline (fenced)"| RETRO
     RETRO -->|"prompt as a wake hint"| WAKE
     WAKE -->|"assistant report only"| CONV
+```
+
+## Screen Annotation
+
+The assistant points at things on the screen the user is sharing with a call, so they can go and do the thing themselves. It is the opposite errand from computer use and shares none of its actions: nothing here clicks, types or takes the mouse. The bundled `screen-annotation` skill (`assistant/src/config/bundled-skills/screen-annotation/`) offers two tools, `screen_point_at` and `screen_clear_marks`, and a request replaces whatever is currently drawn. Clearing is its own tool because it is a thing the model decides to do rather than an argument shape it has to remember; on the wire it is the same request carrying no marks.
+
+**Offered on a negotiated capability, not on an interface.** The marks are drawn in a window the client opens for itself, so a client without one cannot answer the request at all. `host_cu_annotate` is therefore claimed by the client on its SSE connection (`X-Vellum-Cu-Annotate`, read in `assistant/src/runtime/routes/events-routes.ts`) rather than inferred from the interface, and `host-proxy-preactivation.ts` attaches the skill only when a connected client claims it. Offered from the `host_cu` transport alone the skill would reach Windows and Linux turns, whose executors forward it to a native helper that has no such action.
+
+**Routing.** The tools forward under the wire name `computer_use_point_at` (`assistant/src/tools/computer-use/skill-proxy-bridge.ts`), because that prefix is what `surfaceProxyResolver` routes to a desktop client. `hostCuCapabilityFor` maps that one name to `host_cu_annotate`, so the same-actor gate and the audit line name the capability that actually gated the request, and the call is exempt from the computer-use step budget.
+
+**Answered in Electron main, not in the helper.** `PointAtExecutor` (`clients/macos/src/main/executors/host-cu-executor.ts`) intercepts the pointing tool and forwards every other tool to the shared native helper. The frame the marks land on belongs to this client, and the shared executor is the transport every desktop client uses. The painter itself is handed in by `host-proxy-adapter.ts` rather than imported, since an executor reaching into the window layer would be the transport depending on what it transports to.
+
+**A name is resolved, not estimated.** A mark either names a control (`{target}`) or gives bounds. Naming is the path that works: `showCompanionCoachmarks` asks the helper's `ax.locate` for the frame the accessibility tree already holds (`AXTargetMatch`, exact match or nothing, with candidates clipped to what can actually be seen on the shared surface), then converts screen points to fractions of that surface. Bounds are for what has no label to find it by, and are the model's guess at where the thing is. `AXTargetMatch` refuses anything it fits more than once: a ring drawn confidently around the wrong control is worse than one not drawn, because the person following it cannot tell.
+
+**Failure boundaries.** Every way a request can fail to draw is an `executionError` rather than a result, so the turn cannot go on describing a ring that is not there. A refusal says the surface is not this turn's to draw on: nothing shared, the share belongs to another conversation, the coordinates were measured against a surface the user has since left, or a later request has taken the screen. An unresolved name says the surface is fine and the name is not on it, and carries the names that are, so the next attempt can pick one. That list is bounded in the helper that reads the tree (`AXLabel.shortlist`) rather than at the far end that only sees what already crossed, since a web page is ten thousand elements and any of them can be carrying a paragraph of `aria-label`; the count of how many there were travels beside it.
+
+**Lifetime.** Marks are drawn in the companion's watch frame (`clients/web/src/components/companion-coachmarks.tsx`, placed by `companion-window.ts`) and come down on their own when the share ends or moves to another surface, since a mark that outlives the surface it was measured against rings whatever has moved under it. Drawing also drops the frame's own annotating mode: a mark says go and press that, and the press has to reach the app underneath.
+
+```mermaid
+graph LR
+    SKILL["screen-annotation skill<br/>screen_point_at · screen_clear_marks"]
+    BRIDGE["skill-proxy-bridge<br/>computer_use_point_at"]
+    ROUTE["host-cu-target<br/>host_cu_annotate · same actor"]
+    SSE["Host proxy SSE<br/>X-Vellum-Cu-Annotate"]
+    EXEC["PointAtExecutor<br/>Electron main"]
+    HELPER["Shared CU helper<br/>every other tool"]
+    PAINT["showCompanionCoachmarks<br/>owns the surface"]
+    LOCATE["ax.locate<br/>AXTargetMatch · clipped"]
+    FRAME["Watch frame<br/>companion-coachmarks.tsx"]
+
+    SKILL --> BRIDGE
+    BRIDGE --> ROUTE
+    ROUTE -->|"dispatch to the claiming client"| SSE
+    SSE --> EXEC
+    EXEC -->|"every other tool"| HELPER
+    EXEC -->|"marks + conversation id"| PAINT
+    PAINT -->|"named target"| LOCATE
+    LOCATE -->|"frame in screen points"| PAINT
+    LOCATE -->|"bounded candidate labels"| PAINT
+    PAINT -->|"fractions of the surface"| FRAME
+    PAINT -->|"placed · refused · unresolved"| EXEC
 ```
 
 ## Maintenance Rule

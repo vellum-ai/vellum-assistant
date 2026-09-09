@@ -25,6 +25,10 @@
  * Registered first in the `user-prompt-submit` chain, so it heads the chain
  * ahead of history repair and title generation: those later hooks see the
  * fully assembled, memory-injected history.
+ *
+ * Memory-retrospective wakes skip this hook. Those forks already carry copied
+ * injection metadata on historical messages. The remember-pass does not need a
+ * fresh selector or router call, and that call is what this hook awaits.
  */
 
 import type {
@@ -252,6 +256,10 @@ const userPromptSubmitMemoryRetrieval: HookFunction<
   // threaded in, mirroring how `applyRuntimeInjections` self-resolves its
   // per-turn inputs.
   const conversation = findConversationOrSubagent(ctx.conversationId);
+  if (conversation?.currentCallSite === "memoryRetrospective") {
+    return;
+  }
+
   const config = getConfig();
   const abortSignal = conversation?.abortController?.signal;
   const isTrustedActor =

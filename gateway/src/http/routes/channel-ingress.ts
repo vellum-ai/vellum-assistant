@@ -17,6 +17,7 @@
 
 import {
   findServableRoute,
+  listServablePluginWebhookPaths,
   resolvePluginIngress,
   type PluginIngressResolution,
 } from "../../channels/plugin-ingress-approvals.js";
@@ -25,16 +26,45 @@ import {
   pluginWebhookPath,
   type IngressRoute,
 } from "../../channels/plugin-ingress.js";
+import { markPluginWebhookRoutesDirty } from "../../channels/plugin-webhook-route-sync.js";
 import { credentialKey } from "../../credential-key.js";
 import {
   approvePluginIngress,
   listPluginIngressApprovals,
   revokePluginIngressApproval,
 } from "../../db/plugin-ingress-approval-store.js";
+import {
+  reconcilePluginWebhookIngressRoutes,
+  type PluginWebhookRouteReconciliation,
+} from "../../db/webhook-ingress-route-store.js";
 import { getLogger } from "../../logger.js";
 import { ApproveChannelIngressRequestSchema } from "./channel-ingress-routes.js";
 
 const log = getLogger("channel-ingress");
+
+/**
+ * Settle the registry's plugin rows against what is servable now, and arm the
+ * watcher's retry if that fails.
+ *
+ * The handlers reconcile directly rather than through
+ * `reconcilePluginWebhookRoutes` because they report the reconciliation result
+ * to their caller. The failure is still rethrown, so the handler answers with
+ * its own error, and the retry flag is what gets the rows settled on a later
+ * poll instead of leaving a persisted decision unreflected until the next
+ * declaration change.
+ */
+function settleServableWebhookRoutes(
+  resolve: () => PluginIngressResolution,
+): PluginWebhookRouteReconciliation {
+  try {
+    return reconcilePluginWebhookIngressRoutes(
+      listServablePluginWebhookPaths(resolve()),
+    );
+  } catch (err) {
+    markPluginWebhookRoutesDirty();
+    throw err;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -252,8 +282,26 @@ export function createChannelIngressApproveHandler(
 
     try {
       const row = approvePluginIngress({ plugin: source, digest });
+      // Velay forwards a webhook path only once this assistant has claimed it,
+      // so the claim is part of the grant: a failure here is reported as one,
+      // rather than left as an approval that reaches nothing. Reconciling the
+      // whole set rather than this source's paths costs one more declaration
+      // scan and settles anything else that has drifted since the last one.
+      const claimed = settleServableWebhookRoutes(resolve);
+      if (claimed.rejected.length > 0) {
+        log.warn(
+          { source, rejected: claimed.rejected },
+          "Declared paths the webhook registry will not claim were skipped",
+        );
+      }
       log.info(
-        { source, digest, routes: current.routes.length },
+        {
+          source,
+          digest,
+          routes: current.routes.length,
+          claimedPaths: claimed.added.length,
+          releasedPaths: claimed.removed.length,
+        },
         "Guardian approved channel ingress declaration",
       );
       return Response.json({
@@ -273,15 +321,29 @@ export function createChannelIngressApproveHandler(
 // ---------------------------------------------------------------------------
 
 /**
- * Unlike approve this does not consult the declaration: a grant must be
- * withdrawable even when the manifest that justified it has become unreadable.
+ * Whether to revoke is decided without consulting the declaration: a grant must
+ * be withdrawable even when the manifest that justified it has become
+ * unreadable, and an unreadable one is reported as a problem rather than
+ * thrown. The declarations are read afterwards only to recompute which paths
+ * remain servable, which is not the same question.
+ *
+ * Withdrawing a grant does not withdraw every path the source holds. A
+ * `signer: "vellum"` route is served without approval, so it keeps its claim,
+ * and an allowlist that dropped it would block a route the gateway still
+ * answers.
  */
-export function createChannelIngressRevokeHandler() {
+export function createChannelIngressRevokeHandler(
+  resolve: () => PluginIngressResolution = resolvePluginIngress,
+) {
   return async (_req: Request, source: string): Promise<Response> => {
     try {
       const revoked = revokePluginIngressApproval(source);
+      const claimed = settleServableWebhookRoutes(resolve);
       if (revoked) {
-        log.info({ source }, "Guardian revoked channel ingress approval");
+        log.info(
+          { source, releasedPaths: claimed.removed.length },
+          "Guardian revoked channel ingress approval",
+        );
       }
       return Response.json({ source, revoked });
     } catch (err) {

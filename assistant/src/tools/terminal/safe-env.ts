@@ -54,8 +54,10 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MARKETING_URL",
   "VELLUM_MIGRATION_EXPORT_ALLOWED_HOSTS",
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
-  "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
+  // Socket path only. The CES HTTP bearer (`CES_SERVICE_TOKEN`) and
+  // `CES_CREDENTIAL_URL` stay in the assistant process: child shells must
+  // not inherit a vault token they can printenv or log.
   "CES_LOCAL_SOCKET",
   // Per-instance port of the assistant-managed Qdrant sidecar, so skill and
   // bash-tool subprocesses that use the vector helpers (e.g. embed/search over
@@ -67,7 +69,6 @@ export const SAFE_ENV_VARS = [
   "IS_PLATFORM",
   "VELLUM_CLOUD",
   "VELLUM_SANDBOX_RUNTIME",
-  "CES_SERVICE_TOKEN",
   "VELLUM_PROFILER_RUN_ID",
   "VELLUM_PROFILER_MODE",
   "VELLUM_PROFILER_MAX_BYTES",

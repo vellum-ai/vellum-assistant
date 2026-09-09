@@ -42,22 +42,22 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * ## What renders what
  *
- * `ToolDetailBody` looks the tool name up in `tool-activity-renderers.ts`. Two
- * names are registered. Every other tool, native or third-party, gets the
- * generic treatment: the title, the activity sentence, the input as raw JSON,
- * and the result as one unclamped `<pre>`.
+ * `ToolDetailBody` looks the tool name up in `tool-activity-renderers.ts`.
+ * Shell, file edits, the two skill tools and the two web tools have bodies of
+ * their own; everything else, native or third-party, falls back to the raw
+ * JSON input and a clamped result.
  *
- * The two registered names are both skill tools, which are not among the tools
- * people hit most. The families that dominate day to day, files and shell, are
- * on the generic path, which is what makes the gaps below worth designing away.
+ * ## What the header owns
  *
- * ## Where the activity sentence shows
+ * Every panel that hosts a `ToolDetailBody` heads it with
+ * `ToolDetailHeaderTitle`: the activity sentence, and under it the tool with
+ * its risk pill. Nothing in the body repeats any of that. The activity does
+ * appear once more inside the raw JSON, because `activity` is a real input key
+ * the tools send alongside `command` / `path`, and that block is the raw input.
  *
- * Every host of `ToolDetailBody` titles its header with
- * `toolDetailHeaderTitle`, so the body does not repeat the activity under the
- * tool name. It still appears inside the JSON input block, because `activity`
- * is a real input key the tools send alongside `command` / `path` and that
- * block is the raw input.
+ * The sentence wraps to two lines rather than truncating on one: most activity
+ * sentences are longer than a single line at the drawer's 400px default, and
+ * the native tooltip carries the tail of the rest.
  *
  * ## Coverage matrix
  *
@@ -67,8 +67,8 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  *
  * | Family | Renderer today | Volume rank | Stories | Readability gap |
  * | --- | --- | --- | --- | --- |
- * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_write` shows the written body as a JSON string literal with escaped newlines; `file_edit` shows a diff as two such literals side by side, with no diff rendering at all. |
- * | Shell (`bash`, `host_bash`) | generic | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | A command and its stdout are shown as a JSON object and a `<pre>`, so the thing the user reads is quoted and escaped rather than rendered as a terminal. |
+ * | Files (`file_read` / `_write` / `_edit` / `_list`, host variants) | `file_edit` purpose-built, rest generic | 1 | FileRead, FileReadEmptyOutput, FileReadError, FileWrite, FileEdit, MinimalOutput | `file_edit` renders a unified diff. `file_write` still shows the written body as a JSON string literal with escaped newlines, which is the next one worth a body of its own. |
+ * | Shell (`bash`, `host_bash`) | purpose-built | 2 | Bash, BashStreaming, BashError, BashDenied, LargeOutput | The command and its output as two labelled blocks, rather than a JSON object quoting one. |
  * | Memory (`remember`, `recall`) | generic | 3 | Remember, Recall | `recall` returns a ranked list and renders as flat preformatted text; `remember` spends the full section chrome on a one-line acknowledgement. |
  * | Web (`web_search`, `web_fetch`) | purpose-built | 4 | WebSearchKind, WebSearchError, WebFetch | Registered like any other renderer, so a search reads the same from every panel. A failed search falls through to the generic body by design. |
  * | Skills (`skill_load`, `skill_execute`) | purpose-built | 5 | SkillLoad, SkillLoadLongBody, SkillLoadError, SkillLoadRunning, SkillExecute | The only tools with native treatment, and `skill_execute` is close to unused, so most of this investment sits on the rarer of the pair. |
@@ -89,7 +89,7 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * | Empty output | FileReadEmptyOutput | Output reports that the tool returned nothing, rather than disappearing. |
  * | Very large output | LargeOutput | `CodeBlock` clamps behind Show more; the daemon's cap is 400,000 characters. |
  * | Nested JSON input | ManagedWorkspaceTool, UnknownThirdPartyTool | |
- * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | Every level the risk helpers recognise, plus absent and unrecognised. |
+ * | Risk levels | RiskLow, RiskMedium, RiskHigh, RiskWorkspace, RiskUnknown, RiskAbsent | A pill in the header, with the tolerance sentence on hover, or beside the pill as text where the pointer cannot hover. Levels with no tolerance tier carry neither. The neutral pills read faintly against the panel ground, which is unresolved. |
  * | Narrow or mobile | MobileWidth | Same panel inside the drawer at 390px. |
  *
  * ## Suggested order for follow-up design slices
@@ -97,17 +97,14 @@ import { ToolDetailPanel } from "./tool-detail-panel";
  * Ranked by how many calls each slice improves against how much design it
  * needs, which puts the two families the design lead named first.
  *
- * 1. Files. `file_edit` as a rendered diff and `file_write` as an editor view
- *    are the largest single readability win available.
- * 2. Shell. A terminal treatment for the command and its output.
- * 3. Memory. `recall` as a result list.
- * 4. MCP naming. Low volume, but the title is wrong on every call rather than
- *    merely plain.
+ * 1. `file_write` as an editor view, the largest readability win left.
+ * 2. Memory. `recall` as a result list rather than flat text.
+ * 3. MCP naming (LUM-3511). Low volume, but the title is wrong on every call
+ *    rather than merely plain.
  *
- * ## Still open
- *
- * LUM-3511 for the MCP naming. Every other treatment below documents behaviour
- * the panel has, not a gap it is waiting on.
+ * Syntax highlighting is deliberately absent from all of these: there is no
+ * highlighter in the repository, and adding one is a dependency call that can
+ * be made later without changing any of these shapes.
  */
 const meta: Meta<typeof ToolDetailPanel> = {
   title: "Chat/ToolDetailPanel",
@@ -149,11 +146,7 @@ type Story = StoryObj<typeof ToolDetailPanel>;
 // Shell, the highest-volume family on the generic renderer
 // ---------------------------------------------------------------------------
 
-/**
- * `bash`, the single most-called tool. The command the user cares about is
- * inside the JSON object, quoted, next to the `activity` string that is
- * already shown as the header.
- */
+/** `bash`, the single most-called tool: the command, then what it printed. */
 export const Bash: Story = { args: { detail: bashDetail } };
 
 /** `bash` still running, with the live stdout tail under Output. */
@@ -196,10 +189,7 @@ export const FileReadError: Story = { args: { detail: fileReadMissingDetail } };
  */
 export const FileWrite: Story = { args: { detail: fileWriteDetail } };
 
-/**
- * `file_edit`. The before and after strings are a diff, rendered as two
- * escaped JSON literals with no alignment between them.
- */
+/** `file_edit`. The before and after pair rendered as the diff it is. */
 export const FileEdit: Story = { args: { detail: fileEditDetail } };
 
 /** A one-line input and a short list output: the panel at its least dense. */

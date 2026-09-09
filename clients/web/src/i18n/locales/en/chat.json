@@ -137,6 +137,8 @@
     "closePreviewAria": "Close preview",
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
+    "legacyUnavailable": "Preview unavailable. The file content was not preserved in chat history.",
+    "loadFailed": "Failed to load preview.",
     "nextAttachmentAria": "Next attachment",
     "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",
@@ -300,7 +302,8 @@
     "title": "Show"
   },
   "cardSurface": {
-    "tasksProgress": "{completed} / {total} tasks"
+    "tasksProgress": "{completed} / {total} tasks",
+    "viewDetails": "View details"
   },
   "channelReferenceChip": {
     "heading": "Referencing a {channel} message",
@@ -378,6 +381,26 @@
     "archived": "[Archived]",
     "newChat": "New Chat",
     "untitled": "Untitled"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Back to chat info",
+    "backTooltip": "Chat info",
+    "closeAria": "Close chat info",
+    "empty": "No assets in this chat yet",
+    "filesTitle": "Documents & Images",
+    "framesTitle": "Camera Frames",
+    "loadFailed": "Assets could not be loaded",
+    "loadMore": "Load more",
+    "openAppAria": "Open {name}",
+    "openDocumentAria": "Open {name}",
+    "previewAttachmentAria": "Preview {filename}",
+    "previewFrameAria": "Preview camera frame",
+    "seeAll": "See All",
+    "seeAllAppsAria": "See all apps",
+    "seeAllFilesAria": "See all documents and images",
+    "seeAllFramesAria": "See all camera frames",
+    "title": "Chat Info"
   },
   "chatLayout": {
     "navigationAria": "Navigation"
@@ -616,9 +639,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
+    "ariaLabelUnavailable": "Conversation assets, could not be loaded",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
-    "heading": "Assets",
-    "label": "{count, plural, one {# asset} other {# assets}}"
+    "label": "{count, plural, one {# asset} other {# assets}}",
+    "labelUnavailable": "Assets could not be loaded"
   },
   "conversationRow": {
     "untitled": "Untitled"
@@ -899,7 +923,8 @@
     "windows": "Voice is already active in the Windows app."
   },
   "liveVoiceButton": {
-    "startVoiceMode": "Start voice mode"
+    "startVoiceMode": "Start voice mode",
+    "tooltip": "Talk out loud with voice mode"
   },
   "liveVoiceStatus": {
     "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
@@ -1669,11 +1694,14 @@
     "settings": "Settings"
   },
   "toolDetailPanel": {
+    "changes": "Changes",
     "closeAria": "Close tool details",
+    "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
+    "input": "Input",
     "output": "Output",
-    "riskLevel": "Risk Level",
+    "requestedChanges": "Requested changes",
     "running": "Running…"
   },
   "toolStepPill": {
@@ -1783,6 +1811,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "Muted"
+  },
+  "wakeCard": {
+    "commandFinished": "Background command finished",
+    "incomingEvent": "Incoming event",
+    "memoryReview": "Memory review",
+    "ranOnItsOwn": "Ran on its own",
+    "resumed": "Resumed after an interruption",
+    "scheduledRun": "Scheduled run",
+    "watchReview": "Watch session review",
+    "workflowFinished": "Workflow finished"
+  },
+  "wakeDetailPanel": {
+    "close": "Close",
+    "details": "Details",
+    "result": "Result",
+    "runStatus": "Run status",
+    "title": "Conversation woke",
+    "workflow": "Workflow"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

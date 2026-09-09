@@ -14,7 +14,8 @@
   },
   "activityStepsPanel": {
     "backAria": "Назад ко всем шагам",
-    "backTooltip": "Все шаги"
+    "backTooltip": "Все шаги",
+    "thinkingTitle": "Размышление"
   },
   "addToChatSheet": {
     "title": "Добавить в диалог",
@@ -55,6 +56,8 @@
     "unnamedAssistant": "Безымянный ассистент"
   },
   "attachmentPreviewModal": {
+    "legacyUnavailable": "Предпросмотр недоступен. Содержимое файла не сохранилось в истории чата.",
+    "loadFailed": "Не удалось загрузить предпросмотр.",
     "pdfLoadFailed": "Не удалось показать этот PDF"
   },
   "attachmentTile": {
@@ -237,6 +240,26 @@
     "endOtherVoiceSession": "Завершить и начать здесь",
     "goToVoiceSession": "Перейти к ней"
   },
+  "chatInfoPanel": {
+    "appsTitle": "Приложения",
+    "backAria": "Назад к информации о диалоге",
+    "backTooltip": "Информация о диалоге",
+    "closeAria": "Закрыть информацию о диалоге",
+    "empty": "В этом диалоге пока нет материалов",
+    "filesTitle": "Документы и изображения",
+    "framesTitle": "Кадры с камеры",
+    "loadFailed": "Не удалось загрузить материалы",
+    "loadMore": "Загрузить ещё",
+    "openAppAria": "Открыть {name}",
+    "openDocumentAria": "Открыть {name}",
+    "previewAttachmentAria": "Предпросмотр {filename}",
+    "previewFrameAria": "Предпросмотр кадра с камеры",
+    "seeAll": "Показать все",
+    "seeAllAppsAria": "Показать все приложения",
+    "seeAllFilesAria": "Показать все документы и изображения",
+    "seeAllFramesAria": "Показать все кадры с камеры",
+    "title": "Информация о диалоге"
+  },
   "compactionTab": {
     "compactedMessages": "сжато: {count}",
     "compactedPreserved": "Сжато / сохранено",
@@ -336,9 +359,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}",
+    "ariaLabelUnavailable": "Ресурсы диалога, не удалось загрузить",
     "ariaLabelUnseen": "Ресурсы диалога, {count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}} (есть невидимые изменения)",
-    "heading": "Ресурсы",
-    "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}"
+    "label": "{count, plural, one {# ресурс} few {# ресурса} many {# ресурсов} other {# ресурса}}",
+    "labelUnavailable": "Не удалось загрузить ресурсы"
   },
   "conversationStarterDock": {
     "caption": "Подсказки:"
@@ -861,12 +885,34 @@
     "reactionSomeone": "Кто-то"
   },
   "toolDetailPanel": {
+    "changes": "Изменения",
+    "command": "Команда",
     "denied": "Этот вызов инструмента не был одобрен, поэтому он не выполнился.",
-    "emptyOutput": "Инструмент не вернул никаких данных."
+    "emptyOutput": "Инструмент не вернул никаких данных.",
+    "input": "Входные данные",
+    "requestedChanges": "Запрошенные изменения"
   },
   "frameGateHud": {
     "collapse": "Скрыть показатели фильтра кадров",
     "expand": "Показать показатели фильтра кадров"
+  },
+  "wakeCard": {
+    "commandFinished": "Фоновая команда завершена",
+    "incomingEvent": "Входящее событие",
+    "memoryReview": "Просмотр памяти",
+    "ranOnItsOwn": "Запустился сам",
+    "resumed": "Возобновлено после прерывания",
+    "scheduledRun": "Запуск по расписанию",
+    "watchReview": "Разбор сессии наблюдения",
+    "workflowFinished": "Рабочий процесс завершён"
+  },
+  "wakeDetailPanel": {
+    "close": "Закрыть",
+    "details": "Подробности",
+    "result": "Результат",
+    "runStatus": "Статус запуска",
+    "title": "Разговор возобновлён",
+    "workflow": "Рабочий процесс"
   },
   "watchRetroSurface": {
     "doneDiscarded": "Не сохранено",
@@ -883,5 +929,11 @@
     "failedReplacementRejected": "Vellum отклонил новые учётные данные. Войдите на платформу Vellum и повторите попытку.",
     "failedUnconfirmed": "Новые учётные данные сохранены, но Vellum не смог их подтвердить. Возможно, они заработают через некоторое время.",
     "failedGeneric": "Не удалось восстановить доступ. Повторите попытку через минуту."
+  },
+  "liveVoiceButton": {
+    "tooltip": "Говорите вслух в голосовом режиме"
+  },
+  "cardSurface": {
+    "viewDetails": "Подробности"
   }
 }

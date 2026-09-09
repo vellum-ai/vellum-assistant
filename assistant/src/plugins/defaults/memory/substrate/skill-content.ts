@@ -48,6 +48,24 @@ export function buildSkillContent(
   input: SkillCapabilityInput,
   maxChars: number = DEFAULT_CARD_CHARS,
 ): string {
+  const content = renderSkillCard(input, maxChars);
+  if (content.length > maxChars) {
+    return content.slice(0, maxChars);
+  }
+  return content;
+}
+
+/**
+ * The capability statement a skill would carry if the budget were unlimited,
+ * rendered in the layout `maxChars` selects. Tooling compares this against
+ * {@link buildSkillContent} to report how much of a card the budget cuts. The
+ * budgeted render cannot express that on its own, since raising `maxChars`
+ * past 500 also switches the hint layout.
+ */
+export function renderSkillCard(
+  input: SkillCapabilityInput,
+  maxChars: number = DEFAULT_CARD_CHARS,
+): string {
   const list = maxChars > 500;
   let content = `The "${input.displayName}" skill (${input.id}) is available. ${input.description}.`;
   if (input.activationHints && input.activationHints.length > 0) {
@@ -59,9 +77,6 @@ export function buildSkillContent(
     content += list
       ? `\nAvoid when:\n${input.avoidWhen.map((a) => `- ${a}`).join("\n")}`
       : ` Avoid when: ${input.avoidWhen.join("; ")}.`;
-  }
-  if (content.length > maxChars) {
-    content = content.slice(0, maxChars);
   }
   return content;
 }
@@ -81,9 +96,7 @@ export function augmentMcpSetupDescription(
   if (!servers) {
     return input;
   }
-  const names = Object.keys(servers).filter(
-    (name) => servers[name]?.enabled !== false,
-  );
+  const names = Object.keys(servers);
   if (names.length === 0) {
     return input;
   }

@@ -148,9 +148,7 @@ describe("MCP AbortSignal threading", () => {
         "test-server",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );
@@ -171,9 +169,7 @@ describe("MCP AbortSignal threading", () => {
         "test-server",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );
@@ -186,9 +182,7 @@ describe("MCP AbortSignal threading", () => {
         "test-server",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );
@@ -214,9 +208,7 @@ describe("MCP AbortSignal threading", () => {
         "stripe.link-cli",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );
@@ -255,9 +247,7 @@ describe("MCP AbortSignal threading", () => {
         "server",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );
@@ -283,9 +273,7 @@ describe("MCP AbortSignal threading", () => {
         "test-server",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );
@@ -326,9 +314,7 @@ describe("MCP AbortSignal threading", () => {
         "test-server",
         {
           transport: { type: "stdio", command: "echo", args: [] },
-          enabled: true,
-          defaultRiskLevel: "high",
-          maxTools: 100,
+          source: "workspace" as const,
         },
         fakeManager,
       );

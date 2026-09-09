@@ -308,11 +308,24 @@ const healthMigrationsSchema = z.object({
   lastWorkspaceMigrationId: z.string().nullable(),
 });
 
+const failedMigrationDetailSchema = z.object({
+  name: z.string(),
+  error: z.string().optional(),
+});
+
+const deferredMigrationDetailSchema = z.object({
+  name: z.string(),
+  missing: z.array(z.string()),
+});
+
 const dbMigrationReadinessSchema = z.object({
   ready: z.boolean(),
   state: z.enum(["not_started", "running", "failed", "ready"]),
   reason: z.string().optional(),
   error: z.string().optional(),
+  failedMigrations: z.array(failedMigrationDetailSchema).optional(),
+  deferredMigrations: z.array(deferredMigrationDetailSchema).optional(),
+  validationError: z.string().optional(),
 });
 
 const detailedHealthSchema = z.object({

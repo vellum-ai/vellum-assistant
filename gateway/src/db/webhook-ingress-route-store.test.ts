@@ -16,17 +16,37 @@ import {
 } from "bun:test";
 
 import "../__tests__/test-preload.js";
+import { pluginWebhookPath } from "../channels/plugin-ingress.js";
+import { MAX_WEBHOOK_INGRESS_PATH_LENGTH } from "../velay/path-utils.js";
 import { getGatewayDb, initGatewayDb, resetGatewayDb } from "./connection.js";
 import { webhookIngressRoutes } from "./schema.js";
 import {
   hasWebhookIngressRoute,
   listWebhookIngressRoutes,
   onWebhookIngressRoutesChanged,
+  PLUGIN_WEBHOOK_ROUTE_TYPE,
+  reconcilePluginWebhookIngressRoutes,
   registerWebhookIngressRoute,
   unregisterWebhookIngressRoute,
 } from "./webhook-ingress-route-store.js";
 
 const PATH = "/webhooks/telegram";
+
+/** Write a row straight to the table, past what the register function accepts. */
+function persistRow(path: string, type: string, source: string): void {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(webhookIngressRoutes)
+    .values({
+      path,
+      type,
+      source,
+      match: "exact",
+      createdAt: now,
+      lastRegisteredAt: now,
+    })
+    .run();
+}
 
 beforeAll(async () => {
   resetGatewayDb();
@@ -111,7 +131,7 @@ describe("registerWebhookIngressRoute", () => {
       `/webhooks/${"x".repeat(500)}`,
     ]) {
       expect(() =>
-        registerWebhookIngressRoute({ path, type: "plugin" }),
+        registerWebhookIngressRoute({ path, type: "twilio" }),
       ).not.toThrow();
       expect(hasWebhookIngressRoute(path)).toBe(true);
     }
@@ -156,6 +176,19 @@ describe("registerWebhookIngressRoute", () => {
     }
     expect(listWebhookIngressRoutes()).toEqual([]);
   });
+
+  it("refuses the type the plugin reconcile owns", () => {
+    // A row of this type is the reconcile's to keep or remove, so a claim
+    // accepted here would be reaped the moment no plugin declares its path.
+    expect(() =>
+      registerWebhookIngressRoute({
+        path: PATH,
+        type: PLUGIN_WEBHOOK_ROUTE_TYPE,
+        source: "meeting-bot",
+      }),
+    ).toThrow(/reserved/);
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
 });
 
 describe("unregisterWebhookIngressRoute", () => {
@@ -168,6 +201,218 @@ describe("unregisterWebhookIngressRoute", () => {
 
   it("reports a path it never held", () => {
     expect(unregisterWebhookIngressRoute(PATH)).toBe(false);
+  });
+});
+
+describe("reconcilePluginWebhookIngressRoutes", () => {
+  const REALTIME = "/webhooks/plugins/meeting-bot/realtime";
+  const EVENTS = "/webhooks/plugins/meeting-bot/events";
+  const NOTES = "/webhooks/plugins/notes/events";
+
+  const claim = (path: string, source: string) => ({ path, source });
+
+  function paths(): string[] {
+    return listWebhookIngressRoutes()
+      .map((r) => r.path)
+      .sort();
+  }
+
+  it("leaves a row of another type at a desired path with its owner", () => {
+    // The daemon claims plugin webhook paths under its own per-route types.
+    // Such a row already admits the path, so the reconcile neither rewrites
+    // its ownership nor removes it when the path leaves the servable set.
+    registerWebhookIngressRoute({
+      path: REALTIME,
+      type: "plugin_meeting-bot_realtime_ab12cd34",
+      source: "meeting-bot",
+    });
+
+    const first = reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+    ]);
+    expect(first.added).toEqual([]);
+    expect(first.removed).toEqual([]);
+
+    const second = reconcilePluginWebhookIngressRoutes([]);
+    expect(second.removed).toEqual([]);
+    expect(listWebhookIngressRoutes().map((r) => [r.path, r.type])).toEqual([
+      [REALTIME, "plugin_meeting-bot_realtime_ab12cd34"],
+    ]);
+  });
+
+  it("claims every path in the set, attributed to its plugin", () => {
+    // The empty-registry case is the one that matters: a persisted grant holds
+    // no row of its own, so a reconcile is what populates the registry from it.
+    const { added, removed } = reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+      claim(NOTES, "notes"),
+    ]);
+
+    expect(added.sort()).toEqual([REALTIME, NOTES].sort());
+    expect(removed).toEqual([]);
+    expect(
+      listWebhookIngressRoutes()
+        .map((r) => [r.path, r.type, r.source])
+        .sort(),
+    ).toEqual([
+      [REALTIME, "plugin", "meeting-bot"],
+      [NOTES, "plugin", "notes"],
+    ]);
+  });
+
+  it("drops a plugin path that is no longer servable and keeps the rest", () => {
+    reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+      claim(EVENTS, "meeting-bot"),
+    ]);
+
+    // What a partial revocation looks like from here: the source still holds
+    // one path, so the row for the other has to go and this one has to stay.
+    const { added, removed } = reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+    ]);
+
+    expect(added).toEqual([]);
+    expect(removed).toEqual([EVENTS]);
+    expect(paths()).toEqual([REALTIME]);
+  });
+
+  it("drops every plugin path when nothing is servable", () => {
+    reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+      claim(NOTES, "notes"),
+    ]);
+
+    expect(reconcilePluginWebhookIngressRoutes([]).removed.sort()).toEqual(
+      [NOTES, REALTIME].sort(),
+    );
+    expect(listWebhookIngressRoutes()).toEqual([]);
+  });
+
+  it("leaves rows another subsystem registered alone", () => {
+    // Same source name, different type. A plugin reconcile has no say over a
+    // claim it did not make.
+    registerWebhookIngressRoute({
+      path: PATH,
+      type: "telegram",
+      source: "meeting-bot",
+    });
+
+    reconcilePluginWebhookIngressRoutes([]);
+
+    expect(listWebhookIngressRoutes().map((r) => r.type)).toEqual(["telegram"]);
+  });
+
+  it("keeps the original claim time when a path stays servable", () => {
+    reconcilePluginWebhookIngressRoutes([claim(REALTIME, "meeting-bot")]);
+    const createdAt = listWebhookIngressRoutes()[0]?.createdAt;
+
+    reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+      claim(NOTES, "notes"),
+    ]);
+
+    expect(
+      listWebhookIngressRoutes().find((r) => r.path === REALTIME)?.createdAt,
+    ).toBe(createdAt);
+  });
+
+  it("fires the change listener once for the whole reconcile", () => {
+    reconcilePluginWebhookIngressRoutes([claim(EVENTS, "meeting-bot")]);
+
+    let fired = 0;
+    const unsubscribe = onWebhookIngressRoutesChanged(() => {
+      fired += 1;
+    });
+
+    // One addition and one removal in the same pass: subscribers re-advertise
+    // the whole path set, so they only ever need telling once.
+    reconcilePluginWebhookIngressRoutes([claim(REALTIME, "meeting-bot")]);
+    expect(fired).toBe(1);
+
+    unsubscribe();
+  });
+
+  it("stays quiet when the registry already matches", () => {
+    reconcilePluginWebhookIngressRoutes([claim(REALTIME, "meeting-bot")]);
+
+    let fired = 0;
+    const unsubscribe = onWebhookIngressRoutesChanged(() => {
+      fired += 1;
+    });
+
+    const { added, removed } = reconcilePluginWebhookIngressRoutes([
+      claim(REALTIME, "meeting-bot"),
+    ]);
+
+    expect(added).toEqual([]);
+    expect(removed).toEqual([]);
+    expect(fired).toBe(0);
+
+    unsubscribe();
+  });
+
+  it("stores both spellings of a composition at the registry's bound", () => {
+    // The budget is shared between the plugin name and the declared path, so
+    // whichever half spends it, a composition discovery accepted registers.
+    for (const [plugin, route] of [
+      ["p".repeat(255), "x".repeat(237)],
+      ["p", "x".repeat(491)],
+    ] as const) {
+      const path = pluginWebhookPath(plugin, route);
+      expect(`${path}/`).toHaveLength(MAX_WEBHOOK_INGRESS_PATH_LENGTH);
+
+      const { added, rejected } = reconcilePluginWebhookIngressRoutes([
+        claim(path, plugin),
+        claim(`${path}/`, plugin),
+      ]);
+
+      expect(rejected).toEqual([]);
+      expect(added.sort()).toEqual([path, `${path}/`].sort());
+    }
+  });
+
+  it("leaves a plugin-typed row outside the plugin namespace alone", () => {
+    // A row the public IPC persisted under this type sits outside the
+    // namespace the reconcile owns, so it is not the reconcile's to reap.
+    persistRow("/webhooks/plugin", PLUGIN_WEBHOOK_ROUTE_TYPE, "acme");
+    reconcilePluginWebhookIngressRoutes([claim(REALTIME, "meeting-bot")]);
+
+    const { removed } = reconcilePluginWebhookIngressRoutes([]);
+
+    // The namespace row still follows what plugins declare; the other stays.
+    expect(removed).toEqual([REALTIME]);
+    expect(paths()).toEqual(["/webhooks/plugin"]);
+  });
+
+  it("refuses to claim a path outside the plugin namespace", () => {
+    // The reconcile writes only rows it can also withdraw, so a claim it would
+    // never reap is reported instead of stored.
+    const outside = "/webhooks/telegram";
+
+    const { added, rejected } = reconcilePluginWebhookIngressRoutes([
+      claim(outside, "meeting-bot"),
+      claim(NOTES, "notes"),
+    ]);
+
+    expect(rejected).toEqual([outside]);
+    expect(added).toEqual([NOTES]);
+    expect(paths()).toEqual([NOTES]);
+  });
+
+  it("skips a path it could not compare byte for byte and settles the rest", () => {
+    // One plugin declaring something unstorable must not stop every other
+    // plugin's paths from settling, so it is reported rather than thrown.
+    const bad = "/webhooks/plugins/meeting-bot/../../admin";
+
+    const { added, rejected } = reconcilePluginWebhookIngressRoutes([
+      claim(bad, "meeting-bot"),
+      claim(NOTES, "notes"),
+    ]);
+
+    expect(rejected).toEqual([bad]);
+    expect(added).toEqual([NOTES]);
+    expect(paths()).toEqual([NOTES]);
   });
 });
 

@@ -22,6 +22,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { selectWinningProfile } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
@@ -37,7 +38,9 @@ import { resolveAttachmentsForPersist } from "../persistence/attachments-store.j
 import {
   deleteMessageById,
   getMessageById,
+  type OverrideProfileFields,
   recordConversationPersistedSeq,
+  resolveOverrideProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
@@ -90,6 +93,50 @@ const log = getLogger("voice-session-bridge");
  * turns this pin exists to save, hence the capability check at the call site.
  */
 const VOICE_IMAGE_PROFILE = "latency-optimized";
+
+/**
+ * The profile the conversation's own text turns run on, resolved the way a
+ * `mainAgent` turn resolves it: the conversation's pinned profile when it
+ * carries one, else the workspace chat-model selection (`llm.activeProfile`),
+ * else the main agent's call-site pin.
+ *
+ * The escalated voice leg runs through `callAgent`, whose chain never
+ * consults `llm.activeProfile`, so without this the hand-off lands on that
+ * site's shipped `balanced` default while the same conversation's typed
+ * turns run on whatever the user picked. Pinning the text-turn winner keeps
+ * the stronger model the front door escalates to the one the conversation is
+ * already using.
+ *
+ * `profile` is the name to pin (a mix's own name, so dispatch re-expands it
+ * to the same arm from the conversation seed); `modelProfile` is the concrete
+ * profile whose model actually runs (the chosen arm of a mix), which is what
+ * capability checks must judge: a mix reads as vision-capable when any arm
+ * is, but only one arm serves this conversation.
+ *
+ * Null when nothing above named a profile (the winner is the code-owned
+ * anchor): the leg then keeps its ordinary call-site resolution, which lands
+ * on the same anchor intent and still honors a `callAgent` site pin.
+ */
+function conversationProfileForEscalation(
+  conversation: OverrideProfileFields & { conversationId: string },
+): { profile: string; modelProfile: string } | null {
+  const overrideProfile = resolveOverrideProfile(conversation);
+  let chosenArm: string | undefined;
+  const selection = selectWinningProfile("mainAgent", getConfig().llm, {
+    ...(overrideProfile != null ? { overrideProfile } : {}),
+    selectionSeed: conversation.conversationId,
+    onMixSelected: ({ chosenProfile }) => {
+      chosenArm = chosenProfile;
+    },
+  });
+  if (selection.source === "default" || selection.profileName == null) {
+    return null;
+  }
+  return {
+    profile: selection.profileName,
+    modelProfile: chosenArm ?? selection.profileName,
+  };
+}
 
 /**
  * Does this conversation's history carry an image?
@@ -422,10 +469,10 @@ export interface VoiceTurnOptions {
   signal?: AbortSignal;
   /**
    * Ad-hoc inference-profile override applied to every LLM call this turn
-   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Used by
-   * triage-and-escalate voice routing to run the front-door leg on the fast
-   * profile and the escalated leg on the quality profile. Undefined = the
-   * call-site default (today's behavior).
+   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Wins
+   * over the bridge's own pins (the image pin, and the conversation's
+   * profile for an escalated leg). Undefined = those pins, else the
+   * call-site default.
    */
   overrideProfile?: string;
   /**
@@ -1902,23 +1949,47 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
+      // An escalated leg follows the conversation's own model: the front
+      // door hands off to the profile the caller's typed turns already run
+      // on, not to `callAgent`'s shipped default. Null keeps the ordinary
+      // call-site resolution.
+      const conversationProfile =
+        opts.routingLeg === "escalated"
+          ? conversationProfileForEscalation(conversation)
+          : null;
       // Resolved once here rather than inside the options literal below, so
       // the history scan happens once per leg. A front-door leg is skipped:
-      // its own call site already resolves to the same profile. The
-      // capability check comes before the scan because it is the cheaper of
-      // the two and it decides whether the pin is worth anything at all.
-      const carriesImage =
+      // its own call site already resolves to the same profile. A
+      // conversation profile whose model takes images needs no image pin
+      // either; one that does not yields to the image pin, since a model
+      // that rejects an image fails the whole leg. The judged profile is the
+      // concrete arm that serves this conversation, not a mix's name. The
+      // capability checks come before the scan because they are the cheaper
+      // of the two and they decide whether the pin is worth anything at all.
+      const needsImagePin =
         opts.routingLeg !== "front-door" &&
+        !(
+          conversationProfile != null &&
+          doesSupportVision(conversationProfile.modelProfile)
+        ) &&
         doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());
-      if (carriesImage) {
+      if (needsImagePin) {
         log.info(
           { turnId, routingLeg: opts.routingLeg ?? null },
           "Voice leg carries an image; pinning the image-capable profile",
         );
+      } else if (conversationProfile != null) {
+        log.info(
+          { turnId, profile: conversationProfile.profile },
+          "Escalated voice leg pinned to the conversation's own profile",
+        );
       }
       const profilePin =
-        opts.overrideProfile ?? (carriesImage ? VOICE_IMAGE_PROFILE : null);
+        opts.overrideProfile ??
+        (needsImagePin
+          ? VOICE_IMAGE_PROFILE
+          : (conversationProfile?.profile ?? null));
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
@@ -1995,15 +2066,17 @@ export async function startVoiceTurn(
         ...(isEscalationContinuation
           ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
           : {}),
-        // Triage-and-escalate routing pins this turn to the fast front-door or
-        // strong escalation profile. `forceOverrideProfile` floats it above the
-        // callAgent call-site layers (callAgent is not `mainAgent`, so the
-        // override would otherwise sit below the call-site profile).
+        // Triage-and-escalate routing pins this turn to the fast front-door
+        // profile or to the conversation's own profile for the escalated
+        // leg. `forceOverrideProfile` floats it above the callAgent call-site
+        // layers (callAgent is not `mainAgent`, so the override would
+        // otherwise sit below the call-site profile).
         //
         // An explicit routing pin wins; failing that, a leg whose history
-        // carries an image is pinned to a profile whose model takes one. A
-        // front-door leg needs neither: its own call site already resolves
-        // there.
+        // carries an image is pinned to a profile whose model takes one;
+        // failing that, an escalated leg is pinned to the conversation's
+        // profile. A front-door leg needs none of these: its own call site
+        // already resolves there.
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),

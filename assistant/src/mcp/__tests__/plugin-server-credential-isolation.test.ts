@@ -39,9 +39,6 @@ const UNREACHABLE = "http://127.0.0.1:1/mcp";
 function httpServer(source: "workspace" | "plugin") {
   return {
     transport: { type: "streamable-http" as const, url: UNREACHABLE },
-    enabled: true,
-    defaultRiskLevel: "low" as const,
-    maxTools: 20,
     source,
   };
 }
@@ -57,7 +54,6 @@ describe("plugin-declared MCP servers", () => {
 
     await manager.start({
       servers: { unabyss: httpServer("plugin") },
-      globalMaxTools: 50,
     });
 
     expect(getMcpHeaders).not.toHaveBeenCalled();
@@ -69,7 +65,6 @@ describe("plugin-declared MCP servers", () => {
 
     await manager.start({
       servers: { "from-workspace": httpServer("workspace") },
-      globalMaxTools: 50,
     });
 
     expect(getMcpHeaders).toHaveBeenCalledWith("from-workspace");
@@ -86,7 +81,6 @@ describe("plugin-declared MCP servers", () => {
         unabyss: httpServer("plugin"),
         "from-workspace": httpServer("workspace"),
       },
-      globalMaxTools: 50,
     });
 
     const lookedUpIds = getMcpHeaders.mock.calls.map(([id]) => id);

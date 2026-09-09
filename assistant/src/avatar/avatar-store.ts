@@ -8,8 +8,12 @@
  * the artifacts don't back. This mirrors the "traits before PNG" ordering in
  * traits-png-sync.ts.
  *
- * This module is the single writer of avatar state. Callers (HTTP/IPC routes)
- * should go through it rather than touching artifacts or the manifest directly.
+ * This module is the single writer of avatar state and the single place a
+ * change is announced: every successful mutation leaves the `## Avatar` note
+ * in IDENTITY.md and runs the client + platform fan-out
+ * (`publishAvatarChanged`). Callers (HTTP/IPC routes) go through it rather
+ * than touching artifacts or the manifest directly, and never publish on
+ * their own.
  */
 import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -22,6 +26,7 @@ import {
   type AvatarAccent,
 } from "@vellumai/avatar-manifest";
 
+import { publishAvatarChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { getAvatarDir, getAvatarImagePath } from "../util/platform.js";
 import {
@@ -38,6 +43,11 @@ import {
 } from "./avatar-manifest.js";
 import { readContainedAvatarRaster } from "./ensure-raster.js";
 import {
+  describeAvatarState,
+  NO_AVATAR_IDENTITY_NOTE,
+  updateIdentityAvatarSection,
+} from "./identity-avatar.js";
+import {
   ASCII_FILENAME,
   type CharacterTraits,
   type TraitsSyncResult,
@@ -45,6 +55,25 @@ import {
 } from "./traits-png-sync.js";
 
 const log = getLogger("avatar-store");
+
+export interface AvatarChangeOptions {
+  /** The client that made the change, so it can ignore its own sync echo. */
+  originClientId?: string;
+}
+
+export interface ImageChangeOptions extends AvatarChangeOptions {
+  /** What the image shows, when known (the prompt an AI image came from). */
+  imageDescription?: string;
+}
+
+/** The side effects every persisted change owes. */
+function announceChange(
+  identityNote: string,
+  options?: AvatarChangeOptions,
+): void {
+  updateIdentityAvatarSection(identityNote);
+  publishAvatarChanged(options?.originClientId);
+}
 
 /**
  * Sets the avatar to a builder-rendered character: writes traits.json, renders
@@ -54,21 +83,27 @@ const log = getLogger("avatar-store");
  * Returns the underlying {@link TraitsSyncResult} unchanged so the route layer
  * keeps its existing error semantics (`invalid_traits` / `native_unavailable` /
  * `render_error`). The manifest is written ONLY when the render succeeded — a
- * failed render leaves both artifacts and manifest untouched.
+ * failed render leaves both artifacts and manifest untouched, and announces
+ * nothing.
  */
-export function setCharacter(traits: CharacterTraits): TraitsSyncResult {
+export function setCharacter(
+  traits: CharacterTraits,
+  options?: AvatarChangeOptions,
+): TraitsSyncResult {
   const result = writeTraitsAndRenderAvatar(traits);
   if (!result.ok) {
     return result;
   }
 
-  writeManifest({
+  const state: AvatarState = {
     kind: "character",
     traits,
     source: "builder",
     image: computeImageMeta(getAvatarImagePath()),
     accent: paletteAccent(traits.color),
-  });
+  };
+  writeManifest(state);
+  announceChange(describeAvatarState(state), options);
   return result;
 }
 
@@ -82,6 +117,7 @@ export function setCharacter(traits: CharacterTraits): TraitsSyncResult {
 export async function setImage(
   pngBuffer: Buffer,
   source: AvatarSource,
+  options?: ImageChangeOptions,
 ): Promise<void> {
   const accent = derivedAccent(await deriveAccentHexFromImage(pngBuffer));
   const avatarDir = getAvatarDir();
@@ -95,17 +131,22 @@ export async function setImage(
   rmSync(join(avatarDir, AVATAR_TRAITS_FILENAME), { force: true });
   rmSync(join(avatarDir, ASCII_FILENAME), { force: true });
 
-  writeManifest({
+  const state: AvatarState = {
     kind: "image",
     traits: null,
     source,
     image: computeImageMeta(pngPath),
     accent,
-  });
+  };
+  writeManifest(state);
 
   log.info(
     { source, accent: accent?.hex ?? null },
     "Set avatar from image and removed character sidecars",
+  );
+  announceChange(
+    describeAvatarState(state, options?.imageDescription),
+    options,
   );
 }
 
@@ -131,10 +172,12 @@ async function automaticAccent(
  * Sets the accent over the current avatar: a `#rrggbb` the user chose, or
  * `null` to go back to the automatic one. Returns the state as written, or
  * null when there is no avatar to colour. Only the manifest changes; the
- * artifacts are untouched.
+ * artifacts are untouched, and so is the IDENTITY.md note, since the avatar
+ * itself did not change.
  */
 export async function setAccent(
   hex: string | null,
+  options?: AvatarChangeOptions,
 ): Promise<AvatarState | null> {
   const state = readAvatarState();
   if (state.kind === "none") {
@@ -145,6 +188,7 @@ export async function setAccent(
     accent: hex ? { hex, source: "custom" } : await automaticAccent(state),
   };
   writeManifest(next);
+  publishAvatarChanged(options?.originClientId);
   return next;
 }
 
@@ -207,7 +251,7 @@ export async function backfillAccent(state: AvatarState): Promise<AvatarState> {
  * picked up by the read-time self-heal instead of being shadowed by a stale
  * `none` manifest.
  */
-export function clearAvatar(): void {
+export function clearAvatar(options?: AvatarChangeOptions): void {
   const avatarDir = getAvatarDir();
   mkdirSync(avatarDir, { recursive: true });
 
@@ -217,4 +261,5 @@ export function clearAvatar(): void {
   rmSync(join(avatarDir, AVATAR_MANIFEST_FILENAME), { force: true });
 
   log.info("Cleared avatar — removed all artifacts");
+  announceChange(NO_AVATAR_IDENTITY_NOTE, options);
 }

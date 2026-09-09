@@ -9,6 +9,7 @@ import { Input } from "@vellumai/design-library/components/input";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import {
+  catalogEnabledFlags,
   getModelsForProvider,
   getVisibleModelsForProvider,
   PROVIDER_DISPLAY_NAMES,
@@ -124,8 +125,11 @@ export function ProfileEditorProviderSection({
   // fixed model set.
   const { t } = useTranslation("settings");
   const [isEnteringCustomModel, setIsEnteringCustomModel] = useState(false);
-  const developerMode =
-    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const hostedInference =
+    useAssistantFeatureFlagStore.use.vellumHostedInference();
+  const catalogFlags = catalogEnabledFlags({
+    hostedInference,
+  });
 
   const subscriptionRestricted = restrictsToSubscriptionModels(
     provider,
@@ -209,10 +213,7 @@ export function ProfileEditorProviderSection({
       if (!provider) {
         return [];
       }
-      const catalogModels = getVisibleModelsForProvider(
-        provider,
-        developerMode,
-      );
+      const catalogModels = getVisibleModelsForProvider(provider, catalogFlags);
       if (catalogModels.length > 0) {
         if (
           restrictsToSubscriptionModels(
@@ -249,7 +250,7 @@ export function ProfileEditorProviderSection({
       provider,
       providerConnection,
       availableConnectionsForProvider,
-      developerMode,
+      catalogFlags,
     ]);
 
   // The Model dropdown always offers the profile's currently-bound model, even
@@ -325,7 +326,7 @@ export function ProfileEditorProviderSection({
     if (isEnteringCustomModel) {
       return;
     }
-    const catalogModels = getVisibleModelsForProvider(provider, developerMode);
+    const catalogModels = getVisibleModelsForProvider(provider, catalogFlags);
     // Connection-derived providers (openai-compatible) have an empty catalog.
     // An id the connection does not list is still a valid bound model.
     if (catalogModels.length === 0) {
@@ -347,7 +348,7 @@ export function ProfileEditorProviderSection({
     onModelChange,
     provider,
     isEnteringCustomModel,
-    developerMode,
+    catalogFlags,
   ]);
 
   const defaultEntryMetaLabel = t("aiProviderPicker.defaultEntryMeta");
