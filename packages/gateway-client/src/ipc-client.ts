@@ -340,7 +340,8 @@ type PendingRequest = {
 export type PersistentIpcClientOptions = {
   /**
    * Additional delays (ms) before each reconnect attempt after a retryable
-   * connect failure. Pass `[]` to fail on the first miss (tests).
+   * connect failure. Pass `[]` to fail on the first miss (tests and callers
+   * that already own a retry budget, such as classify_risk).
    */
   connectRetryBackoffsMs?: readonly number[];
 };
@@ -350,8 +351,9 @@ export type PersistentIpcClientOptions = {
  * reconnection on failure. Multiplexes requests by ID so many concurrent
  * callers can share one socket.
  *
- * Designed for hot-path calls (e.g. classify_risk) where connecting per call
- * adds unacceptable overhead.
+ * Designed for multiplexed calls over one socket. Control-plane callers
+ * typically keep the default connect retries for sibling boot races.
+ * Callers that already own a retry budget pass `connectRetryBackoffsMs: []`.
  */
 export class PersistentIpcClient {
   private socket: Socket | null = null;

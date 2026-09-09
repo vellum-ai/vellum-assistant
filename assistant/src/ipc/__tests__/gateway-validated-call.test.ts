@@ -4,10 +4,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  IpcCallError,
-  IpcConnectError,
-} from "@vellumai/gateway-client/ipc-client";
+import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import { ServiceUnavailableError } from "../../runtime/routes/errors.js";
@@ -44,8 +41,10 @@ describe("ipcCallPersistentValidated", () => {
     expect(result).toEqual({ ok: true });
   });
 
-  test("maps IpcConnectError to ServiceUnavailableError", async () => {
-    ipcError = new IpcConnectError("connect ENOENT", "ENOENT");
+  test("propagates ServiceUnavailableError from ipcCallPersistent", async () => {
+    ipcError = new ServiceUnavailableError(
+      "Gateway is not reachable over IPC: connect ENOENT",
+    );
 
     await expect(
       ipcCallPersistentValidated("ping", {}, OkSchema),
