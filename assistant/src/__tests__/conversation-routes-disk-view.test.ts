@@ -4,11 +4,13 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
+import type { EnqueueMessageOptions } from "../daemon/conversation-messaging.js";
 import { persistUserMessage } from "../daemon/conversation-messaging.js";
 import {
   addMessage,
   findMessageIdByClientMessageId,
   getConversation,
+  getMessages as readPersistedMessages,
   provenanceFromTrustContext,
 } from "../persistence/conversation-crud.js";
 import {
@@ -863,11 +865,7 @@ describe("host-proxy preactivation across an interrupt", () => {
       processing: boolean;
       owner: number;
       abortController: AbortController | null;
-      enqueueMessage: (options: { requestId?: string }) => {
-        queued: boolean;
-        requestId: string;
-        rejected?: boolean;
-      };
+      enqueueMessage: Conversation["enqueueMessage"];
     };
     conv.processing = true;
     conv.owner = 1;
@@ -875,14 +873,24 @@ describe("host-proxy preactivation across an interrupt", () => {
     // the queue, which is full.
     conv.abortController = new AbortController();
     let enqueuedRequestId: string | undefined;
-    conv.enqueueMessage = (options: { requestId?: string }) => {
+    conv.enqueueMessage = ((options: EnqueueMessageOptions) => {
       enqueuedRequestId = options.requestId;
+      // What the real `enqueueMessage` does on a refusal: announce it on the
+      // sender's sink as a generic, uncorrelated `queue_full` error. Whether
+      // that reaches the wire is the sink's decision, which is what this test
+      // is about.
+      options.onEvent?.({
+        type: "error",
+        conversationId,
+        message: "The assistant is busy and cannot accept more messages.",
+        category: "queue_full",
+      });
       return {
         queued: false,
         requestId: options.requestId ?? crypto.randomUUID(),
         rejected: true,
       };
-    };
+    }) as Conversation["enqueueMessage"];
 
     const events: Array<Record<string, unknown>> = [];
     const subscription = assistantEventHub.subscribe({
@@ -914,6 +922,15 @@ describe("host-proxy preactivation across an interrupt", () => {
     // must not mint an id of its own: the client was told this one.
     expect(reported.requestId).toBe(accepted.requestId);
     expect(reported.category).toBe("queue_drain_failed");
+    // And ONLY that one. `enqueueMessage` also announces a refused enqueue as a
+    // generic uncorrelated `queue_full` error, which a client reads as the
+    // running turn failing and tears that turn down over: a turn this send does
+    // not own. It must not reach the wire on a fallback.
+    const uncorrelated = events.filter((envelope) => {
+      const message = envelope.message as Record<string, unknown> | undefined;
+      return message?.type === "error" && message.category === "queue_full";
+    });
+    expect(uncorrelated).toEqual([]);
     // The fallback enqueue must carry the id the 202 handed out, not one of its
     // own: the row it persists and the queue events it emits are what the
     // client correlates against what it was told.
@@ -960,9 +977,11 @@ describe("host-proxy preactivation across an interrupt", () => {
     const clientMessageId = `cmid-${crypto.randomUUID()}`;
     const conv = busyConversation(conversationId) as Conversation & {
       currentTurnClientMessageId?: string;
+      currentRequestId?: string;
     };
     // The turn is armed and holding the lock, but its row is not inserted yet.
     conv.currentTurnClientMessageId = clientMessageId;
+    conv.currentRequestId = "in-flight-req";
     expect(
       findMessageIdByClientMessageId(conversationId, clientMessageId),
     ).toBeUndefined();
@@ -974,8 +993,17 @@ describe("host-proxy preactivation across an interrupt", () => {
     );
 
     expect(response.status).toBe(202);
-    const body = (await response.json()) as { queued?: boolean };
+    const body = (await response.json()) as {
+      queued?: boolean;
+      messageId?: string;
+      requestId?: string;
+    };
     expect(body.queued).toBeUndefined();
+    // `messageId` too, or the client rejects the acceptance and drops the
+    // optimistic row, which loses the send to its own retry. It is the running
+    // turn's request id, which is what that turn persists its row under.
+    expect(body.messageId).toBe("in-flight-req");
+    expect(body.requestId).toBe("in-flight-req");
     // Untouched: no abort, and the turn still holds the conversation.
     expect(conv.isProcessing()).toBe(true);
   });
@@ -1038,6 +1066,37 @@ describe("host-proxy preactivation across an interrupt", () => {
     expect(reported.category).toBe("queue_drain_failed");
 
     subscription.dispose();
+  });
+
+  test("a canned slash reply persists under the id the acceptance advertised", async () => {
+    // An interrupting send is answered `202` carrying `messageId` before the
+    // slash branches run, and those branches persist the user row themselves.
+    // Minting an id there would advertise a row that never exists, so the
+    // client's optimistic row could never be reconciled against it.
+    setOverridesForTesting({ "interrupt-on-send": true });
+    const conversationKey = `macos-slash-${crypto.randomUUID()}`;
+    const { conversationId } = getOrCreateConversationMapping(conversationKey);
+    busyConversation(conversationId);
+
+    // `/compact` with an argument is the cheapest route to the canned
+    // unknown-command branch, which answers with a card and starts no turn.
+    const response = await sendMacosMessage(
+      conversationKey,
+      "/compact nonsense",
+    );
+    expect(response.status).toBe(202);
+    const body = (await response.json()) as { messageId?: string };
+    expect(typeof body.messageId).toBe("string");
+
+    // The handover and the canned branch both run off the response.
+    const row = await waitFor(() =>
+      body.messageId
+        ? (readPersistedMessages(conversationId).find(
+            (m) => m.id === body.messageId,
+          ) ?? undefined)
+        : undefined,
+    );
+    expect(row.role).toBe("user");
   });
 
   test("a retransmitted send answers from the existing row instead of interrupting", async () => {

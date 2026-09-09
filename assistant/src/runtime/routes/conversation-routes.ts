@@ -2255,7 +2255,36 @@ export async function handleSendMessage(
   // to carry the id the row will be written with.
   const sendRequestId = uuidv7();
 
-  const queueSend = async (content: string) => {
+  /**
+   * `broadcastMessage`, minus the queue's own uncorrelated rejection notice.
+   *
+   * `enqueueMessage` announces a refused enqueue on the sender's sink as a
+   * generic `error` with `category: "queue_full"` and no `requestId`. That is
+   * the right notice when the enqueue IS the request's answer. On a fallback it
+   * is not: the request was answered `202` long ago, and a client that receives
+   * an uncorrelated error reads it as the running turn failing and tears that
+   * turn down locally, a turn this send does not own. The correlated
+   * `QUEUE_FULL` from {@link reportQueueRejectionAfterAcceptance} carries the
+   * `requestId` and is the one a client can act on, so it is the only one sent.
+   *
+   * Filtered here rather than in the client so clients that are not updated get
+   * the fix too.
+   */
+  const broadcastExceptUncorrelatedQueueFull = (msg: AssistantEvent): void => {
+    if (
+      msg.type === "error" &&
+      msg.category === "queue_full" &&
+      !msg.requestId
+    ) {
+      return;
+    }
+    broadcastMessage(msg);
+  };
+
+  const queueSend = async (
+    content: string,
+    options?: { afterAcceptance?: boolean },
+  ) => {
     // Queue the message so it's processed when the current turn completes.
     // The send's own id, not a fresh one: an interrupting send is answered
     // `202` before this can run, and a fallback that minted its own would
@@ -2265,7 +2294,9 @@ export async function handleSendMessage(
     const enqueueResult = conversation.enqueueMessage({
       content,
       attachments,
-      onEvent: broadcastMessage,
+      onEvent: options?.afterAcceptance
+        ? broadcastExceptUncorrelatedQueueFull
+        : broadcastMessage,
       requestId,
       metadata: withClientMetadata(
         {
@@ -2432,7 +2463,7 @@ export async function handleSendMessage(
       content: string,
       reason: string,
     ): Promise<unknown> => {
-      const result = await queueSend(content);
+      const result = await queueSend(content, { afterAcceptance });
       if (afterAcceptance && result instanceof RouteResponse) {
         reportQueueRejectionAfterAcceptance(reason);
       }
@@ -2603,7 +2634,12 @@ export async function handleSendMessage(
           const persisted = await persistQueuedMessageBody(conversation, {
             content: rawContent,
             attachments,
-            requestId: uuidv7(),
+            // The send's own id, not a fresh one: an interrupting send is
+            // answered `202` advertising this id as its `messageId` before
+            // these branches run, and a user row is persisted under its
+            // request id, so minting here would advertise a row that never
+            // exists.
+            requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
             clientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
@@ -2718,7 +2754,9 @@ export async function handleSendMessage(
           persisted = await persistQueuedMessageBody(conversation, {
             content: rawContent,
             attachments,
-            requestId: uuidv7(),
+            // See the note on the other canned branches: the id was already
+            // advertised on the acceptance, so it has to be the one used here.
+            requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
             clientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
@@ -2823,7 +2861,12 @@ export async function handleSendMessage(
           const persisted = await persistQueuedMessageBody(conversation, {
             content: rawContent,
             attachments,
-            requestId: uuidv7(),
+            // The send's own id, not a fresh one: an interrupting send is
+            // answered `202` advertising this id as its `messageId` before
+            // these branches run, and a user row is persisted under its
+            // request id, so minting here would advertise a row that never
+            // exists.
+            requestId: sendRequestId,
             metadata: withClientMetadata(slashMeta, clientMetadata),
             clientMessageId,
             ...(clientOs ? { requestClientOs: clientOs } : {}),
@@ -2999,11 +3042,18 @@ export async function handleSendMessage(
         { conversationId: mapping.conversationId, clientMessageId },
         "Duplicate send for the turn it started; leaving that turn alone",
       );
+      // `messageId` as well, and the running turn's own request id for both:
+      // that turn persists its row under it, so this is the id the row will
+      // carry. Without a `messageId` the client rejects the acceptance and
+      // drops the optimistic row, which is the whole send lost to a retry.
       return {
         accepted: true,
         conversationId: mapping.conversationId,
         ...(conversation.currentRequestId
-          ? { requestId: conversation.currentRequestId }
+          ? {
+              messageId: conversation.currentRequestId,
+              requestId: conversation.currentRequestId,
+            }
           : {}),
       };
     }
@@ -3068,7 +3118,9 @@ export async function handleSendMessage(
      * retry; the body it typed is in that row, so the event does not repeat it.
      */
     const queueAfterAcceptance = async (reason: string): Promise<void> => {
-      const queueResult = await queueSend(contentAfterScan);
+      const queueResult = await queueSend(contentAfterScan, {
+        afterAcceptance: true,
+      });
       if (queueResult instanceof RouteResponse) {
         reportQueueRejectionAfterAcceptance(reason);
       }
