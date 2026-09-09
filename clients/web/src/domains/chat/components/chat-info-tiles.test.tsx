@@ -21,9 +21,9 @@ import {
 } from "@testing-library/react";
 import type { ReactElement } from "react";
 
-import * as appHtmlCache from "@/utils/app-html-cache";
 import {
   CHAT_INFO_OBJECT_URL,
+  chatInfoAppHtmlCacheMock,
   installChatInfoDomStubs,
   makeAppSummary,
   makeChatInfoQueryClient,
@@ -39,13 +39,7 @@ import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversatio
 installChatInfoDomStubs();
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.
-mock.module(
-  "@/utils/app-html-cache",
-  (): Partial<typeof appHtmlCache> => ({
-    ...appHtmlCache,
-    getCachedAppHtml: async () => "<!doctype html><title>App</title>",
-  }),
-);
+mock.module("@/utils/app-html-cache", chatInfoAppHtmlCacheMock);
 
 const { ChatInfoAppTile } =
   await import("@/domains/chat/components/chat-info-app-tile");

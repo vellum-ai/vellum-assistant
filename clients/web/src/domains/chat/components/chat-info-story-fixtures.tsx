@@ -13,26 +13,21 @@
  */
 
 import type { Decorator } from "@storybook/react-vite";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { type QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { makePreviewableImages } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
+  attachmentRows,
   CHAT_INFO_T0,
-  clearTranscriptOwner,
+  clearTranscriptMessages,
   makeAppSummary,
+  makeChatInfoQueryClient,
   makeDocumentSummary,
-  seedTranscriptOwner,
+  seedChatInfoConversation,
+  seedTranscriptMessages,
 } from "@/domains/chat/components/chat-info.test-helper";
-import type {
-  DisplayAttachment,
-  DisplayMessage,
-} from "@/domains/chat/types/types";
-import {
-  appsGetQueryKey,
-  documentsGetQueryKey,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { DisplayAttachment } from "@/domains/chat/types/types";
 import type { AppSummary } from "@/types/app-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
@@ -111,7 +106,7 @@ export function chatInfoPreviewHtml(title: string, lines: string[]): string {
 }
 
 /** The first `count` fixture apps, newest first. */
-function chatInfoApps(count: number): AppSummary[] {
+export function chatInfoApps(count: number): AppSummary[] {
   return APP_SEEDS.slice(0, count).map((seed, index) =>
     makeAppSummary({
       id: `app-${index + 1}`,
@@ -145,33 +140,6 @@ function chatInfoDocuments(
   );
 }
 
-/**
- * Two transcript rows carrying `attachments`: the user's upload, then the
- * assistant's reply. This is the source `useConversationAttachments` reads,
- * so the panel's Documents & Images row lists exactly these files.
- */
-function chatInfoMessages(attachments: DisplayAttachment[]): DisplayMessage[] {
-  const half = Math.ceil(attachments.length / 2);
-  return [
-    {
-      id: "msg-user",
-      role: "user",
-      timestamp: CHAT_INFO_T0,
-      textSegments: ["Here are the shots from the harbour."],
-      contentOrder: [{ type: "text", id: "0" }],
-      attachments: attachments.slice(0, half),
-    },
-    {
-      id: "msg-assistant",
-      role: "assistant",
-      timestamp: CHAT_INFO_T0 + 1_000,
-      textSegments: ["Added them to the trip notes."],
-      contentOrder: [{ type: "text", id: "0" }],
-      attachments: attachments.slice(half),
-    },
-  ];
-}
-
 /** The conversation a story asks for through `parameters.chatInfo`. */
 export interface ChatInfoStoryConversation {
   assistantId: string;
@@ -191,26 +159,13 @@ const DEFAULT_CONVERSATION: ChatInfoStoryConversation = {
 };
 
 /**
- * Fills the query cache the way the daemon would, and primes each app's html
- * so the tiles render a live preview instead of the icon placeholder.
+ * Primes each app's html so its tile renders a live preview instead of the
+ * icon placeholder, on the fixture lines the app's position carries.
  */
-function seedChatInfoQueries(
-  client: QueryClient,
-  {
-    assistantId,
-    conversationId,
-    appCount,
-    documentCount,
-  }: ChatInfoStoryConversation,
+export function primeChatInfoAppPreviews(
+  assistantId: string,
+  apps: AppSummary[],
 ): void {
-  const apps = chatInfoApps(appCount);
-  const documents = chatInfoDocuments(documentCount, conversationId);
-  const path = { assistant_id: assistantId };
-  const query = { conversationId };
-  client.setQueryData(appsGetQueryKey({ path, query }), { apps });
-  // The app options menu reads the unscoped list to know whether a pin exists.
-  client.setQueryData(appsGetQueryKey({ path }), { apps });
-  client.setQueryData(documentsGetQueryKey({ path, query }), { documents });
   for (const [index, app] of apps.entries()) {
     const seed = APP_SEEDS[index % APP_SEEDS.length]!;
     primeAppHtmlCache(
@@ -221,26 +176,37 @@ function seedChatInfoQueries(
   }
 }
 
+/** Fills the query cache the way the daemon would, previews included. */
+function seedChatInfoQueries(
+  client: QueryClient,
+  {
+    assistantId,
+    conversationId,
+    appCount,
+    documentCount,
+  }: ChatInfoStoryConversation,
+): void {
+  const apps = chatInfoApps(appCount);
+  seedChatInfoConversation(client, {
+    assistantId,
+    conversationId,
+    apps,
+    documents: chatInfoDocuments(documentCount, conversationId),
+  });
+  primeChatInfoAppPreviews(assistantId, apps);
+}
+
 /** Installs the story's attachments as the rendered transcript, under its owner. */
 function seedChatInfoTranscript({
   assistantId,
   conversationId,
   attachments,
 }: ChatInfoStoryConversation): void {
-  useChatSessionStore.getState().seedSnapshot(conversationId, {
-    messages: chatInfoMessages(attachments),
-    hasMore: false,
-    oldestTimestamp: null,
-    oldestMessageId: null,
-    seq: 1,
-  });
-  seedTranscriptOwner(assistantId, conversationId);
-}
-
-/** Drops the seeded transcript, so a story cannot leak into the next one. */
-function resetChatInfoTranscript(): void {
-  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
-  clearTranscriptOwner();
+  seedTranscriptMessages(
+    assistantId,
+    conversationId,
+    attachmentRows(attachments),
+  );
 }
 
 /**
@@ -261,14 +227,12 @@ export const inChatInfoConversation: Decorator =
           | Partial<ChatInfoStoryConversation>
           | undefined),
       };
-      const created = new QueryClient({
-        defaultOptions: { queries: { retry: false, staleTime: Infinity } },
-      });
+      const created = makeChatInfoQueryClient();
       seedChatInfoQueries(created, conversation);
       seedChatInfoTranscript(conversation);
       return created;
     });
-    useEffect(() => resetChatInfoTranscript, []);
+    useEffect(() => clearTranscriptMessages, []);
 
     return (
       <QueryClientProvider client={client}>

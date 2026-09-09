@@ -1,14 +1,18 @@
 /**
  * Fixtures and the shared harness for the Chat Info tests and stories: the two
- * daemon summaries the panel lists, the assets it renders as tiles, the query
- * client its hooks read, and the browser APIs happy-dom leaves out.
+ * daemon summaries the panel lists, the assets it renders as tiles, the
+ * transcript rows those assets come from, the query client its hooks read, the
+ * modules a suite hands `mock.module`, and the browser APIs happy-dom leaves
+ * out.
  *
  * Every asset goes through `toConversationFileAssets`, the mapping the hook
  * itself runs, so a fixture cannot drift from the ids and shapes the panel
  * receives in the app.
  *
  * Kept free of any test-runner import so `.stories.tsx` files can use it, the
- * way `utils/conversation-list.test-helper.ts` already is.
+ * way `utils/conversation-list.test-helper.ts` already is. A `mock.module`
+ * call is process-global, so it stays in the suite; only the module body it
+ * installs lives here.
  */
 
 import { QueryClient } from "@tanstack/react-query";
@@ -24,29 +28,34 @@ import {
   appsGetQueryKey,
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import type * as ElementSizeModule from "@/hooks/use-element-size";
+import type * as IsMobileModule from "@/hooks/use-is-mobile";
+import { makeAppSummary as makeSharedAppSummary } from "@/types/app-summary.test-helper";
 import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
+import * as appHtmlCache from "@/utils/app-html-cache";
 
 /** Fixed epoch ms, so nothing built here depends on the clock. */
 export const CHAT_INFO_T0 = 1_760_000_000_000;
 
-/** A daemon app summary with every field defaulted, `overrides` on top. */
+/** The drawer body's column on the desktop mock: 3 app tiles, 4 file tiles. */
+export const CHAT_INFO_DRAWER_WIDTH_PX = 569;
+
+/** The narrowest phone the app runs on, screen width and all. */
+export const CHAT_INFO_NARROW_PHONE_PX = 402;
+
+/** The shared app builder, under the defaults every Chat Info fixture wants. */
 export function makeAppSummary(
   overrides: Partial<AppSummary> = {},
 ): AppSummary {
-  const id = overrides.id ?? "app-1";
-  return {
-    id,
-    name: "Trip Planner",
+  return makeSharedAppSummary({
+    id: "app-1",
     icon: "🧭",
     createdAt: CHAT_INFO_T0,
     updatedAt: CHAT_INFO_T0,
-    version: "1.0.0",
-    contentId: `${id}-content`,
-    origin: "workspace",
     ...overrides,
-  };
+  });
 }
 
 /** A daemon document summary with every field defaulted, `overrides` on top. */
@@ -70,7 +79,7 @@ export function makeDocumentSummary(
  * attachment's own id, which is what the hook uses for anything but a legacy
  * `rehydrated:N` row.
  */
-export function makeAttachmentEntry(
+function makeAttachmentEntry(
   attachment: DisplayAttachment,
   overrides: Partial<Omit<ConversationAttachmentEntry, "attachment">> = {},
 ): ConversationAttachmentEntry {
@@ -105,6 +114,30 @@ export function makeFrameAsset(
     [],
     [makeAttachmentEntry(attachment, { sightFrame: true, capturedAt })],
   ).frames[0]!;
+}
+
+/** One transcript row, carrying only the fields a Chat Info fixture sets. */
+export function makeTranscriptRow(
+  overrides: Partial<DisplayMessage> = {},
+): DisplayMessage {
+  return { id: "msg-1", role: "user", ...overrides };
+}
+
+/**
+ * One row per attachment, oldest first from {@link CHAT_INFO_T0}. This is the
+ * source `useConversationAttachments` walks, so the panel lists exactly these
+ * files, newest first.
+ */
+export function attachmentRows(
+  attachments: DisplayAttachment[],
+): DisplayMessage[] {
+  return attachments.map((attachment, index) =>
+    makeTranscriptRow({
+      id: `msg-${index + 1}`,
+      timestamp: CHAT_INFO_T0 + index * 1_000,
+      attachments: [attachment],
+    }),
+  );
 }
 
 /**
@@ -163,6 +196,39 @@ export function installChatInfoDomStubs(): void {
   }
   globalThis.IntersectionObserver =
     ImmediateIntersectionObserver as unknown as typeof IntersectionObserver;
+}
+
+/**
+ * The `@/utils/app-html-cache` module body a suite installs, so an app tile's
+ * live preview settles instead of calling the daemon's open endpoint.
+ */
+export function chatInfoAppHtmlCacheMock(): Partial<typeof appHtmlCache> {
+  return {
+    ...appHtmlCache,
+    getCachedAppHtml: async () => "<!doctype html><title>App</title>",
+  };
+}
+
+/**
+ * The `@/hooks/use-element-size` module body a suite installs: happy-dom
+ * reports a zero box for everything, so the row's width is read from here.
+ */
+export function makeElementSizeMock(
+  readWidth: () => number,
+): Partial<typeof ElementSizeModule> {
+  return {
+    useElementSize: () => ({ ref: () => {}, size: { w: readWidth(), h: 0 } }),
+  };
+}
+
+/** The `@/hooks/use-is-mobile` module body a suite installs. */
+export function makeIsMobileMock(
+  readIsMobile: () => boolean,
+): Partial<typeof IsMobileModule> {
+  return {
+    useIsMobile: () => readIsMobile(),
+    MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+  };
 }
 
 /**
@@ -243,15 +309,15 @@ export function seedTranscriptMessages(
   conversationId: string,
   messages: DisplayMessage[],
 ): void {
-  useChatSessionStore.setState({
-    snapshot: {
-      messages,
-      hasMore: false,
-      oldestTimestamp: null,
-      oldestMessageId: null,
-      seq: 1,
-    },
-    optimisticSends: [],
+  // A seeded transcript has nothing in flight; the seed itself only prunes
+  // the sends its messages confirm.
+  useChatSessionStore.setState({ optimisticSends: [] });
+  useChatSessionStore.getState().seedSnapshot(conversationId, {
+    messages,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq: 1,
   });
   seedTranscriptOwner(assistantId, conversationId);
 }
