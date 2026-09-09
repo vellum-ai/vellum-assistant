@@ -283,13 +283,13 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
       className="companion-share-annotation fixed inset-0 h-full w-full"
       style={
         {
+          cursor,
           "--companion-ink-hold": `${COMPANION_INK_HOLD_MS}ms`,
           "--companion-ink-fade": `${COMPANION_INK_FADE_MS}ms`,
         } as React.CSSProperties
       }
       data-testid="companion-share-annotation"
       role="presentation"
-      style={{ cursor }}
       onPointerDown={handleDown}
       onPointerMove={handleMove}
       onPointerUp={handleUp}
