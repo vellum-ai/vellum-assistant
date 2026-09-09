@@ -501,7 +501,8 @@ export class AcpSessionManager {
    *
    * An answer that carries no model selector is not a pin that landed: the
    * session is left with no model rather than one only the superseded
-   * response ever named.
+   * response ever named, and the empty picker goes out so no client is left
+   * holding a selector the answer retired.
    */
   private async applyModelPin(
     entry: SessionEntry,
@@ -536,7 +537,10 @@ export class AcpSessionManager {
       );
       this.applyModelInfo(entry, refreshed);
       if (!entry.modelConfigId) {
-        this.clearModelSnapshot(entry);
+        // Published, not just recorded: a `config_option_update` that arrived
+        // while the round trip was open has already put its selector in front
+        // of clients, and a session no client holds yet drops the frame.
+        this.clearVanishedModelSelector(state.id, entry);
         log.warn(
           { acpSessionId: state.id, agentId: state.agentId, resolvedModel },
           "ACP agent dropped its model selector while applying the model; running on its own model",
@@ -803,24 +807,14 @@ export class AcpSessionManager {
     if (entry.modelConfigId || entry.state.availableModels === undefined) {
       return false;
     }
-    this.clearModelSnapshot(entry);
+    entry.state.model = undefined;
+    entry.state.availableModels = [];
     entry.sendToVellum({
       type: "acp_session_model_update",
       acpSessionId,
       availableModels: [],
     });
     return true;
-  }
-
-  /**
-   * Drops the live model snapshot without publishing anything. The pin's
-   * caller uses it directly: a spawn or resume clears before the session is
-   * announced, where the silence `sendModelEvent` keeps for a selector-less
-   * adapter is already the whole story.
-   */
-  private clearModelSnapshot(entry: SessionEntry): void {
-    entry.state.model = undefined;
-    entry.state.availableModels = [];
   }
 
   /**

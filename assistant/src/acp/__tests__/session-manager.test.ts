@@ -466,12 +466,69 @@ describe("AcpSessionManager: model selection at spawn", () => {
     const state = manager.getStatus(result.acpSessionId) as AcpSessionState;
     expect(state.model).toBeUndefined();
     expect(state.availableModels).toEqual([]);
-    // Nothing was announced before the pin ran, so the empty picker is the
-    // silence a selector-less adapter already gets.
-    expect(sent.map((e) => e.type)).toEqual(["acp_session_spawned"]);
+    // The withdrawal goes out before the session is announced, which no
+    // client holds an entry for yet, and the spawn's own model event stays
+    // silent for an adapter with nothing to select.
+    expect(sent.map((e) => e.type)).toEqual([
+      "acp_session_model_update",
+      "acp_session_spawned",
+    ]);
+    expect(sent[0]).toEqual({
+      type: "acp_session_model_update",
+      acpSessionId: result.acpSessionId,
+      availableModels: [],
+    });
 
     manager.close(result.acpSessionId);
     expect(readHistoryRow(result.acpSessionId)?.model).toBeNull();
+  });
+
+  test("a selector announced while the pin was open is withdrawn from clients", async () => {
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setConfigOptionResponder = async () => {
+      await held;
+      return [nonModelOption()];
+    };
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-announced",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+    await waitForConfigOptionCalls(1);
+    const acpSessionId = manager.getActiveAndPendingIds()[0]!;
+    // The adapter reports a selector of its own while the pin is still open,
+    // which reaches clients right away.
+    await emitConfigOptions(manager, acpSessionId, [modelOption("opus")]);
+    release();
+    await spawned;
+
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    expect(sent.filter((e) => e.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        model: "opus",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        availableModels: [],
+      },
+    ]);
   });
 
   test("an inherited model whose pin loses the selector warns nobody", async () => {
