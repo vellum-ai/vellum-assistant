@@ -17,6 +17,7 @@ import {
   normalizeProxyPath,
   parseProxyProviderSegment,
   parseProxyQuery,
+  PROXY_LOCATION_HEADER,
   PROXY_PATH_PREFIX,
   PROXY_ROUTE_ENDPOINT,
   proxyGrantSubject,
@@ -376,6 +377,60 @@ describe("materializeProxyResponse", () => {
     });
   });
 
+  test("strips a provider cookie whatever its casing", () => {
+    const response = materializeProxyResponse(
+      upstream({
+        headers: {
+          "Set-Cookie": "sid=abc; Path=/; HttpOnly",
+          "set-cookie2": "sid2=def",
+          "CONTENT-TYPE": "text/plain",
+        },
+        body: "ok",
+      }),
+      "GET",
+    );
+
+    expect(response.headers).toEqual({ "CONTENT-TYPE": "text/plain" });
+  });
+
+  test("a redirect keeps its status and moves its target off `location`", () => {
+    const response = materializeProxyResponse(
+      upstream({
+        status: 302,
+        headers: {
+          Location: "https://files.example.com/blob/abc",
+          "content-type": "text/plain",
+        },
+        body: "moved",
+      }),
+      "POST",
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers).toEqual({
+      "content-type": "text/plain",
+      [PROXY_LOCATION_HEADER]: "https://files.example.com/blob/abc",
+    });
+  });
+
+  test("a provider cannot author the daemon's own header namespace", () => {
+    const response = materializeProxyResponse(
+      upstream({
+        status: 302,
+        headers: {
+          "X-Vellum-Proxy-Location": "https://evil.example.com/steal",
+          "x-vellum-subject": "local:self:oauth-proxy.stripe_link",
+          location: "https://files.example.com/blob/abc",
+        },
+      }),
+      "GET",
+    );
+
+    expect(response.headers).toEqual({
+      [PROXY_LOCATION_HEADER]: "https://files.example.com/blob/abc",
+    });
+  });
+
   test("serializes an object body and defaults its content type", async () => {
     const response = materializeProxyResponse(
       upstream({ body: { id: "pm_1" } }),
@@ -397,6 +452,20 @@ describe("materializeProxyResponse", () => {
 
     expect(response.headers).toEqual({
       "Content-Type": "application/vnd.api+json",
+    });
+  });
+
+  test("finds an upstream content type whatever its casing", () => {
+    const response = materializeProxyResponse(
+      upstream({
+        headers: { "CoNtEnT-TyPe": "application/vnd.api+json" },
+        body: { id: "pm_1" },
+      }),
+      "GET",
+    );
+
+    expect(response.headers).toEqual({
+      "CoNtEnT-TyPe": "application/vnd.api+json",
     });
   });
 

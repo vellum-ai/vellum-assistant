@@ -17,6 +17,7 @@ import {
   ProviderUnreachableError,
 } from "../../oauth/platform-connection.js";
 import type { TokenExpiredError } from "../../security/token-manager.js";
+import { findContentTypeHeader } from "../../util/oauth-request-body.js";
 import {
   BadGatewayError,
   BadRequestError,
@@ -71,7 +72,11 @@ const TEXT_ENCODER = new TextEncoder();
  */
 const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
 
-/** Response headers describing a framing this daemon re-does itself. */
+/**
+ * Response headers the caller never sees: a framing this daemon re-does
+ * itself, and a cookie the request side already refuses to send back, which
+ * would only plant provider state on the daemon's own origin.
+ */
 const STRIPPED_RESPONSE_HEADERS = new Set([
   "content-length",
   "content-encoding",
@@ -80,7 +85,20 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
   "keep-alive",
   "trailer",
   "upgrade",
+  "set-cookie",
+  "set-cookie2",
 ]);
+
+/**
+ * Header a provider's 3xx target is moved onto.
+ *
+ * A grant is a live credential for this daemon, and a client that keeps
+ * `Authorization` across hosts (`curl --location-trusted`, a hand-rolled
+ * redirect loop) would hand it to the provider on the very first hop. Under
+ * a name no HTTP client follows, the target is still readable and no longer
+ * reachable by accident. The 3xx status itself is preserved.
+ */
+export const PROXY_LOCATION_HEADER = "x-vellum-proxy-location";
 
 /**
  * Provider segment for a base URL. An account pins one connection when the
@@ -249,7 +267,7 @@ export function sanitizeInboundHeaders(
   headers: Record<string, string>,
 ): Record<string, string> {
   const stripped = new Set(STRIPPED_REQUEST_HEADERS);
-  for (const token of findHeader(headers, "connection")?.split(",") ?? []) {
+  for (const token of findConnectionHeader(headers)?.split(",") ?? []) {
     const listed = token.trim().toLowerCase();
     if (listed) {
       stripped.add(listed);
@@ -281,10 +299,22 @@ export function materializeProxyResponse(
   method: string,
 ): RouteResponse {
   const headers: Record<string, string> = {};
+  let location: string | undefined;
   for (const [name, value] of Object.entries(upstream.headers ?? {})) {
-    if (!STRIPPED_RESPONSE_HEADERS.has(name.toLowerCase())) {
-      headers[name] = value;
+    const lower = name.toLowerCase();
+    // `x-vellum-*` is this daemon's namespace on both sides of the hop, so a
+    // provider cannot author one.
+    if (STRIPPED_RESPONSE_HEADERS.has(lower) || lower.startsWith("x-vellum-")) {
+      continue;
     }
+    if (lower === "location") {
+      location = value;
+      continue;
+    }
+    headers[name] = value;
+  }
+  if (location !== undefined) {
+    headers[PROXY_LOCATION_HEADER] = location;
   }
 
   const bodyless =
@@ -304,7 +334,7 @@ export function materializeProxyResponse(
     bytes = null;
   } else {
     bytes = TEXT_ENCODER.encode(JSON.stringify(body));
-    if (findHeader(headers, "content-type") === undefined) {
+    if (findContentTypeHeader(headers) === undefined) {
       headers["content-type"] = "application/json";
     }
   }
@@ -433,12 +463,13 @@ function errorMessage(err: unknown): string {
 }
 
 /** Case-insensitive lookup, since inbound header casing is the caller's. */
-function findHeader(
+function findConnectionHeader(
   headers: Record<string, string>,
-  name: string,
 ): string | undefined {
-  const target = name.toLowerCase();
-  return Object.entries(headers).find(
-    ([header]) => header.toLowerCase() === target,
-  )?.[1];
+  for (const [name, value] of Object.entries(headers)) {
+    if (name.toLowerCase() === "connection") {
+      return value;
+    }
+  }
+  return undefined;
 }

@@ -57,7 +57,10 @@ export async function handleOAuthProxy(
   // Only the HTTP adapter supplies the wire-exact URL this route forwards. The
   // refusal carries the gateway's retry-over-HTTP signal and precedes every
   // provider call, so the retry reaches upstream exactly once.
-  if (!args.rawUrl) {
+  // An IPC caller controls every handler arg, so the guard checks the type
+  // rather than truthiness: a plain object carrying pathname and search would
+  // otherwise satisfy it and reach a provider with the real credential.
+  if (!(args.rawUrl instanceof URL)) {
     throw new HttpTransportRequiredError(
       "The OAuth proxy is served over HTTP only; retry this request over the HTTP transport",
     );

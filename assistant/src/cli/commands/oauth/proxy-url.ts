@@ -57,40 +57,51 @@ export function registerProxyUrlCommand(oauth: Command): void {
       opts: { account?: string; ttl?: string; export?: boolean },
       cmd: Command,
     ) => {
-      let ttlSeconds: number | undefined;
-      if (opts.ttl !== undefined) {
-        const parsed = Number.parseInt(opts.ttl, 10);
-        if (!Number.isInteger(parsed) || String(parsed) !== opts.ttl.trim()) {
-          writeError(
-            cmd,
-            `Invalid --ttl "${opts.ttl}": expected a whole number of seconds.`,
-          );
-          process.exitCode = 2;
+      try {
+        let ttlSeconds: number | undefined;
+        if (opts.ttl !== undefined) {
+          const parsed = Number.parseInt(opts.ttl, 10);
+          if (!Number.isInteger(parsed) || String(parsed) !== opts.ttl.trim()) {
+            writeError(
+              cmd,
+              `Invalid --ttl "${opts.ttl}": expected a whole number of seconds.`,
+            );
+            process.exitCode = 2;
+            return;
+          }
+          ttlSeconds = parsed;
+        }
+
+        const r = await cliIpcCall<OAuthProxyGrantResponse>(
+          "oauth_proxy_grant",
+          {
+            body: {
+              provider,
+              ...(opts.account && { account: opts.account }),
+              ...(ttlSeconds !== undefined && { ttlSeconds }),
+            },
+          },
+        );
+
+        if (!r.ok) {
+          return exitFromIpcResult(r);
+        }
+
+        const result = r.result!;
+
+        if (opts.export) {
+          process.stdout.write(formatExportLines(result));
           return;
         }
-        ttlSeconds = parsed;
+
+        writeOutput(cmd, result);
+      } catch (err) {
+        // `--export` output is eval'd, so a failure reports through the
+        // format-aware envelope rather than putting JSON on stdout.
+        const message = err instanceof Error ? err.message : String(err);
+        writeError(cmd, message);
+        process.exitCode = 1;
       }
-
-      const r = await cliIpcCall<OAuthProxyGrantResponse>("oauth_proxy_grant", {
-        body: {
-          provider,
-          ...(opts.account && { account: opts.account }),
-          ...(ttlSeconds !== undefined && { ttlSeconds }),
-        },
-      });
-
-      if (!r.ok) {
-        return exitFromIpcResult(r);
-      }
-
-      const result = r.result!;
-
-      if (opts.export) {
-        process.stdout.write(formatExportLines(result));
-        return;
-      }
-
-      writeOutput(cmd, result);
     },
   );
 }
