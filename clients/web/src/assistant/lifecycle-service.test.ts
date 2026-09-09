@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   beginAssistantRequest,
-  recordAssistantRequestSuccess,
+  recordAssistantResponse,
 } from "@/assistant/request-activity";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -1267,7 +1267,7 @@ describe("lifecycleService — local health heartbeat", () => {
       expect(
         useAssistantLifecycleStore.getState().assistantState,
       ).toMatchObject({ health });
-      recordAssistantRequestSuccess(beginAssistantRequest(assistantId));
+      recordAssistantResponse(beginAssistantRequest(assistantId), true);
       expect(
         useAssistantLifecycleStore.getState().assistantState,
       ).toMatchObject({
@@ -1299,7 +1299,7 @@ describe("lifecycleService — local health heartbeat", () => {
       }
     ).probeReachability(assistantId);
     await waitFor(() => Boolean(finish));
-    recordAssistantRequestSuccess(beginAssistantRequest(assistantId));
+    recordAssistantResponse(beginAssistantRequest(assistantId), true);
     finish({ ok: false, status: 503 });
     await pending;
     expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({

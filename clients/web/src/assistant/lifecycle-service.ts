@@ -39,9 +39,8 @@ import {
 } from "@/assistant/lifecycle";
 import {
   beginAssistantRequest,
+  recordAssistantResponse,
   hasAssistantRespondedSince,
-  recordAssistantStatusObservation,
-  recordAssistantRequestSuccess,
   resetAssistantRequestActivity,
   useAssistantRequestActivity,
 } from "@/assistant/request-activity";
@@ -174,10 +173,7 @@ class AssistantLifecycleService {
       useResolvedAssistantsStore.getState().activeAssistantId,
     );
     useAssistantRequestActivity.subscribe((activity, previous) => {
-      if (
-        activity.lastSuccess === previous.lastSuccess ||
-        activity.lastSuccess <= activity.lastStatus
-      ) {
+      if (activity.sequence === previous.sequence || !activity.responded) {
         return;
       }
       if (
@@ -793,11 +789,7 @@ class AssistantLifecycleService {
       ) {
         return;
       }
-      if (daemonResponded) {
-        recordAssistantRequestSuccess(observation);
-      } else {
-        recordAssistantStatusObservation(observation);
-      }
+      recordAssistantResponse(observation, daemonResponded);
       if (
         hasAssistantRespondedSince(observation) &&
         (health === "unreachable" ||

@@ -29,10 +29,7 @@
  */
 import {
   beginAssistantRequest,
-  recordAssistantRequestFailure,
-  recordAssistantRequestSuccess,
-  recordAssistantStatusObservation,
-  type AssistantRequestObservation,
+  recordAssistantResponse,
 } from "@/assistant/request-activity";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { client as authClient } from "@/generated/auth/client.gen";
@@ -161,7 +158,8 @@ const ASSISTANT_PATH_RE = /^\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
  * Same resource match as {@link ASSISTANT_PATH_RE}, but allows an ingress
  * path prefix (`/assistant-123/v1/assistants/...`).
  */
-const ASSISTANT_RESOURCE_RE = /\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
+const ASSISTANT_RESOURCE_RE =
+  /\/v1\/assistants\/[^/]+\/(([^/?#]+)(?:\/.*)?)$/;
 
 /**
  * First segments whose `/v1/assistants/{id}/` prefix is stripped before
@@ -412,104 +410,33 @@ export function authorizeRemoteGatewayRequest(
 const assistantRequestObservations = new WeakMap<
   Request,
   {
-    observation: AssistantRequestObservation;
+    observation: number;
     isStatus: boolean;
     provesReadiness: boolean;
   }
 >();
-// Audited against the daemon SDK paths and gateway/src/index.ts route handlers.
-// Gateway-owned or mixed families and unknown routes do not prove daemon readiness.
-const SERVING_DAEMON_PATHS = new Set([
-  "apps",
-  "attachments",
-  "audit",
-  "auth",
-  "avatar",
-  "background-tools",
-  "backup",
-  "bookmarks",
-  "browser",
-  "cache",
-  "calls",
-  "clients",
-  "config",
-  "confirm",
-  "consolidation",
-  "contact_prompt_claim",
-  "contact_prompt_flags",
-  "content-source",
-  "conversation-starters",
-  "conversations",
-  "credentials",
-  "defer",
-  "dictation",
-  "disk-pressure",
-  "documents",
-  "domain",
-  "email",
-  "export",
-  "filing",
-  "gateway",
-  "groups",
-  "guardian-actions",
-  "guardian_form_claim",
-  "heartbeat",
-  "home",
-  "identity",
-  "image-generation",
-  "inference",
-  "lifecycle",
-  "live-voice",
-  "llm-request-logs",
-  "memory",
-  "memory-graph",
-  "memory-graph-node",
-  "memory-items",
-  "memory-nodes",
-  "messages",
-  "model",
-  "monitoring",
-  "notification-intent-result",
-  "notifications",
-  "onboarding",
-  "pages",
-  "pending-interactions",
-  "platform",
-  "plugins",
-  "question-response",
-  "recordings",
-  "resolve_contact_prompt",
-  "resolve_guardian_form",
-  "resource-pressure",
-  "retrospective",
-  "roadmap",
-  "routes",
-  "schedules",
-  "search",
-  "secret",
-  "secrets",
-  "sequences",
-  "settings",
-  "skills",
-  "sounds",
-  "stt",
-  "subagents",
-  "suggestion",
-  "surface-actions",
-  "surfaces",
-  "telemetry",
-  "tools",
-  "transfers",
-  "tts",
-  "ui",
-  "usage",
-  "user-routes",
-  "watchers",
-  "webhooks",
-  "workflows",
-  "workspace",
-  "workspace-files",
-  "x",
+// Legacy daemon SDK routes served by the gateway, plus sleep acknowledgements
+// and health checks whose payload must be validated by the lifecycle service.
+const NON_SERVING_DAEMON_PATHS = new Set([
+  ...FLATTENED_FIRST_SEGMENTS,
+  ...PLATFORM_PUSH_FIRST_SEGMENTS,
+  "audio",
+  "background-wake",
+  "backups",
+  "brain-graph",
+  "brain-graph-ui",
+  "channel-verification-sessions",
+  "channels",
+  "credential-requests",
+  "events",
+  "health",
+  "healthz",
+  "integrations",
+  "logs",
+  "oauth",
+  "ps",
+  "slack",
+  "trust-rules",
 ]);
 
 export function assistantActivityResponseInterceptor(
@@ -528,10 +455,8 @@ export function assistantActivityResponseInterceptor(
     !isStream &&
     observation
   ) {
-    if (observation.isStatus) {
-      recordAssistantStatusObservation(observation.observation);
-    } else if (observation.provesReadiness) {
-      recordAssistantRequestSuccess(observation.observation);
+    if (observation.isStatus || observation.provesReadiness) {
+      recordAssistantResponse(observation.observation, !observation.isStatus);
     }
   }
   return response;
@@ -677,7 +602,7 @@ function createInterceptor({
         observation,
         isStatus,
         provesReadiness:
-          observeDaemonActivity && SERVING_DAEMON_PATHS.has(match[2]),
+          observeDaemonActivity && !NON_SERVING_DAEMON_PATHS.has(match[2]),
       });
     }
     try {
@@ -726,7 +651,7 @@ export function daemonUnreachableInterceptor(
   if (
     UNREACHABLE_STATUS_CODES.has(response.status) &&
     !request.signal.aborted &&
-    recordAssistantRequestFailure(observation ?? null)
+    recordAssistantResponse(observation ?? null, false)
   ) {
     publish("assistant.unreachable", {});
   }

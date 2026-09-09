@@ -611,10 +611,6 @@ subgraph "Text Q&A Session"
     classDef provider fill:#ef5350,stroke:#c62828,color:#fff
 ```
 
-## Assistant Status in Clients
-
-The web client's status banner and sleep stage use explicit operational or local-host lifecycle states. A failed connection does not imply sleep. Successful daemon requests and validated healthy probes can supersede older sleep, wake, or unreachable reports through `clients/web/src/assistant/request-activity.ts`. Observations are scoped to the active assistant session and ordered by request start, preserving newer status reports and explicit operations or failures. Server responses remain in TanStack Query; see [client state management](clients/web/docs/STATE_MANAGEMENT.md#assistant-status-and-request-activity).
-
 ## Assistant Feature Flags
 
 All feature flags (assistant-scoped and client-scoped) are declared in the unified registry at `meta/feature-flags/feature-flag-registry.json`. Each entry has `id`, `scope`, `key`, `label`, `description`, and `defaultEnabled`. Flags are scoped: `assistant` flags gate daemon behavior via the gateway API, while `client` flags control client-side UI behavior stored in UserDefaults.

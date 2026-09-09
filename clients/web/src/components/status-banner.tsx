@@ -591,48 +591,78 @@ function useAssistantBannerConfig(): BannerConfig | null {
     refetch: refetchOperationalStatus,
   } = statusQuery;
 
-  const isResumeGraceActive = useResumeGrace();
-
-  // Remember only the transition context, never a replacement server snapshot.
-  const [unreachableGrace, setUnreachableGrace] = useState<{
-    assistantId: string;
-    kind: "reconnecting" | "waking";
-  } | null>(null);
+  // Track whether the assistant was recently sleeping so we can suppress
+  // the brief "unreachable" flash that occurs during the tail end of a
+  // wake (pod ready per k8s but application healthz not yet ok).
+  const [wasRecentlySleeping, setWasRecentlySleeping] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
-    const state = operationalStatus?.state;
-    if (!assistantId || operationalStatus?.detail_state === "failed") {
-      setUnreachableGrace(null);
+    if (operationalStatus?.detail_state === "failed") {
+      setWasRecentlySleeping(null);
     } else if (
-      state === "active" ||
-      state === "sleeping" ||
-      state === "waking"
+      operationalStatus?.state === "sleeping" ||
+      operationalStatus?.state === "waking"
     ) {
-      setUnreachableGrace({
-        assistantId,
-        kind: state === "active" ? "reconnecting" : "waking",
-      });
-    } else if (state !== "unreachable") {
-      setUnreachableGrace(null);
+      setWasRecentlySleeping(assistantId);
     } else {
-      setUnreachableGrace((previous) =>
-        previous?.assistantId === assistantId ? previous : null,
+      setWasRecentlySleeping((previous) =>
+        operationalStatus?.state === "unreachable" && previous === assistantId
+          ? previous
+          : null,
       );
     }
   }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
-  const graceKind =
-    unreachableGrace?.assistantId === assistantId
-      ? unreachableGrace.kind
-      : null;
+
+  // Auto-clear the override after 60s so a genuinely failed wake surfaces
+  // the real "unreachable" error with the Doctor action.
   useEffect(() => {
-    if (!graceKind || operationalStatus?.state !== "unreachable") {
+    if (!wasRecentlySleeping || operationalStatus?.state !== "unreachable") {
       return;
     }
-    const timeout = setTimeout(
-      () => setUnreachableGrace(null),
-      graceKind === "waking" ? 60_000 : 15_000,
-    );
+    const timeout = setTimeout(() => {
+      setWasRecentlySleeping(null);
+    }, 60_000);
     return () => clearTimeout(timeout);
-  }, [assistantId, graceKind, operationalStatus?.state]);
+  }, [wasRecentlySleeping, operationalStatus?.state]);
+
+  // Suppress the brief "unreachable" flash during the active → sleeping
+  // transition. When the pod is shutting down, healthz fails before the
+  // backend registers the sleep, causing a transient unreachable state.
+  const [wasRecentlyActive, setWasRecentlyActive] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    if (operationalStatus?.detail_state === "failed") {
+      setWasRecentlyActive(null);
+    } else if (operationalStatus?.state === "active") {
+      setWasRecentlyActive(assistantId);
+    } else {
+      setWasRecentlyActive((previous) =>
+        operationalStatus?.state === "unreachable" && previous === assistantId
+          ? previous
+          : null,
+      );
+    }
+  }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
+
+  // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
+  useEffect(() => {
+    if (!wasRecentlyActive || operationalStatus?.state !== "unreachable") {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setWasRecentlyActive(null);
+    }, 15_000);
+    return () => clearTimeout(timeout);
+  }, [wasRecentlyActive, operationalStatus?.state]);
+
+  // Suppress the brief "unreachable" flash when returning to a backgrounded
+  // client. On resume the first status probe often reads `unreachable`
+  // before settling, and because background poll timers were throttled the
+  // `wasRecentlyActive` / `wasRecentlySleeping` suppression never observed
+  // the preceding reading.
+  const isResumeGraceActive = useResumeGrace();
 
   // Suppress the brief "crash_loop" flash during a restart. The pod bounce
   // bumps the container restart counter, which the platform can briefly
@@ -943,9 +973,12 @@ function useAssistantBannerConfig(): BannerConfig | null {
   if (
     effectiveStatus?.state === "unreachable" &&
     effectiveStatus.detail_state !== "failed" &&
-    (isResumeGraceActive || graceKind)
+    assistantId &&
+    (isResumeGraceActive ||
+      wasRecentlyActive === assistantId ||
+      wasRecentlySleeping === assistantId)
   ) {
-    if (graceKind === "waking") {
+    if (wasRecentlySleeping === assistantId) {
       return operationalStatusBannerConfig(
         { ...effectiveStatus, state: "waking" },
         showDoctorAction,
@@ -1011,7 +1044,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
  * its phase, because the banner is not mounted everywhere the stage is (a
  * pop-out window has no banner at all). The cost is a second pass over local
  * state, not a second request: the operational status is one shared React
- * Query entry. Request activity clears stale sleep for both consumers.
+ * Query entry. The two instances hold their own transient-state suppression
+ * history, so a stage mounted mid-wake can read no phase where the older
+ * banner still reads "waking"; that resolves in the safe direction, with the
+ * banner keeping the status rather than both surfaces going quiet.
  */
 export function useAssistantSleepPhase(): AssistantSleepPhase | null {
   return useAssistantBannerConfig()?.sleepPhase ?? null;

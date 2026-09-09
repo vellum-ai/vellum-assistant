@@ -736,10 +736,3 @@ References:
 - [Zustand — Updating state](https://zustand.docs.pmnd.rs/learn/guides/updating-state)
 
 ---
-
-
-## Assistant status and request activity
-
-`assistant/request-activity.ts` stores client observation order for the active assistant session. The lifecycle service resets it on selection or active-assistant changes, including logout. Request interceptors capture the assistant and sequence before routing or awaiting authentication, then record successful daemon responses. Platform and gateway-only responses, stream headers, and sleep acknowledgments are not evidence of daemon readiness; health probes must also validate their payload.
-
-`useAssistantOperationalStatus` keeps the raw platform response in TanStack Query and uses `select` to project older sleeping, waking, or unreachable reports as active after a newer successful request. The banner, sleep stage, and serving gate share this projection. Local lifecycle health recovers through the same observation store. Newer status checks supersede older successes; delayed probes cannot overwrite newer request success with a stale sleep or connection failure. Explicit operations, maintenance, and fatal states remain visible.

@@ -1,12 +1,15 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import {
   beginAssistantRequest,
-  recordAssistantRequestSuccess,
-  recordAssistantStatusObservation,
+  recordAssistantResponse,
   resetAssistantRequestActivity,
 } from "@/assistant/request-activity";
 import type { AssistantState } from "@/assistant/types";
@@ -444,86 +447,57 @@ describe("daemon traffic supersedes stale operational status", () => {
     resetAssistantRequestActivity(null);
   });
 
-  function mockStatus(state: string, detail_state = "") {
-    sdkMock.mockImplementation(async () => {
-      // Model the platform response interceptor, tested with the real client separately.
-      recordAssistantStatusObservation(beginAssistantRequest("a-1"));
-      return {
-        data: { state, detail_state },
-        error: undefined,
-        response: new Response("{}"),
-      };
-    });
-  }
-
-  test.each(["sleeping", "waking", "unreachable"])(
-    "a success immediately clears %s and opens the serving gate",
-    async (state) => {
-      mockStatus(state);
-      const queryClient = new QueryClient({
-        defaultOptions: { queries: { retry: false } },
+  test.each([
+    ["sleeping", "", "active"],
+    ["waking", "", "active"],
+    ["unreachable", "", "active"],
+    ["upgrading_assistant_version", "", "upgrading_assistant_version"],
+    ["restarting", "", "restarting"],
+    ["migrating", "", "migrating"],
+    ["maintenance_mode", "", "maintenance_mode"],
+    ["crash_loop", "", "crash_loop"],
+    ["not_found", "", "not_found"],
+    ["waking", "failed", "waking"],
+  ] as const)(
+    "success projects %s (%s) to %s without changing server data",
+    async (state, detail_state, expected) => {
+      sdkMock.mockImplementation(async () => {
+        recordAssistantResponse(beginAssistantRequest("a-1"), false);
+        return {
+          data: { state, detail_state },
+          error: undefined,
+          response: Response.json({}),
+        };
       });
       const { result } = renderHook(
         () => ({
           status: useAssistantOperationalStatus("a-1"),
           serving: useAssistantIsServing("a-1"),
+          client: useQueryClient(),
         }),
-        {
-          wrapper: ({ children }) =>
-            createElement(
-              QueryClientProvider,
-              { client: queryClient },
-              children,
-            ),
-        },
+        { wrapper },
       );
       await waitFor(() =>
         expect(result.current.status.data?.state).toBe(state),
       );
-      act(() => recordAssistantRequestSuccess(beginAssistantRequest("a-1")));
+      act(() => recordAssistantResponse(beginAssistantRequest("a-1"), true));
       await waitFor(() =>
-        expect(result.current.status.data?.state).toBe("active"),
+        expect(result.current.status.data?.state).toBe(expected),
       );
-      expect(result.current.serving).toBe(true);
+      if (expected === "active") {expect(result.current.serving).toBe(true);}
       expect(sdkMock).toHaveBeenCalledTimes(1);
-      expect(queryClient.getQueryCache().getAll()[0]?.state.data).toMatchObject(
-        { state },
+      expect(
+        result.current.client.getQueryCache().getAll()[0]?.state.data,
+      ).toMatchObject({ state });
+      const delayed = beginAssistantRequest("a-1");
+      await act(async () => {
+        await result.current.status.refetch();
+      });
+      await waitFor(() =>
+        expect(result.current.status.data?.state).toBe(state),
       );
-      queryClient.clear();
+      act(() => recordAssistantResponse(delayed, true));
+      expect(result.current.status.data?.state).toBe(state);
     },
   );
-
-  test.each([
-    "upgrading_assistant_version",
-    "restarting",
-    "migrating",
-    "maintenance_mode",
-    "crash_loop",
-    "not_found",
-  ])("success does not hide %s", async (state) => {
-    mockStatus(state);
-    const { result } = renderHook(() => useAssistantOperationalStatus("a-1"), {
-      wrapper,
-    });
-    await waitFor(() => expect(result.current.data?.state).toBe(state));
-    act(() => recordAssistantRequestSuccess(beginAssistantRequest("a-1")));
-    expect(result.current.data?.state).toBe(state);
-  });
-
-  test("a new confirmed sleep supersedes success, including a delayed older response", async () => {
-    mockStatus("sleeping");
-    const { result } = renderHook(() => useAssistantOperationalStatus("a-1"), {
-      wrapper,
-    });
-    await waitFor(() => expect(result.current.data?.state).toBe("sleeping"));
-    const delayed = beginAssistantRequest("a-1");
-    act(() => recordAssistantRequestSuccess(beginAssistantRequest("a-1")));
-    await waitFor(() => expect(result.current.data?.state).toBe("active"));
-    await act(async () => {
-      await result.current.refetch();
-    });
-    await waitFor(() => expect(result.current.data?.state).toBe("sleeping"));
-    act(() => recordAssistantRequestSuccess(delayed));
-    expect(result.current.data?.state).toBe("sleeping");
-  });
 });

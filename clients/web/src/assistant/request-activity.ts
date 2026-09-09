@@ -1,102 +1,51 @@
 import { create } from "zustand";
 
-export interface AssistantRequestObservation {
-  assistantId: string;
-  generation: number;
-  sequence: number;
-}
-
-// Client observations only. Server status stays in the query cache.
-interface AssistantRequestActivity {
-  assistantId: string | null;
-  generation: number;
-  lastSuccess: number;
-  lastStatus: number;
-}
-
 let sequence = 0;
-export const useAssistantRequestActivity = create<AssistantRequestActivity>(
-  () => ({ assistantId: null, generation: 0, lastSuccess: 0, lastStatus: 0 }),
-);
+export const useAssistantRequestActivity = create(() => ({
+  assistantId: null as string | null,
+  sequence: 0,
+  responded: false,
+}));
 
 export function resetAssistantRequestActivity(
   assistantId: string | null,
 ): void {
-  useAssistantRequestActivity.setState((state) => ({
+  // Advancing the sequence also rejects responses from a previous selection.
+  useAssistantRequestActivity.setState({
     assistantId,
-    generation: state.generation + 1,
-    lastSuccess: 0,
-    lastStatus: 0,
-  }));
+    sequence: ++sequence,
+    responded: false,
+  });
 }
 
-/** Capture before awaiting so late responses cannot undo newer status checks. */
-export function beginAssistantRequest(
-  assistantId: string,
-): AssistantRequestObservation | null {
+// Capture before awaiting so late responses cannot undo newer observations.
+export function beginAssistantRequest(assistantId: string): number | null {
   const state = useAssistantRequestActivity.getState();
-  return state.assistantId === assistantId
-    ? { assistantId, generation: state.generation, sequence: ++sequence }
-    : null;
+  return state.assistantId === assistantId ? ++sequence : null;
 }
 
-function isCurrent(observation: AssistantRequestObservation): boolean {
+export function recordAssistantResponse(
+  observation: number | null,
+  responded: boolean,
+): boolean {
   const state = useAssistantRequestActivity.getState();
-  return (
-    state.assistantId === observation.assistantId &&
-    state.generation === observation.generation
-  );
-}
-
-export function recordAssistantRequestSuccess(
-  observation: AssistantRequestObservation | null,
-): void {
-  if (
-    observation &&
-    isCurrent(observation) &&
-    observation.sequence > useAssistantRequestActivity.getState().lastSuccess
-  ) {
-    useAssistantRequestActivity.setState({ lastSuccess: observation.sequence });
+  if (observation === null || observation <= state.sequence) {
+    return false;
   }
-}
-
-export function recordAssistantStatusObservation(
-  observation: AssistantRequestObservation | null,
-): void {
-  if (
-    observation &&
-    isCurrent(observation) &&
-    observation.sequence > useAssistantRequestActivity.getState().lastStatus
-  ) {
-    useAssistantRequestActivity.setState({ lastStatus: observation.sequence });
-  }
+  useAssistantRequestActivity.setState({
+    sequence: observation,
+    responded,
+  });
+  return true;
 }
 
 export function hasAssistantRespondedSince(
-  observation: AssistantRequestObservation | null,
+  observation: number | null,
 ): boolean {
   const state = useAssistantRequestActivity.getState();
   return (
-    observation !== null &&
-    isCurrent(observation) &&
-    state.lastSuccess > Math.max(observation.sequence, state.lastStatus)
+    observation !== null && state.responded && state.sequence > observation
   );
-}
-
-/** A current failure supersedes older successes, including ones still in flight. */
-export function recordAssistantRequestFailure(
-  observation: AssistantRequestObservation | null,
-): boolean {
-  const state = useAssistantRequestActivity.getState();
-  if (
-    !observation ||
-    !isCurrent(observation) ||
-    observation.sequence <= Math.max(state.lastStatus, state.lastSuccess)
-  ) {
-    return false;
-  }
-  recordAssistantStatusObservation(observation);
-  return true;
 }
 
 export function useAssistantRespondedSinceStatus(
@@ -106,6 +55,6 @@ export function useAssistantRespondedSinceStatus(
     (state) =>
       assistantId !== null &&
       state.assistantId === assistantId &&
-      state.lastSuccess > state.lastStatus,
+      state.responded,
   );
 }
