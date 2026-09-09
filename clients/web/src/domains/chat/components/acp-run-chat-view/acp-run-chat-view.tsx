@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo, useState, type FormEvent } from "react";
 
-import { Button, Typography } from "@vellumai/design-library";
+import { Button, cn, Typography } from "@vellumai/design-library";
 
 import { DetailShellHeader } from "@/components/detail-shell";
 import {
@@ -48,6 +48,10 @@ import {
   type AcpFileChange,
 } from "@/domains/chat/components/acp-run-chat-view/acp-chat-tool-card";
 import { AcpChatUserTurn } from "@/domains/chat/components/acp-run-chat-view/acp-chat-user-turn";
+import {
+  AcpModelStatCard,
+  useShowsAcpModelCard,
+} from "@/domains/chat/components/acp-run-chat-view/acp-model-stat-card";
 import { CommandOutputView } from "@/domains/chat/components/acp-run-chat-view/command-output-view";
 import { FileDiffView } from "@/domains/chat/components/acp-run-chat-view/file-diff-view";
 import { useStickToBottom } from "@/domains/chat/components/acp-run-chat-view/use-stick-to-bottom";
@@ -58,7 +62,11 @@ import {
   formatNumber,
 } from "@/domains/chat/components/metric-card";
 import { StatusBadgePill } from "@/domains/chat/components/status-badge-pill";
-import { steerAcpRun, stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
+import {
+  steerAcpRun,
+  stopAcpRun,
+  switchAcpRunModel,
+} from "@/domains/chat/utils/acp-run-actions";
 import { acpRunStatusBadge, isActiveAcpStatus } from "@/utils/acp-run-status";
 import { captureError } from "@/lib/sentry/capture-error";
 
@@ -112,6 +120,12 @@ export function AcpRunChatView({
 }: AcpRunChatViewProps) {
   const { t } = useTranslation("chat");
   const isRunning = isActiveAcpStatus(entry.status);
+
+  // The tile is the grid's third column, so the column count and the tile read
+  // one predicate rather than each deciding for itself.
+  const showsModelCard = useShowsAcpModelCard(entry);
+  const showsUsage =
+    entry.inputTokens !== undefined || entry.outputTokens !== undefined;
 
   const events = useAcpRunStore(
     (s) => s.byId[entry.acpSessionId]?.events ?? EMPTY_EVENTS,
@@ -258,10 +272,12 @@ export function AcpRunChatView({
             data-testid="acp-chat-conversation"
             className="flex h-full flex-col gap-4 overflow-y-auto px-5 py-5"
           >
-            {(entry.inputTokens !== undefined ||
-              entry.outputTokens !== undefined) && (
+            {(showsUsage || showsModelCard) && (
               <div
-                className="grid grid-cols-2 gap-3"
+                className={cn(
+                  "grid gap-3",
+                  showsModelCard ? "grid-cols-3" : "grid-cols-2",
+                )}
                 data-testid="acp-run-metrics"
               >
                 <AnimatedMetricCard
@@ -286,6 +302,12 @@ export function AcpRunChatView({
                   format={(n) => formatNumber(Math.round(n))}
                   label={t("acpRunChatView.outputLabel")}
                 />
+                {showsModelCard && (
+                  <AcpModelStatCard
+                    entry={entry}
+                    onSwitchModel={switchAcpRunModel}
+                  />
+                )}
               </div>
             )}
 

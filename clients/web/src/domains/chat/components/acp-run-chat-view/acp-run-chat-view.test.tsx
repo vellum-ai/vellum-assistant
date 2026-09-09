@@ -15,17 +15,27 @@ const steerAcpRun = mock(async () => ({
   steered: true,
 }));
 const stopAcpRun = mock(async () => {});
+const switchAcpRunModel = mock(async () => ({
+  acpSessionId: "acp-1",
+  model: "sonnet",
+  availableModels: [{ value: "sonnet", label: "Sonnet" }],
+}));
 
 // The real actions module imports the daemon client + resolved-assistants
 // store; mock at that boundary so the view's steer/stop calls stay in-process.
 mock.module("@/domains/chat/utils/acp-run-actions", () => ({
   steerAcpRun,
   stopAcpRun,
+  switchAcpRunModel,
 }));
 
 // Modules are imported AFTER the mock registers so the real actions module
 // (which pulls in the not-generated daemon client) is never evaluated.
 const { useAcpRunStore } = await import("@/domains/chat/acp-run-store");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { MIN_VERSION } =
+  await import("@/lib/backwards-compat/acp-model-switching");
 const { AcpRunChatView } = await import("./acp-run-chat-view");
 
 // Reset only the data slices (merge, not replace) so the store's action
@@ -67,6 +77,7 @@ beforeEach(() => {
   useAcpRunStore.setState(freshState());
   steerAcpRun.mockClear();
   stopAcpRun.mockClear();
+  switchAcpRunModel.mockClear();
 });
 
 afterEach(cleanup);
@@ -402,5 +413,85 @@ describe("AcpRunChatView", () => {
     expect(screen.getByTestId("acp-chat-agent-message")).toBeDefined();
     // No live caret / ThreeDotIndicator because the run is terminal.
     expect(screen.queryByTestId("acp-chat-agent-streaming")).toBeNull();
+  });
+});
+
+describe("AcpRunChatView metrics grid", () => {
+  const MODEL_OPTIONS = [
+    { value: "opus", label: "Opus" },
+    { value: "sonnet", label: "Sonnet" },
+  ];
+
+  afterEach(() => {
+    useAssistantIdentityStore.setState({ version: null });
+  });
+
+  test("gives the MODEL tile the grid's third column", () => {
+    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    const e = entry({
+      inputTokens: 1000,
+      outputTokens: 200,
+      model: "opus",
+      availableModels: MODEL_OPTIONS,
+    });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-3");
+    expect(metrics.children).toHaveLength(3);
+    expect(metrics.children[2]!.textContent).toContain("Opus");
+  });
+
+  test("keeps two columns for a run with no model", () => {
+    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    const e = entry({ inputTokens: 1000, outputTokens: 200 });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.children).toHaveLength(2);
+  });
+
+  test("renders the grid for a run whose only stat is its model", () => {
+    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    const e = entry({ model: "opus", availableModels: MODEL_OPTIONS });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    expect(screen.getByTestId("acp-run-metrics").className).toContain(
+      "grid-cols-3",
+    );
+  });
+
+  test("renders no grid at all for a run with neither stat", () => {
+    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    const e = entry();
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    expect(screen.queryByTestId("acp-run-metrics")).toBeNull();
+  });
+
+  test("omits the MODEL tile when the assistant predates model switching", () => {
+    useAssistantIdentityStore.setState({ version: "0.1.0" });
+    const e = entry({
+      inputTokens: 1000,
+      outputTokens: 200,
+      model: "opus",
+      availableModels: MODEL_OPTIONS,
+    });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    const metrics = screen.getByTestId("acp-run-metrics");
+    expect(metrics.className).toContain("grid-cols-2");
+    expect(metrics.textContent).not.toContain("Opus");
   });
 });
