@@ -3,11 +3,16 @@
  * the client that answers their queries, the seeded-conversation decorator, and
  * the two page frames the rows are read inside.
  *
- * The panel reads its assets through the real hooks, so a story has to fill
- * the two sources those hooks go to: the query cache holds the conversation's
- * apps and documents, and the chat-session store holds the transcript the
- * attachments are derived from. {@link inChatInfoConversation} fills both, on a
- * client of the story's own, before the story's first paint.
+ * The panel reads its assets through the real hooks, so a story has to fill the
+ * sources those hooks go to: the query cache holds the conversation's apps and
+ * documents, and the chat-session store holds the transcript the attachments
+ * are derived from. {@link inChatInfoConversation} fills both, on a client of
+ * the story's own, before the story's first paint.
+ *
+ * A conversation asking for {@link ChatInfoDaemonListing} fills a third source
+ * and reports a version the listing gate opens on, so the panel takes its
+ * daemon path: exact totals, a populated Camera Frames category, and the tiles
+ * fetching their bytes under the shared attachment-content key.
  *
  * A story declares its conversation through `parameters.chatInfo` rather than
  * by wrapping itself in a second decorator, so the panel, the mobile overlay,
@@ -34,12 +39,15 @@ import {
   clearTranscriptMessages,
   holdOrgHeaderUnresolved,
   makeAppSummary,
+  makeAttachmentSummary,
   makeChatInfoQueryClient,
   makeDocumentAsset,
   makeDocumentSummary,
   makeFileAsset,
   makeFrameAsset,
   makePendingChatInfoQueryClient,
+  reportAssistantVersion,
+  seedAttachmentList,
   seedChatInfoConversation,
   seedQueryFailure,
   seedTranscriptMessages,
@@ -48,6 +56,7 @@ import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversatio
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { documentsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AppSummary } from "@/types/app-types";
+import type { ConversationAttachmentSummary } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { decodeBase64Payload } from "@/utils/base64";
@@ -101,18 +110,39 @@ export const CHAT_INFO_STORY_FILES = {
   ),
 };
 
-/** One Live session: `count` captures three minutes apart, newest first. */
-export function chatInfoStoryFrames(count: number): ConversationFileAsset[] {
+/**
+ * One Live session as the daemon lists it: `count` captures three minutes
+ * apart, newest first, metadata only. The bytes live behind the content
+ * endpoint, so a tile draws a picture only for a frame a story seeds.
+ */
+function chatInfoFrameSummaries(
+  count: number,
+): ConversationAttachmentSummary[] {
   return Array.from({ length: count }, (_, index) =>
+    makeAttachmentSummary({
+      id: `camera-frame-${index + 1}`,
+      filename: `camera-frame-${index + 1}.jpg`,
+      mimeType: "image/jpeg",
+      sizeBytes: 98_304 + index * 2_048,
+      messageId: `msg-camera-frame-${index + 1}`,
+      createdAt: CHAT_INFO_T0 - index * 180_000,
+      sightFrame: true,
+    }),
+  );
+}
+
+/** The same session as the assets a presentational story renders directly. */
+export function chatInfoStoryFrames(count: number): ConversationFileAsset[] {
+  return chatInfoFrameSummaries(count).map((summary, index) =>
     makeFrameAsset(
       makeDisplayAttachment({
-        id: `camera-frame-${index + 1}`,
-        filename: `camera-frame-${index + 1}.jpg`,
-        mimeType: "image/jpeg",
-        sizeBytes: 98_304 + index * 2_048,
+        id: summary.id,
+        filename: summary.filename,
+        mimeType: summary.mimeType,
+        sizeBytes: summary.sizeBytes,
         previewUrl: SAMPLE_PREVIEWS[index % SAMPLE_PREVIEWS.length]!,
       }),
-      CHAT_INFO_T0 - index * 180_000,
+      summary.createdAt,
     ),
   );
 }
@@ -284,6 +314,54 @@ function chatInfoDocuments(
   );
 }
 
+/** How many camera frames the daemon's listing answers with, and holds. */
+export interface ChatInfoDaemonListing {
+  /** Frame rows the camera-frames list returns. */
+  frameCount: number;
+  /** The category's exact total, which the rows returned need not reach. */
+  frameTotal: number;
+}
+
+/** Frames whose bytes a story seeds; the rest fall back to the file glyph. */
+const FRAMES_WITH_BYTES = 4;
+
+/**
+ * The bytes the daemon would return for one attachment, under the key every
+ * tile fetches with. Anything but a base64 data URI is left unseeded, so that
+ * tile draws its glyph.
+ */
+function seedAttachmentBytes(
+  client: QueryClient,
+  assistantId: string,
+  attachmentId: string,
+  source: string,
+): void {
+  const bytes = decodeBase64Payload(source);
+  if (!bytes) {
+    return;
+  }
+  client.setQueryData(
+    attachmentContentQueryKey(assistantId, attachmentId),
+    new Blob([bytes], { type: "image/png" }),
+  );
+}
+
+/** The conversation's own files as the daemon lists them, frames left out. */
+function chatInfoFileSummaries(
+  attachments: DisplayAttachment[],
+): ConversationAttachmentSummary[] {
+  return attachments.map((attachment, index) =>
+    makeAttachmentSummary({
+      id: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      sizeBytes: attachment.sizeBytes,
+      messageId: `msg-${index + 1}`,
+      createdAt: CHAT_INFO_T0 + index * 1_000,
+    }),
+  );
+}
+
 /** The conversation a story asks for through `parameters.chatInfo`. */
 export interface ChatInfoStoryConversation {
   assistantId: string;
@@ -293,6 +371,8 @@ export interface ChatInfoStoryConversation {
   attachments: DisplayAttachment[];
   /** Leaves both daemon queries unresolved, on a client whose queries never run. */
   pendingSources?: boolean;
+  /** Answers the panel from the daemon's attachment listing, gate opened. */
+  daemonListing?: ChatInfoDaemonListing;
   /** Runs on the seeded client, to leave one source in a state the daemon would. */
   afterSeed?: (
     client: QueryClient,
@@ -360,6 +440,49 @@ function seedChatInfoQueries(
   primeChatInfoAppPreviews(assistantId, apps);
 }
 
+/**
+ * Fills the two list reads the daemon path takes, and the bytes behind the
+ * tiles that draw a picture: the conversation's own files, and one Live
+ * session's frames.
+ */
+function seedChatInfoDaemonListing(
+  client: QueryClient,
+  { assistantId, conversationId, attachments }: ChatInfoStoryConversation,
+  { frameCount, frameTotal }: ChatInfoDaemonListing,
+): void {
+  seedAttachmentList(client, {
+    assistantId,
+    conversationId,
+    sightFrames: "exclude",
+    attachments: chatInfoFileSummaries(attachments),
+  });
+  for (const attachment of attachments) {
+    seedAttachmentBytes(
+      client,
+      assistantId,
+      attachment.id,
+      attachment.previewUrl ?? "",
+    );
+  }
+
+  const frames = chatInfoFrameSummaries(frameCount);
+  seedAttachmentList(client, {
+    assistantId,
+    conversationId,
+    sightFrames: "only",
+    attachments: frames,
+    total: frameTotal,
+  });
+  for (const [index, frame] of frames.slice(0, FRAMES_WITH_BYTES).entries()) {
+    seedAttachmentBytes(
+      client,
+      assistantId,
+      frame.id,
+      SAMPLE_PREVIEWS[index % SAMPLE_PREVIEWS.length]!,
+    );
+  }
+}
+
 /** Installs the story's attachments as the rendered transcript, under its owner. */
 function seedChatInfoTranscript({
   assistantId,
@@ -384,7 +507,7 @@ function seedChatInfoTranscript({
  */
 export const inChatInfoConversation: Decorator =
   function InChatInfoConversation(Story, { parameters }) {
-    const [{ client, releaseOrgHeader }] = useState(() => {
+    const [{ client, restoreStores }] = useState(() => {
       const conversation: ChatInfoStoryConversation = {
         ...DEFAULT_CONVERSATION,
         ...(parameters.chatInfo as
@@ -392,26 +515,41 @@ export const inChatInfoConversation: Decorator =
           | undefined),
       };
       let created: QueryClient;
-      let release = () => {};
+      const restores: Array<() => void> = [];
       if (conversation.pendingSources) {
         created = makePendingChatInfoQueryClient();
-        // The org header is the gate the two daemon queries wait on, so an
+        // The org header is the gate the daemon queries wait on, so an
         // unresolved one is what leaves this story's sources unanswered.
-        release = holdOrgHeaderUnresolved();
+        restores.push(holdOrgHeaderUnresolved());
       } else {
         created = makeChatInfoQueryClient();
         seedChatInfoQueries(created, conversation);
+        if (conversation.daemonListing) {
+          seedChatInfoDaemonListing(
+            created,
+            conversation,
+            conversation.daemonListing,
+          );
+          restores.push(reportAssistantVersion());
+        }
       }
       conversation.afterSeed?.(created, conversation);
       seedChatInfoTranscript(conversation);
-      return { client: created, releaseOrgHeader: release };
+      return {
+        client: created,
+        restoreStores: () => {
+          for (const restore of restores) {
+            restore();
+          }
+        },
+      };
     });
     useEffect(() => {
       return () => {
         clearTranscriptMessages();
-        releaseOrgHeader();
+        restoreStores();
       };
-    }, [releaseOrgHeader]);
+    }, [restoreStores]);
 
     return (
       <QueryClientProvider client={client}>

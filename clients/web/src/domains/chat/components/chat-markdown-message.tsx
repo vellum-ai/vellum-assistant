@@ -44,12 +44,13 @@ import {
 } from "@/domains/chat/utils/rehype-redacted-credential";
 import { rehypeStreamWordFade } from "@/domains/chat/utils/rehype-stream-word-fade";
 import { rehypeWorkspacePath } from "@/domains/chat/utils/rehype-workspace-path";
+import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import {
   toVellumWorkspaceHref,
   WORKSPACE_PATH_TAG,
 } from "@/domains/chat/utils/workspace-path-links";
+import { AppPathLink } from "@/domains/chat/components/app-path-link";
 import { WorkspacePathLink } from "@/domains/chat/components/workspace-path-link";
-import { classifyMarkdownHref } from "@/domains/chat/utils/local-file-links";
 import { LocalFileEmbed } from "@/domains/chat/components/local-file/local-file-embed";
 import { LocalFileLink } from "@/domains/chat/components/local-file/local-file-link";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
@@ -368,6 +369,9 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       }
 
       const target = classifyMarkdownHref(href);
+      if (href != null && target.kind === "app") {
+        return <AppPathLink href={target.appPath}>{children}</AppPathLink>;
+      }
       if (href != null && target.kind === "local-file") {
         const { workspacePath } = target;
         return (
@@ -504,7 +508,7 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
     [assistantId, onVellumLinkClick, handleWorkspacePathOpen],
   );
 
-  // Both tags are registered together: each is only ever emitted by its own
+  // Tags are registered together: each is only ever emitted by its own
   // rehype plugin, so a tag whose plugin didn't run never appears in the tree.
   const hasExtraComponents =
     redactedCredentialChips || (workspacePathLinks && onVellumLinkClick);

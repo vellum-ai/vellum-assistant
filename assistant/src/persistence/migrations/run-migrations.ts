@@ -108,6 +108,16 @@ export function getKnownStepNames(steps: MigrationStep[]): Set<string> {
   return names;
 }
 
+export interface FailedMigrationDetail {
+  name: string;
+  error?: string;
+}
+
+export interface DeferredMigrationDetail {
+  name: string;
+  missing: string[];
+}
+
 export interface MigrationRunResult {
   /** Steps that ran and completed successfully this boot. */
   applied: string[];
@@ -117,6 +127,10 @@ export interface MigrationRunResult {
   skipped: string[];
   /** Steps not run because a declared dependsOn prerequisite is not applied. */
   deferred: string[];
+  /** Failed steps with a compact error string for diagnostics. */
+  failedMigrations: FailedMigrationDetail[];
+  /** Deferred steps with the prerequisite names that were not applied. */
+  deferredMigrations: DeferredMigrationDetail[];
 }
 
 /**
@@ -126,6 +140,60 @@ export interface MigrationRunResult {
  * `drop_*`) left by older migration functions.
  */
 export const STEP_CHECKPOINT_PREFIX = "step:";
+
+/** Checkpoint value written when a step body throws. */
+export const FAILED_STEP_CHECKPOINT_PREFIX = "failed";
+
+/** Cap on the compact error suffix stored in a failed checkpoint. */
+export const FAILED_STEP_CHECKPOINT_MAX_ERROR_CHARS = 2000;
+
+/**
+ * Collapse an unknown throw into a single-line diagnostic string, truncated so
+ * a checkpoint value cannot balloon the ledger.
+ */
+export function compactMigrationError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= FAILED_STEP_CHECKPOINT_MAX_ERROR_CHARS) {
+    return collapsed;
+  }
+  return collapsed.slice(0, FAILED_STEP_CHECKPOINT_MAX_ERROR_CHARS);
+}
+
+export function isFailedStepCheckpointValue(value: string): boolean {
+  return (
+    value === FAILED_STEP_CHECKPOINT_PREFIX ||
+    value.startsWith(`${FAILED_STEP_CHECKPOINT_PREFIX}:`)
+  );
+}
+
+/**
+ * Ledger value for a step that threw. Bare `failed` when there is no message;
+ * otherwise `failed:<compact error>`.
+ */
+export function failedStepCheckpointValue(error?: unknown): string {
+  if (error === undefined) {
+    return FAILED_STEP_CHECKPOINT_PREFIX;
+  }
+  const compact = compactMigrationError(error);
+  if (compact.length === 0) {
+    return FAILED_STEP_CHECKPOINT_PREFIX;
+  }
+  return `${FAILED_STEP_CHECKPOINT_PREFIX}:${compact}`;
+}
+
+export function parseFailedStepCheckpointValue(
+  value: string,
+): string | undefined {
+  if (!isFailedStepCheckpointValue(value)) {
+    return undefined;
+  }
+  if (value === FAILED_STEP_CHECKPOINT_PREFIX) {
+    return undefined;
+  }
+  const rest = value.slice(FAILED_STEP_CHECKPOINT_PREFIX.length + 1);
+  return rest.length > 0 ? rest : undefined;
+}
 
 /**
  * Create the migration bookkeeping table if it is missing.
@@ -152,6 +220,10 @@ function ensureCheckpointsTable(raw: ReturnType<typeof getSqliteFrom>): void {
  * process crash). Deletes the stalled checkpoint so the migration can re-run
  * from scratch on this startup. Each migration's own idempotency guards (DDL
  * IF NOT EXISTS, transactional rollback) ensure re-running is safe.
+ *
+ * Failed checkpoints (`failed` / `failed:<error>`) are left in place so
+ * diagnostics can report which steps threw. They are not in the applied set
+ * (`value = '1'`), so those steps still retry this boot.
  *
  * Runs on every boot — it must observe the state left by *this* boot's prior
  * crash — so it is invoked directly by {@link runMigrationSteps} before the
@@ -221,8 +293,9 @@ export function recoverCrashedMigrations(database: DrizzleDb): string[] {
  * prior crash, so a migration interrupted mid-flight re-runs this boot.
  *
  * Individual step failures are caught and logged so one broken migration does
- * not prevent independent later ones from succeeding; a failed step is not
- * checkpointed and is retried on the next boot.
+ * not prevent independent later ones from succeeding. A failed step is
+ * checkpointed as `failed` (or `failed:<compact error>`) rather than `1`, so
+ * it is not skipped and is retried on the next boot.
  *
  * A step whose declared `dependsOn` prerequisites are not all applied — because
  * a dependency failed this boot or was never run — is deferred rather than
@@ -253,11 +326,16 @@ export async function runMigrationSteps(
   const markApplied = raw.query(
     `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, '1', ?)`,
   );
+  const markFailed = raw.query(
+    `INSERT OR REPLACE INTO memory_checkpoints (key, value, updated_at) VALUES (?, ?, ?)`,
+  );
 
   const failed: string[] = [];
+  const failedMigrations: FailedMigrationDetail[] = [];
   const skipped: string[] = [];
   const ran: string[] = [];
   const deferred: string[] = [];
+  const deferredMigrations: DeferredMigrationDetail[] = [];
 
   const totalSteps = steps.length;
   for (const [index, step] of steps.entries()) {
@@ -279,6 +357,7 @@ export async function runMigrationSteps(
     const missing = (obj.dependsOn ?? []).filter((dep) => !applied.has(dep));
     if (missing.length > 0) {
       deferred.push(name);
+      deferredMigrations.push({ name, missing });
       log.warn(
         { migration: name, missing, step: stepNumber, totalSteps },
         `Deferring migration "${name}" — prerequisites not applied: ${missing.join(", ")}`,
@@ -310,10 +389,19 @@ export async function runMigrationSteps(
         applied.add(name);
       }
     } catch (err) {
-      // Leave the 'started' marker in place (if one was written) —
-      // recoverCrashedMigrations will detect it on the next boot, log
-      // a warning, and clear it so the step re-runs.
+      const errorText = compactMigrationError(err);
       failed.push(name);
+      failedMigrations.push({
+        name,
+        ...(errorText.length > 0 ? { error: errorText } : {}),
+      });
+      if (checkpointable) {
+        markFailed.run(
+          `${STEP_CHECKPOINT_PREFIX}${name}`,
+          failedStepCheckpointValue(err),
+          Date.now(),
+        );
+      }
       log.error(
         { err, migration: name, step: stepNumber, totalSteps },
         "Migration failed",
@@ -321,7 +409,14 @@ export async function runMigrationSteps(
     }
   }
 
-  return { applied: ran, failed, skipped, deferred };
+  return {
+    applied: ran,
+    failed,
+    skipped,
+    deferred,
+    failedMigrations,
+    deferredMigrations,
+  };
 }
 
 /**
