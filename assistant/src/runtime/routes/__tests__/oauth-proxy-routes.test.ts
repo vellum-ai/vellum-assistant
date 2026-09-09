@@ -1,0 +1,588 @@
+/**
+ * Wire-level tests for the OAuth passthrough proxy route.
+ *
+ * A stock third-party CLI drives this route, so the guarantees under test are
+ * fidelity guarantees: the provider sees the path, query, headers, and bytes
+ * the caller wrote, minus the daemon's own credential, and the caller sees the
+ * provider's status, headers, and bytes back. Requests run through the real
+ * HTTP adapter so the injected `x-vellum-*` headers and the raw-body path are
+ * exercised rather than simulated.
+ */
+
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type {
+  OAuthConnection,
+  OAuthConnectionRequest,
+  OAuthConnectionResponse,
+} from "../../../oauth/connection.js";
+import {
+  CredentialRequiredError,
+  InsufficientBalanceError,
+  PlatformOAuthConnection,
+  ProviderUnreachableError,
+} from "../../../oauth/platform-connection.js";
+import { resolveScopeProfile } from "../../auth/scopes.js";
+import type { AuthContext } from "../../auth/types.js";
+import { routeDefinitionsToHTTPRoutes } from "../http-adapter.js";
+import type { RouteHandlerArgs } from "../types.js";
+
+// ── Connection doubles ──────────────────────────────────────────────────────
+
+let captured: OAuthConnectionRequest | undefined;
+let upstream: OAuthConnectionResponse;
+let requestError: unknown;
+
+async function serve(
+  req: OAuthConnectionRequest,
+): Promise<OAuthConnectionResponse> {
+  captured = req;
+  if (requestError) {
+    throw requestError;
+  }
+  return upstream;
+}
+
+const byoConnection: OAuthConnection = {
+  id: "conn-byo",
+  provider: "stripe_link",
+  accountInfo: null,
+  request: serve,
+  async withToken() {
+    throw new Error("the proxy never unwraps the raw token");
+  },
+};
+
+/** Satisfies the route's `instanceof PlatformOAuthConnection` check. */
+function managedConnection(): OAuthConnection {
+  return Object.assign(
+    Object.create(PlatformOAuthConnection.prototype) as OAuthConnection,
+    {
+      id: "conn-managed",
+      provider: "stripe_link",
+      accountInfo: null,
+      request: serve,
+    },
+  );
+}
+
+// ── Module mocks ────────────────────────────────────────────────────────────
+
+const providerLookups: string[] = [];
+mock.module("../../../oauth/oauth-store.js", () => ({
+  getProvider: (provider: string) => {
+    providerLookups.push(provider);
+    return provider === "stripe_link"
+      ? { provider, baseUrl: "https://api.link.com" }
+      : undefined;
+  },
+}));
+
+interface ResolverCall {
+  provider: string;
+  options: { account?: string } | undefined;
+}
+const resolverCalls: ResolverCall[] = [];
+let resolverError: unknown;
+let resolution: {
+  connection: OAuthConnection;
+  ambiguous: boolean;
+  allAccounts: string[];
+};
+
+mock.module("../../../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnectionWithMeta: async (
+    provider: string,
+    options?: { account?: string },
+  ) => {
+    resolverCalls.push({ provider, options });
+    if (resolverError) {
+      throw resolverError;
+    }
+    return resolution;
+  },
+}));
+
+// Spread the real module so the rest of the import graph keeps its env
+// readers; only the auth bypass is pinned.
+const env = await import("../../../config/env.js");
+mock.module("../../../config/env.js", () => ({
+  ...env,
+  isHttpAuthDisabled: () => false,
+}));
+
+const { handleOAuthProxy, ROUTES } = await import("../oauth-proxy-routes.js");
+const HTTP_ROUTES = routeDefinitionsToHTTPRoutes(ROUTES);
+
+// ── Harness ─────────────────────────────────────────────────────────────────
+
+const SUBJECT = "local:self:oauth-proxy.stripe_link";
+
+function buildAuthContext(subject: string): AuthContext {
+  return {
+    subject,
+    principalType: "local",
+    assistantId: "self",
+    conversationId: "oauth-proxy.stripe_link",
+    scopeProfile: "oauth_proxy_v1",
+    scopes: resolveScopeProfile("oauth_proxy_v1"),
+    policyEpoch: 0,
+  };
+}
+
+let lastRequest: Request | undefined;
+
+async function callProxy(params: {
+  method?: string;
+  /** Provider segment exactly as it appears on the wire. */
+  segment?: string;
+  /** Upstream path, percent-encoding intact. */
+  path?: string;
+  search?: string;
+  headers?: Record<string, string>;
+  body?: BodyInit;
+  subject?: string;
+  signal?: AbortSignal;
+}): Promise<Response> {
+  const method = params.method ?? "GET";
+  const segment = params.segment ?? "stripe_link";
+  const path = params.path ?? "v1/payment_methods";
+
+  const init: RequestInit = { method, headers: params.headers ?? {} };
+  if (params.body !== undefined) {
+    init.body = params.body;
+  }
+  if (params.signal) {
+    init.signal = params.signal;
+  }
+  const req = new Request(
+    `http://daemon.local/v1/oauth/proxy/${segment}/${path}${params.search ?? ""}`,
+    init,
+  );
+  lastRequest = req;
+
+  const httpRoute = HTTP_ROUTES.find((route) => route.method === method);
+  if (!httpRoute) {
+    throw new Error(`No proxy route registered for ${method}`);
+  }
+
+  // Path params exactly as the router derives them: the whole captured group,
+  // percent-decoded.
+  const url = new URL(req.url);
+  const pieces = url.pathname.split("/");
+
+  return await httpRoute.handler({
+    req,
+    url,
+    // The proxy handler never touches `server`.
+    server: undefined as never,
+    authContext: buildAuthContext(params.subject ?? SUBJECT),
+    params: {
+      provider: decodeURIComponent(pieces[4]),
+      path: decodeURIComponent(pieces.slice(5).join("/")),
+    },
+  });
+}
+
+interface ErrorEnvelope {
+  error: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+async function envelope(response: Response): Promise<ErrorEnvelope> {
+  return (await response.json()) as ErrorEnvelope;
+}
+
+/**
+ * WHATWG URL parsing resolves `.` and `..` before a handler ever sees them, so
+ * dot-segment coverage drives the handler with a URL-shaped stub. Only
+ * `pathname` and `search` are read.
+ */
+function rawUrlStub(pathname: string, search = ""): URL {
+  return { pathname, search } as unknown as URL;
+}
+
+function requireCaptured(): OAuthConnectionRequest {
+  if (!captured) {
+    throw new Error("The connection was never called");
+  }
+  return captured;
+}
+
+beforeEach(() => {
+  captured = undefined;
+  requestError = undefined;
+  resolverError = undefined;
+  resolverCalls.length = 0;
+  providerLookups.length = 0;
+  resolution = {
+    connection: byoConnection,
+    ambiguous: false,
+    allAccounts: ["user@example.com"],
+  };
+  upstream = {
+    status: 200,
+    headers: { "content-type": "application/json" },
+    body: { ok: true },
+  };
+});
+
+// ── Path and query fidelity ─────────────────────────────────────────────────
+
+describe("path and query fidelity", () => {
+  test("forwards the wire path and repeated query keys, with no body", async () => {
+    const response = await callProxy({
+      path: "v1/a%2Fb/items/",
+      search: "?x=1&x=2&q=a%20b",
+    });
+
+    expect(response.status).toBe(200);
+    const req = requireCaptured();
+    expect(req.method).toBe("GET");
+    expect(req.path).toBe("/v1/a%2Fb/items/");
+    expect(req.query).toEqual({ x: ["1", "2"], q: "a b" });
+    expect(req.body).toBeUndefined();
+    // The connection's own base is the only host ever targeted.
+    expect(req.baseUrl).toBeUndefined();
+  });
+
+  test("omits query entirely when the caller sent none", async () => {
+    await callProxy({});
+    expect(requireCaptured().query).toBeUndefined();
+  });
+
+  test("normalizes an inner dot segment", async () => {
+    await handleOAuthProxy("GET", {
+      pathParams: { provider: "stripe_link" },
+      headers: { "x-vellum-subject": SUBJECT },
+      rawUrl: rawUrlStub("/v1/oauth/proxy/stripe_link/v1/a/../b"),
+    });
+
+    expect(requireCaptured().path).toBe("/v1/b");
+  });
+});
+
+// ── Methods ─────────────────────────────────────────────────────────────────
+
+describe("method passthrough", () => {
+  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
+    test(`forwards ${method}`, async () => {
+      const response = await callProxy({
+        method,
+        body: '{"amount":1}',
+        headers: { "content-type": "application/json" },
+      });
+
+      expect(response.status).toBe(200);
+      expect(requireCaptured().method).toBe(method);
+    });
+  }
+
+  test("forwards HEAD and emits no body", async () => {
+    upstream = { status: 200, headers: { "x-total": "7" }, body: null };
+
+    const response = await callProxy({ method: "HEAD" });
+
+    expect(requireCaptured().method).toBe("HEAD");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-total")).toBe("7");
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  test("rejects HEAD against a managed connection", async () => {
+    resolution = { ...resolution, connection: managedConnection() };
+
+    const response = await callProxy({ method: "HEAD" });
+
+    expect(response.status).toBe(405);
+    expect(captured).toBeUndefined();
+  });
+});
+
+// ── Bodies ──────────────────────────────────────────────────────────────────
+
+describe("body passthrough", () => {
+  test("forwards invalid JSON bytes verbatim under the caller's content type", async () => {
+    const raw = '{"amount": 1,,}';
+
+    await callProxy({
+      method: "POST",
+      body: raw,
+      headers: { "content-type": "application/json" },
+    });
+
+    const req = requireCaptured();
+    expect(Buffer.isBuffer(req.body)).toBe(true);
+    expect((req.body as Buffer).toString("utf8")).toBe(raw);
+    expect(req.headers?.["content-type"]).toBe("application/json");
+  });
+
+  test("forwards a form-encoded body as bytes", async () => {
+    await callProxy({
+      method: "POST",
+      body: "a=1&b=two",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+
+    const req = requireCaptured();
+    expect((req.body as Buffer).toString("utf8")).toBe("a=1&b=two");
+    expect(req.headers?.["content-type"]).toBe(
+      "application/x-www-form-urlencoded",
+    );
+  });
+
+  test("forwards binary bytes untouched", async () => {
+    const bytes = new Uint8Array([0, 1, 250, 255, 10]);
+
+    await callProxy({
+      method: "PUT",
+      body: bytes,
+      headers: { "content-type": "application/octet-stream" },
+    });
+
+    const req = requireCaptured();
+    expect(Array.from(req.body as Buffer)).toEqual(Array.from(bytes));
+  });
+
+  test("sends no body for an empty POST", async () => {
+    await callProxy({ method: "POST", body: "" });
+    expect(requireCaptured().body).toBeUndefined();
+  });
+});
+
+// ── Headers ─────────────────────────────────────────────────────────────────
+
+describe("header handling", () => {
+  test("strips the daemon credential, framing, and edge headers", async () => {
+    await callProxy({
+      method: "POST",
+      body: "{}",
+      headers: {
+        authorization: "Bearer local-proxy",
+        host: "daemon.local",
+        "content-length": "2",
+        "accept-encoding": "gzip",
+        cookie: "session=abc",
+        "x-forwarded-for": "203.0.113.9",
+        "x-vellum-subject": "local:self:spoofed",
+        "user-agent": "link-cli/1.0",
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+    });
+
+    const headers = requireCaptured().headers ?? {};
+    for (const stripped of [
+      "authorization",
+      "host",
+      "content-length",
+      "accept-encoding",
+      "cookie",
+      "x-forwarded-for",
+      "x-vellum-subject",
+      "x-vellum-principal-type",
+    ]) {
+      expect(headers[stripped]).toBeUndefined();
+    }
+    expect(headers["user-agent"]).toBe("link-cli/1.0");
+    expect(headers.accept).toBe("application/json");
+  });
+});
+
+// ── Raw emission ────────────────────────────────────────────────────────────
+
+describe("response emission", () => {
+  test("preserves the provider status and headers, reframing the length", async () => {
+    upstream = {
+      status: 201,
+      headers: {
+        "content-type": "application/json",
+        "x-rate-limit-remaining": "9",
+        "content-length": "999",
+      },
+      body: { id: "pm_1" },
+    };
+
+    const response = await callProxy({ method: "POST", body: "{}" });
+
+    expect(response.status).toBe(201);
+    expect(response.headers.get("content-type")).toBe("application/json");
+    expect(response.headers.get("x-rate-limit-remaining")).toBe("9");
+    expect(response.headers.get("content-length")).not.toBe("999");
+    expect(await response.text()).toBe(JSON.stringify({ id: "pm_1" }));
+  });
+
+  test("round-trips binary bytes", async () => {
+    const bytes = new Uint8Array([137, 80, 78, 71, 0, 255]);
+    upstream = {
+      status: 200,
+      headers: { "content-type": "image/png" },
+      body: bytes,
+    };
+
+    const response = await callProxy({});
+
+    expect(Array.from(new Uint8Array(await response.arrayBuffer()))).toEqual(
+      Array.from(bytes),
+    );
+  });
+
+  test("emits a string body as UTF-8", async () => {
+    upstream = {
+      status: 200,
+      headers: { "content-type": "text/plain; charset=utf-8" },
+      body: "héllo",
+    };
+
+    const response = await callProxy({});
+
+    expect(await response.text()).toBe("héllo");
+  });
+});
+
+// ── Connection selection ────────────────────────────────────────────────────
+
+describe("connection selection", () => {
+  test("pins the account from the provider segment", async () => {
+    await callProxy({ segment: "stripe_link@user%40example.com" });
+
+    expect(resolverCalls).toEqual([
+      { provider: "stripe_link", options: { account: "user@example.com" } },
+    ]);
+  });
+
+  test("resolves without options when no account is pinned", async () => {
+    await callProxy({});
+    expect(resolverCalls).toEqual([
+      { provider: "stripe_link", options: undefined },
+    ]);
+  });
+
+  test("refuses to pick when several accounts match", async () => {
+    resolution = {
+      connection: byoConnection,
+      ambiguous: true,
+      allAccounts: ["a@example.com", "b@example.com"],
+    };
+
+    const response = await callProxy({});
+
+    expect(response.status).toBe(409);
+    const { error } = await envelope(response);
+    expect(error.details?.accounts).toEqual([
+      "a@example.com",
+      "b@example.com",
+    ]);
+    expect(error.message).toContain("a@example.com");
+    expect(error.message).toContain("b@example.com");
+    expect(captured).toBeUndefined();
+  });
+});
+
+// ── Failure mapping ─────────────────────────────────────────────────────────
+
+describe("failure mapping", () => {
+  test("unknown provider is a 404 in the error envelope", async () => {
+    const response = await callProxy({
+      segment: "nope",
+      subject: "local:self:oauth-proxy.nope",
+    });
+
+    expect(response.status).toBe(404);
+    const { error } = await envelope(response);
+    expect(error.code).toBe("NOT_FOUND");
+    expect(error.message).toContain("nope");
+    expect(resolverCalls).toHaveLength(0);
+  });
+
+  test("an unresolvable connection is a 424 that names the reconnect command", async () => {
+    resolverError = new Error("No active stripe_link connection");
+
+    const response = await callProxy({});
+
+    expect(response.status).toBe(424);
+    const { error } = await envelope(response);
+    expect(error.details?.reconnect).toBe(
+      "assistant oauth connect stripe_link",
+    );
+  });
+
+  test("a dead credential is a 424", async () => {
+    requestError = new CredentialRequiredError();
+
+    const response = await callProxy({});
+
+    expect(response.status).toBe(424);
+    expect((await envelope(response)).error.details?.reconnect).toBe(
+      "assistant oauth connect stripe_link",
+    );
+  });
+
+  test("an empty balance is a 402", async () => {
+    requestError = new InsufficientBalanceError();
+    expect((await callProxy({})).status).toBe(402);
+  });
+
+  test("an unreachable provider is a 502", async () => {
+    requestError = new ProviderUnreachableError();
+    expect((await callProxy({})).status).toBe(502);
+  });
+});
+
+// ── Grant binding and path safety ───────────────────────────────────────────
+
+describe("grant binding", () => {
+  test("a grant for another provider is rejected before resolution", async () => {
+    const response = await callProxy({
+      subject: "local:self:oauth-proxy.google",
+    });
+
+    expect(response.status).toBe(403);
+    expect((await envelope(response)).error.code).toBe("FORBIDDEN");
+    expect(resolverCalls).toHaveLength(0);
+    expect(providerLookups).toHaveLength(0);
+  });
+});
+
+describe("path safety", () => {
+  test("an authority-style path is refused before resolution", async () => {
+    const response = await callProxy({ path: "/evil.example/x" });
+
+    expect(response.status).toBe(400);
+    expect(resolverCalls).toHaveLength(0);
+  });
+
+  test("a root-escaping dot segment is refused before resolution", async () => {
+    await expect(
+      handleOAuthProxy("GET", {
+        pathParams: { provider: "stripe_link" },
+        headers: { "x-vellum-subject": SUBJECT },
+        rawUrl: rawUrlStub("/v1/oauth/proxy/stripe_link/../../etc"),
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(resolverCalls).toHaveLength(0);
+  });
+
+  test("an IPC invocation never reaches the provider", async () => {
+    const args: RouteHandlerArgs = {
+      pathParams: { provider: "stripe_link" },
+      headers: { "x-vellum-subject": SUBJECT },
+    };
+
+    await expect(
+      Promise.resolve(ROUTES[0].handler(args)),
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(resolverCalls).toHaveLength(0);
+  });
+});
+
+// ── Cancellation ────────────────────────────────────────────────────────────
+
+describe("cancellation", () => {
+  test("hands the connection the request's abort signal", async () => {
+    const controller = new AbortController();
+
+    await callProxy({ signal: controller.signal });
+
+    expect(requireCaptured().signal).toBe(lastRequest?.signal);
+  });
+});
