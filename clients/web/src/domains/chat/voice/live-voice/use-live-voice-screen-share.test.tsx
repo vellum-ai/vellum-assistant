@@ -782,27 +782,29 @@ describe("useLiveVoiceScreenShare: stopping", () => {
   });
 
   /**
-   * The edge was queued while the helper was still answering for the share
-   * start. By the time its turn comes the share is off, and a frame of a
-   * surface the user has stopped showing is not taken even to be thrown
-   * away.
+   * The edge came while the helper was still answering for the share
+   * start, and its picture is taken then, of the screen at that moment. By
+   * the time its turn to be judged comes the share is off, and a frame of a
+   * surface the user has stopped showing goes nowhere.
    */
-  test("an edge queued behind a slow capture never asks the helper once the share is off", async () => {
-    let releaseFrame!: (frame: ScreenCaptureFrame) => void;
+  test("an edge that waits behind a slow capture is pictured at once, and dropped by a stop before it is judged", async () => {
+    const frames: ((frame: ScreenCaptureFrame) => void)[] = [];
     answerFrame = () =>
       new Promise<ScreenCaptureFrame>((resolve) => {
-        releaseFrame = resolve;
+        frames.push(resolve);
       });
     renderShare();
     share(WINDOW);
-    await Promise.resolve();
     speak(true);
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
     share(null);
-    releaseFrame(frameOf("a"));
+    for (const release of frames) {
+      release(frameOf("a"));
+    }
     await flush();
 
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(1);
     expect(uploadChatAttachment).not.toHaveBeenCalled();
+    expect(controls.sightFrame).not.toHaveBeenCalled();
   });
 
   test("takes nothing more once the share is off", async () => {
@@ -929,15 +931,17 @@ describe("useLiveVoiceScreenShare: a keep that never arrives", () => {
     show("a+");
     speak(true);
     await flush();
-    // The stop edge is asked for while the question's frame is still on its
-    // way up, and is not judged yet.
+    // The stop edge is pictured at once, while the question's frame is
+    // still on its way up, and is not judged until that frame's fate is
+    // known.
     speak(false);
     await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(2);
+    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(2);
 
     question.fail();
     await flush();
-    expect(captureCompanionScreen).toHaveBeenCalledTimes(3);
+    expect(uploadChatAttachment).toHaveBeenCalledTimes(3);
     expect(controls.sightFrame.mock.calls.map(([id]) => id)).toEqual([
       "att-1",
       "att-3",

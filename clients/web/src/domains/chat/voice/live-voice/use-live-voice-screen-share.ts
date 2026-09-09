@@ -89,7 +89,10 @@ import {
   reportCompanionSharedFrame,
 } from "@/runtime/companion-surface";
 import { decodeBase64Payload } from "@/utils/base64";
-import type { CompanionAnnotationStroke } from "@vellumai/ipc-contract";
+import type {
+  CompanionAnnotationStroke,
+  ScreenCaptureFrame,
+} from "@vellumai/ipc-contract";
 
 /** Where a failure is filed, so the tag says which source it came from. */
 const ERROR_CONTEXT = "live-voice screen share: capture/upload frame";
@@ -177,10 +180,13 @@ export function useLiveVoiceScreenShare(): void {
     // When the gate was last asked for a frame of the question's view, for
     // the timing a forced keep reports. Null once a keep has answered it.
     let armedAtMs: number | null = null;
-    // Occasions are taken one at a time, in the order they came, so the gate
-    // judges pictures in the order they were taken: the two edges of a short
-    // utterance could otherwise resolve out of order, and the older picture
-    // be judged as the newer view.
+    // Occasions are judged one at a time, in the order they came, so the
+    // gate sees pictures in the order they were taken: the two edges of a
+    // short utterance could otherwise resolve out of order, and the older
+    // picture be judged as the newer view. The picture itself is taken the
+    // moment the occasion comes, ahead of the queue: the start of a question
+    // is the frame the turn reads, and a wait for an earlier frame's upload
+    // must not be what decides which screen it is of.
     let queue: Promise<void> = Promise.resolve();
     // A frame as the gate saw it, when, and in what order. A copy, since the
     // producer reuses its one grid. The order is the judge's, not the
@@ -294,25 +300,25 @@ export function useLiveVoiceScreenShare(): void {
      * frame the cadence takes is judged against the view the call was given
      * rather than against the keep before it.
      *
-     * `run` is the generation the occasion was queued under. An occasion
-     * queued behind a slow capture is asked for again here before it asks
-     * the helper, since the share it was queued for may have stopped or
-     * moved in the meantime: a frame of a surface the user has stopped
-     * showing is not taken, even to be thrown away.
+     * `picture` is the helper's answer for the occasion, asked for when the
+     * occasion came, and `requestedAtMs` is when: the picture's lower bound,
+     * since the gate must not spend a question's arm on a picture taken
+     * before the question, and the helper's answer time is only an upper
+     * bound on when its picture was taken. `run` is the generation the
+     * occasion was queued under, read again here since the share it was
+     * queued for may have stopped or moved while it waited.
      */
     const take = async (
       drawing: SharedDrawing | null,
       run: number,
+      picture: Promise<ScreenCaptureFrame | null>,
+      requestedAtMs: number,
     ): Promise<void> => {
       const stale = (): boolean => cancelled || generation !== run;
       if (stale()) {
         return;
       }
-      // The picture's lower bound. The gate must not spend a question's arm
-      // on a picture taken before the question, and the helper's answer time
-      // is only an upper bound on when its picture was taken.
-      const requestedAtMs = performance.now();
-      const frame = await captureCompanionScreen(target);
+      const frame = await picture;
       if (stale()) {
         return;
       }
@@ -444,8 +450,13 @@ export function useLiveVoiceScreenShare(): void {
       // Stamped now rather than when the occasion is dequeued, so a stop or
       // a reconnect that lands while it waits is one it cannot outlive.
       const run = generation;
+      // Taken now, of the screen as it is at this moment, whatever the queue
+      // is still waiting on. The helper's own failure is its answer, read
+      // when the picture is judged.
+      const requestedAtMs = performance.now();
+      const picture = captureCompanionScreen(target);
       queue = queue
-        .then(() => take(drawing, run))
+        .then(() => take(drawing, run, picture, requestedAtMs))
         .catch((err: unknown) => {
           // One occasion, filed. The queue goes on, so a decode that threw
           // cannot hold every later frame behind it.
