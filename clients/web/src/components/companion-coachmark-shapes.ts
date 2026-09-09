@@ -59,51 +59,192 @@ function hand(strength: number): number {
 }
 
 /**
- * A loop around `box`, drawn the way someone circles a thing on a page.
+ * How round the corners of a loop are, as a multiple of its standoff.
+ *
+ * The loop holds a rectangle without crossing it, and a rounded corner is the
+ * one place that is not free. An arc of radius `r` standing `p` off the edges
+ * passes `r - sqrt(2) * (r - p)` from the corner it rounds, which falls as
+ * the arc opens out and reaches zero at `(1 + sqrt(2)) * p`: past that the
+ * box's own corner is outside the loop. At one and a half, the corner keeps
+ * four fifths of the standoff, which is what leaves room for half the stroke
+ * drawn on the line as well. Small controls are capped by the box instead and
+ * come out circled rather than boxed.
+ */
+const CORNER_ROUNDNESS = 1.5;
+
+/**
+ * The least of `padding` that survives at a corner, from the arithmetic
+ * above. Exported so a caller standing a loop off can work out whether its
+ * own stroke clears the bounds, rather than assuming the standoff holds all
+ * the way round.
+ */
+export const CORNER_CLEARANCE =
+  CORNER_ROUNDNESS - Math.SQRT2 * (CORNER_ROUNDNESS - 1);
+
+/** Where `t` of the way round `outline` falls, with `t` past 1 wrapping. */
+type Outline = (t: number) => Point;
+
+/**
+ * The line a loop is drawn on: `box` grown by `padding`, cornered by arcs.
+ *
+ * **Every point of it is at least `padding` from the box, which is the whole
+ * reason it is not an ellipse.** An ellipse through the midpoints of a
+ * rectangle's sides passes inside its corners, so a ring around a wide region
+ * would cut across the thing it encloses at all four of them. The straight
+ * runs here sit exactly `padding` off each edge and the arcs turn the corners
+ * outside them.
+ *
+ * Walked by perimeter rather than by angle, so the samples are spread evenly
+ * along the line instead of bunching where a ray from the middle happens to
+ * cross it.
+ */
+function outlineOf(
+  box: { width: number; height: number },
+  padding: number,
+): { at: Outline; length: number } {
+  const radius = Math.min(
+    padding * CORNER_ROUNDNESS,
+    Math.min(box.width, box.height) / 2 + padding,
+  );
+  // Where the arcs turn, which is the box inset by however much of the corner
+  // radius reaches beyond the standoff.
+  const inset = radius - padding;
+  const left = inset;
+  const right = box.width - inset;
+  const top = inset;
+  const bottom = box.height - inset;
+  const run = { x: Math.max(right - left, 0), y: Math.max(bottom - top, 0) };
+  const quarter = (Math.PI * radius) / 2;
+  // Clockwise from the top left arc: across the top, down the right, and so
+  // on, an arc between each pair of runs.
+  const legs = [quarter, run.x, quarter, run.y, quarter, run.x, quarter, run.y];
+  const length = legs.reduce((total, leg) => total + leg, 0);
+
+  const corners: Array<{ centre: Point; from: number }> = [
+    { centre: { x: left, y: top }, from: Math.PI },
+    { centre: { x: right, y: top }, from: -Math.PI / 2 },
+    { centre: { x: right, y: bottom }, from: 0 },
+    { centre: { x: left, y: bottom }, from: Math.PI / 2 },
+  ];
+
+  const at: Outline = (t) => {
+    let along = (t % 1) * length;
+    if (along < 0) {
+      along += length;
+    }
+    for (let leg = 0; leg < legs.length; leg += 1) {
+      const span = legs[leg] as number;
+      if (along > span && leg < legs.length - 1) {
+        along -= span;
+        continue;
+      }
+      const part = span === 0 ? 0 : Math.min(along / span, 1);
+      const corner = corners[leg / 2] as { centre: Point; from: number };
+      if (leg % 2 === 0) {
+        const angle = corner.from + (Math.PI / 2) * part;
+        return {
+          x: corner.centre.x + Math.cos(angle) * radius,
+          y: corner.centre.y + Math.sin(angle) * radius,
+        };
+      }
+      // The straight runs, each one `padding` off its edge.
+      const edges: Array<[Point, Point]> = [
+        [
+          { x: left, y: top - radius },
+          { x: right, y: top - radius },
+        ],
+        [
+          { x: right + radius, y: top },
+          { x: right + radius, y: bottom },
+        ],
+        [
+          { x: right, y: bottom + radius },
+          { x: left, y: bottom + radius },
+        ],
+        [
+          { x: left - radius, y: bottom },
+          { x: left - radius, y: top },
+        ],
+      ];
+      const [from, to] = edges[(leg - 1) / 2] as [Point, Point];
+      return {
+        x: from.x + (to.x - from.x) * part,
+        y: from.y + (to.y - from.y) * part,
+      };
+    }
+    return { x: 0, y: 0 };
+  };
+  return { at, length };
+}
+
+/**
+ * The points a loop around `box` is drawn through.
  *
  * Slightly larger than what it encloses and rounder than it, because a loop
  * traced tight to a rectangle is a rectangle. It also overshoots its start a
- * little: a closed ellipse reads as a shape drawn by a machine, and the small
- * crossing where the line comes back past itself is most of what reads as a
- * hand.
+ * little: a closed line reads as a shape drawn by a machine, and the small
+ * crossing where it comes back past itself is most of what reads as a hand.
  *
- * `padding` is how far outside the bounds the loop sits, in the same pixels.
- * The bounds themselves stay untouched, so whatever is being pointed at is
- * exactly as visible as it was before anything was drawn on it.
+ * **The wander only ever pushes outward.** The bounds are the thing being
+ * pointed at, and a hand that wandered inward would put the stroke across it:
+ * the promise a mark makes is that whatever it encloses is exactly as visible
+ * as it was before anything was drawn on it. Outward-only costs nothing,
+ * since which side of the line a wobble falls on is not what reads as a hand.
+ *
+ * `padding` is how far outside the bounds the line sits, in the same pixels.
+ * Half the stroke drawn on it hangs inside that, so a caller stroking widely
+ * has to stand the loop off far enough to keep its own ink clear.
  */
-export function enclosurePath(
+export function enclosureOutline(
   box: { width: number; height: number },
   options: { strength: number; seed: number; padding?: number },
-): string {
+): Point[] {
   const padding = options.padding ?? 8;
-  const rx = box.width / 2 + padding;
-  const ry = box.height / 2 + padding;
-  const cx = box.width / 2;
-  const cy = box.height / 2;
+  const centre = { x: box.width / 2, y: box.height / 2 };
+  const outline = outlineOf(box, padding);
   const wobble = hand(options.strength);
   const random = noise(options.seed);
 
   // Enough points to read as a curve and few enough that each one's wander is
   // visible as intent rather than as noise.
   const steps = 13;
-  // Started off-axis so the crossing does not land at the top, where it reads
-  // as a gap rather than as an overlap.
-  const from = -Math.PI * 0.62;
+  // Started off a corner so the crossing does not land on one, where it reads
+  // as a shape that failed to close rather than as an overlap.
+  const from = 0.18;
   // Past a full turn, which is the overshoot.
-  const sweep = Math.PI * 2.11;
+  const sweep = 1.055;
 
   const points: Point[] = [];
   for (let i = 0; i <= steps; i += 1) {
-    const angle = from + (sweep * i) / steps;
-    // The wander is radial, so the loop stays a loop: pushing points sideways
-    // as well makes it wobble across its own path and read as a scribble.
-    const drift = 1 + (random() - 0.5) * 2 * wobble;
+    const place = outline.at(from + (sweep * i) / steps);
+    // Away from the middle. The box is convex and the line is already outside
+    // it, so a push along that ray cannot land back on the thing however far
+    // it goes.
+    const away = {
+      x: place.x - centre.x,
+      y: place.y - centre.y,
+    };
+    const reach = Math.hypot(away.x, away.y) || 1;
+    const drift = random() * wobble * reach;
     points.push({
-      x: cx + Math.cos(angle) * rx * drift,
-      y: cy + Math.sin(angle) * ry * drift,
+      x: place.x + (away.x / reach) * drift,
+      y: place.y + (away.y / reach) * drift,
     });
   }
-  return through(points, false);
+  return points;
+}
+
+/**
+ * A loop around `box`, drawn the way someone circles a thing on a page.
+ *
+ * See {@link enclosureOutline} for what the line is and why none of it lands
+ * on what it encloses.
+ */
+export function enclosurePath(
+  box: { width: number; height: number },
+  options: { strength: number; seed: number; padding?: number },
+): string {
+  return through(enclosureOutline(box, options), false);
 }
 
 /**

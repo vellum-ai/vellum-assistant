@@ -93,7 +93,7 @@ const POINTER_REACH_PX = POINTER_LENGTH_PX + POINTER_GAP_PX;
  * exactly as visible as it was before anything was drawn on it. A loop traced
  * on the bounds would be a ring through the thing rather than around it.
  */
-const RING_PADDING_PX = 8;
+const RING_PADDING_PX = 10;
 
 /**
  * Room for the stroke itself outside that, in the same pixels.
@@ -101,6 +101,11 @@ const RING_PADDING_PX = 8;
  * The halo is drawn at nine pixels and centred on the path, so half of it
  * hangs outside the widest point the loop reaches. Without this the SVG's own
  * box would clip its edge, which reads as a ring with a flat side.
+ *
+ * The same nine pixels are why the standoff above is what it is: half of them
+ * hang inside the line too, and the line is at its nearest to the bounds at a
+ * corner, where `CORNER_CLEARANCE` of the standoff survives. Ten pixels of
+ * standoff keeps about eight of them there, which the halo clears.
  */
 const RING_MARGIN_PX = 8;
 

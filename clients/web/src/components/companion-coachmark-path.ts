@@ -2,11 +2,12 @@
  * The primitives a drawn mark is built from: a seeded wobble, a smooth curve
  * through points, and the rounding both are written out at.
  *
- * **Their own module because more than one thing draws with them.** The marks
- * the companion ships are in `companion-coachmark-shapes.ts`; the styles that
- * were tried and not chosen live beside the lab. Neither should have to
- * export its internals so the other can work, and a wobble that differs
- * between them would make the bench a bench for something else.
+ * **Their own module because what draws with them and what judges the result
+ * are different things.** The shapes a mark is built from are in
+ * `companion-coachmark-shapes.ts`, and the lab beside it draws them at
+ * settings the product never uses. Neither has to export its internals for
+ * the other to work, and a wobble that differed between them would make the
+ * bench a bench for something else.
  */
 
 /** One point, in the local pixels a path is built in. */
