@@ -941,7 +941,8 @@ describe("assistant subcommand classification", () => {
       expect(result.riskLevel).toBe("high");
     }
     const person = await classifier.classify({
-      command: "assistant oauth request --provider google /gmail/v1/users/me/messages",
+      command:
+        "assistant oauth request --provider google /gmail/v1/users/me/messages",
       toolName: "bash",
     });
     expect(person.riskLevel).toBe("medium");
