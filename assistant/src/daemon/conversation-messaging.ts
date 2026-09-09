@@ -816,6 +816,12 @@ export interface EnqueueMessageOptions {
    * set to this sender.
    */
   trustContext?: TrustContext;
+  /**
+   * Firing's `cron_runs.id` to attribute the drained turn's LLM spend to.
+   * Carried on the queued message because the drain runs after the enqueuing
+   * turn has ended, so there is no in-flight turn left to read it from.
+   */
+  cronRunId?: string | null;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -837,6 +843,7 @@ export function enqueueMessage(
     transport,
     clientMessageId,
     authContext,
+    cronRunId,
   } = options;
   const queuedAuthContext =
     authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext;
@@ -878,6 +885,7 @@ export function enqueueMessage(
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
+    cronRunId,
   });
   if (!accepted) {
     onEvent?.({

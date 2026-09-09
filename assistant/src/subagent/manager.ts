@@ -1277,6 +1277,7 @@ export class SubagentManager {
           conversationId: managed.state.conversationId,
         },
       },
+      { cronRunId: managed.state.config.cronRunId },
     );
   }
 
@@ -1362,6 +1363,7 @@ export class SubagentManager {
               conversationId: managed.state.conversationId,
             },
           },
+          { cronRunId: managed.state.config.cronRunId },
         );
       }
     } else {
@@ -2098,8 +2100,13 @@ export class SubagentManager {
         : {}),
     };
 
-    injectMessageIntoParent(config.parentConversationId, message, {
-      subagentNotification: notification,
-    });
+    injectMessageIntoParent(
+      config.parentConversationId,
+      message,
+      { subagentNotification: notification },
+      // The parent turn this notification starts is the same firing's work as
+      // the child that just finished, so its spend is attributed there too.
+      { cronRunId: config.cronRunId },
+    );
   }
 }

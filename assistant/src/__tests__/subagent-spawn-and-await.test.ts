@@ -687,21 +687,30 @@ describe("SubagentManager.spawn cancellation", () => {
       openGate = resolve;
     });
 
+    const parentConversationId = "parent-cancelled-mid-setup";
     const manager = new SubagentManager();
-    const spawning = manager.spawn(makeConfig(), () => {}, {
-      signal: controller.signal,
-    });
+    const spawning = manager.spawn(
+      makeConfig({ parentConversationId }),
+      () => {},
+      {
+        signal: controller.signal,
+      },
+    );
 
     // Stop the turn while the child conversation is still being built, then let
     // setup finish.
     controller.abort();
     openGate();
-    const subagentId = await spawning;
+    // The child is terminal before its loop can start, so the caller hears the
+    // cancellation rather than an id it would report as a pending subagent.
+    await expect(spawning).rejects.toBeInstanceOf(SubagentSpawnCancelledError);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
+    const children = manager.getChildrenOf(parentConversationId);
     expect(runLoopInvoked).toBe(false);
-    expect(manager.getState(subagentId)?.status).toBe("aborted");
+    expect(children).toHaveLength(1);
+    expect(children[0]?.status).toBe("aborted");
     clearConversations();
   });
 

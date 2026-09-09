@@ -1275,6 +1275,7 @@ async function drainSingleMessage(
     titleText?: string;
     isHiddenPrompt?: boolean;
     turnTrustContext?: TrustContext;
+    cronRunId?: string | null;
   } = {
     isUserMessage: true,
     // Carry the sender's trust into the run. The loop re-initializes the
@@ -1290,6 +1291,12 @@ async function drainSingleMessage(
   }
   if (isHiddenMessageMetadata(next.metadata)) {
     drainLoopOptions.isHiddenPrompt = true;
+  }
+  // The firing this message belongs to, captured at enqueue. The drain runs
+  // outside the enqueuing turn, so the loop has no other way to attribute the
+  // spend to that firing.
+  if (next.cronRunId) {
+    drainLoopOptions.cronRunId = next.cronRunId;
   }
 
   conversation
