@@ -442,19 +442,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
-.companion-coachmark {
-  position: absolute;
-  border-radius: 6px;
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 90%, transparent),
-    0 0 0 5px color-mix(in srgb, black 30%, transparent);
-  animation: companion-coachmark-in 260ms ease-out 1;
-}
-
-/* The arrow, for a mark that indicates a place rather than an extent. Same
- * accent over the same dark halo as the ring, for the same reason: it has to
- * be found over a white document and a dark editor alike. Rounded ends so the
- * shaft and the head read as one stroke rather than three. */
+/* Both marks are strokes now: a loop for an extent, an arrow for a place, each
+ * drawn as a path in the companion's own hand rather than as a CSS shape. A
+ * border-radius cannot wander, and a mark that cannot wander is a machine's.
+ * Rounded ends so a shaft and its head read as one stroke rather than three. */
+.companion-coachmark,
 .companion-coachmark-pointer {
   position: absolute;
   overflow: visible;
@@ -464,11 +456,16 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: companion-coachmark-in 260ms ease-out 1;
 }
 
+/* The accent over a dark halo, which is what keeps a mark found over a white
+ * document and a dark editor alike. The halo is drawn first and wider, so it
+ * is an outline around the ink rather than a shadow under it. */
+.companion-coachmark-halo,
 .companion-coachmark-pointer-halo {
   stroke: color-mix(in srgb, black 30%, transparent);
   stroke-width: 9;
 }
 
+.companion-coachmark-ink,
 .companion-coachmark-pointer-ink {
   stroke: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 90%, transparent);
   stroke-width: 5;
@@ -512,6 +509,7 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * user is being sent, and its entrance is decoration on top of that. */
 @media (prefers-reduced-motion: reduce) {
   .companion-coachmark,
+  .companion-coachmark-pointer,
   .companion-coachmark-caption {
     animation: none;
   }
