@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   statSync,
@@ -22,9 +23,10 @@ import { NOTIFICATION_AVATAR_HASH_PATTERN } from "@vellumai/ipc-contract";
  * the old one rather than replacing a file a live toast is still reading. The
  * name is only safe as a name if it is also true of the bytes, so the digest
  * is recomputed here rather than trusted: a mismatch throws and the caller
- * posts the app-icon toast. A cache entry counts as a hit only while its
- * length matches the bytes in hand, so a truncated or emptied file is
- * rewritten instead of served forever.
+ * posts the app-icon toast. A cache entry counts as a hit only while its own
+ * bytes still hash to its name, so a truncated, corrupted, or substituted
+ * file is rewritten instead of served forever. Each entry is read for that
+ * digest once per process, and served from {@link verifiedFiles} after.
  *
  * Every hit stamps the file's mtime, which is what the prune orders by, so the
  * assistants actually being notified about keep their entries. A file younger
@@ -48,6 +50,15 @@ const PRUNE_MIN_AGE_MS = 10 * 60 * 1000;
 const TEMPORARY_SUFFIX = ".tmp";
 
 /**
+ * Absolute paths whose bytes this process has hashed against their own name.
+ * A path leaves the set when the file behind it is rewritten or pruned.
+ */
+const verifiedFiles = new Set<string>();
+
+const sha256Hex = (bytes: Buffer): string =>
+  createHash("sha256").update(bytes).digest("hex");
+
+/**
  * Writes `avatarPng` to `<userDataDir>/notification-avatars/<avatarHash>.png`
  * unless it is already there intact, prunes the directory to the newest
  * {@link MAX_FILES} files, and returns the absolute path.
@@ -67,14 +78,15 @@ export const ensureNotificationAvatarFile = (
       "A notification avatar hash must be 64 lowercase hex characters",
     );
   }
-  if (createHash("sha256").update(avatarPng).digest("hex") !== avatarHash) {
+  if (sha256Hex(avatarPng) !== avatarHash) {
     throw new Error("A notification avatar hash must match its bytes");
   }
   const directory = path.join(userDataDir, DIRECTORY_NAME);
   const file = path.join(directory, `${avatarHash}.png`);
-  if (touchIfIntact(file, avatarPng.length)) {
+  if (touchIfIntact(file, avatarPng.length, avatarHash)) {
     return file;
   }
+  verifiedFiles.delete(file);
   mkdirSync(directory, { recursive: true });
   writeAtomically(file, avatarPng);
   // A file a live notification still holds open can refuse to be removed, and
@@ -91,14 +103,26 @@ export const ensureNotificationAvatarFile = (
  * Whether `file` already holds the cached avatar, stamping its mtime when it
  * does so the prune orders by last use rather than by first write.
  *
- * The length has to match the bytes in hand: the cache is hash-addressed, so
- * equal lengths are the same picture, and a truncated or emptied file is a
- * miss to rewrite rather than a hit to serve.
+ * The cache is hash-addressed, so the file's own bytes have to hash to
+ * `avatarHash`: a length is cheap to match, and a same-length file written by
+ * anything but this cache would otherwise be served under its name forever.
+ * The read behind that digest happens once per file per process, so a stream
+ * of notifications for one assistant re-reads nothing.
  */
-const touchIfIntact = (file: string, bytes: number): boolean => {
+const touchIfIntact = (
+  file: string,
+  bytes: number,
+  avatarHash: string,
+): boolean => {
   try {
     if (statSync(file).size !== bytes) {
       return false;
+    }
+    if (!verifiedFiles.has(file)) {
+      if (sha256Hex(readFileSync(file)) !== avatarHash) {
+        return false;
+      }
+      verifiedFiles.add(file);
     }
   } catch {
     return false;
@@ -158,6 +182,7 @@ const pruneToNewest = (directory: string): void => {
   for (const stale of cached.slice(MAX_FILES)) {
     if (stale.age >= PRUNE_MIN_AGE_MS) {
       rmSync(stale.full, { force: true });
+      verifiedFiles.delete(stale.full);
     }
   }
 };
