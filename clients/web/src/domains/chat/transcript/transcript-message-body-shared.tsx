@@ -595,11 +595,7 @@ export function SlackReactionLine({ message }: { message: DisplayMessage }) {
     return null;
   }
 
-  // The neutral reaction fact on the same row carries the daemon's resolved
-  // emoji; the spelling fallback serves an assistant that predates it.
-  const emojiDisplay =
-    message.reaction?.emojiDisplay ??
-    displayReactionEmoji(reaction.emoji, lookupEmoji);
+  const emojiDisplay = displayReactionEmoji(reaction.emoji, lookupEmoji);
   const actor =
     reaction.actorDisplayName ??
     message.slackMessage?.sender?.displayName ??

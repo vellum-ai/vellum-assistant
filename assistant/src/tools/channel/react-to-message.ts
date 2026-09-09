@@ -100,9 +100,6 @@ export const reactToMessageTool = {
     }
 
     const action = parsed.data.action ?? "add";
-    // Wrapping colons are how a person types a name, not part of it; the
-    // channel and the stored record both see the bare spelling.
-    const emoji = parsed.data.emoji.replace(/^:+|:+$/g, "");
     // The turn's thread coordinate belongs only to the turn's own message;
     // an explicit messageId may live elsewhere, so it travels bare.
     const threadId =
@@ -111,13 +108,13 @@ export const reactToMessageTool = {
       chatId,
       messageId,
       ...(threadId ? { threadId } : {}),
-      emoji,
+      emoji: parsed.data.emoji,
       action,
     });
     if (!result.ok) {
       return {
         content:
-          `Could not ${action} the ${emoji} reaction; the ` +
+          `Could not ${action} the ${parsed.data.emoji} reaction; the ` +
           "channel rejected it.",
         isError: true,
       };
@@ -137,7 +134,7 @@ export const reactToMessageTool = {
         channel: sourceChannel,
         chatId,
         messageId,
-        emoji,
+        emoji: parsed.data.emoji,
         op: action === "remove" ? ("removed" as const) : ("added" as const),
         ...(context.trustClass
           ? { provenanceTrustClass: context.trustClass }
@@ -154,8 +151,8 @@ export const reactToMessageTool = {
     return {
       content:
         action === "remove"
-          ? `Removed the ${emoji} reaction.`
-          : `Reacted with ${emoji}.`,
+          ? `Removed the ${parsed.data.emoji} reaction.`
+          : `Reacted with ${parsed.data.emoji}.`,
       isError: false,
     };
   },

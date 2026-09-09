@@ -22,10 +22,7 @@
  * gateway, evals) import via `@vellumai/assistant-api`.
  */
 
-import {
-  ReactionEmojiDisplaySchema,
-  ReactionEmojiFieldsSchema,
-} from "@vellumai/service-contracts/reactions";
+import { ReactionEmojiFieldsSchema } from "@vellumai/service-contracts/reactions";
 import { z } from "zod";
 
 import {
@@ -627,7 +624,6 @@ export const ConversationMessageSchema = z.object({
     .object({
       emoji: z.string(),
       ...ReactionEmojiFieldsSchema.shape,
-      ...ReactionEmojiDisplaySchema.shape,
       op: z.enum(["added", "removed"]),
       targetMessageId: z.string(),
       actorDisplayName: z.string().optional(),

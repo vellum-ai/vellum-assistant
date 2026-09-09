@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ProviderMessageMetadata } from "../messaging/provider-message-metadata.js";
 import { readSlackMetadataFromMessageMetadata } from "../messaging/providers/slack/message-metadata.js";
 import type { QueuedReactionRecord } from "./reaction-record.js";
 
@@ -62,16 +61,16 @@ describe("persistReactionRecords", () => {
     expect(row.metadata?.messageKind).toBe("reaction");
     expect(row.metadata?.provenanceTrustClass).toBe("guardian");
     expect(row.metadata?.provenanceSourceChannel).toBe("discord");
-    const envelope = JSON.parse(
-      String(row.metadata?.providerMeta),
-    ) as ProviderMessageMetadata;
+    const envelope = JSON.parse(String(row.metadata?.providerMeta)) as {
+      source: string;
+      eventKind: string;
+      reaction: { targetMessageId: string; emoji: string; op: string };
+    };
     expect(envelope.source).toBe("discord");
     expect(envelope.eventKind).toBe("reaction");
     expect(envelope.reaction).toEqual({
       targetMessageId: "555.1",
       emoji: "🎉",
-      emojiKind: "unicode",
-      emojiName: "🎉",
       op: "added",
     });
     expect(row.metadata?.slackMeta).toBeUndefined();
@@ -83,17 +82,18 @@ describe("persistReactionRecords", () => {
     ]);
     const row = persisted[0]!;
     expect(row.metadata?.slackMeta).toBeUndefined();
-    const envelope = JSON.parse(
-      String(row.metadata?.providerMeta),
-    ) as ProviderMessageMetadata;
+    const envelope = JSON.parse(String(row.metadata?.providerMeta)) as {
+      source: string;
+      conversationExternalId: string;
+      eventKind: string;
+      reaction: { targetMessageId: string; emoji: string; op: string };
+    };
     expect(envelope.source).toBe("slack");
     expect(envelope.conversationExternalId).toBe("C1");
     expect(envelope.eventKind).toBe("reaction");
     expect(envelope.reaction).toEqual({
       targetMessageId: "1700.1",
       emoji: "🎉",
-      emojiKind: "unicode",
-      emojiName: "🎉",
       op: "added",
     });
     // The Slack transcript's view of the same row: the reacted message's ts
@@ -106,8 +106,6 @@ describe("persistReactionRecords", () => {
     expect(view?.eventKind).toBe("reaction");
     expect(view?.reaction).toEqual({
       emoji: "🎉",
-      emojiKind: "unicode",
-      emojiName: "🎉",
       targetChannelTs: "1700.1",
       op: "added",
     });

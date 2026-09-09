@@ -202,7 +202,6 @@ describe("mapRuntimeToDisplayMessage", () => {
       role: "assistant",
       reaction: {
         emoji: "🎉",
-        emojiDisplay: "🎉",
         op: "added",
         targetMessageId: "555.1",
         selfAuthored: true,
@@ -210,7 +209,6 @@ describe("mapRuntimeToDisplayMessage", () => {
     });
     expect(mapRuntimeToDisplayMessage(m).reaction).toEqual({
       emoji: "🎉",
-      emojiDisplay: "🎉",
       op: "added",
       targetMessageId: "555.1",
       selfAuthored: true,
