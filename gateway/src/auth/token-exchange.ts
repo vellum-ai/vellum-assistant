@@ -47,6 +47,31 @@ export function validateEdgeToken(
 // ---------------------------------------------------------------------------
 
 /**
+ * Rewrite an edge sub's assistant segment to 'self', the daemon's internal
+ * scope constant. Service and unparseable subs become the gateway service sub.
+ */
+export function toDaemonSubject(edgeSub: string): string {
+  const parsed = parseSub(edgeSub);
+
+  if (!parsed.ok) {
+    log.warn(
+      { sub: edgeSub, reason: parsed.reason },
+      "Failed to parse edge token sub, using gateway service sub",
+    );
+    return "svc:gateway:self";
+  }
+
+  switch (parsed.principalType) {
+    case "actor":
+      return `actor:self:${parsed.actorPrincipalId}`;
+    case "local":
+      return `local:self:${parsed.conversationId}`;
+    default:
+      return "svc:gateway:self";
+  }
+}
+
+/**
  * Mint a short-lived exchange token (aud=vellum-daemon) from validated
  * edge claims. The sub claim's assistant segment is rewritten to 'self'
  * so the daemon always uses its internal scope constant.
@@ -55,36 +80,9 @@ export function mintExchangeToken(
   edgeClaims: TokenClaims,
   targetScopeProfile: ScopeProfile,
 ): string {
-  const parsed = parseSub(edgeClaims.sub);
-  let exchangeSub: string;
-
-  if (!parsed.ok) {
-    // If sub parsing fails, log and use a gateway service sub as fallback
-    log.warn(
-      { sub: edgeClaims.sub, reason: parsed.reason },
-      "Failed to parse edge token sub, using gateway service sub",
-    );
-    exchangeSub = "svc:gateway:self";
-  } else {
-    // Rewrite the assistant segment to 'self'
-    switch (parsed.principalType) {
-      case "actor":
-        exchangeSub = `actor:self:${parsed.actorPrincipalId}`;
-        break;
-      case "svc_gateway":
-        exchangeSub = "svc:gateway:self";
-        break;
-      case "local":
-        exchangeSub = `local:self:${parsed.conversationId}`;
-        break;
-      default:
-        exchangeSub = "svc:gateway:self";
-    }
-  }
-
   return mintToken({
     aud: "vellum-daemon",
-    sub: exchangeSub,
+    sub: toDaemonSubject(edgeClaims.sub),
     scope_profile: targetScopeProfile,
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: EXCHANGE_TOKEN_TTL_SECONDS,

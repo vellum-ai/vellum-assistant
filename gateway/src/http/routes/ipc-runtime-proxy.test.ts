@@ -86,7 +86,12 @@ mock.module("../../ipc/assistant-client.js", () => ({
   ipcCallAssistant: ipcCallAssistantMock,
 }));
 
-// Stub validateEdgeToken — default: auth passes
+// Stub validateEdgeToken — default: auth passes. The rest of the module
+// (notably toDaemonSubject, which the proxy uses to derive the forwarded
+// subject header) keeps its real implementation.
+const actualTokenExchange = await import("../../auth/token-exchange.js");
+const { toDaemonSubject } = actualTokenExchange;
+
 const validateEdgeTokenMock = mock(
   (
     _token: string,
@@ -99,6 +104,7 @@ const validateEdgeTokenMock = mock(
 );
 
 mock.module("../../auth/token-exchange.js", () => ({
+  ...actualTokenExchange,
   validateEdgeToken: validateEdgeTokenMock,
 }));
 
@@ -348,6 +354,52 @@ describe("tryIpcProxy", () => {
     expect(result!.status).toBe(502);
   });
 
+  test("replaces a spoofed x-vellum-subject with the verified subject", async () => {
+    validateEdgeTokenMock.mockImplementation(() => ({
+      ok: true,
+      claims: {
+        iss: "vellum-auth",
+        aud: "vellum-gateway",
+        sub: "local:asst_1:oauth-proxy.stripe_link",
+        scope_profile: "oauth_proxy_v1",
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        policy_epoch: 1,
+      },
+    }));
+
+    const config = makeConfig({ runtimeProxyRequireAuth: true });
+    const req = makeRequest("/v1/health", {
+      headers: {
+        authorization: "Bearer valid",
+        "x-vellum-subject": "local:self:oauth-proxy.attacker",
+      },
+    });
+    await tryIpcProxy(req, config);
+
+    const [, params] = ipcCallAssistantMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    const headers = params.headers as Record<string, string>;
+    expect(headers["x-vellum-subject"]).toBe(
+      "local:self:oauth-proxy.stripe_link",
+    );
+  });
+
+  test("strips x-vellum-subject when the request is unauthenticated", async () => {
+    const req = makeRequest("/v1/health", {
+      headers: { "x-vellum-subject": "local:self:oauth-proxy.attacker" },
+    });
+    await tryIpcProxy(req, makeConfig());
+
+    const [, params] = ipcCallAssistantMock.mock.calls[0] as [
+      string,
+      Record<string, unknown>,
+    ];
+    const headers = params.headers as Record<string, string>;
+    expect(headers["x-vellum-subject"]).toBeUndefined();
+  });
+
   test("passes query params to IPC", async () => {
     const req = makeRequest("/v1/acp/sessions?limit=10&offset=5");
     await tryIpcProxy(req, makeConfig());
@@ -529,5 +581,22 @@ describe("policy enforcement", () => {
 
     const body = (await result!.json()) as { error: { message: string } };
     expect(body.error.message).toContain("Unable to determine principal type");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: toDaemonSubject
+// ---------------------------------------------------------------------------
+
+describe("toDaemonSubject", () => {
+  test("rewrites the assistant segment to self", () => {
+    expect(toDaemonSubject("actor:asst_1:user_1")).toBe("actor:self:user_1");
+    expect(toDaemonSubject("svc:gateway:asst_1")).toBe("svc:gateway:self");
+    expect(toDaemonSubject("local:asst_1:conv_1")).toBe("local:self:conv_1");
+  });
+
+  test("falls back to the gateway service sub for unparseable subs", () => {
+    expect(toDaemonSubject("garbage")).toBe("svc:gateway:self");
+    expect(toDaemonSubject("")).toBe("svc:gateway:self");
   });
 });
