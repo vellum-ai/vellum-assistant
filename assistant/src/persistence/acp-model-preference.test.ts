@@ -12,6 +12,7 @@ import {
   upsertAcpConversationModelPreference,
 } from "./acp-model-preference.js";
 import {
+  clearAll,
   createConversation,
   deleteConversation,
   deleteConversationGently,
@@ -139,6 +140,23 @@ describe("deleteAcpConversationModelPreferences", () => {
     expect(
       getAcpConversationModelPreference(conversation.id, "claude"),
     ).toBeUndefined();
+  });
+
+  test("clear-all wipes them, so a reused id inherits no one else's choice", async () => {
+    const conversation = createConversation("acp model preference clear all");
+    upsertAcpConversationModelPreference({
+      parentConversationId: conversation.id,
+      agentId: "claude",
+      model: "opus",
+    });
+
+    await clearAll();
+
+    expect(
+      getSqlite()
+        .query("SELECT COUNT(*) AS c FROM acp_conversation_model_preference")
+        .get(),
+    ).toEqual({ c: 0 });
   });
 
   test("the gentle delete purges them too", async () => {

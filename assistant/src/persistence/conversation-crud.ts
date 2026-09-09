@@ -3830,6 +3830,10 @@ export async function clearAll(): Promise<{
   // cascade; wipe them explicitly so labels/objectives don't survive (or
   // rehydrate after) a clear-all.
   await runOrThrow("DELETE FROM subagents");
+  // Per-conversation ACP model preferences are conversation-keyed with no FK
+  // cascade either, so a wipe that skipped them would hand a reused id someone
+  // else's model choice.
+  await runOrThrow("DELETE FROM acp_conversation_model_preference");
   // Watch-session timelines are conversation-keyed rows the cascade does not
   // reach. They come after `conversations` so this statement is the last thing
   // that needs to reach one: an append arriving from here on finds no
