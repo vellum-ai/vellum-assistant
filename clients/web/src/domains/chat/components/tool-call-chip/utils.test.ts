@@ -560,9 +560,8 @@ describe("extractInputSummary", () => {
   });
 
   test("falls through a blank command to the legacy cmd spelling", () => {
-    // The `??` chain this replaced returned the empty string, because `??`
-    // only skips null and undefined, so the chip showed nothing for a call
-    // whose command was carried by the other spelling.
+    // A present-but-empty spelling is not an answer: the value is whichever
+    // spelling actually carries one.
     expect(extractInputSummary("bash", { command: "", cmd: "ls -la" })).toBe(
       "ls -la",
     );
@@ -575,8 +574,8 @@ describe("extractInputSummary", () => {
   });
 
   test("does not stop at a non-string alias", () => {
-    // The `typeof` check sat outside the `??` chain, so a non-string first
-    // spelling exited the branch instead of falling through.
+    // A non-string spelling is skipped like a blank one, not treated as the
+    // answer for the whole branch.
     expect(extractInputSummary("grep", { pattern: 7, query: "TODO" })).toBe(
       "TODO",
     );

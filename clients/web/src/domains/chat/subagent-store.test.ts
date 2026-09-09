@@ -727,8 +727,8 @@ describe("receiveEvent", () => {
       timestamp: NOW,
     });
 
-    // `command` is scanned before `url`. The scan used to accept any string,
-    // so an empty `command` ended it and the step was labelled with nothing.
+    // `command` is scanned before `url`, and a blank value does not end the
+    // scan: the step is labelled with the field that carries something.
     getState().receiveEvent({
       subagentId: "sa-1",
       event: {
