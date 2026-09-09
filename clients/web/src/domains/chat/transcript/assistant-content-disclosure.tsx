@@ -64,20 +64,38 @@ export function AssistantContentDisclosure({
   const [value, setValue] = useState(
     isStreaming ? EARLIER_ACTIVITY_VALUE : "",
   );
+  // Whether the current open state came from the user's own click rather
+  // than the streaming pin. On settle the pin lets go one frame after
+  // `isStreaming` drops, and for that frame the run is still open: it keeps
+  // the capped live treatment until the accordion has actually closed, so the
+  // whole timeline never expands for a painted frame and then animates shut.
+  // A run the user opens afterwards shows the uncapped timeline.
+  const [openedByUser, setOpenedByUser] = useState(false);
 
   useEffect(() => {
-    const frame = requestAnimationFrame(() =>
-      setValue(isStreaming ? EARLIER_ACTIVITY_VALUE : ""),
-    );
+    const frame = requestAnimationFrame(() => {
+      setValue(isStreaming ? EARLIER_ACTIVITY_VALUE : "");
+      if (isStreaming) {
+        setOpenedByUser(false);
+      }
+    });
     return () => cancelAnimationFrame(frame);
   }, [isStreaming]);
+
+  const handleValueChange = (next: string) => {
+    setValue(next);
+    setOpenedByUser(next === EARLIER_ACTIVITY_VALUE);
+  };
+
+  const showsLiveRun =
+    isStreaming || (value === EARLIER_ACTIVITY_VALUE && !openedByUser);
 
   return (
     <Collapsible.Root
       type="single"
       collapsible
       value={isStreaming ? EARLIER_ACTIVITY_VALUE : value}
-      onValueChange={setValue}
+      onValueChange={handleValueChange}
     >
       <Collapsible.Item value={EARLIER_ACTIVITY_VALUE}>
         <Collapsible.Trigger
@@ -123,9 +141,9 @@ export function AssistantContentDisclosure({
               the crawl reads as prose, and the box still scrolls, so a reader
               who wants an earlier row can drag back up; `overscroll-contain`
               stops that drag from bleeding into the transcript once it hits
-              the top. Once the turn settles the cap goes with the streaming
-              branch: the disclosure below shows the whole timeline. */}
-          {isStreaming ? (
+              the top. Once the turn settles and the run has closed, the cap
+              goes with it: a run the user reopens shows the whole timeline. */}
+          {showsLiveRun ? (
             <ScrollShadow
               ref={streamingRunRef}
               fadeEdges="start"

@@ -272,7 +272,7 @@ const CRAWL_POOL: AssistantContentDisclosureItem[] = [
     key: "prose-4",
     node: (
       <CollapsedProse>
-        Comments are in rich_text, authored by Vargas. Re-running the sweep
+        Comments are in rich_text, authored by Alice. Re-running the sweep
         with proper extraction, ordered by time.
       </CollapsedProse>
     ),
@@ -317,7 +317,7 @@ const CRAWL_POOL: AssistantContentDisclosureItem[] = [
     node: (
       <SingleActivity
         variant="thinking"
-        content="Case found: CAS-112, a Discord customer. Now the original message."
+        content="Case found: case-123, a Discord customer. Now the original message."
       />
     ),
   },
@@ -339,7 +339,7 @@ const CRAWL_POOL: AssistantContentDisclosureItem[] = [
         toolCall={makeToolCall({
           id: "tc-case",
           name: "read_file",
-          input: { path: "CAS-112.md", activity: "Reading the case record" },
+          input: { path: "case-123.md", activity: "Reading the case record" },
         })}
       />
     ),
