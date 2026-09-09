@@ -143,13 +143,15 @@ export function useDocumentComposerSubmit({
 
   // Put `conversationId` on the reply watcher's list for the attempt in
   // flight, moving the wait when that attempt turns out to target a different
-  // conversation. A retry that resolves the same conversation rides the wait
-  // the first attempt raised instead of raising a second one, and a
-  // conversation already being waited on keeps the wait it has: the list is a
-  // set, so an earlier send's entry covers this one too and is not this
-  // attempt's to take back down.
+  // conversation. The wait carries the nonce the attempt is sending under, so
+  // the watcher can tell stream events that echo it apart from events about
+  // any other message in the conversation. A retry that resolves the same
+  // conversation rides the wait the first attempt raised instead of raising a
+  // second one, and a conversation already being waited on keeps the wait it
+  // has: the list is a set, so an earlier send's entry covers this one too and
+  // is not this attempt's to take back down.
   const armReplyWaiter = useCallback(
-    (conversationId: string) => {
+    (conversationId: string, clientMessageId: string) => {
       if (armedReplyConversationIdRef.current === conversationId) {
         return;
       }
@@ -158,7 +160,7 @@ export function useDocumentComposerSubmit({
       if (replyStore.awaitingReplyConversationIds.has(conversationId)) {
         return;
       }
-      replyStore.startAwaitingReply(conversationId);
+      replyStore.startAwaitingReply(conversationId, clientMessageId);
       armedReplyConversationIdRef.current = conversationId;
     },
     [disarmReplyWaiter],
@@ -331,7 +333,7 @@ export function useDocumentComposerSubmit({
       // exactly as it answers a fresh accept, so arming off the response
       // would raise a wait for a turn that already finished and the next
       // unrelated completion would fire the reply toast.
-      armReplyWaiter(targetConversationId);
+      armReplyWaiter(targetConversationId, clientMessageId);
 
       const result = await postChatMessage(
         assistantId,
@@ -375,17 +377,12 @@ export function useDocumentComposerSubmit({
         // The assistant is the source of truth for the id: a legacy
         // `conversationKey` send for a fresh draft comes back with the row
         // the daemon minted rather than the key that went out, so the wait
-        // moves onto it.
-        armReplyWaiter(conversationId);
-        if (result.queued) {
-          // The daemon parked this message behind a turn already running in
-          // the conversation. That turn ends with a terminal event of its
-          // own, which is not this message's reply, so the wait carries the
-          // flag that tells the watcher to let one through.
-          useDocumentComposerReplyStore
-            .getState()
-            .markReplyQueued(conversationId);
-        }
+        // moves onto it, under the same nonce. Whether the daemon parked this
+        // message behind a turn already running is not read off this response:
+        // the watcher learns that from the `message_queued` stream event,
+        // which arrives in order against the terminal events it has to
+        // outrank.
+        armReplyWaiter(conversationId, clientMessageId);
         // The watcher owns the wait from here; the next send arms its own.
         armedReplyConversationIdRef.current = null;
       }

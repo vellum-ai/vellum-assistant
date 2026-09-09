@@ -253,6 +253,12 @@ function isQueuedReply(conversationId: string): boolean {
     .queuedReplyConversationIds.has(conversationId);
 }
 
+function awaitingNonce(conversationId: string): string | undefined {
+  return useDocumentComposerReplyStore
+    .getState()
+    .awaitingReplyClientMessageIds.get(conversationId);
+}
+
 /** The document `document-viewer-page`'s "Submit Feedback" leaves open: on a
  *  draft conversation nothing has sent against yet. */
 const OPENED_DRAFT_DOC = {
@@ -285,6 +291,7 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
     queuedReplyConversationIds: new Set(),
+    awaitingReplyClientMessageIds: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
   useAssistantIdentityStore.setState({ version: null });
@@ -305,6 +312,7 @@ afterEach(() => {
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
     queuedReplyConversationIds: new Set(),
+    awaitingReplyClientMessageIds: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
 });
@@ -965,10 +973,10 @@ describe("queued sends", () => {
     expect(result.current.status).toBe("sent");
     expect(toastInfoMock).toHaveBeenCalledTimes(1);
     expect(isAwaitingReply("conv-existing")).toBe(true);
-    // The turn already running in the conversation ends with a terminal event
-    // of its own, which is not this message's reply, so the wait carries the
-    // flag that tells the watcher to let one through.
-    expect(isQueuedReply("conv-existing")).toBe(true);
+    // The POST response races the running turn's `generation_handoff`, so it
+    // is not what flags the wait: the watcher does that off the ordered
+    // `message_queued` stream event instead.
+    expect(isQueuedReply("conv-existing")).toBe(false);
   });
 
   test("an immediately-accepted result leaves the wait unflagged", async () => {
@@ -979,8 +987,6 @@ describe("queued sends", () => {
       await result.current.submit();
     });
 
-    // Nothing runs ahead of this message, so the next terminal event in the
-    // conversation is its own.
     expect(isAwaitingReply("conv-existing")).toBe(true);
     expect(isQueuedReply("conv-existing")).toBe(false);
   });
@@ -1008,6 +1014,53 @@ describe("when the reply wait goes up", () => {
     });
 
     expect(isAwaitingReply("conv-existing")).toBe(true);
+  });
+
+  test("the wait carries the nonce the POST went out with", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-existing");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // The watcher matches `message_queued` against this id, so the wait holds
+    // the nonce the POST is carrying while that POST is still in flight.
+    const sentNonce = sentOptions(0).clientMessageId as string;
+    expect(sentNonce).toBeTruthy();
+    expect(awaitingNonce("conv-existing")).toBe(sentNonce);
+
+    await act(async () => {
+      settle(sentResult("conv-existing"));
+      await submitted;
+    });
+
+    expect(awaitingNonce("conv-existing")).toBe(sentNonce);
+  });
+
+  test("a wait moved onto the row the daemon answered with keeps the nonce", async () => {
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> =>
+        sentResult("conv-minted"),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The legacy `conversationKey` path answers with the row the daemon
+    // minted rather than the key that went out, and the message the watcher
+    // is matching on is still the one this send carried.
+    expect(isAwaitingReply("conv-key")).toBe(false);
+    expect(isAwaitingReply("conv-minted")).toBe(true);
+    expect(awaitingNonce("conv-minted")).toBe(
+      sentOptions(0).clientMessageId as string,
+    );
   });
 
   test("a retry the daemon dedupes never raises a second wait", async () => {

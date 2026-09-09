@@ -109,6 +109,57 @@ function publishGenerationHandoff(conversationId: string) {
   });
 }
 
+function publishMessageQueued(
+  conversationId: string,
+  clientMessageId?: string,
+) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-queued-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "message_queued",
+        conversationId,
+        requestId: `req-${conversationId}`,
+        position: 1,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      },
+    });
+  });
+}
+
+function publishMessageDequeued(conversationId: string) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-dequeued-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "message_dequeued",
+        conversationId,
+        requestId: `req-${conversationId}`,
+      },
+    });
+  });
+}
+
+function publishMessageQueuedDeleted(
+  conversationId: string,
+  clientMessageId?: string,
+) {
+  act(() => {
+    publish("sse.event", {
+      id: `evt-queued-deleted-${conversationId}`,
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "message_queued_deleted",
+        conversationId,
+        requestId: `req-${conversationId}`,
+        ...(clientMessageId ? { clientMessageId } : {}),
+      },
+    });
+  });
+}
+
 function awaiting(conversationId: string): boolean {
   return useDocumentComposerReplyStore
     .getState()
@@ -131,6 +182,7 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     awaitingReplyConversationIds: new Set(),
     queuedReplyConversationIds: new Set(),
+    awaitingReplyClientMessageIds: new Map(),
   });
   useConversationStore.setState({
     processingConversationIds: new Set(),
@@ -354,6 +406,144 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(toastSuccessMock).not.toHaveBeenCalled();
       expect(awaiting("conv-1")).toBe(false);
       expect(processing("conv-1")).toBe(false);
+    });
+  });
+
+  describe("the daemon's queue events", () => {
+    test("a message_queued naming the awaited send flags the wait", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-1");
+
+      expect(queued("conv-1")).toBe(true);
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a message_queued naming another client's message is ignored", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-someone-else");
+
+      expect(queued("conv-1")).toBe(false);
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a message_queued carrying no nonce flags by conversation", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      // An older daemon acks the queue without echoing `clientMessageId`.
+      publishMessageQueued("conv-1");
+
+      expect(queued("conv-1")).toBe(true);
+    });
+
+    test("a message_queued for a conversation nobody is waiting on starts no wait", () => {
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-unrelated", "cm-1");
+
+      expect(awaiting("conv-unrelated")).toBe(false);
+      expect(queued("conv-unrelated")).toBe(false);
+    });
+
+    test("a message_dequeued unflags the wait without ending it", () => {
+      useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageDequeued("conv-1");
+
+      expect(queued("conv-1")).toBe(false);
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("a message_queued_deleted naming the awaited send ends the wait silently", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueuedDeleted("conv-1", "cm-1");
+
+      // The message never runs, so no reply is coming for it.
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("a message_queued_deleted naming another message leaves the wait up", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueuedDeleted("conv-1", "cm-someone-else");
+
+      expect(awaiting("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
+    });
+
+    test("a message_queued_deleted naming no message leaves the wait up", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueuedDeleted("conv-1");
+
+      expect(awaiting("conv-1")).toBe(true);
+    });
+
+    test("the queue ack flags the wait ahead of the running turn's handoff", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-1");
+      publishGenerationHandoff("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
+    test("the queue ack carries the wait through the running turn failing", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1", "cm-1");
+      publishGenerationCancelled("conv-1");
+
+      // The cancelled turn is the one the awaited message sits behind; the
+      // daemon still drains the queue and runs it.
+      expect(awaiting("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
+
+      publishMessageComplete("conv-1");
+
+      expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+      expect(awaiting("conv-1")).toBe(false);
     });
   });
 });

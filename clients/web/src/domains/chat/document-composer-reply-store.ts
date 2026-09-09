@@ -27,11 +27,23 @@ export interface DocumentComposerReplyState {
    * treating the next as the reply.
    */
   queuedReplyConversationIds: ReadonlySet<string>;
+  /**
+   * The `clientMessageId` each awaited send went out with, so stream events
+   * that echo it (`message_queued`, `message_queued_deleted`) can be matched
+   * to the awaited message rather than to any message in the conversation.
+   */
+  awaitingReplyClientMessageIds: ReadonlyMap<string, string>;
 }
 
 export interface DocumentComposerReplyActions {
-  /** Record that a just-sent document composer message is awaiting a reply. */
-  startAwaitingReply: (conversationId: string) => void;
+  /**
+   * Record that a just-sent document composer message is awaiting a reply.
+   * `clientMessageId` is the nonce the send carries, when known.
+   */
+  startAwaitingReply: (
+    conversationId: string,
+    clientMessageId?: string,
+  ) => void;
   /** Stop waiting, once the reply toast has fired (or is no longer wanted). */
   stopAwaitingReply: (conversationId: string) => void;
   /**
@@ -52,12 +64,22 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set) => ({
     awaitingReplyConversationIds: new Set(),
     queuedReplyConversationIds: new Set(),
+    awaitingReplyClientMessageIds: new Map(),
 
-    startAwaitingReply: (conversationId) => {
+    startAwaitingReply: (conversationId, clientMessageId) => {
       set((s) => {
         const next = new Set(s.awaitingReplyConversationIds);
         next.add(conversationId);
-        return { awaitingReplyConversationIds: next };
+        const nonces = new Map(s.awaitingReplyClientMessageIds);
+        if (clientMessageId) {
+          nonces.set(conversationId, clientMessageId);
+        } else {
+          nonces.delete(conversationId);
+        }
+        return {
+          awaitingReplyConversationIds: next,
+          awaitingReplyClientMessageIds: nonces,
+        };
       });
     },
 
@@ -70,9 +92,12 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         next.delete(conversationId);
         const queued = new Set(s.queuedReplyConversationIds);
         queued.delete(conversationId);
+        const nonces = new Map(s.awaitingReplyClientMessageIds);
+        nonces.delete(conversationId);
         return {
           awaitingReplyConversationIds: next,
           queuedReplyConversationIds: queued,
+          awaitingReplyClientMessageIds: nonces,
         };
       });
     },
@@ -105,13 +130,15 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       set((s) => {
         if (
           s.awaitingReplyConversationIds.size === 0 &&
-          s.queuedReplyConversationIds.size === 0
+          s.queuedReplyConversationIds.size === 0 &&
+          s.awaitingReplyClientMessageIds.size === 0
         ) {
           return s;
         }
         return {
           awaitingReplyConversationIds: new Set(),
           queuedReplyConversationIds: new Set(),
+          awaitingReplyClientMessageIds: new Map(),
         };
       });
     },

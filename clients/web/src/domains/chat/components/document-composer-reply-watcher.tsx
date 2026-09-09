@@ -25,6 +25,46 @@ function stopAwaitingReply(conversationId: string): boolean {
 }
 
 /**
+ * Whether a queue event for `conversationId` speaks for the awaited send.
+ * Nonces decide it when both sides carry one; an event from a daemon that
+ * does not echo `clientMessageId`, and a wait armed without one, fall back
+ * to conversation granularity.
+ */
+function isAwaitedQueueEvent(
+  conversationId: string,
+  clientMessageId: string | undefined,
+): boolean {
+  const state = useDocumentComposerReplyStore.getState();
+  if (!state.awaitingReplyConversationIds.has(conversationId)) {
+    return false;
+  }
+  const awaited = state.awaitingReplyClientMessageIds.get(conversationId);
+  if (!awaited || !clientMessageId) {
+    return true;
+  }
+  return awaited === clientMessageId;
+}
+
+/**
+ * Whether `clientMessageId` is exactly the nonce the awaited send went out
+ * with. Required where acting on another client's message would end the
+ * wait wrongly, so an unknown nonce on either side is not a match.
+ */
+function isAwaitedSendNonce(
+  conversationId: string,
+  clientMessageId: string | undefined,
+): boolean {
+  if (!clientMessageId) {
+    return false;
+  }
+  return (
+    useDocumentComposerReplyStore
+      .getState()
+      .awaitingReplyClientMessageIds.get(conversationId) === clientMessageId
+  );
+}
+
+/**
  * Absorb one terminal event on behalf of a wait flagged queued, reporting
  * whether it did. The flag says the awaited message sits behind the turn
  * currently running in that conversation, so that turn's terminal is not the
@@ -45,6 +85,10 @@ function consumeQueuedTerminal(conversationId: string): boolean {
  * flagged as awaiting a reply (`document-composer-reply-store.ts`), and ends
  * the wait silently when that turn is cancelled or fails instead.
  *
+ * The queued flag on a wait is this watcher's own: the daemon's queue events
+ * set and clear it, which keeps it ordered against the terminals it has to
+ * survive.
+ *
  * Mounted once in `RootLayout`, above every document host's null guard, so
  * this subscription survives closing the document (`MobileDocumentOverlay`
  * returning `null`) or navigating off the standalone document route while a
@@ -57,6 +101,38 @@ export function DocumentComposerReplyWatcher() {
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
+
+    // The queue ack, not the send's POST response, is what flags a wait as
+    // queued: it rides the same stream as the terminals below, while the
+    // response can return after the running turn has already handed off.
+    if (event.type === "message_queued") {
+      if (isAwaitedQueueEvent(event.conversationId, event.clientMessageId)) {
+        useDocumentComposerReplyStore
+          .getState()
+          .markReplyQueued(event.conversationId);
+      }
+      return;
+    }
+
+    // The runtime is starting the awaited turn, so the next terminal is its
+    // own and there is nothing left ahead of it to absorb.
+    if (event.type === "message_dequeued") {
+      if (isAwaitedQueueEvent(event.conversationId, event.clientMessageId)) {
+        useDocumentComposerReplyStore
+          .getState()
+          .clearReplyQueued(event.conversationId);
+      }
+      return;
+    }
+
+    // The awaited message was discarded before it ever ran, so no reply is
+    // coming for it.
+    if (event.type === "message_queued_deleted") {
+      if (isAwaitedSendNonce(event.conversationId, event.clientMessageId)) {
+        stopAwaitingReply(event.conversationId);
+      }
+      return;
+    }
 
     // Each of these ends the turn that was running (`error` and
     // `conversation_error` are the two the chat stream handlers also treat as
