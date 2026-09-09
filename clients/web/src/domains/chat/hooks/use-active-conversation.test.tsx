@@ -18,6 +18,8 @@ let backgroundImpl: Conversation[] = [];
 let scheduledImpl: Conversation[] = [];
 let archivedImpl: Conversation[] = [];
 let isOrgReadyImpl = true;
+/** What the stubbed single-row refresh resolves with; "removed" plays a 404. */
+let refreshOutcome: "patched" | "removed" = "patched";
 const refreshConversationRowCalls: Array<{
   assistantId: string | null;
   conversationId: string;
@@ -41,6 +43,7 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
     conversationId: string,
   ) => {
     refreshConversationRowCalls.push({ assistantId, conversationId });
+    return refreshOutcome;
   },
   markConversationSeenLocal: () => {},
   prependConversation: () => {},
@@ -50,6 +53,12 @@ mock.module("@/utils/conversation-cache-mutations", () => ({
 
 const { useActiveConversation } =
   await import("@/domains/chat/hooks/use-active-conversation");
+const {
+  isConversationMissing,
+  markConversationMissing,
+  useMissingConversationStore,
+} = await import("@/domains/chat/utils/missing-conversation-registry");
+const { useConversationStore } = await import("@/stores/conversation-store");
 
 function makeConversation(conversationId: string): Conversation {
   return { conversationId } as Conversation;
@@ -66,8 +75,12 @@ beforeEach(() => {
   foregroundImpl = [];
   backgroundImpl = [];
   scheduledImpl = [];
+  archivedImpl = [];
   isOrgReadyImpl = true;
+  refreshOutcome = "patched";
   refreshConversationRowCalls.length = 0;
+  useMissingConversationStore.setState({ missing: {} });
+  useConversationStore.setState({ draftConversationIds: new Set() });
 });
 
 afterEach(() => {
@@ -184,5 +197,68 @@ describe("useActiveConversation", () => {
     // THEN no fetch is issued (prevents 400 org-header errors)
     await Promise.resolve();
     expect(refreshConversationRowCalls).toHaveLength(0);
+  });
+
+  test("registers a 404 answer as missing and never re-asks that id", async () => {
+    // GIVEN the server no longer has the selected conversation
+    refreshOutcome = "removed";
+    foregroundImpl = [];
+    backgroundImpl = [];
+
+    // WHEN the hook resolves the absent row
+    const { rerender } = renderHook(
+      () => useActiveConversation("asst-1", "gone-1", true),
+      { wrapper },
+    );
+
+    // THEN it asks once and registers the 404 answer
+    await waitFor(() => {
+      expect(isConversationMissing("asst-1", "gone-1")).toBe(true);
+    });
+    expect(refreshConversationRowCalls).toHaveLength(1);
+
+    // AND a later mount against the same dead selection (this hook mounts
+    // several times against the active conversation) asks nothing
+    rerender();
+    renderHook(() => useActiveConversation("asst-1", "gone-1", true), {
+      wrapper,
+    });
+    await Promise.resolve();
+    expect(refreshConversationRowCalls).toHaveLength(1);
+  });
+
+  test("a missing id registered elsewhere is never asked", async () => {
+    // GIVEN another mount already heard the 404 for this id
+    markConversationMissing("asst-1", "gone-1");
+    foregroundImpl = [];
+    backgroundImpl = [];
+
+    // WHEN a fresh mount resolves the same dead selection
+    renderHook(() => useActiveConversation("asst-1", "gone-1", true), {
+      wrapper,
+    });
+
+    // THEN no request is issued - the session already has the answer
+    await Promise.resolve();
+    expect(refreshConversationRowCalls).toHaveLength(0);
+  });
+
+  test("a client-minted draft is never asked about", async () => {
+    // GIVEN the selected id is a local draft with no server row
+    useConversationStore
+      .getState()
+      .registerDraftConversationId("draft-1");
+    foregroundImpl = [];
+    backgroundImpl = [];
+
+    // WHEN the hook resolves the draft's row
+    renderHook(() => useActiveConversation("asst-1", "draft-1", true), {
+      wrapper,
+    });
+
+    // THEN the detail endpoint is not asked - a draft 404s by construction
+    await Promise.resolve();
+    expect(refreshConversationRowCalls).toHaveLength(0);
+    expect(isConversationMissing("asst-1", "draft-1")).toBe(false);
   });
 });

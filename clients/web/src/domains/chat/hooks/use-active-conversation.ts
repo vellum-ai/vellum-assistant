@@ -30,6 +30,11 @@ import {
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
+import { useConversationStore } from "@/stores/conversation-store";
+import {
+  isConversationMissing,
+  markConversationMissing,
+} from "@/domains/chat/utils/missing-conversation-registry";
 
 export function useActiveConversation(
   assistantId: string | null,
@@ -78,19 +83,37 @@ export function useActiveConversation(
     if (activeConversation) {
       return;
     }
+    // A client-minted draft has no server row by construction; asking the
+    // detail endpoint about it would burn a request just to hear a 404.
+    if (useConversationStore.getState().draftConversationIds.has(conversationId)) {
+      return;
+    }
+    // The server already answered 404 for this id this session. Skipping
+    // keeps a dead selection from re-asking on every mount of this hook
+    // (several components mount it against the same selected conversation),
+    // which is the retry loop the missing-conversation recovery closes.
+    if (isConversationMissing(assistantId, conversationId)) {
+      return;
+    }
     if (fetchedConversationIdRef.current === conversationId) {
       return;
     }
     fetchedConversationIdRef.current = conversationId;
-    void refreshConversationRow(queryClient, assistantId, conversationId).catch(
-      (error) => {
+    void refreshConversationRow(queryClient, assistantId, conversationId)
+      .then((outcome) => {
+        if (outcome === "removed") {
+          // The 404 answer is session knowledge: register it so this hook
+          // stops asking and the loader's recovery effect can react.
+          markConversationMissing(assistantId, conversationId);
+        }
+      })
+      .catch((error) => {
         fetchedConversationIdRef.current = null;
         captureError(error, {
           context: "useActiveConversation.refreshRow",
           bestEffort: true,
         });
-      },
-    );
+      });
   }, [
     enabled,
     assistantId,

@@ -25,3 +25,14 @@ export function saveLastViewedConversationId(
 ): void {
   storage.save(assistantId, conversationId);
 }
+
+/**
+ * Drop the stored last-viewed conversation for an assistant. Called when the
+ * stored id is known to be gone server-side (a 404 on the detail endpoint),
+ * so the next cold boot resolves its landing from live rows instead of
+ * spending a request on the dead one. Serializing `null` writes the empty
+ * string, which the accessor's parser reads back as `null`.
+ */
+export function clearLastViewedConversationId(assistantId: string): void {
+  storage.save(assistantId, null);
+}

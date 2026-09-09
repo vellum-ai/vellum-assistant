@@ -18,6 +18,7 @@ import {
   shouldMintNewChatDraft,
 } from "@/domains/chat/utils/conversation-selection";
 import {
+  clearLastViewedConversationId,
   loadLastViewedConversationId,
   saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
@@ -39,6 +40,12 @@ import { useTurnTimeout } from "@/domains/chat/hooks/use-turn-timeout";
 import type { AssistantStateKind } from "@/domains/chat/types";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { useQueryClient } from "@tanstack/react-query";
+
+import {
+  isConversationMissing,
+  useIsConversationMissing,
+} from "@/domains/chat/utils/missing-conversation-registry";
+import { recordDiagnostic } from "@/lib/diagnostics";
 
 import {
   useCanQueryDaemon,
@@ -326,13 +333,28 @@ export function useConversationLoader({
     const currentConversationId =
       useConversationStore.getState().activeConversationId;
 
+    /* A URL key the server has already answered 404 for this session is not
+       a selection: applying it parks the chat on a conversation that does
+       not exist and re-asks the detail endpoint from every hook that mounts
+       against it. Dropping it here routes this boot through the landing
+       fallbacks (last-viewed, newest foreground row), and the landing's
+       `apply` replaces the dead URL. The raw key is still recorded in
+       `lastAppliedUrlConversationIdRef` below so the early return keeps
+       matching and this effect cannot loop on it. */
+    const urlKeyIsMissing =
+      explicitConversationId != null &&
+      isConversationMissing(assistantId, explicitConversationId);
+    const effectiveConversationId = urlKeyIsMissing
+      ? null
+      : explicitConversationId;
+
     // Native mobile shells cold-launch into a fresh draft instead of
     // resuming a conversation. A draft is minted only while nothing is selected
     // in the URL or the store, and the minting pass writes the key to the store
     // in the same body, so the gate closes for the rest of the session.
     const newChatDraftConversationId = shouldMintNewChatDraft({
       platformStartsInNewChat: isNativeMobile(),
-      urlConversationId: explicitConversationId,
+      urlConversationId: effectiveConversationId,
       currentConversationId,
     })
       ? createDraftConversationId()
@@ -361,7 +383,7 @@ export function useConversationLoader({
       void navigate(routes.conversation(key), { replace: true });
     };
     const preselected = {
-      queryParamKey: explicitConversationId,
+      queryParamKey: effectiveConversationId,
       onboardingDraftConversationId,
       newChatDraftConversationId,
       currentConversationId,
@@ -395,16 +417,24 @@ export function useConversationLoader({
         if (useConversationStore.getState().activeConversationId != null) {
           return;
         }
+        const bootstrappedConversationId = resolveBootstrappedConversationId({
+          ...preselected,
+          storedConversation: landing.storedConversation,
+          // Background/scheduled conversations live behind a
+          // collapsed-by-default sidebar section and must never be selected
+          // implicitly, so the newest *foreground* row is the default, and
+          // the assistant itself when it has none.
+          defaultConversationId: landing.latestForegroundId ?? assistantId,
+        });
+        /* The list and the detail endpoint can disagree (the stale-row
+           source of missing ids): a newest-row or stored-row answer that
+           this session already heard a 404 for is not a landing, or
+           recovery would navigate back here and loop. The assistant itself
+           is the same terminal fallback the drained list reaches. */
         apply(
-          resolveBootstrappedConversationId({
-            ...preselected,
-            storedConversation: landing.storedConversation,
-            // Background/scheduled conversations live behind a
-            // collapsed-by-default sidebar section and must never be selected
-            // implicitly, so the newest *foreground* row is the default, and
-            // the assistant itself when it has none.
-            defaultConversationId: landing.latestForegroundId ?? assistantId,
-          }),
+          isConversationMissing(assistantId, bootstrappedConversationId)
+            ? assistantId
+            : bootstrappedConversationId,
         );
       })
       .catch((error: unknown) => {
@@ -435,6 +465,95 @@ export function useConversationLoader({
     queryClient,
     assistantIdRef,
     onboardingDraftConversationIdRef,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Missing selected conversation (404) recovery
+  //
+  // The server's detail endpoint is the authority on whether the selected
+  // conversation exists. When it answers 404, `useActiveConversation`
+  // registers the id in the session's missing-conversation registry (after
+  // dropping the stale row from every list cache). This effect reacts to the
+  // *active* conversation being registered: reconcile the sidebar with the
+  // server, drop a last-viewed pointer at the dead id, and route the user to
+  // the chat index so the bootstrap landing picks a live conversation. The
+  // user sees the dead row disappear and the chat recover, never the
+  // full-page generic error a thrown 404 used to produce.
+  //
+  // The registry's session scope plus the once-guard below keep this from
+  // looping: after recovery the URL no longer names the dead id, the
+  // bootstrap effect refuses to reselect a registered id, and `useActiveConversation`
+  // refuses to re-ask the detail endpoint about one.
+  // -------------------------------------------------------------------------
+  const activeConversationMissing = useIsConversationMissing(
+    assistantId,
+    activeConversationId,
+  );
+  const recoveredConversationKeysRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (
+      !activeConversationMissing ||
+      assistantStateKind !== "active" ||
+      !assistantId ||
+      !activeConversationId
+    ) {
+      return;
+    }
+    const recoveryKey = `${assistantId}\u0000${activeConversationId}`;
+    if (recoveredConversationKeysRef.current.has(recoveryKey)) {
+      return;
+    }
+    recoveredConversationKeysRef.current.add(recoveryKey);
+
+    // Telemetry: where the dead id was selected from, so future stale-id
+    // producers are distinguishable in the diagnostics snapshot. "url"
+    // covers direct links and notification taps (both arrive as the URL
+    // param); "list_row" is a sidebar row a list cache still held; "store"
+    // is an in-memory selection with no row behind it.
+    const selectedIdSource =
+      urlConversationId === activeConversationId
+        ? "url"
+        : activeConversation
+          ? "list_row"
+          : "store";
+    recordDiagnostic("conversation_missing_recovery", {
+      assistantId,
+      conversationId: activeConversationId,
+      selectedIdSource,
+    });
+    captureError(
+      new Error(
+        `Selected conversation ${activeConversationId} reported missing by the server`,
+      ),
+      { context: "conversation.missing_recovery", level: "warning" },
+    );
+
+    // The 404 already dropped the dead row from the caches; reconcile the
+    // lists so the sidebar settles on rows that exist server-side.
+    void refreshConversations();
+
+    // A stored last-viewed pointing at the dead id would make the next cold
+    // boot ask about it again; the landing tolerates the 404, but never
+    // asking is cheaper.
+    if (loadLastViewedConversationId(assistantId) === activeConversationId) {
+      clearLastViewedConversationId(assistantId);
+    }
+
+    // Leave the dead route. Clearing the store's selection first matters:
+    // the index route's bootstrap treats an in-memory selection as
+    // authoritative, so it would otherwise reselect the dead id from the
+    // store while the URL says otherwise.
+    useConversationStore.getState().setActiveConversationId(null);
+    void navigate(routes.assistant, { replace: true });
+  }, [
+    activeConversationMissing,
+    assistantStateKind,
+    assistantId,
+    activeConversationId,
+    urlConversationId,
+    activeConversation,
+    refreshConversations,
+    navigate,
   ]);
 
   // -------------------------------------------------------------------------

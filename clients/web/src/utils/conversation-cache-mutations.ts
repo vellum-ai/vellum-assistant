@@ -405,14 +405,24 @@ export function surfaceConversationInCaches(
  *   after a local deletion.
  * - Network / other errors: rethrown to the caller so the SSE consumer
  *   can log/sentry-capture without silently dropping the signal.
+ *
+ * Returns the outcome so callers can react to the 404 specifically (the
+ * selected-conversation recovery in `useActiveConversation` registers
+ * the id as missing) without catching and re-classifying the error.
  */
+export type RefreshConversationRowOutcome =
+  /** The server no longer has the conversation; its row was dropped. */
+  | "removed"
+  /** The server returned the row; caches were patched or appended. */
+  | "patched";
+
 export async function refreshConversationRow(
   queryClient: QueryClient,
   assistantId: string | null,
   conversationId: string,
-): Promise<void> {
+): Promise<RefreshConversationRowOutcome> {
   if (!assistantId) {
-    return;
+    return "patched";
   }
 
   let result: Conversation;
@@ -425,7 +435,7 @@ export async function refreshConversationRow(
   } catch (err) {
     if (err instanceof ConversationNotFoundError) {
       removeConversation(queryClient, assistantId, conversationId);
-      return;
+      return "removed";
     }
     throw err;
   }
@@ -448,7 +458,7 @@ export async function refreshConversationRow(
   const existing = findConversation(queryClient, assistantId, conversationId);
   if (existing) {
     updateAllConversationCaches(queryClient, assistantId, replaceMatching);
-    return;
+    return "patched";
   }
 
   if (isScheduledConversation(result)) {
@@ -458,7 +468,7 @@ export async function refreshConversationRow(
       SCHEDULED_FILTER,
       (conversations) => [...conversations, result],
     );
-    return;
+    return "patched";
   }
   if (isBackgroundConversation(result)) {
     updateConversationListCache(
@@ -467,7 +477,7 @@ export async function refreshConversationRow(
       BACKGROUND_FILTER,
       (conversations) => [...conversations, result],
     );
-    return;
+    return "patched";
   }
   updateConversationListCache(
     queryClient,
@@ -475,6 +485,7 @@ export async function refreshConversationRow(
     FOREGROUND_FILTER,
     (conversations) => [...conversations, result],
   );
+  return "patched";
 }
 
 /**
