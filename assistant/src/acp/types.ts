@@ -4,22 +4,15 @@
 
 import type { StopReason } from "@agentclientprotocol/sdk";
 
+import type { AcpAgentConfig as ConfiguredAcpAgent } from "../config/acp-schema.js";
 import type { AcpModelOption } from "./model-config.js";
 
 /**
- * Configuration for a single ACP agent process.
+ * A configured ACP agent plus what the daemon learns about it at spawn time.
+ * The configured half is the schema's own inferred type, so a new config leaf
+ * is declared once, in `config/acp-schema.ts`.
  */
-export interface AcpAgentConfig {
-  command: string;
-  args: string[];
-  description?: string;
-  env?: Record<string, string>;
-  /**
-   * Model this agent's sessions start on, from `acp.agents.<id>.model`. An
-   * adapter-reported alias, outranked only by an explicit request and the
-   * conversation's own preference.
-   */
-  model?: string;
+export interface AcpAgentConfig extends ConfiguredAcpAgent {
   /**
    * Identity of the Claude token `prepareAgentEnv` resolved into `env`,
    * whichever source it came from. Recorded on the history row when Claude

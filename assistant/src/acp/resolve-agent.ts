@@ -147,8 +147,16 @@ function normalizeAgentId(id: string): string {
  * The bundled id an alias resolves to, or the id itself when it names no
  * alias. Callers that key durable state on an agent id use this so a spawn
  * made as "claude code" and one made as "claude" share a single record.
+ *
+ * A user config entry keyed literally as the alias is a different agent, and
+ * `lookupAgent` resolves it ahead of the alias table. Mirror that order here,
+ * or a spawn on the user's own "claude code" would key its state on the
+ * bundled "claude".
  */
 export function canonicalAgentId(id: string): string {
+  if (getConfig().acp.agents[id]) {
+    return id;
+  }
   return AGENT_ID_ALIASES[normalizeAgentId(id)] ?? id;
 }
 
