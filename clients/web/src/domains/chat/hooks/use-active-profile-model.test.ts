@@ -107,13 +107,13 @@ describe("useActiveProfileModelState", () => {
     });
   });
 
-  test("resolves with no override once the conversation read fails", () => {
-    // A draft id the daemon has never seen 404s, and that is an answer: the
-    // conversation has no row to carry an override.
+  test("holds while the conversation read has failed", () => {
+    // A failed read says nothing about the override the row may carry, so
+    // the target is not resolved, and an image gate reading it keeps holding.
     queries = { config: CONFIG, conversation: ERRORED };
     expect(state("conv-1")).toEqual({
       model: { provider: "anthropic", model: "claude", supportsVision: true },
-      resolved: true,
+      resolved: false,
     });
   });
 });

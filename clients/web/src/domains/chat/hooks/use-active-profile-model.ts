@@ -90,10 +90,13 @@ export function useActiveProfileModelState(
   });
 
   // A disabled query stays pending at an idle fetch, so only an enabled one
-  // reports anything by its status. An errored row (a draft id the daemon has
-  // never seen) has settled all the same: it carries no override.
+  // reports anything by its status, and only its row answers: a read that
+  // failed says nothing about the override the row may carry, so the target
+  // stays unresolved rather than passing for the global profile. A caller
+  // with no row to read (a live draft) passes no id and resolves on the
+  // config alone.
   const resolved =
-    !!config && (!conversationEnabled || convStatus !== "pending");
+    !!config && (!conversationEnabled || convStatus === "success");
 
   const model = useMemo(() => {
     if (!config) {
