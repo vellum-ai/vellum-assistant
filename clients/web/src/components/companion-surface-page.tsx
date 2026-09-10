@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 
 import { CompanionCapturePicker } from "@/components/companion-capture-picker";
 import { CompanionDictationOffer } from "@/components/companion-dictation-offer";
@@ -34,6 +34,8 @@ import {
   toggleCompanionWatch,
 } from "@/runtime/companion-surface";
 import { sendVoiceActivityControl } from "@/runtime/desktop-voice-activity";
+import { supportsChords } from "@/runtime/hotkey";
+import { callChordHints } from "@/domains/chat/voice/live-voice/call-chord-keys";
 import { useTranslation } from "@/i18n";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
@@ -272,6 +274,14 @@ export function CompanionSurfacePage() {
    */
   const inCall = call !== null || dialing;
   const sharing = screenShare !== undefined;
+  // What the captions say beside Share, Draw and the mutes. Named only where
+  // the host watches a chord: a caption promising a key on a host that takes
+  // none would be a key that does nothing. Spelt once, since both the host and
+  // the spelling are fixed for the life of the window.
+  const shortcuts = useMemo(
+    () => (supportsChords() ? callChordHints() : undefined),
+    [],
+  );
   useEffect(() => {
     if (!inCall) {
       sourcesRequestRef.current += 1;
@@ -836,6 +846,7 @@ export function CompanionSurfacePage() {
         onAnnotate={(next) => {
           setCompanionAnnotating(next);
         }}
+        shortcuts={shortcuts}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every
         // press does; the frame that answers it is main's.

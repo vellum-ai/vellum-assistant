@@ -30,13 +30,28 @@ mock.module("@/runtime/hotkey", () => ({
 }));
 
 const handleCallChord = mock((_key: string) => {});
+/**
+ * Stand-ins for the two bindings the real builder returns, one per answer it
+ * is asked. Sentinels rather than a copy of the builder: what this hook owns is
+ * which answer it asks with and when, and the keys are the builder's own test.
+ */
+const ALL_CHORDS: ChordBinding = {
+  kind: "chord",
+  modifiers: ["option"],
+  keys: ["all"],
+};
+const MUTE_CHORDS: ChordBinding = {
+  kind: "chord",
+  modifiers: ["option"],
+  keys: ["mutes"],
+};
+const callChords = mock(
+  (canBeShownTheScreen: boolean): ChordBinding =>
+    canBeShownTheScreen ? ALL_CHORDS : MUTE_CHORDS,
+);
 mock.module("@/domains/chat/voice/live-voice/call-chords", () => ({
   handleCallChord,
-  CALL_CHORDS: {
-    kind: "chord",
-    modifiers: ["option"],
-    keys: ["s", "d"],
-  } satisfies ChordBinding,
+  callChords,
 }));
 
 let canBeShownTheScreen = false;
@@ -69,6 +84,7 @@ describe("the call's chords", () => {
     canBeShownTheScreen = false;
     setChordBinding.mockClear();
     handleCallChord.mockClear();
+    callChords.mockClear();
     useLiveVoiceStore.getState().setState("idle");
   });
 
@@ -89,11 +105,40 @@ describe("the call's chords", () => {
 
     setCall(true);
 
-    expect(armedWith()).toEqual({
-      kind: "chord",
-      modifiers: ["option"],
-      keys: ["s", "d"],
+    expect(callChords).toHaveBeenLastCalledWith(true);
+    expect(armedWith()).toBe(ALL_CHORDS);
+  });
+
+  /**
+   * The mutes are the call's whatever it can be shown. The share and the pen
+   * are armed on the same answer the pill offers Share on, and follow it.
+   */
+  test("arms only the mutes for a call that cannot be shown the screen", () => {
+    renderHook(() => useCallChords());
+
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
     });
+
+    expect(callChords).toHaveBeenLastCalledWith(false);
+    expect(armedWith()).toBe(MUTE_CHORDS);
+  });
+
+  test("adds the share and the pen when the call can be shown the screen", () => {
+    renderHook(() => useCallChords());
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    act(() => {
+      canBeShownTheScreen = true;
+      // The answer is read through the store, so a change to it reaches the
+      // hook with the next store update, the way the real conjunction's terms do.
+      useLiveVoiceStore.getState().setState("speaking");
+    });
+
+    expect(callChords).toHaveBeenLastCalledWith(true);
+    expect(armedWith()).toBe(ALL_CHORDS);
   });
 
   /**

@@ -492,7 +492,9 @@ function deriveDetailPanelKind(
  * `assistant_tool` mirrors unconditionally because the documented
  * `notifications send` skill (and background-job failure emits) deliberately
  * does not require a background-typed conversation or the
- * `isAsyncBackground` hint.
+ * `isAsyncBackground` hint. `chat.assistant_reply` also mirrors: it is the
+ * durable in-app record for the push sent after a user leaves a chat, while
+ * retaining the normal interactive conversation as its navigation target.
  */
 function resolveHomeFeedMirror(
   signal: NotificationSignal,
@@ -523,7 +525,10 @@ function resolveHomeFeedMirror(
     : fallbackConversationId;
   const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 
-  if (signal.sourceChannel === "assistant_tool") {
+  if (
+    signal.sourceChannel === "assistant_tool" ||
+    signal.sourceEventName === "chat.assistant_reply"
+  ) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (signal.attentionHints.isAsyncBackground) {

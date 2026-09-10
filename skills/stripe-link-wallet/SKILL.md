@@ -31,7 +31,7 @@ When the user has connected Stripe Link to the assistant, the CLI reaches Link t
 - The `context` field must be **at least 100 characters** and must accurately describe what the money is for. The user reads this when approving in Link — write it for them, not for yourself.
 - Always use `--format json` on every command. The default interactive Ink output is for humans, not agents. On `auth login` it is worse than noise: without `--format json` the command enters the interactive Ink UI and blocks until someone approves in the Link app, which nobody can do because the URL never reaches the user. Exception: `demo` and `onboard` require a TTY and have no JSON mode.
 - **Amount is in cents.** $10.00 = `--amount 1000`. Maximum is 50,000 cents ($500).
-- Never log or repeat raw card credentials (PAN, CVC) in the conversation. Always use `--output-file` when retrieving card credentials.
+- Never log or repeat raw card credentials (PAN, CVC) in the conversation. Always use `--output-file` when retrieving card credentials, and delete that file once the checkout is done.
 - Never print the proxy grant. Only `eval` the `--export` output of `assistant oauth proxy-url`; do not run it without `--export`, do not `echo` or `env` the `LINK_*` or `VELLUM_OAUTH_PROXY_*` variables, and do not write them to a file.
 
 ---
@@ -82,14 +82,14 @@ eval "$(assistant oauth proxy-url stripe_link --export)"
 export LINK_API_BASE_URL="$VELLUM_OAUTH_PROXY_BASE_URL" \
        LINK_ACCESS_TOKEN="$VELLUM_OAUTH_PROXY_TOKEN" \
        LINK_NO_REFRESH=1
-link-cli payment-methods list --format json
+# the link-cli command for this step goes here
 ```
 
 `assistant oauth proxy-url` mints a short-lived grant bound to the `stripe_link` connection and prints the base URL of the assistant's passthrough proxy. `link-cli` sends that grant as its bearer token to that base URL; the proxy strips it, substitutes the real Link credential, and forwards the call to Link. Nothing in the shell ever holds a Link token. `LINK_NO_REFRESH=1` stops the CLI from trying to refresh a token it does not own.
 
 With several connected accounts, add `--account <account>` to the `proxy-url` line. `assistant oauth status stripe_link` lists the accounts; an unlabeled connection can be selected by its connection ID.
 
-The examples in the rest of this skill omit the preamble. Prepend it to every command on the connection path, including the polling ones. On the device login path, run the examples as written.
+The examples in the rest of this skill omit the preamble. On the connection path, run each one in place of the placeholder comment, as the last line of this block; that includes the polling commands. On the device login path, run the examples as written.
 
 ---
 
@@ -179,6 +179,8 @@ Every spend request needs a `--payment-method-id`. Retrieve the user's saved met
 ```bash
 link-cli payment-methods list --format json
 ```
+
+Not every entry is a card: a `BANK_ACCOUNT` entry has no `card_details`, so check each entry's `type` before reading card fields, and name each method to the user by what it is.
 
 If the user has multiple, ask which one to use. If they have none, direct them to [app.link.com/wallet](https://app.link.com/wallet) to add one first.
 
@@ -282,7 +284,7 @@ Omit `--credential-type` (or use the default). With `--format json`, returns imm
 ```bash
 link-cli spend-request retrieve <id> \
   --include card \
-  --output-file /tmp/link-card.json \
+  --output-file /tmp/link-card-<id>.json \
   --force \
   --format json
 ```
@@ -291,7 +293,17 @@ link-cli spend-request retrieve <id> \
 
 **4. Use the card**
 
-The file at `/tmp/link-card.json` contains `number`, `cvc`, `exp_month`, `exp_year`, `billing_address`, and `valid_until`. Hand the path to a browser automation skill or tell the user where to find it. Do not read the file back into the conversation.
+`<id>` is the spend request's id, so overlapping checkouts never share a file. The file at `/tmp/link-card-<id>.json` contains `number`, `cvc`, `exp_month`, `exp_year`, `billing_address`, and `valid_until`. Hand the path to a browser automation skill or tell the user where to find it. Do not read the file back into the conversation.
+
+**5. Delete the card file**
+
+As soon as the checkout succeeds, fails, or is abandoned, remove that request's file:
+
+```bash
+rm -f /tmp/link-card-<id>.json
+```
+
+The card is one-time-use, but the PAN stays live until `valid_until`. Do not leave it on disk after the purchase. Remove only the file for the request that finished; another checkout may still be using its own.
 
 ---
 
@@ -343,20 +355,22 @@ link-cli spend-request cancel <id> --format json
 
 ## Error handling
 
-| Error / condition                                       | Action                                                                                                                                                                                                                                                                                                                           |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `link-cli` not found                                    | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`.                                                                                                                                                                                                                              |
-| No connection and no device login                       | Setup: show the connect surface first; fall back to the device login if the user declines, the surface cannot be shown, or Stripe Link OAuth is unavailable                                                                                                                                                                      |
-| `proxy-url` reports no active connection                | The connection is gone. Show the connect surface again, or switch to an existing device login                                                                                                                                                                                                                                    |
-| `proxy-url` reports several accounts (409)              | Ask the user which account, then add `--account <account>` to the preamble                                                                                                                                                                                                                                                       |
-| Link API call returns 424 on the connection path        | The connection needs reconnecting. Show the connect surface again; do not retry the command until status is active                                                                                                                                                                                                               |
-| Link API call returns 402 on the connection path        | The Vellum platform balance is exhausted, not the wallet. Tell the user plainly and stop; a merchant 402 from `mpp pay` is unrelated                                                                                                                                                                                             |
-| Link API call returns 401 or 403 on the connection path | Re-run the preamble for a fresh grant. If it persists, the connection lacks scopes and must be replaced: gate it with `assistant ui confirm`, and only on confirmation run `assistant oauth disconnect stripe_link` (with the same `--account` the preamble used, when several are connected) and show the connect surface again |
-| `POLLING_TIMEOUT` on retrieve                           | Report to user; offer cancel or fresh spend request                                                                                                                                                                                                                                                                              |
-| SPT payment fails (402 again after pay)                 | SPT is consumed: create a new spend request                                                                                                                                                                                                                                                                                      |
-| `amount` > 50000                                        | Tell user the cap is \$500 per transaction                                                                                                                                                                                                                                                                                       |
-| `context` < 100 chars                                   | Expand it before retrying                                                                                                                                                                                                                                                                                                        |
-| Card file already exists                                | Use `--force` to overwrite, or pick a different path                                                                                                                                                                                                                                                                             |
+| Error / condition                                                                              | Action                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `link-cli` not found                                                                           | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`.                                                                                                                                                                                                                                                                                                                              |
+| No connection and no device login                                                              | Setup: show the connect surface first; fall back to the device login if the user declines, the surface cannot be shown, or Stripe Link OAuth is unavailable                                                                                                                                                                                                                                                                      |
+| `proxy-url` reports no active connection                                                       | The connection is gone. Show the connect surface again, or switch to an existing device login                                                                                                                                                                                                                                                                                                                                    |
+| `proxy-url` reports several accounts (409)                                                     | Ask the user which account, then add `--account <account>` to the preamble                                                                                                                                                                                                                                                                                                                                                       |
+| Link API call returns 424 on the connection path                                               | The connection needs reconnecting. Show the connect surface again; do not retry the command until status is active                                                                                                                                                                                                                                                                                                               |
+| Link API call returns 402 on the connection path                                               | The Vellum platform balance is exhausted, not the wallet. Tell the user plainly and stop; a merchant 402 from `mpp pay` is unrelated                                                                                                                                                                                                                                                                                             |
+| Link API call returns 401 or 403 on the connection path                                        | Re-run the preamble for a fresh grant. If it persists, the connection lacks scopes and must be replaced: gate it with `assistant ui confirm`, and only on confirmation run `assistant oauth disconnect stripe_link` (with the same `--account` the preamble used, when several are connected) and show the connect surface again                                                                                                 |
+| Link API call returns 400 `Managed OAuth connections cannot forward these request headers`     | A proxy or platform problem, not the wallet or the CLI: `link-cli` sends only headers the proxy accepts. Do not retry, change flags, or work around it; report the full message to the user                                                                                                                                                                                                                                      |
+| Link API call returns 502, 421, or an error body naming the proxy or platform rather than Link | Platform side, not the wallet. A read (`list`, `retrieve`, `auth status`) may be retried once. A write (`spend-request create`, `update`, `cancel`, `mpp pay`) may already have taken effect: do not repeat it. Check with `spend-request retrieve <id>`, or `spend-request list --format json` when no id came back, and decide with the user. If it recurs, report the message and stop. Never fall back to a raw checkout URL |
+| `POLLING_TIMEOUT` on retrieve                                                                  | Report to user; offer cancel or fresh spend request                                                                                                                                                                                                                                                                                                                                                                              |
+| SPT payment fails (402 again after pay)                                                        | SPT is consumed: create a new spend request                                                                                                                                                                                                                                                                                                                                                                                      |
+| `amount` > 50000                                                                               | Tell user the cap is \$500 per transaction                                                                                                                                                                                                                                                                                                                                                                                       |
+| `context` < 100 chars                                                                          | Expand it before retrying                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Card file already exists                                                                       | Use `--force` to overwrite, or pick a different path                                                                                                                                                                                                                                                                                                                                                                             |
 
 ---
 
