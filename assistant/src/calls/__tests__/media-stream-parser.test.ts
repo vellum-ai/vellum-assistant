@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseMediaStreamFrame } from "../calls/media-stream-parser.js";
+import { parseMediaStreamFrame } from "../media-stream-parser.js";
 
 // ---------------------------------------------------------------------------
 // Fixture factories

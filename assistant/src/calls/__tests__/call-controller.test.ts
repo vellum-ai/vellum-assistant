@@ -8,17 +8,17 @@ import {
   test,
 } from "bun:test";
 
-mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
+mock.module("../../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
 // Guardian requests/deliveries are created through the gateway client; serve
 // that surface from the in-memory sim so dispatch never opens IPC.
 import {
   bridgeState,
   gatewayGuardianRequestsStoreBridge,
-} from "./helpers/gateway-guardian-requests-store-bridge.js";
+} from "../../__tests__/helpers/gateway-guardian-requests-store-bridge.js";
 
 mock.module(
-  "../channels/gateway-guardian-requests.js",
+  "../../channels/gateway-guardian-requests.js",
   () => gatewayGuardianRequestsStoreBridge,
 );
 
@@ -36,7 +36,7 @@ mock.module(
 let mockResolvableProviderKeys: ((service: string) => string | null) | null =
   null;
 
-mock.module("../security/secure-keys.js", () => ({
+mock.module("../../security/secure-keys.js", () => ({
   getSecureKeyAsync: async () => null,
   getSecureKey: () => null,
   getProviderKeyAsync: async (service: string) =>
@@ -45,7 +45,7 @@ mock.module("../security/secure-keys.js", () => ({
       : "test-key",
 }));
 
-mock.module("../security/credential-key.js", () => ({
+mock.module("../../security/credential-key.js", () => ({
   credentialKey: (...args: string[]) => args.join("/"),
 }));
 
@@ -56,7 +56,7 @@ let mockSilenceTimeoutMs = 30_000;
 let mockEndCallListenWindowMs = 0;
 let mockEndCallDrainMaxWaitMs = 15_000;
 
-mock.module("../calls/call-constants.js", () => ({
+mock.module("../call-constants.js", () => ({
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,
@@ -110,7 +110,7 @@ let mockStartVoiceTurn: Mock<any>;
 
 // ── Notification pipeline mock (prevent async handle leaks from fire-and-forget dispatches) ──
 
-mock.module("../notifications/emit-signal.js", () => ({
+mock.module("../../notifications/emit-signal.js", () => ({
   emitNotificationSignal: async () => ({
     signalId: "mock-signal",
     deduplicated: false,
@@ -122,7 +122,7 @@ mock.module("../notifications/emit-signal.js", () => ({
 
 // Guardian principalId is resolved from the gateway binding reader. Mirror the
 // vellum binding seeded by resetTables so guardian dispatch can resolve it.
-mock.module("../contacts/guardian-delivery-reader.js", () => ({
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: async () => [
     {
       channelType: "vellum",
@@ -139,7 +139,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   anyGuardian: (list: unknown[]) => list[0],
 }));
 
-mock.module("../calls/voice-session-bridge.js", () => {
+mock.module("../voice-session-bridge.js", () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(["Hello", " there"]));
   return {
     startVoiceTurn: (...args: unknown[]) => mockStartVoiceTurn(...args),
@@ -155,8 +155,8 @@ mock.module("../calls/voice-session-bridge.js", () => {
 import {
   _resetTtsProviderOverridesForTests,
   _setTtsProviderForTests,
-} from "../tts/provider-catalog.js";
-import type { TtsProvider } from "../tts/types.js";
+} from "../../tts/provider-catalog.js";
+import type { TtsProvider } from "../../tts/types.js";
 
 function registerTestTtsProviders(): void {
   _resetTtsProviderOverridesForTests();
@@ -206,26 +206,26 @@ registerTestTtsProviders();
 
 // ── Import source modules after all mocks are registered ────────────
 
-import { CallController } from "../calls/call-controller.js";
-import { getCallController } from "../calls/call-state.js";
+import { resetDbForTesting } from "../../__tests__/db-test-helpers.js";
+import { createGuardianBinding } from "../../__tests__/helpers/create-guardian-binding.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+import { loadConfig } from "../../config/loader.js";
+import { getMessages } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { resetTestTables } from "../../persistence/raw-query.js";
+import { conversations } from "../../persistence/schema/index.js";
+import { CallController } from "../call-controller.js";
+import { getCallController } from "../call-state.js";
 import {
   createCallSession,
   getCallEvents,
   getCallSession,
   getPendingQuestion,
   updateCallSession,
-} from "../calls/call-store.js";
-import type { CallTransport } from "../calls/call-transport.js";
-import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
-import { loadConfig } from "../config/loader.js";
-import { getMessages } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
-import { resetTestTables } from "../persistence/raw-query.js";
-import { conversations } from "../persistence/schema/index.js";
-import { resetDbForTesting } from "./db-test-helpers.js";
-import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
-import { setConfig } from "./helpers/set-config.js";
+} from "../call-store.js";
+import type { CallTransport } from "../call-transport.js";
+import { resolveCallTtsProvider } from "../resolve-call-tts-provider.js";
 
 // Disable memory so persisted call messages skip background indexing, and
 // seed the ingress base URL used for synthesized-audio play URLs.
@@ -372,7 +372,7 @@ function setupController(
   task?: string,
   opts?: {
     assistantId?: string;
-    trustContext?: import("../daemon/trust-context-types.js").TrustContext;
+    trustContext?: import("../../daemon/trust-context-types.js").TrustContext;
     /** Simulate the media-stream transport's PCM requirement. */
     requiresPcmAudio?: boolean;
     /** Simulate a transport that gates teardown on playback drain. */
@@ -2258,7 +2258,7 @@ describe("call-controller", () => {
 
     // Compute expected digest independently using the same utility
     const { computeToolApprovalDigest } =
-      await import("../security/tool-approval-digest.js");
+      await import("../../security/tool-approval-digest.js");
     const expectedDigest = computeToolApprovalDigest("send_email", {
       subject: "Hello",
       to: "bob@example.com",
@@ -3375,7 +3375,7 @@ describe("call-controller", () => {
   function registerFishAudioSegmentRecorder(opts?: {
     onSynthesizeStream?: (
       text: string,
-      request: import("../tts/types.js").TtsSynthesisRequest,
+      request: import("../../tts/types.js").TtsSynthesisRequest,
       onChunk: (chunk: Buffer) => void,
     ) => Promise<void>;
   }): { synthesizedTexts: string[] } {

@@ -1,13 +1,21 @@
+/**
+ * Tests for `startVoiceTurn`'s turn flow against real persistence: delta and
+ * error forwarding, abort handling, persisted channel metadata, the auto-built
+ * phone control prompt, and the approval-policy split between guardian and
+ * non-guardian callers. The sibling `voice-session-bridge.test.ts` covers the
+ * routing legs, transcript hygiene, tool-event forwarding, and the lock and
+ * teardown races against scripted doubles.
+ */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "../api/index.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
+import type { AssistantEvent } from "../../api/index.js";
 import type {
   TurnChannelContext,
   TurnInterfaceContext,
-} from "../channels/types.js";
-import type { Conversation } from "../daemon/conversation.js";
-import { persistUserMessage as persistUserMessageImpl } from "../daemon/conversation-messaging.js";
-import { setConfig } from "./helpers/set-config.js";
+} from "../../channels/types.js";
+import type { Conversation } from "../../daemon/conversation.js";
+import { persistUserMessage as persistUserMessageImpl } from "../../daemon/conversation-messaging.js";
 
 /** Seed the config the voice bridge reads: disclosure copy, plus disabled
  * secret detection and memory so the real persist path stays inert. */
@@ -19,7 +27,7 @@ function seedVoiceConfig(disclosure: { enabled: boolean; text: string }): void {
 
 let voiceConversationFactory: (() => Conversation) | null = null;
 
-mock.module("../daemon/conversation-store.js", () => ({
+mock.module("../../daemon/conversation-store.js", () => ({
   getOrCreateConversation: async () => {
     if (!voiceConversationFactory) {
       throw new Error("voiceConversationFactory not set for test");
@@ -28,18 +36,18 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
-import { CALL_OPENING_MARKER } from "../calls/voice-control-protocol.js";
-import { startVoiceTurn } from "../calls/voice-session-bridge.js";
 import {
   createConversation,
   getMessages,
-} from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
-import { initializeDb } from "../persistence/db-init.js";
+} from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import {
   assistantEventHub,
   broadcastMessage,
-} from "../runtime/assistant-event-hub.js";
+} from "../../runtime/assistant-event-hub.js";
+import { CALL_OPENING_MARKER } from "../voice-control-protocol.js";
+import { startVoiceTurn } from "../voice-session-bridge.js";
 
 await initializeDb();
 
