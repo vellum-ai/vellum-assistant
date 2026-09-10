@@ -156,6 +156,14 @@ export class DesktopDependencyInstaller {
     return this.status;
   }
 
+  async ensureReady(): Promise<void> {
+    this.start();
+    await this.installing;
+    if (this.getStatus().state !== "ready") {
+      throw new Error("Desktop setup did not complete");
+    }
+  }
+
   private update(status: DesktopSetupStatus): void {
     this.status = status;
     void this.dependencies.notify().catch((err: unknown) => {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, test } from "bun:test";
 
 import { newFakeDesktop, newViewer, settle } from "./__tests__/fake-desktop.js";
+import { DesktopDependencyInstaller } from "./desktop-dependencies.js";
 import {
   type DesktopSessionManager,
   type DesktopTcpHandlers,
@@ -51,7 +52,10 @@ class FakeTcp implements DesktopTcpSocket {
   }
 }
 
-function newBridge(manager: DesktopSessionManager) {
+function newBridge(
+  manager: DesktopSessionManager,
+  ensureInstalled: () => Promise<void> = async () => {},
+) {
   const ws = new FakeWs();
   const tcp = new FakeTcp();
   let release: (() => void) | null = null;
@@ -60,6 +64,7 @@ function newBridge(manager: DesktopSessionManager) {
   });
   const bridge = new DesktopStreamBridge(ws, {
     manager,
+    ensureInstalled,
     connect: async (_port, handlers) => {
       tcp.handlers = handlers;
       await gate;
@@ -80,6 +85,109 @@ function slotIsFree(manager: DesktopSessionManager): boolean {
 }
 
 describe("DesktopStreamBridge", () => {
+  test("direct viewers share background setup across a timeout and reconnect", async () => {
+    const h = newFakeDesktop({ profileDir });
+    let ready = false;
+    let installs = 0;
+    const install = Promise.withResolvers<void>();
+    const installer = new DesktopDependencyInstaller({
+      supported: () => true,
+      ready: () => ready,
+      install: async () => {
+        installs++;
+        await install.promise;
+        ready = true;
+      },
+      notify: async () => {},
+    });
+    const ensureInstalled = () => installer.ensureReady();
+    const first = newBridge(h.manager, ensureInstalled);
+    const firstStart = first.bridge.start();
+    await settle();
+    expect(installs).toBe(1);
+    expect(h.spawned).toEqual([]);
+
+    const busy = newBridge(h.manager, async () => {
+      throw new Error("A rejected viewer must not start setup");
+    });
+    await busy.bridge.start();
+    expect(busy.ws.closeCode).toBe(4013);
+
+    first.bridge.handleClose();
+    expect(slotIsFree(h.manager)).toBe(true);
+    const retry = newBridge(h.manager, ensureInstalled);
+    const retryStart = retry.bridge.start();
+    await settle();
+    expect(installs).toBe(1);
+    expect(h.spawned).toEqual([]);
+
+    install.resolve();
+    retry.connectNow();
+    await Promise.all([firstStart, retryStart]);
+    expect(retry.ws.closeCode).toBeNull();
+    expect(h.spawned.length).toBeGreaterThan(0);
+    retry.tcp.handlers.onData(new Uint8Array([1, 2, 3]));
+    expect(retry.ws.sent).toEqual([new Uint8Array([1, 2, 3])]);
+    expect(first.ws.sent).toEqual([]);
+    expect(first.tcp.handlers).toBeUndefined();
+    retry.bridge.handleClose();
+  });
+
+  test("setup continues after the last viewer closes without starting a desktop", async () => {
+    const h = newFakeDesktop({ profileDir });
+    const install = Promise.withResolvers<void>();
+    const b = newBridge(h.manager, () => install.promise);
+    const started = b.bridge.start();
+    b.bridge.handleClose();
+    install.resolve();
+    await started;
+    expect(h.spawned).toEqual([]);
+    expect(slotIsFree(h.manager)).toBe(true);
+  });
+
+  test("setup failure releases the slot and permits a successful retry", async () => {
+    const h = newFakeDesktop({ profileDir });
+    let ready = false;
+    let attempts = 0;
+    const installer = new DesktopDependencyInstaller({
+      supported: () => true,
+      ready: () => ready,
+      install: async () => {
+        if (++attempts === 1) {
+          throw new Error("Download failed");
+        }
+        ready = true;
+      },
+      notify: async () => {},
+    });
+    const ensureInstalled = () => installer.ensureReady();
+    const first = newBridge(h.manager, ensureInstalled);
+    await first.bridge.start();
+    expect(first.ws.closeCode).toBe(4011);
+    expect(slotIsFree(h.manager)).toBe(true);
+    expect(h.spawned).toEqual([]);
+
+    const retry = newBridge(h.manager, ensureInstalled);
+    retry.connectNow();
+    await retry.bridge.start();
+    expect(attempts).toBe(2);
+    expect(retry.ws.closeCode).toBeNull();
+    retry.bridge.handleClose();
+  });
+
+  test("shutdown during setup closes the viewer without starting a desktop", async () => {
+    const h = newFakeDesktop({ profileDir });
+    const install = Promise.withResolvers<void>();
+    const b = newBridge(h.manager, () => install.promise);
+    const started = b.bridge.start();
+    await h.manager.destroy();
+    expect(b.ws.closeCode).toBe(1001);
+    install.resolve();
+    await started;
+    expect(h.spawned).toEqual([]);
+    expect(b.tcp.handlers).toBeUndefined();
+  });
+
   test("pumps bytes both ways and flushes frames that beat the VNC socket", async () => {
     const h = newFakeDesktop({ profileDir });
     const b = newBridge(h.manager);
