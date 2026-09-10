@@ -18,9 +18,10 @@
  * The last three stories are the states the sources put the panel in: still
  * loading, loaded and empty, and one source down.
  *
- * The frame is the shipped drawer, so a story opens at its 400px default and
- * the rows fit what that width holds. Drag the drawer's left edge to walk the
- * fit rule out to the mock's wider column.
+ * The frame is the shipped drawer, opened at the width the app gives Chat
+ * Info: a 569px body, which is four file tiles or three app tiles. Drag the
+ * drawer's left edge to walk the fit rule down to what a narrower column
+ * holds.
  *
  * Read the phone stories at the Mobile viewports: there the rows become
  * horizontal strips that run past the panel's body inset to the screen edge.
@@ -34,6 +35,7 @@ import {
   makeMixedAttachments,
   makePreviewableImages,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { CHAT_INFO_DRAWER_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 import {
   CHAT_INFO_ASSISTANT_ID,
   CHAT_INFO_CONVERSATION_ID,
@@ -68,7 +70,7 @@ const WITH_FRAMES: Partial<ChatInfoStoryConversation> = {
 };
 
 const inDrawer: Decorator = (Story) => (
-  <DetailPanelStoryFrame>
+  <DetailPanelStoryFrame defaultWidth={CHAT_INFO_DRAWER_WIDTH_PX}>
     <Story />
   </DetailPanelStoryFrame>
 );
@@ -97,15 +99,15 @@ export default meta;
 type Story = StoryObj<typeof ChatInfoPanel>;
 
 /**
- * The panel as a working conversation leaves it: twelve apps and four files,
- * both more than one line of the default-width drawer holds, so each row is
- * truncated to what fits and offers See All.
+ * The panel as a working conversation leaves it: twelve apps and four files.
+ * One line holds three app tiles and four file tiles here, so Apps is
+ * truncated to what fits and offers See All while every file is on show.
  */
 export const Default: Story = {};
 
 /**
- * A young conversation, sized to the default drawer: one app and one document,
- * so every tile is on show and neither header carries a See All.
+ * A young conversation: one app and one document, so every tile is on show and
+ * neither header carries a See All.
  */
 export const FewAssets: Story = {
   parameters: {

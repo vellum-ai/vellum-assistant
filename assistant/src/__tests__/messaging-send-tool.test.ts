@@ -304,6 +304,48 @@ describe("messaging-send tool", () => {
     }
   });
 
+  test("records a threaded channel send in the thread's home, with the delivered thread on the row", async () => {
+    provider = slackProvider;
+    getConversationMock.mockImplementation(() => ({
+      id: "home-topic",
+      createdAt: 1700000000000,
+    }));
+    resolveProactiveHomeConversationMock.mockImplementation(async () => ({
+      conversationId: "home-topic",
+      createdNewConversation: false,
+    }));
+
+    const result = await run(
+      {
+        platform: "slack",
+        conversation_id: "C123",
+        thread_id: "1700000000.000009",
+        text: "hello from A",
+      },
+      {
+        workingDir: "/tmp",
+        conversationId: "conv-A",
+        assistantId: "ast-1",
+        trustClass: "guardian" as const,
+      },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(
+      resolveProactiveHomeConversationMock.mock.calls[0]![0],
+    ).toMatchObject({
+      sourceChannel: "slack",
+      externalChatId: "C123",
+      threadId: "1700000000.000009",
+    });
+    expect(recordDeliveredChannelPostMock.mock.calls[0]![0]).toMatchObject({
+      conversationId: "home-topic",
+      externalChatId: "C123",
+      threadId: "1700000000.000009",
+      providerMessageId: "1700000000.000100",
+    });
+  });
+
   test("records a channel send in the chat's home conversation once the provider has it", async () => {
     provider = telegramProvider;
     getConversationMock.mockImplementation(() => ({

@@ -81,7 +81,7 @@ export function ChatInfoAppTile({
       <Typography
         variant="body-small-default"
         title={app.name}
-        className="truncate text-[var(--content-tertiary)]"
+        className="truncate leading-normal text-[var(--content-tertiary)]"
       >
         {app.name}
       </Typography>

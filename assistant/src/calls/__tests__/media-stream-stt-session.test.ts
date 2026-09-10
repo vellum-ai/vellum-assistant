@@ -13,27 +13,27 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
   SttTranscribeRequest,
-} from "../stt/types.js";
+} from "../../stt/types.js";
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before the module under test is imported.
 // ---------------------------------------------------------------------------
 
 // Mock the STT resolve module
-mock.module("../providers/speech-to-text/resolve.js", () => ({
+mock.module("../../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
   resolveStreamingTranscriber: jest.fn(),
 }));
 
 // Now import the mocked modules and the module under test.
-import { MediaStreamSttSession } from "../calls/media-stream-stt-session.js";
+import { setConfig } from "../../__tests__/helpers/set-config.js";
 import {
   resolveBatchTranscriber,
   resolveStreamingTranscriber,
   resolveTelephonySttCapability,
-} from "../providers/speech-to-text/resolve.js";
-import { setConfig } from "./helpers/set-config.js";
+} from "../../providers/speech-to-text/resolve.js";
+import { MediaStreamSttSession } from "../media-stream-stt-session.js";
 
 /**
  * Seed the session's `calls.voice` settings in the real workspace config.

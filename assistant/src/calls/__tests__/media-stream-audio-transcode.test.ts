@@ -4,7 +4,7 @@ import {
   mulawToPcm16,
   pcm16ToMulaw,
   resamplePcm16,
-} from "../calls/media-stream-audio-transcode.js";
+} from "../media-stream-audio-transcode.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

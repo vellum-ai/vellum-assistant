@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
 
-import { MediaTurnDetector } from "../calls/media-turn-detector.js";
+import { MediaTurnDetector } from "../media-turn-detector.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

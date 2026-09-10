@@ -15,7 +15,7 @@ import {
 // Mock the STT resolve module (used by MediaStreamSttSession).
 // resolveStreamingTranscriber yields no transcriber, so sessions settle on
 // the batch path regardless of the calls.voice.telephonyStreaming default.
-mock.module("../providers/speech-to-text/resolve.js", () => ({
+mock.module("../../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
   resolveStreamingTranscriber: jest.fn(async () => null),
@@ -29,7 +29,7 @@ const mockEvents: Array<{
   data: unknown;
 }> = [];
 
-mock.module("../calls/call-store.js", () => ({
+mock.module("../call-store.js", () => ({
   getCallSession: jest.fn((id: string) => mockSessions.get(id) ?? null),
   updateCallSession: jest.fn((id: string, updates: Record<string, unknown>) => {
     const session = mockSessions.get(id);
@@ -52,7 +52,7 @@ mock.module("../calls/call-store.js", () => ({
 }));
 
 // Mock the call state machine
-mock.module("../calls/call-state-machine.js", () => ({
+mock.module("../call-state-machine.js", () => ({
   isTerminalState: jest.fn(
     (status: string) =>
       status === "completed" || status === "failed" || status === "cancelled",
@@ -61,7 +61,7 @@ mock.module("../calls/call-state-machine.js", () => ({
 
 // Mock the call state (controller registry)
 const mockControllers = new Map<string, unknown>();
-mock.module("../calls/call-state.js", () => ({
+mock.module("../call-state.js", () => ({
   registerCallController: jest.fn(
     (callSessionId: string, controller: unknown) => {
       mockControllers.set(callSessionId, controller);
@@ -85,12 +85,12 @@ mock.module("../calls/call-state.js", () => ({
 }));
 
 // Mock the finalize-call module
-mock.module("../calls/finalize-call.js", () => ({
+mock.module("../finalize-call.js", () => ({
   finalizeCall: jest.fn(),
 }));
 
 // Mock the call pointer messages
-mock.module("../calls/call-pointer-messages.js", () => ({
+mock.module("../call-pointer-messages.js", () => ({
   postPointerMessageSafe: jest.fn(),
   formatDuration: jest.fn((ms: number) => `${Math.round(ms / 1000)}s`),
 }));
@@ -107,7 +107,7 @@ const mockDestroy = jest.fn();
 // barge-in passes the speaking gate.
 const mockHandleBargeIn = jest.fn((_onAccepted?: () => void) => false);
 
-mock.module("../calls/call-controller.js", () => ({
+mock.module("../call-controller.js", () => ({
   CallController: jest.fn().mockImplementation(() => ({
     startInitialGreeting: mockStartInitialGreeting,
     startPostVerificationGreeting: mockStartPostVerificationGreeting,
@@ -125,7 +125,7 @@ mock.module("../calls/call-controller.js", () => ({
 }));
 
 // Mock the assistant scope
-mock.module("../runtime/assistant-scope.js", () => ({
+mock.module("../../runtime/assistant-scope.js", () => ({
   DAEMON_INTERNAL_ASSISTANT_ID: "self",
 }));
 
@@ -157,7 +157,7 @@ let mockRouteSetupResult: {
 // teardown (e.g. the outbound unusable-verdict abort).
 let mockRouteSetupError: Error | null = null;
 
-mock.module("../calls/call-setup-router.js", () => ({
+mock.module("../call-setup-router.js", () => ({
   routeSetup: jest.fn(() => {
     if (mockRouteSetupError) {
       throw mockRouteSetupError;
@@ -221,7 +221,7 @@ const mockReadPhoneCallerTrust = jest.fn(
     };
   },
 );
-mock.module("../calls/inbound-trust-reader.js", () => ({
+mock.module("../inbound-trust-reader.js", () => ({
   readPhoneCallerTrust: mockReadPhoneCallerTrust,
   getPhoneCallerVerdict: (otherPartyNumber: string | undefined) =>
     mockGetInboundTrustVerdict({
@@ -231,7 +231,7 @@ mock.module("../calls/inbound-trust-reader.js", () => ({
 }));
 
 // Mock the actor trust resolver (used by handleStart to derive trust context)
-mock.module("../runtime/actor-trust-resolver.js", () => ({
+mock.module("../../runtime/actor-trust-resolver.js", () => ({
   toTrustContext: jest.fn(() => ({
     sourceChannel: "phone",
     trustClass: "guardian",
@@ -243,19 +243,19 @@ mock.module("../runtime/actor-trust-resolver.js", () => ({
 }));
 
 // Mock the call speech output (speakSystemPrompt used in deny/unsupported paths)
-mock.module("../calls/call-speech-output.js", () => ({
+mock.module("../call-speech-output.js", () => ({
   speakSystemPrompt: jest.fn(async () => {}),
 }));
 
 // Mock scoped approval grants (used in handleTransportClosed and early teardown)
-mock.module("../approvals/scoped-approval-grants.js", () => ({
+mock.module("../../approvals/scoped-approval-grants.js", () => ({
   revokeScopedApprovalGrantsForContext: jest.fn(),
 }));
 
 // Mock the TTS provider resolution so that the dynamic import inside
 // MediaStreamOutput.processSynthesizeItem() doesn't pull in the real
 // config/provider chain (which would hang or error in a test environment).
-mock.module("../calls/resolve-call-tts-provider.js", () => ({
+mock.module("../resolve-call-tts-provider.js", () => ({
   resolveCallTtsProvider: jest.fn(() => ({
     provider: null,
     useSynthesizedPath: false,
@@ -274,7 +274,10 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
 let mockTtsPlaybackDelayMs = 5;
 let mockAccessRequestPollIntervalMs = 5;
 let mockUserConsultationTimeoutMs = 500;
-mock.module("../calls/call-constants.js", () => ({
+import * as realCallConstants from "../call-constants.js";
+
+mock.module("../call-constants.js", () => ({
+  ...realCallConstants,
   isDeniedNumber: jest.fn(() => false),
   getMaxCallDurationMs: jest.fn(() => 3_600_000),
   getUserConsultationTimeoutMs: jest.fn(() => mockUserConsultationTimeoutMs),
@@ -298,7 +301,7 @@ const mockGetGuardianDelivery = jest.fn(async () => [
   { channelType: "phone", status: "active", displayName: "Alex" },
 ]);
 const mockGetGuardianDeliveryFresh = jest.fn(async () => []);
-mock.module("../contacts/guardian-delivery-reader.js", () => ({
+mock.module("../../contacts/guardian-delivery-reader.js", () => ({
   getGuardianDelivery: mockGetGuardianDelivery,
   getGuardianDeliveryFresh: mockGetGuardianDeliveryFresh,
   peekCachedGuardianDelivery: jest.fn(() => null),
@@ -309,20 +312,20 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 }));
 
 // Guardian/assistant display labels (filesystem-backed).
-mock.module("../prompts/user-reference.js", () => ({
+mock.module("../../prompts/user-reference.js", () => ({
   DEFAULT_USER_REFERENCE: "my human",
   resolveGuardianName: jest.fn(
     (primed?: string | null) => primed ?? "my human",
   ),
 }));
-mock.module("../daemon/identity-helpers.js", () => ({
+mock.module("../../daemon/identity-helpers.js", () => ({
   getAssistantName: jest.fn(() => "Aria"),
   resolveUserName: jest.fn(() => null),
 }));
 
 // Conversation persistence (used by callee verification code posting).
 const mockAddMessage = jest.fn(async () => ({}));
-mock.module("../persistence/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   addMessage: mockAddMessage,
 }));
 
@@ -362,7 +365,7 @@ let mockInviteResult: MockInviteResult = {
   type: "trusted_contact",
 };
 const mockAttemptInviteCodeRedemption = jest.fn(async () => mockInviteResult);
-mock.module("../calls/call-verification.js", () => ({
+mock.module("../call-verification.js", () => ({
   attemptVerificationCode: mockAttemptVerificationCode,
   attemptInviteCodeRedemption: mockAttemptInviteCodeRedemption,
   parseDigitsFromSpeech: jest.fn((text: string) => text.replace(/\D+/g, "")),
@@ -378,7 +381,7 @@ let mockNotifyResult: MockNotifyResult = {
   requestId: "req-1",
 };
 const mockNotifyGuardianOfAccessRequest = jest.fn(async () => mockNotifyResult);
-mock.module("../runtime/access-request-helper.js", () => ({
+mock.module("../../runtime/access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: mockNotifyGuardianOfAccessRequest,
 }));
 
@@ -389,8 +392,8 @@ const mockGetGuardianRequest = jest.fn(async () => mockGuardianRequest);
 // factory does not stub keep resolving (a partial factory breaks at
 // import time when the graph gains a new named import).
 const actualGatewayGuardianRequests =
-  await import("../channels/gateway-guardian-requests.js");
-mock.module("../channels/gateway-guardian-requests.js", () => ({
+  await import("../../channels/gateway-guardian-requests.js");
+mock.module("../../channels/gateway-guardian-requests.js", () => ({
   ...actualGatewayGuardianRequests,
   getGuardianRequestOrNull: mockGetGuardianRequest,
 }));
@@ -402,7 +405,7 @@ const mockEmitCallbackHandoff = jest.fn(
     notified: false,
   }),
 );
-mock.module("../calls/access-request-wait.js", () => ({
+mock.module("../access-request-wait.js", () => ({
   classifyWaitUtterance: jest.fn(() => "neutral"),
   scheduleNextHeartbeat: jest.fn(() => null),
   emitAccessRequestCallbackHandoff: mockEmitCallbackHandoff,
@@ -414,21 +417,21 @@ mock.module("../calls/access-request-wait.js", () => ({
 
 import { GATEWAY_TUNNEL_LOST_WS_CLOSE_CODE } from "@vellumai/service-contracts/ingress";
 
-import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
-import { CallController } from "../calls/call-controller.js";
-import { postPointerMessageSafe } from "../calls/call-pointer-messages.js";
-import { routeSetup } from "../calls/call-setup-router.js";
-import { speakSystemPrompt } from "../calls/call-speech-output.js";
+import { revokeScopedApprovalGrantsForContext } from "../../approvals/scoped-approval-grants.js";
+import { CallController } from "../call-controller.js";
+import { postPointerMessageSafe } from "../call-pointer-messages.js";
+import { routeSetup } from "../call-setup-router.js";
+import { speakSystemPrompt } from "../call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
   registerCallController,
-} from "../calls/call-state.js";
-import { recordCallEvent, updateCallSession } from "../calls/call-store.js";
-import { finalizeCall } from "../calls/finalize-call.js";
+} from "../call-state.js";
+import { recordCallEvent, updateCallSession } from "../call-store.js";
+import { finalizeCall } from "../finalize-call.js";
 import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
-} from "../calls/media-stream-server.js";
+} from "../media-stream-server.js";
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket factory
