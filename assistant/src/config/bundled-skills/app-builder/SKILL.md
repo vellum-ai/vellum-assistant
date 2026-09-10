@@ -197,7 +197,7 @@ Anything else fails with `Invalid input for tool "app_create": Unknown parameter
 
 - **`html`** — old single-file shortcut. Put your HTML inside `source_files["src/index.html"]`.
 - **`pages`** — retired. Multi-page apps use TSX components under `src/components/`.
-- **`icon`** — NOT a top-level param. An emoji icon goes in `preview.icon` (e.g. `preview: { title: "Bean Coffee", icon: "☕" }`). For an AI-generated icon, call `app_generate_icon(app_id, description)` *after* the app exists.
+- **`icon`**: NOT a top-level param. The icon goes in `preview.icon` as a Lucide icon name from the list below (e.g. `preview: { title: "Bean Coffee", icon: "coffee" }`). Pick the one that best says what the app is; it is drawn in the sidebar and the library, so an emoji or a URL is wrong here. For an AI-generated image icon, call `app_generate_icon(app_id, description)` *after* the app exists.
 - **A file path as a top-level key** (e.g. `"src/components/Header.tsx"`) — these go inside `source_files`, or in a `file_write` after `app_create`.
 
 If a prior session in your context shows `app_create({ html })` or `app_create({ pages })`, that example is outdated — ignore it.
@@ -216,6 +216,8 @@ app_create({                         app_create({
 ```
 
 **Key notes:** `preview` — always include, `title` required (plus optional `subtitle`, `description`, `icon`, up to 3 `metrics`). `auto_open` — **always pass `false`** so you don't get a duplicate preview card (Step 5 owns surfacing).
+
+**App icon names** (`preview.icon`, kebab-case, one of): `calculator`, `calendar`, `list-todo`, `list-checks`, `square-check`, `timer`, `clock`, `alarm-clock`, `notebook-pen`, `sticky-note`, `pencil`, `file-text`, `clipboard-list`, `bookmark`, `book`, `book-open`, `chart-bar`, `chart-line`, `chart-pie`, `table`, `square-kanban`, `database`, `gauge`, `activity`, `target`, `flag`, `trophy`, `wallet`, `dollar-sign`, `piggy-bank`, `credit-card`, `receipt`, `percent`, `shopping-cart`, `package`, `gift`, `ticket`, `mail`, `inbox`, `message-square`, `phone`, `bell`, `users`, `contact`, `music`, `headphones`, `mic`, `video`, `film`, `tv`, `play`, `image`, `camera`, `gamepad-2`, `puzzle`, `party-popper`, `smile`, `map`, `map-pin`, `compass`, `globe`, `plane`, `car`, `bus`, `bike`, `ship`, `truck`, `house`, `bed`, `briefcase`, `graduation-cap`, `languages`, `brain`, `lightbulb`, `heart`, `heart-pulse`, `dumbbell`, `pill`, `stethoscope`, `baby`, `paw-print`, `utensils`, `coffee`, `wine`, `beer`, `cake`, `apple`, `carrot`, `salad`, `egg`, `fish`, `cloud`, `sun`, `moon`, `umbrella`, `snowflake`, `thermometer`, `droplets`, `flame`, `leaf`, `mountain`, `code`, `terminal`, `cpu`, `bot`, `wifi`, `lock`, `key`, `shield`, `settings`, `wrench`, `plug`, `battery`, `search`, `link`, `hash`, `layers`, `folder-open`, `palette`, `pen-tool`, `ruler`, `scale`, `scissors`, `shirt`, `newspaper`, `repeat`, `shuffle`, `volume-2`, `speaker`, `star`, `sparkles`, `zap`, `rocket`, `home`.
 
 ### 4 — Compile
 

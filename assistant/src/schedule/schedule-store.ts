@@ -214,6 +214,16 @@ export type OrdinaryScheduleCreator =
   | typeof LEGACY_DEFER_CREATED_BY;
 
 /**
+ * Cancellation for a schedule write, carried alongside the row rather than in
+ * it. The retry wrapper reads it between attempts, so a caller whose turn was
+ * stopped does not sleep through a backoff and then persist a schedule that
+ * would go on to run on its own.
+ */
+export interface ScheduleWriteOptions {
+  signal?: AbortSignal;
+}
+
+/**
  * Parameters for ordinary schedule creation. `sourceKey` and `definitionHash`
  * are excluded for the same structural reason `createdBy` is constrained:
  * plugin-declaration provenance is minted only by
@@ -245,6 +255,7 @@ function resolveStoredTimezone(
 
 async function insertSchedule(
   params: InsertScheduleParams,
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob> {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -364,6 +375,7 @@ async function insertSchedule(
   await withSqliteRetry(() => db.insert(scheduleJobs).values(row).run(), {
     op: "createSchedule",
     context: { scheduleId: id },
+    ...(opts?.signal ? { signal: opts.signal } : {}),
   });
   notifySchedulesChanged();
   return parseJobRow(row);
@@ -381,13 +393,14 @@ async function insertSchedule(
  */
 export async function createSchedule(
   params: CreateScheduleParams,
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob> {
   if (params.createdBy && hasOwnerDeferProvenance(params.createdBy)) {
     throw new Error(
       "Owner-defer provenance is issued only by createOwnerDeferredWake()",
     );
   }
-  return insertSchedule(params);
+  return insertSchedule(params, opts);
 }
 
 /**
@@ -563,6 +576,7 @@ export async function updateSchedule(
     // owner-defer provenance they are immutable, enforced at the top of the
     // function body rather than in the type, since the distinction is per-row.
   },
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob | null> {
   const db = getDb();
   const existing = db
@@ -746,7 +760,11 @@ export async function updateSchedule(
 
   await withSqliteRetry(
     () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
-    { op: "updateSchedule", context: { scheduleId: id } },
+    {
+      op: "updateSchedule",
+      context: { scheduleId: id },
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    },
   );
   notifySchedulesChanged();
 
@@ -763,7 +781,10 @@ function getRowSourceKey(id: string): string | null {
   return row?.sourceKey ?? null;
 }
 
-export async function deleteSchedule(id: string): Promise<boolean> {
+export async function deleteSchedule(
+  id: string,
+  opts?: ScheduleWriteOptions,
+): Promise<boolean> {
   const db = getDb();
   // Plugin-sourced rows keep their identity and run history: deleting one
   // would just have the reconciler recreate it from the declaration on its
@@ -781,7 +802,11 @@ export async function deleteSchedule(id: string): Promise<boolean> {
       db.delete(scheduleJobs).where(eq(scheduleJobs.id, id)).run();
       return rawChanges() > 0;
     },
-    { op: "deleteSchedule", context: { scheduleId: id } },
+    {
+      op: "deleteSchedule",
+      context: { scheduleId: id },
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    },
   );
   if (deleted) {
     notifySchedulesChanged();
@@ -1026,6 +1051,7 @@ export async function disarmDeclaredSchedule(id: string): Promise<boolean> {
 export async function setUserEnabled(
   id: string,
   value: boolean,
+  opts?: ScheduleWriteOptions,
 ): Promise<ScheduleJob | null> {
   const db = getDb();
   const existing = db
@@ -1077,7 +1103,11 @@ export async function setUserEnabled(
 
   await withSqliteRetry(
     () => db.update(scheduleJobs).set(set).where(eq(scheduleJobs.id, id)).run(),
-    { op: "setUserEnabled", context: { scheduleId: id } },
+    {
+      op: "setUserEnabled",
+      context: { scheduleId: id },
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    },
   );
   notifySchedulesChanged();
   return getSchedule(id);

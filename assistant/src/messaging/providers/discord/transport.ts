@@ -9,6 +9,7 @@ import { isBusyActivityPhase } from "../channel-transport.js";
 import { openDiscordDmChannel } from "./api.js";
 import type { DiscordSendTarget } from "./send.js";
 import {
+  describeDiscordReactionEmoji,
   editDiscordMessage,
   sendDiscordAttachments,
   sendDiscordReaction,
@@ -77,6 +78,8 @@ export const discordTransport: ChannelTransport = {
     return { ok: true };
   },
 
+  describeReactionEmoji: describeDiscordReactionEmoji,
+
   async react(target) {
     return sendDiscordReaction(
       target.threadId ?? target.chatId,
@@ -91,9 +94,11 @@ export const discordTransport: ChannelTransport = {
     const target = await sendTarget(ctx, chatId);
 
     let sentId: string | undefined;
+    let messageIds: string[] = [];
     if (text) {
       const result = await sendDiscordReply(target, text);
       sentId = result.lastMessageId;
+      messageIds = result.messageIds;
     } else if (approval) {
       // Approvals deliver as plain text, so the prompt is readable but not
       // clickable. Discord is not a guardian channel: approval prompts are
@@ -103,6 +108,7 @@ export const discordTransport: ChannelTransport = {
         approval.plainTextFallback || "Approval required",
       );
       sentId = result.lastMessageId;
+      messageIds = result.messageIds;
     }
 
     if (attachments && attachments.length > 0) {
@@ -119,6 +125,7 @@ export const discordTransport: ChannelTransport = {
       { channelId: target.channelId, hasText: !!text },
       "Discord reply delivered (direct)",
     );
-    return { ok: true, ts: sentId };
+    // Every chunk the text became is acknowledged; attachment posts are not.
+    return { ok: true, ts: sentId, messageIds };
   },
 };

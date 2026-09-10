@@ -12,14 +12,17 @@ export const whatsappTransport: ChannelTransport = {
   async deliver(_ctx, payload) {
     const { chatId, text, attachments, approval } = payload;
 
+    let messageIds: string[] = [];
     if (text) {
-      await sendWhatsAppReply(chatId, text, approval);
+      const sent = await sendWhatsAppReply(chatId, text, approval);
+      messageIds = sent.messageIds;
     } else if (approval) {
-      await sendWhatsAppReply(
+      const sent = await sendWhatsAppReply(
         chatId,
         approval.plainTextFallback || "Approval required",
         approval,
       );
+      messageIds = sent.messageIds;
     }
 
     if (attachments && attachments.length > 0) {
@@ -33,6 +36,7 @@ export const whatsappTransport: ChannelTransport = {
     }
 
     log.info({ chatId, hasText: !!text }, "WhatsApp reply delivered (direct)");
-    return { ok: true };
+    // Every message the text became is acknowledged; attachment posts are not.
+    return { ok: true, messageIds };
   },
 };

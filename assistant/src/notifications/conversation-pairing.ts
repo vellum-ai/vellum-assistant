@@ -31,7 +31,7 @@
 
 import type { ConversationStrategy } from "../channels/config.js";
 import { getConversationStrategy } from "../channels/config.js";
-import type { ChannelId } from "../channels/types.js";
+import { type ChannelId, isChannelId } from "../channels/types.js";
 import { isAssistantInitiatedThreadsEnabled } from "../config/assistant-initiated-threads-gate.js";
 import {
   addMessage,
@@ -43,10 +43,17 @@ import {
   type ConversationCreateType,
 } from "../persistence/conversation-types.js";
 import {
+  findInboundConversationId,
+  resolveInboundConversation,
+} from "../persistence/delivery-crud.js";
+import {
   getBindingByChannelChat,
   upsertOutboundBinding,
 } from "../persistence/external-conversation-store.js";
-import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishConversationListChanged,
+  publishConversationMessagesChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
@@ -483,10 +490,17 @@ export async function pairDeliveryWithConversation(
 
 /**
  * Where a chat's proactive posts live: the conversation a delivery to
- * (`sourceChannel`, `externalChatId`) is recorded in once the channel
- * acknowledges it.
+ * (`sourceChannel`, `externalChatId`), and `threadId` when the post lands
+ * in a thread, is recorded in once the channel acknowledges it.
  *
- * Resolution order:
+ * A delivery into a thread lives where the thread's replies arrive: the
+ * conversation ingress resolves for that (channel, chat, thread), found,
+ * aliased from the flat channel where Slack's thread evidence allows, or
+ * minted the way ingress mints it on the first reply. Inbound conversations
+ * on Slack and Telegram are keyed per thread, so any other home would put
+ * the post in a conversation its replies never reach.
+ *
+ * Resolution order for a thread-less delivery:
  * 1. The chat's inbound conversation, when the person has messaged in this
  *    chat and the inbound pipeline bound it at the un-prefixed key. Posting
  *    there keeps the notification in the history the person's replies land
@@ -514,8 +528,35 @@ export async function resolveProactiveHomeConversation(params: {
   title: string;
   groupId?: string;
   scheduleJobId?: string;
+  /** The thread the post lands in, as the channel resolved it. */
+  threadId?: string | null;
 }): Promise<{ conversationId: string; createdNewConversation: boolean }> {
   const { sourceChannel, externalChatId } = params;
+
+  const threadId = params.threadId?.trim();
+  if (threadId) {
+    const existing = findInboundConversationId(
+      sourceChannel,
+      externalChatId,
+      threadId,
+    );
+    if (existing) {
+      return { conversationId: existing, createdNewConversation: false };
+    }
+    const minted = resolveInboundConversation(
+      sourceChannel,
+      externalChatId,
+      threadId,
+      isChannelId(sourceChannel) ? { origin: sourceChannel } : undefined,
+    );
+    // The record that follows invalidates only the conversation's messages;
+    // a conversation that did not exist a moment ago has to reach the list.
+    publishConversationListChanged("created");
+    return {
+      conversationId: minted.conversationId,
+      createdNewConversation: true,
+    };
+  }
 
   const inboundBinding = getBindingByChannelChat(sourceChannel, externalChatId);
   if (inboundBinding) {
@@ -575,6 +616,7 @@ export async function resolveProactiveHomeConversation(params: {
     sourceChannel: notificationChannel(sourceChannel),
     externalChatId,
   });
+  publishConversationListChanged("created");
   return { conversationId: conversation.id, createdNewConversation: true };
 }
 

@@ -16,6 +16,8 @@
  *     etc.); those are retired by this package.
  */
 
+import { NOTIFICATION_AVATAR_MAX_LOCAL_BYTES } from "@vellumai/avatar-manifest/notification-avatar";
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -189,7 +191,11 @@ export type VellumCommand =
    * against, and an answer to one that no longer stands is dropped. See
    * {@link CompanionDictationOffer}.
    */
-  | { kind: "answerDictationOffer"; answer: DictationOfferAnswer; offerId: string }
+  | {
+      kind: "answerDictationOffer";
+      answer: DictationOfferAnswer;
+      offerId: string;
+    }
   /**
    * Start a live-voice session, or end the one that is running.
    *
@@ -200,6 +206,22 @@ export type VellumCommand =
    * that draws it also draws a way to stop.
    */
   | { kind: "toggleVoice" }
+  /**
+   * The user pressed a control the assistant was pointing at on the shared
+   * surface, which is the step it was walking them through being done.
+   *
+   * `label` is the control's own name as the surface reports it, the same
+   * word the assistant was told it had pointed at. The window holding the
+   * session puts the press to the call as the user's turn, so the assistant
+   * hears the step is done and says what comes next without anyone having to
+   * say so. A press on a surface with no session up lands nowhere, which is
+   * right: there is no one to tell.
+   *
+   * Like `annotateShare`, this does not raise the app. The user is working
+   * in the app they were pointed at, and the whole point is that they stay
+   * there.
+   */
+  | { kind: "coachmarkPressed"; label: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -709,6 +731,48 @@ export const NOTIFICATION_CATEGORIES = [
 
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
+/**
+ * What a notification avatar's SHA-256 has to look like: 64 lowercase hex
+ * characters. The hash names the file a host writes the avatar to, so anything
+ * else could escape the cache directory. Shared by the IPC boundary that
+ * accepts it and the cache that writes it.
+ */
+export const NOTIFICATION_AVATAR_HASH_PATTERN = /^[0-9a-f]{64}$/;
+
+/**
+ * The longest base64 payload the notification-avatar channel carries: base64
+ * of {@link NOTIFICATION_AVATAR_MAX_LOCAL_BYTES}, the cap the renderer drops a
+ * heavier render at. A payload past this is malformed rather than merely
+ * large, and the host has to cache it on disk, so the boundary refuses it
+ * instead of writing it. Derived from the byte cap rather than restated, so
+ * the two cannot drift.
+ */
+export const NOTIFICATION_AVATAR_BASE64_MAX_CHARS =
+  Math.ceil(NOTIFICATION_AVATAR_MAX_LOCAL_BYTES / 3) * 4;
+
+/**
+ * The assistant a notification is from, for the platforms that render a sender
+ * rather than the app: its name goes on the first line and its notification
+ * avatar becomes the icon.
+ */
+export interface NotificationSender {
+  id: string;
+  name: string;
+  /**
+   * The notification avatar as a base64 PNG with no data prefix, the same
+   * shape {@link VoiceActivityStart.avatarBase64} travels in. The renderer
+   * composites it (avatar on an accent-tinted disc) because main has no
+   * canvas.
+   */
+  avatarBase64: string;
+  /**
+   * SHA-256 of the PNG, 64 lowercase hex characters, so a host can name a
+   * cache file by it. The schema enforces the shape, because the file name is
+   * what it becomes.
+   */
+  avatarHash: string;
+}
+
 /** Renderer → main payload for posting a native notification. */
 export interface ShowNotificationPayload {
   category: NotificationCategory;
@@ -718,6 +782,11 @@ export interface ShowNotificationPayload {
   conversationId?: string;
   toolCallId?: string;
   deepLinkMetadata?: Record<string, unknown>;
+  /**
+   * Absent unless the renderer has a notification avatar to send, which leaves
+   * the notification with the app icon and the title on line one.
+   */
+  sender?: NotificationSender;
 }
 
 export type TextInsertionResult =
@@ -1406,6 +1475,25 @@ export type WatchCaptureTarget =
 export type CompanionAnnotationPhase = "drawing" | "released";
 
 /**
+ * What a press on the shared surface draws: the pointer's own path, or a
+ * shape stretched between the press and the release.
+ *
+ * `freehand` is the hand's path as it went. The other three are the shapes
+ * a hand cannot draw cleanly over someone else's work: a line between two
+ * points, the box on the drag's corners, and the ellipse inscribed in that
+ * box. Main holds which one is current ({@link CompanionSurfaceState.annotationTool}),
+ * since the pill chooses it and the frame draws with it.
+ */
+export const COMPANION_ANNOTATION_TOOLS = [
+  "freehand",
+  "line",
+  "box",
+  "circle",
+] as const;
+export type CompanionAnnotationTool =
+  (typeof COMPANION_ANNOTATION_TOOLS)[number];
+
+/**
  * One mark the user drew over the shared surface, as the points the pointer
  * passed through.
  *
@@ -1415,10 +1503,12 @@ export type CompanionAnnotationPhase = "drawing" | "released";
  * is the one description both agree on, and it survives the scaling that
  * happens between them.
  *
- * A polyline rather than a shape, because the user is drawing freehand and a
- * circle they made is not a circle anything should straighten. Thinned on the
- * way in ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send
- * a point per frame.
+ * A polyline whatever the tool was. A freehand circle is not a circle anything
+ * should straighten, and a shape tool's line, box or ellipse is sent as the
+ * points along it rather than as a shape, so the frame it is drawn onto needs
+ * one idea of what a mark is. Thinned on the way in
+ * ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send a
+ * point per frame.
  */
 export interface CompanionAnnotationStroke {
   points: readonly { x: number; y: number }[];
@@ -1473,25 +1563,54 @@ export const COMPANION_ANNOTATION_STROKE = 0.006;
  * goes outside them, so the control a user is being pointed at stays as
  * visible as it was before anything was drawn on it.
  *
- * A rectangle, not a stroke, because this end knows what it is pointing at:
- * the user draws freehand at something they can already see, and the
- * assistant resolves an element that has bounds.
+ * For an extent that is itself the message: a region of an image, an area of
+ * a canvas, a panel being named as a whole. To send someone to one control,
+ * see {@link CompanionCoachmarkPoint}.
  */
-export interface CompanionCoachmark {
+export interface CompanionCoachmarkRegion {
+  kind: "region";
   x: number;
   y: number;
   width: number;
   height: number;
-  /**
-   * What to do with the thing, in the user's language, or nothing when the
-   * ring is the whole message.
-   *
-   * Short by contract ({@link COMPANION_COACHMARK_CAPTION_MAX}): it is drawn
-   * over the user's own work, in a window they cannot scroll or dismiss, and
-   * anything longer than a caption belongs in what the assistant is saying.
-   */
   caption?: string;
 }
+
+/**
+ * A place on the surface, drawn as an arrow aimed at it.
+ *
+ * **The ordinary way to point, because aim survives error and extent does
+ * not.** A ring asserts where a thing ends as well as where it is, and an
+ * element's bounds are the least trustworthy thing the accessibility tree
+ * reports about it: a control's frame is its hit area, which can be twice the
+ * size of the glyph inside it, and a row can be named by the small triangle
+ * that discloses it. Every one of those rings the wrong shape while knowing
+ * the right place. An arrow makes the weaker claim, so it stays true where the
+ * ring does not.
+ *
+ * `x` and `y` are the point being indicated, not a corner: the arrow's tip
+ * lands there and its tail hangs off whichever side has the room.
+ */
+export interface CompanionCoachmarkPoint {
+  kind: "point";
+  x: number;
+  y: number;
+  caption?: string;
+}
+
+/**
+ * What is drawn on the shared surface: an arrow at something, or a ring
+ * around some extent of it.
+ *
+ * Tagged rather than inferred from which fields are set, because the tag is
+ * the thing that decides what `x` and `y` mean. A corner and a point are
+ * different claims, and a reader that guessed between them by looking for a
+ * width would be one field away from drawing a mark half its own size out of
+ * place.
+ */
+export type CompanionCoachmark =
+  | CompanionCoachmarkRegion
+  | CompanionCoachmarkPoint;
 
 /**
  * How many marks stand at once, and how long a caption may be.
@@ -1518,7 +1637,73 @@ export const COMPANION_COACHMARK_CAPTION_MAX = 80;
  * and the host-proxy executor words it, and the file that words it says in as
  * many words that it must not reach into the windows for anything.
  */
-export type CoachmarkRefusal = "unshared" | "not-this-call" | "stale-surface";
+export type CoachmarkRefusal =
+  | "unshared"
+  | "not-this-call"
+  | "stale-surface"
+  | "superseded";
+
+/**
+ * One thing to point at: a control named, or a rectangle given.
+ *
+ * **Naming is the one to reach for.** The accessibility tree holds the exact
+ * frame of every labelled control on the surface, so a name resolves to where
+ * the thing actually is; a rectangle is a guess at it, measured off a picture
+ * that has been scaled and compressed on its way to whoever is guessing. The
+ * rectangle form remains for what the tree cannot name (a canvas, an image,
+ * a plugin's own drawing), where there is nothing to resolve against.
+ */
+export type CoachmarkRequest =
+  | { target: string; caption?: string }
+  | { x: number; y: number; width: number; height: number; caption?: string };
+
+/** Whether a request named a control or gave bounds outright. */
+export const namesATarget = (
+  request: CoachmarkRequest,
+): request is { target: string; caption?: string } => "target" in request;
+
+/**
+ * A mark that went up, and what it turned out to be.
+ *
+ * `matched` is the label the surface actually uses, which is not always the
+ * one that was asked for: a control found by a forgiving comparison is
+ * reported under its own name so the caller can say the same word the user
+ * can see.
+ */
+export type PlacedCoachmark = CompanionCoachmark & { matched?: string };
+
+/**
+ * Why a named control could not be turned into a mark.
+ *
+ * Each carries the labels that were on the surface, because the answer to all
+ * three is the same shape: say what is there instead of drawing at a guess.
+ * `ambiguous` lists the ones that fit, the others everything there was.
+ */
+export interface CoachmarkUnresolved {
+  target: string;
+  reason: "no-tree" | "ambiguous" | "no-match";
+  candidates: readonly string[];
+  /**
+   * How many labels the surface carried, which can be more than `candidates`
+   * holds. The host bounds the list at the point it reads the accessibility
+   * tree, since a web page is ten thousand elements and any of them can be
+   * carrying a paragraph of `aria-label`. The count is what lets the reader
+   * say how many names it is not showing.
+   */
+  candidateCount?: number;
+}
+
+/**
+ * What became of a set of marks.
+ *
+ * Three outcomes rather than a nullable refusal, because a named control that
+ * does not resolve is neither a placement nor a refusal of the surface: the
+ * share is fine and the caller simply named something that is not there.
+ */
+export type CoachmarkResult =
+  | { kind: "placed"; marks: readonly PlacedCoachmark[] }
+  | { kind: "refused"; refusal: CoachmarkRefusal }
+  | { kind: "unresolved"; unresolved: CoachmarkUnresolved };
 
 /**
  * One frame of a {@link WatchCaptureTarget}, as the helper took it: a JPEG,
@@ -1962,6 +2147,34 @@ export interface CompanionSurfaceState {
    * about where the next click goes.
    */
   annotating?: boolean;
+  /**
+   * What a press on the frame draws while `annotating`: the pointer's path or
+   * one of the shapes. See {@link CompanionAnnotationTool}.
+   *
+   * Main's, alongside `annotating` and for the same reason: the pill is where
+   * it is chosen and the frame is where it is drawn with, and the two are
+   * different windows. Kept across the mode going off and on, so the tool a
+   * user reached for is the one under their hand next time. Absent on a shell
+   * that predates it, which reads as freehand, the one tool that shell had.
+   */
+  annotationTool?: CompanionAnnotationTool;
+
+  /**
+   * How many times the user has cleared the shared surface from the pill.
+   *
+   * A running count rather than an event, the way `captureCount` is. The
+   * frame's drawing layer holds the user's own ink and main never sees it,
+   * so a press on the pill reaches that ink only on the state everything
+   * else reaches it on. A step in the number is one clear. The value a
+   * window mounts with is history, since main replays its state into a
+   * window it has just opened, and a layer that dropped its ink on the
+   * replay would be clearing for a press made before it existed.
+   *
+   * The assistant's marks need no such signal: main holds those and takes
+   * them down itself. Absent on a shell that predates the control, which
+   * reads as no clears yet.
+   */
+  marksCleared?: number;
 
   /**
    * What the assistant is pointing at on the shared surface, drawn on the
@@ -1977,6 +2190,22 @@ export interface CompanionSurfaceState {
    * never travels: a shell with nothing to draw says nothing.
    */
   coachmarks?: readonly CompanionCoachmark[];
+
+  /**
+   * How far below the top of the framed surface anything the frame draws
+   * there has to start, in the frame window's own pixels, to be seen.
+   *
+   * Main's, because it is a fact about where main put the window: a whole
+   * display is framed to its full bounds so the edge is the screen's, and the
+   * menu bar draws over the top of that window. A label placed against the
+   * edge would sit under the bar. This is the bar's height, read from the
+   * gap between the display's bounds and its work area.
+   *
+   * Absent for a window frame, whose top edge is the window's own title bar
+   * and inside the frame, and absent when nothing is framed. A shell that
+   * predates the field reads as no inset, which is the frame as it was.
+   */
+  frameInsetTop?: number;
 
   /**
    * Whether Watch is offered at all, as the flag was last evaluated for the

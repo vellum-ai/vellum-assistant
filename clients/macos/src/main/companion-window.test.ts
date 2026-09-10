@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   companionAnnotationInkSchema,
   companionAnnotationStrokeSchema,
+  companionAnnotationToolSchema,
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
   COMPANION_BASE_AVATAR_BOX,
@@ -275,6 +276,29 @@ let capturedFrame: {
 const thumbnailsAsked: unknown[] = [];
 let capturedThumbnail: string | null = "data:image/jpeg;base64,/9j/";
 
+/**
+ * What the helper answers when a mark names a control, and every ask that
+ * reached it: a mark resolved through the tree is the path that replaces
+ * guessing at coordinates, so the queries matter as much as the answer.
+ */
+const locatesAsked: { target: unknown; query: string }[] = [];
+let located: unknown = {
+  found: true,
+  label: "Share",
+  role: "AXButton",
+  x: 120,
+  y: 80,
+  width: 60,
+  height: 20,
+};
+
+/**
+ * A lookup held open, so a case can decide what else happens while a name is
+ * still being resolved. Nothing when the answer comes back at once, which is
+ * every case that is not about that gap.
+ */
+let locateHeldBy: Promise<void> | null = null;
+
 mock.module("./companion-capture-sources", () => ({
   listCaptureSources: async () => listedSources,
   resolveCapturePick: (pick: unknown) => resolvedPickAsync(pick),
@@ -289,6 +313,13 @@ mock.module("./companion-capture-sources", () => ({
   windowBoundsFor: async (windowId: number) => {
     boundsAsked.push(windowId);
     return windowBounds;
+  },
+  locateOnTarget: async (target: unknown, query: string) => {
+    locatesAsked.push({ target, query });
+    if (locateHeldBy !== null) {
+      await locateHeldBy;
+    }
+    return located;
   },
 }));
 
@@ -348,16 +379,34 @@ type GlowWindow = {
   isVisible: () => boolean;
   /** Whether presses go through it, which is the whole of drawing mode. */
   clickThrough: boolean;
-  setIgnoreMouseEvents: (ignore: boolean) => void;
+  /**
+   * Whether mouse-move still reaches the page while presses go through,
+   * which is how the frame knows to take the mouse back after a scroll.
+   */
+  forwarded: boolean;
+  setIgnoreMouseEvents: (
+    ignore: boolean,
+    options?: { forward?: boolean },
+  ) => void;
+  /** Whether it may become key, which is what lets its cursor show. */
+  focusable: boolean;
+  setFocusable: (focusable: boolean) => void;
+  /** Whether it is key: `focus` makes it so, and nothing here resigns it. */
+  key: boolean;
+  focus: () => void;
 };
 let glow: GlowWindow | null = null;
 const glowPushes: CompanionSurfaceState[] = [];
+/** The BrowserWindow options the frame was last opened with. */
+let glowOptions: Record<string, unknown> | undefined;
 
 const openGlow = (options: {
   position?: { x: number; y: number } | (() => { x: number; y: number });
   width: number;
   height: number;
+  browserWindow?: Record<string, unknown>;
 }): GlowWindow => {
+  glowOptions = options.browserWindow;
   const at =
     typeof options.position === "function"
       ? options.position()
@@ -394,8 +443,21 @@ const openGlow = (options: {
     isVisible: () => window.visible,
     // How main opens it, and where it goes back to whenever drawing is off.
     clickThrough: true,
-    setIgnoreMouseEvents: (ignore) => {
+    forwarded: false,
+    setIgnoreMouseEvents: (ignore, options) => {
       window.clickThrough = ignore;
+      window.forwarded = ignore && options?.forward === true;
+    },
+    focusable: options.browserWindow?.focusable !== false,
+    setFocusable: (focusable) => {
+      window.focusable = focusable;
+    },
+    key: false,
+    focus: () => {
+      // The real one refuses a window that may not become key.
+      if (window.focusable) {
+        window.key = true;
+      }
     },
   };
   glow = window;
@@ -497,6 +559,18 @@ const {
   installCompanionWindow,
 } = await import("./companion-window");
 
+const {
+  __resetFrameScrollWatchForTesting,
+  frameScrollEnded,
+  provideFrameScrollWatch,
+} = await import("./frame-scroll-watch");
+
+const {
+  __resetCoachmarkPressWatchForTesting,
+  coachmarkPressed,
+  provideCoachmarkPressWatch,
+} = await import("./coachmark-press-watch");
+
 installCompanionWindow();
 
 /**
@@ -504,6 +578,8 @@ installCompanionWindow();
  * size leaves it there. Put both axes back and forget the window's position.
  */
 beforeEach(() => {
+  __resetFrameScrollWatchForTesting();
+  __resetCoachmarkPressWatchForTesting();
   sizes.avatar = "small";
   sizes.options = "small";
   setCompanionSurfaceSize("avatar", "small");
@@ -743,7 +819,9 @@ describe("the room kept under the surface", () => {
 
   /** And a drag can put the surface no lower than the same rule allows. */
   test("holds a drag to the same room", () => {
-    const dragged = centreOf(placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY));
+    const dragged = centreOf(
+      placeCanvas({ x: 700, y: 9000 }, WORK_AREA, GEOMETRY),
+    );
     expect(dragged.y).toBe(
       900 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
@@ -793,7 +871,10 @@ describe("placeCanvas", () => {
         placeCanvas({ x: 700, y: 9000 }, WORK_AREA, BIG_CREATURE),
         BIG_CREATURE,
       ).y,
-    ).toBe(900 - companionLowerReachFor(BIG_CREATURE.avatarBox, BIG_CREATURE.optionsBox));
+    ).toBe(
+      900 -
+        companionLowerReachFor(BIG_CREATURE.avatarBox, BIG_CREATURE.optionsBox),
+    );
   });
 
   /**
@@ -874,7 +955,10 @@ describe("defaultAvatarCentre", () => {
     const centre = defaultAvatarCentre(WORK_AREA, GEOMETRY);
     expect(centre.x).toBe(720);
     expect(centre.y).toBe(
-      25 + 875 - 2 - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+      25 +
+        875 -
+        2 -
+        companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 
@@ -886,7 +970,8 @@ describe("defaultAvatarCentre", () => {
     for (const geometry of [GEOMETRY, BIG_CREATURE, BIG_OPTIONS]) {
       const centre = defaultAvatarCentre(WORK_AREA, geometry);
       const visibleBottom =
-        centre.y + companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
+        centre.y +
+        companionLowerReachFor(geometry.avatarBox, geometry.optionsBox);
       expect(25 + 875 - visibleBottom).toBe(2);
     }
   });
@@ -1366,7 +1451,8 @@ describe("the glide between the pill's home and the call's place", () => {
     // Inside by the rule the clamp actually applies: the creature's visible
     // bottom on the edge, not its box's.
     expect(centre().y).toBeLessThanOrEqual(
-      shrunk.height - companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
+      shrunk.height -
+        companionLowerReachFor(GEOMETRY.avatarBox, GEOMETRY.optionsBox),
     );
   });
 
@@ -1490,6 +1576,20 @@ describe("the light a watch session puts on the display", () => {
       }),
     );
     expect(glow?.bounds).toEqual({ x: 1440, y: 0, width: 1920, height: 1080 });
+  });
+
+  test("is allowed to cover the menu bar, so it is the whole display", () => {
+    // macOS holds a window to the work area unless told otherwise, and a
+    // frame a menu bar short of the display draws every fraction measured
+    // against the display's picture low by that much.
+    send(
+      "vellum:companion:setContext",
+      context({
+        watching: true,
+        captureTarget: { kind: "display", displayId: 2 },
+      }),
+    );
+    expect(glowOptions?.enableLargerThanScreen).toBe(true);
   });
 
   test("is placed again when the picked display changes shape", () => {
@@ -2984,6 +3084,84 @@ describe("Share on the companion surface", () => {
     expect(glow).toBeNull();
   });
 
+  /**
+   * A whole display is framed to its full bounds, and the menu bar draws
+   * over the top of that window. What the frame draws at its top has to
+   * start below the bar, and only the shell knows how tall it is.
+   */
+  test("reports the menu bar's height over a framed display", () => {
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 25, width: 1920, height: 1055 },
+    };
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(state().frameInsetTop).toBe(25);
+  });
+
+  /**
+   * The bar can change height under a running share, and the frame's
+   * renderer holds whatever it was last pushed. The events that move the
+   * bar are the ones that place the frame again, so the inset travels with
+   * that placement, whether or not the surface's own growth changed and
+   * whether or not the surface is on screen at all.
+   */
+  test("pushes the inset again when the menu bar changes height", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    expect(glowPushes.at(-1)?.frameInsetTop).toBe(0);
+    glowPushes.length = 0;
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 37, width: 1920, height: 1043 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glowPushes.at(-1)?.frameInsetTop).toBe(37);
+  });
+
+  test("pushes the inset again with the surface hidden", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    companionOpen = false;
+    glowPushes.length = 0;
+    displays[1] = {
+      ...displays[1],
+      workArea: { x: 1440, y: 37, width: 1920, height: 1043 },
+    };
+    fireDisplayEvent("display-metrics-changed");
+    expect(glowPushes.at(-1)?.frameInsetTop).toBe(37);
+  });
+
+  /** A display event that left the bar alone is not a reason to push. */
+  test("does not push for a display event that left the bar alone", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "display", displayId: 2 } }),
+    );
+    glowPushes.length = 0;
+    fireDisplayEvent("display-metrics-changed");
+    expect(glowPushes).toHaveLength(0);
+  });
+
+  test("reports no inset over a framed window", () => {
+    send(
+      "vellum:companion:setContext",
+      context({ screenShare: { kind: "window", windowId: 7 } }),
+    );
+    expect(state().frameInsetTop).toBeUndefined();
+  });
+
+  test("reports no inset with nothing framed", () => {
+    send("vellum:companion:setContext", context());
+    expect(state().frameInsetTop).toBeUndefined();
+  });
+
   test("the share ends with the window holding it", () => {
     send(
       "vellum:companion:setContext",
@@ -3058,6 +3236,208 @@ describe("companion window: drawing on what is shared", () => {
     send("vellum:companion:toggleAnnotating");
     expect(state().annotating).toBe(false);
     expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * What a press on the frame draws is main's for the reason the mode is:
+   * the pill chooses it and the frame draws with it, and both read it off
+   * the pushed state. Kept across the mode and the share, since it decides
+   * nothing about where a click goes and a user who reached for the box
+   * expects it under their hand next time.
+   */
+  test("the tool is the pencil until the pill says otherwise, and is kept", () => {
+    shareDisplay();
+    expect(state().annotationTool).toBe("freehand");
+    send("vellum:companion:setAnnotationTool", "box");
+    expect(state().annotationTool).toBe("box");
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(state().annotationTool).toBe("box");
+
+    send("vellum:companion:setContext", context());
+    expect(state().annotationTool).toBe("box");
+  });
+
+  test("the wire refuses a tool it does not know", () => {
+    expect(companionAnnotationToolSchema.safeParse("star").success).toBe(false);
+    expect(companionAnnotationToolSchema.safeParse("circle").success).toBe(
+      true,
+    );
+  });
+
+  /**
+   * A frame taking presses takes the wheel with them, and it cannot forward
+   * a wheel event it has taken. So on the first one the renderer sees, the
+   * frame steps aside for the rest of the scroll, with mouse-move forwarded
+   * so the renderer can see the pointer move and ask for the mouse back. The
+   * mode stays on the whole time: the user did not press Draw again.
+   */
+  test("a scroll on the frame lets the rest of it through to the app", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(true);
+    expect(state().annotating).toBe(true);
+  });
+
+  test("the pointer moving after a scroll takes the mouse back", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(glow?.clickThrough).toBe(false);
+    expect(state().annotating).toBe(true);
+  });
+
+  /**
+   * A hand that scrolls and then presses without moving the pointer never
+   * sends the renderer a move to ask with, and the press would land on the
+   * app. The desktop knows when the scroll stopped, so main asks the helper
+   * to watch for that while the frame is stepped aside, and takes the mouse
+   * back the moment it hears it.
+   */
+  test("the scroll ending takes the mouse back without a move", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(watches).toEqual([true]);
+    frameScrollEnded();
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
+    expect(state().annotating).toBe(true);
+    expect(watches).toEqual([true, false]);
+  });
+
+  /** The watch is up only while the frame is stepped aside, whichever way that ends. */
+  test("every way out of a scroll takes the watch down with it", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setFrameScrolling", false);
+    expect(watches).toEqual([true, false]);
+
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(watches).toEqual([true, false, true, false]);
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(watches).toEqual([true, false, true, false, true, false]);
+
+    // A scroll that ended after the frame stopped waiting changes nothing.
+    frameScrollEnded();
+    expect(watches).toHaveLength(6);
+  });
+
+  /** Off the mode there is no watch to put up, and no scroll end to act on. */
+  test("a scroll ending with the mode off is nothing", () => {
+    const watches: boolean[] = [];
+    provideFrameScrollWatch((enable) => watches.push(enable));
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    frameScrollEnded();
+    expect(watches).toEqual([]);
+    expect(glow?.clickThrough).toBe(true);
+  });
+
+  /**
+   * Off the mode the frame has no mouse to hand back, and a scroll remembered
+   * against the next press would open the mode click-through.
+   */
+  test("a scroll with the mode off changes nothing, now or later", () => {
+    shareDisplay();
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+  });
+
+  /** The mode going off leaves nothing for the scroll to have stepped aside from. */
+  test("the mode going off forgets the scroll it stepped aside for", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.clickThrough).toBe(true);
+    expect(glow?.forwarded).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+  });
+
+  /**
+   * The mode outlives the frame's window, which is replaced when the share
+   * ends and starts again. The new window's renderer has seen no scroll, so
+   * one the old window stepped aside for would leave it click-through with
+   * nothing to ask for the mouse back.
+   */
+  test("a frame opened afresh takes the mouse whatever the last one did", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.clickThrough).toBe(false);
+    expect(glow?.forwarded).toBe(false);
+  });
+
+  /**
+   * Chromium on macOS puts a page's cursor on the pointer only for the key
+   * window, and the frame opens unable to become one. So the mode lends it
+   * key status, or the pencil the layer hangs on the pointer never shows and
+   * nothing on screen says a press is now a mark.
+   */
+  test("drawing on lends the frame key status, so its pencil can show", () => {
+    shareDisplay();
+    expect(glow?.focusable).toBe(false);
+    expect(glow?.key).toBe(false);
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /**
+   * Off the mode the frame may not become key again: a click-through window
+   * that still could would take the keyboard on the next press that reached
+   * it. Resigning key is not something main can ask for on macOS, so what it
+   * can do is stop the frame taking it back.
+   */
+  test("drawing off makes the frame unfocusable again", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(glow?.focusable).toBe(false);
+  });
+
+  /** The mode is still on across a scroll, and the mouse is coming back. */
+  test("a scroll the frame steps aside for leaves its key status alone", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setFrameScrolling", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
+  });
+
+  /** A window that replaces the frame mid-mode is lent key the same way. */
+  test("a frame opened afresh is lent key status with the mouse", () => {
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setContext", context());
+    expect(glow).toBeNull();
+    shareDisplay();
+    send("vellum:companion:setAnnotating", true);
+    expect(glow?.focusable).toBe(true);
+    expect(glow?.key).toBe(true);
   });
 
   /**
@@ -3215,6 +3595,8 @@ describe("companion window: drawing on what is shared", () => {
  */
 describe("companion window: pointing at what is shared", () => {
   const MARK = { x: 0.1, y: 0.2, width: 0.3, height: 0.1, caption: "Press" };
+  /** The same rectangle as it travels once the surface has tagged it. */
+  const DRAWN_MARK = { kind: "region" as const, ...MARK };
   /** The conversation the shared call belongs to. */
   const CALL = "conv-abc";
   /** Any other conversation the same user has running. */
@@ -3223,6 +3605,17 @@ describe("companion window: pointing at what is shared", () => {
   const WINDOW = { kind: "window", windowId: 9 } as const;
 
   beforeEach(() => {
+    locatesAsked.length = 0;
+    locateHeldBy = null;
+    located = {
+      found: true,
+      label: "Share",
+      role: "AXButton",
+      x: 120,
+      y: 80,
+      width: 60,
+      height: 20,
+    };
     send("vellum:companion:setContext", context());
   });
 
@@ -3278,17 +3671,477 @@ describe("companion window: pointing at what is shared", () => {
 
   test("puts the marks on the state the frame reads", async () => {
     await shareAndSee();
-    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
+      kind: "placed",
+    });
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** Nothing pointed at is absence, so a frame reads one shape for it. */
   test("says nothing rather than nothing-in-a-list", async () => {
     await shareAndSee();
     expect(state().coachmarks).toBeUndefined();
-    showCompanionCoachmarks([MARK], CALL);
-    showCompanionCoachmarks([], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([], CALL);
     expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * The user's own way to take the marks down, from the pill. The share is
+   * what the marks are about and it goes on; the frame stays around it. The
+   * count is read as a difference, since it is main's own and outlives a
+   * case.
+   */
+  describe("the pill's Clear", () => {
+    const clears = (): number => state().marksCleared ?? 0;
+
+    test("takes the marks down and leaves the share running", async () => {
+      await shareAndSee();
+      await showCompanionCoachmarks([MARK], CALL);
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      expect(state().coachmarks).toBeUndefined();
+      expect(state().screenShare).toEqual(DISPLAY);
+      expect(clears()).toBe(before + 1);
+    });
+
+    /**
+     * The user's own ink is on the frame's window and main never sees it,
+     * so the press reaches it as a step in a count on the pushed state. The
+     * step has to happen whether or not the assistant had marks up, since
+     * the ink is the other thing the press is about.
+     */
+    test("steps the count the frame drops its ink on, marks up or not", () => {
+      shareDisplay();
+      send("vellum:companion:setAnnotating", true);
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      send("vellum:companion:clearMarks");
+      expect(clears()).toBe(before + 2);
+      // The mode is the user's, and stays where they put it.
+      expect(state().annotating).toBe(true);
+    });
+
+    test("is nothing with nothing shared", () => {
+      const before = clears();
+      send("vellum:companion:clearMarks");
+      expect(clears()).toBe(before);
+    });
+
+    /** The race `screen_clear_marks` runs, with the same answer. */
+    test("outranks a lookup still out when it is pressed", async () => {
+      windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+      await shareAndSee(WINDOW);
+      let letGo!: () => void;
+      locateHeldBy = new Promise<void>((resolve) => {
+        letGo = resolve;
+      });
+      const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+      send("vellum:companion:clearMarks");
+      letGo();
+
+      expect(await drawing).toEqual({
+        kind: "refused",
+        refusal: "superseded",
+      });
+      expect(state().coachmarks).toBeUndefined();
+    });
+  });
+
+  /**
+   * The whole reason a mark may name a control rather than give a rectangle:
+   * the tree holds the control's frame exactly, so the fractions are derived
+   * rather than estimated. A window at (100,50) 1000x500 with the control at
+   * (120,80) 60x20 puts it 2% in and 6% down, 6% wide and 4% tall.
+   */
+  test("aims at the middle of a named control, not its bounds", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    const result = await showCompanionCoachmarks(
+      [{ target: "the share button", caption: "Press" }],
+      CALL,
+    );
+
+    expect(locatesAsked).toEqual([
+      { target: WINDOW, query: "the share button" },
+    ]);
+    // The control is at (120,80) 60x20, so its middle is (150,90): a twentieth
+    // of the way across the window and two twenty-fifths down it. No width or
+    // height travels, because the frame's extent is the part that misleads.
+    expect(result).toEqual({
+      kind: "placed",
+      marks: [
+        {
+          kind: "point",
+          x: 0.05,
+          y: 0.08,
+          caption: "Press",
+          matched: "Share",
+        },
+      ],
+    });
+    // What is drawn is the place alone: the name it resolved from is for the
+    // caller to say out loud, not for the frame to hold.
+    expect(state().coachmarks).toEqual([
+      { kind: "point", x: 0.05, y: 0.08, caption: "Press" },
+    ]);
+  });
+
+  /**
+   * The fractions are of the rectangle the marks are drawn on, which is the
+   * frame's, and it is not always the rectangle the share names: a frame
+   * asked for a display's whole bounds can be held to that display's work
+   * area, a menu bar lower and a menu bar shorter. Measured against the
+   * display and drawn into the frame, every mark lands low by exactly that
+   * much, which is what a whole-screen share does.
+   */
+  test("a named control is measured against the frame, not the share", async () => {
+    await shareAndSee(DISPLAY);
+    // The frame ends up somewhere other than the display it was asked for.
+    glow?.setBounds({ x: 100, y: 50, width: 1000, height: 500 });
+
+    const result = await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+    // The control's middle is (150,90): measured against this frame that is a
+    // twentieth across and two twenty-fifths down. Measured against display 2,
+    // which begins at x 1440, it would not be on the surface at all.
+    expect(result).toEqual({
+      kind: "placed",
+      marks: [{ kind: "point", x: 0.05, y: 0.08, matched: "Share" }],
+    });
+  });
+
+  /**
+   * A display is measured from its own origin, not the desktop's. Display 2
+   * begins at x 1440, so a control at x 1560 is 120 points into it and a
+   * sixteenth of the way across, not past its right edge.
+   */
+  test("resolves a named control against the shared display's bounds", async () => {
+    located = {
+      found: true,
+      label: "Share",
+      role: "AXButton",
+      x: 1560,
+      y: 108,
+      width: 96,
+      height: 54,
+    };
+    await shareAndSee(DISPLAY);
+    const result = await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+    expect(result).toEqual({
+      kind: "placed",
+      marks: [{ kind: "point", x: 0.0875, y: 0.125, matched: "Share" }],
+    });
+  });
+
+  /**
+   * A name the surface does not carry is not a mark drawn somewhere else: it
+   * comes back with what is there, so the next attempt can name one of those.
+   */
+  test("a name the surface does not carry draws nothing and says what is there", async () => {
+    located = {
+      found: false,
+      reason: "no-match",
+      available: ["color balance", "cropping"],
+    };
+    await shareAndSee(WINDOW);
+    const result = await showCompanionCoachmarks(
+      [{ target: "white balance" }],
+      CALL,
+    );
+
+    expect(result).toEqual({
+      kind: "unresolved",
+      unresolved: {
+        target: "white balance",
+        reason: "no-match",
+        candidates: ["color balance", "cropping"],
+      },
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * The host bounds the names it sends, so what arrives can be the short
+   * version of a surface that carried hundreds. The count travels with it,
+   * which is what lets the answer say how many it is not naming.
+   */
+  test("how many names there were survives the bounded list", async () => {
+    located = {
+      found: false,
+      reason: "no-match",
+      available: ["color balance", "cropping"],
+      candidateCount: 312,
+    };
+    await shareAndSee(WINDOW);
+
+    expect(
+      await showCompanionCoachmarks([{ target: "white balance" }], CALL),
+    ).toEqual({
+      kind: "unresolved",
+      unresolved: {
+        target: "white balance",
+        reason: "no-match",
+        candidates: ["color balance", "cropping"],
+        candidateCount: 312,
+      },
+    });
+  });
+
+  /** Two controls answering to one name is refused rather than guessed at. */
+  test("a name fitting more than one control draws nothing", async () => {
+    located = {
+      found: false,
+      reason: "ambiguous",
+      ambiguous: ["Close", "Close"],
+    };
+    await shareAndSee(WINDOW);
+
+    expect(
+      await showCompanionCoachmarks([{ target: "Close" }], CALL),
+    ).toMatchObject({
+      kind: "unresolved",
+      unresolved: { reason: "ambiguous" },
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * Resolving a name is a round trip, and the user is still working through
+   * it. A share that moved in that gap would take marks measured against the
+   * surface they were resolved on onto whatever replaced it.
+   */
+  test("a share that moves while a name resolves is refused", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    shareOf(DISPLAY);
+
+    expect(await drawing).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * The move that the current state alone cannot see. Once the new surface
+   * has served a frame of its own, everything main can ask about the present
+   * agrees: the share is framed, the call is the same one, and the picture
+   * the assistant holds is of what is shared. Only the surface these marks
+   * were measured against says otherwise, so it is what has to be kept.
+   */
+  test("a share that moves and is seen while a name resolves is refused", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    shareOf(DISPLAY);
+    acknowledge(DISPLAY);
+
+    expect(await drawing).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /**
+   * Nothing queues behind a lookup, and a clear has nothing to look up, so it
+   * answers while the lookup is still out. The user has been told the screen
+   * is clear by then, and the lookup landing afterwards would put the mark
+   * back on it.
+   */
+  test("a lookup that lands after a clear does not put the mark back", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    let letGo!: () => void;
+    locateHeldBy = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    expect(await showCompanionCoachmarks([], CALL)).toEqual({
+      kind: "placed",
+      marks: [],
+    });
+    letGo();
+
+    expect(await drawing).toEqual({
+      kind: "refused",
+      refusal: "superseded",
+    });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /** The same for a later request that draws something of its own. */
+  test("a lookup that lands after another request does not overwrite it", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    let letGo!: () => void;
+    locateHeldBy = new Promise<void>((resolve) => {
+      letGo = resolve;
+    });
+    const drawing = showCompanionCoachmarks([{ target: "Share" }], CALL);
+    locateHeldBy = null;
+    expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
+      kind: "placed",
+    });
+    letGo();
+
+    expect(await drawing).toMatchObject({
+      kind: "refused",
+      refusal: "superseded",
+    });
+    expect(state().coachmarks).toEqual([DRAWN_MARK]);
+  });
+
+  /**
+   * A request replaces everything on screen, and this one has replaced it
+   * with nothing it can draw. The mark left over from the last step points at
+   * a control the assistant is in the same breath saying it could not find.
+   */
+  test("a name that does not resolve takes down what was up", async () => {
+    windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+    await shareAndSee(WINDOW);
+    await showCompanionCoachmarks([{ target: "Share" }], CALL);
+    expect(state().coachmarks).toHaveLength(1);
+
+    located = {
+      found: false,
+      reason: "no-match",
+      available: ["color balance", "cropping"],
+    };
+    expect(
+      await showCompanionCoachmarks([{ target: "white balance" }], CALL),
+    ).toMatchObject({ kind: "unresolved" });
+    expect(state().coachmarks).toBeUndefined();
+  });
+
+  /** Bounds still go up untouched, for what the tree cannot name. */
+  test("a mark given as bounds keeps its ring and never asks the tree", async () => {
+    await shareAndSee();
+    const result = await showCompanionCoachmarks([MARK], CALL);
+
+    expect(locatesAsked).toEqual([]);
+    // An extent someone gave outright is an extent they mean.
+    expect(result).toEqual({
+      kind: "placed",
+      marks: [{ kind: "region", ...MARK }],
+    });
+  });
+
+  /**
+   * A mark says go and press that, and the press is the step being done. The
+   * frame is click-through while marks stand, so the press is heard from the
+   * helper: main tells it where the control is, and is told which one was
+   * pressed.
+   */
+  describe("hearing the press", () => {
+    /** Every set of rectangles the helper was asked to watch, in order. */
+    const watches: unknown[][] = [];
+
+    beforeEach(() => {
+      watches.length = 0;
+      dispatched.length = 0;
+      // A window the control can be found on; without bounds there is no
+      // surface to measure against and nothing is drawn.
+      windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+      provideCoachmarkPressWatch((rects) => {
+        watches.push([...rects]);
+      });
+    });
+
+    test("a named control is watched at the frame the tree reported", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      // The tree's frame in screen points, not the fraction the arrow is
+      // aimed at: a press is tested against the control's hit area.
+      expect(watches).toEqual([[{ x: 120, y: 80, width: 60, height: 20 }]]);
+    });
+
+    test("a press takes the marks down and tells the call which control", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      coachmarkPressed(0);
+
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+      expect(state().coachmarks).toBeUndefined();
+      // The watch went with the marks, so a second press on the same control
+      // reports nothing.
+      coachmarkPressed(0);
+      expect(dispatched).toHaveLength(1);
+    });
+
+    /**
+     * The control is on a window, and windows move. The frame follows the
+     * window, and the marks with it; a rectangle left where the control was
+     * would miss the press on it and take a press on empty desktop for it.
+     */
+    test("the watch follows the window the control is on", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      expect(watches).toEqual([[{ x: 120, y: 80, width: 60, height: 20 }]]);
+
+      windowBounds = { x: 300, y: 150, width: 1000, height: 500 };
+      await Bun.sleep(300);
+
+      expect(watches.at(-1)).toEqual([
+        { x: 320, y: 180, width: 60, height: 20 },
+      ]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+    });
+
+    /**
+     * A ring drawn from bounds the model gave is an extent someone means, not
+     * a button: a press inside it says nothing about a step.
+     */
+    test("an extent given as bounds is not something to press", async () => {
+      await shareAndSee();
+      await showCompanionCoachmarks([MARK], CALL);
+
+      expect(watches).toEqual([]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([]);
+    });
+
+    test("clearing the marks takes the watch down", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      await showCompanionCoachmarks([], CALL);
+
+      expect(watches.at(-1)).toEqual([]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([]);
+    });
+
+    test("the share ending takes the watch down", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      send("vellum:companion:setContext", context());
+
+      expect(watches.at(-1)).toEqual([]);
+    });
+
+    /** Pointing at the same control for a second step arms a second press. */
+    test("pointing again arms the watch again", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      coachmarkPressed(0);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+    });
   });
 
   /**
@@ -3296,8 +4149,11 @@ describe("companion window: pointing at what is shared", () => {
    * would open with a ring around whatever happened to be at those
    * coordinates.
    */
-  test("refuses marks with nothing shared", () => {
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("unshared");
+  test("refuses marks with nothing shared", async () => {
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "unshared",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3317,7 +4173,10 @@ describe("companion window: pointing at what is shared", () => {
         callConversationId: CALL,
       }),
     );
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("unshared");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "unshared",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3328,25 +4187,34 @@ describe("companion window: pointing at what is shared", () => {
    */
   test("refuses marks from another conversation", async () => {
     await shareAndSee();
-    expect(showCompanionCoachmarks([MARK], OTHER)).toBe("not-this-call");
+    expect(await showCompanionCoachmarks([MARK], OTHER)).toEqual({
+      kind: "refused",
+      refusal: "not-this-call",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
   /** What the call put up is not another conversation's to replace. */
   test("a refused mark leaves the call's own marks standing", async () => {
     await shareAndSee();
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     expect(
-      showCompanionCoachmarks([{ ...MARK, caption: "Elsewhere" }], OTHER),
-    ).toBe("not-this-call");
-    expect(state().coachmarks).toEqual([MARK]);
+      await showCompanionCoachmarks([{ ...MARK, caption: "Elsewhere" }], OTHER),
+    ).toEqual({
+      kind: "refused",
+      refusal: "not-this-call",
+    });
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** A claim that cannot be checked is not a claim that passed. */
   test("refuses marks when the surface names no conversation", async () => {
     shareOf(DISPLAY, { callConversationId: undefined });
     await capture();
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("not-this-call");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "not-this-call",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3356,8 +4224,10 @@ describe("companion window: pointing at what is shared", () => {
    */
   test("takes marks down for any conversation", async () => {
     await shareAndSee();
-    showCompanionCoachmarks([MARK], CALL);
-    expect(showCompanionCoachmarks([], OTHER)).toBeNull();
+    await showCompanionCoachmarks([MARK], CALL);
+    expect(await showCompanionCoachmarks([], OTHER)).toMatchObject({
+      kind: "placed",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3366,9 +4236,12 @@ describe("companion window: pointing at what is shared", () => {
    * frame of the shared surface has gone out there is no such picture, so
    * whatever it is holding is of something else.
    */
-  test("refuses marks before a frame of the share has been served", () => {
+  test("refuses marks before a frame of the share has been served", async () => {
     shareDisplay();
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3379,7 +4252,10 @@ describe("companion window: pointing at what is shared", () => {
   test("refuses marks measured against the surface before a move", async () => {
     await shareAndSee(DISPLAY);
     shareOf(WINDOW);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
     expect(state().coachmarks).toBeUndefined();
   });
 
@@ -3387,8 +4263,10 @@ describe("companion window: pointing at what is shared", () => {
   test("takes marks once a frame of the new surface has been served", async () => {
     await shareAndSee(DISPLAY);
     await shareAndSee(WINDOW);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
+      kind: "placed",
+    });
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** A capture that came back with nothing is never acknowledged. */
@@ -3398,7 +4276,10 @@ describe("companion window: pointing at what is shared", () => {
     capturedFrame = null;
     await capture();
     capturedFrame = held;
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
   });
 
   /**
@@ -3411,9 +4292,14 @@ describe("companion window: pointing at what is shared", () => {
   test("a capture that has not reached the call opens nothing", async () => {
     shareOf(DISPLAY);
     await capture(DISPLAY);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
     acknowledge(DISPLAY);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+    expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
+      kind: "placed",
+    });
   });
 
   /**
@@ -3424,7 +4310,10 @@ describe("companion window: pointing at what is shared", () => {
     await shareAndSee(DISPLAY);
     await capture(WINDOW);
     shareOf(WINDOW);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
   });
 
   /**
@@ -3436,21 +4325,26 @@ describe("companion window: pointing at what is shared", () => {
     await shareAndSee(DISPLAY);
     shareOf(WINDOW);
     shareOf(DISPLAY);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBe("stale-surface");
+    expect(await showCompanionCoachmarks([MARK], CALL)).toEqual({
+      kind: "refused",
+      refusal: "stale-surface",
+    });
     acknowledge(DISPLAY);
-    expect(showCompanionCoachmarks([MARK], CALL)).toBeNull();
+    expect(await showCompanionCoachmarks([MARK], CALL)).toMatchObject({
+      kind: "placed",
+    });
   });
 
   test("a share that ends takes the marks with it", async () => {
     await shareAndSee();
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     send("vellum:companion:setContext", context());
     expect(state().coachmarks).toBeUndefined();
   });
 
   test("a watch session starting takes the marks with it", async () => {
     await shareAndSee();
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     send(
       "vellum:companion:setContext",
       context({
@@ -3470,25 +4364,25 @@ describe("companion window: pointing at what is shared", () => {
    */
   test("a share moving to another surface takes the marks with it", async () => {
     await shareAndSee(DISPLAY);
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     shareOf(WINDOW);
     expect(state().coachmarks).toBeUndefined();
   });
 
   test("marks placed on the surface it moved to stand", async () => {
     await shareAndSee(DISPLAY);
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     await shareAndSee(WINDOW);
-    showCompanionCoachmarks([MARK], CALL);
-    expect(state().coachmarks).toEqual([MARK]);
+    await showCompanionCoachmarks([MARK], CALL);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /** A context republished unchanged is not a surface that moved. */
   test("holds the marks while the share stays where it is", async () => {
     await shareAndSee();
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     shareDisplay();
-    expect(state().coachmarks).toEqual([MARK]);
+    expect(state().coachmarks).toEqual([{ kind: "region", ...MARK }]);
   });
 
   /**
@@ -3501,7 +4395,7 @@ describe("companion window: pointing at what is shared", () => {
     await shareAndSee();
     send("vellum:companion:setAnnotating", true);
     expect(state().annotating).toBe(true);
-    showCompanionCoachmarks([MARK], CALL);
+    await showCompanionCoachmarks([MARK], CALL);
     expect(state().annotating).toBe(false);
     expect(glow?.clickThrough).toBe(true);
   });
@@ -3510,7 +4404,7 @@ describe("companion window: pointing at what is shared", () => {
   test("leaves the drawing mode alone when marks come down", async () => {
     await shareAndSee();
     send("vellum:companion:setAnnotating", true);
-    showCompanionCoachmarks([], CALL);
+    await showCompanionCoachmarks([], CALL);
     expect(state().annotating).toBe(true);
   });
 
@@ -3518,7 +4412,10 @@ describe("companion window: pointing at what is shared", () => {
   test("leaves the drawing mode alone when marks are refused", async () => {
     await shareAndSee();
     send("vellum:companion:setAnnotating", true);
-    expect(showCompanionCoachmarks([MARK], OTHER)).toBe("not-this-call");
+    expect(await showCompanionCoachmarks([MARK], OTHER)).toEqual({
+      kind: "refused",
+      refusal: "not-this-call",
+    });
     expect(state().annotating).toBe(true);
   });
 
@@ -3528,16 +4425,33 @@ describe("companion window: pointing at what is shared", () => {
    * handler, and the two are indistinguishable from here.
    */
   test("the wire refuses a mark measured against another surface", () => {
-    expect(companionCoachmarkSchema.safeParse({ ...MARK, x: 1.5 }).success).toBe(
-      false,
-    );
-    expect(companionCoachmarkSchema.safeParse(MARK).success).toBe(true);
+    expect(
+      companionCoachmarkSchema.safeParse({ ...DRAWN_MARK, x: 1.5 }).success,
+    ).toBe(false);
+    expect(companionCoachmarkSchema.safeParse(DRAWN_MARK).success).toBe(true);
+    expect(
+      companionCoachmarkSchema.safeParse({ kind: "point", x: 0.5, y: 1.5 })
+        .success,
+    ).toBe(false);
+    expect(
+      companionCoachmarkSchema.safeParse({ kind: "point", x: 0.5, y: 0.5 })
+        .success,
+    ).toBe(true);
+  });
+
+  /**
+   * What `x` and `y` mean is decided by the kind, so a mark that names no kind
+   * is a mark a reader would have to guess about. A place and a corner half a
+   * mark apart is exactly the guess JARVIS-1759 was.
+   */
+  test("the wire refuses a mark that does not say what it is", () => {
+    expect(companionCoachmarkSchema.safeParse(MARK).success).toBe(false);
   });
 
   test("the wire refuses a caption longer than a caption", () => {
     expect(
       companionCoachmarkSchema.safeParse({
-        ...MARK,
+        ...DRAWN_MARK,
         caption: "a".repeat(400),
       }).success,
     ).toBe(false);
@@ -3552,7 +4466,7 @@ describe("companion window: pointing at what is shared", () => {
   test("the wire refuses more marks than there are places to look", () => {
     const many = Array.from(
       { length: COMPANION_COACHMARK_MAX + 1 },
-      () => MARK,
+      () => DRAWN_MARK,
     );
     expect(many.length).toBeGreaterThan(COMPANION_COACHMARK_MAX);
     expect(

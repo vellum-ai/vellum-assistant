@@ -29,9 +29,6 @@ setConfig("mcp", {
         type: "streamable-http",
         url: "https://example.com/mcp",
       },
-      enabled: true,
-      defaultRiskLevel: "high",
-      maxTools: 20,
     },
   },
 });

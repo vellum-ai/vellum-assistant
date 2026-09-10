@@ -51,3 +51,29 @@ export function joinWithSpacing(parts: string[]): string {
   }
   return result;
 }
+
+/**
+ * Separator between two messages one model response delivered.
+ *
+ * A paragraph break, not a space: the model sends several `send_user_message`
+ * calls because it means several messages, and the live stream renders them
+ * apart until reconciliation replaces them with the joined text. Joining with
+ * a space made the row collapse onto one line the moment the turn completed.
+ */
+export const DELIVERED_MESSAGE_SEPARATOR = "\n\n";
+
+/**
+ * Join the messages one response delivered, one paragraph each.
+ *
+ * Both the live emission in the agent loop and the persisted projection call
+ * this, so the streamed text and the text a reload renders are byte-identical
+ * and the web's local/server comparison still matches. The result stays ONE
+ * text block, so a channel that reconciles against the delivered segment count
+ * still sees exactly one segment.
+ */
+export function joinDeliveredMessages(parts: readonly string[]): string {
+  return parts
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0)
+    .join(DELIVERED_MESSAGE_SEPARATOR);
+}

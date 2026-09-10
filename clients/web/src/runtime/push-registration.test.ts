@@ -13,6 +13,23 @@ let platform = "ios";
 let androidPushRegistrationAvailable = true;
 const androidRegisterMock = mock(async () => {});
 const androidUnregisterMock = mock(async () => {});
+let androidCapabilities: unknown = {
+  capabilities: ["native-notification-render"],
+};
+const androidGetCapabilitiesMock = mock(async () => androidCapabilities);
+let androidSetForegroundHandlerError: Error | null = null;
+const foregroundHandlerStates: boolean[] = [];
+/** Whether the web layer held a handler at the moment the shell was told. */
+const handlerHeldWhenTold: boolean[] = [];
+const androidSetForegroundHandlerMock = mock(
+  async ({ active }: { active: boolean }) => {
+    handlerHeldWhenTold.push(hasForegroundPushHandlerForTests());
+    if (androidSetForegroundHandlerError) {
+      throw androidSetForegroundHandlerError;
+    }
+    foregroundHandlerStates.push(active);
+  },
+);
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => isNative,
@@ -31,6 +48,8 @@ mock.module("@capacitor/core", () => ({
     return {
       register: androidRegisterMock,
       unregister: androidUnregisterMock,
+      getCapabilities: androidGetCapabilitiesMock,
+      setForegroundHandler: androidSetForegroundHandlerMock,
     };
   },
 }));
@@ -129,6 +148,7 @@ interface UpsertArg {
     platform: string;
     bundle_id: string;
     apns_environment?: string;
+    capabilities?: string[];
   };
   throwOnError: boolean;
 }
@@ -184,6 +204,7 @@ const {
   registerForRemotePush,
   setForegroundPushHandler,
   unregisterFromRemotePush,
+  __hasForegroundPushHandlerForTests: hasForegroundPushHandlerForTests,
   __resetPushRegistrationStateForTests,
 } = await import("@/runtime/push-registration");
 
@@ -235,6 +256,12 @@ beforeEach(() => {
   unregisterMock.mockClear();
   androidRegisterMock.mockClear();
   androidUnregisterMock.mockClear();
+  androidCapabilities = { capabilities: ["native-notification-render"] };
+  androidGetCapabilitiesMock.mockClear();
+  androidSetForegroundHandlerMock.mockClear();
+  androidSetForegroundHandlerError = null;
+  foregroundHandlerStates.length = 0;
+  handlerHeldWhenTold.length = 0;
   ensureAndroidAlertsChannelMock.mockClear();
   callOrder.length = 0;
   getInfoMock.mockClear();
@@ -292,6 +319,7 @@ describe("registerForRemotePush", () => {
       },
       throwOnError: false,
     });
+    expect(androidGetCapabilitiesMock).not.toHaveBeenCalled();
   });
 
   test("creates the Android channel before registering and omits APNs fields", async () => {
@@ -312,10 +340,36 @@ describe("registerForRemotePush", () => {
       token: "fcm-token-abc",
       platform: "android",
       bundle_id: "ai.vellum.assistant.dev",
+      capabilities: ["native-notification-render"],
     });
     expect(resolveSignedApnsEnvironmentMock).not.toHaveBeenCalled();
     receivedHandler?.({ id: "message-1", data: { delivery_id: "delivery-1" } });
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  test("advertises no capabilities when the shell's plugin lacks the method", async () => {
+    platform = "android";
+    androidGetCapabilitiesMock.mockImplementationOnce(async () => {
+      throw new Error("not implemented");
+    });
+
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
+    registrationHandler?.({ value: "fcm-token-abc" });
+    await flushMicrotasks();
+
+    expect(lastUpsertArg?.body.capabilities).toEqual([]);
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("advertises no capabilities when the plugin answers with a non-array", async () => {
+    platform = "android";
+    androidCapabilities = {};
+
+    await registerForRemotePush("11111111-1111-4111-8111-111111111111");
+    registrationHandler?.({ value: "fcm-token-abc" });
+    await flushMicrotasks();
+
+    expect(lastUpsertArg?.body.capabilities).toEqual([]);
   });
 
   test("installs listeners but skips registration on Android shells without the guarded plugin", async () => {
@@ -689,5 +743,68 @@ describe("unregisterFromRemotePush", () => {
   test("no-ops when no token was registered", async () => {
     await unregisterFromRemotePush();
     expect(deleteMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setForegroundPushHandler", () => {
+  test("tells the Android shell when a handler is live and when it is gone", async () => {
+    platform = "android";
+
+    setForegroundPushHandler(() => {});
+    setForegroundPushHandler(null);
+    await flushMicrotasks(2);
+
+    expect(foregroundHandlerStates).toEqual([true, false]);
+  });
+
+  /**
+   * A push landing between the two states has to reach a renderer. The handler
+   * goes in before the shell hears one is live, and the shell hears one is gone
+   * before it comes out, so the only overlap is the shell rendering natively
+   * while the web still holds an idle handler.
+   */
+  test("installs the handler before the shell hears of it, and drops it after", async () => {
+    platform = "android";
+
+    setForegroundPushHandler(() => {});
+    setForegroundPushHandler(null);
+    await flushMicrotasks(2);
+
+    expect(handlerHeldWhenTold).toEqual([true, true]);
+    expect(hasForegroundPushHandlerForTests()).toBe(false);
+  });
+
+  test("says nothing on iOS, which has no native renderer to hand back to", async () => {
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(2);
+
+    expect(androidSetForegroundHandlerMock).not.toHaveBeenCalled();
+    expect(hasForegroundPushHandlerForTests()).toBe(true);
+  });
+
+  test("says nothing to an Android shell without the guarded plugin", async () => {
+    platform = "android";
+    androidPushRegistrationAvailable = false;
+
+    setForegroundPushHandler(() => {});
+    await flushMicrotasks(2);
+
+    expect(androidSetForegroundHandlerMock).not.toHaveBeenCalled();
+    expect(hasForegroundPushHandlerForTests()).toBe(true);
+  });
+
+  test("reports a rejection once and keeps the handler the shell cannot hear about", async () => {
+    platform = "android";
+    androidSetForegroundHandlerError = new Error("not implemented");
+
+    setForegroundPushHandler(() => {});
+    setForegroundPushHandler(null);
+    await flushMicrotasks(2);
+
+    expect(androidSetForegroundHandlerMock).toHaveBeenCalledTimes(2);
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    // A shell still believing the web renders must not be paired with a web
+    // layer that no longer does.
+    expect(hasForegroundPushHandlerForTests()).toBe(true);
   });
 });

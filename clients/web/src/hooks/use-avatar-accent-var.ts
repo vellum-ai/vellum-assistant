@@ -1,6 +1,10 @@
 import { useEffect } from "react";
 
-import { contrastForeground, legibleAccentFill } from "@/utils/avatar-tone";
+import {
+  contrastForeground,
+  legibleAccentFill,
+  toneForBg,
+} from "@/utils/avatar-tone";
 
 /**
  * The CSS custom property carrying the active assistant's avatar accent hex
@@ -36,7 +40,17 @@ export const AVATAR_ACCENT_INK_CSS_VAR = "--avatar-accent-ink";
 export const AVATAR_ACCENT_FILL_CSS_VAR = "--avatar-accent-fill";
 
 /**
- * The accent trio as an inline style, for the element that PUBLISHES an
+ * The ink for a GLYPH on the accent fill, as opposed to running text: white
+ * on every accent but the light one (yellow), where it is black. A glyph or
+ * a control's icon needs no small-text contrast floor, and the product's
+ * avatar surfaces already follow this rule (`toneForBg`), so a filled control
+ * reads its icon ink from here and its text ink from
+ * {@link AVATAR_ACCENT_INK_CSS_VAR}. Published and cleared with the others.
+ */
+export const AVATAR_ACCENT_GLYPH_CSS_VAR = "--avatar-accent-glyph";
+
+/**
+ * The accent set as an inline style, for the element that PUBLISHES an
  * accent. Empty for an assistant with no accent, since nothing above the
  * document root can be inherited and every consumer wants its own fallback.
  *
@@ -58,6 +72,7 @@ export function avatarAccentVars(
     [AVATAR_ACCENT_CSS_VAR]: accentHex,
     [AVATAR_ACCENT_FILL_CSS_VAR]: fill,
     [AVATAR_ACCENT_INK_CSS_VAR]: contrastForeground(fill),
+    [AVATAR_ACCENT_GLYPH_CSS_VAR]: toneForBg(fill).fg,
   };
 }
 
@@ -66,6 +81,7 @@ const ACCENT_VAR_NAMES = [
   AVATAR_ACCENT_CSS_VAR,
   AVATAR_ACCENT_FILL_CSS_VAR,
   AVATAR_ACCENT_INK_CSS_VAR,
+  AVATAR_ACCENT_GLYPH_CSS_VAR,
 ] as const;
 
 /**

@@ -168,6 +168,12 @@
     "captureWindows": "窗口",
     "deny": "拒绝",
     "draw": "绘制",
+    "clearMarks": "清除标记",
+    "drawTools": "绘图工具",
+    "drawFreehand": "自由绘制",
+    "drawLine": "直线",
+    "drawBox": "方框",
+    "drawCircle": "圆形",
     "endSession": "结束会话",
     "muteAssistant": "静音助手",
     "muteMicrophone": "静音麦克风",
@@ -192,12 +198,23 @@
     "dictating": "正在聆听",
     "dictatingTranscribing": "正在思考"
   },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的屏幕",
+    "sharingScreenNamed": "正在与 {name} 分享你的屏幕",
+    "sharingWindow": "正在分享一个窗口",
+    "sharingWindowNamed": "正在与 {name} 分享一个窗口",
+    "teaching": "正在教学",
+    "teachingNamed": "正在教 {name}"
+  },
   "contentActionBar": {
     "copiedAria": "已复制",
     "copyFailed": "无法复制文件内容。",
     "copyFileContentsAria": "复制文件内容",
     "downloadFileAria": "下载文件",
     "editFileAria": "编辑文件"
+  },
+  "conversationTitle": {
+    "untitled": "无标题"
   },
   "createAssistantDialog": {
     "cancel": "取消",
@@ -579,6 +596,7 @@
     "reloadApp": "重新加载应用"
   },
   "statusBanner": {
+    "reconnecting": "正在重新连接到你的助手…",
     "dismiss": "忽略",
     "goToDoctor": "前往诊断",
     "resumeAssistant": "恢复助手",
@@ -785,12 +803,9 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 账户已连接。",
-    "authPopupClosed": "{name} 连接失败：授权弹窗已关闭。",
     "authorizationError": "{name} 错误：{code}",
     "authorizationFailed": "{name} 授权失败",
-    "connectionNotFound": "{name} 授权已完成，但未找到已连接的账户。",
     "popupBlocked": "弹窗被阻止。请启用弹窗并重试。",
-    "scopeConflict": "已有另一个使用不同权限的 {name} 连接正在进行中。请先完成或关闭它，然后重试。",
     "startFailed": "启动 {name} 授权失败。",
     "startFailedWithReason": "启动 {name} 授权失败：{reason}"
   },

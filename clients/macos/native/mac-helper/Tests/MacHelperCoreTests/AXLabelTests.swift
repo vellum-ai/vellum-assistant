@@ -104,3 +104,41 @@ struct AXLabelSingleLineTests {
         #expect(AXLabel.singleLine("Play  Pause") == "Play Pause")
     }
 }
+
+@Suite("AXLabel.shortlist")
+struct AXLabelShortlistTests {
+    @Test("the list stops at the limit")
+    func stopsAtLimit() {
+        let labels = (1...100).map { "Control \($0)" }
+        let shortlisted = AXLabel.shortlist(labels, limit: 8, each: 60)
+        #expect(shortlisted.count == 8)
+        #expect(shortlisted.first == "Control 1")
+        #expect(shortlisted.last == "Control 8")
+    }
+
+    @Test("a shorter list is kept whole")
+    func keepsShortList() {
+        #expect(AXLabel.shortlist(["Send", "Cancel"], limit: 8, each: 60) == ["Send", "Cancel"])
+    }
+
+    @Test("every label is capped, not just the list")
+    func capsEachLabel() {
+        // The shape a page gives it: one element carrying a paragraph of
+        // `aria-label`, which is what makes the payload rather than the count.
+        let paragraph = String(repeating: "word ", count: 200)
+        let shortlisted = AXLabel.shortlist([paragraph, "Send"], limit: 8, each: 20)
+        #expect(shortlisted[0].count == 20)
+        #expect(shortlisted[0].hasSuffix("…"))
+        #expect(shortlisted[1] == "Send")
+    }
+
+    @Test("a label spanning lines becomes one")
+    func collapsesLabels() {
+        #expect(AXLabel.shortlist(["Play\nPause"], limit: 8, each: 60) == ["Play Pause"])
+    }
+
+    @Test("an empty list stays empty")
+    func empty() {
+        #expect(AXLabel.shortlist([], limit: 8, each: 60).isEmpty)
+    }
+}

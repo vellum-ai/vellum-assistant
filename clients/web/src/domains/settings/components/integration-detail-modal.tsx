@@ -21,7 +21,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { IntegrationIcon } from "@/components/integrations/integration-icon";
 import { PlatformLoginNotice } from "@/components/platform-login-notice";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
-import { useOAuthConnect } from "@/hooks/use-oauth-connect";
+import { useManagedOAuthConnect } from "@/hooks/use-managed-oauth-connect";
 import type { PlatformGateState } from "@/hooks/use-platform-gate";
 import { useActiveAssistantIsPlatformHosted } from "@/hooks/use-platform-gate";
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -102,13 +102,44 @@ export function IntegrationDetailModal({
     (c) => c.provider === providerKey && c.connected,
   );
 
-  const { handleConnect, oauthInProgress } = useOAuthConnect({
+  const managedConnect = useManagedOAuthConnect({
     assistantId,
     providerKey,
-    displayName,
-    managedAvailable,
-    connectionsQueryKey,
+    providerLabel: displayName,
   });
+  const handleConnect = (requestedScopes?: string[]) => {
+    if (!managedAvailable) {
+      return;
+    }
+    managedConnect.connect(requestedScopes);
+  };
+
+  // The connections list this modal renders is the same query the connect
+  // flow watches, so a new account arrives on its own and only the toast is
+  // reported here.
+  const connectStatus = managedConnect.status;
+  useEffect(() => {
+    if (connectStatus === "connected") {
+      toast.success(
+        t("useOauthConnect.accountConnected", {
+          name: displayName,
+          ns: "common",
+        }),
+      );
+    }
+  }, [connectStatus, displayName, t]);
+
+  // Closing the modal abandons an authorization still in flight, so reopening
+  // this provider offers Connect rather than a wait nothing will end.
+  const dismissConnect = managedConnect.dismiss;
+  useEffect(() => dismissConnect, [dismissConnect]);
+
+  const connectError = managedConnect.errorMessage;
+  useEffect(() => {
+    if (connectError) {
+      toast.error(connectError);
+    }
+  }, [connectError]);
 
   const connectionsOpts = { path: { assistant_id: platformAssistantId } };
 
@@ -242,7 +273,8 @@ export function IntegrationDetailModal({
                 logoUrl={logoUrl}
                 connections={providerConnections}
                 connectionsLoading={connectionsLoading}
-                oauthInProgress={oauthInProgress}
+                oauthInProgress={managedConnect.status === "attempting"}
+                onCancelConnect={managedConnect.dismiss}
                 disconnectingId={
                   disconnectOAuth.isPending ? pendingDisconnectId : null
                 }

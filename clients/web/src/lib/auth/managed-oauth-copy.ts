@@ -1,48 +1,36 @@
 import { t } from "@/i18n";
 
-import type { ManagedOAuthConnectResult } from "@/lib/auth/managed-oauth";
-
-type ManagedOAuthError = Extract<
-  ManagedOAuthConnectResult,
-  { status: "error" }
->;
+import type { ManagedOAuthError } from "@/lib/auth/managed-oauth";
 
 /**
  * The user-facing sentence for a failed managed-OAuth connect.
  *
- * `connectManagedOAuthProvider` serves the chat surface, the settings modal and
- * onboarding, so it reports a typed `reason` and leaves copy to its callers.
- * Its own `message` is diagnostic English and must not reach a user. Every
- * entry point goes through here so the three of them cannot drift apart or
- * quietly regress non-English users to English.
+ * The connect flow reports a typed reason and leaves copy to its callers. The
+ * chat card, the settings modal and onboarding all render through here so the
+ * three of them cannot drift apart or leave a non-English user on English.
  */
 export function managedOAuthErrorMessage(
-  result: ManagedOAuthError,
+  error: ManagedOAuthError,
   providerLabel: string,
 ): string {
-  switch (result.reason) {
+  switch (error.reason) {
     case "popup-blocked":
       return t("useOauthConnect.popupBlocked");
     case "authorization-failed":
-      return result.code
+      return error.code
         ? t("useOauthConnect.authorizationError", {
             name: providerLabel,
-            code: result.code,
+            code: error.code,
           })
         : t("useOauthConnect.authorizationFailed", { name: providerLabel });
-    case "connection-not-found":
-      return t("useOauthConnect.connectionNotFound", { name: providerLabel });
-    case "scope-conflict":
-      return t("useOauthConnect.scopeConflict", { name: providerLabel });
     case "start-failed":
       // The reason ("Sign in to Vellum to register this local assistant") is
       // what makes this actionable, but it is raw error text rather than
-      // catalog copy, so it goes inside a localized frame as data instead of
-      // becoming the sentence itself.
-      return result.detail
+      // catalog copy, so it goes inside a localized frame as data.
+      return error.detail
         ? t("useOauthConnect.startFailedWithReason", {
             name: providerLabel,
-            reason: result.detail,
+            reason: error.detail,
           })
         : t("useOauthConnect.startFailed", { name: providerLabel });
   }

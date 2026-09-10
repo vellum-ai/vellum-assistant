@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { deleteSchedule, getSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -19,7 +20,7 @@ export const scheduleDeleteInputSchema = z.looseObject({
 
 export async function executeScheduleDelete(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const parsedInput = scheduleDeleteInputSchema.safeParse(input);
   if (!parsedInput.success) {
@@ -29,6 +30,7 @@ export async function executeScheduleDelete(
   if (!jobId) {
     return { content: "Error: job_id is required", isError: true };
   }
+  throwIfCancelled(context);
 
   // Fetch the job first for the confirmation message
   const job = getSchedule(jobId);
@@ -38,7 +40,12 @@ export async function executeScheduleDelete(
 
   let deleted: boolean;
   try {
-    deleted = await deleteSchedule(jobId);
+    // The delete retries with backoff on SQLite contention, so a cancel
+    // landing mid-retry must stop rather than sleep and then remove the row.
+    deleted = await deleteSchedule(
+      jobId,
+      context.signal ? { signal: context.signal } : undefined,
+    );
   } catch (err) {
     // The store refuses to delete plugin-sourced rows with a UserError. That
     // refusal is an expected outcome for the model to relay, not a daemon

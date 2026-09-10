@@ -22,8 +22,12 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { selectWinningProfile } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
+import {
+  ABORT_WATCHDOG_MS,
+  resolveTurnCommitWaitMs,
+} from "../daemon/abort-watchdog.js";
 import { CONVERSATION_BUSY_MESSAGE } from "../daemon/conversation-messaging.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
@@ -37,7 +41,9 @@ import { resolveAttachmentsForPersist } from "../persistence/attachments-store.j
 import {
   deleteMessageById,
   getMessageById,
+  type OverrideProfileFields,
   recordConversationPersistedSeq,
+  resolveOverrideProfile,
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND } from "../plugin-api/constants.js";
@@ -55,6 +61,10 @@ import { sensitiveToolReach } from "../tools/tool-approval-handler.js";
 import { createAbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
+import {
+  SPOKEN_REPLY_LENGTH_RULE,
+  SPOKEN_REPLY_PLAIN_TEXT_RULE,
+} from "./spoken-reply-rules.js";
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
@@ -90,6 +100,50 @@ const log = getLogger("voice-session-bridge");
  * turns this pin exists to save, hence the capability check at the call site.
  */
 const VOICE_IMAGE_PROFILE = "latency-optimized";
+
+/**
+ * The profile the conversation's own text turns run on, resolved the way a
+ * `mainAgent` turn resolves it: the conversation's pinned profile when it
+ * carries one, else the workspace chat-model selection (`llm.activeProfile`),
+ * else the main agent's call-site pin.
+ *
+ * The escalated voice leg runs through `callAgent`, whose chain never
+ * consults `llm.activeProfile`, so without this the hand-off lands on that
+ * site's shipped `balanced` default while the same conversation's typed
+ * turns run on whatever the user picked. Pinning the text-turn winner keeps
+ * the stronger model the front door escalates to the one the conversation is
+ * already using.
+ *
+ * `profile` is the name to pin (a mix's own name, so dispatch re-expands it
+ * to the same arm from the conversation seed); `modelProfile` is the concrete
+ * profile whose model actually runs (the chosen arm of a mix), which is what
+ * capability checks must judge: a mix reads as vision-capable when any arm
+ * is, but only one arm serves this conversation.
+ *
+ * Null when nothing above named a profile (the winner is the code-owned
+ * anchor): the leg then keeps its ordinary call-site resolution, which lands
+ * on the same anchor intent and still honors a `callAgent` site pin.
+ */
+function conversationProfileForEscalation(
+  conversation: OverrideProfileFields & { conversationId: string },
+): { profile: string; modelProfile: string } | null {
+  const overrideProfile = resolveOverrideProfile(conversation);
+  let chosenArm: string | undefined;
+  const selection = selectWinningProfile("mainAgent", getConfig().llm, {
+    ...(overrideProfile != null ? { overrideProfile } : {}),
+    selectionSeed: conversation.conversationId,
+    onMixSelected: ({ chosenProfile }) => {
+      chosenArm = chosenProfile;
+    },
+  });
+  if (selection.source === "default" || selection.profileName == null) {
+    return null;
+  }
+  return {
+    profile: selection.profileName,
+    modelProfile: chosenArm ?? selection.profileName,
+  };
+}
 
 /**
  * Does this conversation's history carry an image?
@@ -151,7 +205,6 @@ export const TURN_ABORTED_WAITING_MESSAGE =
  */
 export { CONVERSATION_BUSY_MESSAGE };
 
-const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
  * How long startVoiceTurn waits for a prior turn to release the processing
  * lock before giving up. The prior turn can hold the lock for the abort
@@ -160,10 +213,10 @@ const PROCESSING_WAIT_MARGIN_MS = 1000;
  * CONVERSATION_BUSY_MESSAGE.
  */
 export function resolveProcessingWaitMs(
-  turnCommitMaxWaitMs: number,
+  turnCommitMaxWaitMs: number | undefined,
   abortUnwindMs: number,
 ): number {
-  return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
+  return resolveTurnCommitWaitMs(turnCommitMaxWaitMs) + abortUnwindMs;
 }
 
 /**
@@ -422,10 +475,10 @@ export interface VoiceTurnOptions {
   signal?: AbortSignal;
   /**
    * Ad-hoc inference-profile override applied to every LLM call this turn
-   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Used by
-   * triage-and-escalate voice routing to run the front-door leg on the fast
-   * profile and the escalated leg on the quality profile. Undefined = the
-   * call-site default (today's behavior).
+   * issues (forwarded to `runAgentLoop` with `forceOverrideProfile`). Wins
+   * over the bridge's own pins (the image pin, and the conversation's
+   * profile for an escalated leg). Undefined = those pins, else the
+   * call-site default.
    */
   overrideProfile?: string;
   /**
@@ -583,7 +636,7 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "CALL PROTOCOL RULES:",
     disclosureRule,
-    "1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.",
+    `1. ${SPOKEN_REPLY_LENGTH_RULE}`,
     ...(opts.isCallerGuardian
       ? [
           "2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.",
@@ -612,22 +665,18 @@ function buildVoiceCallControlPrompt(opts: {
     );
   }
 
-  lines.push(
-    '6. When caller text includes [SPEAKER id="..." label="..."], treat each speaker as a distinct person and personalize responses using that speaker\'s prior context in this call.',
-  );
-
   if (opts.isInbound) {
     if (opts.isCallerGuardian) {
       lines.push(
-        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
+        '6. If the latest user turn is "(call connected — deliver opening greeting)", this is your user calling you. Answer casually and briefly, like picking up a call from someone you know well. For example: "Hey!" or "What\'s up?" Do NOT introduce yourself, do NOT say you are calling on behalf of anyone, and do NOT ask how you can help in a formal way. Keep it short and natural.',
       );
     } else {
       lines.push(
-        '7. If the latest user turn is "(call connected — deliver opening greeting)", this is an inbound call you are answering (not a call you initiated). Greet the caller warmly and ask how you can help. Introduce yourself once at the start using your assistant name if you know it (for example: "Hey there, this is Ava, Sam\'s assistant. How can I help?"). If your assistant name is not known, skip the name and just identify yourself as the guardian\'s assistant. Never use a UUID-shaped internal assistant ID as your spoken name. Do NOT say "I\'m calling" or "I\'m calling on behalf of". Vary the wording; do not use a fixed template.',
+        '6. If the latest user turn is "(call connected — deliver opening greeting)", this is an inbound call you are answering (not a call you initiated). Greet the caller warmly and ask how you can help. Introduce yourself once at the start using your assistant name if you know it (for example: "Hey there, this is Ava, Sam\'s assistant. How can I help?"). If your assistant name is not known, skip the name and just identify yourself as the guardian\'s assistant. Never use a UUID-shaped internal assistant ID as your spoken name. Do NOT say "I\'m calling" or "I\'m calling on behalf of". Vary the wording; do not use a fixed template.',
       );
     }
     lines.push(
-      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.",
+      "7. If the latest user turn includes [CALL_OPENING_ACK], treat it as the caller acknowledging your greeting and continue the conversation naturally.",
     );
   } else {
     const disclosureReminder =
@@ -635,27 +684,27 @@ function buildVoiceCallControlPrompt(opts: {
         ? " However, the disclosure text from rule 0 is separate from self-introduction and must always be included in your opening greeting, even if the Task does not mention introducing yourself."
         : "";
     lines.push(
-      '7. If the latest user turn is "(verification completed — transitioning into conversation)", the caller just completed a phone verification code challenge on this call. Greet them naturally and ask if there is anything you can help with. Keep it casual and brief.',
-      `If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call — follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
-      "8. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
+      '6. If the latest user turn is "(verification completed — transitioning into conversation)", the caller just completed a phone verification code challenge on this call. Greet them naturally and ask if there is anything you can help with. Keep it casual and brief.',
+      `If the latest user turn is "(call connected — deliver opening greeting)", deliver your opening greeting based solely on the Task context above. The Task already describes how to open the call, so follow it directly without adding any extra introduction on top. If the Task says to introduce yourself, do so once. If the Task does not mention introducing yourself, skip the introduction.${disclosureReminder} Vary the wording naturally; do not use a fixed template.`,
+      "7. If the latest user turn includes [CALL_OPENING_ACK], treat it as the callee acknowledging your opener and continue the conversation naturally without re-introducing yourself or repeating the initial check-in question.",
     );
   }
 
   lines.push(
-    "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
-    '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
-    `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
-    `12. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
-    `13. ${PHONE_NO_SETUP_FLOWS_RULE}`,
+    "8. After the opening greeting turn, treat the Task field as background context only. Do not re-execute its instructions on subsequent turns.",
+    '9. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
+    `10. ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
+    `11. Speak the caller's language: reply in the language of the caller's most recent actual speech, and follow them if they switch languages mid-call. Synthetic user turns (parenthetical markers like the call-connected and verification-completed notices) are not caller speech and never set the language. Before the caller has spoken, such as on the opening greeting turn, ${preSpeechLanguageRuleFragment(config.services.stt.language, sttCatalogKeyForRole(config.services.stt, "telephony"))}.`,
+    `12. ${PHONE_NO_SETUP_FLOWS_RULE}`,
   );
 
   // Triage-and-escalate routing rules. The front-door leg decides and may
   // hand off; the escalated leg continues the answer after a holding phrase
   // was already spoken.
   if (opts.routingLeg === "front-door") {
-    lines.push(`14. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
+    lines.push(`13. ${frontDoorRuleWithDigest(opts.unifiedVerdict === true)}`);
   } else if (opts.routingLeg === "escalated") {
-    lines.push(`14. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
+    lines.push(`13. ${escalatedContinuationRule(opts.spokenEscalationBridge)}`);
   }
 
   lines.push("</voice_call_control>");
@@ -938,7 +987,7 @@ export async function startVoiceTurn(
 
   const config = getConfig();
   const maxWaitMs = resolveProcessingWaitMs(
-    config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    config.workspaceGit?.turnCommitMaxWaitMs,
     ABORT_WATCHDOG_MS,
   );
   const waitStartedAt = Date.now();
@@ -1902,23 +1951,47 @@ export async function startVoiceTurn(
         conversation.toolsDisabledDepth++;
         frontDoorToolsSuppressed = true;
       }
+      // An escalated leg follows the conversation's own model: the front
+      // door hands off to the profile the caller's typed turns already run
+      // on, not to `callAgent`'s shipped default. Null keeps the ordinary
+      // call-site resolution.
+      const conversationProfile =
+        opts.routingLeg === "escalated"
+          ? conversationProfileForEscalation(conversation)
+          : null;
       // Resolved once here rather than inside the options literal below, so
       // the history scan happens once per leg. A front-door leg is skipped:
-      // its own call site already resolves to the same profile. The
-      // capability check comes before the scan because it is the cheaper of
-      // the two and it decides whether the pin is worth anything at all.
-      const carriesImage =
+      // its own call site already resolves to the same profile. A
+      // conversation profile whose model takes images needs no image pin
+      // either; one that does not yields to the image pin, since a model
+      // that rejects an image fails the whole leg. The judged profile is the
+      // concrete arm that serves this conversation, not a mix's name. The
+      // capability checks come before the scan because they are the cheaper
+      // of the two and they decide whether the pin is worth anything at all.
+      const needsImagePin =
         opts.routingLeg !== "front-door" &&
+        !(
+          conversationProfile != null &&
+          doesSupportVision(conversationProfile.modelProfile)
+        ) &&
         doesSupportVision(VOICE_IMAGE_PROFILE) &&
         conversationCarriesImage(conversation.getMessages());
-      if (carriesImage) {
+      if (needsImagePin) {
         log.info(
           { turnId, routingLeg: opts.routingLeg ?? null },
           "Voice leg carries an image; pinning the image-capable profile",
         );
+      } else if (conversationProfile != null) {
+        log.info(
+          { turnId, profile: conversationProfile.profile },
+          "Escalated voice leg pinned to the conversation's own profile",
+        );
       }
       const profilePin =
-        opts.overrideProfile ?? (carriesImage ? VOICE_IMAGE_PROFILE : null);
+        opts.overrideProfile ??
+        (needsImagePin
+          ? VOICE_IMAGE_PROFILE
+          : (conversationProfile?.profile ?? null));
       await conversation.runAgentLoop(persistedContent, messageId, {
         onEvent: (msg: AssistantEvent) => {
           if (msg.type === "assistant_turn_start") {
@@ -1995,15 +2068,17 @@ export async function startVoiceTurn(
         ...(isEscalationContinuation
           ? { messageKind: VOICE_ESCALATION_CONTINUATION_MESSAGE_KIND }
           : {}),
-        // Triage-and-escalate routing pins this turn to the fast front-door or
-        // strong escalation profile. `forceOverrideProfile` floats it above the
-        // callAgent call-site layers (callAgent is not `mainAgent`, so the
-        // override would otherwise sit below the call-site profile).
+        // Triage-and-escalate routing pins this turn to the fast front-door
+        // profile or to the conversation's own profile for the escalated
+        // leg. `forceOverrideProfile` floats it above the callAgent call-site
+        // layers (callAgent is not `mainAgent`, so the override would
+        // otherwise sit below the call-site profile).
         //
         // An explicit routing pin wins; failing that, a leg whose history
-        // carries an image is pinned to a profile whose model takes one. A
-        // front-door leg needs neither: its own call site already resolves
-        // there.
+        // carries an image is pinned to a profile whose model takes one;
+        // failing that, an escalated leg is pinned to the conversation's
+        // profile. A front-door leg needs none of these: its own call site
+        // already resolves there.
         ...(profilePin != null
           ? { overrideProfile: profilePin, forceOverrideProfile: true }
           : {}),

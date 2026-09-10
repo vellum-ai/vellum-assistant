@@ -51,6 +51,7 @@ import {
   type CredentialRouteDeps,
 } from "./http/credential-routes.js";
 import { handleLogExportRoute } from "./http/log-export-routes.js";
+import { isLoopbackAddress } from "./http/loopback-address.js";
 import { handleMetadataRoute } from "./http/metadata-routes.js";
 import { CES_MIGRATIONS } from "./migrations/registry.js";
 import { runCesMigrations } from "./migrations/runner.js";
@@ -246,9 +247,12 @@ function startHealthServer(
   signal: AbortSignal,
   credentialDeps: CredentialRouteDeps | null,
 ): ReturnType<typeof Bun.serve> {
+  // Listen on every interface so kubelet httpGet probes can hit the pod IP.
+  // Credential CRUD, metadata, and log export stay loopback-only: assistant
+  // and gateway in this pod call http://localhost:<CES_HEALTH_PORT>.
   const server = Bun.serve({
     port,
-    async fetch(req) {
+    async fetch(req, httpServer) {
       const url = new URL(req.url);
       if (url.pathname === "/healthz") {
         return new Response(JSON.stringify({ status: "ok" }), {
@@ -256,7 +260,7 @@ function startHealthServer(
         });
       }
       if (url.pathname === "/readyz") {
-        // Always return 200 — pod readiness must not depend on whether the
+        // Always return 200: pod readiness must not depend on whether the
         // assistant has connected.  When the CES feature flag is off the
         // assistant never connects, and a 503 here would block pod
         // scheduling during dark-launch.  The sidecar can't do useful work
@@ -273,6 +277,11 @@ function startHealthServer(
             headers: { "Content-Type": "application/json" },
           },
         );
+      }
+
+      const peer = httpServer.requestIP(req)?.address;
+      if (!peer || !isLoopbackAddress(peer)) {
+        return new Response("Not Found", { status: 404 });
       }
 
       // Credential CRUD routes (only if service token is configured)

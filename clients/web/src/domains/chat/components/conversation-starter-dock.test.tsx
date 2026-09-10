@@ -12,7 +12,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
 
-import { ConversationStarterChip } from "@/domains/chat/components/conversation-starter-chip";
+import { ConversationStarterChip } from "@/components/conversation-starter-chip";
 import { ConversationStarterDock } from "@/domains/chat/components/conversation-starter-dock";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 

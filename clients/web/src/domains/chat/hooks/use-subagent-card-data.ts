@@ -56,6 +56,7 @@ import {
   type ToolCallCardStep,
 } from "@/domains/chat/utils/tool-call-card-utils";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
+import { readToolInputString } from "@/domains/chat/utils/tool-input";
 
 export type { ToolCallCardData, ToolCallCardStep };
 
@@ -106,8 +107,7 @@ function trimTextPreview(input: string): string {
  * mirroring the main-chat placeholder.
  */
 function webFetchReadingText(event: SubagentTimelineEvent): string {
-  const fromInput =
-    event.input && typeof event.input.url === "string" ? event.input.url : "";
+  const fromInput = readToolInputString(event.input ?? {}, "url");
   const raw = (fromInput || event.content || "").trim();
   const domain = raw ? extractDomain(raw) : "";
   return domain ? `Reading ${domain}` : "Reading…";
@@ -407,9 +407,9 @@ export function applyTimelineEvent(
         // stay distinct in the timeline; it survives the `...target` spread on
         // completion.
         const query =
-          event.input && typeof event.input.query === "string"
-            ? event.input.query
-            : event.content || undefined;
+          readToolInputString(event.input ?? {}, "query") ||
+          event.content ||
+          undefined;
         steps.push({
           kind: "web_search",
           query,
@@ -871,9 +871,9 @@ export function applyDetailEvent(
     // timeline projection builds, keyed by the same `toolUseId`.
     if (toolName === "web_search") {
       const query =
-        event.input && typeof event.input.query === "string"
-          ? event.input.query
-          : event.content || undefined;
+        readToolInputString(event.input ?? {}, "query") ||
+        event.content ||
+        undefined;
       payloads.push({
         toolCallId,
         toolName,

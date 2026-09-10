@@ -21,6 +21,7 @@ import {
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
+import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
@@ -396,6 +397,61 @@ describe("finalizeMessageComplete", () => {
     expect(text(result[1]!)).toBe("hello world");
   });
 
+  it("stamps the assistant-text visibility marker onto the live row", () => {
+    // The live row carries the same marker its persisted twin does, so the
+    // transcript renders it the same way with no refetch in between.
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+      assistantTextVisibility: "private",
+    } as MessageCompleteEvent);
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+
+  it("leaves the row unmarked when the event carries no marker", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("Here you go.") });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+
+    expect(result[1]!.assistantTextVisibility).toBeUndefined();
+  });
+
+  it("keeps a tool-gated reply, whose only text came from send_user_message", () => {
+    // The daemon streams the tool's `message` as an ordinary text delta just
+    // before `message_complete`, so the row reaching here looks like any other
+    // reply. It must not be read as deliberate silence.
+    const msg = makeAssistantMsg({
+      id: "tool-gated",
+      ...seg("Here you go."),
+      toolCalls: [
+        {
+          id: "tc-send",
+          name: "send_user_message",
+          input: { message: "Here you go." },
+          completedAt: 1,
+        },
+      ],
+    });
+
+    const result = finalizeMessageComplete([userMsg, msg], {
+      type: "message_complete",
+      conversationId: "c-1",
+      messageId: "row-A",
+    });
+
+    expect(result).toHaveLength(2);
+    expect(text(result[1]!)).toBe("Here you go.");
+    expect(result[1]!.isNoResponse).toBeUndefined();
+  });
+
   it("finalizes running tool calls when finalizing", () => {
     const toolCall: ChatMessageToolCall = {
       id: "t-1",
@@ -510,6 +566,62 @@ describe("handleConversationError", () => {
     const prev = [userMsg];
     const result = handleConversationError(prev);
     expect(result).toBe(prev);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// upsertToolCall: the assistant-text visibility a send_user_message implies
+// ---------------------------------------------------------------------------
+
+describe("upsertToolCall and the visibility marker", () => {
+  const sendCall = (id: string): ChatMessageToolCall => ({
+    id,
+    name: "send_user_message",
+    input: { message: "Here you go." },
+  });
+
+  it("marks the row private the moment the reply tool is announced", () => {
+    // The daemon announces the call while its input is still streaming, so the
+    // row knows it is private before its first reply delta and long before
+    // `message_complete` carries the authoritative marker.
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("") });
+
+    const result = upsertToolCall([userMsg, msg], sendCall("tc-send"));
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
+  });
+
+  it("leaves the row unmarked for an ordinary tool call", () => {
+    const msg = makeAssistantMsg({ id: "live-row", ...seg("") });
+
+    const result = upsertToolCall([userMsg, msg], {
+      id: "tc-fetch",
+      name: "web_fetch",
+      input: {},
+    });
+
+    expect(result[1]!.assistantTextVisibility).toBeUndefined();
+  });
+
+  it("does not overwrite a marker message_complete already set", () => {
+    // `message_complete` is authoritative in both directions: a row it marks
+    // visible carries its own text as the reply and keeps the standard
+    // rendering, whatever tool calls follow.
+    const msg = makeAssistantMsg({
+      id: "fallback-row",
+      ...seg("Here you go."),
+      assistantTextVisibility: "visible",
+    });
+
+    const result = upsertToolCall([userMsg, msg], sendCall("tc-send"));
+
+    expect(result[1]!.assistantTextVisibility).toBe("visible");
+  });
+
+  it("marks a bubble it opens for the reply tool", () => {
+    const result = upsertToolCall([userMsg], sendCall("tc-send"), "row-A");
+
+    expect(result[1]!.assistantTextVisibility).toBe("private");
   });
 });
 

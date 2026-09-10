@@ -1,3 +1,7 @@
+import {
+  reactionEmojiIdentity,
+  type ReactionEmojiFields,
+} from "@vellumai/service-contracts/reactions";
 import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifacts";
 import {
   isAcpSpawnCall,
@@ -10,7 +14,6 @@ import {
   type SubagentEntry,
 } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { useEmojiLookup } from "@/domains/chat/components/chat-composer/emoji-catalog";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type {
   AllowlistOption,
@@ -566,36 +569,31 @@ export function SlackMessageAttribution({
  * character (or `:shortcode:` fallback) plus the actor name and verb.
  */
 /**
- * Display form of a reaction emoji, shared by every reaction line. A unicode
- * emoji renders as itself; a shortcode resolves through the catalog with the
- * ":shortcode:" fallback while it lazy-loads. A custom-emoji mention form
- * (Discord's `<:name:id>`) renders as its bare ":name:" and never consults
- * the catalog: custom names are arbitrary guild identities, and a name that
- * collides with a catalog shortcode must not swap into the unrelated
- * standard emoji.
+ * Display form of a reaction emoji, shared by every reaction line. The
+ * channel's adapter says what the emoji is: a `unicode` reaction renders its
+ * character, and a `custom` or `shortcode` one renders its bare ":name:",
+ * since its image belongs to the channel and a name must never swap into an
+ * unrelated standard emoji. A row carrying only a spelling has its kind
+ * recovered by the contract's grammar and renders the same way; a bare name
+ * is never resolved here.
  */
 export function displayReactionEmoji(
-  raw: string,
-  lookup: (shortcode: string) => string | undefined,
+  reaction: { emoji: string } & ReactionEmojiFields,
 ): string {
-  const customMention = /^<a?:([^:>]+):\d+>$/.exec(raw);
-  if (customMention) {
-    return `:${customMention[1]!}:`;
-  }
-  if (/^[\w+'-]+$/.test(raw)) {
-    return lookup(raw) ?? `:${raw}:`;
-  }
-  return raw;
+  const { emojiKind, emojiName } = reactionEmojiIdentity(reaction);
+  return emojiKind === "unicode" ? emojiName : `:${emojiName}:`;
 }
 
 export function SlackReactionLine({ message }: { message: DisplayMessage }) {
-  const lookupEmoji = useEmojiLookup();
   const reaction = message.slackMessage?.reaction;
   if (!reaction) {
     return null;
   }
 
-  const emojiDisplay = displayReactionEmoji(reaction.emoji, lookupEmoji);
+  // The neutral reaction fact carries the typed emoji fields.
+  const emojiDisplay = displayReactionEmoji(
+    message.reaction ?? { emoji: reaction.emoji },
+  );
   const actor =
     reaction.actorDisplayName ??
     message.slackMessage?.sender?.displayName ??

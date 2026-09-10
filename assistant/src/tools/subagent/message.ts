@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getSubagentManager } from "../../subagent/index.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -37,6 +38,7 @@ export async function executeSubagentMessage(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   const manager = getSubagentManager();
 
@@ -56,6 +58,17 @@ export async function executeSubagentMessage(
   if (result === "empty") {
     return {
       content: "Message content is empty or whitespace-only.",
+      isError: true,
+    };
+  }
+
+  if (result === "one_shot") {
+    return {
+      content:
+        `The advisor "${state.config.label}" takes no follow-up: a consult answers one question once, ` +
+        "and its whole answer is the guidance in its notification. " +
+        "To ask something else, spawn a new advisor with subagent_spawn and a brief that carries the question " +
+        "and the evidence you have now, including whatever the first consult told you.",
       isError: true,
     };
   }

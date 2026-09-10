@@ -27,6 +27,7 @@ import { disposeToolProfiler } from "../tools/tool-profiler.js";
 import {
   type AbortReason,
   createAbortReason,
+  INTERRUPTED_TURN_NOTE_TEXT,
   isUserInterruptAbort,
 } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
@@ -89,6 +90,39 @@ export function reinjectAttachmentPathAnnotations(
     return [...content, { type: "text" as const, text: lines.join("\n") }];
   } catch {
     // metadata parse failure — skip annotation, not critical
+    return content;
+  }
+}
+
+/**
+ * Re-inject the interrupted-turn note into a reloaded user message.
+ *
+ * The note is LLM-facing only, so the persisted row holds just what the user
+ * typed and `interruptedPriorTurn` in its metadata is the only record that the
+ * message interrupted a turn. Rebuilt here for the same reason the attachment
+ * annotations above are: the block must come back byte-identical to the one
+ * the persist path appended, or the reload breaks provider prefix-cache
+ * parity. Appended after the attachment annotations, matching the live order.
+ */
+export function reinjectInterruptTurnNote(
+  content: ContentBlock[],
+  role: string,
+  metadataJson: string | null,
+): ContentBlock[] {
+  if (role !== "user" || !metadataJson) {
+    return content;
+  }
+  try {
+    const meta = JSON.parse(metadataJson);
+    if (meta.interruptedPriorTurn !== true) {
+      return content;
+    }
+    return [
+      ...content,
+      { type: "text" as const, text: INTERRUPTED_TURN_NOTE_TEXT },
+    ];
+  } catch {
+    // metadata parse failure — skip the note, not critical
     return content;
   }
 }

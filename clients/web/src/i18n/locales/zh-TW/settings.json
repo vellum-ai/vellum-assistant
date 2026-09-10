@@ -56,8 +56,7 @@
     "searchPlaceholder": "搜尋對話",
     "unarchive": "取消封存",
     "unarchiveFailed": "無法取消封存對話。",
-    "unarchiving": "正在取消封存",
-    "untitled": "未命名對話"
+    "unarchiving": "正在取消封存"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "正在檢查此裝置的通知存取權。",
@@ -382,8 +381,7 @@
     "errorTitle": "載入書籤失敗",
     "open": "開啟",
     "removeBookmark": "移除書籤",
-    "retry": "重試",
-    "untitledConversation": "未命名對話"
+    "retry": "重試"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, other {# 個動作目前使用 {profile}}}",
@@ -998,6 +996,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 帳號",
+    "cancel": "取消",
     "connectAccount": "連接帳號",
     "connectAccountLower": "連接帳號",
     "connectToContinue": "連接帳號以繼續",
@@ -1042,8 +1041,7 @@
     "emptyTitle": "無 MCP 伺服器",
     "loadError": "載入 MCP 伺服器失敗。請檢查助理是否正在執行。",
     "loading": "正在載入 MCP 伺服器...",
-    "reloadAriaLabel": "重新載入 MCP 伺服器",
-    "reloadTooltip": "重新載入所有伺服器",
+    "reloadButton": "重新整理",
     "removeDialogConfirm": "移除",
     "removeDialogMessage": "您確定要移除「{serverId}」嗎？這將會中斷此伺服器提供的所有工具。",
     "removeDialogTitle": "移除 MCP 伺服器",
@@ -1058,8 +1056,6 @@
     "toastAuthStartFailed": "無法啟動 {serverId} 的驗證",
     "toastAuthTimedOut": "{serverId} 驗證逾時",
     "toastAuthenticatedSuccess": "{serverId} 驗證成功",
-    "toastDisableFailed": "停用 {serverId} 失敗",
-    "toastEnableFailed": "啟用 {serverId} 失敗",
     "toastOAuthRevokeFailed": "撤銷 {serverId} 的 OAuth 失敗",
     "toastOAuthRevoked": "{serverId} 的 OAuth 憑證已撤銷",
     "toastReloadFailed": "重新載入 MCP 伺服器失敗",
@@ -1072,26 +1068,21 @@
     "totalTools": "{count, plural, other {# 個工具}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "關閉",
     "authenticate": "驗證",
+    "authenticatedBadge": "已驗證",
     "authenticating": "正在驗證...",
     "configure": "設定",
-    "configureTooltip": "設定",
     "estimatedTokens": "~{count} 個權杖",
-    "oauthBadge": "OAuth",
+    "moreActions": "{serverId} 的更多操作",
     "reAuth": "重新驗證",
-    "reAuthTooltip": "重新驗證 OAuth",
     "registeredTools": "{count, plural, other {# 個已註冊工具}}",
-    "removeServerAriaLabel": "移除 {serverId}",
-    "removeServerTooltip": "移除伺服器",
+    "removeServer": "刪除伺服器",
     "revoke": "撤銷",
     "revokeOAuthTooltip": "撤銷 OAuth 憑證",
-    "revoking": "正在撤銷...",
     "statusConnected": "已連線",
-    "statusDisabled": "已停用",
     "statusError": "錯誤",
     "statusNeedsAuth": "需要驗證",
-    "toggleDisableAriaLabel": "停用 {serverId}",
-    "toggleEnableAriaLabel": "啟用 {serverId}",
     "toolCount": "{count, plural, other {# 個工具}}",
     "toolTokensAbbrev": "~{count} 權杖"
   },
@@ -1107,7 +1098,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "•••••••• (留空以保留目前值)",
     "cancel": "取消",
-    "defaultRiskLevel": "預設風險等級",
     "description": "{transport} 傳輸 · {status}",
     "emptyDescription": "-",
     "headerName": "標頭名稱",
@@ -1115,9 +1105,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "透過 OAuth 流程管理",
     "registeredToolsHeading": "已註冊工具 ({count})",
-    "riskHigh": "高",
-    "riskLow": "低",
-    "riskMedium": "中",
     "save": "儲存",
     "saving": "正在儲存...",
     "tableDescription": "描述",
@@ -2373,8 +2360,27 @@
       "general": "一般",
       "terminal": "終端機",
       "doctor": "診斷",
+      "database": "資料庫",
       "conversations": "對話"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "資料庫",
+    "subtitle": "此助手的遷移狀態，包括失敗與被延後的步驟。",
+    "refresh": "重新整理",
+    "loading": "正在載入資料庫狀態…",
+    "unsupported": "此助手版本尚不提供資料庫診斷資訊。",
+    "loadError": "無法載入資料庫診斷資訊。",
+    "statusReady": "就緒",
+    "statusRunning": "正在遷移",
+    "statusFailed": "失敗",
+    "statusNotStarted": "未開始",
+    "migratingHint": "遷移仍在進行。如果某一步擲出錯誤，失敗步驟會顯示在這裡。",
+    "noFailures": "沒有失敗的遷移。",
+    "failedHeading": "失敗的遷移",
+    "deferredHeading": "被延後的遷移",
+    "validationHeading": "驗證錯誤",
+    "missingDeps": "等待：{deps}"
   },
   "profileCreateModelFirst": {
     "addApiKeyTag": "新增 API 金鑰",

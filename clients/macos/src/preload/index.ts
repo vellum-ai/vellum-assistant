@@ -15,6 +15,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCoachmark,
   CompanionCapturePick,
   CompanionCaptureSources,
@@ -579,12 +580,21 @@ const bridge: VellumBridge = {
     toggleAnnotating: (): void => {
       ipcRenderer.send("vellum:companion:toggleAnnotating");
     },
+    clearMarks: (): void => {
+      ipcRenderer.send("vellum:companion:clearMarks");
+    },
+    setAnnotationTool: (tool: CompanionAnnotationTool): void => {
+      ipcRenderer.send("vellum:companion:setAnnotationTool", tool);
+    },
     annotateShare: (
       phase: CompanionAnnotationPhase,
       strokes: readonly CompanionAnnotationStroke[],
       ink: string,
     ): void => {
       ipcRenderer.send("vellum:companion:annotateShare", phase, strokes, ink);
+    },
+    setFrameScrolling: (scrolling: boolean): void => {
+      ipcRenderer.send("vellum:companion:setFrameScrolling", scrolling);
     },
     sharedFrame: (target: WatchCaptureTarget): void => {
       ipcRenderer.send("vellum:companion:sharedFrame", target);

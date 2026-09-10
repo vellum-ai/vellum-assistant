@@ -254,10 +254,15 @@ export type GuardianRequestMutationIpcResponse = z.infer<
 
 /**
  * Request for `guardian_requests_create`. `id` is REQUIRED and
- * caller-supplied — request ids are load-bearing (deterministic
- * access-request ids; `tool_approval` rows reuse the pending-interaction
- * requestId as PK). `requestCode` is generated gateway-side when omitted.
- * No `sourceType`: the gateway derives it from `sourceChannel`.
+ * caller-supplied. The interaction-promotion paths (`tool_approval`, and
+ * `pending_question` for `ask_question`) reuse the pending-interaction
+ * requestId as PK so a decision can find its interaction; every other
+ * create mints a UUID, including voice `pending_question` rows, which carry
+ * their interaction id in `pendingQuestionId` instead. The id is the row's
+ * primary key and the insert is strict, so a caller that can create
+ * concurrently must mint one unique per call. `requestCode` is generated
+ * gateway-side when omitted. No `sourceType`: the gateway derives it from
+ * `sourceChannel`.
  */
 export const CreateGuardianRequestIpcParamsSchema = z.object({
   id: z.string().min(1),

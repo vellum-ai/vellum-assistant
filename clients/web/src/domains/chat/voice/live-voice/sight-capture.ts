@@ -112,6 +112,15 @@ export interface SightCaptureRequest {
    * so a source that shows the last shared frame shows only frames that were.
    */
   readonly onShared: (shared: SightSharedFrame) => void;
+  /**
+   * A frame the call will never be given: refused, not produced, not
+   * uploaded, or given back unsent. Exactly one of this and `onShared` is
+   * called for every capture, and either can come after `capture` resolves,
+   * since a finished capture waits its turn behind older ones. For a source
+   * that keeps its own idea of what the call has seen, which cannot be read
+   * off `capture` resolving: a resolved capture may still be parked.
+   */
+  readonly onDropped?: () => void;
 }
 
 export interface SightCapture {
@@ -261,18 +270,21 @@ export function createSightCapture(errorContext: string): SightCapture {
     keep,
     produceFrame,
     onShared,
+    onDropped,
   }: SightCaptureRequest): Promise<void> {
     // Consent is already gone, and the loop has not been torn down yet. The
     // epoch cannot speak for this one: a capture beginning after the bump
     // reads the new number and would pass the guard on the way out, so a
     // frame taken after the user said stop is refused before it is taken.
     if (!consented) {
+      onDropped?.();
       return;
     }
     // Nothing this assistant is told about lands, and each attempt would
     // strand another upload, so the sampler runs on and every keep is
     // dropped here. See `sightFramesUnsupported` on the live-voice store.
     if (useLiveVoiceStore.getState().sightFramesUnsupported) {
+      onDropped?.();
       return;
     }
     // Read before the encode, not after the upload. Everything below can
@@ -310,7 +322,12 @@ export function createSightCapture(errorContext: string): SightCapture {
         return;
       }
       const uploadedAtMs = performance.now();
-      const abandonUpload = (): void => reclaimUpload(assistantId, uploaded.id);
+      // Every way an uploaded frame ends unsent goes through here, so the
+      // upload is given back and the source told, once, on each of them.
+      const abandonUpload = (): void => {
+        reclaimUpload(assistantId, uploaded.id);
+        onDropped?.();
+      };
       // The guards run when the turn comes, not now, so a frame that waited
       // is still checked against the session and camera of the moment it
       // would land in.
@@ -365,6 +382,12 @@ export function createSightCapture(errorContext: string): SightCapture {
       // costs one frame and says nothing to the user.
       captureError(cause, { context: errorContext, bestEffort: true });
     } finally {
+      // A capture that produced no send is over here: nothing was uploaded,
+      // or the upload failed, or the encode threw. One with a send is not,
+      // and its word goes out with the send or its discard.
+      if (pending === null) {
+        onDropped?.();
+      }
       // Every path, including the ones that produced nothing: a capture that
       // never sends must still release the captures behind it.
       settleCapture(seq, pending);

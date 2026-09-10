@@ -133,6 +133,8 @@
     "closePreviewAria": "關閉預覽",
     "downloadAria": "下載 {filename}",
     "downloadLabel": "下載",
+    "legacyUnavailable": "預覽無法使用。檔案內容未保存於聊天記錄中。",
+    "loadFailed": "無法載入預覽。",
     "nextAttachmentAria": "下一個附件",
     "pdfLoadFailed": "無法顯示此 PDF",
     "previewAria": "{filename} 的預覽",
@@ -296,7 +298,8 @@
     "title": "顯示"
   },
   "cardSurface": {
-    "tasksProgress": "已完成 {completed} / 共 {total} 個任務"
+    "tasksProgress": "已完成 {completed} / 共 {total} 個任務",
+    "viewDetails": "查看詳細資料"
   },
   "channelReferenceChip": {
     "heading": "正在參照 {channel} 訊息",
@@ -372,8 +375,27 @@
   },
   "chatConversationHeader": {
     "archived": "[已封存]",
-    "newChat": "新增聊天",
-    "untitled": "未命名"
+    "newChat": "新增聊天"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "應用程式",
+    "backAria": "返回聊天資訊",
+    "backTooltip": "聊天資訊",
+    "closeAria": "關閉聊天資訊",
+    "empty": "此聊天中還沒有內容",
+    "filesTitle": "文件與圖片",
+    "framesTitle": "相機影格",
+    "loadFailed": "無法載入內容",
+    "loadMore": "載入更多",
+    "openAppAria": "開啟 {name}",
+    "openDocumentAria": "開啟 {name}",
+    "previewAttachmentAria": "預覽 {filename}",
+    "previewFrameAria": "預覽相機影格",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部應用程式",
+    "seeAllFilesAria": "查看全部文件與圖片",
+    "seeAllFramesAria": "查看全部相機影格",
+    "title": "聊天資訊"
   },
   "chatLayout": {
     "navigationAria": "導覽"
@@ -612,12 +634,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "對話資產，{count, plural, one {# 個項目} other {# 個項目}}",
+    "ariaLabelUnavailable": "對話資產，無法載入",
     "ariaLabelUnseen": "對話資產，{count, plural, one {# 個項目} other {# 個項目}} (未檢視的變更)",
-    "heading": "資產",
-    "label": "{count, plural, one {# 個資產} other {# 個資產}}"
-  },
-  "conversationRow": {
-    "untitled": "未命名"
+    "label": "{count, plural, one {# 個資產} other {# 個資產}}",
+    "labelUnavailable": "無法載入資產"
   },
   "conversationStarterDock": {
     "caption": "試試這些建議："
@@ -664,8 +684,7 @@
     "cancel": "取消",
     "confirm": "刪除",
     "message": "刪除「{title}」？這將永久移除對話及其訊息。相關資產和記憶可能仍會保留。此動作無法復原。",
-    "title": "刪除對話",
-    "untitled": "未命名"
+    "title": "刪除對話"
   },
   "deletedMessageRow": {
     "label": "此訊息已被刪除"
@@ -890,7 +909,8 @@
     "windows": "語音已在 Windows 應用程式中啟用。"
   },
   "liveVoiceButton": {
-    "startVoiceMode": "啟動語音模式"
+    "startVoiceMode": "啟動語音模式",
+    "tooltip": "用語音模式開口交談"
   },
   "liveVoiceStatus": {
     "connecting": "正在連線…",
@@ -1317,7 +1337,8 @@
     "railAria": "進度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "進度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"
@@ -1660,11 +1681,14 @@
     "settings": "設定"
   },
   "toolDetailPanel": {
+    "changes": "變更",
     "closeAria": "關閉工具詳細資料",
+    "command": "指令",
     "denied": "此工具呼叫未獲核准，因此沒有執行。",
     "emptyOutput": "該工具沒有回傳任何輸出。",
+    "input": "輸入",
     "output": "輸出",
-    "riskLevel": "風險等級",
+    "requestedChanges": "要求的變更",
     "running": "正在執行…"
   },
   "toolStepPill": {
@@ -1679,7 +1703,8 @@
     "stopWorkflow": "停止工作流程"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "處理中"
   },
   "useConversationLoader": {
     "authFailed": "使用者驗證失敗。"
@@ -1688,9 +1713,6 @@
     "assistantBusy": "您的助理正忙。請在回覆完成後再試一次。",
     "retryFailed": "無法重試回應",
     "summarizeFailed": "無法摘要對話"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "未命名"
   },
   "useSendMessage": {
     "commandFailed": "無法執行該指令。請再試一次。",
@@ -1774,6 +1796,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "已靜音"
+  },
+  "wakeCard": {
+    "commandFinished": "背景指令已完成",
+    "incomingEvent": "收到事件",
+    "memoryReview": "記憶回顧",
+    "ranOnItsOwn": "自動執行",
+    "resumed": "中斷後已恢復",
+    "scheduledRun": "排程執行",
+    "watchReview": "觀察工作階段回顧",
+    "workflowFinished": "工作流程已完成"
+  },
+  "wakeDetailPanel": {
+    "close": "關閉",
+    "details": "詳細資料",
+    "result": "結果",
+    "runStatus": "執行狀態",
+    "title": "對話已喚醒",
+    "workflow": "工作流程"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

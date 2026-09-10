@@ -20,6 +20,7 @@ import {
   type MemoryJob,
 } from "../jobs-store.js";
 import { messages } from "../schema/index.js";
+import { projectPersistedRowText } from "../user-facing-content.js";
 import { resolveLexicalIndex } from "./message-lexical.js";
 
 const log = getLogger("lexical-backfill");
@@ -134,6 +135,7 @@ export async function backfillLexicalIndexJob(
       id: messages.id,
       conversationId: messages.conversationId,
       content: messages.content,
+      metadata: messages.metadata,
       createdAt: messages.createdAt,
     })
     .from(messages)
@@ -157,7 +159,12 @@ export async function backfillLexicalIndexJob(
     const index = resolveLexicalIndex(config);
     const points = batch.map((message) => ({
       messageId: message.id,
-      sparse: generateSparseEmbedding(message.content),
+      // Indexed as what a user can read, matching the live path: a row a
+      // `send_user_message` turn marked private contributes its delivered
+      // message, not the model's working notes.
+      sparse: generateSparseEmbedding(
+        projectPersistedRowText(message.content, message.metadata),
+      ),
       conversationId: message.conversationId,
       createdAt: message.createdAt,
     }));

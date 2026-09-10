@@ -9,16 +9,21 @@ import { describe, expect, mock, test } from "bun:test";
 const capturedNotifications: {
   parentConversationId: string;
   message: string;
+  cronRunId?: string | null;
 }[] = [];
 
 mock.module("../daemon/conversation-registry.js", () => ({
   findConversation: (id: string) => ({
     isStale: () => false,
     hasInFlightWork: () => false,
-    enqueueMessage: (options: { content: string }) => {
+    enqueueMessage: (options: {
+      content: string;
+      cronRunId?: string | null;
+    }) => {
       capturedNotifications.push({
         parentConversationId: id,
         message: options.content,
+        cronRunId: options.cronRunId,
       });
       return { queued: true };
     },
@@ -333,6 +338,55 @@ describe("SubagentManager notifyParent (via runSubagent)", () => {
       '[Subagent "Test subagent" completed]',
     );
     expect(capturedNotifications[0].message).toContain("subagent_read");
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("a scheduled child's terminal notification carries the firing's run id", async () => {
+    // The continuation this notification starts is the firing's work too, so
+    // its LLM spend belongs on the same `cron_run_id`. Without it the row is
+    // written with a null run id and the schedule's cost is undercounted.
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-cron";
+    const state = makeState(subagentId);
+    state.config.cronRunId = "cron-run-42";
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {};
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].cronRunId).toBe("cron-run-42");
+
+    asInternals(manager).stopSweep();
+  });
+
+  test("an unscheduled child's notification carries no run id", async () => {
+    // The guard must not invent an attribution for turns no firing produced.
+    clearCaptured();
+    const manager = new SubagentManager();
+    const subagentId = "sub-no-cron";
+    const state = makeState(subagentId);
+    injectFakeSubagent(manager, subagentId, state);
+
+    const managed = asInternals(manager).subagents.get(subagentId)!;
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
+    managed.conversation!.runAgentLoop = async () => {};
+
+    await asInternals(manager).runSubagent(subagentId, "Do something");
+
+    expect(capturedNotifications).toHaveLength(1);
+    expect(capturedNotifications[0].cronRunId).toBeUndefined();
 
     asInternals(manager).stopSweep();
   });

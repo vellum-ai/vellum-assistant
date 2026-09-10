@@ -133,6 +133,8 @@
     "closePreviewAria": "Cerrar vista previa",
     "downloadAria": "Descargar {filename}",
     "downloadLabel": "Descargar",
+    "legacyUnavailable": "Vista previa no disponible. El contenido del archivo no se conservó en el historial del chat.",
+    "loadFailed": "No se pudo cargar la vista previa.",
     "nextAttachmentAria": "Adjunto siguiente",
     "pdfLoadFailed": "No se pudo mostrar este PDF",
     "previewAria": "Vista previa de {filename}",
@@ -296,7 +298,8 @@
     "title": "Mostrar"
   },
   "cardSurface": {
-    "tasksProgress": "{completed} / {total} tareas"
+    "tasksProgress": "{completed} / {total} tareas",
+    "viewDetails": "Ver detalles"
   },
   "channelReferenceChip": {
     "heading": "Haciendo referencia a un mensaje de {channel}",
@@ -372,8 +375,27 @@
   },
   "chatConversationHeader": {
     "archived": "[Archivado]",
-    "newChat": "Chat nuevo",
-    "untitled": "Sin título"
+    "newChat": "Chat nuevo"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Volver a la información del chat",
+    "backTooltip": "Información del chat",
+    "closeAria": "Cerrar la información del chat",
+    "empty": "Aún no hay recursos en este chat",
+    "filesTitle": "Documentos e imágenes",
+    "framesTitle": "Fotogramas de la cámara",
+    "loadFailed": "No se pudieron cargar los recursos",
+    "loadMore": "Cargar más",
+    "openAppAria": "Abrir {name}",
+    "openDocumentAria": "Abrir {name}",
+    "previewAttachmentAria": "Vista previa de {filename}",
+    "previewFrameAria": "Vista previa del fotograma de la cámara",
+    "seeAll": "Ver todo",
+    "seeAllAppsAria": "Ver todas las apps",
+    "seeAllFilesAria": "Ver todos los documentos e imágenes",
+    "seeAllFramesAria": "Ver todos los fotogramas de la cámara",
+    "title": "Información del chat"
   },
   "chatLayout": {
     "navigationAria": "Navegación"
@@ -436,6 +458,9 @@
     "timeoutTitle": "La limpieza está tardando más de lo esperado",
     "title": "Limpiando tu asistente…",
     "warningAria": "advertencia"
+  },
+  "coachmarkPress": {
+    "turn": "Hice clic en {label}. ¿Y ahora qué?"
   },
   "collapsedGroupIcon": {
     "noConversations": "No hay conversaciones"
@@ -612,12 +637,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}}",
+    "ariaLabelUnavailable": "Recursos de la conversación, no se pudieron cargar",
     "ariaLabelUnseen": "Recursos de la conversación, {count, plural, one {# elemento} other {# elementos}} (cambios sin ver)",
-    "heading": "Recursos",
-    "label": "{count, plural, one {# recurso} other {# recursos}}"
-  },
-  "conversationRow": {
-    "untitled": "Sin título"
+    "label": "{count, plural, one {# recurso} other {# recursos}}",
+    "labelUnavailable": "No se pudieron cargar los recursos"
   },
   "conversationStarterDock": {
     "caption": "Prueba algunas sugerencias:"
@@ -664,8 +687,7 @@
     "cancel": "Cancelar",
     "confirm": "Eliminar",
     "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
-    "title": "Eliminar conversación",
-    "untitled": "Sin título"
+    "title": "Eliminar conversación"
   },
   "deletedMessageRow": {
     "label": "Este mensaje fue eliminado"
@@ -855,7 +877,8 @@
     "windows": "La voz ya está activa en la aplicación de Windows."
   },
   "liveVoiceButton": {
-    "startVoiceMode": "Iniciar el modo de voz"
+    "startVoiceMode": "Iniciar el modo de voz",
+    "tooltip": "Habla en voz alta con el modo de voz"
   },
   "liveVoiceStatus": {
     "connecting": "Conectando…",
@@ -1281,7 +1304,8 @@
     "railAria": "Progreso",
     "stepCounter": "{current} de {total}",
     "title": "Progreso",
-    "titleFinished": "Terminado"
+    "titleFinished": "Terminado",
+    "titleStopped": "Detenido"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
@@ -1624,11 +1648,14 @@
     "settings": "Configuración"
   },
   "toolDetailPanel": {
+    "changes": "Cambios",
     "closeAria": "Cerrar detalles de la herramienta",
+    "command": "Comando",
     "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
     "emptyOutput": "La herramienta no devolvió ninguna salida.",
+    "input": "Entrada",
     "output": "Salida",
-    "riskLevel": "Nivel de riesgo",
+    "requestedChanges": "Cambios solicitados",
     "running": "Ejecutando…"
   },
   "toolStepPill": {
@@ -1643,7 +1670,8 @@
     "stopWorkflow": "Detener flujo de trabajo"
   },
   "transcriptRow": {
-    "thinking": "Pensando"
+    "thinking": "Pensando",
+    "working": "Trabajando"
   },
   "useConversationLoader": {
     "authFailed": "No se pudo autenticar al usuario."
@@ -1652,9 +1680,6 @@
     "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
     "retryFailed": "No se pudo reintentar la respuesta",
     "summarizeFailed": "No se pudo resumir la conversación"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Sin título"
   },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",
@@ -1737,6 +1762,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "Silenciado"
+  },
+  "wakeCard": {
+    "commandFinished": "Comando en segundo plano finalizado",
+    "incomingEvent": "Evento entrante",
+    "memoryReview": "Revisión de la memoria",
+    "ranOnItsOwn": "Se ejecutó por su cuenta",
+    "resumed": "Reanudado tras una interrupción",
+    "scheduledRun": "Ejecución programada",
+    "watchReview": "Revisión de la sesión de observación",
+    "workflowFinished": "Flujo de trabajo finalizado"
+  },
+  "wakeDetailPanel": {
+    "close": "Cerrar",
+    "details": "Detalles",
+    "result": "Resultado",
+    "runStatus": "Estado de la ejecución",
+    "title": "La conversación se activó",
+    "workflow": "Flujo de trabajo"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

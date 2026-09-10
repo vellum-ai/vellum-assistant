@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import {
   cleanup,
   fireEvent,
@@ -10,10 +10,19 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
+import { mockAttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-test-helpers";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
 type ContentResult = { data: Blob | null; error: { message: string } | null };
+
+const respondsWithBytes = async (): Promise<ContentResult> => ({
+  data: new Blob(["image-bytes"]),
+  error: null,
+});
+
+/** What the content endpoint answers, swapped per test. */
+let contentResponse: () => Promise<ContentResult> = respondsWithBytes;
 
 // Mock only the daemon content endpoint; keep the rest of the generated SDK
 // real so any other consumer in the module graph is unaffected.
@@ -22,10 +31,7 @@ const attachmentsByIdContentGet = mock(
     path: { assistant_id: string; id: string };
     parseAs?: string;
     throwOnError?: boolean;
-  }): Promise<ContentResult> => ({
-    data: new Blob(["image-bytes"]),
-    error: null,
-  }),
+  }): Promise<ContentResult> => contentResponse(),
 );
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -34,10 +40,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 }));
 
 // happy-dom doesn't implement object URLs.
-globalThis.URL.createObjectURL = mock(
+const createObjectUrl = mock(
   (_obj: Blob | MediaSource): string => "blob:tool-image-mock",
 );
-globalThis.URL.revokeObjectURL = mock((_url: string): void => undefined);
+const revokeObjectUrl = mock((_url: string): void => undefined);
+const realCreateObjectURL = globalThis.URL.createObjectURL;
+const realRevokeObjectURL = globalThis.URL.revokeObjectURL;
+globalThis.URL.createObjectURL = createObjectUrl;
+globalThis.URL.revokeObjectURL = revokeObjectUrl;
 
 // Downloads lazily import the native-file bridge; stub it so clicking Download
 // records the call without touching Capacitor / DOM anchors.
@@ -48,22 +58,30 @@ mock.module("@/runtime/native-file", () => ({
   saveFile: saveFileMock,
 }));
 
+// The strip's own wiring is what is under test, so the modal is a probe
+// reporting which attachment it was handed and at which position.
+const restorePreviewModal = mockAttachmentPreviewModal();
+
 const imagesModule =
   await import("@/domains/chat/components/chat-attachments/tool-result-images");
 const { ToolResultImages } = imagesModule;
 
-function renderStrip(
+interface StripOptions {
+  messageAttachments?: DisplayAttachment[];
+  assistantId?: string | null;
+  /** Share one client across re-renders so a survivor keeps its cached blob. */
+  client?: QueryClient;
+}
+
+function stripUi(
   toolCalls: ChatMessageToolCall[],
-  opts: {
-    messageAttachments?: DisplayAttachment[];
-    assistantId?: string | null;
-  } = {},
-): void {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  opts: StripOptions = {},
+): ReactElement {
+  const client =
+    opts.client ??
+    new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const assistantId = "assistantId" in opts ? opts.assistantId : "asst-1";
-  const ui: ReactElement = (
+  return (
     <QueryClientProvider client={client}>
       <ToolResultImages
         toolCalls={toolCalls}
@@ -72,13 +90,31 @@ function renderStrip(
       />
     </QueryClientProvider>
   );
-  render(ui);
+}
+
+function renderStrip(
+  toolCalls: ChatMessageToolCall[],
+  opts: StripOptions = {},
+): void {
+  render(stripUi(toolCalls, opts));
 }
 
 afterEach(() => {
   cleanup();
+  contentResponse = respondsWithBytes;
   attachmentsByIdContentGet.mockClear();
   saveFileMock.mockClear();
+  createObjectUrl.mockClear();
+  revokeObjectUrl.mockClear();
+});
+
+// `mock.module` is process-global and the object-URL stubs are on the shared
+// global, so both go back before the next file loads.
+afterAll(() => {
+  globalThis.URL.createObjectURL = realCreateObjectURL;
+  globalThis.URL.revokeObjectURL = realRevokeObjectURL;
+  restorePreviewModal();
+  mock.restore();
 });
 
 describe("ToolResultImages referenced media", () => {
@@ -128,7 +164,11 @@ describe("ToolResultImages referenced media", () => {
     };
     renderStrip([toolCall], { assistantId: null });
 
-    expect(screen.getByTestId("tool-result-image-placeholder")).toBeDefined();
+    const placeholder = screen.getByTestId("tool-result-image-placeholder");
+    // Nothing is on its way, so the box names the file with its kind glyph
+    // rather than spinning for bytes that will never arrive.
+    expect(placeholder.querySelector(".animate-spin")).toBeNull();
+    expect(placeholder.querySelector("svg")).not.toBeNull();
     expect(screen.queryByTestId("tool-result-image")).toBeNull();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
   });
@@ -153,6 +193,36 @@ describe("ToolResultImages referenced media", () => {
     // Saved from the fetched blob (referenced media has no inline data URL).
     expect(saveFileMock.mock.calls[0]![0]).toBeInstanceOf(Blob);
     expect(saveFileMock.mock.calls[0]![1]).toBe("file-read.png");
+  });
+
+  test("opens the gallery at the clicked image's position when two calls name one id", () => {
+    // A turn that reads the same image twice yields two entries under one
+    // attachment id, which the modal's id lookup cannot tell apart.
+    const calls: ChatMessageToolCall[] = [
+      {
+        id: "tc-first",
+        name: "media_generate_image",
+        input: {},
+        result: "Generated 1 image",
+        imageAttachmentIds: ["att-same"],
+        completedAt: 1,
+      },
+      {
+        id: "tc-second",
+        name: "file_read",
+        input: {},
+        result: "Read 1 image",
+        imageAttachmentIds: ["att-same"],
+        completedAt: 2,
+      },
+    ];
+    renderStrip(calls);
+
+    fireEvent.click(screen.getByRole("button", { name: "file-read.png" }));
+
+    const modal = screen.getByTestId("preview-modal");
+    expect(modal.getAttribute("data-attachment-id")).toBe("att-same");
+    expect(modal.getAttribute("data-current-index")).toBe("1");
   });
 
   /** A message attachment chip carrying `id`. */
@@ -180,6 +250,73 @@ describe("ToolResultImages referenced media", () => {
     expect(screen.queryByTestId("tool-result-image")).toBeNull();
     expect(screen.queryByTestId("tool-result-image-placeholder")).toBeNull();
     expect(attachmentsByIdContentGet).not.toHaveBeenCalled();
+  });
+
+  test("names a referenced image whose bytes never arrived", async () => {
+    contentResponse = async () => ({ data: null, error: { message: "gone" } });
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-ref-failed",
+      name: "media_generate_image",
+      input: {},
+      result: "Generated 1 image",
+      imageAttachmentIds: ["att-missing"],
+      completedAt: 1,
+    };
+    renderStrip([toolCall]);
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getByTestId("tool-result-image-placeholder")
+          .querySelector(".animate-spin"),
+      ).toBeNull();
+    });
+    // The kind glyph stands in for the picture, so the box says a file is
+    // there whose bytes could not be drawn.
+    expect(
+      screen.getByTestId("tool-result-image-placeholder").querySelector("svg"),
+    ).not.toBeNull();
+    expect(screen.queryByTestId("tool-result-image")).toBeNull();
+  });
+
+  test("keeps a surviving image mounted when an earlier one leaves the strip", async () => {
+    const calls: ChatMessageToolCall[] = [
+      {
+        id: "tc-leaves",
+        name: "media_generate_image",
+        input: {},
+        result: "Generated 1 image",
+        imageAttachmentIds: ["att-leaves"],
+        completedAt: 1,
+      },
+      {
+        id: "tc-stays",
+        name: "file_read",
+        input: {},
+        result: "Read 1 image",
+        imageAttachmentIds: ["att-stays"],
+        completedAt: 2,
+      },
+    ];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const strip = (messageAttachments?: DisplayAttachment[]): ReactElement =>
+      stripUi(calls, { messageAttachments, client });
+
+    const { rerender } = render(strip());
+    const survivor = await screen.findByAltText("file-read.png");
+    createObjectUrl.mockClear();
+
+    // The end-of-turn chips take the first image over, so the strip drops it
+    // from the middle of the list the second one is keyed in.
+    rerender(strip([attachment("att-leaves")]));
+
+    expect(screen.queryByAltText("media-generate-image.png")).toBeNull();
+    expect(screen.getByAltText("file-read.png")).toBe(survivor);
+    // A remount would have revoked the survivor's object URL and minted a new
+    // one, painting the placeholder box for a frame.
+    expect(createObjectUrl).not.toHaveBeenCalled();
   });
 
   test("keeps a referenced image an unrelated attachment does not cover", () => {

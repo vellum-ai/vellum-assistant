@@ -79,6 +79,7 @@ export interface SkillShortlistHit {
 export type ScoreSlugsFn = (
   goal: string,
   restrictToSlugs: readonly string[],
+  signal?: AbortSignal,
 ) => Promise<ScoredSlug[]>;
 
 export interface NearestExistingSkillsOptions {
@@ -90,6 +91,12 @@ export interface NearestExistingSkillsOptions {
   loadCatalog?: () => { id: string }[] | Promise<{ id: string }[]>;
   /** Max shortlist entries. Defaults to {@link DEFAULT_SHORTLIST_LIMIT}. */
   limit?: number;
+  /**
+   * Cancellation for the work this shortlist serves. Reaches the embedding
+   * request and its retry backoff, so a stopped caller stops paying for
+   * embeddings instead of finishing the round-trip nobody will read.
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -105,7 +112,8 @@ export async function nearestExistingSkills(
 ): Promise<SkillShortlistHit[]> {
   const config = opts.config ?? getConfig();
   const scoreSlugs =
-    opts.scoreSlugs ?? ((g, slugs) => scoreSlugsWithSimBatch(config, g, slugs));
+    opts.scoreSlugs ??
+    ((g, slugs, signal) => scoreSlugsWithSimBatch(config, g, slugs, signal));
   const loadCatalog = opts.loadCatalog ?? (() => listInstalledSkills());
   const limit = opts.limit ?? DEFAULT_SHORTLIST_LIMIT;
 
@@ -120,7 +128,7 @@ export async function nearestExistingSkills(
     return [];
   }
 
-  const scored = await scoreSlugs(goal, slugs);
+  const scored = await scoreSlugs(goal, slugs, opts.signal);
   const hits: SkillShortlistHit[] = [];
   for (const { slug, score } of scored) {
     if (score < SHORTLIST_THRESHOLD) {
@@ -156,11 +164,23 @@ async function scoreSlugsWithSimBatch(
   config: AssistantConfig,
   goal: string,
   restrictToSlugs: readonly string[],
+  signal?: AbortSignal,
 ): Promise<ScoredSlug[]> {
   try {
-    const scores = await simBatchWithRetry(config, goal, restrictToSlugs);
+    const scores = await simBatchWithRetry(
+      config,
+      goal,
+      restrictToSlugs,
+      signal,
+    );
     return [...scores].map(([slug, score]) => ({ slug, score }));
   } catch (err) {
+    // A cancelled caller is not a scorer outage: degrading to an empty
+    // shortlist here would report "no similar skills" for a search that never
+    // ran.
+    if (isAbortError(err)) {
+      throw err;
+    }
     log.warn(
       { err },
       "nearest-existing-skills scorer failed after retries; degrading to empty shortlist",
@@ -181,11 +201,13 @@ async function simBatchWithRetry(
   config: AssistantConfig,
   goal: string,
   restrictToSlugs: readonly string[],
+  signal?: AbortSignal,
 ): Promise<Map<string, number>> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    signal?.throwIfAborted();
     try {
-      return await simBatch(goal, restrictToSlugs, config);
+      return await simBatch(goal, restrictToSlugs, config, { signal });
     } catch (err) {
       lastError = err;
       if (isAbortError(err)) {
@@ -199,7 +221,7 @@ async function simBatchWithRetry(
         { err, attempt: attempt + 1, delayMs: Math.round(delay) },
         "transient nearest-existing-skills embedding failure, retrying",
       );
-      await abortableSleep(delay);
+      await abortableSleep(delay, signal);
     }
   }
   throw lastError;

@@ -2,13 +2,24 @@
   "version": 1,
   "flags": [
     {
+      "id": "interrupt-on-send",
+      "scope": "both",
+      "key": "interrupt-on-send",
+      "label": "Interrupt On Send",
+      "description": "A message sent while the assistant is busy interrupts the current tool call and is delivered immediately, instead of queueing",
+      "defaultEnabled": false
+    },
+    {
       "id": "in-chat-onboarding-tour",
       "scope": "client",
       "key": "in-chat-onboarding-tour",
       "label": "In-Chat Onboarding Tour",
       "description": "Multivariate experiment for the eyes-led in-chat onboarding tour. control = straight to chat after research onboarding (current behavior); tour = the extended tour auto-plays on first workspace entry. Desktop-only: phone-width viewports and the native shell get neither the tour nor its telemetry (not even the exposure event), so the funnel measures desktop sessions exclusively. Targeted via LaunchDarkly (70% tour / 30% control).",
       "defaultEnabled": "control",
-      "values": ["control", "tour"]
+      "values": [
+        "control",
+        "tour"
+      ]
     },
     {
       "id": "user-hosted-enabled",
@@ -25,7 +36,10 @@
       "label": "Proactive Tips",
       "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
       "defaultEnabled": "off",
-      "values": ["off", "on"]
+      "values": [
+        "off",
+        "on"
+      ]
     },
     {
       "id": "vision-mode",
@@ -34,7 +48,10 @@
       "label": "Vision Mode",
       "description": "Gates hold-to-Live ambient frame sampling in the voice room camera. String-valued so future A/B arms can be added as new values.",
       "defaultEnabled": "off",
-      "values": ["off", "on"]
+      "values": [
+        "off",
+        "on"
+      ]
     },
     {
       "id": "assistant-initiated-threads",
@@ -43,7 +60,10 @@
       "label": "Assistant-Initiated Threads",
       "description": "Gates the sidebar section collecting the conversations the assistant started on its own: rows stamped `source='assistant_initiated'` at creation by producers that opt a thread in (heartbeat realizations worth the user's time; nothing stamps it yet, so the section starts empty and holds only new threads by construction). Transactional notification trails keep `source='notification'` and stay in Chats and the bell. When on, the daemon emits an `assistant` row from the section index and withholds member conversations from the Chats bucket; when off, they stay in Chats and no `assistant` row is emitted, which is the shipped behavior. Deliberately daemon-scope only: the index row is self-describing, so clients render the section on its presence rather than on a flag of their own. A second client-side gate could only hide a section whose rows the daemon has already withheld from Chats, which would lose those threads instead of reverting the feature. String-valued so future A/B arms can be added as new values.",
       "defaultEnabled": "off",
-      "values": ["off", "on"]
+      "values": [
+        "off",
+        "on"
+      ]
     },
     {
       "id": "experiment-activation-flow-2026-06-03",
@@ -52,7 +72,11 @@
       "label": "Activation Flow Experiment 2026-06-03",
       "description": "Multivariate activation-flow experiment. control = standard flow; variant-a = activation rail; personal-page = new sign-up-page variant (front-end only). Targeted via LaunchDarkly.",
       "defaultEnabled": "control",
-      "values": ["control", "variant-a", "personal-page"]
+      "values": [
+        "control",
+        "variant-a",
+        "personal-page"
+      ]
     },
     {
       "id": "local-docker-enabled",
@@ -76,6 +100,14 @@
       "key": "settings-developer-nav",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
+      "defaultEnabled": false
+    },
+    {
+      "id": "vellum-hosted-inference",
+      "scope": "assistant",
+      "key": "vellum-hosted-inference",
+      "label": "Vellum Hosted Inference",
+      "description": "Show Vellum-hosted GPU models (Qwen3 8B) in the catalog and the Settings Personality sliders that steer them.",
       "defaultEnabled": false
     },
     {
@@ -407,15 +439,6 @@
       "defaultEnabled": true
     },
     {
-      "id": "experiment-balanced-model-2026-08-31",
-      "scope": "assistant",
-      "key": "experiment-balanced-model-2026-08-31",
-      "label": "Experiment: Balanced Profile Model",
-      "description": "Multivariate experiment on the model the managed Balanced inference profile resolves to. glm-5p3-flash = the shipped pin (accounts/fireworks/models/glm-5p3-flash); glm-5p3 = accounts/fireworks/models/glm-5p3; glm-5p2 = accounts/fireworks/models/glm-5p2. Replaces experiment-balanced-model-2026-08-06, which ended on 2026-08-31: the activation cohort keys a user on their first-ever assignment per flag, so a new arm on the old key could never enrol a user the old test already stamped. Only the managed (vellum) implementation moves: ChatGPT-subscription and BYOK installs run the provider the user chose and are outside the experiment. Rollout and targeting are managed in the LaunchDarkly dashboard; any value that is not an arm name resolves to the shipped pin.",
-      "defaultEnabled": "glm-5p3-flash",
-      "values": ["glm-5p3-flash", "glm-5p3", "glm-5p2"]
-    },
-    {
       "id": "android-avatar-app-icon",
       "scope": "client",
       "key": "android-avatar-app-icon",
@@ -424,19 +447,19 @@
       "defaultEnabled": false
     },
     {
+      "id": "push-avatar-sender",
+      "scope": "client",
+      "key": "push-avatar-sender",
+      "label": "Push Avatar Sender",
+      "description": "Native notifications show the assistant's avatar as the icon with the assistant's name on line one. Same key the platform reads for APNs/FCM sender blocks.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",
       "label": "Channel Conversation Sidecar",
       "description": "Renders a conversation bound to an external channel (Slack, Telegram, Discord, phone, email, and any other channel adapter) as two lanes in web chat: Vellum stays the primary full-width lane, and the canonical external-channel transcript moves into the existing read-only right drawer, opened from a channel-thread control in the chat header. Rows the client can attribute to the external channel are drawn once, in the drawer, instead of being blended into the Vellum lane. The drawer offers an Open in <channel> secondary action and a per-message Reference in Vellum action that stages one quoted reference above the Vellum composer. The Vellum composer stays the only input; nothing about delivery, routing, or permissions changes. Off leaves the header deep-link pill and the blended transcript unchanged.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "stripe-link-oauth",
-      "scope": "assistant",
-      "key": "stripe-link-oauth",
-      "label": "Link by Stripe Integration",
-      "description": "Gates the seeded Link by Stripe OAuth provider. When off, the provider is hidden from GET /v1/oauth/providers, its get-by-id route, and the connect/update routes, so it cannot be listed or connected from the CLI, gateway, or web integrations list. The row is still seeded into oauth_providers on startup; only its visibility changes. Off by default because a connected wallet lets an assistant spend real money.",
       "defaultEnabled": false
     },
     {
@@ -477,6 +500,28 @@
       "key": "velay-webhooks",
       "label": "Velay Webhooks",
       "description": "Platform pods resolve webhook callback URLs from the Velay-published ingress URL instead of registering platform callback routes. Falls back to platform callback registration while no tunnel URL is published.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "experiment-activation-checklist-2026-09-10",
+      "scope": "client",
+      "key": "experiment-activation-checklist-2026-09-10",
+      "label": "Experiment: Activation Checklist (2026-09-10)",
+      "description": "A/B test of the post-onboarding activation checklist (welcome modal, suggestions pill, inspiration list). off = control, the standard chat landing with no checklist; smb / parent / general = the checklist with that persona's task list. Any other value hides the checklist. Percentages per arm are set in LaunchDarkly; the readout keys a user on their first-ever assignment, so a new round gets a new key.",
+      "defaultEnabled": "off",
+      "values": [
+        "off",
+        "smb",
+        "parent",
+        "general"
+      ]
+    },
+    {
+      "id": "send-user-message",
+      "scope": "both",
+      "key": "send-user-message",
+      "label": "Send User Message Tool",
+      "description": "Route all user-facing assistant text through the send_user_message tool instead of streamed assistant text",
       "defaultEnabled": false
     }
   ]

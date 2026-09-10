@@ -39,6 +39,24 @@ describe("resolveInboundEventKind", () => {
     );
   });
 
+  test("a toned Slack name carrying only its spelling classifies as a shortcode", () => {
+    expect(
+      resolveInboundReactionPayload({
+        reaction: {
+          op: "added",
+          emoji: "thumbsup::skin-tone-3",
+          targetMessageId: "1.2",
+        },
+      }),
+    ).toEqual({
+      op: "added",
+      emoji: "thumbsup::skin-tone-3",
+      targetMessageId: "1.2",
+      emojiKind: "shortcode",
+      emojiName: "thumbsup::skin-tone-3",
+    });
+  });
+
   test("reaction prefixes classify as reaction, both directions", () => {
     expect(resolveInboundEventKind({ callbackData: "reaction:+1" })).toBe(
       "reaction",

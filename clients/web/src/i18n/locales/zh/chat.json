@@ -133,6 +133,8 @@
     "closePreviewAria": "关闭预览",
     "downloadAria": "下载 {filename}",
     "downloadLabel": "下载",
+    "legacyUnavailable": "预览不可用。文件内容未保存在聊天记录中。",
+    "loadFailed": "无法加载预览。",
     "nextAttachmentAria": "下一个附件",
     "pdfLoadFailed": "无法显示此 PDF",
     "previewAria": "{filename} 的预览",
@@ -296,7 +298,8 @@
     "title": "显示"
   },
   "cardSurface": {
-    "tasksProgress": "已完成 {completed} / 共 {total} 个任务"
+    "tasksProgress": "已完成 {completed} / 共 {total} 个任务",
+    "viewDetails": "查看详情"
   },
   "channelReferenceChip": {
     "heading": "引用 {channel} 消息",
@@ -372,8 +375,27 @@
   },
   "chatConversationHeader": {
     "archived": "[已归档]",
-    "newChat": "新建聊天",
-    "untitled": "无标题"
+    "newChat": "新建聊天"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "应用",
+    "backAria": "返回聊天信息",
+    "backTooltip": "聊天信息",
+    "closeAria": "关闭聊天信息",
+    "empty": "此聊天中还没有内容",
+    "filesTitle": "文档与图片",
+    "framesTitle": "相机帧",
+    "loadFailed": "无法加载内容",
+    "loadMore": "加载更多",
+    "openAppAria": "打开 {name}",
+    "openDocumentAria": "打开 {name}",
+    "previewAttachmentAria": "预览 {filename}",
+    "previewFrameAria": "预览相机帧",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部应用",
+    "seeAllFilesAria": "查看全部文档与图片",
+    "seeAllFramesAria": "查看全部相机帧",
+    "title": "聊天信息"
   },
   "chatLayout": {
     "navigationAria": "导航"
@@ -612,12 +634,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
+    "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
-    "heading": "资产",
-    "label": "{count, plural, one {# 个资产} other {# 个资产}}"
-  },
-  "conversationRow": {
-    "untitled": "无标题"
+    "label": "{count, plural, one {# 个资产} other {# 个资产}}",
+    "labelUnavailable": "无法加载资产"
   },
   "conversationStarterDock": {
     "caption": "尝试以下建议："
@@ -664,8 +684,7 @@
     "cancel": "取消",
     "confirm": "删除",
     "message": "删除“{title}”？这将永久删除对话及其消息。相关资产和记忆可能仍会保留。此操作无法撤消。",
-    "title": "删除对话",
-    "untitled": "无标题"
+    "title": "删除对话"
   },
   "deletedMessageRow": {
     "label": "此消息已被删除"
@@ -890,7 +909,8 @@
     "windows": "语音已在 Windows 应用中激活。"
   },
   "liveVoiceButton": {
-    "startVoiceMode": "启动语音模式"
+    "startVoiceMode": "启动语音模式",
+    "tooltip": "用语音模式开口交谈"
   },
   "liveVoiceStatus": {
     "connecting": "正在连接…",
@@ -1317,7 +1337,8 @@
     "railAria": "进度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "进度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "无活动会话。请重试。"
@@ -1660,11 +1681,14 @@
     "settings": "设置"
   },
   "toolDetailPanel": {
+    "changes": "更改",
     "closeAria": "关闭工具详情",
+    "command": "命令",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
+    "input": "输入",
     "output": "输出",
-    "riskLevel": "风险级别",
+    "requestedChanges": "请求的更改",
     "running": "正在运行…"
   },
   "toolStepPill": {
@@ -1679,7 +1703,8 @@
     "stopWorkflow": "停止工作流"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "处理中"
   },
   "useConversationLoader": {
     "authFailed": "用户身份验证失败。"
@@ -1688,9 +1713,6 @@
     "assistantBusy": "您的助手正忙。请在回复完成后重试。",
     "retryFailed": "无法重试响应",
     "summarizeFailed": "无法总结对话"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "无标题"
   },
   "useSendMessage": {
     "commandFailed": "无法运行该命令。请重试。",
@@ -1774,6 +1796,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "已静音"
+  },
+  "wakeCard": {
+    "commandFinished": "后台命令已完成",
+    "incomingEvent": "收到事件",
+    "memoryReview": "记忆回顾",
+    "ranOnItsOwn": "自动运行",
+    "resumed": "中断后已恢复",
+    "scheduledRun": "定时运行",
+    "watchReview": "观察会话回顾",
+    "workflowFinished": "工作流已完成"
+  },
+  "wakeDetailPanel": {
+    "close": "关闭",
+    "details": "详细信息",
+    "result": "结果",
+    "runStatus": "运行状态",
+    "title": "对话已唤醒",
+    "workflow": "工作流"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

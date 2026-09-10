@@ -1,0 +1,12 @@
+// NotificationService-Dev.xcconfig - dev Notification Service Extension
+// overrides. The bundle ID must stay prefixed by App-Dev.xcconfig's, and the App
+// Group must match that app's value exactly.
+
+#include "NotificationService-Base.xcconfig"
+
+APP_GROUP_ID = group.ai.vocify-inc.vellum-assistant-ios.dev
+BUNDLE_DISPLAY_NAME = Vellum Dev
+PRODUCT_BUNDLE_IDENTIFIER = ai.vocify-inc.vellum-assistant-ios.dev.NotificationService
+
+// Exact portal profile name; must equal release-ios.yaml's `nse_profile_name`.
+PROVISIONING_PROFILE_SPECIFIER_Manual = Vellum Assistant iOS Dev NotificationService Distribution

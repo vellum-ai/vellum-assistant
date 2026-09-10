@@ -279,6 +279,35 @@ describe("handleHostFileResult — targetClientId guard", () => {
       expect(result).toEqual({ accepted: true });
       expect(resolveSpy).toHaveLength(1);
     });
+
+    test("rejects a different actor when the pending request recorded a source actor", () => {
+      const requestId = "req-file-untargeted-actor-mismatch";
+      registerPending(requestId, {
+        targetActorPrincipalId: "principal-owner",
+      });
+
+      expect(() =>
+        handleHostFileResult({
+          body: fileBody(requestId),
+          headers: { "x-vellum-actor-principal-id": "principal-attacker" },
+        }),
+      ).toThrow(ForbiddenError);
+    });
+
+    test("accepts the recorded source actor on an untargeted pending request", async () => {
+      const requestId = "req-file-untargeted-actor-match";
+      registerPending(requestId, {
+        targetActorPrincipalId: "principal-owner",
+      });
+
+      const result = await handleHostFileResult({
+        body: fileBody(requestId),
+        headers: { "x-vellum-actor-principal-id": "principal-owner" },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveSpy).toHaveLength(1);
+    });
   });
 
   // ── 5. Targeted + matching client but mismatched actor → 403 ──────────────

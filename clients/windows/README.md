@@ -150,19 +150,25 @@ uninstall-tests the installer.
 
 `.github/workflows/release-windows.yaml` is the reusable release: both
 `dev-release.yaml` and `release.yml` call it with `{ environment, version }`.
-Dev runs on every dev release, while staging and production stay behind the
-`WINDOWS_{STAGING,PRODUCTION}_RELEASE_ENABLED` variables. It stamps the version
-and builds the helper, preview handler, CLI runtime, and renderer on native
-runners (x64 on `windows-2025`, arm64 on `windows-11-vs2026-arm`). Each native
-payload and its stamped app manifest transfer to an x64 `windows-2025` runner
+Windows installers build for dev, staging, and production releases. Staging
+and production wait for the release images and channel metadata to publish.
+The workflow stamps the version and builds the helper, preview handler, CLI
+runtime, and renderer on native runners (x64 on `windows-2025`, arm64 on
+`windows-11-vs2026-arm`). Each native payload and its stamped app manifest
+transfer to an x64 `windows-2025` runner
 for packaging and signing through `electron-builder`, because
 [Azure Artifact Signing does not support Windows ARM runners](https://github.com/Azure/artifact-signing-action#runner-requirements).
 The workflow verifies every manifest binary and the installer with
 `Get-AuthenticodeSignature`, requiring valid signatures from the configured
-publisher while allowing Azure certificate rotation, and publishes to the
+publisher while allowing Azure certificate rotation. Three bundled Microsoft
+runtime DLL paths also accept valid Microsoft Windows catalog signatures,
+which PowerShell prefers over embedded signatures. The workflow publishes to the
 `vellum-ai-<env>-releases/win-electron/<arch>/` feed: installer and blockmap
 first, then the `<env>.yml` channel manifest. Dev also publishes the installer
 as `vellum-assistant-dev-<arch>.exe` for stable download-page links.
+
+The builder always writes `latest.yml`, including for prerelease versions;
+CD uploads it under the environment's `<env>.yml` channel name.
 
 The executable, installer, and uninstaller use the environment-specific icon
 from `build-resources/icons/<environment>/icon.ico`, matching the local, dev,

@@ -22,6 +22,7 @@ import { ReactionLineRow } from "@/domains/chat/transcript/reaction-line-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -225,6 +226,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   isLatestMessage,
 }: TranscriptRowProps) {
   const { t } = useTranslation("chat");
+  const hideThinkingUi = useHideThinkingUi();
   switch (item.kind) {
     case "message": {
       // A row deleted on its channel renders as a tombstone whatever else it
@@ -340,8 +342,19 @@ export const TranscriptRow = memo(function TranscriptRow({
             item.active ? "h-7 opacity-100" : "h-0 opacity-0"
           }`}
         >
+          {/*
+            The daemon's own status line ("Processing command results") shows
+            only where it is the transcript's one live label. Under
+            `send-user-message` the step stack above already names the work in
+            the user's terms, and a second label under it reads as the
+            assistant reporting on itself twice. "Working" still covers the gap
+            before the first tool starts, which is the only stretch of a turn
+            the step stack cannot narrate.
+          */}
           <StreamingShimmerText>
-            {item.label ?? t("transcriptRow.thinking")}
+            {hideThinkingUi
+              ? t("transcriptRow.working")
+              : (item.label ?? t("transcriptRow.thinking"))}
           </StreamingShimmerText>
         </div>
       );

@@ -159,3 +159,31 @@ describe("serializeConversationSummary · enabledPlugins", () => {
     expect("enabledPlugins" in summary).toBe(false);
   });
 });
+
+describe("serializeConversationSummary · title keys", () => {
+  test("resolves a stored title key for the locale", () => {
+    const summary = serializeConversationSummary({
+      conversation: makeConversationRow({
+        title: "conversation.title.generating",
+      }),
+      displayMeta: { displayOrder: null, isPinned: false, groupId: null },
+      parentCache: new Map(),
+      isProcessing: false,
+      locale: "es",
+    });
+    expect(summary.title).toBe("Generando título...");
+    expect("titleState" in summary).toBe(false);
+  });
+
+  test("passes a stored display string through", () => {
+    const summary = serialize(
+      makeConversationRow({ title: "Untitled Conversation" }),
+    );
+    expect(summary.title).toBe("Untitled Conversation");
+  });
+
+  test("passes a custom title through", () => {
+    const summary = serialize(makeConversationRow({ title: "Weekly planning" }));
+    expect(summary.title).toBe("Weekly planning");
+  });
+});
