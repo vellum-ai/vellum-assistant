@@ -189,7 +189,12 @@
     "unmuteMicrophone": "解除麥克風靜音",
     "dictating": "正在聆聽",
     "dictatingTranscribing": "正在思考",
-    "draw": "繪製"
+    "draw": "繪製",
+    "drawTools": "繪圖工具",
+    "drawFreehand": "自由繪製",
+    "drawLine": "直線",
+    "drawBox": "方框",
+    "drawCircle": "圓形"
   },
   "companionWatchFramePage": {
     "sharingScreen": "正在分享你的螢幕",

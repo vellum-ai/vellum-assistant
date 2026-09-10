@@ -26,6 +26,7 @@ import {
   listCompanionCaptureSources,
   moveCompanionBy,
   setCompanionAnnotating,
+  setCompanionAnnotationTool,
   setCompanionInteractive,
   setCompanionScreenShare,
   showCompanionContextMenu,
@@ -39,6 +40,7 @@ import { callChordHints } from "@/domains/chat/voice/live-voice/call-chord-keys"
 import { useTranslation } from "@/i18n";
 import { COMPANION_BASE_AVATAR_BOX } from "@vellumai/ipc-contract";
 import type {
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCardGrowth,
@@ -147,6 +149,11 @@ export function CompanionSurfacePage() {
   // and the only one of these that is: the press asks main to make a window
   // main opened interactive, and this is main's answer about whether it did.
   const [annotating, setAnnotating] = useState(false);
+  // What a press on that frame draws. Main's for the reason the mode is, and
+  // read off the same push: the strip that chooses it and the frame that
+  // draws with it are two windows, and this is the one answer both see.
+  const [annotationTool, setAnnotationTool] =
+    useState<CompanionAnnotationTool>("freehand");
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
@@ -185,6 +192,12 @@ export function CompanionSurfacePage() {
   const pickerRef = useRef<HTMLDivElement | null>(null);
   // The offer's card, for the reason the picker's is.
   const offerRef = useRef<HTMLDivElement | null>(null);
+  // The strip of drawing tools, for the same reason: it stands off the pill,
+  // and every button on it is a press.
+  const drawToolsRef = useRef<HTMLDivElement | null>(null);
+  // Whether the last forwarded move put the pointer on that strip, for the
+  // moment the strip goes away under it.
+  const overDrawToolsRef = useRef(false);
   // Screen coordinates of the last drag frame, or null when not dragging.
   // Screen rather than client: the window moves under the cursor, so client
   // coordinates barely change while screen ones track the hand exactly.
@@ -243,6 +256,9 @@ export function CompanionSurfacePage() {
       // control drawn held down over a frame that is not doing that is a
       // promise about where the user's next press lands.
       setAnnotating(state.annotating === true);
+      // The pencil unless main names another: a shell that predates the
+      // shapes has only the pencil, and that is what its frame draws with.
+      setAnnotationTool(state.annotationTool ?? "freehand");
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -383,6 +399,19 @@ export function CompanionSurfacePage() {
       setCompanionInteractive(false);
     }
   }, [picking]);
+
+  // The strip of tools goes with the mode, and the mode can go from the
+  // keyboard or with the share, under a pointer resting on the strip that
+  // nothing then moves. Give the desktop back for the same reason, and only
+  // when the pointer was on the strip: a press on Draw itself leaves the
+  // pointer on the pill, which is still there to be pressed.
+  useEffect(() => {
+    if (!annotating && overDrawToolsRef.current) {
+      overDrawToolsRef.current = false;
+      interactiveRef.current = false;
+      setCompanionInteractive(false);
+    }
+  }, [annotating]);
 
   // An answer or the offer's own expiry removes the card, and if the pointer
   // is resting on it nothing moves, so no mouse-move arrives to hand the
@@ -608,12 +637,22 @@ export function CompanionSurfacePage() {
         event.clientX,
         event.clientY,
       );
+    // The drawing tools, for the same reason and for as long as they are drawn.
+    const drawTools = drawToolsRef.current;
+    const onDrawTools =
+      drawTools !== null &&
+      containsPoint(
+        drawTools.getBoundingClientRect(),
+        event.clientX,
+        event.clientY,
+      );
     // Hover is the creature noticing a hand on *it*, so the card does not feed
     // it: a pointer resting on a paragraph is not a pointer on the avatar, and
     // widening the eyes for it would be the surface reacting to the wrong
     // thing.
     setHovered(onSurface);
-    setInteractive(onSurface || onIntro || onPicker || onOffer);
+    overDrawToolsRef.current = onDrawTools;
+    setInteractive(onSurface || onIntro || onPicker || onOffer || onDrawTools);
   };
 
   // The avatar's own colour, shared with the display's edge glow so the two
@@ -846,6 +885,13 @@ export function CompanionSurfacePage() {
         onAnnotate={(next) => {
           setCompanionAnnotating(next);
         }}
+        // The tool, main's the same way: the press asks, and `annotationTool`
+        // above is what main did with the ask.
+        annotationTool={annotationTool}
+        onAnnotationTool={(tool) => {
+          setCompanionAnnotationTool(tool);
+        }}
+        drawToolsRef={drawToolsRef}
         shortcuts={shortcuts}
         // Beside the bar while the choice is open, on the canvas main
         // reserves for a card. The pick leaves this window the way every

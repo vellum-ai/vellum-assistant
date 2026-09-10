@@ -12,6 +12,7 @@ import { isElectron } from "@/runtime/is-electron";
 import type {
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
@@ -157,6 +158,19 @@ export function setCompanionAnnotating(annotating: boolean): void {
  */
 export function toggleCompanionAnnotating(): void {
   bridge()?.toggleAnnotating?.();
+}
+
+/**
+ * Choose what a press on the shared surface draws: the pointer's own path, or
+ * a line, box or circle stretched between press and release.
+ *
+ * Main's for the reason the mode is: the pill chooses and the frame draws, and
+ * what comes back is `annotationTool` on the pushed state.
+ */
+export function setCompanionAnnotationTool(
+  tool: CompanionAnnotationTool,
+): void {
+  bridge()?.setAnnotationTool?.(tool);
 }
 
 /**

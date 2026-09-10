@@ -21,6 +21,14 @@
  * to the window holding the session, and it is as much of the point as the
  * strokes are.
  *
+ * **A shape is a stroke the hand did not have to make.** The pencil sends
+ * the pointer's own path; the line, box and circle tools stretch a shape
+ * between the press and wherever the hand is, redrawn on every move and sent
+ * on the release as the points along it. So a shape crosses the bridge as
+ * the same polyline a freehand mark does, and nothing past this layer has a
+ * second idea of what a mark is. Which tool is current is main's, chosen on
+ * the pill and read here off the same pushed state that mounts the layer.
+ *
  * The marks fade once they have been sent. They are a gesture rather than an
  * annotation layer: the user pointed at something and the call has the
  * picture, and a circle still sitting on the screen a minute later is a
@@ -48,6 +56,7 @@ import {
   COMPANION_ANNOTATION_MAX_STROKES,
   COMPANION_ANNOTATION_MIN_STEP,
   COMPANION_ANNOTATION_STROKE,
+  type CompanionAnnotationTool,
 } from "@vellumai/ipc-contract";
 
 /**
@@ -72,6 +81,62 @@ export const COMPANION_INK_FADE_MS = 900;
 
 /** A fraction of the shared surface, held inside it. */
 const clamp = (value: number): number => Math.min(Math.max(value, 0), 1);
+
+type Point = { x: number; y: number };
+
+/**
+ * How many points the circle tool's ellipse is sent as.
+ *
+ * Enough that the frame drawer's straight segments read as a curve at the
+ * line's own weight, and few enough that a circle costs a tenth of what a
+ * freehand one does. Plus one on the wire, to close it.
+ */
+export const COMPANION_CIRCLE_SEGMENTS = 48;
+
+/**
+ * The points a shape tool sends for a drag from `anchor` to `point`.
+ *
+ * In the same fractions the pointer's path is in, so the frame drawer needs
+ * no idea which tool made a mark. The box and the circle end where they
+ * began: a closed shape is one the last segment closes, since the polyline
+ * on the other end knows nothing about closing.
+ *
+ * Freehand has no shape and is not asked: its points are the moves as they
+ * came.
+ */
+export function shapePoints(
+  tool: Exclude<CompanionAnnotationTool, "freehand">,
+  anchor: Point,
+  point: Point,
+): Point[] {
+  switch (tool) {
+    case "line":
+      return [anchor, point];
+    case "box":
+      return [
+        anchor,
+        { x: point.x, y: anchor.y },
+        point,
+        { x: anchor.x, y: point.y },
+        anchor,
+      ];
+    case "circle": {
+      // The ellipse inscribed in the drag's box, the way every drawing tool
+      // draws one: the hand marks the corners and the curve fits inside.
+      const cx = (anchor.x + point.x) / 2;
+      const cy = (anchor.y + point.y) / 2;
+      const rx = Math.abs(point.x - anchor.x) / 2;
+      const ry = Math.abs(point.y - anchor.y) / 2;
+      return Array.from({ length: COMPANION_CIRCLE_SEGMENTS + 1 }, (_, i) => {
+        const angle = (i / COMPANION_CIRCLE_SEGMENTS) * Math.PI * 2;
+        return {
+          x: cx + rx * Math.cos(angle),
+          y: cy + ry * Math.sin(angle),
+        };
+      });
+    }
+  }
+}
 
 /** One mark on the overlay, and whether it has been sent. */
 interface LiveStroke {
@@ -126,7 +191,14 @@ export function pencilCursor(ink: string): string {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 22, crosshair`;
 }
 
-export function CompanionShareAnnotation({ ink }: { ink: string }) {
+export function CompanionShareAnnotation({
+  ink,
+  tool = "freehand",
+}: {
+  ink: string;
+  /** What a press draws. Absent is the pencil, which is all an older shell has. */
+  tool?: CompanionAnnotationTool;
+}) {
   const [strokes, setStrokes] = useState<readonly LiveStroke[]>([]);
   /**
    * The marks, as the handlers see them.
@@ -139,6 +211,9 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
    */
   const live = useRef<readonly LiveStroke[]>([]);
   const drawing = useRef<number | null>(null);
+  // Where the hand came down, for the shape tools: every move redraws the
+  // shape from here to the pointer, rather than adding to what is there.
+  const anchor = useRef<Point>({ x: 0, y: 0 });
   /**
    * Whether this layer last asked main to step aside for a scroll.
    *
@@ -268,7 +343,9 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
     event.currentTarget.setPointerCapture(event.pointerId);
     const id = nextId.current++;
     drawing.current = id;
-    commit([...live.current, { id, points: [pointOf(event)], spent: false }]);
+    const start = pointOf(event);
+    anchor.current = start;
+    commit([...live.current, { id, points: [start], spent: false }]);
     // The hand is down: whatever cadence the session was sending frames on, it
     // stops here. This is the half of the feature that is not about drawing,
     // and the half the user only notices when it is missing.
@@ -295,12 +372,19 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
         candidate.id === id
           ? {
               ...candidate,
-              // The oldest point goes rather than the newest being refused: a
-              // hand that has been drawing this long is still drawing, and
-              // what it is drawing now is the part worth keeping.
-              points: [...candidate.points, next].slice(
-                -COMPANION_ANNOTATION_MAX_POINTS,
-              ),
+              points:
+                tool === "freehand"
+                  ? // The oldest point goes rather than the newest being
+                    // refused: a hand that has been drawing this long is
+                    // still drawing, and what it is drawing now is the part
+                    // worth keeping.
+                    [...candidate.points, next].slice(
+                      -COMPANION_ANNOTATION_MAX_POINTS,
+                    )
+                  : // A shape is remade from the press to the pointer on
+                    // every move, so a hand that overshoots and comes back
+                    // gets the smaller box, not a trail of the larger one.
+                    shapePoints(tool, anchor.current, next),
             }
           : candidate,
       ),
@@ -341,8 +425,11 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
   // weight relative to the surface they are on.
   const width = COMPANION_ANNOTATION_STROKE * Math.min(box.width, box.height);
   // Built once per colour rather than on every move: the layer re-renders as
-  // the hand travels, and the cursor does not change under it.
-  const cursor = useMemo(() => pencilCursor(ink), [ink]);
+  // the hand travels, and the cursor does not change under it. A shape tool
+  // gets the crosshair instead: what the press marks is a corner, and the
+  // pointer changing is how the user sees the choice on the pill took here.
+  const pencil = useMemo(() => pencilCursor(ink), [ink]);
+  const cursor = tool === "freehand" ? pencil : "crosshair";
 
   return (
     <svg
@@ -355,6 +442,7 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
         } as React.CSSProperties
       }
       data-testid="companion-share-annotation"
+      data-tool={tool}
       role="presentation"
       onPointerDown={handleDown}
       onPointerMove={handleMove}

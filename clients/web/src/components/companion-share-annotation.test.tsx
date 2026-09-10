@@ -32,9 +32,11 @@ mock.module("@/runtime/companion-surface", () => ({
 
 const {
   CompanionShareAnnotation,
+  COMPANION_CIRCLE_SEGMENTS,
   COMPANION_INK_FADE_MS,
   COMPANION_INK_HOLD_MS,
   pencilCursor,
+  shapePoints,
 } = await import("./companion-share-annotation");
 
 /**
@@ -417,5 +419,137 @@ describe("the pointer while drawing is on", () => {
     const { container } = render(<CompanionShareAnnotation ink={INK} />);
     const layer = layerOf(container);
     expect(layer.getAttribute("style")).toContain("data:image/svg+xml");
+  });
+});
+
+/**
+ * The shape tools. A shape is the same stroke on the wire that a freehand
+ * mark is, which is what these pin: what a drag with each tool sends, and
+ * that it is the drag's ends and not its path that the shape is made from.
+ */
+describe("the shape tools", () => {
+  test("the pencil is the tool when none is named", () => {
+    const { container } = render(<CompanionShareAnnotation ink={INK} />);
+    expect(layerOf(container).getAttribute("data-tool")).toBe("freehand");
+  });
+
+  test("a line is the press and the release, whatever the hand did between", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="line" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 300, 900);
+    move(layer, 500, 200);
+    up(layer, 500, 200);
+    expect(sent.at(-1)?.strokes[0]?.points).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.2 },
+    ]);
+  });
+
+  test("a box is the drag's corners, closed", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="box" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 500, 300);
+    up(layer, 500, 300);
+    expect(sent.at(-1)?.strokes[0]?.points).toEqual([
+      { x: 0.1, y: 0.1 },
+      { x: 0.5, y: 0.1 },
+      { x: 0.5, y: 0.3 },
+      { x: 0.1, y: 0.3 },
+      { x: 0.1, y: 0.1 },
+    ]);
+  });
+
+  test("a circle is the ellipse inside the drag, closed", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="circle" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 200, 200);
+    move(layer, 600, 400);
+    up(layer, 600, 400);
+    const points = sent.at(-1)?.strokes[0]?.points ?? [];
+    expect(points).toHaveLength(COMPANION_CIRCLE_SEGMENTS + 1);
+    expect(points[0]?.x).toBeCloseTo(0.6);
+    expect(points[0]?.y).toBeCloseTo(0.3);
+    expect(points.at(-1)?.x).toBeCloseTo(0.6);
+    expect(points.at(-1)?.y).toBeCloseTo(0.3);
+    // Every point sits on the ellipse centred in the drag's box, with the
+    // box's half-sides as its radii.
+    for (const point of points) {
+      const dx = (point.x - 0.4) / 0.2;
+      const dy = (point.y - 0.3) / 0.1;
+      expect(dx * dx + dy * dy).toBeCloseTo(1);
+    }
+  });
+
+  /**
+   * A hand that overshoots and comes back gets the smaller box. The shape is
+   * remade from the press to the pointer on every move rather than grown,
+   * which is the whole difference between a shape and a path.
+   */
+  test("a shape is remade from the press, not added to", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="box" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 100, 100);
+    move(layer, 900, 900);
+    move(layer, 500, 500);
+    up(layer, 500, 500);
+    const points = sent.at(-1)?.strokes[0]?.points ?? [];
+    expect(points).toHaveLength(5);
+    expect(points[2]).toEqual({ x: 0.5, y: 0.5 });
+  });
+
+  test("a shape tool's press that never moved is still a dot", () => {
+    const { container } = render(
+      <CompanionShareAnnotation ink={INK} tool="circle" />,
+    );
+    const layer = layerOf(container);
+    down(layer, 400, 400);
+    up(layer, 400, 400);
+    expect(sent.at(-1)?.strokes[0]?.points).toHaveLength(1);
+    expect(container.querySelector("circle")).not.toBeNull();
+  });
+
+  /**
+   * The pointer is how the user sees the choice on the pill took here: the
+   * surface under it is someone else's app, and nothing else on screen can
+   * say what the next press will make.
+   */
+  test("a shape tool puts a crosshair on the pointer; the pencil keeps its pencil", () => {
+    const shape = render(<CompanionShareAnnotation ink={INK} tool="box" />);
+    expect((layerOf(shape.container) as HTMLElement).style.cursor).toBe(
+      "crosshair",
+    );
+    shape.unmount();
+    const pencil = render(<CompanionShareAnnotation ink={INK} />);
+    expect((layerOf(pencil.container) as HTMLElement).style.cursor).not.toBe(
+      "crosshair",
+    );
+  });
+
+  test("the shapes are built from the drag's two ends", () => {
+    expect(shapePoints("line", { x: 0, y: 0 }, { x: 1, y: 1 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 1, y: 1 },
+    ]);
+    // A drag made from the bottom-right corner is the same box.
+    expect(shapePoints("box", { x: 1, y: 1 }, { x: 0, y: 0 })).toEqual([
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+    ]);
+    expect(shapePoints("circle", { x: 0, y: 0 }, { x: 1, y: 1 }).length).toBe(
+      COMPANION_CIRCLE_SEGMENTS + 1,
+    );
   });
 });

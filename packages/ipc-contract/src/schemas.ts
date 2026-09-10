@@ -18,6 +18,7 @@ import { z } from "zod";
 import {
   ASSISTANT_STATUSES,
   COMPANION_ANNOTATION_MAX_POINTS,
+  COMPANION_ANNOTATION_TOOLS,
   COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
   NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
@@ -181,6 +182,8 @@ export const companionAnnotationStrokeSchema = z.object({
 });
 
 export const companionAnnotationPhaseSchema = z.enum(["drawing", "released"]);
+
+export const companionAnnotationToolSchema = z.enum(COMPANION_ANNOTATION_TOOLS);
 
 /**
  * The colour a drawing was made in, as `#rrggbb`.
