@@ -6,6 +6,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import {
   activityItemsToCardData,
   groupContentBlocks,
+  groupOptionsForMessage,
 } from "@/domains/chat/transcript/message-content";
 import {
   acpRunIdForCall,
@@ -107,9 +108,10 @@ export function useLiveActivityGroup(
     if (!message || groupIndex == null) {
       return null;
     }
-    const groups = groupContentBlocks(message.contentBlocks ?? [], {
-      splitInlineThinking: message.role !== "user",
-    });
+    const groups = groupContentBlocks(
+      message.contentBlocks ?? [],
+      groupOptionsForMessage(message),
+    );
     const group = groups[groupIndex];
     if (!group || group.type !== "activity") {
       return null;

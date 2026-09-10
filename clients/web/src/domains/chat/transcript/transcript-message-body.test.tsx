@@ -920,10 +920,11 @@ describe("TranscriptMessageBody", () => {
     expect(queryByText("All done.")).not.toBeNull();
   });
 
-  test("renders a projected private row through the thinking UI", () => {
+  test("renders a projected private row's reply and none of its scratchpad", () => {
     // The server projects such a row before it ships: the raw prose arrives as
-    // thinking, each `send_user_message` call as its own text block. Nothing
-    // new renders it; it reads as an ordinary reasoning row above the reply.
+    // thinking, each `send_user_message` call as its own text block. The
+    // scratchpad is the assistant talking to itself, so the row is its reply
+    // and nothing else.
     const { container, queryByRole, queryByText } = render(
       <TranscriptMessageBody
         message={{
@@ -943,7 +944,9 @@ describe("TranscriptMessageBody", () => {
     expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
     expect(
       container.querySelectorAll("[data-testid='thought-process-link']").length,
-    ).toBe(1);
+    ).toBe(0);
+    expect(queryByText("Thinking")).toBeNull();
+    expect(queryByText("private working notes")).toBeNull();
     expect(queryByText("Found it.")).not.toBeNull();
     expect(queryByText("Sending now.")).not.toBeNull();
   });
@@ -973,6 +976,34 @@ describe("TranscriptMessageBody", () => {
 
     expect(queryByText("Here you go.")).not.toBeNull();
     expect(container.textContent).not.toContain("send_user_message");
+    expect(container.textContent).not.toContain("Thinking");
+  });
+
+  test("holds the thinking row off a streaming private row", () => {
+    // The row's only step draws its own inline card, so the run falls through
+    // to the thinking branch. An unmarked row shimmers "Thinking" there while
+    // the turn streams; a private row has no reasoning the user reads, so the
+    // dots row under the transcript owns the wait instead.
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "private-streaming",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-spawn",
+              name: "subagent_spawn",
+              input: {},
+            }),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
     expect(container.textContent).not.toContain("Thinking");
   });
 

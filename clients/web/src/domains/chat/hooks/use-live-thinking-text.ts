@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 
-import { groupContentBlocks } from "@/domains/chat/transcript/message-content";
+import {
+  groupContentBlocks,
+  groupOptionsForMessage,
+} from "@/domains/chat/transcript/message-content";
 import { useTranscriptMessageById } from "@/domains/chat/hooks/use-transcript-message-by-id";
 
 /**
@@ -38,9 +41,10 @@ export function useLiveThinkingText(
     if (!message || groupIndex == null) {
       return null;
     }
-    const groups = groupContentBlocks(message.contentBlocks ?? [], {
-      splitInlineThinking: message.role !== "user",
-    });
+    const groups = groupContentBlocks(
+      message.contentBlocks ?? [],
+      groupOptionsForMessage(message),
+    );
     const group = groups[groupIndex];
     if (!group || group.type !== "activity") {
       return null;

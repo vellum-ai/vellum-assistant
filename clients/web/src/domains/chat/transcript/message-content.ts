@@ -17,7 +17,10 @@ import type {
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
-import { isSendUserMessageCall } from "@/domains/chat/utils/assistant-text-visibility";
+import {
+  type AssistantTextVisibility,
+  isSendUserMessageCall,
+} from "@/domains/chat/utils/assistant-text-visibility";
 import { isArtifactPointerSurface } from "@/domains/chat/transcript/response-artifacts";
 import {
   containsInlineThinkingTag,
@@ -73,6 +76,51 @@ export interface GroupContentBlocksOptions {
    * render verbatim.
    */
   splitInlineThinking?: boolean;
+  /**
+   * Drop `thinking` blocks instead of grouping them. Pass for a row whose
+   * prose is a scratchpad: its reasoning is the same working text the reply
+   * tool already spoke around, so a "Thinking" row over the delivered message
+   * shows the user their assistant talking to itself. Dropping the blocks
+   * here, rather than at each render site, keeps the inline view, the steps
+   * timeline, and the detail drawer reading one projection.
+   */
+  dropThinking?: boolean;
+}
+
+/**
+ * The grouping options a message row implies. One place decides both, so the
+ * render body, the live activity group, and the thinking drawer project the
+ * same row the same way.
+ */
+export function groupOptionsForMessage(message: {
+  role?: string;
+  assistantTextVisibility?: AssistantTextVisibility;
+}): GroupContentBlocksOptions {
+  return {
+    splitInlineThinking: message.role !== "user",
+    dropThinking: message.assistantTextVisibility === "private",
+  };
+}
+
+/**
+ * Whether a row shows reasoning the user can open. The inline thinking link
+ * owns the streaming loading state whenever it renders, so the standalone
+ * thinking-dots row reads this to know when to defer to it; a row whose
+ * reasoning the projection drops has no such link, and the dots keep the wait.
+ */
+export function hasRenderedThinking(message: {
+  role?: string;
+  assistantTextVisibility?: AssistantTextVisibility;
+  thinkingSegments?: string[];
+  contentBlocks?: ConversationContentBlock[];
+}): boolean {
+  if (groupOptionsForMessage(message).dropThinking) {
+    return false;
+  }
+  return (
+    (message.thinkingSegments?.length ?? 0) > 0 ||
+    !!message.contentBlocks?.some((block) => block.type === "thinking")
+  );
 }
 
 /**
@@ -138,6 +186,9 @@ export function groupContentBlocks(
 
   for (const block of walked) {
     if (block.type === "thinking") {
+      if (options?.dropThinking) {
+        continue;
+      }
       const activity = openActivity();
       const lastItem = activity.items[activity.items.length - 1];
       if (lastItem?.type === "thinking") {

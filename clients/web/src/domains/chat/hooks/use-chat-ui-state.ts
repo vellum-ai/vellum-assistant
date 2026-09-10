@@ -25,6 +25,7 @@ import {
   hasAnyInteractiveSurface,
   hasPendingAssistantResponse,
 } from "@/domains/chat/utils/chat";
+import { hasRenderedThinking } from "@/domains/chat/transcript/message-content";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -127,10 +128,7 @@ export function useChatUIState(): ChatUIState {
     if (!live) {
       return false;
     }
-    return (
-      (live.thinkingSegments?.length ?? 0) > 0 ||
-      !!live.contentBlocks?.some((b) => b.type === "thinking")
-    );
+    return hasRenderedThinking(live);
   }, [transcript, liveAssistantMessageId]);
 
   const hasUncompletedVisibleSurface = useMemo(

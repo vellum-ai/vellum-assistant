@@ -50,6 +50,7 @@ import {
   type ContentBlockActivityItem,
   finalResponseStartIndex,
   groupContentBlocks,
+  groupOptionsForMessage,
   isSubagentSpawnCall,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
@@ -174,6 +175,11 @@ export function TranscriptMessageBody({
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
+  // A row the daemon marks private speaks through the reply tool, so its
+  // reasoning is a scratchpad. `groupOptionsForMessage` drops the settled
+  // blocks; this is what keeps the live row from shimmering a "Thinking" label
+  // over the reply while the turn is still running.
+  const hidesThinking = message.assistantTextVisibility === "private";
   const hasAttachments = Boolean(message.attachments?.length);
   // Gated on the transcript owner: an older daemon neutralizes nothing, so
   // sentinel-shaped text in its transcripts must never chip-ify, and only the
@@ -181,10 +187,12 @@ export function TranscriptMessageBody({
   const supportsRedactedCredentialChips =
     useSupportsRedactedCredentialChips(assistantId);
 
-  // User-typed thinking tags must render verbatim; only assistant text splits.
-  const groups = groupContentBlocks(message.contentBlocks ?? [], {
-    splitInlineThinking: !isUser,
-  });
+  // User-typed thinking tags must render verbatim, and a row marked private
+  // carries no reasoning the user reads.
+  const groups = groupContentBlocks(
+    message.contentBlocks ?? [],
+    groupOptionsForMessage(message),
+  );
 
   // Only the trailing text group of a streaming assistant message is still
   // growing, so only it gets the typewriter re-pacing; earlier groups (and
@@ -913,7 +921,8 @@ export function TranscriptMessageBody({
     // inline thinking `SingleActivity`, plus any spawn cards. A trailing run
     // reads as still-streaming only while the row is live.
     const combinedThinking = thinkingContents.join("\n");
-    const showThinking = combinedThinking || (isStreaming && isLastGroup);
+    const showThinking =
+      !hidesThinking && (combinedThinking || (isStreaming && isLastGroup));
     return (
       <Fragment key={key}>
         {showThinking && (

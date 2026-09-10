@@ -9,6 +9,8 @@ import {
   type ContentBlockGroup,
   finalResponseStartIndex,
   groupContentBlocks,
+  groupOptionsForMessage,
+  hasRenderedThinking,
   isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
@@ -548,20 +550,9 @@ describe("finalResponseStartIndex", () => {
   });
 
   test("returns -1 for a response carrying no text", () => {
-    expect(finalResponseStartIndex([activityGroup()], drawsVisibleOutput())).toBe(
-      -1,
-    );
-  });
-});
-
-describe("isSendUserMessageCall", () => {
-  test("matches the reply tool only", () => {
     expect(
-      isSendUserMessageCall(toolCall({ id: "x", name: "send_user_message" })),
-    ).toBe(true);
-    expect(isSendUserMessageCall(toolCall({ id: "x", name: "bash" }))).toBe(
-      false,
-    );
+      finalResponseStartIndex([activityGroup()], drawsVisibleOutput()),
+    ).toBe(-1);
   });
 });
 
@@ -689,5 +680,87 @@ describe("send_user_message in the transcript projection", () => {
     expect(cardItems).toEqual([
       { kind: "toolCall", toolCall: toolCall({ id: "call-a" }) },
     ]);
+  });
+});
+
+describe("a private row's reasoning", () => {
+  const blocks: ConversationContentBlock[] = [
+    { type: "thinking", thinking: "let me look that up" },
+    { type: "tool_use", toolCall: toolCall({ id: "call-a", name: "bash" }) },
+    { type: "text", text: "Here you go." },
+  ];
+
+  test("is dropped from the projection, leaving the work it did", () => {
+    const groups = groupContentBlocks(
+      blocks,
+      groupOptionsForMessage({
+        role: "assistant",
+        assistantTextVisibility: "private",
+      }),
+    );
+    expect(groups).toEqual([
+      {
+        type: "activity",
+        items: [
+          {
+            type: "tool_use",
+            toolCall: toolCall({ id: "call-a", name: "bash" }),
+          },
+        ],
+      },
+      { type: "text", text: "Here you go." },
+    ]);
+  });
+
+  test("survives on a row carrying no marker", () => {
+    const groups = groupContentBlocks(
+      blocks,
+      groupOptionsForMessage({ role: "assistant" }),
+    );
+    expect(groups[0]).toEqual({
+      type: "activity",
+      items: [
+        {
+          type: "thinking",
+          thinking: "let me look that up",
+          startedAt: undefined,
+          completedAt: undefined,
+        },
+        {
+          type: "tool_use",
+          toolCall: toolCall({ id: "call-a", name: "bash" }),
+        },
+      ],
+    });
+  });
+
+  test("leaves the thinking dots owning the wait", () => {
+    // The inline link defers the dots row only when it actually renders.
+    expect(
+      hasRenderedThinking({
+        role: "assistant",
+        assistantTextVisibility: "private",
+        contentBlocks: [{ type: "thinking", thinking: "let me look that up" }],
+      }),
+    ).toBe(false);
+    expect(
+      hasRenderedThinking({
+        role: "assistant",
+        contentBlocks: [{ type: "thinking", thinking: "let me look that up" }],
+      }),
+    ).toBe(true);
+    expect(
+      hasRenderedThinking({
+        role: "assistant",
+        assistantTextVisibility: "private",
+        thinkingSegments: ["let me look that up"],
+      }),
+    ).toBe(false);
+  });
+
+  test("a user row never splits its own inline tags", () => {
+    expect(groupOptionsForMessage({ role: "user" }).splitInlineThinking).toBe(
+      false,
+    );
   });
 });
