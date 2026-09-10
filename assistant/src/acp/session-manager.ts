@@ -419,6 +419,17 @@ export class AcpSessionManager {
       resolvedModel,
     );
 
+    // Recheck: the model pin is an await too, and everything below it either
+    // announces the session or hands the agent the task.
+    if (cancellation?.signal?.aborted) {
+      log.info(
+        { acpSessionId, agentId },
+        "ACP spawn cancelled during the model pin; tearing the session down",
+      );
+      this.teardownSession(acpSessionId, entry);
+      cancellation.signal.throwIfAborted();
+    }
+
     this.sendSpawnedEvent(acpSessionId, entry);
     this.sendModelEvent(acpSessionId, entry);
 
@@ -617,10 +628,20 @@ export class AcpSessionManager {
     // Initialize the per-session ring buffer before any update can fire.
     this.eventBuffers.set(acpSessionId, []);
 
+    // The map is the evidence, as everywhere else in this class: an id whose
+    // entry is no longer this one was cancelled and resumed, so this
+    // process's late frames must not reach the buffer, the state, or the
+    // clients the replacement now owns. `entry` is declared below and read
+    // only from inside closures the process cannot fire until it exists.
+    const ownsSession = () => this.sessions.get(acpSessionId) === entry;
+
     // Wrap the sender so every emitted message is mirrored into the buffer
     // when it's an `acp_session_update`. The wrapper preserves the original
     // call semantics: it forwards every message unchanged.
     const wrappedSend = (msg: AssistantEvent) => {
+      if (!ownsSession()) {
+        return;
+      }
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
       } else if (msg.type === "acp_session_usage") {
@@ -648,7 +669,7 @@ export class AcpSessionManager {
       wrappedSend,
       opts.parentConversationId,
       (configOptions) => {
-        this.applyUnsolicitedConfigOptions(acpSessionId, configOptions);
+        this.applyUnsolicitedConfigOptions(acpSessionId, entry, configOptions);
       },
     );
 
@@ -857,10 +878,10 @@ export class AcpSessionManager {
    */
   private applyUnsolicitedConfigOptions(
     acpSessionId: string,
+    entry: SessionEntry,
     configOptions: SessionConfigOption[],
   ): void {
-    const entry = this.sessions.get(acpSessionId);
-    if (!entry || !this.isEntryLive(acpSessionId, entry)) {
+    if (!this.isEntryLive(acpSessionId, entry)) {
       return;
     }
     this.applyModelInfo(entry, configOptions);
@@ -1404,6 +1425,13 @@ export class AcpSessionManager {
 
   /**
    * Denies pending ACP permissions, kills the process, and removes the session.
+   *
+   * The permissions and the process belong to `entry`, so they are always
+   * torn down; the map slot and its buffer belong to whichever entry holds
+   * the id, so they are only cleared while that is still this one. A caller
+   * whose entry the map has since replaced (a cancel that persisted a
+   * resumable row, then a resume of the same id, while an await was pending)
+   * would otherwise evict the live session that took its place.
    */
   private teardownSession(acpSessionId: string, entry: SessionEntry): void {
     for (const requestId of entry.clientHandler.pendingRequestIds) {
@@ -1413,6 +1441,9 @@ export class AcpSessionManager {
       }
     }
     entry.process.kill();
+    if (this.sessions.get(acpSessionId) !== entry) {
+      return;
+    }
     this.sessions.delete(acpSessionId);
     // Free the buffer in case persistTerminal hasn't already (e.g. close()
     // before terminal transition).
