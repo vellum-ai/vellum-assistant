@@ -694,10 +694,8 @@ async function main() {
     config,
     resolve: resolveCachedPluginIngress,
     credentials: credentialCache,
-    // The twilio verification kind signs the full URL the vendor POSTed to,
-    // and the configured public base is one of the candidate spellings it
-    // tries. Read through the cache so a tunnel registering (a config write)
-    // is picked up without a restart.
+    // HMAC payloads can sign the public request URL. Read through the cache
+    // so a tunnel registering a public base is picked up without a restart.
     ingressPublicBaseUrl: () =>
       configFileCache.getString("ingress", "publicBaseUrl"),
   });

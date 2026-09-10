@@ -272,11 +272,10 @@ export interface PluginWebhookHandlerDeps {
   /**
    * The assistant's configured public ingress base, when there is one.
    *
-   * Read for the `twilio` verification kind, whose signature covers the full
-   * URL the vendor POSTed to: a gateway behind a proxy sees a different URL
-   * than the one that was signed, and the configured base is one of the
-   * candidate spellings verification tries. Optional so tests and hosts
-   * without public ingress still verify against the remaining candidates.
+   * Used by HMAC payloads containing `request-url`. A gateway behind a proxy
+   * sees a different URL than the one a vendor signed, and the configured base
+   * is one candidate spelling. Optional so tests and hosts without public
+   * ingress still verify against the remaining candidates.
    */
   ingressPublicBaseUrl?: () => string | undefined;
   fetchImpl?: (
@@ -381,8 +380,7 @@ export function createPluginWebhookHandler(deps: PluginWebhookHandlerDeps) {
           headers: req.headers,
           body: body.bytes,
           secret: candidate,
-          // The twilio kind signs the URL the vendor POSTed to; every other
-          // scheme signs bytes the gateway already holds and ignores it.
+          // Only HMAC payloads containing `request-url` read this context.
           requestUrl: req.url,
           publicBaseUrl: ingressPublicBaseUrl?.(),
         });

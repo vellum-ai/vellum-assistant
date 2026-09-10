@@ -1595,15 +1595,18 @@ describe("inbound delivery", () => {
   });
 });
 
-describe("twilio verification and form-encoded inbound", () => {
+describe("HMAC URL and form-encoded inbound", () => {
   const TWILIO_AUTH_TOKEN = "twilio-auth-token";
 
-  /** An SMS-plugin-shaped route: twilio signing, inbound over form params. */
-  const TWILIO_ROUTE: IngressRoute = {
+  /** An SMS-plugin-shaped route: HMAC verification over URL and form params. */
+  const FORM_HMAC_ROUTE: IngressRoute = {
     ...ROUTE,
     verification: {
-      kind: "twilio",
+      kind: "hmac",
+      algorithm: "sha1",
       secret: { field: "auth_token" },
+      signature: { header: "X-Twilio-Signature", encoding: "base64" },
+      payload: ["request-url", "form-params"],
     },
     inbound: IngressInboundSchema.parse({
       identity: "phone",
@@ -1656,7 +1659,7 @@ describe("twilio verification and form-encoded inbound", () => {
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: TWILIO_CREDENTIALS,
-      resolve: () => approvedWith([TWILIO_ROUTE]),
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
       fetchImpl,
     });
 
@@ -1664,8 +1667,8 @@ describe("twilio verification and form-encoded inbound", () => {
       twilioPost({
         MessageSid: "SM9001",
         AccountSid: "AC01",
-        From: "+15551234567",
-        To: "+15559998888",
+        From: "+15555550101",
+        To: "+15555550102",
         Body: "hello there",
       }),
       "meeting-bot",
@@ -1680,7 +1683,7 @@ describe("twilio verification and form-encoded inbound", () => {
     expect(event.message.content).toBe("hello there");
     // The external ids are namespaced to the plugin's directory name, which
     // the gateway takes from the request path — never from the payload.
-    expect(event.actor.actorExternalId).toBe("meeting-bot:+15551234567");
+    expect(event.actor.actorExternalId).toBe("meeting-bot:+15555550101");
     expect(event.source.chatType).toBe("sms");
     // The vendor got the acknowledgement, the plugin got the delivery.
     expect(calls).toHaveLength(1);
@@ -1692,7 +1695,7 @@ describe("twilio verification and form-encoded inbound", () => {
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: TWILIO_CREDENTIALS,
-      resolve: () => approvedWith([TWILIO_ROUTE]),
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
       fetchImpl,
     });
 
@@ -1714,7 +1717,7 @@ describe("twilio verification and form-encoded inbound", () => {
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: TWILIO_CREDENTIALS,
-      resolve: () => approvedWith([TWILIO_ROUTE]),
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
       fetchImpl,
     });
 
@@ -1722,7 +1725,7 @@ describe("twilio verification and form-encoded inbound", () => {
       twilioPost(
         {
           MessageSid: "SM9003",
-          From: "+15551234567",
+          From: "+15555550101",
           Body: "hello",
         },
         {
@@ -1745,7 +1748,7 @@ describe("twilio verification and form-encoded inbound", () => {
     const handle = createPluginWebhookHandler({
       config: CONFIG,
       credentials: TWILIO_CREDENTIALS,
-      resolve: () => approvedWith([TWILIO_ROUTE]),
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
       fetchImpl,
     });
 
@@ -1756,7 +1759,7 @@ describe("twilio verification and form-encoded inbound", () => {
       "https://platform.example.test/v1/gateway/callbacks/cb-1";
     const params: Record<string, string> = {
       MessageSid: "SM9004",
-      From: "+15551234567",
+      From: "+15555550101",
       Body: "hi",
     };
     const signature = createHmac("sha1", TWILIO_AUTH_TOKEN)

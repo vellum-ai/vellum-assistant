@@ -80,9 +80,8 @@ const ApproveBodySchema = ApproveChannelIngressRequestSchema;
 /**
  * The parts of a declared scheme a guardian listing can show.
  *
- * HMAC names its own algorithm and header. Standard Webhooks always signs
- * with sha256 and always presents the digest in `webhook-signature`, so
- * those values are filled in rather than stored on the descriptor.
+ * HMAC names its own algorithm and header. Standard Webhooks fixes both, so
+ * the listing fills them in rather than reading them from the descriptor.
  */
 function verificationView(verification: IngressVerification): {
   algorithm: string;
@@ -92,13 +91,6 @@ function verificationView(verification: IngressVerification): {
     return {
       algorithm: "sha256",
       signatureHeader: "webhook-signature",
-    };
-  }
-  if (verification.kind === "twilio") {
-    // Fixed by the scheme itself, not declared per route.
-    return {
-      algorithm: "sha1",
-      signatureHeader: "X-Twilio-Signature",
     };
   }
   return {
