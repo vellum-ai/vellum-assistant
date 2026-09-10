@@ -177,7 +177,7 @@ export function LibraryView({
           iconOnly={importIcon}
           aria-label={t("libraryView.import")}
           tooltip={t("libraryView.import")}
-          className="max-md:bg-[var(--surface-active)]"
+          className="rounded-full max-md:bg-[var(--surface-active)]"
           onClick={() => fileInputRef.current?.click()}
           disabled={isImporting}
         />

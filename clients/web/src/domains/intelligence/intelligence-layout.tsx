@@ -89,7 +89,7 @@ export function IntelligenceLayout() {
             iconOnly={<ArrowLeft aria-hidden />}
             aria-label={backAriaLabel}
             tooltip={backTitle}
-            className="max-md:bg-[var(--surface-active)]"
+            className="rounded-full max-md:bg-[var(--surface-active)]"
           >
             <Link to={routes.identity} />
           </Button>

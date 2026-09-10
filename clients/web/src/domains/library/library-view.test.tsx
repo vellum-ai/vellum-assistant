@@ -138,6 +138,14 @@ describe("LibraryView import affordance", () => {
     expect(container.querySelectorAll('input[type="file"]')).toHaveLength(1);
   });
 
+  test("hides app dates at mobile widths", () => {
+    apps = [APP];
+    renderView();
+
+    const appName = screen.getByText("Example App");
+    expect(appName.nextElementSibling?.className).toContain("max-md:hidden");
+  });
+
   test("uses an icon-only import action in the mobile top bar", () => {
     isMobileRef.value = true;
     renderView();
@@ -147,6 +155,7 @@ describe("LibraryView import affordance", () => {
     expect(importButton.className).toContain(
       "max-md:bg-[var(--surface-active)]",
     );
+    expect(importButton.className).toContain("rounded-full");
   });
 
   test("constrains the picker to .vellum on a fine-pointer device", () => {

@@ -40,9 +40,9 @@ export function LibraryGridSection({
       <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
         {title}
       </h2>
-      {/* On mobile the title and date sit directly on the page surface. The
-          swipe item uses that same opaque surface so its actions stay covered
-          at rest, while desktop keeps its established card surface. */}
+      {/* On mobile the title sits directly on the page surface. The swipe item
+          uses that same opaque surface so its actions stay covered at rest,
+          while desktop keeps its established card surface. */}
       <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6 [--swipe-item-surface:var(--surface-base)] max-md:[--swipe-item-surface:var(--surface-overlay)]">
         {apps.map((app) => (
           <LibraryAppCard

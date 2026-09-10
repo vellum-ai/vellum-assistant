@@ -159,6 +159,14 @@ describe("IntelligenceLayout — section pages", () => {
       renderToStaticMarkup(slot?.trailing as React.ReactElement),
     ).toContain("Import");
     expect(isValidElement(slot?.leading)).toBe(true);
+    expect(
+      (
+        slot?.leading as
+          | { props?: { className?: string } }
+          | null
+          | undefined
+      )?.props?.className,
+    ).toContain("rounded-full");
     expect(container.querySelector("h1")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
     expect(setTopBarCenterMock).toHaveBeenLastCalledWith(null);

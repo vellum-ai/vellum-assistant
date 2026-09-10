@@ -166,7 +166,7 @@ export function LibraryAppCard({
           <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
             {app.name}
           </span>
-          <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+          <span className="text-body-small-default text-[color:var(--content-tertiary)] max-md:hidden">
             {formatFriendlyDate(new Date(app.createdAt))}
           </span>
         </button>
