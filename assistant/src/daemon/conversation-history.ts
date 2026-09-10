@@ -14,6 +14,7 @@ import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/messa
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { relinkLlmRequestLogs } from "../persistence/llm-request-log-store.js";
 import { getSummaryFromContextMessage } from "../plugins/defaults/compaction/window-manager.js";
+import { preserveRetrospectiveCursorTimestamps } from "../plugins/defaults/memory/memory-retrospective-cursor-preserve.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { startsNewTurn } from "./summarize-boundary.js";
@@ -461,6 +462,10 @@ export function discardLastAssistantDisplayTurn(
   }
 
   const tail = rows.slice(anchorIndex + 1);
+  // A memory-retrospective cursor written without its timestamp can only be
+  // placed while its row exists, and the cursor usually sits on the reply
+  // being discarded; record the timestamp before the row goes.
+  void preserveRetrospectiveCursorTimestamps(conversationId, tail);
   const deletedMessageIds: string[] = [];
   const segmentIds: string[] = [];
   for (let i = tail.length - 1; i >= 0; i--) {

@@ -11,9 +11,13 @@ import {
   extractUserPromptText,
 } from "../daemon/conversation-history.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
-import { getDb } from "../persistence/db-connection.js";
+import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
+import {
+  ensureRetrospectiveCursorColumn,
+  getRetrospectiveState,
+} from "../plugins/defaults/memory/memory-retrospective-state.js";
 
 await initializeDb();
 
@@ -209,5 +213,40 @@ describe("extractUserPromptText", () => {
 
   test("empty content → empty string", () => {
     expect(extractUserPromptText([])).toBe("");
+  });
+});
+
+describe("discardLastAssistantDisplayTurn keeps the memory-retrospective cursor placeable", () => {
+  beforeEach(() => {
+    ensureRetrospectiveCursorColumn("test");
+    getMemorySqlite()!.exec(`DELETE FROM memory_retrospective_state`);
+  });
+
+  test("a cursor stored without its timestamp gets it from the reply being discarded", async () => {
+    const [, assistantId] = await seed([
+      { role: "user", content: text("hello") },
+      { role: "assistant", content: text("first attempt") },
+    ]);
+    const replyCreatedAt = getMessages(CONV_ID).find(
+      (m) => m.id === assistantId,
+    )!.createdAt;
+    // A state row as a build without the timestamp column wrote it: the
+    // retrospective reviewed through the reply, so the cursor sits on it.
+    getMemorySqlite()!
+      .query(
+        `INSERT INTO memory_retrospective_state
+           (conversation_id, last_processed_message_id, last_run_at, remembered_log, last_processed_created_at)
+         VALUES (?, ?, 1, NULL, NULL)`,
+      )
+      .run(CONV_ID, assistantId);
+
+    discardLastAssistantDisplayTurn(CONV_ID);
+    // The preservation write is detached from the discard; give it a beat.
+    await Bun.sleep(25);
+
+    expect(getMessages(CONV_ID).some((m) => m.id === assistantId)).toBe(false);
+    expect(getRetrospectiveState(CONV_ID)?.lastProcessedCreatedAt).toBe(
+      replyCreatedAt,
+    );
   });
 });

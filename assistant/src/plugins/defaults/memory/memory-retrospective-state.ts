@@ -130,8 +130,14 @@ type MemorySqlite = NonNullable<ReturnType<typeof memorySqliteOrNull>>;
 
 /** The memory connection the column was confirmed on; any other re-probes. */
 let cursorColumnEnsuredOn: MemorySqlite | null = null;
+/**
+ * The connection the last probe failed on and when. The backoff applies to
+ * that connection only: a replaced connection is probed at once, so a
+ * restore right after a failure still gets the column before its first read.
+ */
+let cursorColumnFailedOn: MemorySqlite | null = null;
 let lastCursorColumnFailureAt = 0;
-/** Backoff before re-probing after a failed ALTER: retried, not hammered. */
+/** Backoff before re-probing the same connection after a failed ALTER. */
 const CURSOR_COLUMN_RETRY_MS = 60_000;
 
 function isDuplicateColumnError(err: unknown): boolean {
@@ -144,8 +150,9 @@ function isDuplicateColumnError(err: unknown): boolean {
  * `resetDb()` is probed again and an imported database that lacks the column
  * gets it before its first read. Fail-open: when the ALTER cannot run, the
  * failure is logged, every read and write falls back to the id-only shape,
- * and the probe is retried after {@link CURSOR_COLUMN_RETRY_MS}. A table the
- * migration chain has not created yet is neither memoized nor a failure.
+ * and that connection is probed again after {@link CURSOR_COLUMN_RETRY_MS}.
+ * A table the migration chain has not created yet is neither memoized nor a
+ * failure.
  */
 export function ensureRetrospectiveCursorColumn(context: string): boolean {
   const raw = memorySqliteOrNull(context);
@@ -155,7 +162,10 @@ export function ensureRetrospectiveCursorColumn(context: string): boolean {
   if (cursorColumnEnsuredOn === raw) {
     return true;
   }
-  if (Date.now() - lastCursorColumnFailureAt < CURSOR_COLUMN_RETRY_MS) {
+  if (
+    cursorColumnFailedOn === raw &&
+    Date.now() - lastCursorColumnFailureAt < CURSOR_COLUMN_RETRY_MS
+  ) {
     return false;
   }
   try {
@@ -172,6 +182,7 @@ export function ensureRetrospectiveCursorColumn(context: string): boolean {
     }
   } catch (err) {
     if (!isDuplicateColumnError(err)) {
+      cursorColumnFailedOn = raw;
       lastCursorColumnFailureAt = Date.now();
       log.warn(
         { err, context },
@@ -181,6 +192,7 @@ export function ensureRetrospectiveCursorColumn(context: string): boolean {
     }
   }
   cursorColumnEnsuredOn = raw;
+  cursorColumnFailedOn = null;
   return true;
 }
 
@@ -190,6 +202,7 @@ export function ensureRetrospectiveCursorColumn(context: string): boolean {
  */
 export function _resetRetrospectiveCursorColumnForTests(): void {
   cursorColumnEnsuredOn = null;
+  cursorColumnFailedOn = null;
   lastCursorColumnFailureAt = 0;
 }
 
