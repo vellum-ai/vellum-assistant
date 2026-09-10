@@ -1708,7 +1708,8 @@
     "stopWorkflow": "停止工作流"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "处理中"
   },
   "useConversationLoader": {
     "authFailed": "用户身份验证失败。"

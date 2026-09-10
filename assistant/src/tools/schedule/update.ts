@@ -24,6 +24,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { resolveGroupReference } from "../conversation-groups/group_shared.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -98,6 +99,7 @@ export async function executeScheduleUpdate(
   if (!jobId) {
     return { content: "Error: job_id is required", isError: true };
   }
+  throwIfCancelled(context);
 
   const existing = getSchedule(jobId);
 
@@ -345,9 +347,13 @@ export async function executeScheduleUpdate(
     }
   }
 
+  // The store's writes retry with backoff on SQLite contention, so a cancel
+  // landing mid-retry must stop rather than sleep and then persist the edit.
+  const writeOpts = context.signal ? { signal: context.signal } : undefined;
+
   try {
     const job = isPluginSourced
-      ? await setUserEnabled(jobId, updates.enabled as boolean)
+      ? await setUserEnabled(jobId, updates.enabled as boolean, writeOpts)
       : await updateSchedule(
           jobId,
           updates as {
@@ -372,6 +378,7 @@ export async function executeScheduleUpdate(
             workflowArgs?: unknown;
             inferenceProfile?: string | null;
           },
+          writeOpts,
         );
 
     if (!job) {
@@ -400,6 +407,11 @@ export async function executeScheduleUpdate(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a schedule failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Error updating schedule: ${msg}`, isError: true };
   }

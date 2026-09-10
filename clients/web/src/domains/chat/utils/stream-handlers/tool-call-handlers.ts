@@ -1,4 +1,5 @@
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { isSendUserMessageCall } from "@/domains/chat/utils/assistant-text-visibility";
 import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
   ACP_CLAUDE_OAUTH_MISSING_CODE,
@@ -30,7 +31,12 @@ export function handleToolUseStart(
   ctx: StreamHandlerContext,
 ): void {
   ctx.cancelReconciliation();
-  ctx.turnActions.onToolUseStart();
+  // The reply tool is the turn speaking, not a step of its work: it claims no
+  // slot in the in-flight tool count, which is what the thinking indicator
+  // reads to decide a tool is running.
+  if (!isSendUserMessageCall({ name: event.toolName })) {
+    ctx.turnActions.onToolUseStart();
+  }
   // The reducer folds the tool call onto the assistant row in the snapshot;
   // the handler owns the turn-state transition and the anchor stamp.
   if (event.messageId) {
@@ -42,7 +48,13 @@ export function handleToolResult(
   event: ToolResultEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.onToolResult();
+  // Recorded for every tool, including the suppressed reply tool: the activity
+  // state that follows names this tool in its status label, so the label can
+  // only be read once the tool behind it is known.
+  ctx.lastCompletedToolNameRef.current = event.toolName;
+  if (!isSendUserMessageCall({ name: event.toolName })) {
+    ctx.turnActions.onToolResult();
+  }
   // Forward structured tool activity metadata (web_search / web_fetch) onto
   // the turn store so the web-search inline link can render during the
   // active turn. Metadata is live-only — the store clears it on idle

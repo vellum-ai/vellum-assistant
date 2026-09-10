@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateAddSubagentBudgetStopReason } from "../persistence/migrations/377-add-subagent-budget-stop-reason.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   countRecentSimilarSpawns,
@@ -57,6 +58,7 @@ beforeEach(() => {
   // Idempotent; the table may already exist from a prior run.
   migrateCreateSubagentsTable();
   migrateAddSubagentParentToolUseId(getDb());
+  migrateAddSubagentBudgetStopReason(getDb());
   resetTestTables("subagents");
 });
 
@@ -179,9 +181,58 @@ describe("recent similar spawn tallies", () => {
     upsertSubagentRecord(spawn("c", { parentConversationId: "parent-2" }));
 
     expect(tally()).toEqual({
-      conversation: { count: 2, estimatedCost: 1, inFlight: 0 },
-      assistant: { count: 3, estimatedCost: 1.5, inFlight: 0 },
+      conversation: {
+        count: 2,
+        estimatedCost: 1,
+        inFlight: 0,
+        budgetStopped: 0,
+        budgetStoppedCost: 0,
+      },
+      assistant: {
+        count: 3,
+        estimatedCost: 1.5,
+        inFlight: 0,
+        budgetStopped: 0,
+        budgetStoppedCost: 0,
+      },
     });
+  });
+
+  test("budget-stopped runs are counted apart from completions", () => {
+    // `aborted` normally reads as a dead end whose retry is the right move. A
+    // budget stop is the opposite: the run burned its whole allowance, and
+    // spawning it again burns it again, so it has to be visible to the guard.
+    upsertSubagentRecord(
+      spawn("a", {
+        status: "aborted",
+        budgetStopReason: "used its full budget of 2 tool calls",
+      }),
+    );
+    upsertSubagentRecord(
+      spawn("b", {
+        status: "aborted",
+        budgetStopReason: "ran past its time limit",
+      }),
+    );
+
+    const t = tally().conversation;
+    expect(t.budgetStopped).toBe(2);
+    expect(t.budgetStoppedCost).toBeCloseTo(1);
+    // Not readable work: nothing completed, and nothing is still running.
+    expect(t.count).toBe(0);
+    expect(t.inFlight).toBe(0);
+  });
+
+  test("a plain abort stays a dead end the guard ignores", () => {
+    // A run the user cancelled left no answer either, but retrying it is the
+    // right move, so it must not be counted.
+    upsertSubagentRecord(spawn("a", { status: "aborted" }));
+    upsertSubagentRecord(spawn("b", { status: "failed" }));
+
+    const t = tally().conversation;
+    expect(t.budgetStopped).toBe(0);
+    expect(t.count).toBe(0);
+    expect(t.inFlight).toBe(0);
   });
 
   test("a genuinely different objective is not a match", () => {
@@ -228,14 +279,27 @@ describe("recent similar spawn tallies", () => {
     ).toBe(2);
   });
 
-  test("spawns older than the cutoff and advisor consults are left out", () => {
+  test("spawns older than the cutoff are left out", () => {
     upsertSubagentRecord(spawn("fresh"));
     upsertSubagentRecord(
       spawn("stale", { createdAt: Date.now() - 90_000_000 }),
     );
-    upsertSubagentRecord(spawn("consult", { role: "advisor" }));
 
     expect(tally().assistant.count).toBe(1);
+  });
+
+  test("every role counts, advisor consults included", () => {
+    // A consult is a background child on a premium profile, so a standing
+    // re-ask of one brief is exactly the spend the guard exists to surface.
+    upsertSubagentRecord(spawn("built", { role: "builder" }));
+    upsertSubagentRecord(spawn("read", { role: "researcher" }));
+    upsertSubagentRecord(spawn("consult", { role: "advisor" }));
+    upsertSubagentRecord(
+      spawn("consult-running", { role: "advisor", status: "running" }),
+    );
+
+    expect(tally().assistant.count).toBe(3);
+    expect(tally().assistant.inFlight).toBe(1);
   });
 
   test("runs that ended without an answer are left out of both scopes", () => {
@@ -247,8 +311,20 @@ describe("recent similar spawn tallies", () => {
     }
 
     expect(tally()).toEqual({
-      conversation: { count: 1, estimatedCost: 0.5, inFlight: 0 },
-      assistant: { count: 1, estimatedCost: 0.5, inFlight: 0 },
+      conversation: {
+        count: 1,
+        estimatedCost: 0.5,
+        inFlight: 0,
+        budgetStopped: 0,
+        budgetStoppedCost: 0,
+      },
+      assistant: {
+        count: 1,
+        estimatedCost: 0.5,
+        inFlight: 0,
+        budgetStopped: 0,
+        budgetStoppedCost: 0,
+      },
     });
   });
 
@@ -269,8 +345,20 @@ describe("recent similar spawn tallies", () => {
     expect(tally()).toEqual({
       // An unfinished run has no cost recorded yet, so it adds nothing to the
       // completed tally's spend.
-      conversation: { count: 1, estimatedCost: 0.5, inFlight: 3 },
-      assistant: { count: 1, estimatedCost: 0.5, inFlight: 4 },
+      conversation: {
+        count: 1,
+        estimatedCost: 0.5,
+        inFlight: 3,
+        budgetStopped: 0,
+        budgetStoppedCost: 0,
+      },
+      assistant: {
+        count: 1,
+        estimatedCost: 0.5,
+        inFlight: 4,
+        budgetStopped: 0,
+        budgetStoppedCost: 0,
+      },
     });
   });
 });

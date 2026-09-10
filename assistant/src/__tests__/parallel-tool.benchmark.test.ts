@@ -10,6 +10,7 @@ import type {
   SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
+import { CANCELLED_UNSETTLED_TOOL_RESULT } from "../tools/execution-timeout.js";
 
 // ---------------------------------------------------------------------------
 // Helpers (mirrors agent-loop.test.ts patterns)
@@ -345,9 +346,10 @@ describe("Parallel tool execution benchmarks", () => {
       );
       expect(toolResultBlocks).toHaveLength(toolCount);
 
-      // All results should be cancelled
+      // All results should be cancelled. These tools ignore the signal, so
+      // each is abandoned mid-flight and reported as possibly still running.
       for (const block of toolResultBlocks) {
-        expect(block.content).toBe("Cancelled by user");
+        expect(block.content).toBe(CANCELLED_UNSETTLED_TOOL_RESULT);
         expect(block.is_error).toBe(true);
       }
 

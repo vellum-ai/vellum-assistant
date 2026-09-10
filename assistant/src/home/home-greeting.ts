@@ -61,6 +61,8 @@ export async function refreshPersonalizedGreeting(): Promise<boolean> {
     const systemPrompt = buildSystemPrompt({
       excludeBootstrap: true,
       excludeCustomPrefix: true,
+      // One-shot generation through the tool-disabled side-chain.
+      canSpawnSubagents: false,
     });
 
     const result = await runBtwSidechain({

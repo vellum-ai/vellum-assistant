@@ -30,6 +30,7 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
@@ -37,6 +38,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -56,8 +58,8 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { extractTextFromStoredMessageContent } from "../persistence/message-content.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
+import { userFacingTextOfRow } from "../persistence/user-facing-content.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -126,6 +128,7 @@ import {
   abortConversation,
   disposeConversation,
   reinjectAttachmentPathAnnotations,
+  reinjectInterruptTurnNote,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -175,6 +178,7 @@ import type {
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
+  canSpawnSubagentsForTurn,
   createResolveToolsCallback,
   createToolExecutor,
 } from "./conversation-tool-setup.js";
@@ -485,6 +489,35 @@ export class Conversation {
   enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
+   * The `clientMessageId` the running turn was started by, recorded in the same
+   * synchronous step that takes the processing lock.
+   *
+   * A retransmitted send is normally recognised by finding the row its original
+   * already wrote, but a turn takes the lock and arms its abort controller
+   * before it inserts that row. In that window a retry finds a busy
+   * conversation and no row, and would abort the very turn its own original
+   * request just started, then deduplicate against the row that lands a moment
+   * later and start nothing. This is what lets such a retry recognise the turn
+   * as its own.
+   * @internal
+   */
+  currentTurnClientMessageId?: string;
+  /**
+   * `clientMessageId` to `requestId` for sends this conversation has accepted
+   * but not yet persisted.
+   *
+   * {@link currentTurnClientMessageId} covers a retry that races a turn already
+   * starting. This covers the window the interrupt opens ahead of that: a send
+   * is answered `202` and its abort, waits, repair and persist all run
+   * afterwards, so a retransmission arriving in between finds no running turn
+   * of its own to recognise and no row yet either, and both copies would race
+   * the unique `clientMessageId` insert with one losing. Reserved
+   * synchronously before the handover is detached, so the second copy is
+   * recognised and answered with the first's id.
+   * @internal
+   */
+  readonly inFlightSendRequestIds = new Map<string, string>();
+  /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
    * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
    * the main reply apart from background agent-loop work (compaction,
@@ -576,6 +609,17 @@ export class Conversation {
   /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
+  /**
+   * Whether this turn routes its user-facing text through `send_user_message`,
+   * resolved once at turn start. The agent loop's suppression is pinned to
+   * this value for the whole turn, so the tool surface, the reserved row's
+   * visibility marker, and the prompt section read the same snapshot rather
+   * than the live flag: a remote flag change mid-turn must not mark an
+   * ordinarily streamed row private, nor take the only delivery tool away from
+   * a run that is still suppressing its text.
+   * @internal
+   */
+  currentTurnSendUserMessageActive?: boolean;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
   /**
@@ -683,6 +727,39 @@ export class Conversation {
    * @internal
    */
   pendingInterruptRepair = false;
+  /**
+   * Set by `interruptRunningTurn` once it has handed the conversation over, and
+   * consumed by the agent loop at the head of the very next turn, which emits
+   * the `thinking` / `message_interrupted` transition.
+   *
+   * The transition bridges a gap the interrupt opens: the stopped turn's
+   * `generation_cancelled` idles every client's turn state, and the ordinary
+   * send path emits no `thinking` of its own, so without it the composer sits
+   * idle until the replacement turn's first delta. It is deferred to the loop
+   * rather than emitted by the interrupt because the send can still fail
+   * between the two (slash resolution, a `/compact` claim, the user-row
+   * persist), and an activity state is cached and replayed to reconnecting
+   * clients: emitted early, a failed send leaves every client showing a busy
+   * conversation that is not running anything. A flag nobody consumes emits
+   * nothing.
+   * @internal
+   */
+  pendingInterruptActivityBridge = false;
+  /**
+   * Set by `interruptRunningTurn` when the abort it ran landed with no tool
+   * call in flight, and consumed exactly once by the persist of the
+   * interrupting user message, which appends
+   * {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing content
+   * and stamps `interruptedPriorTurn` on the row.
+   *
+   * An interrupt caught mid-tool needs nothing here: the synthetic
+   * `tool_result` the loop or the repair writes already tells the model a
+   * message preempted it. Caught mid-provider-call there is no `tool_use` to
+   * answer, so the note is the only signal, and it rides on the message that
+   * did the interrupting.
+   * @internal
+   */
+  pendingInterruptNote = false;
   /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
@@ -1064,6 +1141,13 @@ export class Conversation {
           personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
+          sendUserMessageTool: resolveSendUserMessageActive(this),
+          // Read off this turn's resolved tool surface: a workspace
+          // `tools.exclude` entry, a background run's `allowedTools` scope, a
+          // read-only subagent pass, or tools disabled all answer no, and the
+          // delegation section renders off rather than pointing at a tool the
+          // turn cannot call.
+          canSpawnSubagents: canSpawnSubagentsForTurn(this),
         });
   }
 
@@ -1259,7 +1343,10 @@ export class Conversation {
             rowMeta.deletedAt === undefined &&
             rowMeta.messageId
           ) {
-            const text = extractTextFromStoredMessageContent(row.content);
+            // Quote what the channel actually carried: on a row a
+            // `send_user_message` turn wrote, that is the message the tool
+            // delivered, not the private working notes beside it.
+            const text = userFacingTextOfRow(row.content, row.metadata);
             if (text) {
               // A split reply posts several provider messages from one row;
               // a reaction may name any of them. A post deleted on its own
@@ -1306,6 +1393,7 @@ export class Conversation {
       let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
+      content = reinjectInterruptTurnNote(content, role, m.metadata);
 
       // Channel facts stamped in metadata render at load time rather than
       // at persist time, so every stored row reads correctly whenever it
@@ -2396,7 +2484,21 @@ export class Conversation {
     return this.queue.removeByRequestId(requestId);
   }
 
+  /**
+   * Whether the agent loop may yield at a turn-boundary checkpoint to let a
+   * queued message take over.
+   *
+   * Under `interrupt-on-send` a message sent while this conversation is busy
+   * never queues, so the handoff has nothing to hand off to. Answering `false`
+   * outright keeps the loop from taking the branch on a queue that only holds
+   * entries the interrupt path deliberately left there (another actor's send
+   * falling back to the queue, a daemon-internal enqueue): those run on the
+   * ordinary end-of-turn drain rather than by cutting a turn short.
+   */
   canHandoffAtCheckpoint(): boolean {
+    if (isInterruptOnSendEnabled()) {
+      return false;
+    }
     return this._processing && this.hasQueuedMessages();
   }
 

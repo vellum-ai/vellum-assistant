@@ -970,7 +970,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T15:00:26.000Z"
+      "updatedAt": "2026-09-10T01:15:52.000Z"
     },
     {
       "id": "telegram-setup",
@@ -1055,7 +1055,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T22:41:36.000Z"
+      "updatedAt": "2026-09-09T23:37:12.000Z"
     },
     {
       "id": "vellum-client-capabilities",
@@ -1078,7 +1078,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T22:41:36.000Z"
+      "updatedAt": "2026-09-09T23:37:12.000Z"
     },
     {
       "id": "vellum-conversation-management",
@@ -1189,7 +1189,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-09-09T21:50:01.000Z"
+      "updatedAt": "2026-09-10T00:07:45.000Z"
     },
     {
       "id": "vellum-self-knowledge",

@@ -28,8 +28,20 @@ let searchContactsOverride: unknown[] | null = null;
 // Mock the IPC client to dispatch contact reads to the real store (backed by
 // the test DB) and serve `merge_contacts` as a fake gateway relay, without
 // needing a running IPC server.
+/** Per-method record of the options `cliIpcCall` was handed, newest last. */
+const ipcCallOptions: Array<{
+  method: string;
+  options?: { signal?: AbortSignal };
+}> = [];
+
 mock.module("../ipc/cli-client.js", () => ({
-  cliIpcCall: async (method: string, params?: Record<string, unknown>) => {
+  cliIpcCall: async (
+    method: string,
+    params?: Record<string, unknown>,
+    options?: { signal?: AbortSignal },
+  ) => {
+    ipcCallOptions.push({ method, options });
+    options?.signal?.throwIfAborted();
     const store = await import("../contacts/contact-store.js");
     const body = (params?.body ?? params ?? {}) as Record<string, unknown>;
     const pathParams = (params?.pathParams ?? {}) as Record<string, string>;
@@ -387,5 +399,56 @@ describe("contact_merge tool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not found");
+  });
+
+  test("a cancelled turn stops before the merge", async () => {
+    const keepId = upsertFixture({ display_name: "Keep" }).id;
+    const mergeId = upsertFixture({ display_name: "Donor" }).id;
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      executeContactMerge({ keep_id: keepId, merge_id: mergeId }, {
+        ...ctx,
+        signal: controller.signal,
+      } as ToolContext),
+    ).rejects.toThrow();
+
+    // The donor survives: nothing was merged.
+    const count = getRawDb()
+      .query("SELECT COUNT(*) as c FROM contacts")
+      .get() as { c: number };
+    expect(count.c).toBe(2);
+  });
+
+  test("the merge request is not attached to the turn signal", async () => {
+    // `cliIpcCall` cancels only the client socket, so an abort after dispatch
+    // would resolve a quick "Request aborted" that settles inside the agent
+    // loop's grace and reports an ordinary failure for a merge the gateway
+    // finished anyway. Leaving the destructive call and its read-back detached
+    // keeps it unsettled instead, which is what makes the loop tell the model
+    // the work may still have completed.
+    const keepId = upsertFixture({ display_name: "Keep" }).id;
+    const mergeId = upsertFixture({ display_name: "Donor" }).id;
+    ipcCallOptions.length = 0;
+    const controller = new AbortController();
+
+    const result = await executeContactMerge(
+      { keep_id: keepId, merge_id: mergeId },
+      { ...ctx, signal: controller.signal } as ToolContext,
+    );
+    expect(result.isError).toBe(false);
+
+    const merge = ipcCallOptions.find((c) => c.method === "merge_contacts");
+    expect(merge).toBeDefined();
+    expect(merge!.options?.signal).toBeUndefined();
+
+    // The read-back after the merge is detached for the same reason; the
+    // existence checks before it still carry the signal.
+    const reads = ipcCallOptions.filter((c) => c.method === "getContact");
+    expect(reads).toHaveLength(3);
+    expect(reads[0].options?.signal).toBe(controller.signal);
+    expect(reads[1].options?.signal).toBe(controller.signal);
+    expect(reads[2].options?.signal).toBeUndefined();
   });
 });

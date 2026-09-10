@@ -25,6 +25,11 @@ import {
   hasAnyInteractiveSurface,
   hasPendingAssistantResponse,
 } from "@/domains/chat/utils/chat";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
+import {
+  hasRenderedStepStack,
+  hasRenderedThinking,
+} from "@/domains/chat/transcript/message-content";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -100,6 +105,7 @@ export function useChatUIState(): ChatUIState {
   // source of truth on 0.8.8+; older daemons fall back to the client
   // optimistic mirror. See `lib/backwards-compat/conversation-processing-state`.
   const activeConversationIsProcessing = useActiveConversationIsProcessing();
+  const hideThinkingUi = useHideThinkingUi();
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(transcript),
@@ -127,11 +133,19 @@ export function useChatUIState(): ChatUIState {
     if (!live) {
       return false;
     }
-    return (
-      (live.thinkingSegments?.length ?? 0) > 0 ||
-      !!live.contentBlocks?.some((b) => b.type === "thinking")
-    );
-  }, [transcript, liveAssistantMessageId]);
+    return hasRenderedThinking(live, hideThinkingUi);
+  }, [transcript, liveAssistantMessageId, hideThinkingUi]);
+
+  // Under `send-user-message` the step stack is the turn's one progress
+  // label, so the standalone row stands down once the live message renders a
+  // step. Flag off, the row keeps its own between-tools label.
+  const hasLiveStepStack = useMemo(() => {
+    if (!hideThinkingUi || liveAssistantMessageId == null) {
+      return false;
+    }
+    const live = transcript.find((m) => m.id === liveAssistantMessageId);
+    return live != null && hasRenderedStepStack(live);
+  }, [transcript, liveAssistantMessageId, hideThinkingUi]);
 
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(transcript),
@@ -142,6 +156,7 @@ export function useChatUIState(): ChatUIState {
     () => ({
       hasStreamingAssistantMessage,
       hasStreamingAssistantThinking,
+      hasLiveStepStack,
       hasPendingSecret: !!pendingSecret,
       hasPendingConfirmation: !!pendingConfirmation,
       hasPendingQuestion: !!pendingQuestion,
@@ -155,6 +170,7 @@ export function useChatUIState(): ChatUIState {
     [
       hasStreamingAssistantMessage,
       hasStreamingAssistantThinking,
+      hasLiveStepStack,
       pendingSecret,
       pendingConfirmation,
       pendingQuestion,

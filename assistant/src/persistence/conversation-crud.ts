@@ -417,6 +417,17 @@ export const messageMetadataSchema = z
      */
     messageKind: z.string().optional(),
     /**
+     * How a role-`"assistant"` row's plain text reached the user, stamped only
+     * by a turn that routed its reply through the `send_user_message` tool.
+     * `"private"` marks working notes the user never saw, which every
+     * user-facing read projects out (see `daemon/handlers/user-facing-content`);
+     * `"visible"` marks a fallback turn whose raw text was surfaced and so must
+     * render and deliver like any reply. Absent on every other row. Kept as a
+     * plain string, like {@link messageKind}, so an unknown future value never
+     * fails metadata validation.
+     */
+    assistantTextVisibility: z.string().optional(),
+    /**
      * Stable classified error code (`ClassifiedConversationError.code`, e.g.
      * `"PROVIDER_BILLING"`) stamped alongside
      * `messageKind: "provider_error"` on persisted provider-failure rows.
@@ -445,6 +456,13 @@ export const messageMetadataSchema = z
      * reinjected into LLM-facing content on history reload.
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
+     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
+     * `<interrupted_turn>` note from it; the row's own content is exactly what
+     * the user sent, so clients render nothing extra.
+     */
+    interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new section block (unwrapped), the v3
      *  counterpart of `memoryInjectedBlock`. A row carries at most one of the
@@ -1123,6 +1141,34 @@ async function insertMessageCore(
     },
     { op: "insertMessageCore", context: { conversationId } },
   );
+}
+
+/**
+ * Id of the row a previous send with this `(conversation, clientMessageId)`
+ * already persisted, or undefined when this send is new.
+ *
+ * The idempotent insert in `addMessage` settles a duplicate on the unique
+ * constraint, which is the authority. This read exists for callers that must
+ * recognise a retransmission BEFORE taking an action the insert cannot undo:
+ * `interrupt-on-send` aborts the running turn, and a retried POST that reached
+ * the abort first would kill the very turn its original request started and
+ * then dedupe without starting a replacement.
+ */
+export function findMessageIdByClientMessageId(
+  conversationId: string,
+  clientMessageId: string,
+): string | undefined {
+  const existing = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.clientMessageId, clientMessageId),
+      ),
+    )
+    .get();
+  return existing?.id;
 }
 
 export function createConversation(

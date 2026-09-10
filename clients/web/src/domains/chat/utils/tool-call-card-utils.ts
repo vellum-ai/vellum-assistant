@@ -245,6 +245,18 @@ function webSearchStepTitle(terminal: boolean): string {
   return terminal ? "Searched the web" : "Searching the web";
 }
 
+/**
+ * Header title for a `web_fetch` run once the transcript hides its reasoning.
+ * The default title for one is "Thinking", because a fetch is projected as a
+ * synthesized reasoning step ("Reading <page>"). With the thinking surface
+ * gone that word is the last thing standing, and it named a page read rather
+ * than a thought, so the run says what it did in the tense of its sibling
+ * `webSearchStepTitle`.
+ */
+function webFetchStepTitle(terminal: boolean): string {
+  return terminal ? "Read the web" : "Reading the web";
+}
+
 function clampResults(results: WebSearchResultItem[]): {
   visible: WebSearchResultItem[];
   overflowResults: WebSearchResultItem[];
@@ -585,6 +597,7 @@ function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
 function deriveCurrentStepTitle(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
+  hideThinkingUi: boolean,
 ): string {
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i]!;
@@ -601,7 +614,7 @@ function deriveCurrentStepTitle(
         return webSearchStepTitle(terminal);
       }
       if (tc.name === "web_fetch") {
-        return "Thinking";
+        return hideThinkingUi ? webFetchStepTitle(terminal) : "Thinking";
       }
     } else {
       return deriveStepLabel(tc).title;
@@ -765,6 +778,16 @@ function deriveCardState(
  * between tool steps (e.g. `thinking → tool → thinking`) rather than only
  * prepending a single leading-thinking step ahead of all tools.
  */
+/** Render-time choices the projection cannot read for itself. */
+export interface ToolCallCardDataOptions {
+  /**
+   * Whether the transcript hides the assistant's reasoning (see
+   * `useHideThinkingUi`). The card carries no reasoning of its own, but one
+   * header title stands in for it, and that title has to change with the rest.
+   */
+  hideThinkingUi?: boolean;
+}
+
 export type ToolCallCardItem =
   | {
       kind: "thinking";
@@ -828,6 +851,7 @@ export function computeToolCallCardDataFromItems(
   items: ToolCallCardItem[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
   nowMs?: number,
+  options: ToolCallCardDataOptions = {},
 ): ToolCallCardData {
   const toolCalls = items
     .filter(
@@ -895,6 +919,7 @@ export function computeToolCallCardDataFromItems(
     currentStepTitle = deriveCurrentStepTitle(
       renderableToolCalls,
       liveWebActivity,
+      options.hideThinkingUi ?? false,
     );
     currentStepInfo = deriveCurrentStepInfo(
       renderableToolCalls,
@@ -939,10 +964,16 @@ export function computeToolCallCardData(
   toolCalls: ChatMessageToolCall[],
   liveWebActivity: Record<string, ToolActivityMetadata>,
   nowMs?: number,
+  options: ToolCallCardDataOptions = {},
 ): ToolCallCardData {
   const items: ToolCallCardItem[] = toolCalls.map((tc) => ({
     kind: "toolCall",
     toolCall: tc,
   }));
-  return computeToolCallCardDataFromItems(items, liveWebActivity, nowMs);
+  return computeToolCallCardDataFromItems(
+    items,
+    liveWebActivity,
+    nowMs,
+    options,
+  );
 }

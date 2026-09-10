@@ -343,6 +343,7 @@ describe("sanitizeInboundHeaders", () => {
       "cookie",
       "forwarded",
       "x-real-ip",
+      "x-trace-id",
       "x-forwarded-for",
       "x-forwarded-proto",
       "x-vellum-subject",
