@@ -51,10 +51,10 @@ describe("feature flag catalog", () => {
   });
 
   test("exposes the activation checklist as a client string flag defaulted off", () => {
-    expect(CLIENT_STRING_FLAG_DEFAULTS.activationChecklist).toBe("off");
-    expect("activationChecklist" in CLIENT_FLAG_DEFAULTS).toBe(false);
-    expect("activationChecklist" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
-    expect("activationChecklist" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentActivationChecklist20260910).toBe("off");
+    expect("experimentActivationChecklist20260910" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("experimentActivationChecklist20260910" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("experimentActivationChecklist20260910" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 
   test("does not expose the GA billing CTA experiment as a feature flag", () => {

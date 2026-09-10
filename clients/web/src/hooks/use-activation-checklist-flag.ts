@@ -1,5 +1,5 @@
 /**
- * Shared seam for the `activation-checklist` string feature flag, which gates
+ * Shared seam for the `experiment-activation-checklist-2026-09-10` string feature flag, which gates
  * the post-onboarding welcome modal, the suggestions pill and the inspiration
  * list.
  *
@@ -17,10 +17,11 @@ export const ACTIVATION_LIST_IDS = ["smb", "parent", "general"] as const;
 
 export type ActivationListId = (typeof ACTIVATION_LIST_IDS)[number];
 
-/** Current `activation-checklist` arm; "off" until flags hydrate. */
+/** Current `experiment-activation-checklist-2026-09-10` arm; "off" until flags hydrate. */
 export function useActivationChecklistArm(): string {
   return (
-    useClientFeatureFlagStore.use.stringFlags().activationChecklist ?? "off"
+    useClientFeatureFlagStore.use.stringFlags()
+      .experimentActivationChecklist20260910 ?? "off"
   );
 }
 
@@ -31,15 +32,19 @@ export function useActivationChecklistArm(): string {
  */
 export function readActivationChecklistArm(): string {
   return (
-    useClientFeatureFlagStore.getState().stringFlags.activationChecklist ??
-    "off"
+    useClientFeatureFlagStore.getState().stringFlags
+      .experimentActivationChecklist20260910 ?? "off"
   );
 }
 
-/** The task list an arm selects, or null when the surface is off. */
+/**
+ * The task list an arm selects, or null when the surface is off.
+ *
+ * Only a value that names a shipped list turns the surface on. `off` is the
+ * control arm, and any value this bundle does not know (a newer arm, or a
+ * non-arm fallthrough such as `ineligible`) also reads as off, so a targeting
+ * change can never enroll a user in a treatment the client cannot render.
+ */
 export function resolveActivationListId(arm: string): ActivationListId | null {
-  if (arm === "off" || arm === "") {
-    return null;
-  }
-  return ACTIVATION_LIST_IDS.find((listId) => listId === arm) ?? "smb";
+  return ACTIVATION_LIST_IDS.find((listId) => listId === arm) ?? null;
 }

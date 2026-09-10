@@ -166,7 +166,7 @@ export function resetActivationFlagStore(): void {
 export function setActivationArm(arm: string): void {
   useClientFeatureFlagStore
     .getState()
-    .setStringFlags({ activationChecklist: arm }, null);
+    .setStringFlags({ experimentActivationChecklist20260910: arm }, null);
   useClientFeatureFlagStore.setState({ hydrated: true });
 }
 

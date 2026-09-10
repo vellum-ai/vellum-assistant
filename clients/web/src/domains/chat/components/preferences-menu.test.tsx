@@ -371,7 +371,7 @@ const ACTIVATION_ASSISTANT_ID = "asst-1";
 function setActivationArm(arm: string): void {
   useClientFeatureFlagStore
     .getState()
-    .setStringFlags({ activationChecklist: arm }, null);
+    .setStringFlags({ experimentActivationChecklist20260910: arm }, null);
 }
 
 /** Puts the client on `arm` with a daemon new enough to serve the list. */

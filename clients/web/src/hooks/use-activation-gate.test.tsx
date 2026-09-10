@@ -29,7 +29,7 @@ const ASSISTANT_ID = "asst-1";
 function setArmValue(arm: string): void {
   useClientFeatureFlagStore
     .getState()
-    .setStringFlags({ activationChecklist: arm }, null);
+    .setStringFlags({ experimentActivationChecklist20260910: arm }, null);
 }
 
 function listId(): string | null {
@@ -64,12 +64,11 @@ describe("useActivationEnabledListId", () => {
     expect(listId()).toBeNull();
   });
 
-  // A list added to LaunchDarkly ahead of the build reading it still shows the
-  // surface: the user has been targeted into the feature, and hiding it is a
-  // worse answer than showing the default list.
-  test("falls back to smb on an arm this build does not know", () => {
+  // A value this build does not know is a non-arm fallthrough (ineligible) or
+  // a newer arm; either way the client cannot render it, so it reads as off.
+  test("names no list for an arm this build does not know", () => {
     setArmValue("astronaut");
-    expect(listId()).toBe("smb");
+    expect(listId()).toBeNull();
   });
 
   test("names no list on a daemon without the routes", () => {

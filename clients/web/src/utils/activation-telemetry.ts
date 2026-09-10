@@ -69,7 +69,7 @@ export interface ActivationTelemetryDetail {
  * after work the user can switch assistants during.
  */
 export interface ActivationTelemetryContext {
-  /** The `activation-checklist` arm the client was on. */
+  /** The `experiment-activation-checklist-2026-09-10` arm the client was on. */
   arm: string;
   /** The list the action belongs to, already defaulted to `"unknown"`. */
   listId: string;

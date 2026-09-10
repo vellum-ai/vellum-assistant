@@ -61,7 +61,7 @@ function eventFromCall(callIndex: number): Record<string, unknown> {
 function resolveList(arm: string, frozenListId?: string | null): void {
   useClientFeatureFlagStore
     .getState()
-    .setStringFlags({ activationChecklist: arm }, null);
+    .setStringFlags({ experimentActivationChecklist20260910: arm }, null);
   useClientFeatureFlagStore.setState({ hydrated: true });
   useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
   useAssistantIdentityStore

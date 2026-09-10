@@ -40,8 +40,9 @@ describe("resolveActivationListId", () => {
     }
   });
 
-  test("falls back to smb for an arm this build does not know", () => {
-    expect(resolveActivationListId("variant-x")).toBe("smb");
+  test("reads an arm this build does not know as off", () => {
+    expect(resolveActivationListId("variant-x")).toBeNull();
+    expect(resolveActivationListId("ineligible")).toBeNull();
   });
 });
 
@@ -54,7 +55,10 @@ describe("useActivationChecklistArm", () => {
   test("reads the hydrated arm", () => {
     useClientFeatureFlagStore
       .getState()
-      .setStringFlags({ activationChecklist: "parent" }, null);
+      .setStringFlags(
+        { experimentActivationChecklist20260910: "parent" },
+        null,
+      );
     const { result } = renderHook(() => useActivationChecklistArm());
     expect(result.current).toBe("parent");
   });
