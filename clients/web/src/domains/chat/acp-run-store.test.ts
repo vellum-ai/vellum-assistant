@@ -87,6 +87,36 @@ describe("spawnRun", () => {
     expect(getState().byId["acp-1"]!.startedAt).toBe(NOW);
   });
 
+  it("applies a model update buffered before the spawn event", () => {
+    // The adapter reports the opening selection before `acp_session_spawned`,
+    // so the update arrives with no entry to hold it.
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("applies a buffered empty-picker withdrawal to the spawned entry", () => {
+    getState().setModel({ acpSessionId: "acp-1", availableModels: [] });
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toEqual([]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
   it("indexes byToolUseId when parentToolUseId is present", () => {
     spawn({ parentToolUseId: "tool-use-1" });
 

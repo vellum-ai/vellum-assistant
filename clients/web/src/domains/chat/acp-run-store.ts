@@ -145,10 +145,12 @@ export interface AcpRunState {
    */
   highWaterMark: Map<string, number>;
   /**
-   * Model updates that landed for a session with no entry yet. The snapshot
-   * that creates the entry folds the buffered update in under the same
-   * ordering rule a live entry gets, so an update racing an in-flight
-   * `/acp/sessions` read is not lost. Bounded by
+   * Model updates that landed for a session with no entry yet: the daemon
+   * reports the opening selection (and an empty-picker withdrawal) before
+   * `acp_session_spawned`, and an `/acp/sessions` read can be answered after an
+   * update it predates. Whichever path creates the entry, a spawn or a
+   * snapshot, folds the buffered update in under the same ordering rule a live
+   * entry gets, so the selection is not lost. Bounded by
    * {@link MAX_PENDING_MODEL_UPDATES}, least recently updated id dropped first.
    */
   pendingModelUpdates: Map<string, PendingModelUpdate>;
@@ -258,7 +260,7 @@ export interface AcpRunActions {
    * update cannot roll it back.
    *
    * A session with no entry yet buffers the update in `pendingModelUpdates`
-   * instead, for the snapshot that creates the entry to apply.
+   * instead, for the spawn or snapshot that creates the entry to apply.
    */
   setModel: (params: {
     acpSessionId: string;
@@ -465,6 +467,22 @@ function applyPendingModelUpdate(
 }
 
 /**
+ * Fold a buffered model update into an entry a live event just created or
+ * resumed. The entry's own `modelUpdatedAt` stands in for the fetch time, so
+ * an entry with no selection yet takes the buffered one and a selection
+ * recorded later than the buffered update keeps its place.
+ */
+function withPendingModelUpdate(
+  entry: AcpRunEntry,
+  pending: PendingModelUpdate | undefined,
+): AcpRunEntry {
+  if (pending === undefined) {
+    return entry;
+  }
+  return applyPendingModelUpdate(entry, pending, entry.modelUpdatedAt);
+}
+
+/**
  * Merge a history entry into an existing live entry. Unions both event buffers
  * by `seq` (never dropping the newest live events) and always folds in the
  * history entry's terminal/status/usage metadata. A terminal history status
@@ -558,8 +576,13 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   ...INITIAL_STATE,
 
   spawnRun: (params) => {
-    const { byId, orderedIds, byToolUseId } = get();
+    const { byId, orderedIds, byToolUseId, pendingModelUpdates } = get();
     const existing = byId[params.acpSessionId];
+    const pending = pendingModelUpdates.get(params.acpSessionId);
+    const nextPendingModelUpdates = dropPendingModelUpdates(
+      pendingModelUpdates,
+      [params.acpSessionId],
+    );
 
     if (existing) {
       // A respawn for an active run is a no-op. A respawn for a terminal run
@@ -569,15 +592,18 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         return;
       }
 
-      const resumed: AcpRunEntry = {
-        ...existing,
-        status: "running",
-        stopReason: undefined,
-        error: undefined,
-        completedAt: undefined,
-        task: existing.task ?? params.task,
-        parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
-      };
+      const resumed: AcpRunEntry = withPendingModelUpdate(
+        {
+          ...existing,
+          status: "running",
+          stopReason: undefined,
+          error: undefined,
+          completedAt: undefined,
+          task: existing.task ?? params.task,
+          parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
+        },
+        pending,
+      );
 
       const nextByToolUseId = existing.parentToolUseId
         ? byToolUseId
@@ -590,24 +616,30 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       set({
         byId: { ...byId, [params.acpSessionId]: resumed },
         byToolUseId: nextByToolUseId,
+        pendingModelUpdates: nextPendingModelUpdates,
       });
       return;
     }
 
-    const entry: AcpRunEntry = {
-      acpSessionId: params.acpSessionId,
-      agent: params.agent,
-      parentConversationId: params.parentConversationId,
-      task: params.task,
-      // Daemon emits `acp_session_spawned` only after the session is already
-      // running, so a spawned run starts as "running", not "initializing".
-      status: "running",
-      startedAt: params.startedAt,
-      parentToolUseId: params.parentToolUseId,
-      usedTokens: 0,
-      contextSize: 0,
-      events: [],
-    };
+    // A model update can precede `acp_session_spawned`, so the entry this
+    // event creates takes the selection the adapter already reported.
+    const entry: AcpRunEntry = withPendingModelUpdate(
+      {
+        acpSessionId: params.acpSessionId,
+        agent: params.agent,
+        parentConversationId: params.parentConversationId,
+        task: params.task,
+        // Daemon emits `acp_session_spawned` only after the session is already
+        // running, so a spawned run starts as "running", not "initializing".
+        status: "running",
+        startedAt: params.startedAt,
+        parentToolUseId: params.parentToolUseId,
+        usedTokens: 0,
+        contextSize: 0,
+        events: [],
+      },
+      pending,
+    );
 
     // Only clone the tool-use index when this spawn carries a
     // `parentToolUseId`; otherwise keep the reference stable.
@@ -621,6 +653,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       byId: { ...byId, [params.acpSessionId]: entry },
       orderedIds: [...orderedIds, params.acpSessionId],
       byToolUseId: nextByToolUseId,
+      pendingModelUpdates: nextPendingModelUpdates,
     });
   },
 
