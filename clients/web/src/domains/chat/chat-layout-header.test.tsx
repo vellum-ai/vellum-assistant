@@ -179,6 +179,22 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(screen.getByText("Desktop title")).toBeTruthy();
     expect(screen.queryByText("Mobile title")).toBeNull();
   });
+
+  test("keeps custom mobile controls clear of macOS traffic lights", () => {
+    mockIsElectron = true;
+    mockElectronHostOS = "macos";
+    renderHeader({
+      mobileTopBar: {
+        leading: <span>Back</span>,
+        center: <span>Library</span>,
+        trailing: <span>Import</span>,
+      },
+    });
+
+    expect(screen.getByText("Back").parentElement?.style.paddingLeft).toBe(
+      "80px",
+    );
+  });
 });
 
 describe("ChatLayoutHeader page surface", () => {

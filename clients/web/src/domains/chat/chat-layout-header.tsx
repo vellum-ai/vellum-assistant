@@ -152,6 +152,10 @@ export function ChatLayoutHeader({
     isNativeMobile(),
   );
   const customMobileTopBar = isMobile ? mobileTopBar : null;
+  const macosTrafficLightStyle =
+    electronHostOS === "macos"
+      ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
+      : {};
 
   return (
     <header
@@ -176,7 +180,10 @@ export function ChatLayoutHeader({
           inert={controlsHidden || undefined}
           className={`grid w-full grid-cols-[1fr_auto_1fr] items-center transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         >
-          <div className="flex min-w-0 items-center justify-start gap-2">
+          <div
+            className="flex min-w-0 items-center justify-start gap-2"
+            style={macosTrafficLightStyle}
+          >
             {customMobileTopBar.leading}
             <WindowsMenuBar />
           </div>
@@ -203,9 +210,7 @@ export function ChatLayoutHeader({
               ...(isMobile
                 ? {}
                 : { minWidth: collapsed ? 48 : (sidebarWidth ?? 230) }),
-              ...(electronHostOS === "macos"
-                ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
-                : {}),
+              ...macosTrafficLightStyle,
             }}
           >
             {isMobile ? (
