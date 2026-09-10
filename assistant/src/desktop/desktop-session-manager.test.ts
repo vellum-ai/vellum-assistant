@@ -361,39 +361,46 @@ describe("DesktopSessionManager process tree", () => {
     expect(h.count("browser")).toBe(2);
   });
 
-  test("a browser exit under a viewer relaunches it, until it crash loops", async () => {
-    const h = newManager();
-    const { viewer, lost } = newViewer();
-    h.manager.acquireViewerSlot(viewer);
-    await h.manager.ensureDesktopRunning();
-    await settle();
+  test.each(["viewer", "automation"] as const)(
+    "a browser exit under %s relaunches it, until it crash loops",
+    async (owner) => {
+      const h = newManager();
+      const { viewer, lost } = newViewer();
+      if (owner === "viewer") {
+        h.manager.acquireViewerSlot(viewer);
+      } else {
+        h.manager.acquireAutomationSlot(viewer);
+      }
+      await h.manager.ensureDesktopRunning();
+      await settle();
 
-    for (let exits = 1; exits <= 3; exits += 1) {
+      for (let exits = 1; exits <= 3; exits += 1) {
+        h.child("browser").exit(1);
+        await settle();
+        expect(h.count("browser")).toBe(exits + 1);
+        expect(lost).toEqual([]);
+      }
+
       h.child("browser").exit(1);
       await settle();
-      expect(h.count("browser")).toBe(exits + 1);
-      expect(lost).toEqual([]);
-    }
-
-    h.child("browser").exit(1);
-    await settle();
-    expect(h.count("browser")).toBe(4);
-    expect(lost).toEqual([
-      { code: 4011, reason: "Desktop browser keeps crashing" },
-    ]);
-    expect(
-      h
-        .terminated()
-        .map((c) => c.role)
-        .sort(),
-    ).toEqual([
-      "clipboard",
-      "compositor",
-      "panel",
-      "window-manager",
-      "x-server",
-    ]);
-  });
+      expect(h.count("browser")).toBe(4);
+      expect(lost).toEqual([
+        { code: 4011, reason: "Desktop browser keeps crashing" },
+      ]);
+      expect(
+        h
+          .terminated()
+          .map((c) => c.role)
+          .sort(),
+      ).toEqual([
+        "clipboard",
+        "compositor",
+        "panel",
+        "window-manager",
+        "x-server",
+      ]);
+    },
+  );
 
   test("a browser that cannot be resolved takes the desktop down", async () => {
     const h = newManager();

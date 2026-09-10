@@ -39,6 +39,7 @@ function EnabledDesktopControlPanel({ assistantId, children }: Props) {
     ...options,
     enabled: orgReady,
     staleTime: 0,
+    refetchOnWindowFocus: false,
     retry: false,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await desktopControlGet({

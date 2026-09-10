@@ -113,18 +113,18 @@ export class DesktopControl {
     clearInterval(this.watchdog);
     this.watchdog = undefined;
     try {
-      await this.deps.input.releaseInput();
-    } finally {
       try {
-        await this.deps.input.setViewerInput(true);
-        this.inputCleanupPending = false;
+        await this.deps.input.releaseInput();
       } finally {
-        if (owner) {
-          this.deps.manager().releaseAutomationSlot(owner.holder);
-        }
-        this.owner = null;
-        this.notify();
+        await this.deps.input.setViewerInput(true);
       }
+      this.inputCleanupPending = false;
+    } finally {
+      if (owner) {
+        this.deps.manager().releaseAutomationSlot(owner.holder);
+      }
+      this.owner = null;
+      this.notify();
     }
   }
 

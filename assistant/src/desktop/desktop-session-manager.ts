@@ -466,13 +466,9 @@ export class DesktopSessionManager {
     });
   }
 
-  /**
-   * A closed browser is normal use when nobody is watching; the next viewer
-   * gets a fresh window. Under a viewer it is relaunched so they are not
-   * stranded on an empty desktop, unless it keeps dying.
-   */
+  /** Relaunch Chrome while a viewer or automation is using the desktop. */
   private onBrowserExit(): void {
-    if (!this.viewer || !this.running) {
+    if ((!this.viewer && !this.automation) || !this.running) {
       return;
     }
     const now = Date.now();

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import {
   act,
   cleanup,
@@ -48,6 +52,7 @@ beforeEach(() => {
   }) as unknown as typeof client.post;
 });
 afterEach(() => {
+  focusManager.setFocused(undefined);
   cleanup();
   queryClient.clear();
   client.get = originalGet;
@@ -117,4 +122,13 @@ test("older assistants retain interactive viewing when the control route is abse
   await waitFor(() => expect(readOnly()).toBe("false"));
   expect(requests).toEqual([]);
   expect(screen.queryByRole("button")).toBeNull();
+  const calls = (client.get as ReturnType<typeof mock>).mock.calls.length;
+  await act(async () => {
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+    await Promise.resolve();
+  });
+  expect(client.get).toHaveBeenCalledTimes(calls);
+  act(() => listeners.get("sse.opened")?.({}));
+  await waitFor(() => expect(client.get).toHaveBeenCalledTimes(calls + 1));
 });

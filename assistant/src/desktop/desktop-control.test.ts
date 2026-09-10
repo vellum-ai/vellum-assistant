@@ -222,21 +222,24 @@ describe("assistant desktop control", () => {
   });
 });
 
-test("a failed handoff remains retryable until viewer input is restored", async () => {
-  const f = fixture();
-  await observe(f.control);
-  f.input.setViewerInput.mockImplementationOnce(async () => {
-    throw new Error("X server busy");
-  });
-  await expect(f.control.takeControl()).rejects.toThrow("X server busy");
-  expect(f.control.getStatus().state).toBe("assistant");
-  expect(
-    (await f.control.execute({ action: "observe" }, context())).yieldToUser,
-  ).toBe(true);
-  await f.control.takeControl();
-  expect(f.control.getStatus().state).toBe("human");
-  expect(f.released).toHaveBeenCalledTimes(1);
-});
+test.each(["releaseInput", "setViewerInput"] as const)(
+  "a failed %s remains retryable before handing input back",
+  async (operation) => {
+    const f = fixture();
+    await observe(f.control);
+    f.input[operation].mockImplementationOnce(async () => {
+      throw new Error("X server busy");
+    });
+    await expect(f.control.takeControl()).rejects.toThrow("X server busy");
+    expect(f.control.getStatus().state).toBe("assistant");
+    expect(
+      (await f.control.execute({ action: "observe" }, context())).yieldToUser,
+    ).toBe(true);
+    await f.control.takeControl();
+    expect(f.control.getStatus().state).toBe("human");
+    expect(f.released).toHaveBeenCalledTimes(1);
+  },
+);
 
 test("rejects clicks and drag destinations outside the observed image before sending input", async () => {
   for (const action of [
