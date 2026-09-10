@@ -27,6 +27,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  ToolUseContent,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -53,13 +54,12 @@ import {
 } from "./coerce-object-args.js";
 import {
   applyGemini3UnsignedToolCallFallback,
-  assistantToolCallsNeedThoughtSignatureBackfill,
-  attachGoogleThoughtSignature,
-  backfillUnsignedGoogleThoughtSignatures,
-  googleThoughtSignatureFromUnknown,
+  attachGoogleThoughtSignatureIfNeeded,
+  classifyGoogleThoughtSignatureRetry,
+  geminiThoughtSignaturesByToolCallId,
   type GoogleToolCallExtraContent,
-  messagesCarryGoogleThoughtSignature,
-  stripGoogleThoughtSignatures,
+  thoughtSignatureFromToolUseMetadata,
+  toolUseMetadataFromChatCompletionsDelta,
 } from "./google-thought-signature.js";
 import {
   isOpenAICompatInlineAudio,
@@ -582,50 +582,6 @@ function isUnknownAssistantReasoningFieldRejection(
   );
 }
 
-/**
- * True when thinking-enabled Gemini (via an OpenAI-compatible gateway)
- * rejected the follow-up because assistant tool_calls omitted
- * extra_content.google.thought_signature. One retry attaches the documented
- * dummy signature to unsigned tool_calls so unsigned history can proceed.
- */
-function isMissingThoughtSignatureRejection(
-  error: unknown,
-  params: unknown,
-): boolean {
-  if (!isClientErrorStatus(error)) {
-    return false;
-  }
-  if (!assistantToolCallsNeedThoughtSignatureBackfill(params)) {
-    return false;
-  }
-  const haystack = openaiCompatErrorHaystack(error);
-  return /thought[_\s-]?signature/i.test(haystack);
-}
-
-/**
- * True when the request included tool_call extra_content and the provider
- * rejected it as an unknown property. One retry without those extras lets a
- * strict Chat Completions schema succeed.
- */
-function isUnknownExtraContentRejection(
-  error: unknown,
-  params: unknown,
-): boolean {
-  if (!isClientErrorStatus(error)) {
-    return false;
-  }
-  if (!messagesCarryGoogleThoughtSignature(params)) {
-    return false;
-  }
-  const haystack = openaiCompatErrorHaystack(error);
-  if (!/extra_content/i.test(haystack)) {
-    return false;
-  }
-  return /unknown|unexpected|unrecognized|additional propert|extra (?:field|property)|not (?:a )?valid|invalid (?:argument|parameter|field|property)/i.test(
-    haystack,
-  );
-}
-
 function isTextualContentPart(part: { type: string }): boolean {
   return part.type === "text" || part.type === "refusal";
 }
@@ -706,6 +662,7 @@ type OpenAICompatRetryKind =
 function classifyOpenAICompatRetry(
   error: unknown,
   params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+  thoughtSignaturesByCallId: ReadonlyMap<string, string>,
 ): { kind: OpenAICompatRetryKind; message: string; apply: () => void } | null {
   if (isReasoningOptOutRejection(error, params)) {
     return {
@@ -748,24 +705,13 @@ function classifyOpenAICompatRetry(
       },
     };
   }
-  if (isMissingThoughtSignatureRejection(error, params)) {
-    return {
-      kind: "missing-thought-signature",
-      message:
-        "Upstream requires thought signature round-trip; retrying with dummy signature on unsigned tool_calls",
-      apply: () => {
-        backfillUnsignedGoogleThoughtSignatures(params);
-      },
-    };
-  }
-  if (isUnknownExtraContentRejection(error, params)) {
-    return {
-      kind: "unknown-extra-content",
-      message: "Upstream rejected tool_call extra_content; retrying without it",
-      apply: () => {
-        stripGoogleThoughtSignatures(params);
-      },
-    };
+  const thoughtSignatureRetry = classifyGoogleThoughtSignatureRetry(params, {
+    isClientError: isClientErrorStatus(error),
+    haystack: openaiCompatErrorHaystack(error),
+    capturedByCallId: thoughtSignaturesByCallId,
+  });
+  if (thoughtSignatureRetry) {
+    return thoughtSignatureRetry;
   }
   if (isChatTemplateRejection(error, params)) {
     return {
@@ -920,6 +866,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const coercedObjectKeys = new Map<string, string[]>();
 
     try {
+      const thoughtSignaturesByCallId =
+        geminiThoughtSignaturesByToolCallId(messages);
       const openaiMessages = await this.toOpenAIMessages(
         messages,
         systemPrompt,
@@ -1120,7 +1068,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       const toolCallMap = new Map<
         number,
-        { id: string; name: string; args: string; thoughtSignature?: string }
+        {
+          id: string;
+          name: string;
+          args: string;
+          providerMetadata?: ToolUseContent["providerMetadata"];
+        }
       >();
       const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
@@ -1155,7 +1108,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
             stream = await createStream();
             break;
           } catch (error) {
-            const retry = classifyOpenAICompatRetry(error, params);
+            const retry = classifyOpenAICompatRetry(
+              error,
+              params,
+              thoughtSignaturesByCallId,
+            );
             if (!retry || attemptedCompatRetries.has(retry.kind)) {
               throw error;
             }
@@ -1256,9 +1213,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
                     entry.args,
                   );
                 }
-                const thoughtSignature = googleThoughtSignatureFromUnknown(tc);
-                if (thoughtSignature && !entry.thoughtSignature) {
-                  entry.thoughtSignature = thoughtSignature;
+                const providerMetadata =
+                  toolUseMetadataFromChatCompletionsDelta(tc);
+                if (
+                  providerMetadata &&
+                  !thoughtSignatureFromToolUseMetadata(entry.providerMetadata)
+                ) {
+                  entry.providerMetadata = providerMetadata;
                 }
               }
             }
@@ -1381,12 +1342,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
           id: tc.id,
           name: tc.name,
           input,
-          ...(tc.thoughtSignature
-            ? {
-                providerMetadata: {
-                  gemini: { thoughtSignature: tc.thoughtSignature },
-                },
-              }
+          ...(tc.providerMetadata
+            ? { providerMetadata: tc.providerMetadata }
             : {}),
         });
       }
@@ -1402,13 +1359,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
               tool_calls:
                 toolCallMap.size > 0
                   ? Array.from(toolCallMap.values()).map((tc) =>
-                      attachGoogleThoughtSignature(
+                      attachGoogleThoughtSignatureIfNeeded(
                         {
                           id: tc.id,
                           type: "function",
                           function: { name: tc.name, arguments: tc.args },
                         },
-                        tc.thoughtSignature,
+                        thoughtSignatureFromToolUseMetadata(
+                          tc.providerMetadata,
+                        ),
+                        modelOverride ?? this.model,
                       ),
                     )
                   : undefined,
@@ -1736,7 +1696,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           break;
         case "tool_use":
           toolCalls.push(
-            attachGoogleThoughtSignature(
+            attachGoogleThoughtSignatureIfNeeded(
               {
                 id: block.id,
                 type: "function",
@@ -1745,7 +1705,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
                   arguments: JSON.stringify(block.input),
                 },
               },
-              block.providerMetadata?.gemini?.thoughtSignature,
+              thoughtSignatureFromToolUseMetadata(block.providerMetadata),
+              model,
             ),
           );
           break;

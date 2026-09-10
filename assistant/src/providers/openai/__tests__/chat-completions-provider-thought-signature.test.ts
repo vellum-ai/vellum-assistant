@@ -120,6 +120,23 @@ const unsignedToolHistory = [
   },
 ];
 
+const signedToolHistory = [
+  {
+    role: "assistant" as const,
+    content: [
+      {
+        type: "tool_use" as const,
+        id: "call_1",
+        name: "search",
+        input: { q: "x" },
+        providerMetadata: {
+          gemini: { thoughtSignature: "signed-thought-1" },
+        },
+      },
+    ],
+  },
+];
+
 describe("OpenAIChatCompletionsProvider Gemini thought signature capture", () => {
   test("captures extra_content.google.thought_signature onto tool_use providerMetadata", async () => {
     const { provider } = stubProvider([
@@ -266,8 +283,10 @@ describe("OpenAIChatCompletionsProvider Gemini thought signature capture", () =>
 });
 
 describe("OpenAIChatCompletionsProvider Gemini thought signature replay", () => {
-  test("replays captured thought signatures as extra_content on tool_calls", async () => {
-    const { provider, requests } = stubProvider(OK_CHUNKS);
+  test("replays captured thought signatures as extra_content on Gemini 3 models", async () => {
+    const { provider, requests } = stubProvider(OK_CHUNKS, {
+      model: "gemini-3.7-flash",
+    });
 
     await provider.sendMessage([
       { role: "user", content: [{ type: "text", text: "Read /tmp/test" }] },
@@ -360,6 +379,21 @@ describe("OpenAIChatCompletionsProvider Gemini thought signature replay", () => 
     };
     expect(params.messages[0].tool_calls?.[0].extra_content).toBeUndefined();
   });
+
+  test("does not replay captured thought signatures onto non-Gemini OpenAI requests", async () => {
+    const { provider, requests } = stubProvider(OK_CHUNKS, {
+      model: "gpt-5.2",
+    });
+
+    await provider.sendMessage(signedToolHistory);
+
+    const params = requests[0] as {
+      messages: Array<{
+        tool_calls?: Array<{ extra_content?: unknown }>;
+      }>;
+    };
+    expect(params.messages[0].tool_calls?.[0].extra_content).toBeUndefined();
+  });
 });
 
 describe("missing thought signature rejection fallback", () => {
@@ -430,30 +464,42 @@ describe("missing thought signature rejection fallback", () => {
     ).toBe(GEMINI_3_UNSIGNED_TOOL_CALL_THOUGHT_SIGNATURE);
   });
 
-  test("does not retry when tool_calls already carry a thought signature", async () => {
+  test("retries a remapped model with the captured signature, not the dummy", async () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("Invalid thought signature")],
       OK_CHUNKS,
+      { model: "vertex-flash" },
     );
 
-    await expect(
-      provider.sendMessage([
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "call_1",
-              name: "search",
-              input: { q: "x" },
-              providerMetadata: {
-                gemini: { thoughtSignature: "signed-thought-1" },
-              },
-            },
-          ],
-        },
-      ]),
-    ).rejects.toThrow();
+    await provider.sendMessage(signedToolHistory);
+
+    expect(requests).toHaveLength(2);
+    const first = requests[0] as {
+      messages: Array<{
+        tool_calls?: Array<{ extra_content?: unknown }>;
+      }>;
+    };
+    const second = requests[1] as {
+      messages: Array<{
+        tool_calls?: Array<{
+          extra_content?: { google?: { thought_signature?: string } };
+        }>;
+      }>;
+    };
+    expect(first.messages[0].tool_calls?.[0].extra_content).toBeUndefined();
+    expect(second.messages[0].tool_calls?.[0].extra_content).toEqual({
+      google: { thought_signature: "signed-thought-1" },
+    });
+  });
+
+  test("does not retry when Gemini 3 tool_calls already carry a thought signature", async () => {
+    const { provider, requests } = stubProviderWithErrors(
+      [rejection("Invalid thought signature")],
+      OK_CHUNKS,
+      { model: "gemini-3.7-flash" },
+    );
+
+    await expect(provider.sendMessage(signedToolHistory)).rejects.toThrow();
     expect(requests).toHaveLength(1);
   });
 
@@ -477,24 +523,10 @@ describe("unknown extra_content rejection fallback", () => {
         ),
       ],
       OK_CHUNKS,
+      { model: "gemini-3.7-flash" },
     );
 
-    await provider.sendMessage([
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "tool_use",
-            id: "call_1",
-            name: "search",
-            input: { q: "x" },
-            providerMetadata: {
-              gemini: { thoughtSignature: "signed-thought-1" },
-            },
-          },
-        ],
-      },
-    ]);
+    await provider.sendMessage(signedToolHistory);
 
     expect(requests).toHaveLength(2);
     const first = requests[0] as {
@@ -517,26 +549,10 @@ describe("unknown extra_content rejection fallback", () => {
     const { provider, requests } = stubProviderWithErrors(
       [rejection("Invalid thought signature")],
       OK_CHUNKS,
+      { model: "gemini-3.7-flash" },
     );
 
-    await expect(
-      provider.sendMessage([
-        {
-          role: "assistant",
-          content: [
-            {
-              type: "tool_use",
-              id: "call_1",
-              name: "search",
-              input: { q: "x" },
-              providerMetadata: {
-                gemini: { thoughtSignature: "signed-thought-1" },
-              },
-            },
-          ],
-        },
-      ]),
-    ).rejects.toThrow();
+    await expect(provider.sendMessage(signedToolHistory)).rejects.toThrow();
     expect(requests).toHaveLength(1);
     expect(
       (

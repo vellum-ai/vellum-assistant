@@ -5,11 +5,15 @@ import {
   applyGemini3UnsignedToolCallFallback,
   assistantToolCallsNeedThoughtSignatureBackfill,
   attachGoogleThoughtSignature,
+  attachGoogleThoughtSignatureIfNeeded,
+  backfillGoogleThoughtSignatures,
   backfillUnsignedGoogleThoughtSignatures,
+  geminiThoughtSignaturesByToolCallId,
   googleThoughtSignatureFromUnknown,
   type GoogleToolCallExtraContent,
   messagesCarryGoogleThoughtSignature,
   stripGoogleThoughtSignatures,
+  toolUseMetadataFromChatCompletionsDelta,
 } from "../google-thought-signature.js";
 
 describe("googleThoughtSignatureFromUnknown", () => {
@@ -54,6 +58,45 @@ describe("attachGoogleThoughtSignature", () => {
     expect(attachGoogleThoughtSignature({ id: "call_1" }, undefined)).toEqual({
       id: "call_1",
     });
+  });
+});
+
+describe("attachGoogleThoughtSignatureIfNeeded", () => {
+  test("attaches extra_content for Gemini 3 models", () => {
+    expect(
+      attachGoogleThoughtSignatureIfNeeded(
+        { id: "call_1" },
+        "signed-thought-1",
+        "google/gemini-3.7-flash",
+      ),
+    ).toEqual({
+      id: "call_1",
+      extra_content: { google: { thought_signature: "signed-thought-1" } },
+    });
+  });
+
+  test("does not attach extra_content for non-Gemini models", () => {
+    expect(
+      attachGoogleThoughtSignatureIfNeeded(
+        { id: "call_1" },
+        "signed-thought-1",
+        "gpt-5.2",
+      ),
+    ).toEqual({ id: "call_1" });
+  });
+});
+
+describe("toolUseMetadataFromChatCompletionsDelta", () => {
+  test("maps extra_content onto gemini providerMetadata", () => {
+    expect(
+      toolUseMetadataFromChatCompletionsDelta({
+        extra_content: { google: { thought_signature: "signed-thought-1" } },
+      }),
+    ).toEqual({ gemini: { thoughtSignature: "signed-thought-1" } });
+  });
+
+  test("returns undefined when extra_content is absent", () => {
+    expect(toolUseMetadataFromChatCompletionsDelta({ id: "call_1" })).toBeUndefined();
   });
 });
 
@@ -146,5 +189,47 @@ describe("thought signature params helpers", () => {
     expect(stripGoogleThoughtSignatures(params)).toBe(true);
     expect(messagesCarryGoogleThoughtSignature(params)).toBe(false);
     expect(params.messages[0].tool_calls[0].extra_content).toBeUndefined();
+  });
+
+  test("replays captured signatures by tool_call id on unsigned params", () => {
+    const params = structuredClone(unsignedParams);
+    expect(
+      backfillGoogleThoughtSignatures(
+        params,
+        new Map([["call_1", "signed-thought-1"]]),
+      ),
+    ).toBe(true);
+    expect(
+      params.messages[0].tool_calls[0].extra_content?.google?.thought_signature,
+    ).toBe("signed-thought-1");
+  });
+});
+
+describe("geminiThoughtSignaturesByToolCallId", () => {
+  test("indexes captured signatures from assistant tool_use blocks", () => {
+    expect(
+      geminiThoughtSignaturesByToolCallId([
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool_use",
+              id: "call_1",
+              name: "search",
+              input: { q: "x" },
+              providerMetadata: {
+                gemini: { thoughtSignature: "signed-thought-1" },
+              },
+            },
+            {
+              type: "tool_use",
+              id: "call_2",
+              name: "search",
+              input: { q: "y" },
+            },
+          ],
+        },
+      ]),
+    ).toEqual(new Map([["call_1", "signed-thought-1"]]));
   });
 });
