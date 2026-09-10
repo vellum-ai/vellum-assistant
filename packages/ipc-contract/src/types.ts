@@ -206,6 +206,22 @@ export type VellumCommand =
    * that draws it also draws a way to stop.
    */
   | { kind: "toggleVoice" }
+  /**
+   * The user pressed a control the assistant was pointing at on the shared
+   * surface, which is the step it was walking them through being done.
+   *
+   * `label` is the control's own name as the surface reports it, the same
+   * word the assistant was told it had pointed at. The window holding the
+   * session puts the press to the call as the user's turn, so the assistant
+   * hears the step is done and says what comes next without anyone having to
+   * say so. A press on a surface with no session up lands nowhere, which is
+   * right: there is no one to tell.
+   *
+   * Like `annotateShare`, this does not raise the app. The user is working
+   * in the app they were pointed at, and the whole point is that they stay
+   * there.
+   */
+  | { kind: "coachmarkPressed"; label: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -2142,6 +2158,23 @@ export interface CompanionSurfaceState {
    * that predates it, which reads as freehand, the one tool that shell had.
    */
   annotationTool?: CompanionAnnotationTool;
+
+  /**
+   * How many times the user has cleared the shared surface from the pill.
+   *
+   * A running count rather than an event, the way `captureCount` is. The
+   * frame's drawing layer holds the user's own ink and main never sees it,
+   * so a press on the pill reaches that ink only on the state everything
+   * else reaches it on. A step in the number is one clear. The value a
+   * window mounts with is history, since main replays its state into a
+   * window it has just opened, and a layer that dropped its ink on the
+   * replay would be clearing for a press made before it existed.
+   *
+   * The assistant's marks need no such signal: main holds those and takes
+   * them down itself. Absent on a shell that predates the control, which
+   * reads as no clears yet.
+   */
+  marksCleared?: number;
 
   /**
    * What the assistant is pointing at on the shared surface, drawn on the

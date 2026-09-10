@@ -76,10 +76,10 @@ const ATTACHMENT_CAPABLE_PLATFORMS = new Set(["gmail", "outlook"]);
  * home: the turn arrived on a channel, in a chat, in a thread (the turn-local
  * snapshot on the tool context), and a post the provider delivered to exactly
  * that place is a same-conversation send even when the chat's home resolves
- * elsewhere, as it does for a thread-scoped chat whose home is the chat's
- * notification conversation. The delivered thread is the one the provider
- * reports, not the one requested: a provider that ignores the request lands
- * the post in the thread-less chat, and the record must say so. The home
+ * elsewhere. The delivered thread is the one the provider reports, not the
+ * one requested: a provider that ignores the request lands the post in the
+ * thread-less chat, and the record must say so; a post into a thread is
+ * recorded in the thread's own conversation, where its replies arrive. The home
  * comparison stays as the second test, for a sender that arrived through no
  * channel but is the home. The post is then in the outbound index only
  * through no path, which is the same class as a raw API send and is deferred
@@ -114,6 +114,7 @@ async function recordSentChannelPost(params: {
     const home = await resolveProactiveHomeConversation({
       sourceChannel: providerId,
       externalChatId,
+      threadId: params.deliveredThreadId,
       source: "notification",
       conversationType: "background",
       title: `Messages to ${externalChatId}`,
@@ -125,6 +126,9 @@ async function recordSentChannelPost(params: {
       conversationId: home.conversationId,
       channel: providerId,
       externalChatId,
+      ...(params.deliveredThreadId
+        ? { threadId: params.deliveredThreadId }
+        : {}),
       text: params.text,
       providerMessageId: params.providerMessageId,
       crossPostedFrom: sender.conversationId,

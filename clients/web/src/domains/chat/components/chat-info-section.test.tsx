@@ -23,13 +23,13 @@ import { DETAIL_SHELL_BODY_INSET_PX } from "@/components/detail-shell";
 import { CHAT_INFO_APP_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-app-tile";
 import { CHAT_INFO_FILE_TILE_WIDTH_PX } from "@/domains/chat/components/chat-info-file-tile";
 import {
-  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_BODY_WIDTH_PX,
   CHAT_INFO_NARROW_PHONE_PX,
   makeElementSizeMock,
 } from "@/domains/chat/components/chat-info.test-helper";
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
-const widthRef = { value: CHAT_INFO_DRAWER_WIDTH_PX };
+const widthRef = { value: CHAT_INFO_BODY_WIDTH_PX };
 
 mock.module("@/hooks/use-element-size", () =>
   makeElementSizeMock(() => widthRef.value),
@@ -94,7 +94,7 @@ function seeAll(): HTMLElement | null {
 }
 
 beforeEach(() => {
-  widthRef.value = CHAT_INFO_DRAWER_WIDTH_PX;
+  widthRef.value = CHAT_INFO_BODY_WIDTH_PX;
   viewport.set({ narrow: false, coarsePointer: false });
 });
 
@@ -109,8 +109,8 @@ afterAll(() => {
 
 describe("fitTileCount", () => {
   test.each([
-    [CHAT_INFO_DRAWER_WIDTH_PX, CHAT_INFO_APP_TILE_WIDTH_PX, 3],
-    [CHAT_INFO_DRAWER_WIDTH_PX, CHAT_INFO_FILE_TILE_WIDTH_PX, 4],
+    [CHAT_INFO_BODY_WIDTH_PX, CHAT_INFO_APP_TILE_WIDTH_PX, 3],
+    [CHAT_INFO_BODY_WIDTH_PX, CHAT_INFO_FILE_TILE_WIDTH_PX, 4],
     [378, CHAT_INFO_APP_TILE_WIDTH_PX, 2],
     [378, CHAT_INFO_FILE_TILE_WIDTH_PX, 2],
     [0, CHAT_INFO_FILE_TILE_WIDTH_PX, 1],

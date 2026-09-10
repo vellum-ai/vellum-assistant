@@ -59,7 +59,12 @@ import {
   invalidateConnectionsAfterCredentialDelete,
 } from "./credential-in-use.js";
 import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
-import { BadRequestError, InternalError } from "./errors.js";
+import { BadRequestError, ForbiddenError, InternalError } from "./errors.js";
+import {
+  isPlatformManagedCredential,
+  type PlatformManagedCredentialAction,
+  platformManagedCredentialRefusal,
+} from "./platform-managed-credentials.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -157,7 +162,12 @@ interface CredentialLookup {
 
 /**
  * Resolve a credential lookup from service+field or UUID.
- * Throws BadRequestError when neither is provided or the UUID is not found.
+ * Throws BadRequestError when neither is provided or the UUID is not found,
+ * and ForbiddenError for a credential the platform owns.
+ *
+ * Every read handler that returns credential material (inspect, reveal)
+ * resolves through here, so the platform-managed refusal sits at the single
+ * point they share and cannot drift apart from the list filter.
  */
 function resolveCredentialLookup(
   body: Record<string, unknown>,
@@ -169,6 +179,7 @@ function resolveCredentialLookup(
   };
 
   if (service && field) {
+    assertNotPlatformManaged(service, field, "read");
     return {
       storageKey: credentialKey(service, field),
       metadata: getCredentialMetadata(service, field),
@@ -182,6 +193,7 @@ function resolveCredentialLookup(
     if (!metadata) {
       throw new BadRequestError("Credential not found");
     }
+    assertNotPlatformManaged(metadata.service, metadata.field, "read");
     return {
       storageKey: credentialKey(metadata.service, metadata.field),
       metadata,
@@ -193,6 +205,29 @@ function resolveCredentialLookup(
   throw new BadRequestError("Either service+field or id is required");
 }
 
+/**
+ * Refuse any use of a credential the platform provisions for itself, whatever
+ * the calling principal. Reads are refused because the API key spends
+ * inference on Vellum's account. Writes are refused because they are a read
+ * by another name: repointing `vellum:platform_base_url` sends the next
+ * platform call, bearing that same key, to a host of the writer's choosing.
+ *
+ * The platform's own provisioning does not come through here. It writes over
+ * `POST /v1/secrets` (Django to vembda to the pod), as does the CLI and the
+ * local-mode connect flow in the web client.
+ */
+function assertNotPlatformManaged(
+  service: string,
+  field: string,
+  action: PlatformManagedCredentialAction,
+): void {
+  if (isPlatformManagedCredential(service, field)) {
+    throw new ForbiddenError(
+      platformManagedCredentialRefusal(service, field, action),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -200,7 +235,11 @@ function resolveCredentialLookup(
 async function handleCredentialsList({ body }: RouteHandlerArgs) {
   const search = (body as { search?: string } | undefined)?.search;
 
-  let allMetadata = listCredentialMetadata();
+  // Platform-provisioned credentials are not the user's to act on, so they
+  // never become a Settings row (and never a click-to-reveal).
+  let allMetadata = listCredentialMetadata().filter(
+    (m) => !isPlatformManagedCredential(m.service, m.field),
+  );
 
   if (search) {
     const query = search.toLowerCase();
@@ -453,6 +492,8 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     throw new BadRequestError("value is required");
   }
 
+  assertNotPlatformManaged(service, field, "change");
+
   try {
     return await storeCredentialValue({
       service,
@@ -495,6 +536,8 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   if (!field || typeof field !== "string") {
     throw new BadRequestError("field is required");
   }
+
+  assertNotPlatformManaged(service, field, "change");
 
   assertMetadataWritable();
 

@@ -15,7 +15,12 @@ const ingestMock = mock(
     response: { ok: true, status: 200 } as Response,
   }),
 );
+// Spread the real module: `mock.module` replaces the whole module for every
+// test file sharing this process, so returning only the mocked export erases
+// the rest of the generated sdk for anything that loads it later.
+const sdk = await import("@/generated/api/sdk.gen");
 mock.module("@/generated/api/sdk.gen", () => ({
+  ...sdk,
   telemetryIngestCreate: ingestMock,
 }));
 

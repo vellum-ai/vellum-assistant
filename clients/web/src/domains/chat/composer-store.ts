@@ -31,7 +31,7 @@ import {
   prepareImageAttachmentForUpload,
 } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
 import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
-import { sniffBlobMimeType } from "@/domains/chat/utils/mime-sniff";
+import { sniffBlobMimeType } from "@/utils/mime-sniff";
 
 // ---------------------------------------------------------------------------
 // Types

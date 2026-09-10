@@ -16,6 +16,7 @@ import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
   SIDEBAR_CHIP_GAP_CLASSES,
+  SIDEBAR_HEADER_PADDING_X,
   SIDEBAR_MOBILE_CHIP_CLASSES,
   SIDEBAR_MOBILE_GLYPH_CLASSES,
   SIDEBAR_ROW_PADDING_X,
@@ -282,13 +283,14 @@ function CollapsibleNavSectionSection({
   /* One slot for both header branches. The collapsible and non-collapsible
      headers show the same glyph on the same axis, so they read it from here
      rather than each rendering their own copy. */
-  /* 12px on a pointer viewport; on a phone the 16px every pill's leading icon
-     is drawn at, so a header's glyph carries the same weight as the pinned
-     app's above it. */
+  /* 14px on a pointer viewport, the size every pill's leading icon is drawn
+     at there (Figma 8300:167416); on a phone the 16px those icons grow to,
+     so a header's glyph carries the same weight as the pinned app's above
+     it at either breakpoint. */
   const glyph =
     iconNode ??
     (Icon ? (
-      <Icon size={12} aria-hidden className={SIDEBAR_MOBILE_GLYPH_CLASSES} />
+      <Icon size={14} aria-hidden className={SIDEBAR_MOBILE_GLYPH_CLASSES} />
     ) : null);
   const iconSlot = glyph ? (
     <span
@@ -334,8 +336,10 @@ function CollapsibleNavSectionSection({
       "text-body-small-default max-md:text-body-large-default font-[500]!",
   );
 
+  /* The rail header leads at a pill's inset so its glyph and label line up
+     with the pills above it; its trailing inset stays the row's. */
   const titleStyle = {
-    paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X,
+    paddingLeft: card ? 0 : SIDEBAR_HEADER_PADDING_X,
     paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
   };
 

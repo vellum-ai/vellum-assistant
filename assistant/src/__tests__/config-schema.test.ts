@@ -952,11 +952,7 @@ describe("AssistantConfigSchema", () => {
         enabled: true,
         text: 'At the very beginning of the call, introduce yourself as an assistant calling on behalf of the person you represent. Do not say "AI assistant".',
       },
-      safety: {
-        denyCategories: [],
-      },
       voice: {
-        interruptSensitivity: "low",
         telephonyStreaming: true,
         utteranceEndMs: 1000,
       },
@@ -978,7 +974,6 @@ describe("AssistantConfigSchema", () => {
         maxDurationSeconds: 1800,
         userConsultTimeoutSeconds: 60,
         disclosure: { enabled: false, text: "Custom disclosure" },
-        safety: { denyCategories: ["spam"] },
       },
     });
     expect(result.calls.enabled).toBe(false);
@@ -986,7 +981,6 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.userConsultTimeoutSeconds).toBe(60);
     expect(result.calls.disclosure.enabled).toBe(false);
     expect(result.calls.disclosure.text).toBe("Custom disclosure");
-    expect(result.calls.safety.denyCategories).toEqual(["spam"]);
   });
 
   // ── Live voice config ───────────────────────────────────────────────
@@ -994,7 +988,6 @@ describe("AssistantConfigSchema", () => {
   test("applies liveVoice defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.liveVoice).toEqual({
-      mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
         noiseFloorMargin: 3,
@@ -1024,7 +1017,6 @@ describe("AssistantConfigSchema", () => {
         eotThreshold: 0.7,
         eotTimeoutMs: 5000,
       },
-      maxSessionDurationSeconds: 1800,
       archiveAudio: false,
     });
   });
@@ -1032,22 +1024,18 @@ describe("AssistantConfigSchema", () => {
   test("accepts valid liveVoice config overrides", () => {
     const result = AssistantConfigSchema.parse({
       liveVoice: {
-        mode: "ptt",
         vad: {
           speechEnergyThreshold: 1500,
           silenceThresholdMs: 1000,
           bargeInMinSpeechMs: 120,
         },
-        maxSessionDurationSeconds: 900,
       },
     });
-    expect(result.liveVoice.mode).toBe("ptt");
     expect(result.liveVoice.vad.speechEnergyThreshold).toBe(1500);
     expect(result.liveVoice.vad.silenceThresholdMs).toBe(1000);
     expect(result.liveVoice.vad.bargeInMinSpeechMs).toBe(120);
     // Unspecified vad fields still get defaults
     expect(result.liveVoice.vad.maxTurnDurationMs).toBe(30000);
-    expect(result.liveVoice.maxSessionDurationSeconds).toBe(900);
     // A partial liveVoice override leaves Flux turn-end disabled by default.
     expect(result.liveVoice.flux.turnEnd.enabled).toBe(true);
   });
@@ -1136,18 +1124,10 @@ describe("AssistantConfigSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  test("rejects non-array calls.safety.denyCategories", () => {
-    const result = AssistantConfigSchema.safeParse({
-      calls: { safety: { denyCategories: "spam" } },
-    });
-    expect(result.success).toBe(false);
-  });
-
   // ── Calls voice config ──────────────────────────────────────────────
 
   test("config without calls.voice parses correctly and produces defaults", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.calls.voice.interruptSensitivity).toBe("low");
     expect(result.calls.voice.telephonyStreaming).toBe(true);
     expect(result.calls.voice.utteranceEndMs).toBe(1000);
   });
@@ -1165,9 +1145,23 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.utteranceEndMs).toBe(2500);
   });
 
+  test("persisted calls configs carrying retired keys keep parsing", () => {
+    // Zod strips unrecognized keys, so a persisted config that still carries
+    // `calls.safety.denyCategories` or `calls.voice.interruptSensitivity`
+    // parses.
+    const result = AssistantConfigSchema.parse({
+      calls: {
+        safety: { denyCategories: ["spam"] },
+        voice: { interruptSensitivity: "high" },
+      },
+    });
+    expect(result.calls).not.toHaveProperty("safety");
+    expect(result.calls.voice).not.toHaveProperty("interruptSensitivity");
+  });
+
   test("language is no longer part of the voice config schema", () => {
-    // The retired knob was read by nothing; Zod strips the unrecognized key
-    // so persisted configs that still carry it keep parsing.
+    // Zod strips the unrecognized key, so persisted configs that still carry
+    // it parse.
     const result = AssistantConfigSchema.parse({
       calls: { voice: { language: "es-ES" } },
     });
@@ -2633,7 +2627,6 @@ describe("loadConfig with schema validation", () => {
     expect(config.calls.maxDurationSeconds).toBe(3600);
     expect(config.calls.userConsultTimeoutSeconds).toBe(120);
     expect(config.calls.disclosure.enabled).toBe(true);
-    expect(config.calls.safety.denyCategories).toEqual([]);
     expect(
       (config.calls.voice as Record<string, unknown>).language,
     ).toBeUndefined();

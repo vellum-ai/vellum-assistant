@@ -682,6 +682,17 @@ export interface VellumBridge {
      */
     toggleAnnotating?(): void;
     /**
+     * Take down everything on the shared surface without ending the share:
+     * the assistant's marks, and the user's own ink.
+     *
+     * Main's, since it holds the marks and opened the frame the ink is on.
+     * What comes back is `coachmarks` gone from `onState` and `marksCleared`
+     * stepped on it, which is what the frame's drawing layer drops its ink
+     * on. Absent on a shell that predates the control, which the surface
+     * reads as having no clear to offer.
+     */
+    clearMarks?(): void;
+    /**
      * A mark the user is drawing over the shared surface, from the frame's
      * own window: `drawing` while the hand is still on it, `released` when it
      * comes off, carrying every stroke still on the overlay.

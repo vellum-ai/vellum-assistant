@@ -2423,3 +2423,61 @@ describe("the companion surface's drawing tools", () => {
     expect(handed[0]).toBe(stripOf(container));
   });
 });
+
+/**
+ * Clear, beside Draw: what is on the shared surface comes down and the share
+ * goes on. What is up there is the host's to say, since the marks are on a
+ * window this surface cannot see. What this pins is that the control is
+ * drawn exactly while the host says something is, and that a press leaves.
+ */
+describe("the companion surface's Clear action", () => {
+  const clearOf = (container: HTMLElement): HTMLButtonElement | null =>
+    container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Clear marks"]',
+    );
+
+  test("is absent while nothing is on the shared surface", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing call={LISTENING_CALL} />,
+    );
+    expect(clearOf(container)).toBeNull();
+  });
+
+  test("stands behind Draw once the host says something is up", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" sharing marked call={LISTENING_CALL} />,
+    );
+    const labels = [...container.querySelectorAll("button")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(labels.indexOf("Clear marks")).toBe(labels.indexOf("Draw") + 1);
+  });
+
+  test("is absent off a share, whatever the host says is up", () => {
+    const { container } = render(
+      <CompanionSurface phase="call" marked call={LISTENING_CALL} />,
+    );
+    expect(clearOf(container)).toBeNull();
+  });
+
+  test("a press hands the clear to the page", () => {
+    let pressed = 0;
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        sharing
+        marked
+        call={LISTENING_CALL}
+        onClearMarks={() => {
+          pressed += 1;
+        }}
+      />,
+    );
+    const clear = clearOf(container);
+    if (clear === null) {
+      throw new Error("Expected Clear to render");
+    }
+    fireEvent.click(clear);
+    expect(pressed).toBe(1);
+  });
+});

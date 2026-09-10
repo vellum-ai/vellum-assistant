@@ -9,6 +9,10 @@ export const SYNC_TAGS = {
   documentsList: "documents:list",
   pluginsList: "plugins:list",
   conversationsList: "conversations:list",
+  /** Activation checklist progress: which tasks are started or done, their
+   *  live step counts, and which surfaces have been dismissed. Emitted on
+   *  every progress write so a second client's modal and pill converge. */
+  activationProgress: "activation:progress",
   featureFlagsClient: "feature-flags:client",
   featureFlagsAssistant: "feature-flags:assistant",
   /** ACP credential-failure markers, which drive the inline Connect card.

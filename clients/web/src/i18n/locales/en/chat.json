@@ -468,6 +468,9 @@
     "title": "Cleaning up your assistant…",
     "warningAria": "warning"
   },
+  "coachmarkPress": {
+    "turn": "I clicked {label}. Now what?"
+  },
   "collapsedGroupIcon": {
     "noConversations": "No conversations"
   },

@@ -2,6 +2,7 @@ import {
   AudioLines,
   Check,
   Circle,
+  Eraser,
   Eye,
   EyeOff,
   Mic,
@@ -660,6 +661,23 @@ export interface CompanionSurfaceProps {
    */
   onAnnotate?: (annotating: boolean) => void;
   /**
+   * Whether anything is on the shared surface to take down: the assistant's
+   * marks, or the mode the user's own ink is drawn under. Draws Clear beside
+   * Draw for as long as it is.
+   *
+   * Absent rather than disabled when nothing is, for the reason Draw is
+   * absent off a share: a control with nothing to be about. The host says,
+   * since the marks are on a window this surface cannot see.
+   */
+  marked?: boolean;
+  /**
+   * The press of Clear: take down everything on the shared surface and leave
+   * the share running. Main's, the way Draw's press is: it holds the marks
+   * and opened the frame the ink is on, and the pushed state says what
+   * happened.
+   */
+  onClearMarks?: () => void;
+  /**
    * The keys the call row's controls also answer to, as the caption spells
    * them (`⌥S`). Absent where the host watches no chord, so the caption never
    * names a key that does nothing. The share and the pen are shown their key
@@ -839,6 +857,8 @@ export function CompanionSurface({
   onAnnotationTool,
   drawToolsRef,
   onAnnotate,
+  marked = false,
+  onClearMarks,
   shortcuts,
   onAvatarClick,
   working = false,
@@ -1167,6 +1187,7 @@ export function CompanionSurface({
                 shareEnabled={shareEnabled}
                 sharePicking={sharePicking}
                 annotating={annotating}
+                marked={marked}
                 annotationTool={annotationTool}
                 cardGrowth={cardGrowth}
                 drawToolsRef={drawToolsRef}
@@ -1177,6 +1198,7 @@ export function CompanionSurface({
                 onShare={onShare}
                 onStopShare={onStopShare}
                 onAnnotate={onAnnotate}
+                onClearMarks={onClearMarks}
                 shortcuts={shortcuts}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
@@ -1905,6 +1927,7 @@ function CallBody({
   shareEnabled,
   sharePicking,
   annotating,
+  marked,
   annotationTool,
   cardGrowth,
   drawToolsRef,
@@ -1915,6 +1938,7 @@ function CallBody({
   onShare,
   onStopShare,
   onAnnotate,
+  onClearMarks,
   shortcuts,
 }: {
   call?: VoiceActivityState;
@@ -1926,6 +1950,7 @@ function CallBody({
   shareEnabled: boolean;
   sharePicking: boolean;
   annotating: boolean;
+  marked: boolean;
   annotationTool?: CompanionAnnotationTool;
   cardGrowth: CompanionSurfaceCardGrowth;
   drawToolsRef?: Ref<HTMLDivElement>;
@@ -1936,6 +1961,7 @@ function CallBody({
   onShare?: () => void;
   onStopShare?: () => void;
   onAnnotate?: (annotating: boolean) => void;
+  onClearMarks?: () => void;
   shortcuts?: CompanionCallShortcuts;
 }) {
   const { t } = useTranslation();
@@ -2034,6 +2060,14 @@ function CallBody({
         toolsRef={drawToolsRef}
         onAnnotate={onAnnotate}
         onTool={onAnnotationTool}
+      />
+      {/* Behind Draw and only while something is on the shared surface,
+          because that is what it acts on: the marks come down and the share
+          goes on. */}
+      <ClearButton
+        sharing={sharing}
+        marked={marked}
+        onClearMarks={onClearMarks}
       />
       <PillButton
         icon={
@@ -2271,6 +2305,43 @@ function DrawTools({
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * Take down everything on the shared surface: the assistant's marks, and
+ * the user's own ink. Beside Draw, since both act on the same surface.
+ *
+ * Absent unless something is up, for the reason {@link DrawButton} is absent
+ * off a share: a control with nothing to be about. What counts as something
+ * up is the host's to say, since the marks are on a window this surface
+ * cannot see.
+ *
+ * Not the end of anything. The share goes on, the mode stays where it was,
+ * and the assistant's next mark lands on a clean surface: this is how a mark
+ * comes down without ending the share it was about.
+ */
+function ClearButton({
+  sharing,
+  marked,
+  onClearMarks,
+}: {
+  sharing: boolean;
+  marked: boolean;
+  onClearMarks?: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!sharing || !marked) {
+    return null;
+  }
+  return (
+    <PillButton
+      icon={<Eraser className="size-4" />}
+      label={t("companionSurface.clearMarks")}
+      onClick={() => {
+        onClearMarks?.();
+      }}
+    />
   );
 }
 
