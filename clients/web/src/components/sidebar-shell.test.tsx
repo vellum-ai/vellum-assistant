@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { useEffect } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router";
 
@@ -29,6 +30,18 @@ function LocationProbe() {
   return <div data-testid="pathname">{pathname}</div>;
 }
 
+/**
+ * Stands in for a routed page: counts its own mounts, so a test can tell a
+ * page that never rendered from one that rendered somewhere off-screen.
+ */
+let contentMounts = 0;
+function ContentProbe() {
+  useEffect(() => {
+    contentMounts += 1;
+  }, []);
+  return <div data-testid="content">content</div>;
+}
+
 function renderAt(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
@@ -43,7 +56,7 @@ function renderAt(path: string) {
                 sidebar={<nav>menu</nav>}
                 title="Settings"
               >
-                content
+                <ContentProbe />
               </SidebarShell>
               <LocationProbe />
             </>
@@ -58,6 +71,7 @@ afterEach(() => {
   cleanup();
   isMobile = true;
   lastSwipeArgs = null;
+  contentMounts = 0;
 });
 
 describe("SidebarShell edge-swipe back", () => {
@@ -98,5 +112,58 @@ describe("SidebarShell edge-swipe back", () => {
 
     // THEN the touch gesture is disabled
     expect(lastSwipeArgs?.enabled).toBe(false);
+  });
+});
+
+describe("SidebarShell menu route content", () => {
+  test("the menu route on a narrow viewport never mounts the routed page", () => {
+    // GIVEN a mobile viewport sitting on the menu root, where the nav list is
+    // the whole screen
+    // WHEN the shell mounts
+    renderAt("/assistant/settings");
+
+    // THEN the nav list is what rendered, exactly once: the desktop rail is
+    // not mounted alongside it as a second, permanently invisible copy.
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
+
+    // AND the page behind it never mounted at all, so none of its effects,
+    // chunks or requests were paid for. Asserted on mounts rather than on
+    // visibility: a CSS-hidden page is still in the document and still runs.
+    expect(contentMounts).toBe(0);
+    expect(screen.queryByTestId("content")).toBeNull();
+  });
+
+  test("a sub-page on a narrow viewport mounts no sidebar copy at all", () => {
+    // GIVEN a mobile viewport on a settings sub-page, where the nav list is
+    // off-screen behind the page
+    // WHEN the shell mounts
+    renderAt("/assistant/settings/usage");
+
+    // THEN no sidebar is mounted: the rail that would carry it is desktop-only
+    expect(screen.queryAllByRole("navigation")).toHaveLength(0);
+  });
+
+  test("a sub-page on a narrow viewport mounts the routed page", () => {
+    // GIVEN a mobile viewport on a settings sub-page
+    // WHEN the shell mounts
+    renderAt("/assistant/settings/usage");
+
+    // THEN the page is the screen, and it mounted exactly once
+    expect(contentMounts).toBe(1);
+    expect(screen.getByTestId("content")).not.toBeNull();
+  });
+
+  test("a roomy viewport mounts the routed page on the menu route too", () => {
+    // GIVEN a desktop viewport, where the sidebar and the page sit side by side
+    isMobile = false;
+
+    // WHEN the shell mounts on the menu root
+    renderAt("/assistant/settings");
+
+    // THEN both surfaces are present: the page is not substituted away, and
+    // the rail carries the one sidebar copy
+    expect(contentMounts).toBe(1);
+    expect(screen.getByTestId("content")).not.toBeNull();
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
   });
 });

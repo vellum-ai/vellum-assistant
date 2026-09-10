@@ -42,6 +42,14 @@ export function SidebarShell({
   const isMenuRoute = pathname === menuRoute;
   const isMobile = useIsMobile();
 
+  // On a narrow viewport the menu route is the menu: the nav list is the whole
+  // screen and the routed page is not reachable behind it. The two surfaces
+  // substitute for each other, so one signal decides which of them mounts
+  // rather than each hiding itself at its own breakpoint. Mounting the page
+  // anyway costs its lazy chunk, its effects and its requests for a screen
+  // nobody is looking at, which on a phone is the whole Settings landing tree.
+  const menuReplacesContent = isMobile && isMenuRoute;
+
   // Edge-swipe back gesture for the mobile two-page flow. It mirrors the
   // header back arrow: from a sub-page it returns to the menu root, and from
   // the menu root it exits to `backHref` (the surface that opened this shell).
@@ -161,30 +169,30 @@ export function SidebarShell({
 
         {/* Body — sidebar + content */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <aside
-            className="hidden w-64 shrink-0 overflow-y-auto md:block"
-            aria-label={t("sidebarShell.navigationAria", { title })}
-          >
-            {sidebar}
-          </aside>
+          {isMobile ? null : (
+            <aside
+              className="w-64 shrink-0 overflow-y-auto"
+              aria-label={t("sidebarShell.navigationAria", { title })}
+            >
+              {sidebar}
+            </aside>
+          )}
 
-          {isMenuRoute ? (
+          {menuReplacesContent ? (
             /* `overflow-x-hidden`: `overflow-y: auto` alone computes
                `overflow-x: auto`, so any child overflowing horizontally makes
                the whole page pannable sideways on touch devices. */
-            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-6 md:hidden">
+            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-6">
               {sidebar}
             </div>
-          ) : null}
-
-          <main
-            ref={contentRef}
-            className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:flex md:px-6 md:pt-0 ${
-              isMenuRoute ? "hidden" : "flex"
-            }`}
-          >
-            {children}
-          </main>
+          ) : (
+            <main
+              ref={contentRef}
+              className="flex min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:px-6 md:pt-0"
+            >
+              {children}
+            </main>
+          )}
         </div>
       </div>
     </div>
