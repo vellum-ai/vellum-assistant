@@ -142,6 +142,28 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
     expect(header?.className).not.toContain("pl-2!");
   });
 
+  /* On a touch screen every row is backed by the card's surface for the
+     swipe, and the assistant card is the one that tints itself: its tint has
+     to be the surface the rows are backed with, or each row sits in a white
+     cell on the wash. */
+  test("on the overlay, backs its rows with its own tint", () => {
+    const { container } = renderSection(assistantSection(), true);
+
+    const card = container.querySelector<HTMLElement>(
+      "[data-slot='sidebar-section-card'], [class*='--sidebar-card-surface:']",
+    );
+    expect(card).not.toBeNull();
+    expect(card!.className).toContain(
+      "[--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]",
+    );
+    expect(card!.className).toContain(
+      "[--swipe-item-surface:var(--sidebar-card-surface,var(--surface-lift))]",
+    );
+    expect(card!.className).not.toContain(
+      "[--swipe-item-surface:var(--surface-lift)]",
+    );
+  });
+
   test("shows the empty state in place of the rows when it has none", () => {
     renderSection(assistantSection());
 

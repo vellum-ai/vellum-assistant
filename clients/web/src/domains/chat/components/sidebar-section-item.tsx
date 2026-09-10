@@ -205,6 +205,11 @@ export function SidebarSectionItem({
          deeper slab; still short of reading as selected, so the rows on
          top read as ordinary rows.
 
+         Declared as the card's `--sidebar-card-surface` rather than as a
+         background of its own, so the swipe layer backing each row on a
+         touch screen takes the same tint: painted only as a background, the
+         rows sat in white cells on the wash.
+
          `mt-auto` is the anchor half of the section's bottom pin. The order
          pin (`pinAssistantSectionLast`) makes it the last card, but only the
          last *space-claiming* section grows to fill the rail, and when that
@@ -216,7 +221,7 @@ export function SidebarSectionItem({
          margin is inert. */
       cardClassName={
         isAssistantSection
-          ? "mt-auto bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]"
+          ? "mt-auto [--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]"
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from
