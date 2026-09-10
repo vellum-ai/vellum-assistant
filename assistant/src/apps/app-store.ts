@@ -41,6 +41,7 @@ import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
+import { migrateLegacyAppIcon } from "./app-icons.js";
 
 const log = getLogger("app-store");
 
@@ -625,6 +626,9 @@ export function getApp(id: string): AppDefinition | null {
   }
   const raw = readFileSync(filePath, "utf-8");
   const app = JSON.parse(raw) as AppDefinition;
+  /* An emoji from before the icon registry reads back as its registry name
+     (see app-icons.ts), so every client draws the same glyph set. */
+  app.icon = migrateLegacyAppIcon(app.icon);
 
   // Read htmlDefinition from {dirName}/index.html on disk
   const indexPath = join(appDir, "index.html");
@@ -674,6 +678,9 @@ export function listApps(): AppDefinition[] {
     try {
       const raw = readFileSync(filePath, "utf-8");
       const app = JSON.parse(raw) as AppDefinition;
+      /* An emoji from before the icon registry reads back as its registry name
+     (see app-icons.ts), so every client draws the same glyph set. */
+      app.icon = migrateLegacyAppIcon(app.icon);
 
       apps.push(app);
     } catch {

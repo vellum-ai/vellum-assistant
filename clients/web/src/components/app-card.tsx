@@ -2,7 +2,7 @@ import { ExternalLink, Pin, PinOff, Puzzle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/i18n";
-import { resolveAppIcon } from "@/utils/app-icon-registry";
+import { AppIcon, getAppIcon } from "@/utils/app-icon-registry";
 import { cn } from "@/utils/misc";
 import { preparePreviewHtml } from "@/utils/sandbox-bridge";
 import { Button } from "@vellumai/design-library";
@@ -51,8 +51,8 @@ export function AppCard({
   onPin,
 }: AppCardProps) {
   const { t } = useTranslation();
-  /* The manifest's icon: a Lucide glyph by registry name, or a legacy emoji. */
-  const glyph = resolveAppIcon(icon);
+  /* Whether the manifest's icon is one the registry can draw. */
+  const hasGlyph = getAppIcon(icon) !== undefined;
 
   return (
     <div
@@ -71,12 +71,9 @@ export function AppCard({
 
       <div className="flex flex-col gap-0.5 px-0.5">
         <span className="flex items-center gap-2 truncate text-body-large-default text-[color:var(--content-emphasised)]">
-          {glyph?.kind === "emoji" ? (
-            <span aria-hidden className="leading-none">
-              {glyph.emoji}
-            </span>
-          ) : glyph?.kind === "icon" ? (
-            <glyph.Icon
+          {hasGlyph ? (
+            <AppIcon
+              icon={icon}
               size={16}
               aria-hidden
               className="shrink-0 text-[var(--content-tertiary)]"
@@ -136,7 +133,6 @@ export function AppPreviewThumbnail({
   className,
 }: AppPreviewThumbnailProps) {
   const { t } = useTranslation();
-  const glyph = resolveAppIcon(icon);
   const containerRef = useRef<HTMLDivElement>(null);
   const [html, setHtml] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -196,12 +192,15 @@ export function AppPreviewThumbnail({
       {/* Fallback layer — always rendered so it shows during iframe paint
           and serves as the placeholder when no html is available. */}
       <div className="absolute inset-0 flex items-center justify-center">
-        {isPreviewPending ? null : glyph?.kind === "emoji" ? (
-          <span className="text-4xl">{glyph.emoji}</span>
-        ) : glyph?.kind === "icon" ? (
-          <glyph.Icon size={32} className="text-[var(--content-tertiary)]" />
-        ) : (
-          <Puzzle size={32} className="text-[var(--content-tertiary)]" />
+        {isPreviewPending ? null : (
+          /* The registry glyph, else the puzzle piece the card always used
+             for an app with no icon. */
+          <AppIcon
+            icon={icon}
+            fallback={Puzzle}
+            size={32}
+            className="text-[var(--content-tertiary)]"
+          />
         )}
       </div>
 

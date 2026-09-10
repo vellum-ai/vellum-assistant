@@ -149,6 +149,199 @@ export const APP_ICON_NAMES: readonly string[] = [
 
 const APP_ICON_NAME_SET = new Set(APP_ICON_NAMES);
 
+/**
+ * The emoji apps carried before the registry, each bridged to the registry
+ * name it stood for, so an existing library wears the same glyph set as a
+ * new one without anyone re-picking icons. Mirrored in the web client's
+ * registry for daemons older than this bridge. Keys carry no variation
+ * selector; {@link migrateLegacyAppIcon} strips it before the lookup.
+ */
+const LEGACY_EMOJI_ICONS: Record<string, string> = {
+  "🔢": "calculator",
+  "🧮": "calculator",
+  "📅": "calendar",
+  "🗓": "calendar",
+  "✅": "list-todo",
+  "☑": "list-checks",
+  "⏱": "timer",
+  "⏲": "timer",
+  "⏰": "alarm-clock",
+  "🕐": "clock",
+  "🕒": "clock",
+  "📝": "notebook-pen",
+  "🗒": "sticky-note",
+  "✏": "pencil",
+  "📄": "file-text",
+  "📋": "clipboard-list",
+  "🔖": "bookmark",
+  "📚": "book",
+  "📖": "book-open",
+  "📔": "notebook-pen",
+  "📊": "chart-bar",
+  "📈": "chart-line",
+  "📉": "chart-line",
+  "🥧": "chart-pie",
+  "🗄": "database",
+  "🎯": "target",
+  "🚩": "flag",
+  "🏆": "trophy",
+  "🏁": "flag",
+  "💰": "wallet",
+  "💵": "dollar-sign",
+  "💲": "dollar-sign",
+  "🐷": "piggy-bank",
+  "💳": "credit-card",
+  "🧾": "receipt",
+  "🛒": "shopping-cart",
+  "🛍": "shopping-cart",
+  "📦": "package",
+  "🎁": "gift",
+  "🎟": "ticket",
+  "🎫": "ticket",
+  "✉": "mail",
+  "📧": "mail",
+  "📨": "mail",
+  "📥": "inbox",
+  "💬": "message-square",
+  "🗨": "message-square",
+  "📞": "phone",
+  "☎": "phone",
+  "🔔": "bell",
+  "👥": "users",
+  "👤": "contact",
+  "🎵": "music",
+  "🎶": "music",
+  "🎧": "headphones",
+  "🎤": "mic",
+  "🎙": "mic",
+  "📹": "video",
+  "🎬": "film",
+  "🎥": "film",
+  "📺": "tv",
+  "▶": "play",
+  "🖼": "image",
+  "📷": "camera",
+  "📸": "camera",
+  "🎮": "gamepad-2",
+  "🕹": "gamepad-2",
+  "🧩": "puzzle",
+  "🎉": "party-popper",
+  "🎊": "party-popper",
+  "😀": "smile",
+  "🙂": "smile",
+  "🗺": "map",
+  "📍": "map-pin",
+  "🧭": "compass",
+  "🌍": "globe",
+  "🌎": "globe",
+  "🌏": "globe",
+  "✈": "plane",
+  "🚗": "car",
+  "🚌": "bus",
+  "🚲": "bike",
+  "🚢": "ship",
+  "🚚": "truck",
+  "🏠": "house",
+  "🏡": "house",
+  "🛏": "bed",
+  "💼": "briefcase",
+  "🎓": "graduation-cap",
+  "🌐": "languages",
+  "🧠": "brain",
+  "💡": "lightbulb",
+  "❤": "heart",
+  "💗": "heart-pulse",
+  "🏋": "dumbbell",
+  "💪": "dumbbell",
+  "💊": "pill",
+  "🩺": "stethoscope",
+  "👶": "baby",
+  "🐾": "paw-print",
+  "🐶": "paw-print",
+  "🐱": "paw-print",
+  "🍽": "utensils",
+  "🍴": "utensils",
+  "☕": "coffee",
+  "🍷": "wine",
+  "🍺": "beer",
+  "🍰": "cake",
+  "🎂": "cake",
+  "🍎": "apple",
+  "🥕": "carrot",
+  "🥗": "salad",
+  "🥚": "egg",
+  "🐟": "fish",
+  "☁": "cloud",
+  "🌤": "cloud",
+  "☀": "sun",
+  "🌞": "sun",
+  "🌙": "moon",
+  "☂": "umbrella",
+  "🌧": "umbrella",
+  "❄": "snowflake",
+  "🌡": "thermometer",
+  "💧": "droplets",
+  "🔥": "flame",
+  "🌱": "leaf",
+  "🍃": "leaf",
+  "🏔": "mountain",
+  "⛰": "mountain",
+  "💻": "code",
+  "👨‍💻": "code",
+  "🖥": "terminal",
+  "⌨": "terminal",
+  "🤖": "bot",
+  "📡": "wifi",
+  "🔒": "lock",
+  "🔐": "lock",
+  "🔑": "key",
+  "🛡": "shield",
+  "⚙": "settings",
+  "🔧": "wrench",
+  "🛠": "wrench",
+  "🔌": "plug",
+  "🔋": "battery",
+  "🔍": "search",
+  "🔎": "search",
+  "🔗": "link",
+  "#️⃣": "hash",
+  "📁": "folder-open",
+  "📂": "folder-open",
+  "🎨": "palette",
+  "🖌": "pen-tool",
+  "📏": "ruler",
+  "⚖": "scale",
+  "✂": "scissors",
+  "👕": "shirt",
+  "📰": "newspaper",
+  "🔁": "repeat",
+  "🔀": "shuffle",
+  "🔊": "volume-2",
+  "⭐": "star",
+  "🌟": "star",
+  "✨": "sparkles",
+  "⚡": "zap",
+  "🚀": "rocket",
+};
+
+const VARIATION_SELECTORS = /[\uFE0E\uFE0F]/gu;
+
+/**
+ * A stored icon as the client should see it: a legacy emoji the bridge
+ * knows becomes its registry name, and anything else passes through
+ * untouched, so reading a manifest never loses an icon it cannot improve.
+ */
+export function migrateLegacyAppIcon(
+  icon: string | undefined,
+): string | undefined {
+  if (!icon) {
+    return icon;
+  }
+  return (
+    LEGACY_EMOJI_ICONS[icon.trim().replace(VARIATION_SELECTORS, "")] ?? icon
+  );
+}
+
 /* Pictographs, emoji-presentation characters, and the variation selector /
    keycap marks that turn a digit into an emoji. Apps built before the icon
    registry carry one of these, and a model that still reaches for one gets
@@ -161,8 +354,9 @@ const EMOJI_MAX_LENGTH = 16;
 
 /**
  * The icon to persist on an app's manifest for what the model passed: a
- * registry name (any case) normalised to its kebab-case key, an emoji kept
- * as is, and `undefined` for anything else. URLs in particular are dropped:
+ * registry name (any case) normalised to its kebab-case key, an emoji
+ * bridged to its name (or kept as is when the bridge has none), and
+ * `undefined` for anything else. URLs in particular are dropped:
  * they would render as raw strings in the UI and in bundle manifests, and an
  * image icon is `app_generate_icon`'s job.
  */
@@ -179,7 +373,10 @@ export function normalizeAppIcon(raw: unknown): string | undefined {
     return name;
   }
   if (trimmed.length <= EMOJI_MAX_LENGTH && EMOJI_PATTERN.test(trimmed)) {
-    return trimmed;
+    /* A model still reaching for an emoji: the bridge's name where it has
+       one, the emoji itself where it does not, so older clients keep a
+       glyph. */
+    return migrateLegacyAppIcon(trimmed);
   }
   return undefined;
 }

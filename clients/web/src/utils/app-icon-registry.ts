@@ -11,9 +11,12 @@
  * hand, and a name this registry does not know falls back to
  * {@link DEFAULT_APP_ICON} rather than to a broken glyph.
  *
- * Apps built before the switch carry an emoji instead. Those still render
- * as the emoji, so an old library does not turn into a wall of rockets.
+ * Apps built before the switch carry an emoji instead. The common ones are
+ * bridged to the registry name they stood for, so an existing library does
+ * not turn into a wall of rockets; the rest take the default glyph.
  */
+
+import { createElement } from "react";
 
 import {
   Activity,
@@ -150,6 +153,7 @@ import {
   Wrench,
   Zap,
   type LucideIcon,
+  type LucideProps,
 } from "lucide-react";
 
 const APP_ICONS: Record<string, LucideIcon> = {
@@ -297,40 +301,234 @@ export const APP_ICON_NAMES: readonly string[] = Object.keys(APP_ICONS);
 export const DEFAULT_APP_ICON: LucideIcon = Rocket;
 
 /**
- * What an app's stored icon resolves to: a Lucide component for a known
- * name, the emoji itself for a pre-registry app, or `null` for nothing
- * usable (absent, an unknown name, a stray URL). Callers that must draw
- * something fall back to {@link DEFAULT_APP_ICON}.
+ * The emoji apps carried before the registry, each bridged to the registry
+ * name it stood for. The daemon applies the same bridge when it reads a
+ * manifest (`assistant/src/apps/app-icons.ts`); this copy covers a daemon
+ * older than that, so an existing library wears the glyph set either way.
+ * Keys carry no variation selector; the lookup strips it.
  */
-export type AppIconGlyph =
-  { kind: "icon"; Icon: LucideIcon } | { kind: "emoji"; emoji: string };
+const LEGACY_EMOJI_ICONS: Record<string, string> = {
+  "🔢": "calculator",
+  "🧮": "calculator",
+  "📅": "calendar",
+  "🗓": "calendar",
+  "✅": "list-todo",
+  "☑": "list-checks",
+  "⏱": "timer",
+  "⏲": "timer",
+  "⏰": "alarm-clock",
+  "🕐": "clock",
+  "🕒": "clock",
+  "📝": "notebook-pen",
+  "🗒": "sticky-note",
+  "✏": "pencil",
+  "📄": "file-text",
+  "📋": "clipboard-list",
+  "🔖": "bookmark",
+  "📚": "book",
+  "📖": "book-open",
+  "📔": "notebook-pen",
+  "📊": "chart-bar",
+  "📈": "chart-line",
+  "📉": "chart-line",
+  "🥧": "chart-pie",
+  "🗄": "database",
+  "🎯": "target",
+  "🚩": "flag",
+  "🏆": "trophy",
+  "🏁": "flag",
+  "💰": "wallet",
+  "💵": "dollar-sign",
+  "💲": "dollar-sign",
+  "🐷": "piggy-bank",
+  "💳": "credit-card",
+  "🧾": "receipt",
+  "🛒": "shopping-cart",
+  "🛍": "shopping-cart",
+  "📦": "package",
+  "🎁": "gift",
+  "🎟": "ticket",
+  "🎫": "ticket",
+  "✉": "mail",
+  "📧": "mail",
+  "📨": "mail",
+  "📥": "inbox",
+  "💬": "message-square",
+  "🗨": "message-square",
+  "📞": "phone",
+  "☎": "phone",
+  "🔔": "bell",
+  "👥": "users",
+  "👤": "contact",
+  "🎵": "music",
+  "🎶": "music",
+  "🎧": "headphones",
+  "🎤": "mic",
+  "🎙": "mic",
+  "📹": "video",
+  "🎬": "film",
+  "🎥": "film",
+  "📺": "tv",
+  "▶": "play",
+  "🖼": "image",
+  "📷": "camera",
+  "📸": "camera",
+  "🎮": "gamepad-2",
+  "🕹": "gamepad-2",
+  "🧩": "puzzle",
+  "🎉": "party-popper",
+  "🎊": "party-popper",
+  "😀": "smile",
+  "🙂": "smile",
+  "🗺": "map",
+  "📍": "map-pin",
+  "🧭": "compass",
+  "🌍": "globe",
+  "🌎": "globe",
+  "🌏": "globe",
+  "✈": "plane",
+  "🚗": "car",
+  "🚌": "bus",
+  "🚲": "bike",
+  "🚢": "ship",
+  "🚚": "truck",
+  "🏠": "house",
+  "🏡": "house",
+  "🛏": "bed",
+  "💼": "briefcase",
+  "🎓": "graduation-cap",
+  "🌐": "languages",
+  "🧠": "brain",
+  "💡": "lightbulb",
+  "❤": "heart",
+  "💗": "heart-pulse",
+  "🏋": "dumbbell",
+  "💪": "dumbbell",
+  "💊": "pill",
+  "🩺": "stethoscope",
+  "👶": "baby",
+  "🐾": "paw-print",
+  "🐶": "paw-print",
+  "🐱": "paw-print",
+  "🍽": "utensils",
+  "🍴": "utensils",
+  "☕": "coffee",
+  "🍷": "wine",
+  "🍺": "beer",
+  "🍰": "cake",
+  "🎂": "cake",
+  "🍎": "apple",
+  "🥕": "carrot",
+  "🥗": "salad",
+  "🥚": "egg",
+  "🐟": "fish",
+  "☁": "cloud",
+  "🌤": "cloud",
+  "☀": "sun",
+  "🌞": "sun",
+  "🌙": "moon",
+  "☂": "umbrella",
+  "🌧": "umbrella",
+  "❄": "snowflake",
+  "🌡": "thermometer",
+  "💧": "droplets",
+  "🔥": "flame",
+  "🌱": "leaf",
+  "🍃": "leaf",
+  "🏔": "mountain",
+  "⛰": "mountain",
+  "💻": "code",
+  "👨‍💻": "code",
+  "🖥": "terminal",
+  "⌨": "terminal",
+  "🤖": "bot",
+  "📡": "wifi",
+  "🔒": "lock",
+  "🔐": "lock",
+  "🔑": "key",
+  "🛡": "shield",
+  "⚙": "settings",
+  "🔧": "wrench",
+  "🛠": "wrench",
+  "🔌": "plug",
+  "🔋": "battery",
+  "🔍": "search",
+  "🔎": "search",
+  "🔗": "link",
+  "#️⃣": "hash",
+  "📁": "folder-open",
+  "📂": "folder-open",
+  "🎨": "palette",
+  "🖌": "pen-tool",
+  "📏": "ruler",
+  "⚖": "scale",
+  "✂": "scissors",
+  "👕": "shirt",
+  "📰": "newspaper",
+  "🔁": "repeat",
+  "🔀": "shuffle",
+  "🔊": "volume-2",
+  "⭐": "star",
+  "🌟": "star",
+  "✨": "sparkles",
+  "⚡": "zap",
+  "🚀": "rocket",
+};
 
-/* Pictographs, emoji-presentation characters, and the variation selector /
-   keycap marks that turn a digit into an emoji (the "1234" input glyph). */
-const EMOJI_PATTERN =
-  /\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u20E3/u;
+const VARIATION_SELECTORS = /[\uFE0E\uFE0F]/gu;
 
-/** True when a stored icon is an emoji rather than a registry name. */
-export function isEmojiIcon(icon: string): boolean {
-  return EMOJI_PATTERN.test(icon);
-}
-
-export function resolveAppIcon(
-  icon: string | null | undefined,
-): AppIconGlyph | null {
-  if (!icon) {
-    return null;
-  }
-  const trimmed = icon.trim();
-  const key = trimmed.toLowerCase();
+function iconByName(name: string): LucideIcon | undefined {
   /* `hasOwn` rather than a bare index: an indexed read of a `Record` is typed
      as never missing, and it would also find `constructor` on the prototype. */
-  const Icon = Object.hasOwn(APP_ICONS, key) ? APP_ICONS[key] : undefined;
-  if (Icon) {
-    return { kind: "icon", Icon };
+  return Object.hasOwn(APP_ICONS, name) ? APP_ICONS[name] : undefined;
+}
+
+/**
+ * The Lucide component for an app's stored icon: a registry name (any
+ * case), or a pre-registry emoji the bridge knows. `undefined` for nothing
+ * usable (absent, an unknown name, an emoji the bridge does not know, a
+ * stray URL); callers that must draw something use {@link DEFAULT_APP_ICON}
+ * or their own placeholder. Never the emoji itself: an app wears the
+ * product's glyph set or the fallback, not a platform's emoji font.
+ */
+export function getAppIcon(
+  icon: string | null | undefined,
+): LucideIcon | undefined {
+  if (!icon) {
+    return undefined;
   }
-  if (isEmojiIcon(trimmed)) {
-    return { kind: "emoji", emoji: trimmed };
+  const trimmed = icon.trim();
+  const byName = iconByName(trimmed.toLowerCase());
+  if (byName) {
+    return byName;
   }
-  return null;
+  const bridged = Object.hasOwn(
+    LEGACY_EMOJI_ICONS,
+    trimmed.replace(VARIATION_SELECTORS, ""),
+  )
+    ? LEGACY_EMOJI_ICONS[trimmed.replace(VARIATION_SELECTORS, "")]
+    : undefined;
+  return bridged ? iconByName(bridged) : undefined;
+}
+
+export interface AppIconProps extends LucideProps {
+  /** The app's stored icon (`app.icon`). */
+  icon: string | null | undefined;
+  /** Drawn when the registry cannot place the icon. */
+  fallback?: LucideIcon;
+}
+
+/**
+ * An app's icon as an element: the registry glyph for `icon`, else
+ * `fallback` (the {@link DEFAULT_APP_ICON} unless told otherwise). A
+ * component rather than a resolved constructor rendered at the call site,
+ * which React's static-components rule reads as a component made during
+ * render.
+ */
+export function AppIcon({
+  icon,
+  fallback = DEFAULT_APP_ICON,
+  ...props
+}: AppIconProps) {
+  return createElement(getAppIcon(icon) ?? fallback, props);
 }

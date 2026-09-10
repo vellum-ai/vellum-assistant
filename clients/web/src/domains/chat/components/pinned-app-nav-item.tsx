@@ -13,7 +13,11 @@ import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import { DEFAULT_APP_ICON, resolveAppIcon } from "@/utils/app-icon-registry";
+import {
+  AppIcon,
+  DEFAULT_APP_ICON,
+  getAppIcon,
+} from "@/utils/app-icon-registry";
 import { cn, ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -89,11 +93,10 @@ export function PinnedAppNavItem({
   const tintStyle = pinTintStyle(app.pinColor);
 
   /* The app's icon as the manifest names it: a Lucide glyph from the app
-     icon registry for an app the assistant built since the registry, the
-     emoji itself for one built before it, the default glyph for neither. */
-  const glyph = resolveAppIcon(app.icon);
-  const LeadingIcon = glyph?.kind === "icon" ? glyph.Icon : DEFAULT_APP_ICON;
-  const emoji = glyph?.kind === "emoji" ? glyph.emoji : null;
+     icon registry (a pre-registry emoji bridges to one), or the default
+     glyph for an app the registry cannot place. The tile takes the
+     constructor; the pill renders through `AppIcon`. */
+  const leadingIcon = getAppIcon(app.icon) ?? DEFAULT_APP_ICON;
 
   /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
      array each render would re-mint them each render. */
@@ -113,9 +116,8 @@ export function PinnedAppNavItem({
   const sideMenuItem = (
     <SideMenu.Item
       style={tintStyle}
-      /* The same glyph the expanded pill leads with; `SideMenu.Item` takes
-         an emoji string or a Lucide component. */
-      icon={emoji ?? LeadingIcon}
+      /* The same glyph the expanded pill leads with. */
+      icon={leadingIcon}
       label={app.name}
       /* The collapsed-rail affordance, surface included. */
       shape="tile"
@@ -169,10 +171,9 @@ export function PinnedAppNavItem({
       shape="pill"
       /* The glyph in a chip rather than at its own width, so on a phone the
          pill's label starts where the assistant's name does and the glyph
-         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`). A
-         Lucide glyph is drawn at the size and in the ink `PanelItem` gives a
-         leading icon; a legacy emoji sits in the same box at the same
-         size. */
+         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`),
+         drawn at the size and in the ink `PanelItem` gives a leading
+         icon. */
       leadingSlot={
         <span
           aria-hidden
@@ -181,22 +182,17 @@ export function PinnedAppNavItem({
             SIDEBAR_CHIP_CLASSES,
           )}
         >
-          {emoji ? (
-            <span className="text-[14px] leading-none max-md:text-[16px]">
-              {emoji}
-            </span>
-          ) : (
-            <LeadingIcon
-              size={14}
-              aria-hidden
-              className={cn(
-                SIDEBAR_MOBILE_GLYPH_CLASSES,
-                "shrink-0 text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
-                "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
-                "group-aria-[current=page]:text-[var(--content-default)]",
-              )}
-            />
-          )}
+          <AppIcon
+            icon={app.icon}
+            size={14}
+            aria-hidden
+            className={cn(
+              SIDEBAR_MOBILE_GLYPH_CLASSES,
+              "shrink-0 text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
+              "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
+              "group-aria-[current=page]:text-[var(--content-default)]",
+            )}
+          />
         </span>
       }
       label={app.name}
