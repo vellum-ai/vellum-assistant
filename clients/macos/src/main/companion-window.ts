@@ -1742,6 +1742,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
   frameScrolling = false;
   unwatchFrameScroll();
   applyFrameMouse();
+  // Marks still up are drawn on this window from here on, so the presses
+  // they can be heard as are measured out on it.
+  armCoachmarkPressWatch();
 };
 
 /**
