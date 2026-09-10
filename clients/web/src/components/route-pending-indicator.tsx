@@ -32,10 +32,7 @@ export function RoutePendingIndicator() {
       role="status"
       aria-label={t("routePendingIndicator.loadingAria")}
     >
-      <div
-        className="h-full bg-[var(--content-default)]"
-        style={{ animation: "indeterminate 1.5s ease-in-out infinite" }}
-      />
+      <div className="route-pending-indicator-fill h-full bg-[var(--content-default)]" />
     </div>
   );
 }

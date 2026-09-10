@@ -74,6 +74,13 @@ describe("RoutePendingIndicator", () => {
     expect(bar).not.toBeNull();
     expect(bar.className).toContain("route-pending-indicator");
 
+    // AND the moving fill carries its animation in a class, not an inline
+    // style: an inline `animation` outranks a stylesheet rule, so the
+    // reduced-motion override could not turn it off.
+    const fill = bar.firstElementChild as HTMLElement;
+    expect(fill.className).toContain("route-pending-indicator-fill");
+    expect(fill.style.animation).toBe("");
+
     // WHEN the chunk resolves
     await act(async () => {
       release();
