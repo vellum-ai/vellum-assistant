@@ -3,7 +3,7 @@ import { useEffect, useRef } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { partitionAttachableFiles } from "@/domains/chat/components/chat-attachments/utils";
+import { partitionAttachableFiles } from "@/utils/attachment-utils";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";

@@ -9,7 +9,7 @@ import {
   ATTACHMENT_ICON_BY_KIND,
   classifyAttachment,
   middleTruncate,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 
 interface AttachmentChipProps {
   id: string;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { BadRequestError } from "../runtime/routes/errors.js";
+import { BadRequestError, ForbiddenError } from "../runtime/routes/errors.js";
 import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
 
 // ---------------------------------------------------------------------------
@@ -169,6 +169,9 @@ const setRoute = ROUTES.find((r) => r.operationId === "credentials_set");
 const listRoute = ROUTES.find((r) => r.operationId === "credentials_list");
 const deleteRoute = ROUTES.find((r) => r.operationId === "credentials_delete");
 const revealRoute = ROUTES.find((r) => r.operationId === "credentials_reveal");
+const inspectRoute = ROUTES.find(
+  (r) => r.operationId === "credentials_inspect",
+);
 
 type SetResponse = { credentialId: string; service: string; field: string };
 type ListResponse = {
@@ -591,16 +594,19 @@ describe("credentials routes", () => {
 
     test("non-secret vellum platform fields are stored but never scrubbed", async () => {
       /**
-       * Platform identity ids and the base URL are benign UUIDs/URLs that
-       * legitimately appear in transcripts; scrubbing them would redact
-       * ordinary conversation content. Shares the exemption with the
-       * /v1/secrets credential branch via isNonSecretPlatformField.
+       * Platform identity ids are benign UUIDs that legitimately appear in
+       * transcripts; scrubbing them would redact ordinary conversation
+       * content. Shares the exemption with the /v1/secrets credential branch
+       * via isNonSecretPlatformField.
+       *
+       * `platform_base_url` carries the same exemption but is not settable
+       * here: it decides which host receives the platform API key, so the
+       * credentials API refuses it (see the platform-managed suite).
        */
       for (const field of [
         "platform_assistant_id",
         "platform_organization_id",
         "platform_user_id",
-        "platform_base_url",
       ]) {
         const result = (await setRoute!.handler({
           body: {
@@ -792,6 +798,179 @@ describe("credentials routes", () => {
       // THEN only the matching credential is returned
       expect(result.credentials).toHaveLength(1);
       expect(result.credentials[0].service).toBe("github");
+    });
+  });
+
+  describe("platform-managed credentials", () => {
+    const PLATFORM_KEY = "vk-platform-provisioned-key";
+    const PLATFORM_BASE_URL = "https://platform.example";
+
+    /**
+     * The platform provisions the pod's own credentials by POSTing them to
+     * `/v1/secrets` as `credential` entries, which land in the same secure
+     * store and metadata table as a user's own credentials.
+     */
+    function seedPlatformCredential(field: string, value: string): string {
+      const key = `vellum:${field}`;
+      secureStore.set(key, value);
+      const now = Date.now();
+      metadataStore.set(key, {
+        credentialId: `cred-${++credentialIdCounter}`,
+        service: "vellum",
+        field,
+        allowedTools: [],
+        allowedDomains: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+      return metadataStore.get(key)!.credentialId;
+    }
+
+    test("the listing omits platform credentials and keeps the user's own", async () => {
+      // GIVEN the platform's provisioned credentials alongside a user's
+      seedPlatformCredential("assistant_api_key", PLATFORM_KEY);
+      seedPlatformCredential("platform_base_url", PLATFORM_BASE_URL);
+      await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      });
+
+      // WHEN the credentials are listed
+      const result = (await listRoute!.handler({ body: {} })) as ListResponse;
+
+      // THEN only the user's credential is a row, and no platform value leaks
+      expect(result.credentials.map((c) => `${c.service}:${c.field}`)).toEqual([
+        "vercel:api_token",
+      ]);
+      expect(JSON.stringify(result)).not.toContain(PLATFORM_KEY);
+    });
+
+    test("reveal refuses the platform API key for every principal", async () => {
+      /**
+       * Both farming paths land on this handler: the assistant's own tool
+       * shell arrives as `local`, a Settings click as `user`.
+       */
+      seedPlatformCredential("assistant_api_key", PLATFORM_KEY);
+
+      for (const principal of ["local", "user", "svc_gateway"]) {
+        await expect(
+          revealRoute!.handler({
+            body: { service: "vellum", field: "assistant_api_key" },
+            headers: { "x-vellum-principal-type": principal },
+          }),
+        ).rejects.toThrow(ForbiddenError);
+      }
+    });
+
+    test("reveal refuses a platform credential looked up by UUID", async () => {
+      const credentialId = seedPlatformCredential(
+        "assistant_api_key",
+        PLATFORM_KEY,
+      );
+
+      await expect(
+        revealRoute!.handler({
+          body: { id: credentialId },
+          headers: { "x-vellum-principal-type": "local" },
+        }),
+      ).rejects.toThrow(/owned by the Vellum platform/);
+    });
+
+    test("inspect refuses platform credentials", async () => {
+      seedPlatformCredential("assistant_api_key", PLATFORM_KEY);
+      seedPlatformCredential("platform_base_url", PLATFORM_BASE_URL);
+
+      for (const field of ["assistant_api_key", "platform_base_url"]) {
+        await expect(
+          inspectRoute!.handler({
+            body: { service: "vellum", field },
+          }),
+        ).rejects.toThrow(ForbiddenError);
+      }
+    });
+
+    test("set refuses platform credentials", async () => {
+      /**
+       * A write is a read by another name: repointing `platform_base_url`
+       * sends the next platform call, bearing the API key, to a host the
+       * writer chose. The platform's own provisioning does not come through
+       * this route; it writes over `POST /v1/secrets`.
+       */
+      for (const field of ["assistant_api_key", "platform_base_url"]) {
+        await expect(
+          setRoute!.handler({
+            body: { service: "vellum", field, value: "https://attacker.test" },
+          }),
+        ).rejects.toThrow(ForbiddenError);
+      }
+
+      expect(secureStore.has("vellum:assistant_api_key")).toBe(false);
+      expect(secureStore.has("vellum:platform_base_url")).toBe(false);
+    });
+
+    test("set does not overwrite an already-provisioned platform credential", async () => {
+      seedPlatformCredential("platform_base_url", PLATFORM_BASE_URL);
+
+      await expect(
+        setRoute!.handler({
+          body: {
+            service: "vellum",
+            field: "platform_base_url",
+            value: "https://attacker.test",
+          },
+        }),
+      ).rejects.toThrow(/owned by the Vellum platform/);
+
+      expect(secureStore.get("vellum:platform_base_url")).toBe(
+        PLATFORM_BASE_URL,
+      );
+    });
+
+    test("delete refuses platform credentials", async () => {
+      seedPlatformCredential("assistant_api_key", PLATFORM_KEY);
+      seedPlatformCredential("platform_base_url", PLATFORM_BASE_URL);
+
+      for (const field of ["assistant_api_key", "platform_base_url"]) {
+        await expect(
+          deleteRoute!.handler({ body: { service: "vellum", field } }),
+        ).rejects.toThrow(ForbiddenError);
+      }
+
+      expect(secureStore.get("vellum:assistant_api_key")).toBe(PLATFORM_KEY);
+      expect(secureStore.get("vellum:platform_base_url")).toBe(
+        PLATFORM_BASE_URL,
+      );
+    });
+
+    test("a user credential is still writable and deletable", async () => {
+      const stored = (await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      })) as SetResponse;
+      expect(stored.service).toBe("vercel");
+      expect(secureStore.get("vercel:api_token")).toBe(SECRET_VALUE);
+
+      const deleted = (await deleteRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+      })) as DeleteResponse;
+      expect(deleted.field).toBe("api_token");
+      expect(secureStore.has("vercel:api_token")).toBe(false);
+    });
+
+    test("a user credential still inspects and reveals", async () => {
+      seedPlatformCredential("assistant_api_key", PLATFORM_KEY);
+      await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      });
+
+      const inspected = (await inspectRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+      })) as { scrubbedValue: string };
+      expect(inspected.scrubbedValue).toBe("supe****");
+
+      const revealed = (await revealRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+        headers: { "x-vellum-principal-type": "user" },
+      })) as { value: string };
+      expect(revealed.value).toBe(SECRET_VALUE);
     });
   });
 

@@ -17,7 +17,7 @@ import {
 } from "@/domains/chat/components/conversation-asset-actions";
 import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
 import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
-import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { classifyAttachment } from "@/utils/attachment-utils";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import { useInView } from "@/hooks/use-in-view";
 import { useTranslation } from "@/i18n";

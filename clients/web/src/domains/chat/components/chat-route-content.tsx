@@ -62,7 +62,7 @@ import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeh
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { partitionAttachableFiles } from "@/domains/chat/components/chat-attachments/utils";
+import { partitionAttachableFiles } from "@/utils/attachment-utils";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
 import { recordCommit } from "@/lib/commit-pressure";

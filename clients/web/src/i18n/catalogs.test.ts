@@ -15,7 +15,7 @@ import { describe, expect, test } from "bun:test";
 import IntlMessageFormat from "intl-messageformat";
 
 import { loadCatalogs, type LocaleCatalogs } from "@/i18n/catalogs";
-import { NAMESPACES } from "@/i18n/namespaces";
+import { DATA_KEYED_NAMESPACES, NAMESPACES } from "@/i18n/namespaces";
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "@/i18n/supported-locales";
 
 /**
@@ -158,6 +158,12 @@ describe("catalog usage", () => {
 
     const orphans: string[] = [];
     for (const namespace of NAMESPACES) {
+      // A data-keyed namespace is addressed by id, so its key paths appear in
+      // catalog data rather than in source. Its own domain test proves every
+      // id resolves; see `DATA_KEYED_NAMESPACES`.
+      if (DATA_KEYED_NAMESPACES.includes(namespace)) {
+        continue;
+      }
       for (const key of Object.keys(
         flatten(CATALOGS[DEFAULT_LOCALE][namespace]),
       )) {

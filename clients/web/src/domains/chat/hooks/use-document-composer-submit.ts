@@ -31,7 +31,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 
 import { postChatMessage } from "@/domains/chat/api/messages";
 import { conversationsPost } from "@/generated/daemon/sdk.gen";
-import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { isImageAttachment } from "@/utils/attachment-utils";
 import {
   type ChatAttachment,
   selectUploadedIds,
