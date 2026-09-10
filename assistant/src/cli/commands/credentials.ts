@@ -344,7 +344,7 @@ export function registerCredentialsCommand(program: Command): void {
             printCredentialHuman(output);
             if (output.brokerUnreachable) {
               log.info(
-                "    ⚠ Credential store is unreachable — ensure the assistant is running",
+                "    Credential store is unreachable. Retry in a moment, or check that the credential vault is running.",
               );
             }
           }

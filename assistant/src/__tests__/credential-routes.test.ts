@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { BadRequestError, ForbiddenError } from "../runtime/routes/errors.js";
+import {
+  BadRequestError,
+  ForbiddenError,
+  InternalError,
+} from "../runtime/routes/errors.js";
 import type { CredentialMetadata } from "../tools/credentials/metadata-store.js";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +19,8 @@ let disconnectedProviders: string[];
 let credentialIdCounter: number;
 let scrubbedValues: string[];
 let scrubRejects: boolean;
+let liveRecordsUnreachable: boolean;
+let secretGetUnreachable: boolean;
 
 function metaKey(service: string, field: string): string {
   return `${service}:${field}`;
@@ -49,7 +55,7 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: mock(async (key: string) => secureStore.get(key)),
   getSecureKeyResultAsync: mock(async (key: string) => ({
     value: secureStore.get(key),
-    unreachable: false,
+    unreachable: secretGetUnreachable,
   })),
   deleteSecureKeyAsync: mock(async (key: string) =>
     secureStore.delete(key) ? "deleted" : "not-found",
@@ -60,7 +66,10 @@ mock.module("../security/secure-keys.js", () => ({
 
 mock.module("../tools/credentials/metadata-store.js", () => ({
   assertMetadataWritable: () => {},
-  listCredentialMetadata: mock(() => Array.from(metadataStore.values())),
+  listCredentialRecordsLive: mock(async () => ({
+    records: Array.from(metadataStore.values()),
+    unreachable: liveRecordsUnreachable,
+  })),
   getCredentialMetadata: mock((service: string, field: string) =>
     metadataStore.get(metaKey(service, field)),
   ),
@@ -201,6 +210,8 @@ describe("credentials routes", () => {
     credentialIdCounter = 0;
     scrubbedValues = [];
     scrubRejects = false;
+    liveRecordsUnreachable = false;
+    secretGetUnreachable = false;
     _resetRevealSuccessRegistryForTest();
     resetForChatMintRegistryForTest();
     chatCredentialRevealFlag = false;
@@ -798,6 +809,31 @@ describe("credentials routes", () => {
       // THEN only the matching credential is returned
       expect(result.credentials).toHaveLength(1);
       expect(result.credentials[0].service).toBe("github");
+    });
+
+    test("fails immediately when the credential vault is unreachable", async () => {
+      liveRecordsUnreachable = true;
+      await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      });
+
+      await expect(listRoute!.handler({ body: {} })).rejects.toThrow(
+        InternalError,
+      );
+      await expect(listRoute!.handler({ body: {} })).rejects.toThrow(
+        /Credential store is unreachable/,
+      );
+    });
+
+    test("fails immediately when a secret fetch reports the vault unreachable", async () => {
+      await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      });
+      secretGetUnreachable = true;
+
+      await expect(listRoute!.handler({ body: {} })).rejects.toThrow(
+        InternalError,
+      );
     });
   });
 

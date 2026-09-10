@@ -10,6 +10,7 @@ import {
   _ensureCesRecordsLoaded,
   _setMetadataPath,
   getCredentialMetadata,
+  listCredentialRecordsLive,
   setCredentialRecordBackend,
   upsertCredentialMetadata,
 } from "../tools/credentials/metadata-store.js";
@@ -216,6 +217,43 @@ describe("CES credential record cache", () => {
 
     getCredentialMetadata("github", "token");
     await _ensureCesRecordsLoaded();
+  });
+
+  test("live catalog list returns CES records without the in-process cache", async () => {
+    const backend = makeBackend();
+    const record: CredentialRecord = {
+      credentialId: "cred-live",
+      service: "github",
+      field: "token",
+      allowedTools: ["bash"],
+      allowedDomains: [],
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    backend.store.set(credentialKey("github", "token"), record);
+    setCredentialRecordBackend(backend);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(false);
+    expect(live.records).toHaveLength(1);
+    expect(live.records[0]?.credentialId).toBe("cred-live");
+    expect(getCredentialMetadata("github", "token")).toBeUndefined();
+  });
+
+  test("live catalog list reports unreachable when CES list fails", async () => {
+    const backend = makeBackend();
+    backend.list = async () => null;
+    setCredentialRecordBackend(backend);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(true);
+    expect(live.records).toEqual([]);
+  });
+
+  test("live catalog list reports unreachable when no record backend is attached", async () => {
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(true);
+    expect(live.records).toEqual([]);
   });
 
   test("upsert write-throughs to CES without updating leftover metadata.json", async () => {

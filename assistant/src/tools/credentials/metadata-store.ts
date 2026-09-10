@@ -255,6 +255,48 @@ export function listCredentialMetadata(): CredentialMetadata[] {
   return getStore().list() as CredentialMetadata[];
 }
 
+export type CredentialRecordListResult = {
+  records: CredentialMetadata[];
+  unreachable: boolean;
+};
+
+/**
+ * Live catalog from the credential record backend. Does not read the
+ * daemon in-process cache, so an outage cannot be mistaken for an empty
+ * vault. `unreachable` is true when the backend is missing, down, or
+ * the list RPC fails.
+ *
+ * The file-backed test store is the catalog when a test override path is set.
+ */
+export async function listCredentialRecordsLive(): Promise<CredentialRecordListResult> {
+  if (_overridePath) {
+    return {
+      records: getStore().list() as CredentialMetadata[],
+      unreachable: false,
+    };
+  }
+  if (!_recordBackend) {
+    return { records: [], unreachable: true };
+  }
+  let available = false;
+  try {
+    available = _recordBackend.isAvailable();
+  } catch {
+    available = false;
+  }
+  if (!available) {
+    return { records: [], unreachable: true };
+  }
+  const remote = await _recordBackend.list();
+  if (remote === null) {
+    return { records: [], unreachable: true };
+  }
+  return {
+    records: remote.map((entry) => entry.record as CredentialMetadata),
+    unreachable: false,
+  };
+}
+
 /**
  * Delete metadata for a credential.
  */
