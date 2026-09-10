@@ -3,21 +3,20 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  type Assistant,
-  getAssistant,
-  getAssistantHealthz,
-} from "@/assistant/api";
+import { type Assistant, getAssistant } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
+import { healthzGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { t, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
@@ -78,93 +77,94 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     },
     retry: false,
   });
-  const assistantId = assistant?.id;
+  const queryClient = useQueryClient();
+  /* A platform-mode read needs `Vellum-Organization-Id`, which the org store
+     hydrates after auth. Without this gate the request can go out headerless
+     and be rejected. Ready immediately when there is no platform session, so
+     self-hosted and gateway-only sessions are not held up by it. */
+  const isOrgReady = useIsOrgReady();
+  /* Keyed on the active assistant rather than on the resolved record, so the
+     two reads run side by side instead of nose to tail. Over a tunnel that
+     serialization was a second full round trip before this one could start. */
+  const healthzQueryOptions = useMemo(
+    () => healthzGetOptions({ path: { assistant_id: activeAssistantId } }),
+    [activeAssistantId],
+  );
+  const {
+    data: healthz = null,
+    isLoading: healthzLoading,
+    error: healthzError,
+  } = useQuery({
+    ...healthzQueryOptions,
+    enabled: isOrgReady,
+    retry: false,
+  });
 
-  const [healthz, setHealthz] = useState<HealthzGetResponse | null>(null);
-  const [healthzLoading, setHealthzLoading] = useState(false);
   const [healthzPolling, setHealthzPolling] = useState(false);
-  const healthzRequestIdRef = useRef(0);
   // Bumped to supersede any in-flight resize poll (a new poll, or unmount).
   const pollIdRef = useRef(0);
+  /* Read inside the reporting effect rather than listed as a dependency: a
+     failure that lands mid-poll must stay silent, and re-running the effect
+     when the poll ends would surface it late. */
+  const pollingRef = useRef(false);
 
-  const fetchHealthz = useCallback(
-    async (opts?: {
-      keepStaleOnError?: boolean;
-    }): Promise<HealthzGetResponse | null> => {
-      if (!assistantId) {
-        setHealthz(null);
-        setHealthzLoading(false);
-        return null;
-      }
-      healthzRequestIdRef.current += 1;
-      const requestId = healthzRequestIdRef.current;
-      setHealthzLoading(true);
-      try {
-        const result = await getAssistantHealthz(assistantId);
-        if (requestId !== healthzRequestIdRef.current) {
-          return null;
-        }
-        if (result.ok) {
-          setHealthz(result.data);
-          return result.data;
-        }
-        // While polling through a resize restart, keep the last-known values
-        // rather than blanking the card on a transient non-200.
-        if (!opts?.keepStaleOnError) {
-          setHealthz(null);
-        }
-        return null;
-      } catch (error) {
-        if (requestId !== healthzRequestIdRef.current) {
-          return null;
-        }
-        if (!opts?.keepStaleOnError) {
-          setHealthz(null);
-        }
-        // Transient unreachability during a resize restart is expected — don't
-        // report it while polling.
-        if (!isTransientNetworkError(error) && !opts?.keepStaleOnError) {
-          captureError(error, { context: "fetch_assistant_healthz" });
-          toast.error(t("settings:assistantStatusPanel.loadHealthzFailed"));
-        }
-        return null;
-      } finally {
-        if (requestId === healthzRequestIdRef.current) {
-          setHealthzLoading(false);
-        }
-      }
-    },
-    [assistantId],
-  );
-
+  /* A resize restart makes the endpoint briefly unreachable, and the transcript
+     of that is a transient network error, so those stay unreported. Anything
+     else is a real failure of a card the user is looking at. */
   useEffect(() => {
-    void fetchHealthz();
-  }, [fetchHealthz]);
+    if (!healthzError || pollingRef.current) {
+      return;
+    }
+    if (isTransientNetworkError(healthzError)) {
+      return;
+    }
+    captureError(healthzError, { context: "fetch_assistant_healthz" });
+    toast.error(t("settings:assistantStatusPanel.loadHealthzFailed"));
+  }, [healthzError]);
 
-  // When the active assistant changes (or on unmount), cancel any in-flight
-  // resize poll and drop the previous assistant's cached health. Without the
-  // cancel, a poll for the previous assistant keeps writing its data and holds
-  // its resize controls disabled; without clearing `healthz`, the cards would
-  // render the previous assistant's CPU/memory/disk until the new fetch
-  // resolves (both reproducible when switching with multiPlatformAssistant).
+  // Cancel any in-flight resize poll when the active assistant changes or the
+  // hook unmounts. Without it a poll for the previous assistant keeps running
+  // and holds its resize controls disabled. The reported health needs no
+  // cleanup: it is cached per assistant id, so a switch reads the new
+  // assistant's entry rather than the old one's values.
   useEffect(() => {
     return () => {
       pollIdRef.current += 1;
+      pollingRef.current = false;
       setHealthzPolling(false);
-      setHealthz(null);
     };
-  }, [assistantId]);
+  }, [activeAssistantId]);
+
+  /* `staleTime: 0` because this is an imperative re-check: the caller is asking
+     whether the allocation has changed since it last looked, which a cached
+     answer cannot report. */
+  const fetchFreshHealthz =
+    useCallback(async (): Promise<HealthzGetResponse | null> => {
+      try {
+        return await queryClient.fetchQuery({
+          ...healthzQueryOptions,
+          retry: false,
+          staleTime: 0,
+        });
+      } catch {
+        // The pod is rolling and the endpoint is briefly unreachable. The last
+        // good reading stays in the cache, so the cards keep their values
+        // instead of blanking, and the caller decides whether to keep polling.
+        return null;
+      }
+    }, [queryClient, healthzQueryOptions]);
 
   const refetch = useCallback(async () => {
     await refetchAssistant();
-    await fetchHealthz();
-  }, [refetchAssistant, fetchHealthz]);
+    await fetchFreshHealthz();
+  }, [refetchAssistant, fetchFreshHealthz]);
 
   const refetchUntilResized = useCallback(
     async (baseline: HealthzGetResponse | null) => {
       const pollId = ++pollIdRef.current;
       const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
       setHealthzPolling(true);
+      pollingRef.current = true;
       // `baseline` is null when metrics weren't loaded yet at resize time. In
       // that case the first reading could still be pre-resize values, so we
       // can't treat it as the resized allocation — adopt it as the baseline and
@@ -181,7 +181,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
           if (pollId !== pollIdRef.current) {
             return;
           }
-          const data = await fetchHealthz({ keepStaleOnError: true });
+          const data = await fetchFreshHealthz();
           if (pollId !== pollIdRef.current) {
             return;
           }
@@ -198,11 +198,12 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
         }
       } finally {
         if (pollId === pollIdRef.current) {
+          pollingRef.current = false;
           setHealthzPolling(false);
         }
       }
     },
-    [fetchHealthz, refetchAssistant],
+    [fetchFreshHealthz, refetchAssistant],
   );
 
   return {
