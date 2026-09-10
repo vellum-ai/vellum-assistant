@@ -842,17 +842,20 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       if (slot === "document") {
         return { documentAttachments: [], documentAttachmentLastError: null };
       }
-      // A held message belongs to a conversation of the assistant this reset
-      // is leaving, and its attachments were uploaded against that assistant,
-      // so they die with the previews revoked below rather than waiting for a
-      // composer under the next one. A send still on the outgoing assistant's
-      // queue goes the same way: its answer rides that assistant's stream,
-      // which is detached from here on.
+      // A held failed message belongs to a conversation of the assistant this
+      // reset is leaving, and its attachments were uploaded against that
+      // assistant, so it goes with the previews revoked below rather than
+      // waiting for a composer under the next one. A send still out on the
+      // outgoing assistant keeps its copy: its POST can still throw after the
+      // switch, and the draft that throw hands back goes to that assistant's
+      // own stored drafts, since `restoreFailedDraft` files it under the
+      // send's assistant. A copy the stream never speaks for again waits under
+      // its nonce until something takes it or the tab ends, which costs
+      // nothing.
       return {
         attachments: [],
         attachmentLastError: null,
         failedSendsByConversation: new Map(),
-        queuedSends: new Map(),
       };
     });
     revokeSlotPreviews(slot);

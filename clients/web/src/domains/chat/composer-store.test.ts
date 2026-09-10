@@ -1553,7 +1553,7 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
     });
   });
 
-  test("the assistant switch's full reset drops every held send", () => {
+  test("the assistant switch's full reset keeps every held send", () => {
     getStore().recordQueuedSend("nonce-1", {
       assistantId: "assistant-1",
       conversationId: "conv-1",
@@ -1561,9 +1561,11 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
       attachments: [attachment],
     });
 
+    // The POST can still throw after the switch, and the draft that throw
+    // hands back is filed under the send's own assistant.
     getStore().fullReset();
 
-    expect(getStore().queuedSends.size).toBe(0);
+    expect(getStore().queuedSends.get("nonce-1")?.content).toBe("mine");
   });
 
   test("resetting the document slot leaves the held sends alone", () => {

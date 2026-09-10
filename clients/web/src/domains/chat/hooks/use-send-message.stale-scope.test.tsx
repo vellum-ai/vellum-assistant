@@ -43,6 +43,8 @@ import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 const SEND_CONVERSATION = "conv-written-in";
 /** The thread the user moved to while the send was awaiting. */
 const OPEN_CONVERSATION = "conv-now-open";
+/** The assistant the user switched to while the send was awaiting. */
+const OTHER_ASSISTANT = "assistant-2";
 
 let capturedBody: Record<string, unknown> | null = null;
 /** What the daemon answers the send POST with. Reset to a plain accept. */
@@ -178,7 +180,9 @@ function renderSendFor(conversationId: string) {
  * `sendMessageViaStream`'s own scope classification and lands in the outer
  * catch instead.
  */
-function throwWhileAnswering(options: { switchFirst?: boolean } = {}) {
+function throwWhileAnswering(
+  options: { switchFirst?: boolean; switchAssistantFirst?: boolean } = {},
+) {
   daemonClient.post = mock(async () => {
     if (options.switchFirst) {
       useConversationStore
@@ -186,6 +190,13 @@ function throwWhileAnswering(options: { switchFirst?: boolean } = {}) {
         .setActiveConversationId(OPEN_CONVERSATION);
       // The thread they opened has an answer of its own running.
       useTurnStore.setState(OPEN_THREAD_ANSWERING);
+    }
+    if (options.switchAssistantFirst) {
+      // What an assistant switch does to the composer: the main slot is reset
+      // and the drafts of the assistant being opened are loaded in place of
+      // the outgoing one's.
+      useComposerStore.getState().fullReset();
+      useComposerStore.getState().loadAssistantDrafts(OTHER_ASSISTANT);
     }
     throw new Error("network down");
   }) as typeof daemonClient.post;
@@ -788,6 +799,22 @@ describe("useSendMessage: a send whose POST throws", () => {
     expect(turnState()).toEqual({ phase: "idle", activeTurnId: null });
     // Nothing parked, because the banner carries the failure.
     expect(draftFor(SEND_CONVERSATION)).toBe("");
+  });
+
+  test("an assistant switch parks the text under the send's own assistant", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    throwWhileAnswering({ switchFirst: true, switchAssistantFirst: true });
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("left behind by the switch");
+    });
+
+    // Nothing under the assistant now loaded: the send was never theirs.
+    expect(draftFor(SEND_CONVERSATION)).toBe("");
+
+    useComposerStore.getState().loadAssistantDrafts("assistant-1");
+    expect(draftFor(SEND_CONVERSATION)).toBe("left behind by the switch");
   });
 
   test("the queue branch's own catch parks it too", async () => {
