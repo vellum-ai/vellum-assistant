@@ -636,7 +636,11 @@ export interface CompanionSurfaceProps {
    * What a press on that frame draws, which the strip Draw opens shows held
    * down. Main's the way {@link CompanionSurfaceProps.annotating} is, and
    * read the same way: the pill chooses, and this is what main did with it.
-   * Absent is the pencil.
+   *
+   * Absent is a shell that names no tool, which is a shell with only the
+   * pencil, and then no strip is drawn: a strip offering shapes to a shell
+   * that cannot take the choice would draw the pencil held down whatever
+   * was pressed.
    */
   annotationTool?: CompanionAnnotationTool;
   /** A press on the strip: the tool the user reached for. */
@@ -831,7 +835,7 @@ export function CompanionSurface({
   onShare,
   onStopShare,
   annotating = false,
-  annotationTool = "freehand",
+  annotationTool,
   onAnnotationTool,
   drawToolsRef,
   onAnnotate,
@@ -1922,7 +1926,7 @@ function CallBody({
   shareEnabled: boolean;
   sharePicking: boolean;
   annotating: boolean;
-  annotationTool: CompanionAnnotationTool;
+  annotationTool?: CompanionAnnotationTool;
   cardGrowth: CompanionSurfaceCardGrowth;
   drawToolsRef?: Ref<HTMLDivElement>;
   onAnnotationTool?: (tool: CompanionAnnotationTool) => void;
@@ -2133,7 +2137,8 @@ function ShareButton({
  * own ({@link DrawTools}). Off it rather than in the row, since the row is
  * one thin line of controls by design and the tools are a choice inside one
  * of them; and only while the mode is on, since a tool is a fact about the
- * next press on the frame, and off the mode there is no such press.
+ * next press on the frame, and off the mode there is no such press. Not at
+ * all on a shell that names no tool: that shell cannot take the choice.
  */
 function DrawButton({
   sharing,
@@ -2148,7 +2153,8 @@ function DrawButton({
   sharing: boolean;
   annotating: boolean;
   shortcut?: string;
-  tool: CompanionAnnotationTool;
+  /** Absent on a shell with only the pencil, which draws no strip. */
+  tool?: CompanionAnnotationTool;
   cardGrowth: CompanionSurfaceCardGrowth;
   toolsRef?: Ref<HTMLDivElement>;
   onAnnotate?: (annotating: boolean) => void;
@@ -2171,7 +2177,7 @@ function DrawButton({
           onAnnotate?.(!annotating);
         }}
       />
-      {annotating && (
+      {annotating && tool !== undefined && (
         <DrawTools
           tool={tool}
           cardGrowth={cardGrowth}

@@ -1934,6 +1934,7 @@ describe("the picker behind Share", () => {
       const drawing = (): void => {
         STATE.screenShare = { kind: "window", windowId: 9 };
         STATE.annotating = true;
+        STATE.annotationTool = "freehand";
       };
       afterEach(() => {
         delete STATE.annotating;
@@ -1946,8 +1947,22 @@ describe("the picker behind Share", () => {
         await pinSurface(container);
         expect(stripOf(container)).toBeNull();
 
-        pushState({ ...STATE, annotating: true });
+        pushState({ ...STATE, annotating: true, annotationTool: "freehand" });
         expect(stripOf(container)).not.toBeNull();
+      });
+
+      /**
+       * A shell that predates the shapes names no tool and has no channel to
+       * take one on: a press on Line there would leave the pencil held down.
+       * So it is offered nothing beyond the pencil it already has.
+       */
+      test("are not offered by a shell that names no tool", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, annotating: true });
+        expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
+        expect(stripOf(container)).toBeNull();
       });
 
       test("a press asks main for the tool, and main's answer is what draws it held down", async () => {
@@ -2008,6 +2023,32 @@ describe("the picker behind Share", () => {
         expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
 
         pushState({ ...STATE, annotating: false });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /**
+       * The mode stays on while an approval takes the row, and the strip
+       * goes with the row. What matters is the strip leaving, whatever took
+       * it.
+       */
+      test("give the desktop back when an approval takes the strip under a still pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({
+          ...STATE,
+          call: { ...LISTENING_CALL, approvalRequestId: "req-1" },
+        });
+        expect(stripOf(container)).toBeNull();
         expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
       });
 

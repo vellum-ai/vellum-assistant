@@ -2336,7 +2336,12 @@ describe("the companion surface's drawing tools", () => {
     );
   });
 
-  test("the pencil is current when nothing says otherwise", () => {
+  /**
+   * A shell that names no tool is one that predates the shapes and cannot
+   * take the choice: a strip drawn for it would show the pencil held down
+   * whatever was pressed.
+   */
+  test("are absent on a shell that names no tool", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -2345,9 +2350,7 @@ describe("the companion surface's drawing tools", () => {
         call={LISTENING_CALL}
       />,
     );
-    expect(toolOf(container, "Freehand").getAttribute("aria-pressed")).toBe(
-      "true",
-    );
+    expect(stripOf(container)).toBeNull();
   });
 
   test("a press on a tool hands it to the page", () => {
@@ -2357,6 +2360,7 @@ describe("the companion surface's drawing tools", () => {
         phase="call"
         sharing
         annotating
+        annotationTool="freehand"
         call={LISTENING_CALL}
         onAnnotationTool={(tool) => {
           chosen.push(tool);
@@ -2378,6 +2382,7 @@ describe("the companion surface's drawing tools", () => {
         phase="call"
         sharing
         annotating
+        annotationTool="freehand"
         cardGrowth="up"
         call={LISTENING_CALL}
       />,
@@ -2391,6 +2396,7 @@ describe("the companion surface's drawing tools", () => {
         phase="call"
         sharing
         annotating
+        annotationTool="freehand"
         cardGrowth="down"
         call={LISTENING_CALL}
       />,
@@ -2407,6 +2413,7 @@ describe("the companion surface's drawing tools", () => {
         phase="call"
         sharing
         annotating
+        annotationTool="freehand"
         call={LISTENING_CALL}
         drawToolsRef={(element) => {
           handed.push(element);
