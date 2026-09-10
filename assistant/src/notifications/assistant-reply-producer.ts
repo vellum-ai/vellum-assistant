@@ -11,6 +11,7 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isMessageKey } from "../i18n/index.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
@@ -247,9 +248,15 @@ export async function emitAssistantReplyNotification(params: {
     // lock screen. Absent `requestedTitle` lets the decision branch derive a
     // title from the body, which reads better than an empty or placeholder
     // conversation title.
-    const requestedTitle = sanitizeNotificationTitle(
-      flattenTitleWhitespace(conversation.title ?? ""),
-    );
+    //
+    // A title still being generated is persisted as the message key itself, so
+    // it arrives here as a plausible non-empty string and survives sanitizing.
+    // Resolving it would put "Generating title..." on the lock screen, so a
+    // stored key counts as absent and the body supplies the title instead.
+    const storedTitle = conversation.title?.trim() ?? "";
+    const requestedTitle = isMessageKey(storedTitle)
+      ? ""
+      : sanitizeNotificationTitle(flattenTitleWhitespace(storedTitle));
 
     // Read as close to the emit as possible: nothing short-circuits on it.
     // Presence only speaks for a turn the desktop itself opened, on that row's
