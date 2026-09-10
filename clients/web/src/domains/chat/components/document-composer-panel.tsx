@@ -6,7 +6,10 @@ import { Typography } from "@vellumai/design-library";
 import { partitionAttachableFiles } from "@/utils/attachment-utils";
 import { ChatComposer } from "@/domains/chat/components/chat-composer/chat-composer";
 import { useComposerStore } from "@/domains/chat/composer-store";
-import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
+import {
+  heldMessageFor,
+  useDocumentComposerReplyStore,
+} from "@/domains/chat/document-composer-reply-store";
 import { useDocumentComposerSubmit } from "@/domains/chat/hooks/use-document-composer-submit";
 import { useImageAttachmentsAllowed } from "@/domains/chat/hooks/use-image-attachments-allowed";
 import {
@@ -74,21 +77,29 @@ export function DocumentComposerPanel({
     };
   }, [surfaceId]);
 
-  // A send the daemon reports as failed is held under the surface it was
-  // composed for, and the panel showing that document takes it once the whole
-  // document slot is empty: the failure can arrive while the document is open
-  // or long after it was closed, and the message waits either way. A draft
-  // typed or staged since is never replaced, and never carries half of the
-  // failed message into it; the slot empties when that draft is sent or
-  // cleared, and the message is taken then.
+  // A send the daemon reports as failed is held under the assistant it went to
+  // and the surface it was composed for, and the panel showing that document
+  // for that assistant takes it once the whole document slot is empty: the
+  // failure can arrive while the document is open or long after it was
+  // closed, and the message waits either way. A draft typed or staged since is
+  // never replaced, and never carries half of the failed message into it; the
+  // slot empties when that draft is sent or cleared, and the message is taken
+  // then.
   const failedSend = useDocumentComposerReplyStore((s) =>
-    surfaceId === null ? undefined : s.failedSends.get(surfaceId),
+    assistantId === null || surfaceId === null
+      ? undefined
+      : heldMessageFor(s, assistantId, surfaceId),
   );
   const slotEmpty = useComposerStore(
     (s) => s.documentInput.trim() === "" && s.documentAttachments.length === 0,
   );
   useEffect(() => {
-    if (surfaceId === null || failedSend === undefined || !slotEmpty) {
+    if (
+      assistantId === null ||
+      surfaceId === null ||
+      failedSend === undefined ||
+      !slotEmpty
+    ) {
       return;
     }
     const composer = useComposerStore.getState();
@@ -101,13 +112,13 @@ export function DocumentComposerPanel({
     }
     const payload = useDocumentComposerReplyStore
       .getState()
-      .takeFailedSend(surfaceId);
+      .takeFailedSend(assistantId, surfaceId);
     if (payload === null) {
       return;
     }
     composer.setInput(payload.content, "document");
     composer.restoreAttachmentsIfEmpty(payload.attachments, "document");
-  }, [surfaceId, failedSend, slotEmpty]);
+  }, [assistantId, surfaceId, failedSend, slotEmpty]);
 
   if (!assistantId) {
     return null;

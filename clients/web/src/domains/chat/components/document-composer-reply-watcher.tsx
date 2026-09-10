@@ -124,6 +124,11 @@ export function DocumentComposerReplyWatcher() {
             .removeProcessingConversationId(conversationId);
         }
         replyStore.clearAwaitingReplies();
+        // Leaving every assistant hands the next context nothing, so no
+        // message one user wrote is held for whoever signs in next.
+        if (activeAssistantId === null) {
+          replyStore.clearHeldMessages();
+        }
       }
       ownerAssistantId = activeAssistantId;
     });

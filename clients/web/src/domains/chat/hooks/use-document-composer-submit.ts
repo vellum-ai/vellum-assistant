@@ -134,6 +134,26 @@ function abandonAttempt(
 }
 
 /**
+ * Hand the message of an attempt nothing can retry back to its document when
+ * the daemon never spoke for it, whether its entry comes off here or an
+ * assistant switch already took it off. An acknowledged entry keeps its
+ * message for the watcher.
+ */
+function holdAbandonedMessage(
+  attempt: Pick<
+    DocumentComposerAttempt,
+    "clientMessageId" | "targetConversationId" | "payload"
+  >,
+): void {
+  const detached = useDocumentComposerReplyStore
+    .getState()
+    .takeDetachedSend(attempt.clientMessageId);
+  if (abandonAttempt(attempt) || detached !== null) {
+    useDocumentComposerReplyStore.getState().stashFailedSend(attempt.payload);
+  }
+}
+
+/**
  * Whether any staged attachment is an image, read off the file each variant
  * names. A path reference names no file to send, so it is never one.
  */
@@ -200,16 +220,15 @@ export function useDocumentComposerSubmit({
     // draft at all, so the next send is a different message with a nonce of
     // its own. An entry an earlier attempt listed stays listed while its POST
     // is out, or once the daemon has taken the message in; one the daemon
-    // never took in and no attempt can retry comes off, and the message it
-    // carried is held for its document, since the outgoing owner's slot is
-    // cleared with it and nothing on the stream can hand the message back. An
-    // acknowledged entry keeps its message with it.
+    // never took in and no attempt can retry comes off, unless an assistant
+    // switch took it off already, and the message it carried is held for its
+    // document, since the outgoing owner's slot is cleared with it and nothing
+    // on the stream can hand the message back. An acknowledged entry keeps its
+    // message with it.
     return () => {
       const previous = pendingClientMessageRef.current;
-      if (previous && !previous.inFlight && abandonAttempt(previous)) {
-        useDocumentComposerReplyStore
-          .getState()
-          .stashFailedSend(previous.payload);
+      if (previous && !previous.inFlight) {
+        holdAbandonedMessage(previous);
       }
       pendingClientMessageRef.current = null;
       // An unmounted hook owns no assistant. A continuation still out past
@@ -458,6 +477,7 @@ export function useDocumentComposerSubmit({
       // and told the user it went out, and nothing else holds the message by
       // then.
       const sentPayload: PendingDocumentReplyPayload = {
+        assistantId,
         surfaceId: doc.surfaceId,
         content,
         attachments: documentAttachments.filter(
@@ -538,6 +558,11 @@ export function useDocumentComposerSubmit({
         content,
         { attachmentIds, clientMessageId },
       );
+      // The daemon answered, so the message is either with it or, refused,
+      // handled below from `sentPayload`.
+      useDocumentComposerReplyStore
+        .getState()
+        .takeDetachedSend(clientMessageId);
 
       if (!result.ok) {
         // The daemon answered and refused the message: nothing is persisted
@@ -552,7 +577,11 @@ export function useDocumentComposerSubmit({
         useDocumentComposerReplyStore
           .getState()
           .stopAwaitingReply(targetConversationId, clientMessageId);
-        if (!(isMountedRef.current && ownsSlotNow())) {
+        // No active assistant means the app left them all, so nothing is held.
+        if (
+          !(isMountedRef.current && ownsSlotNow()) &&
+          useResolvedAssistantsStore.getState().activeAssistantId !== null
+        ) {
           useDocumentComposerReplyStore.getState().stashFailedSend(sentPayload);
         }
         // The mark stands for every send still running in the conversation, so
@@ -717,18 +746,14 @@ export function useDocumentComposerSubmit({
       // still raises the toast. An attempt the slot has moved past, or that
       // outlived the hook, cannot be retried, so its entry goes unless the
       // daemon has taken the message in, and the message that entry carried is
-      // held for its document, since nothing on the stream can hand it back.
-      // An acknowledged entry keeps its message with it: the daemon can still
+      // held for its document, also when an assistant switch took the entry
+      // off first, since nothing on the stream can hand it back. An
+      // acknowledged entry keeps its message with it: the daemon can still
       // report the send failed, and the watcher hands it back then.
       if (attempt) {
         attempt.inFlight = false;
-        if (
-          !(isMountedRef.current && ownsSlotNow()) &&
-          abandonAttempt(attempt)
-        ) {
-          useDocumentComposerReplyStore
-            .getState()
-            .stashFailedSend(attempt.payload);
+        if (!(isMountedRef.current && ownsSlotNow())) {
+          holdAbandonedMessage(attempt);
         }
       }
       if (ownsSlotNow()) {

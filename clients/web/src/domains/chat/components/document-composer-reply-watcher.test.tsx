@@ -36,16 +36,13 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 
 const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useDocumentComposerReplyStore } = await import(
-  "@/domains/chat/document-composer-reply-store"
-);
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
+const { heldMessageFor, useDocumentComposerReplyStore } =
+  await import("@/domains/chat/document-composer-reply-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { publish } = await import("@/lib/event-bus");
-const { DocumentComposerReplyWatcher } = await import(
-  "@/domains/chat/components/document-composer-reply-watcher"
-);
+const { DocumentComposerReplyWatcher } =
+  await import("@/domains/chat/components/document-composer-reply-watcher");
 
 function publishMessageComplete(
   conversationId: string | undefined,
@@ -304,6 +301,7 @@ function handedOffCount(): number {
 
 /** The draft and the uploaded attachment a document send carried. */
 const FAILED_SEND_PAYLOAD = {
+  assistantId: "assistant-1",
   surfaceId: "surf-1",
   content: "a note on the draft",
   attachments: [
@@ -325,15 +323,28 @@ function documentAttachments() {
   return useComposerStore.getState().documentAttachments;
 }
 
-/** The message held for `surfaceId`, for the composer panel to take back. */
+/** The message held for `surfaceId` under the assistant the sends went to,
+ *  for the composer panel to take back. */
 function heldFor(surfaceId: string) {
-  return useDocumentComposerReplyStore.getState().failedSends.get(surfaceId);
+  return heldMessageFor(
+    useDocumentComposerReplyStore.getState(),
+    "assistant-1",
+    surfaceId,
+  );
+}
+
+/** The message an assistant switch detached from the send `clientMessageId`. */
+function detachedFor(clientMessageId: string) {
+  return useDocumentComposerReplyStore
+    .getState()
+    .detachedSends.get(clientMessageId);
 }
 
 beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    detachedSends: new Map(),
     handedOffConversationIds: new Set(),
   });
   useConversationStore.setState({
@@ -1715,6 +1726,54 @@ describe("DocumentComposerReplyWatcher", () => {
       // is left to take the marker down.
       expect(processing("conv-1")).toBe(false);
       expect(handedOffCount()).toBe(0);
+    });
+
+    test("switching to another assistant keeps held messages and a send's own", () => {
+      // GIVEN a message held for its document, and a send the daemon has not
+      // spoken for, whose POST may still be out
+      useDocumentComposerReplyStore
+        .getState()
+        .stashFailedSend(FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", {
+          ...FAILED_SEND_PAYLOAD,
+          surfaceId: "surf-2",
+        });
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+
+      // THEN the held message still waits for its document's composer under
+      // the assistant it went to, and the send's message is kept under its
+      // nonce for that POST to hand back if it throws
+      expect(awaiting("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+      expect(detachedFor("cm-1")).toEqual({
+        ...FAILED_SEND_PAYLOAD,
+        surfaceId: "surf-2",
+      });
+    });
+
+    test("leaving every assistant drops held messages and a send's own", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .stashFailedSend(FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", {
+          ...FAILED_SEND_PAYLOAD,
+          surfaceId: "surf-2",
+        });
+      render(<DocumentComposerReplyWatcher />);
+
+      // Logging out and removing the active assistant leave no assistant
+      // active, and one user's message must not reach the next context.
+      setActiveAssistant(null);
+
+      expect(awaiting("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(detachedFor("cm-1")).toBeUndefined();
     });
 
     test("selecting the first assistant leaves the wait alone", () => {

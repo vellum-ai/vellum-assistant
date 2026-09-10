@@ -15,12 +15,14 @@ import type {
   PendingDocumentReplyPayload,
 } from "@/domains/chat/document-composer-reply-store";
 import {
+  heldMessageFor,
   keepsProcessingMarker,
   useDocumentComposerReplyStore,
 } from "@/domains/chat/document-composer-reply-store";
 
 /** A draft and its one uploaded attachment, as a send hands them over. */
 const SENT_PAYLOAD: PendingDocumentReplyPayload = {
+  assistantId: "assistant-1",
   surfaceId: "surf-1",
   content: "a note on the draft",
   attachments: [
@@ -36,6 +38,11 @@ const SENT_PAYLOAD: PendingDocumentReplyPayload = {
 
 function getState() {
   return useDocumentComposerReplyStore.getState();
+}
+
+/** The message held for `surfaceId` under `assistantId`. */
+function heldFor(surfaceId: string, assistantId = "assistant-1") {
+  return heldMessageFor(getState(), assistantId, surfaceId);
 }
 
 function pendingFor(conversationId: string): readonly PendingDocumentReply[] {
@@ -58,6 +65,7 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    detachedSends: new Map(),
     handedOffConversationIds: new Set(),
   });
 });
@@ -944,15 +952,63 @@ describe("clearAwaitingReplies", () => {
     expect(getState().pendingReplies.size).toBe(0);
   });
 
-  test("drops every held message too", () => {
-    // An assistant switch, a logout, or the lifecycle reset must not carry
-    // one user's message into the next context.
+  test("keeps every held message", () => {
+    // GIVEN messages held for two documents, and a send still pending
     getState().stashFailedSend(SENT_PAYLOAD);
     getState().stashFailedSend({ ...SENT_PAYLOAD, surfaceId: "surf-2" });
+    getState().startAwaitingReply("conv-1", "cm-1");
+
+    // WHEN an assistant switch drops the waits
+    getState().clearAwaitingReplies();
+
+    // THEN each message still waits for its document's composer under the
+    // assistant it went to
+    expect(heldFor("surf-1")).toEqual(SENT_PAYLOAD);
+    expect(heldFor("surf-2")?.surfaceId).toBe("surf-2");
+  });
+
+  test("keeps an unacknowledged send's message under its nonce", () => {
+    // GIVEN a send the daemon has not spoken for, whose POST may still be out
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
 
     getState().clearAwaitingReplies();
 
-    expect(getState().failedSends.size).toBe(0);
+    // THEN its entry is gone, and its message is the one copy left for that
+    // POST to hand back if it throws
+    expect(getState().pendingReplies.size).toBe(0);
+    expect(getState().detachedSends.get("cm-1")).toEqual(SENT_PAYLOAD);
+  });
+
+  test("detaches nothing from an acknowledged send", () => {
+    // GIVEN a send the daemon echoed back as running, so it holds the message
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().markReplyRunning("conv-1", "cm-1");
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().detachedSends.size).toBe(0);
+  });
+
+  test("detaches nothing from a send listed without a message or a nonce", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().startAwaitingReply("conv-2", undefined, SENT_PAYLOAD);
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().detachedSends.size).toBe(0);
+  });
+
+  test("keeps the messages an earlier switch detached", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().clearAwaitingReplies();
+    getState().startAwaitingReply("conv-2", "cm-2", {
+      ...SENT_PAYLOAD,
+      surfaceId: "surf-2",
+    });
+
+    getState().clearAwaitingReplies();
+
+    expect([...getState().detachedSends.keys()]).toEqual(["cm-1", "cm-2"]);
   });
 
   test("drops every handed-off conversation too", () => {
@@ -990,13 +1046,27 @@ describe("clearAwaitingReplies", () => {
 
     expect(getState().handedOffConversationIds).toBe(before);
   });
+
+  test("with nothing awaiting a reply, leaves held and detached messages alone", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().clearAwaitingReplies();
+    getState().stashFailedSend(SENT_PAYLOAD);
+    const heldBefore = getState().failedSends;
+    const detachedBefore = getState().detachedSends;
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().failedSends).toBe(heldBefore);
+    expect(getState().detachedSends).toBe(detachedBefore);
+    expect(detachedBefore.get("cm-1")).toEqual(SENT_PAYLOAD);
+  });
 });
 
 describe("stashFailedSend", () => {
   test("holds the message under the document it was composed for", () => {
     getState().stashFailedSend(SENT_PAYLOAD);
 
-    expect(getState().failedSends.get("surf-1")).toEqual(SENT_PAYLOAD);
+    expect(heldFor("surf-1")).toEqual(SENT_PAYLOAD);
   });
 
   test("a second failure for the same document keeps both messages", () => {
@@ -1004,6 +1074,7 @@ describe("stashFailedSend", () => {
     // to take either back, and neither message is the one to lose.
     getState().stashFailedSend(SENT_PAYLOAD);
     getState().stashFailedSend({
+      assistantId: "assistant-1",
       surfaceId: "surf-1",
       content: "a second note",
       attachments: [
@@ -1019,7 +1090,7 @@ describe("stashFailedSend", () => {
 
     // THEN they read oldest first, a blank line apart, and both files are
     // there in the order they were sent
-    const held = getState().failedSends.get("surf-1");
+    const held = heldFor("surf-1");
     expect(held?.content).toBe("a note on the draft\n\na second note");
     expect(held?.attachments.map((a) => a.id)).toEqual(["srv-1", "srv-2"]);
   });
@@ -1030,7 +1101,7 @@ describe("stashFailedSend", () => {
     getState().stashFailedSend({ ...SENT_PAYLOAD, content: "" });
     getState().stashFailedSend({ ...SENT_PAYLOAD, content: "the only text" });
 
-    expect(getState().failedSends.get("surf-1")?.content).toBe("the only text");
+    expect(heldFor("surf-1")?.content).toBe("the only text");
   });
 
   test("holds each document's message separately", () => {
@@ -1041,12 +1112,22 @@ describe("stashFailedSend", () => {
       content: "another document's note",
     });
 
-    expect(getState().failedSends.get("surf-1")?.content).toBe(
-      "a note on the draft",
-    );
-    expect(getState().failedSends.get("surf-2")?.content).toBe(
-      "another document's note",
-    );
+    expect(heldFor("surf-1")?.content).toBe("a note on the draft");
+    expect(heldFor("surf-2")?.content).toBe("another document's note");
+  });
+
+  test("holds one document's messages for two assistants separately", () => {
+    // A teleported copy of an assistant keeps its source's documents, surface
+    // ids included, so one surface can hold a message for each.
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({
+      ...SENT_PAYLOAD,
+      assistantId: "assistant-2",
+      content: "the copy's note",
+    });
+
+    expect(heldFor("surf-1")?.content).toBe("a note on the draft");
+    expect(heldFor("surf-1", "assistant-2")?.content).toBe("the copy's note");
   });
 });
 
@@ -1054,13 +1135,15 @@ describe("takeFailedSend", () => {
   test("returns the document's message and stops holding it", () => {
     getState().stashFailedSend(SENT_PAYLOAD);
 
-    expect(getState().takeFailedSend("surf-1")).toEqual(SENT_PAYLOAD);
+    expect(getState().takeFailedSend("assistant-1", "surf-1")).toEqual(
+      SENT_PAYLOAD,
+    );
 
-    expect(getState().failedSends.has("surf-1")).toBe(false);
+    expect(heldFor("surf-1")).toBeUndefined();
   });
 
   test("reports nothing for a document holding no message", () => {
-    expect(getState().takeFailedSend("surf-1")).toBeNull();
+    expect(getState().takeFailedSend("assistant-1", "surf-1")).toBeNull();
   });
 
   test("leaves another document's message alone", () => {
@@ -1071,10 +1154,72 @@ describe("takeFailedSend", () => {
       content: "another document's note",
     });
 
-    getState().takeFailedSend("surf-1");
+    getState().takeFailedSend("assistant-1", "surf-1");
 
-    expect(getState().failedSends.get("surf-2")?.content).toBe(
-      "another document's note",
+    expect(heldFor("surf-2")?.content).toBe("another document's note");
+  });
+
+  test("leaves the same document's message for another assistant alone", () => {
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({
+      ...SENT_PAYLOAD,
+      assistantId: "assistant-2",
+      content: "the copy's note",
+    });
+
+    expect(getState().takeFailedSend("assistant-2", "surf-1")?.content).toBe(
+      "the copy's note",
     );
+
+    expect(heldFor("surf-1")).toEqual(SENT_PAYLOAD);
+    expect(heldFor("surf-1", "assistant-2")).toBeUndefined();
+  });
+});
+
+describe("takeDetachedSend", () => {
+  test("returns the send's detached message and stops keeping it", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().clearAwaitingReplies();
+
+    expect(getState().takeDetachedSend("cm-1")).toEqual(SENT_PAYLOAD);
+
+    expect(getState().detachedSends.has("cm-1")).toBe(false);
+  });
+
+  test("reports nothing for a send with no message detached", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().clearAwaitingReplies();
+    const before = getState();
+
+    expect(getState().takeDetachedSend("cm-unknown")).toBeNull();
+
+    expect(getState()).toBe(before);
+    expect(getState().detachedSends.get("cm-1")).toEqual(SENT_PAYLOAD);
+  });
+});
+
+describe("clearHeldMessages", () => {
+  test("drops every held and every detached message", () => {
+    // Leaving every assistant (logout, removing the active one) must not
+    // carry one user's message into the next context.
+    getState().stashFailedSend(SENT_PAYLOAD);
+    getState().stashFailedSend({ ...SENT_PAYLOAD, surfaceId: "surf-2" });
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().clearAwaitingReplies();
+
+    getState().clearHeldMessages();
+
+    expect(getState().failedSends.size).toBe(0);
+    expect(getState().detachedSends.size).toBe(0);
+  });
+
+  test("is a no-op when nothing is held or detached", () => {
+    const heldBefore = getState().failedSends;
+    const detachedBefore = getState().detachedSends;
+
+    getState().clearHeldMessages();
+
+    expect(getState().failedSends).toBe(heldBefore);
+    expect(getState().detachedSends).toBe(detachedBefore);
   });
 });

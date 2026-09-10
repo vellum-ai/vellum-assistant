@@ -62,7 +62,7 @@ const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { setEditChatDraftReplacement } =
   await import("@/utils/edit-chat-session");
-const { useDocumentComposerReplyStore } =
+const { heldMessageFor, useDocumentComposerReplyStore } =
   await import("@/domains/chat/document-composer-reply-store");
 const { DocumentComposerPanel } = await import(
   "@/domains/chat/components/document-composer-panel"
@@ -116,6 +116,7 @@ function stageDocumentDraft() {
 
 /** The draft and the uploaded file a failed send to `surf-1` carried. */
 const FAILED_SEND_PAYLOAD = {
+  assistantId: "assistant-1",
   surfaceId: "surf-1",
   content: "a note on the draft",
   attachments: [
@@ -128,6 +129,15 @@ const FAILED_SEND_PAYLOAD = {
     },
   ],
 };
+
+/** The message held for `surfaceId` under `assistantId`. */
+function heldFor(surfaceId: string, assistantId = "assistant-1") {
+  return heldMessageFor(
+    useDocumentComposerReplyStore.getState(),
+    assistantId,
+    surfaceId,
+  );
+}
 
 function documentSlot() {
   const state = useComposerStore.getState();
@@ -424,9 +434,7 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
       sizeBytes: 12,
       previewUrl: null,
     });
-    expect(
-      useDocumentComposerReplyStore.getState().failedSends.has("surf-1"),
-    ).toBe(false);
+    expect(heldFor("surf-1")).toBeUndefined();
   });
 
   test("takes a message held while it is showing that document", () => {
@@ -441,9 +449,7 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
     expect(useComposerStore.getState().documentInput).toBe(
       "a note on the draft",
     );
-    expect(
-      useDocumentComposerReplyStore.getState().failedSends.has("surf-1"),
-    ).toBe(false);
+    expect(heldFor("surf-1")).toBeUndefined();
   });
 
   test("leaves another document's message where it is", () => {
@@ -460,9 +466,52 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
       documentAttachments: [],
       documentAttachmentLastError: null,
     });
-    expect(
-      useDocumentComposerReplyStore.getState().failedSends.has("surf-2"),
-    ).toBe(true);
+    expect(heldFor("surf-2")).toBeDefined();
+  });
+
+  test("takes a message only under the assistant it went to", () => {
+    // GIVEN a message held for surf-1 under assistant-1, whose teleported copy
+    // assistant-2 has the same document
+    useDocumentComposerReplyStore
+      .getState()
+      .stashFailedSend(FAILED_SEND_PAYLOAD);
+
+    // WHEN the document opens under assistant-2
+    const { unmount } = render(
+      <DocumentComposerPanel assistantId="assistant-2" doc={DOC} />,
+    );
+
+    // THEN that composer stays empty, and the message keeps waiting
+    expect(documentSlot()).toEqual({
+      documentInput: "",
+      documentAttachments: [],
+      documentAttachmentLastError: null,
+    });
+    expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+
+    // WHEN the document opens under assistant-1 again
+    unmount();
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    // THEN the message is back in its composer, and nothing holds it any more
+    expect(useComposerStore.getState().documentInput).toBe(
+      "a note on the draft",
+    );
+    expect(heldFor("surf-1")).toBeUndefined();
+  });
+
+  test("takes the message held for its document under its own assistant", () => {
+    // The teleported copy's composer takes back what was sent to the copy.
+    useDocumentComposerReplyStore.getState().stashFailedSend({
+      ...FAILED_SEND_PAYLOAD,
+      assistantId: "assistant-2",
+      content: "the copy's note",
+    });
+
+    render(<DocumentComposerPanel assistantId="assistant-2" doc={DOC} />);
+
+    expect(useComposerStore.getState().documentInput).toBe("the copy's note");
+    expect(heldFor("surf-1", "assistant-2")).toBeUndefined();
   });
 
   test("holds the message while a draft typed since occupies the slot", () => {
@@ -479,9 +528,7 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
     // is mixed into it, so the message keeps waiting whole
     expect(useComposerStore.getState().documentInput).toBe("the next message");
     expect(useComposerStore.getState().documentAttachments).toEqual([]);
-    expect(
-      useDocumentComposerReplyStore.getState().failedSends.get("surf-1"),
-    ).toEqual(FAILED_SEND_PAYLOAD);
+    expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
   });
 
   test("holds the message while files staged since occupy the slot", () => {
@@ -500,9 +547,7 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
     expect(useComposerStore.getState().documentAttachments).toEqual(
       STAGED_ATTACHMENTS,
     );
-    expect(
-      useDocumentComposerReplyStore.getState().failedSends.get("surf-1"),
-    ).toEqual(FAILED_SEND_PAYLOAD);
+    expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
   });
 
   test("takes the held message once the occupied slot empties", () => {
@@ -528,8 +573,6 @@ describe("DocumentComposerPanel: a send the daemon could not persist", () => {
       id: "srv-1",
       filename: "notes.txt",
     });
-    expect(
-      useDocumentComposerReplyStore.getState().failedSends.has("surf-1"),
-    ).toBe(false);
+    expect(heldFor("surf-1")).toBeUndefined();
   });
 });

@@ -12,10 +12,13 @@
  * event arrives for that conversation.
  *
  * The store also holds the messages of sends the daemon reported as failed,
- * keyed by the document surface each one was composed for, until that
- * document's composer panel takes its own back, and names the conversations
- * whose last send ended on a handoff, where the processing marker is left up
- * for queued work no send of this store's is in.
+ * keyed by the assistant each went to and the document surface it was
+ * composed for, until that document's composer panel under that assistant
+ * takes its own back, and names the conversations whose last send ended on a
+ * handoff, where the processing marker is left up for queued work no send of
+ * this store's is in. It keeps, under its nonce, the message of each send an
+ * assistant switch cut off before the daemon spoke for it, for that send to
+ * hand back if its POST then throws.
  *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *
@@ -31,6 +34,12 @@ import { createSelectors } from "@/utils/create-selectors";
  *  composer was cleared can hand the message back to the document it was
  *  composed for. */
 export interface PendingDocumentReplyPayload {
+  /**
+   * The assistant the message went to. A teleported copy of an assistant
+   * keeps its source's documents, surface ids included, so the surface alone
+   * does not say whose composer takes the message back.
+   */
+  assistantId: string;
   /** The document surface whose composer the message was written in. */
   surfaceId: string;
   content: string;
@@ -78,11 +87,19 @@ export interface DocumentComposerReplyState {
    */
   pendingReplies: ReadonlyMap<string, readonly PendingDocumentReply[]>;
   /**
-   * The messages of failed sends, keyed by the document surface each was
-   * composed for, waiting for that document's composer to take one back. A
-   * surface holding nothing has no entry.
+   * The messages of failed sends, keyed by the assistant each went to and the
+   * document surface it was composed for (`heldMessageFor` reads one), waiting
+   * for that document's composer under that assistant to take one back. A
+   * pair holding nothing has no entry.
    */
   failedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
+  /**
+   * The messages of pending sends an assistant switch cleared before the
+   * daemon spoke for them, keyed by the nonce each send went out with. A send
+   * whose POST is still out can then throw, and this is the one copy of its
+   * message left to hold for its document under its assistant.
+   */
+  detachedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
   /**
    * Conversations whose last send settled on a handoff, so the processing
    * marker stays up for the queued work the handoff announced. A conversation
@@ -201,24 +218,45 @@ export interface DocumentComposerReplyActions {
    */
   clearHandedOff: (conversationId: string) => boolean;
   /**
-   * Hold the message of a failed send for the document surface it was
-   * composed for, until that document's composer takes it back. A surface
-   * already holding one keeps both, oldest first: the two drafts are joined
-   * by a blank line and the attachments run one list after the other.
+   * Hold the message of a failed send for the assistant it went to and the
+   * document surface it was composed for, until that document's composer
+   * under that assistant takes it back. A pair already holding one keeps
+   * both, oldest first: the two drafts are joined by a blank line and the
+   * attachments run one list after the other.
    */
   stashFailedSend: (payload: PendingDocumentReplyPayload) => void;
   /**
-   * Take the message held for `surfaceId`, removing it, so one document's
-   * composer reclaims only what was composed there. Null when that surface
-   * holds none.
+   * Take the message held for `surfaceId` under `assistantId`, removing it,
+   * so one document's composer reclaims only what was composed there for its
+   * own assistant. Null when that pair holds none.
    */
-  takeFailedSend: (surfaceId: string) => PendingDocumentReplyPayload | null;
+  takeFailedSend: (
+    assistantId: string,
+    surfaceId: string,
+  ) => PendingDocumentReplyPayload | null;
   /**
-   * Drop every pending send, every held message, and every handed-off
-   * conversation, for a context change no reply can arrive across and no
-   * composer should carry a message over.
+   * Take the message an assistant switch detached from the send carrying
+   * `clientMessageId`, removing it. Null when that send has none detached.
+   */
+  takeDetachedSend: (
+    clientMessageId: string,
+  ) => PendingDocumentReplyPayload | null;
+  /**
+   * Drop every pending send and every handed-off conversation, for an
+   * assistant switch no reply can arrive across. The message of a send the
+   * daemon has not spoken for is kept in `detachedSends` under its nonce; an
+   * acknowledged send's message is with the daemon. Held messages stay, since
+   * each is keyed by the assistant it went to as well as its document's
+   * surface, and only that document's composer under that assistant takes it
+   * back.
    */
   clearAwaitingReplies: () => void;
+  /**
+   * Drop every held message and every detached one, for leaving every
+   * assistant (logout, removing the active assistant), so one user's message
+   * never reaches the next context.
+   */
+  clearHeldMessages: () => void;
 }
 
 /**
@@ -240,6 +278,24 @@ export function keepsProcessingMarker(
     state.pendingReplies.has(conversationId) ||
     state.handedOffConversationIds.has(conversationId)
   );
+}
+
+/** The `failedSends` key for `surfaceId` under `assistantId`. No id carries a
+ *  NUL, so each pair maps to a key of its own. */
+function heldKey(assistantId: string, surfaceId: string): string {
+  return `${assistantId}\u0000${surfaceId}`;
+}
+
+/**
+ * The message held for `surfaceId` under `assistantId`, for that document's
+ * composer under that assistant to take back. Undefined when none is held.
+ */
+export function heldMessageFor(
+  state: Pick<DocumentComposerReplyState, "failedSends">,
+  assistantId: string,
+  surfaceId: string,
+): PendingDocumentReplyPayload | undefined {
+  return state.failedSends.get(heldKey(assistantId, surfaceId));
 }
 
 export type DocumentComposerReplyStore = DocumentComposerReplyState &
@@ -276,15 +332,16 @@ function indexOfAwaitedSend(
 }
 
 /**
- * Two messages held for one surface as a single message, `older` first: the
- * drafts joined by a blank line when both carry text, and the attachments run
- * one list after the other.
+ * Two messages held for one assistant's surface as a single message, `older`
+ * first: the drafts joined by a blank line when both carry text, and the
+ * attachments run one list after the other.
  */
 function mergeFailedSends(
   older: PendingDocumentReplyPayload,
   newer: PendingDocumentReplyPayload,
 ): PendingDocumentReplyPayload {
   return {
+    assistantId: older.assistantId,
     surfaceId: older.surfaceId,
     content: [older.content, newer.content]
       .filter((content) => content !== "")
@@ -312,6 +369,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set, get) => ({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    detachedSends: new Map(),
     handedOffConversationIds: new Set(),
 
     startAwaitingReply: (conversationId, clientMessageId, payload) => {
@@ -579,43 +637,71 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
 
     stashFailedSend: (payload) => {
       set((s) => {
-        const held = s.failedSends.get(payload.surfaceId);
+        const key = heldKey(payload.assistantId, payload.surfaceId);
+        const held = s.failedSends.get(key);
         const next = new Map(s.failedSends);
-        next.set(
-          payload.surfaceId,
-          held ? mergeFailedSends(held, payload) : payload,
-        );
+        next.set(key, held ? mergeFailedSends(held, payload) : payload);
         return { failedSends: next };
       });
     },
 
-    takeFailedSend: (surfaceId) => {
-      const held = get().failedSends.get(surfaceId);
+    takeFailedSend: (assistantId, surfaceId) => {
+      const key = heldKey(assistantId, surfaceId);
+      const held = get().failedSends.get(key);
       if (held === undefined) {
         return null;
       }
       set((s) => {
         const next = new Map(s.failedSends);
-        next.delete(surfaceId);
+        next.delete(key);
         return { failedSends: next };
       });
       return held;
+    },
+
+    takeDetachedSend: (clientMessageId) => {
+      const detached = get().detachedSends.get(clientMessageId);
+      if (detached === undefined) {
+        return null;
+      }
+      set((s) => {
+        const next = new Map(s.detachedSends);
+        next.delete(clientMessageId);
+        return { detachedSends: next };
+      });
+      return detached;
     },
 
     clearAwaitingReplies: () => {
       set((s) => {
         if (
           s.pendingReplies.size === 0 &&
-          s.failedSends.size === 0 &&
           s.handedOffConversationIds.size === 0
         ) {
           return s;
         }
+        const detachedSends = new Map(s.detachedSends);
+        for (const pending of s.pendingReplies.values()) {
+          for (const p of pending) {
+            if (!p.acknowledged && p.clientMessageId && p.payload) {
+              detachedSends.set(p.clientMessageId, p.payload);
+            }
+          }
+        }
         return {
           pendingReplies: new Map(),
-          failedSends: new Map(),
+          detachedSends,
           handedOffConversationIds: new Set(),
         };
+      });
+    },
+
+    clearHeldMessages: () => {
+      set((s) => {
+        if (s.failedSends.size === 0 && s.detachedSends.size === 0) {
+          return s;
+        }
+        return { failedSends: new Map(), detachedSends: new Map() };
       });
     },
   }),

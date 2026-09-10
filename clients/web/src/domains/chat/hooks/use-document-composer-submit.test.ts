@@ -349,12 +349,29 @@ function awaitingPayload(conversationId: string) {
 }
 
 /**
- * The message held for `surfaceId`, taken the way that document's composer
- * panel takes it when the document opens again. Null when the surface holds
- * none.
+ * The message held for `surfaceId` under `assistantId`, taken the way that
+ * document's composer panel takes it when the document opens again under that
+ * assistant. Null when none is held.
  */
-function takeHeldMessage(surfaceId: string) {
-  return useDocumentComposerReplyStore.getState().takeFailedSend(surfaceId);
+function takeHeldMessage(surfaceId: string, assistantId = ASSISTANT_ID) {
+  return useDocumentComposerReplyStore
+    .getState()
+    .takeFailedSend(assistantId, surfaceId);
+}
+
+/** The messages an assistant switch detached from sends, by nonce. */
+function detachedSends() {
+  return useDocumentComposerReplyStore.getState().detachedSends;
+}
+
+/**
+ * What an assistant switch does to the stores before the host renders the
+ * incoming assistant: every wait the outgoing assistant's sends raised is
+ * dropped, and another assistant is active.
+ */
+function switchAssistantAway(): void {
+  useDocumentComposerReplyStore.getState().clearAwaitingReplies();
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
 }
 
 /**
@@ -405,6 +422,7 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    detachedSends: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
   // Below the server-mint floor, so the legacy path is the default and the
@@ -433,6 +451,7 @@ afterEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    detachedSends: new Map(),
   });
   useViewerStore.setState({ openedDocumentState: null });
 });
@@ -1435,8 +1454,10 @@ describe("when the reply wait goes up", () => {
     // cleared the composer, so the entry holds what went out: the draft, and
     // the attachments that reached the server.
     const payload = awaitingPayload("conv-existing");
-    // The surface says which document's composer wrote it, so a failure the
-    // daemon reports later goes back to that document and no other.
+    // The assistant and the surface say whose composer wrote it, so a failure
+    // the daemon reports later goes back to that document under that
+    // assistant and no other.
+    expect(payload?.assistantId).toBe(ASSISTANT_ID);
     expect(payload?.surfaceId).toBe(SURFACE_ID);
     expect(payload?.content).toBe("hello");
     expect(payload?.attachments).toHaveLength(1);
@@ -1465,6 +1486,7 @@ describe("when the reply wait goes up", () => {
     // daemon answered with, and the message it carried moves with it.
     expect(awaitingPayload("conv-key")).toBeUndefined();
     expect(awaitingPayload("conv-minted")).toEqual({
+      assistantId: ASSISTANT_ID,
       surfaceId: SURFACE_ID,
       content: "hello",
       attachments: [],
@@ -3061,6 +3083,7 @@ describe("an attempt nothing can retry", () => {
         queued: false,
         queuedOnStream: false,
         payload: {
+          assistantId: ASSISTANT_ID,
           surfaceId: SURFACE_ID,
           content: "hello, edited",
           attachments: [],
@@ -3183,6 +3206,7 @@ describe("an attempt nothing can retry", () => {
     // THEN the message waits for the document it was written in, and nothing
     // is left owing a reply on the row it went toward.
     expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
       surfaceId: SURFACE_ID,
       content: "about the first doc",
       attachments: [],
@@ -3254,6 +3278,7 @@ describe("an attempt nothing can retry", () => {
     // THEN the message waits for the document it was written in, and nothing
     // is left owing a reply on the row it went toward.
     expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
       surfaceId: SURFACE_ID,
       content: "about the first doc",
       attachments: [],
@@ -3316,6 +3341,7 @@ describe("an attempt nothing can retry", () => {
     // The entry the daemon never took in came off, so nothing on the stream
     // can hand the message back: it waits for the document it was written in.
     expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
       surfaceId: SURFACE_ID,
       content: "about the first doc",
       attachments: [],
@@ -3354,6 +3380,150 @@ describe("an attempt nothing can retry", () => {
     // can still report the send failed, and the watcher hands it back then.
     expect(isAwaitingReply("conv-a")).toBe(true);
     expect(takeHeldMessage(SURFACE_ID)).toBeNull();
+  });
+
+  test("a send that throws after an assistant switch hands its message back to its document", async () => {
+    // GIVEN a send in flight under the first assistant.
+    const fail = failPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the user switches assistants, which drops the send's entry with
+    // every other wait, and only then does the POST throw.
+    switchAssistantAway();
+    rerender({ assistantId: "assistant-2" });
+    await act(async () => {
+      fail();
+      await submitted;
+    });
+
+    // THEN the message waits for the document it was written in.
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "for the first assistant",
+      attachments: [],
+    });
+    expect(detachedSends().size).toBe(0);
+  });
+
+  test("a send the daemon accepts after an assistant switch leaves no copy behind", async () => {
+    // GIVEN a send in flight under the first assistant.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the user switches assistants and only then does the daemon accept
+    // the message.
+    switchAssistantAway();
+    rerender({ assistantId: "assistant-2" });
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    // THEN the daemon holds the message, so nothing is held or kept for it.
+    expect(takeHeldMessage(SURFACE_ID)).toBeNull();
+    expect(detachedSends().size).toBe(0);
+  });
+
+  test("a send refused after an assistant switch is held for its document once", async () => {
+    // GIVEN a send in flight under the first assistant.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the user switches assistants and only then does the daemon refuse
+    // the message.
+    switchAssistantAway();
+    rerender({ assistantId: "assistant-2" });
+    await act(async () => {
+      settle({ ok: false, status: 500, error: { detail: "boom" } });
+      await submitted;
+    });
+
+    // THEN the message waits for its document as one draft, with no second
+    // copy left to join it later.
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "for the first assistant",
+      attachments: [],
+    });
+    expect(detachedSends().size).toBe(0);
+  });
+
+  test("a thrown send an assistant switch cut off hands its message back when its composer goes", async () => {
+    // GIVEN a send that threw with its composer still on screen, so its entry
+    // stands for a retry.
+    throwFirstPostChatMessage("conv-a");
+    useComposerStore.getState().setInput("about the doc", "document");
+    const { result, unmount } = renderSubmit("conv-a");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(isAwaitingReply("conv-a")).toBe(true);
+
+    // WHEN an assistant switch drops that entry, and the host then closes the
+    // document, unmounting the composer that could have retried it.
+    switchAssistantAway();
+    unmount();
+
+    // THEN the message waits for the document it was written in.
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "about the doc",
+      attachments: [],
+    });
+    expect(detachedSends().size).toBe(0);
+  });
+
+  test("a send refused after the app left every assistant holds nothing", async () => {
+    // GIVEN a send in flight.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the doc", "document");
+    const { result, unmount } = renderSubmit("conv-a");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the user logs out, which leaves no assistant active, drops what
+    // the store held and closes the document, and only then does the daemon
+    // refuse the message.
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+    useDocumentComposerReplyStore.getState().clearAwaitingReplies();
+    useDocumentComposerReplyStore.getState().clearHeldMessages();
+    unmount();
+    await act(async () => {
+      settle({ ok: false, status: 500, error: { detail: "boom" } });
+      await submitted;
+    });
+
+    // THEN no message is held for whoever signs in next.
+    expect(useDocumentComposerReplyStore.getState().failedSends.size).toBe(0);
   });
 
   test("a send that throws under its own owner keeps its entry for the retry", async () => {
