@@ -23,7 +23,7 @@
 
 import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
 import type { ContentBlock } from "../providers/types.js";
-import { joinWithSpacing } from "../util/text-spacing.js";
+import { joinDeliveredMessages } from "../util/text-spacing.js";
 import {
   extractTextFromStoredMessageContent,
   stringifyMessageContent,
@@ -142,15 +142,6 @@ export function projectUserFacingContent(
     return content;
   }
 
-  // Every delivered message in this content becomes ONE text block, carrying
-  // them joined the way the live emission joins them.
-  //
-  // One response may call the tool more than once, and the loop streams those
-  // messages as a single `text_delta`. A channel whose stream IS the reply
-  // (Slack finalizes its streamed message in place) counts one delivered
-  // segment for that delta, so a projection that emitted one block per call
-  // would report a segment the channel never owed, and durable reconciliation
-  // would post the second message again underneath the finished stream.
   // A run of delivered messages becomes ONE text block, carrying them joined
   // the way the live emission joins them.
   //
@@ -166,9 +157,9 @@ export function projectUserFacingContent(
   // turn's rows into one content array before projecting, so without that
   // break a turn that sent a progress message, ran a tool, then sent the
   // result would fold both onto the first call's position and reload would
-  // show the result above the tool activity it came from. Blocks that render
-  // no text of their own (the demoted scratchpad) do not break a run: nothing
-  // of theirs appears between the two messages.
+  // show the result above the tool activity it came from. The dropped
+  // scratchpad does not break a run: nothing of it appears between the two
+  // messages.
   let changed = false;
   const projected: unknown[] = [];
   /** Index in `projected` of the open run's text block, if one is open. */
@@ -179,13 +170,19 @@ export function projectUserFacingContent(
   };
 
   for (const block of content) {
-    if (isRecord(block) && block["type"] === "text") {
+    // The scratchpad reaches the user in no form at all. Plain text is the
+    // model's private notes and its reasoning blocks are the same thing one
+    // level down, so both are DROPPED rather than demoted: a gated row shows
+    // the delivered message and the work that produced it, with no "Thinking"
+    // above every reply. The persisted row and the model-facing history keep
+    // them untouched, which is what resume and the inspector read.
+    const type = isRecord(block) ? block["type"] : undefined;
+    if (
+      type === "text" ||
+      type === "thinking" ||
+      type === "redacted_thinking"
+    ) {
       changed = true;
-      projected.push({
-        type: "thinking",
-        thinking: typeof block["text"] === "string" ? block["text"] : "",
-        signature: "",
-      });
       continue;
     }
     const message = sendUserMessageText(block);
@@ -212,7 +209,7 @@ export function projectUserFacingContent(
       };
       projected[openRun] = {
         ...open,
-        text: joinWithSpacing([open.text, message]),
+        text: joinDeliveredMessages([open.text, message]),
         ...(typeof rider === "number"
           ? {
               _redactionVersion: Math.max(
@@ -267,10 +264,11 @@ export function projectPersistedAssistantContent(
 /**
  * The blocks an export shows for a row.
  *
- * A private row is projected AND loses its thinking blocks: an export dumps
- * blocks verbatim (the JSON formatter especially), so leaving the demoted
- * scratchpad in as `thinking` would put it back in the file. An unmarked row is
- * returned untouched, thinking blocks included, exactly as it exports today.
+ * An export dumps blocks verbatim (the JSON formatter especially), so the
+ * projection is what keeps a private row's scratchpad out of the file: it
+ * drops the model's plain text and its reasoning blocks outright. An unmarked
+ * row is returned untouched, thinking blocks included, exactly as it exports
+ * today.
  */
 export function userFacingBlocksOfRow(
   content: ContentBlock[],
@@ -279,9 +277,7 @@ export function userFacingBlocksOfRow(
   if (!isPrivateAssistantText(metadata)) {
     return content;
   }
-  return projectUserFacingContent(content, { toolGated: true }).filter(
-    (block) => block.type !== "thinking" && block.type !== "redacted_thinking",
-  );
+  return projectUserFacingContent(content, { toolGated: true });
 }
 
 /**

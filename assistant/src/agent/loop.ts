@@ -58,7 +58,7 @@ import {
 } from "../tools/sensitive-output-placeholders.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { joinWithSpacing } from "../util/text-spacing.js";
+import { joinDeliveredMessages } from "../util/text-spacing.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
 import {
   deepRepairHistory,
@@ -1888,6 +1888,16 @@ export class AgentLoop {
                 onEvent({ type: "text_delta", text: event.text });
               }
             } else if (event.type === "thinking_delta") {
+              // Same reasoning as the plain text above, one level down: under
+              // the tool-gated reply surface the model's reasoning is private
+              // working notes. Streaming it would put a "Thinking" row above
+              // every delivered message, which is the opposite of what the
+              // gate is for. It stays in history and in the persisted row for
+              // resume and the inspector; the turn's `assistant_activity_state`
+              // transitions still tell the client work is happening.
+              if (suppressAssistantText) {
+                return;
+              }
               onEvent({ type: "thinking_delta", thinking: event.thinking });
             } else if (event.type === "tool_use_preview_start") {
               onEvent({
@@ -2218,7 +2228,7 @@ export class AgentLoop {
             return;
           }
           const text = applySubstitutions(
-            joinWithSpacing(messages),
+            joinDeliveredMessages(messages),
             substitutionMap,
           );
           if (text.length > 0) {

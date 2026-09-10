@@ -567,3 +567,133 @@ describe("the post-model-call context on a terminal response", () => {
     expect(terminal?.told).toBe(true);
   });
 });
+
+/**
+ * Nothing of the model's reasoning streams to the client under the gate.
+ *
+ * Demoting it (or forwarding the deltas) put a "Thinking" row above every
+ * delivered message. The reasoning stays in history and in the persisted row
+ * for resume and the inspector; the turn's activity-state transitions are what
+ * tell the client work is happening.
+ */
+describe("thinking under the tool-gated reply surface", () => {
+  const thinkAndSend = (
+    thought: string,
+    message: string,
+  ): ProviderResponse => ({
+    content: [
+      { type: "thinking", thinking: thought, signature: "sig" },
+      { type: "text", text: "private notes" },
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "send_user_message",
+        input: { message },
+      },
+    ] as ContentBlock[],
+    model: "mock-model",
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason: "tool_use",
+  });
+
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+    resetEmptyResponseNudgeStoreForTests();
+  });
+
+  test("a gated turn streams no thinking deltas", async () => {
+    const { provider } = createMockProvider([
+      thinkAndSend("reasoning at length", "Two meetings today."),
+      textResponse("done"),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+      callSite: "mainAgent",
+    });
+
+    expect(events.filter((e) => e.type === "thinking_delta")).toEqual([]);
+    expect(streamedText(events)).toBe("Two meetings today.");
+    // The loop's own `message_complete` still carries the raw content: that is
+    // what the daemon persists. Nothing of it reaches a client, because the
+    // SSE `message_complete` carries ids and the visibility marker only, and
+    // the history refetch behind it is projected.
+    const complete = events.find((e) => e.type === "message_complete");
+    expect(JSON.stringify(complete)).toContain("reasoning at length");
+  });
+
+  test("an ordinary run still streams them", async () => {
+    const { provider } = createMockProvider([
+      thinkAndSend("reasoning at length", "ignored without the gate"),
+      textResponse("done"),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+    });
+
+    expect(
+      events.filter((e) => e.type === "thinking_delta").length,
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe("several messages in one response", () => {
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+    resetEmptyResponseNudgeStoreForTests();
+  });
+
+  test("stream as paragraphs, matching what a reload renders", async () => {
+    // Joined with a space they collapsed onto one line the moment the turn
+    // completed and the row re-rendered from the persisted projection.
+    const { provider } = createMockProvider([
+      {
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "send_user_message",
+            input: { message: "message one" },
+          },
+          {
+            type: "tool_use",
+            id: "tu_2",
+            name: "send_user_message",
+            input: { message: "message two" },
+          },
+          {
+            type: "tool_use",
+            id: "tu_3",
+            name: "send_user_message",
+            input: { message: "message three" },
+          },
+        ] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "tool_use",
+      },
+      textResponse("done"),
+    ]);
+    const events: AgentEvent[] = [];
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+      callSite: "mainAgent",
+    });
+
+    expect(streamedText(events)).toBe(
+      "message one\n\nmessage two\n\nmessage three",
+    );
+  });
+});

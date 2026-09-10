@@ -2008,8 +2008,8 @@ describe("resuming after a stream that delivered every segment", () => {
   it("posts nothing when the stream already carried the whole reply", () => {
     // One segment rendered, one segment reported delivered: nothing is owed.
     renderedHistoryContentByContent.set("two-calls", {
-      text: "Looking now. Two meetings today.",
-      textSegments: ["Looking now. Two meetings today."],
+      text: "Looking now.\n\nTwo meetings today.",
+      textSegments: ["Looking now.\n\nTwo meetings today."],
       toolCalls: [],
       toolCallsBeforeText: false,
       contentOrder: ["text:0"],

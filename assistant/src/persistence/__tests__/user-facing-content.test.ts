@@ -14,6 +14,7 @@ import {
   projectPersistedAssistantContent,
   projectUserFacingContent,
   sendUserMessageText,
+  userFacingBlocksOfRow,
 } from "../user-facing-content.js";
 
 function sendCall(message: unknown, id = "tu_1"): ContentBlock {
@@ -36,17 +37,12 @@ describe("projectUserFacingContent", () => {
     );
   });
 
-  test("turns plain text into thinking and the tool call into text", () => {
+  test("drops the scratchpad and turns the tool call into text", () => {
     const content: ContentBlock[] = [
       { type: "text", text: "I should check the calendar." },
       sendCall("Checking your calendar."),
     ];
     expect(projectUserFacingContent(content, { toolGated: true })).toEqual([
-      {
-        type: "thinking",
-        thinking: "I should check the calendar.",
-        signature: "",
-      },
       { type: "text", text: "Checking your calendar." },
     ] as unknown as ContentBlock[]);
   });
@@ -88,8 +84,8 @@ describe("projectUserFacingContent", () => {
       ] as ContentBlock[],
       { toolGated: true },
     );
-    expect(projected.map((block) => block.type)).toEqual(["text", "thinking"]);
-    expect((projected[0] as { text: string }).text).toBe("First. Second.");
+    expect(projected.map((block) => block.type)).toEqual(["text"]);
+    expect((projected[0] as { text: string }).text).toBe("First.\n\nSecond.");
   });
 
   test("a single call is unchanged by the fold", () => {
@@ -97,8 +93,8 @@ describe("projectUserFacingContent", () => {
       [{ type: "text", text: "notes" }, sendCall("Only.")] as ContentBlock[],
       { toolGated: true },
     );
-    expect(projected.map((block) => block.type)).toEqual(["thinking", "text"]);
-    expect((projected[1] as { text: string }).text).toBe("Only.");
+    expect(projected.map((block) => block.type)).toEqual(["text"]);
+    expect((projected[0] as { text: string }).text).toBe("Only.");
   });
 });
 
@@ -169,7 +165,6 @@ describe("projectPersistedAssistantContent", () => {
       '{"assistantTextVisibility":"private"}',
     );
     expect(projected).toEqual([
-      { type: "thinking", thinking: "working notes", signature: "" },
       { type: "text", text: "Done." },
     ] as unknown as ContentBlock[]);
   });
@@ -275,10 +270,10 @@ describe("response boundaries inside a consolidated turn", () => {
     ) as unknown as Array<Record<string, unknown>>;
 
     expect(projected.map((block) => block.type)).toEqual(["text"]);
-    expect(projected[0].text).toBe("First. Second.");
+    expect(projected[0].text).toBe("First.\n\nSecond.");
   });
 
-  test("the demoted scratchpad does not break a run", () => {
+  test("the dropped scratchpad does not break a run", () => {
     // A text block renders no text of its own once demoted, so nothing of it
     // appears between the two messages.
     const projected = projectUserFacingContent(
@@ -290,8 +285,8 @@ describe("response boundaries inside a consolidated turn", () => {
       { toolGated: true },
     ) as unknown as Array<Record<string, unknown>>;
 
-    expect(projected.map((block) => block.type)).toEqual(["text", "thinking"]);
-    expect(projected[0].text).toBe("First. Second.");
+    expect(projected.map((block) => block.type)).toEqual(["text"]);
+    expect(projected[0].text).toBe("First.\n\nSecond.");
   });
 
   test("three responses worth of messages keep all three boundaries", () => {
@@ -311,5 +306,57 @@ describe("response boundaries inside a consolidated turn", () => {
         .filter((block) => block.type === "text")
         .map((block) => block.text),
     ).toEqual(["One.", "Two.", "Three."]);
+  });
+});
+
+/**
+ * With the gate on, nothing of the model's private reasoning reaches the user
+ * in any form. Demoting plain text to `thinking` put a "Thinking" row above
+ * every delivered message, which is the opposite of what the gate is for, so
+ * both block kinds are dropped outright.
+ */
+describe("the scratchpad on a private row", () => {
+  const scratchpad: ContentBlock[] = [
+    { type: "text", text: "the user wants their calendar" },
+    { type: "thinking", thinking: "reasoning at length", signature: "sig" },
+    {
+      type: "redacted_thinking",
+      data: "opaque",
+    } as unknown as ContentBlock,
+    sendCall("Two meetings today."),
+    {
+      type: "tool_use",
+      id: "tu_work",
+      name: "bash",
+      input: { command: "cal" },
+    } as ContentBlock,
+  ];
+
+  test("drops plain text and both reasoning block kinds", () => {
+    const projected = projectUserFacingContent(scratchpad, {
+      toolGated: true,
+    }) as unknown as Array<Record<string, unknown>>;
+
+    expect(projected.map((block) => block.type)).toEqual(["text", "tool_use"]);
+    expect(projected[0].text).toBe("Two meetings today.");
+    expect(JSON.stringify(projected)).not.toContain("reasoning at length");
+    expect(JSON.stringify(projected)).not.toContain("wants their calendar");
+  });
+
+  test("keeps every one of them on an unmarked row", () => {
+    // The gate is a property of the row: an ordinary row is untouched, so its
+    // reasoning still renders exactly as it does today.
+    expect(projectUserFacingContent(scratchpad, { toolGated: false })).toBe(
+      scratchpad,
+    );
+  });
+
+  test("an export of a private row carries no reasoning either", () => {
+    const blocks = userFacingBlocksOfRow(
+      scratchpad,
+      '{"assistantTextVisibility":"private"}',
+    );
+
+    expect(blocks.map((block) => block.type)).toEqual(["text", "tool_use"]);
   });
 });

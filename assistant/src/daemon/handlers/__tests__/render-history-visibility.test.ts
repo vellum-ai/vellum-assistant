@@ -49,9 +49,9 @@ describe("renderHistoryContent user-facing projection", () => {
     setFlag(true);
     const rendered = renderHistoryContent(CONTENT, undefined, "m1", PRIVATE);
     expect(rendered.text).toBe("You have two meetings today.");
-    expect(rendered.thinkingSegments).toContain(
-      "The user wants their calendar.",
-    );
+    // The scratchpad reaches the user in no form: dropped, not demoted, so a
+    // gated row shows no "Thinking" above its reply.
+    expect(rendered.thinkingSegments).toEqual([]);
     // The call became the reply, so it is no longer a tool chip.
     expect(rendered.toolCalls.map((c) => c.name)).not.toContain(
       "send_user_message",
@@ -169,8 +169,10 @@ describe("a response that called the tool more than once", () => {
     setFlag(true);
     const rendered = renderHistoryContent(TWO_CALLS, undefined, "m1", PRIVATE);
 
-    expect(rendered.textSegments).toEqual(["Looking now. Two meetings today."]);
-    expect(rendered.text).toBe("Looking now. Two meetings today.");
+    expect(rendered.textSegments).toEqual([
+      "Looking now.\n\nTwo meetings today.",
+    ]);
+    expect(rendered.text).toBe("Looking now.\n\nTwo meetings today.");
   });
 
   test("an unmarked row is untouched, tool chips and all", () => {
