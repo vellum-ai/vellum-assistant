@@ -1,19 +1,21 @@
 ---
 name: assistant-desktop
-description: Use the assistant's own Linux desktop and its visible Chrome session
+description: Control the streamed Linux desktop and Chrome visible in the Desktop modal. No connected desktop app is required.
 compatibility: "Containerized Vellum assistants with desktop setup installed"
 metadata:
   emoji: "🖥️"
   vellum:
     display-name: "Assistant Desktop"
     category: "system"
-    feature-flag: "assistant-desktop-control"
+    feature-flag: "assistant-desktop"
     activation-hints:
       - "User asks you to work in the assistant desktop or the streamed desktop modal"
       - "User wants to watch you use the assistant's Chrome window"
 ---
 
 Use `desktop_control` to operate the assistant's own Linux desktop. This is the same desktop the guardian watches in the desktop modal. It is separate from their personal computer and from the browser-tool session.
+
+Use this skill even when no host computer-use clients are connected. Do not ask the user to connect a desktop app. Start with an observation and report any setup or availability error returned by this tool.
 
 1. Call with `action: "observe"` to start a session and get a screenshot. If setup is required, ask the user to open the desktop modal and select **Install desktop**.
 2. Choose an action from what you see. Use exact screenshot pixel coordinates, not coordinates from the scaled modal. Include the latest `observation_id` with every input action.

@@ -508,15 +508,7 @@
       "scope": "assistant",
       "key": "assistant-desktop",
       "label": "Assistant Desktop",
-      "description": "Streams an interactive desktop from a containerized assistant pod to the web client over /v1/desktop/stream. Off: no desktop affordance is rendered. On: the chat header offers a desktop panel that views and controls the pod's display.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "assistant-desktop-control",
-      "scope": "assistant",
-      "key": "assistant-desktop-control",
-      "label": "Assistant Desktop Control",
-      "description": "Allows the assistant to observe and control its container desktop through the assistant-desktop skill. Requires assistant-desktop.",
+      "description": "Streams an interactive desktop from a containerized assistant pod to the web client over /v1/desktop/stream. Off: no desktop affordance is rendered. On: the chat header offers a desktop panel, and the assistant-desktop skill can observe and control the same display.",
       "defaultEnabled": false
     }
   ]

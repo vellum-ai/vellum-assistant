@@ -20,7 +20,7 @@ type Props = {
 };
 
 export function DesktopControlPanel(props: Props) {
-  const enabled = useAssistantFeatureFlagStore.use.assistantDesktopControl();
+  const enabled = useAssistantFeatureFlagStore.use.assistantDesktop();
   return enabled === true ? (
     <EnabledDesktopControlPanel key={props.assistantId} {...props} />
   ) : (

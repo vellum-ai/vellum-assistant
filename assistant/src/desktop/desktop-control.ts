@@ -4,7 +4,7 @@ import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { desktopDependencyInstaller } from "./desktop-dependencies.js";
-import { isAssistantDesktopControlEnabled } from "./desktop-feature.js";
+import { isAssistantDesktopEnabled } from "./desktop-feature.js";
 import {
   desktopActionSchema,
   type DesktopInput,
@@ -48,7 +48,7 @@ export class DesktopControl {
       input: DesktopInput;
       notify: () => Promise<unknown>;
     } = {
-      enabled: () => isAssistantDesktopControlEnabled(getConfig()),
+      enabled: () => isAssistantDesktopEnabled(getConfig()),
       ready: () => desktopDependencyInstaller.getStatus().state === "ready",
       manager: getDesktopSessionManager,
       input: new X11DesktopInput(),

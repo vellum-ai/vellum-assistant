@@ -37,7 +37,7 @@ beforeEach(() => {
   requests.length = 0;
   useAssistantFeatureFlagStore
     .getState()
-    .setFlags({ assistantDesktopControl: true });
+    .setFlags({ assistantDesktop: true });
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -97,7 +97,7 @@ test("takes control, allows the assistant, and observes subsequent ownership thr
 test("disabled control makes no API requests and preserves interactive viewing", () => {
   useAssistantFeatureFlagStore
     .getState()
-    .setFlags({ assistantDesktopControl: false });
+    .setFlags({ assistantDesktop: false });
   mount();
   expect(client.get).not.toHaveBeenCalled();
   expect(readOnly()).toBe("false");

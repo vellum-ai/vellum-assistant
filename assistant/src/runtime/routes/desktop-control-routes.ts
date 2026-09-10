@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { desktopControl } from "../../desktop/desktop-control.js";
-import { isAssistantDesktopControlEnabled } from "../../desktop/desktop-feature.js";
+import { isAssistantDesktopEnabled } from "../../desktop/desktop-feature.js";
 import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -18,7 +18,7 @@ export const ROUTES: RouteDefinition[] = ["GET", "POST"].map((method) => ({
   policy: { requiredScopes: [], allowedPrincipalTypes: GATEWAY_PRINCIPALS },
   ...(method === "POST" ? { requestBody: request } : {}),
   handler: ({ body }) => {
-    if (!isAssistantDesktopControlEnabled(getConfig())) {
+    if (!isAssistantDesktopEnabled(getConfig())) {
       throw new NotFoundError(
         "Desktop control is not available on this assistant",
       );

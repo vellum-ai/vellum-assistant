@@ -817,7 +817,7 @@ A containerized assistant can serve an interactive desktop on demand. The setup-
 
 ### Assistant desktop computer use
 
-The bundled `assistant-desktop` skill runs a container-local executor against the same X11 display and Chrome profile the viewer sees. It requires both `assistant-desktop` and the default-off `assistant-desktop-control` flag, plus an identified guardian conversation. Existing host computer-use tools keep their connected-client routing.
+The bundled `assistant-desktop` skill runs a container-local executor against the same X11 display and Chrome profile the viewer sees. The default-off `assistant-desktop` flag gates the viewer, skill discovery, and control execution. Control also requires an identified guardian conversation; no connected host desktop client is needed. Existing host computer-use tools keep their connected-client routing.
 
 `DesktopControl` serializes screenshot/input operations, binds ownership to one conversation and actor, and consumes an observation ID for each action. The X11 executor uses `xwd` (MIT) with in-process PNG encoding for screenshots and `xdotool` (BSD-3-Clause) for input; both are installed by desktop setup. Commands run with a fixed display, system binary paths, a restricted environment, bounded output and timeouts. Text travels over stdin. No browser automation connection is used.
 
