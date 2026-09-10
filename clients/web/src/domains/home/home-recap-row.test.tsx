@@ -284,12 +284,12 @@ describe("HomeRecapRow on a device that cannot hover", () => {
         `button[aria-label="${label}"]`,
       );
 
-    // Behind the row until a swipe slides it away, hence `aria-hidden` and out
-    // of the tab path rather than exposed by role.
-    expect(swipeControl("Mark as read")?.getAttribute("aria-hidden")).toBe(
-      "true",
-    );
-    expect(swipeControl("Dismiss")?.getAttribute("aria-hidden")).toBe("true");
+    // Behind the row until a swipe slides it away, so not exposed by role:
+    // in the DOM, but hidden from the accessibility tree and the tab path.
+    expect(screen.queryByRole("button", { name: "Mark as read" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(swipeControl("Mark as read")).not.toBeNull();
+    expect(swipeControl("Dismiss")).not.toBeNull();
     expect(swipeControl("Go to thread")).toBeNull();
 
     fireEvent.click(swipeControl("Mark as read")!);
@@ -360,12 +360,28 @@ describe("HomeRecapRow on a device that cannot hover", () => {
   });
 });
 
+/** An offer the assistant attached, which is what earns a row its preview. */
+const OFFER = { id: "retry", label: "Retry the job", prompt: "Retry the job" };
+
 describe("HomeRecapRow card content", () => {
-  test("renders the category, the title, and a preview of the summary", () => {
+  test("renders the title and the timestamp, and no category or preview", () => {
     renderRow();
 
-    expect(screen.getByText("Background")).toBeTruthy();
     expect(screen.getByText("Watcher job failed")).toBeTruthy();
+    expect(screen.getByText("3d ago")).toBeTruthy();
+    expect(screen.queryByText("Background")).toBeNull();
+    // A row that only reports is carried by its title alone.
+    expect(
+      screen.queryByText(
+        "The watcher job could not reach the upstream service.",
+      ),
+    ).toBeNull();
+    expect(screen.queryByTestId("home-recap-row-description")).toBeNull();
+  });
+
+  test("previews the summary under a row the assistant attached offers to", () => {
+    renderRow({ item: makeItem({ actions: [OFFER] }) });
+
     expect(
       screen.getByText("The watcher job could not reach the upstream service."),
     ).toBeTruthy();
@@ -376,10 +392,26 @@ describe("HomeRecapRow card content", () => {
       item: makeItem({
         title: "Watcher job failed",
         summary: "Watcher job failed",
+        actions: [OFFER],
       }),
     });
 
     expect(screen.getAllByText("Watcher job failed").length).toBe(1);
+    expect(screen.queryByTestId("home-recap-row-description")).toBeNull();
+  });
+
+  test("names the thread it was given", () => {
+    renderRow({ threadName: "Weekly report" });
+
+    expect(screen.getByTestId("home-recap-row-thread").textContent).toBe(
+      "Weekly report",
+    );
+  });
+
+  test("leaves the thread line out when no name is known", () => {
+    renderRow({ threadName: null });
+
+    expect(screen.queryByTestId("home-recap-row-thread")).toBeNull();
   });
 
   test("an untitled item shows its summary once and no preview", () => {
@@ -412,21 +444,6 @@ describe("HomeRecapRow card content", () => {
     expect(screen.getByRole("button", { name: "Notification" })).toBeTruthy();
   });
 
-  test("renders an informative source label", () => {
-    renderRow({ item: makeItem({ sourceLabel: "Heartbeat" }) });
-
-    expect(screen.getByText("Heartbeat")).toBeTruthy();
-  });
-
-  test.each(["Conversation", "Other"])(
-    "omits the generic %s source label",
-    (sourceLabel) => {
-      renderRow({ item: makeItem({ sourceLabel }) });
-
-      expect(screen.queryByText(sourceLabel)).toBeNull();
-    },
-  );
-
   test("marks an unread item with a dot inside the gutter", () => {
     renderRow();
 
@@ -437,59 +454,28 @@ describe("HomeRecapRow card content", () => {
     );
   });
 
-  test.each(["comfortable", "compact"] as const)(
-    "%s density keeps the dot's gutter for an already-read item",
-    (density) => {
-      renderRow({ density, item: makeItem({ status: "seen" }) });
+  test("keeps the dot's gutter for an already-read item, with a faded dot", () => {
+    renderRow({ item: makeItem({ status: "seen" }) });
 
-      expect(screen.getByTestId("home-recap-row-dot-gutter")).toBeTruthy();
-      expect(screen.queryByTestId("home-recap-row-unread-dot")).toBeNull();
-    },
-  );
+    expect(screen.getByTestId("home-recap-row-dot-gutter")).toBeTruthy();
+    expect(screen.queryByTestId("home-recap-row-unread-dot")).toBeNull();
+    expect(screen.getByTestId("home-recap-row-read-dot")).toBeTruthy();
+  });
 
-  test("the gutter leads the card, with the content stack beside it", () => {
+  test("the gutter leads the title line", () => {
     renderRow();
     const gutter = screen.getByTestId("home-recap-row-dot-gutter");
     const title = screen.getByTestId("home-recap-row-title");
 
     expect(gutter.nextElementSibling?.contains(title)).toBe(true);
   });
-});
 
-describe("HomeRecapRow density", () => {
-  test("comfortable keeps the category chip and the source label", () => {
-    renderRow({ item: makeItem({ sourceLabel: "Heartbeat" }) });
-
-    expect(screen.getByText("Background")).toBeTruthy();
-    expect(screen.getByText("Heartbeat")).toBeTruthy();
-  });
-
-  test("compact drops the category chip and the source label", () => {
-    renderRow({
-      density: "compact",
-      item: makeItem({ sourceLabel: "Heartbeat" }),
-    });
-
-    expect(screen.queryByText("Background")).toBeNull();
-    expect(screen.queryByText("Heartbeat")).toBeNull();
-  });
-
-  test("compact keeps the title, the timestamp, and the preview", () => {
-    renderRow({ density: "compact" });
-
-    expect(screen.getByText("Watcher job failed")).toBeTruthy();
-    expect(screen.getByText("3d ago")).toBeTruthy();
-    expect(
-      screen.getByText("The watcher job could not reach the upstream service."),
-    ).toBeTruthy();
-  });
-
-  // happy-dom does no layout, so this asserts the structure the card's
+  // happy-dom does no layout, so this asserts the structure the row's
   // no-overlap behaviour rests on: one line carrying both the title and the
   // timestamp, with the title in its own element so it can shrink.
-  test("a long compact title shares its line with the timestamp", () => {
+  test("a long title shares its line with the timestamp", () => {
     const longTitle = "Averylongunbreakablenotificationtitle".repeat(4);
-    renderRow({ density: "compact", item: makeItem({ title: longTitle }) });
+    renderRow({ item: makeItem({ title: longTitle }) });
 
     const title = screen.getByTestId("home-recap-row-title");
     const timestampLine =
@@ -498,14 +484,92 @@ describe("HomeRecapRow density", () => {
     expect(title.textContent).toBe(longTitle);
     expect(timestampLine?.contains(title)).toBe(true);
   });
+});
 
-  test("comfortable puts the title under the meta row, not on it", () => {
-    renderRow();
+describe("HomeRecapRow guardian requests", () => {
+  function guardianItem(
+    intent: "approval" | "question",
+    status: "pending" | "approved" = "pending",
+  ): FeedItem {
+    return makeItem({
+      id: "guardian:req-1",
+      title: "Guardian Question",
+      summary: "Alice asked the assistant to look up an issue",
+      guardianRequest: {
+        requestId: "req-1",
+        kind: intent === "approval" ? "tool_approval" : "pending_question",
+        intent,
+        status,
+      },
+    });
+  }
 
-    const title = screen.getByTestId("home-recap-row-title");
-    const timestampLine =
-      screen.getByText("3d ago").parentElement?.parentElement;
+  test("a waiting approval is named by the ask, describes it, and offers a decision", () => {
+    const decisions: Array<[string, string]> = [];
+    const { selected } = renderRow({
+      item: guardianItem("approval"),
+      onDecide: (item, decision) => decisions.push([item.id, decision]),
+    });
 
-    expect(timestampLine?.contains(title)).toBe(false);
+    expect(screen.getByTestId("home-recap-row-title").textContent).toBe(
+      "Needs your approval",
+    );
+    expect(screen.getByTestId("home-recap-row-description").textContent).toBe(
+      "Alice asked the assistant to look up an issue",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(decisions).toEqual([
+      ["guardian:req-1", "approve_once"],
+      ["guardian:req-1", "reject"],
+    ]);
+    // Deciding is not opening.
+    expect(selected).toEqual([]);
+  });
+
+  test("a waiting approval offers no decision without a handler", () => {
+    renderRow({ item: guardianItem("approval") });
+
+    expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+  });
+
+  test("the decision buttons go inert while one is in flight", () => {
+    renderRow({
+      item: guardianItem("approval"),
+      onDecide: () => {},
+      isDecisionPending: true,
+    });
+
+    expect(
+      (screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
+
+  test("a waiting question quotes the ask and offers no decision", () => {
+    renderRow({ item: guardianItem("question"), onDecide: () => {} });
+
+    expect(screen.getByTestId("home-recap-row-title").textContent).toBe(
+      "Needs your answer",
+    );
+    expect(screen.getByTestId("home-recap-row-question").textContent).toContain(
+      "Alice asked the assistant to look up an issue",
+    );
+    expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
+  });
+
+  test("a settled request reads by its own title, with nothing under it", () => {
+    renderRow({
+      item: guardianItem("approval", "approved"),
+      onDecide: () => {},
+    });
+
+    expect(screen.getByTestId("home-recap-row-title").textContent).toBe(
+      "Guardian Question",
+    );
+    expect(screen.queryByTestId("home-recap-row-description")).toBeNull();
+    expect(screen.queryByTestId("home-recap-row-decision")).toBeNull();
   });
 });

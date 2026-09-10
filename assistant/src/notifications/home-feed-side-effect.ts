@@ -194,7 +194,7 @@ export async function writeHomeFeedItemForSignal(
     timestamp: now,
     createdAt: now,
     status: "new",
-    category,
+    ...(category ? { category } : {}),
     noteworthy: deriveNoteworthy(signal),
     fromAssistant: signal.sourceChannel === "assistant_tool",
     ...(guardianProjection ? { guardianRequest: guardianProjection } : {}),
@@ -442,14 +442,26 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "activity.complete": "background",
   "watcher.notification": "system",
   "schedule.notify": "scheduling",
+  "schedule.result": "scheduling",
   "guardian.question": "security",
   "guardian.channel_activation": "security",
   "ingress.access_request": "security",
   "telegram.webhook_health_alert": "system",
 };
 
-function deriveCategory(signal: NotificationSignal): FeedItemCategory {
-  return EVENT_CATEGORY_MAP[signal.sourceEventName] ?? "system";
+/**
+ * Map a signal's source event to a feed category, or nothing when the event
+ * has no entry. An unmapped event used to land in `system`, a bucket named
+ * for our architecture rather than the user's world, and every deliberate
+ * assistant notification (`user.send_notification`) ended up there. The
+ * category is optional on the wire, so an event without a home simply
+ * carries none: readers that filter by category skip it, and nothing has
+ * to guess.
+ */
+function deriveCategory(
+  signal: NotificationSignal,
+): FeedItemCategory | undefined {
+  return EVENT_CATEGORY_MAP[signal.sourceEventName];
 }
 
 function deriveDetailPanelKind(
@@ -480,7 +492,9 @@ function deriveDetailPanelKind(
  * `assistant_tool` mirrors unconditionally because the documented
  * `notifications send` skill (and background-job failure emits) deliberately
  * does not require a background-typed conversation or the
- * `isAsyncBackground` hint.
+ * `isAsyncBackground` hint. `chat.assistant_reply` also mirrors: it is the
+ * durable in-app record for the push sent after a user leaves a chat, while
+ * retaining the normal interactive conversation as its navigation target.
  */
 function resolveHomeFeedMirror(
   signal: NotificationSignal,
@@ -511,7 +525,10 @@ function resolveHomeFeedMirror(
     : fallbackConversationId;
   const sourceScheduleJobId = sourceRow?.scheduleJobId ?? undefined;
 
-  if (signal.sourceChannel === "assistant_tool") {
+  if (
+    signal.sourceChannel === "assistant_tool" ||
+    signal.sourceEventName === "chat.assistant_reply"
+  ) {
     return { mirror: true, sourceConversationId, sourceScheduleJobId };
   }
   if (signal.attentionHints.isAsyncBackground) {

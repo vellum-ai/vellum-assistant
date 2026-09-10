@@ -10,6 +10,8 @@ metadata:
     activation-hints:
       - "asked to use the user's current location, GPS, or device position"
       - "whether the app can access a device sensor, permission, or hardware feature"
+      - "browsing failed, timed out, or could not reach a page that needs a login"
+      - "whether to install the desktop app or Chrome extension"
     avoid-when:
       - "the user already gave a location as text (just use it)"
 ---
@@ -37,6 +39,16 @@ Settings has a "Timezone" field, set by searching for a city or UTC offset. If i
 ### If the user asks for real location support
 
 It does not exist today in any client. The honest answer is that they can mention a place per request, or set the Timezone field in Settings as a standing default.
+
+## Desktop App And Chrome Extension
+
+When a task needs a logged-in browser or a host computer (internal pages, company SSO, VPN-only dashboards, local files, or host shell):
+
+1. Offer the desktop app: https://www.vellum.ai/downloads
+2. For browser sessions, also offer the Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+3. Offer those first. Only ask for a screenshot or pasted page content if the user cannot install either.
+
+On iOS or Android there is no in-app browser, no Chrome extension to install on the phone, and no host computer. Offer the desktop app or Chrome extension on a computer. Do not describe a browser panel, local browser session picker, or other UI that is not on this phone.
 
 ## Other Device Capabilities
 

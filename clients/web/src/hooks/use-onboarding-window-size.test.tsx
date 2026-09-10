@@ -1,5 +1,18 @@
 import { cleanup, renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 // The hook reads the current route via react-router's `useLocation` and
 // pushes the onboarding window mode to the Electron host. Drive both from
@@ -8,13 +21,21 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 let currentPath = "/assistant";
 const setOnboardingWindowMock = mock((_active: boolean) => Promise.resolve());
 
-mock.module("react-router", () => ({
-  useLocation: () => ({ pathname: currentPath }),
-}));
+stubModule("react-router", await import("react-router"), {
+  useLocation: () => ({
+    pathname: currentPath,
+    search: "",
+    hash: "",
+    state: null,
+    key: "default",
+  }),
+});
 
-mock.module("@/runtime/main-window", () => ({
+stubModule("@/runtime/main-window", await import("@/runtime/main-window"), {
   setOnboardingWindow: setOnboardingWindowMock,
-}));
+});
+
+afterAll(restoreStubbedModules);
 
 const { useOnboardingWindowSize } =
   await import("@/hooks/use-onboarding-window-size");

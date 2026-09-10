@@ -62,7 +62,7 @@ import { resolveComposerPlaceholder } from "@/domains/chat/utils/composer-placeh
 import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { isImageAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { isImageAttachment } from "@/utils/attachment-utils";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import { useVisionAttachmentGate } from "@/lib/backwards-compat/vision-attachment-gate";
 import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-new-chat-plugins";
@@ -140,7 +140,6 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { cmdEnterToSend } from "@/utils/composer-settings";
-import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
@@ -160,7 +159,10 @@ import {
 } from "@/domains/chat/rule-editor-actions";
 import { handleSurfaceAction } from "@/domains/chat/surface-actions";
 import { useRuleEditorStore } from "@/domains/chat/rule-editor-store";
-import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
+import {
+  openDocumentFromChat,
+  useOpenAppFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -463,9 +465,8 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {
-      haptic.light();
       if (assistantId) {
-        void useViewerStore.getState().loadDocument(assistantId, surfaceId);
+        void openDocumentFromChat(assistantId, surfaceId);
       }
     },
     [assistantId],
@@ -988,12 +989,11 @@ export function ChatMainPanel({
   );
   const activeModelSupportsVision = activeProfileModel?.supportsVision ?? true;
   const visionGateActive = useVisionAttachmentGate();
-  // Whether an image attached to the next message would survive the turn. One
-  // resolution for every surface that can attach one: the drop/pick filter
-  // below, the Eyes toggle, and the send's own camera frame. On an assistant
-  // with the image-fallback plugin the gate is inactive and the question does
-  // not arise; below it, an image on a profile without vision fails the whole
-  // turn on the provider's rejection.
+  // Whether an image attached to the next message would survive the turn, read
+  // by the drop/pick filter below. On an assistant with the image-fallback
+  // plugin the gate is inactive and the question does not arise; below it, an
+  // image on a profile without vision fails the whole turn on the provider's
+  // rejection.
   const imageAttachmentsAllowed =
     !visionGateActive || activeModelSupportsVision;
 
@@ -1106,7 +1106,6 @@ export function ChatMainPanel({
     typingDisabled,
     assistantId,
     activeConversationId,
-    imageAttachmentsAllowed,
     // Synchronous pre-send gate: re-scans the outgoing content so pastes
     // sent inside the detection debounce window are still caught. No
     // secrets → returns true, fully inert.
@@ -1381,7 +1380,6 @@ export function ChatMainPanel({
       typingDisabled={typingDisabled}
       sendDisabled={sendDisabled}
       onAddAttachmentFiles={handleDroppedFiles}
-      imageAttachmentsAllowed={imageAttachmentsAllowed}
       voiceInputRef={voiceInputRef}
       voiceInterim={voiceInterim ?? undefined}
       onVoiceTranscript={handleVoiceTranscript}

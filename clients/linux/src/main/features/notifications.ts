@@ -8,6 +8,7 @@ import type {
   CapabilityModule,
   DesktopCapabilityRegistry,
 } from "@vellumai/electron-desktop/capability-registry";
+import { buildHelperToastRequest } from "@vellumai/electron-desktop/helper-toast-request";
 import {
   configureNotifications,
   installNotifications,
@@ -24,6 +25,11 @@ import { ensureVisible } from "../main-window";
  * Linux notifications feature. Delivery prefers a native helper toast module
  * when one exists. Until a Linux sidecar ships, the shared module's default
  * `electron.Notification` path delivers click-only toasts.
+ *
+ * A toast from a sender puts the assistant's avatar in the toast's image slot,
+ * which the helper reads from a file, so the assistant's name is the title and
+ * the conversation title becomes the subtitle. The default path draws the same
+ * avatar through `electron.Notification`'s `icon`.
  */
 
 const HELPER_EXECUTABLE = "vellum-linux-helper";
@@ -117,14 +123,14 @@ export const createHelperToastFactory = (
       // (helper unavailable, circuit open) still acks as a failed delivery
       // instead of rejecting the renderer's invoke.
       Promise.resolve()
-        .then(() =>
-          ensureClient().call("notifications/show", {
+        .then(() => {
+          const params = buildHelperToastRequest(options, {
             token,
-            title: options.title,
-            body: options.body,
-            actions: options.actions.map((action) => ({ text: action.text })),
-          }),
-        )
+            userDataDir: app.getPath("userData"),
+            logger: log,
+          });
+          return ensureClient().call("notifications/show", params);
+        })
         .then((result) => {
           const parsed = SHOW_RESULT_SCHEMA.safeParse(result);
           if (parsed.success && parsed.data.success) {

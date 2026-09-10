@@ -229,6 +229,47 @@ describe("writeHomeFeedItemForSignal", () => {
     expect(appendCalls).toHaveLength(0);
   });
 
+  test("chat assistant reply mirrors an interactive conversation into the home feed", async () => {
+    // A chat reply can be delivered as an APNs push after
+    // the user leaves an ordinary conversation. It must remain referenceable
+    // from the notifications bell without changing its delivery policy.
+    conversationRow = { conversationType: "standard" };
+    const signal = makeSignal({
+      sourceChannel: "vellum",
+      sourceEventName: "chat.assistant_reply",
+      contextPayload: {
+        requestedTitle: "Project planning",
+        requestedMessage: "The deployment completed successfully.",
+      },
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+    });
+    const decision = makeDecision({
+      selectedChannels: ["platform"],
+      renderedCopy: {
+        platform: {
+          title: "Project planning",
+          body: "The deployment completed successfully.",
+        },
+      },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, decision);
+
+    expect(item).not.toBeNull();
+    expect(appendCalls).toHaveLength(1);
+    expect(appendCalls[0]!.title).toBe("Project planning");
+    expect(appendCalls[0]!.summary).toBe(
+      "The deployment completed successfully.",
+    );
+    expect(appendCalls[0]!.conversationId).toBe("conv-source-1");
+    expect(conversationLookups).toEqual(["conv-source-1"]);
+  });
+
   test("isAsyncBackground hint writes even when sourceContextId does not resolve", async () => {
     // Source lookup throws — treated as non-navigable, so the item lands
     // without a `conversationId` and the "Go to Thread" button hides on the
@@ -917,6 +958,33 @@ describe("writeHomeFeedItemForSignal", () => {
 
     expect(item?.noteworthy).toBe(true);
     expect(appendCalls[0]!.noteworthy).toBe(true);
+  });
+
+  test("a mapped source event carries its feed category", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      contextPayload: { title: "Nightly briefing", body: "Three things." },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item?.category).toBe("scheduling");
+    expect(appendCalls[0]!.category).toBe("scheduling");
+  });
+
+  test("an unmapped source event carries no category instead of falling back to system", async () => {
+    conversationRow = { conversationType: "background" };
+    const signal = makeSignal({
+      sourceChannel: "assistant_tool",
+      sourceEventName: "user.send_notification",
+      contextPayload: { title: "Tool share", body: "Body" },
+    });
+
+    const item = await writeHomeFeedItemForSignal(signal, makeDecision());
+
+    expect(item).not.toBeNull();
+    expect("category" in item!).toBe(false);
+    expect("category" in appendCalls[0]!).toBe(false);
   });
 
   test("credential.health_alert is noteworthy regardless of source channel", async () => {

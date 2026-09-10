@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.11.9
+  version: 0.11.10
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -571,6 +571,359 @@ paths:
                   - protocolSessionId
                   - agent
                 additionalProperties: false
+  /v1/activation/dismiss:
+    post:
+      operationId: activation_dismiss_post
+      summary: Dismiss an activation surface
+      description: Record that the welcome modal or the celebration modal was dismissed.
+      tags:
+        - activation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum:
+                    - modal
+                    - all-done
+                  description: Which surface was dismissed
+                listId:
+                  description: List the surface showed, stored only while no list is frozen
+                  type: string
+                  pattern: ^[a-z0-9-]{1,64}$
+              required:
+                - kind
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                    description: Schema version
+                  listId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Task list frozen on the first write, null before then
+                  modalDismissedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the welcome modal was dismissed
+                  allDoneShownAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the celebration modal was dismissed
+                  tasks:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum:
+                            - started
+                            - done
+                          description: "`started` while the linked conversation is working the task"
+                        conversationId:
+                          type: string
+                          maxLength: 128
+                          description: Conversation the task was launched into
+                        startedAt:
+                          type: string
+                          description: ISO timestamp of the launch
+                        completedAt:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: ISO timestamp of the completing turn, null while started
+                        stepCount:
+                          anyOf:
+                            - type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            - type: "null"
+                          description: Tool calls observed in the linked conversation so far
+                        artifacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              workspacePath:
+                                type: string
+                                description: Path of the produced file, as the assistant attached it
+                              displayName:
+                                type: string
+                                description: Human-readable file name for the card
+                            required:
+                              - workspacePath
+                              - displayName
+                            additionalProperties: false
+                          description: Files the completing turn attached
+                      required:
+                        - status
+                        - conversationId
+                        - startedAt
+                        - completedAt
+                        - stepCount
+                        - artifacts
+                      additionalProperties: false
+                    description: Progress keyed by task id
+                required:
+                  - version
+                  - listId
+                  - modalDismissedAt
+                  - allDoneShownAt
+                  - tasks
+                additionalProperties: false
+        "400":
+          description: Malformed dismiss kind or list id
+        "409":
+          description: Stored progress was written by a newer build; the dismissal was not recorded
+        "503":
+          description: Stored progress is locked by another process; the dismissal was not recorded
+  /v1/activation/progress:
+    get:
+      operationId: activation_progress_get
+      summary: Get activation progress
+      description: "Return the activation checklist progress: the frozen list, dismissed surfaces, and per-task state."
+      tags:
+        - activation
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                    description: Schema version
+                  listId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Task list frozen on the first write, null before then
+                  modalDismissedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the welcome modal was dismissed
+                  allDoneShownAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the celebration modal was dismissed
+                  tasks:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum:
+                            - started
+                            - done
+                          description: "`started` while the linked conversation is working the task"
+                        conversationId:
+                          type: string
+                          maxLength: 128
+                          description: Conversation the task was launched into
+                        startedAt:
+                          type: string
+                          description: ISO timestamp of the launch
+                        completedAt:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: ISO timestamp of the completing turn, null while started
+                        stepCount:
+                          anyOf:
+                            - type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            - type: "null"
+                          description: Tool calls observed in the linked conversation so far
+                        artifacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              workspacePath:
+                                type: string
+                                description: Path of the produced file, as the assistant attached it
+                              displayName:
+                                type: string
+                                description: Human-readable file name for the card
+                            required:
+                              - workspacePath
+                              - displayName
+                            additionalProperties: false
+                          description: Files the completing turn attached
+                      required:
+                        - status
+                        - conversationId
+                        - startedAt
+                        - completedAt
+                        - stepCount
+                        - artifacts
+                      additionalProperties: false
+                    description: Progress keyed by task id
+                required:
+                  - version
+                  - listId
+                  - modalDismissedAt
+                  - allDoneShownAt
+                  - tasks
+                additionalProperties: false
+  /v1/activation/tasks/{taskId}/start:
+    post:
+      operationId: activation_tasks_by_taskId_start_post
+      summary: Start an activation task
+      description:
+        Link an activation task to the conversation its prompt was sent to. Idempotent per task; a different
+        conversation replaces the link only while the task is not done.
+      tags:
+        - activation
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                  description: Conversation the task prompt was sent to
+                listId:
+                  description: List the task came from, stored only while no list is frozen
+                  type: string
+                  pattern: ^[a-z0-9-]{1,64}$
+              required:
+                - conversationId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: number
+                    const: 1
+                    description: Schema version
+                  listId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Task list frozen on the first write, null before then
+                  modalDismissedAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the welcome modal was dismissed
+                  allDoneShownAt:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: ISO timestamp the celebration modal was dismissed
+                  tasks:
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: object
+                      properties:
+                        status:
+                          type: string
+                          enum:
+                            - started
+                            - done
+                          description: "`started` while the linked conversation is working the task"
+                        conversationId:
+                          type: string
+                          maxLength: 128
+                          description: Conversation the task was launched into
+                        startedAt:
+                          type: string
+                          description: ISO timestamp of the launch
+                        completedAt:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: ISO timestamp of the completing turn, null while started
+                        stepCount:
+                          anyOf:
+                            - type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                            - type: "null"
+                          description: Tool calls observed in the linked conversation so far
+                        artifacts:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              workspacePath:
+                                type: string
+                                description: Path of the produced file, as the assistant attached it
+                              displayName:
+                                type: string
+                                description: Human-readable file name for the card
+                            required:
+                              - workspacePath
+                              - displayName
+                            additionalProperties: false
+                          description: Files the completing turn attached
+                      required:
+                        - status
+                        - conversationId
+                        - startedAt
+                        - completedAt
+                        - stepCount
+                        - artifacts
+                      additionalProperties: false
+                    description: Progress keyed by task id
+                required:
+                  - version
+                  - listId
+                  - modalDismissedAt
+                  - allDoneShownAt
+                  - tasks
+                additionalProperties: false
+        "400":
+          description: Malformed task id, list id, or conversation id
+        "404":
+          description: No such conversation; the link was not recorded
+        "409":
+          description: Stored progress was written by a newer build; the link was not recorded
+        "503":
+          description: Stored progress is locked by another process; the link was not recorded
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post
@@ -1227,6 +1580,93 @@ paths:
                 required:
                   - published
                 additionalProperties: false
+  /v1/apps/{id}/refresh:
+    post:
+      operationId: apps_by_id_refresh_post
+      summary: Compile an app
+      description: Compile workspace or plugin app source into dist/ and refresh open surfaces.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                  compiled:
+                    type: boolean
+                  compile_duration_ms:
+                    type: number
+                  compile_errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        location:
+                          type: object
+                          properties:
+                            file:
+                              type: string
+                            line:
+                              type: number
+                            column:
+                              type: number
+                          required:
+                            - file
+                            - line
+                            - column
+                          additionalProperties: false
+                      required:
+                        - text
+                      additionalProperties: false
+                  compile_warnings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        location:
+                          type: object
+                          properties:
+                            file:
+                              type: string
+                            line:
+                              type: number
+                            column:
+                              type: number
+                          required:
+                            - file
+                            - line
+                            - column
+                          additionalProperties: false
+                      required:
+                        - text
+                      additionalProperties: false
+                required:
+                  - ok
+                  - appId
+                  - name
+                  - compiled
+                  - compile_duration_ms
+                additionalProperties: false
   /v1/apps/{id}/share-cloud:
     post:
       operationId: apps_by_id_sharecloud_post
@@ -1713,6 +2153,99 @@ paths:
       responses:
         "204":
           description: Successful response
+    get:
+      operationId: attachments_get
+      summary: List conversation attachments
+      description:
+        Return metadata for every attachment linked to a conversation's messages, newest first, across fork
+        lineage. Camera frames kept by live vision are flagged. Bytes come from GET /attachments/{id}/content.
+      tags:
+        - attachments
+      parameters:
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Conversation whose attachments to list
+        - name: sightFrames
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - only
+              - exclude
+          description: Restrict to camera frames, or leave them out
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Page size, default 200, max 1000
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  attachments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        filename:
+                          type: string
+                        mimeType:
+                          type: string
+                        sizeBytes:
+                          type: number
+                        kind:
+                          type: string
+                        messageId:
+                          type: string
+                        createdAt:
+                          type: number
+                          description: "Capture time: the carrying message's created_at"
+                        fileBacked:
+                          type: boolean
+                        thumbnailData:
+                          type: string
+                        sightFrame:
+                          type: boolean
+                        ambientKeep:
+                          type: boolean
+                      required:
+                        - id
+                        - filename
+                        - mimeType
+                        - sizeBytes
+                        - kind
+                        - messageId
+                        - createdAt
+                        - sightFrame
+                        - ambientKeep
+                      additionalProperties: false
+                  total:
+                    type: number
+                  hasMore:
+                    type: boolean
+                required:
+                  - attachments
+                  - total
+                  - hasMore
+                additionalProperties: false
+        "400":
+          description: Missing or invalid query
     post:
       operationId: attachments_post
       summary: Upload attachment
@@ -4460,6 +4993,8 @@ paths:
                         - type
                     slackBotMentioned:
                       type: boolean
+                    slackEditedTs:
+                      type: string
                     account:
                       type: string
                     actorTeamId:
@@ -4902,6 +5437,117 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/channels/send:
+    post:
+      operationId: channels_send_post
+      summary: Send text to a channel chat
+      description:
+        Deliver text to a chat or person on a channel through the channel's transport, recorded after the channel
+        acknowledges it.
+      tags:
+        - channels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
+                    - discord
+                    - plugin
+                  description: Channel to send on
+                target:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: chat
+                        chatId:
+                          type: string
+                          minLength: 1
+                          description: Chat id in the channel's own id space
+                        threadId:
+                          description: Thread within the chat, in the channel's own id space
+                          type: string
+                          minLength: 1
+                      required:
+                        - kind
+                        - chatId
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: person
+                        userId:
+                          type: string
+                          minLength: 1
+                          description: Person to reach in their DM, in the channel's own id space
+                      required:
+                        - kind
+                        - userId
+                  type: object
+                text:
+                  type: string
+                  minLength: 1
+                  description: Text to send
+                renderRichly:
+                  description: Ask the channel for its rich rendering, where it has one
+                  type: boolean
+              required:
+                - channel
+                - target
+                - text
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                    enum:
+                      - telegram
+                      - phone
+                      - vellum
+                      - whatsapp
+                      - slack
+                      - email
+                      - platform
+                      - a2a
+                      - discord
+                      - plugin
+                  chatId:
+                    type: string
+                  threadId:
+                    type: string
+                  messageIds:
+                    type: array
+                    items:
+                      type: string
+                  lastMessageId:
+                    type: string
+                  recordedIn:
+                    type: string
+                required:
+                  - channel
+                  - chatId
+                  - messageIds
+                  - lastMessageId
+                additionalProperties: false
   /v1/clients:
     get:
       operationId: clients_get
@@ -5102,7 +5748,7 @@ paths:
     put:
       operationId: config_embeddings_put
       summary: Set embedding config
-      description: Change the embedding provider and optionally model.
+      description: Change the embedding provider, model, and optional custom endpoint.
       tags:
         - config
       requestBody:
@@ -5116,6 +5762,14 @@ paths:
                   type: string
                 model:
                   type: string
+                baseUrl:
+                  type: string
+                dimensions:
+                  anyOf:
+                    - type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    - type: "null"
               required:
                 - provider
       responses:
@@ -5421,6 +6075,10 @@ paths:
                   minLength: 1
                 allowUnlisted:
                   type: boolean
+                inputModalities:
+                  anyOf:
+                    - $ref: "#/components/schemas/InputModalities"
+                    - type: "null"
                 status:
                   anyOf:
                     - $ref: "#/components/schemas/ProfileStatus"
@@ -8373,54 +9031,6 @@ paths:
           description: The assistant is currently responding
         "422":
           description: No user message exists to retry from
-  /v1/conversations/{id}/sight-frame:
-    post:
-      operationId: conversations_by_id_sightframe_post
-      summary: Persist an ambient camera frame
-      description:
-        Add an already-uploaded camera frame to a conversation as its own message, tagged so retention can age the
-        image out of the model's context while the transcript keeps it. No reply is generated. Returns persisted=false
-        when the frame was dropped, in which case the assistant owns the upload and there is nothing to clean up.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                attachmentId:
-                  type: string
-                  description: Id of the uploaded attachment holding the frame.
-              required:
-                - attachmentId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  persisted:
-                    type: boolean
-                  messageId:
-                    description: The message the frame landed on, when one was written.
-                    type: string
-                required:
-                  - persisted
-                additionalProperties: false
-        "400":
-          description: Missing or empty attachmentId
-        "404":
-          description: Conversation not found
   /v1/conversations/{id}/slash:
     post:
       operationId: conversations_by_id_slash_post
@@ -9985,8 +10595,6 @@ paths:
                                   type: string
                                 source:
                                   type: string
-                                pinned:
-                                  type: boolean
                                 sectionOrdinal:
                                   anyOf:
                                     - type: number
@@ -9998,10 +10606,52 @@ paths:
                               required:
                                 - slug
                                 - source
-                                - pinned
                               additionalProperties: false
                           injectedText:
                             type: string
+                          pool:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  poolSize:
+                                    type: number
+                                  selectedCount:
+                                    type: number
+                                  candidates:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        slug:
+                                          type: string
+                                        lane:
+                                          type: string
+                                        sectionHeading:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        sectionKey:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        chosen:
+                                          type: boolean
+                                      required:
+                                        - slug
+                                        - lane
+                                        - sectionHeading
+                                        - sectionKey
+                                        - chosen
+                                      additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
+                                required:
+                                  - poolSize
+                                  - selectedCount
+                                  - candidates
+                                  - selectorRan
+                                additionalProperties: false
+                              - type: "null"
                         required:
                           - turn
                           - live
@@ -11076,6 +11726,71 @@ paths:
                   - stderr
                   - exitCode
                   - timedOut
+                additionalProperties: false
+  /v1/debug/database:
+    get:
+      operationId: debug_database_get
+      summary: Database migration diagnostics
+      description:
+        Return the in-memory DB migration latch, including failed and deferred steps. Does not query SQLite, so it
+        stays answerable while migrations are running or have failed.
+      tags:
+        - debug
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ready:
+                    type: boolean
+                  state:
+                    type: string
+                    enum:
+                      - not_started
+                      - running
+                      - failed
+                      - ready
+                  reason:
+                    type: string
+                  error:
+                    type: string
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        error:
+                          type: string
+                      required:
+                        - name
+                      additionalProperties: false
+                  deferred:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        missing:
+                          type: array
+                          items:
+                            type: string
+                      required:
+                        - name
+                        - missing
+                      additionalProperties: false
+                  validationError:
+                    type: string
+                required:
+                  - ready
+                  - state
+                  - failed
+                  - deferred
                 additionalProperties: false
   /v1/defer/cancel:
     post:
@@ -13263,6 +13978,13 @@ paths:
                   reason:
                     description: Decline reason (present only when applied is false)
                     type: string
+                  committed:
+                    description:
+                      "Whether the decision was recorded before the decline. Present only for a resolver failure: true under
+                      resolver_failed (the decision committed and its follow-through failed), false under
+                      decision_not_persisted (nothing was written; retry is safe). Absent on daemons that report both
+                      under resolver_failed."
+                    type: boolean
                   replyText:
                     description: Resolver reply text for the guardian (e.g. verification code)
                     type: string
@@ -13492,6 +14214,35 @@ paths:
                         type: string
                       error:
                         type: string
+                      failedMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            error:
+                              type: string
+                          required:
+                            - name
+                          additionalProperties: false
+                      deferredMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - name
+                            - missing
+                          additionalProperties: false
+                      validationError:
+                        type: string
                     required:
                       - ready
                       - state
@@ -13697,6 +14448,35 @@ paths:
                         type: string
                       error:
                         type: string
+                      failedMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            error:
+                              type: string
+                          required:
+                            - name
+                          additionalProperties: false
+                      deferredMigrations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            missing:
+                              type: array
+                              items:
+                                type: string
+                          required:
+                            - name
+                            - missing
+                          additionalProperties: false
+                      validationError:
+                        type: string
                     required:
                       - ready
                       - state
@@ -13803,6 +14583,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13820,6 +14607,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -13859,7 +14647,7 @@ paths:
                     - type: string
                     - type: "null"
                 timezone:
-                  description: Timezone for cron evaluation
+                  description: Timezone for cron and active-hours evaluation
                   anyOf:
                     - type: string
                     - type: "null"
@@ -13891,6 +14679,13 @@ paths:
                     anyOf:
                       - type: string
                       - type: "null"
+                  effectiveTimezone:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description:
+                      Timezone used for cron and active-hours evaluation after resolving heartbeat.timezone, then the user's
+                      configured or detected zone
                   nextRunAt:
                     anyOf:
                       - type: number
@@ -13908,6 +14703,7 @@ paths:
                   - activeHoursEnd
                   - cronExpression
                   - timezone
+                  - effectiveTimezone
                   - nextRunAt
                   - lastRunAt
                   - success
@@ -17554,10 +18350,6 @@ paths:
                   type: array
                   items:
                     type: string
-                risk:
-                  type: string
-                disabled:
-                  type: boolean
                 headers:
                   type: object
                   propertyNames:
@@ -17644,7 +18436,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).
+      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
       tags:
         - internal
       responses:
@@ -17676,26 +18468,12 @@ paths:
                           required:
                             - type
                           additionalProperties: {}
-                        enabled:
-                          type: boolean
-                        defaultRiskLevel:
-                          type: string
                         hasOAuth:
                           type: boolean
-                        allowedTools:
-                          type: array
-                          items:
-                            type: string
-                        blockedTools:
-                          type: array
-                          items:
-                            type: string
                       required:
                         - id
                         - status
                         - transport
-                        - enabled
-                        - defaultRiskLevel
                         - hasOAuth
                       additionalProperties: false
                 required:
@@ -17807,24 +18585,6 @@ paths:
               properties:
                 name:
                   type: string
-                enabled:
-                  type: boolean
-                defaultRiskLevel:
-                  type: string
-                maxTools:
-                  type: number
-                allowedTools:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: string
-                    - type: "null"
-                blockedTools:
-                  anyOf:
-                    - type: array
-                      items:
-                        type: string
-                    - type: "null"
                 headers:
                   anyOf:
                     - type: object
@@ -20102,6 +20862,7 @@ paths:
                               - openai
                               - gemini
                               - ollama
+                              - custom
                           - type: "null"
                       model:
                         anyOf:
@@ -21324,6 +22085,11 @@ paths:
                           type: boolean
                         noResponse:
                           type: boolean
+                        assistantTextVisibility:
+                          type: string
+                          enum:
+                            - private
+                            - visible
                         reaction:
                           type: object
                           properties:
@@ -22254,8 +23020,6 @@ paths:
                                   type: string
                                 source:
                                   type: string
-                                pinned:
-                                  type: boolean
                                 sectionOrdinal:
                                   anyOf:
                                     - type: number
@@ -22267,10 +23031,52 @@ paths:
                               required:
                                 - slug
                                 - source
-                                - pinned
                               additionalProperties: false
                           injectedText:
                             type: string
+                          pool:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  poolSize:
+                                    type: number
+                                  selectedCount:
+                                    type: number
+                                  candidates:
+                                    type: array
+                                    items:
+                                      type: object
+                                      properties:
+                                        slug:
+                                          type: string
+                                        lane:
+                                          type: string
+                                        sectionHeading:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        sectionKey:
+                                          anyOf:
+                                            - type: string
+                                            - type: "null"
+                                        chosen:
+                                          type: boolean
+                                      required:
+                                        - slug
+                                        - lane
+                                        - sectionHeading
+                                        - sectionKey
+                                        - chosen
+                                      additionalProperties: false
+                                  selectorRan:
+                                    type: boolean
+                                required:
+                                  - poolSize
+                                  - selectedCount
+                                  - candidates
+                                  - selectorRan
+                                additionalProperties: false
+                              - type: "null"
                         required:
                           - turn
                           - live
@@ -24310,6 +25116,346 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/oauth/proxy-grant:
+    post:
+      operationId: oauth_proxygrant_post
+      summary: Mint an OAuth proxy grant
+      description:
+        Returns a short-lived token and base URL a third-party CLI uses to call the provider's API through the
+        passthrough proxy.
+      tags:
+        - oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  minLength: 1
+                account:
+                  type: string
+                  minLength: 1
+                ttlSeconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 3600
+              required:
+                - provider
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  provider:
+                    type: string
+                  account:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  baseUrl:
+                    type: string
+                  path:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: string
+                  ttlSeconds:
+                    type: number
+                required:
+                  - ok
+                  - provider
+                  - account
+                  - baseUrl
+                  - path
+                  - token
+                  - expiresAt
+                  - ttlSeconds
+                additionalProperties: false
+        "400":
+          description: Malformed request, provider key, or account
+        "404":
+          description: Unknown provider
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+  /v1/oauth/proxy/{provider}/{path}:
+    delete:
+      operationId: oauth_proxy_by_provider_by_path_delete
+      summary: Proxy a DELETE request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: &a1
+                type: string
+                format: binary
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    get:
+      operationId: oauth_proxy_by_provider_by_path_get
+      summary: Proxy a GET request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    head:
+      operationId: oauth_proxy_by_provider_by_path_head
+      summary: Proxy a HEAD request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    patch:
+      operationId: oauth_proxy_by_provider_by_path_patch
+      summary: Proxy a PATCH request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    post:
+      operationId: oauth_proxy_by_provider_by_path_post
+      summary: Proxy a POST request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    put:
+      operationId: oauth_proxy_by_provider_by_path_put
+      summary: Proxy a PUT request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
   /v1/oauth/request:
     post:
       operationId: oauth_request_post
@@ -24686,12 +25832,13 @@ paths:
   /v1/platform/credits:
     get:
       operationId: platform_credits_get
-      summary: Get the organization's remaining credit balance and daily-limit state
+      summary: Get the organization's credit balance, plan-credit usage, and daily-limit state
       description:
         "Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
-        billing summary, plus the daily-limit state: today's spend counted against the daily credit limit (which
-        excludes spend covered by plan-included credits, so it is not total spend), the limit itself, and the
-        low-balance warning state."
+        billing summary, plus plan-included credit usage (remaining, total, and the used fraction shown by the in-app
+        usage meter), extra credit bought or earned on top, credit expiring within 30 days, and the daily-limit state:
+        today's spend counted against the daily credit limit (which excludes spend covered by plan-included credits, so
+        it is not total spend), the limit itself, and the low-balance warning state."
       tags:
         - platform
       responses:
@@ -24742,6 +25889,56 @@ paths:
                   low_balance_warning:
                     type: boolean
                     description: True when the balance is above zero but below the low-balance threshold and auto top-up is not enabled.
+                  plan_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unused credit (USD) remaining on the unexpired plan-included grants (initial credit, Pro credit bundle).
+                      Null when the platform did not report grant figures.
+                  plan_credit_total:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Total credit (USD) those plan-included grants were worth, net of refunds. Null when the platform did not
+                      report grant figures.
+                  plan_credit_used_fraction:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Share of the plan-included credit already used, from 0 to 1: the same reading as the in-app usage meter. A
+                      Pro subscription whose unexpired grants total nothing reads as 1 (everything granted is used or
+                      expired). Null when there is no usable reading: grant figures missing, or a zero total on a base
+                      or unknown plan."
+                  plan_credits_spent:
+                    anyOf:
+                      - type: boolean
+                      - type: "null"
+                    description:
+                      True when the plan-included credit is used up or expired. Whether further managed usage is funded is
+                      extra_credit_remaining (zero means the organization is out of credit). Null when there is no
+                      plan-credit reading.
+                  extra_credit_remaining:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      "Credit (USD) bought or earned on top of the plan-included grants: remaining minus plan_credit_remaining,
+                      floored at zero. Null when grant figures are missing."
+                  credits_expiring_soon:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                    description:
+                      Unexpired credit (USD) on grants that expire within the next 30 days. Null when the platform did not report
+                      it.
+                  next_credit_expiry_at:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                    description: Earliest upcoming expiry (ISO 8601) across grants that still hold credit, or null when none is scheduled.
                 required:
                   - remaining
                   - settled
@@ -24755,6 +25952,13 @@ paths:
                   - daily_limit_snoozed
                   - low_balance_threshold
                   - low_balance_warning
+                  - plan_credit_remaining
+                  - plan_credit_total
+                  - plan_credit_used_fraction
+                  - plan_credits_spent
+                  - extra_credit_remaining
+                  - credits_expiring_soon
+                  - next_credit_expiry_at
                 additionalProperties: false
   /v1/platform/disconnect:
     post:
@@ -28983,7 +30187,8 @@ paths:
       summary: Run schedule now
       description:
         Trigger an immediate execution of a schedule. A plugin-sourced schedule is rejected with a 400 when its
-        plugin is disabled or no longer declares it.
+        plugin is disabled or no longer declares it. Returns 409 while a drain quiesce lease is active so run-now cannot
+        start work the shutdown snapshot would miss.
       tags:
         - schedules
       parameters:
@@ -29179,6 +30384,8 @@ paths:
                 required:
                   - schedules
                 additionalProperties: false
+        "409":
+          description: A drain quiesce lease is active, so run-now is not starting new work.
   /v1/schedules/{id}/runs:
     get:
       operationId: schedules_by_id_runs_get
@@ -30279,8 +31486,8 @@ paths:
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
-      summary: Generate avatar
-      description: Generate an AI avatar image from a text description.
+      summary: Generate AI avatar (legacy alias)
+      description: Alias of avatar/generate kept for older clients; returns the avatar image path.
       tags:
         - settings
       requestBody:
@@ -30297,6 +31504,19 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  avatarPath:
+                    type: string
+                required:
+                  - ok
+                  - avatarPath
+                additionalProperties: false
   /v1/settings/client:
     put:
       operationId: settings_client_put
@@ -33703,6 +34923,67 @@ paths:
                   required:
                     - type
                     - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: avatar_changed
+                    fields:
+                      type: object
+                      properties:
+                        action:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        previous_kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        body_shape:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        eye_style:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        color:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        accent_hex:
+                          type: string
+                          minLength: 1
+                          maxLength: 7
+                        accent_source:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        client_os:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                      required:
+                        - action
+                        - kind
+                        - previous_kind
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
               type: object
       responses:
         "200":
@@ -35979,6 +37260,281 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/x/plugins/{plugin}/notices:
+    delete:
+      operationId: x_plugins_by_plugin_notices_delete
+      summary: Gateway DELETE notice to a plugin (namespace root)
+      description:
+        "Dispatches DELETE requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: x_plugins_by_plugin_notices_get
+      summary: Gateway GET notice to a plugin (namespace root)
+      description:
+        "Dispatches GET requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    head:
+      operationId: x_plugins_by_plugin_notices_head
+      summary: Gateway HEAD notice to a plugin (namespace root)
+      description:
+        "Dispatches HEAD requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    options:
+      operationId: x_plugins_by_plugin_notices_options
+      summary: Gateway OPTIONS notice to a plugin (namespace root)
+      description:
+        "Dispatches OPTIONS requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    patch:
+      operationId: x_plugins_by_plugin_notices_patch
+      summary: Gateway PATCH notice to a plugin (namespace root)
+      description:
+        "Dispatches PATCH requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: x_plugins_by_plugin_notices_post
+      summary: Gateway POST notice to a plugin (namespace root)
+      description:
+        "Dispatches POST requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: x_plugins_by_plugin_notices_put
+      summary: Gateway PUT notice to a plugin (namespace root)
+      description:
+        "Dispatches PUT requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+  /v1/x/plugins/{plugin}/notices/{path}:
+    delete:
+      operationId: x_plugins_by_plugin_notices_by_path_delete
+      summary: Gateway DELETE notice to a plugin
+      description:
+        "Dispatches DELETE requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: x_plugins_by_plugin_notices_by_path_get
+      summary: Gateway GET notice to a plugin
+      description:
+        "Dispatches GET requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    head:
+      operationId: x_plugins_by_plugin_notices_by_path_head
+      summary: Gateway HEAD notice to a plugin
+      description:
+        "Dispatches HEAD requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    options:
+      operationId: x_plugins_by_plugin_notices_by_path_options
+      summary: Gateway OPTIONS notice to a plugin
+      description:
+        "Dispatches OPTIONS requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    patch:
+      operationId: x_plugins_by_plugin_notices_by_path_patch
+      summary: Gateway PATCH notice to a plugin
+      description:
+        "Dispatches PATCH requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: x_plugins_by_plugin_notices_by_path_post
+      summary: Gateway POST notice to a plugin
+      description:
+        "Dispatches POST requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: x_plugins_by_plugin_notices_by_path_put
+      summary: Gateway PUT notice to a plugin
+      description:
+        "Dispatches PUT requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
 components:
   schemas:
     ConfigPatchRequest:
@@ -36393,6 +37949,12 @@ components:
           anyOf:
             - type: boolean
             - type: "null"
+        inputModalities:
+          anyOf:
+            - anyOf:
+                - $ref: "#/components/schemas/InputModalities"
+                - type: "null"
+            - type: "null"
         status:
           anyOf:
             - anyOf:
@@ -36423,6 +37985,24 @@ components:
               minLength: 1
             - type: "null"
       additionalProperties: {}
+    InputModalities:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverride"
+        image:
+          $ref: "#/components/schemas/ModalityOverride"
+        audio:
+          $ref: "#/components/schemas/ModalityOverride"
+        video:
+          $ref: "#/components/schemas/ModalityOverride"
+    ModalityOverride:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
     ProfileStatus:
       type: string
       enum:
@@ -37174,6 +38754,10 @@ components:
           minLength: 1
         allowUnlisted:
           type: boolean
+        inputModalities:
+          anyOf:
+            - $ref: "#/components/schemas/InputModalitiesOutput"
+            - type: "null"
         status:
           anyOf:
             - $ref: "#/components/schemas/ProfileStatus"
@@ -37715,6 +39299,26 @@ components:
         - name
         - status
         - origin
+      additionalProperties: false
+    InputModalitiesOutput:
+      type: object
+      properties:
+        text:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        image:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        audio:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+        video:
+          $ref: "#/components/schemas/ModalityOverrideOutput"
+      additionalProperties: false
+    ModalityOverrideOutput:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        supported:
+          type: boolean
       additionalProperties: false
     AuthOutput:
       oneOf:

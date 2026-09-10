@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "screen_point_at",
+      "description": "Point at something on the screen the user is sharing with the call: draws an arrow at it, with a short caption beside it. Replaces whatever is currently drawn.\n\nName what to point at with `target`, written the way the control's own label is written: \"color balance\", \"Send\", \"Search\". The name is looked up on the surface itself, and the arrow lands on it. This is how to point at a control. A name the surface does not carry draws nothing and comes back with the names it does carry, to point again with or to say out loud.\n\nGive `x`/`y`/`width`/`height` only when the extent is the message: a region of an image, an area of a canvas, a panel named as a whole. Those draw a ring around the bounds, and they are fractions of the shared surface measured against the picture you were last shown, so they are a guess at where something is rather than a reading of it.\n\nRequires the user to be sharing their screen. If nothing is shared this fails, and the right move is to ask them to share before pointing again.",
+      "category": "screen-annotation",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "marks": {
+            "type": "array",
+            "description": "What to point at now, replacing whatever is on screen. Point at one thing at a time unless a step genuinely needs more.",
+            "maxItems": 4,
+            "items": {
+              "type": "object",
+              "description": "One thing to point at: `target` naming a control, which draws an arrow at it, or all four bounds giving a region, which draws a ring around it. Naming is exact; bounds are estimated. One or the other, never both and never part of either.",
+              "oneOf": [
+                {
+                  "description": "A control, named and found on the surface. An arrow lands on it.",
+                  "required": ["target"]
+                },
+                {
+                  "description": "A region, measured off the picture you were last shown. A ring is drawn around it, and all four bounds are needed to have one.",
+                  "required": ["x", "y", "width", "height"]
+                }
+              ],
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120,
+                  "description": "The control's label, written the way the label itself is written: \"color balance\", \"Send\". Looked up on the surface, so the arrow lands on it."
+                },
+                "x": {
+                  "type": "number",
+                  "description": "Left edge as a fraction of the shared surface's width (0 to 1). Only when the extent is the message."
+                },
+                "y": {
+                  "type": "number",
+                  "description": "Top edge as a fraction of the shared surface's height (0 to 1). Only when the extent is the message."
+                },
+                "width": {
+                  "type": "number",
+                  "description": "Width, as a fraction of the surface's width."
+                },
+                "height": {
+                  "type": "number",
+                  "description": "Height, as a fraction of the surface's height."
+                },
+                "caption": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "description": "A short imperative for what to do with it, e.g. \"Click Share\". Say the rest out loud."
+                }
+              }
+            }
+          },
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected."
+          }
+        },
+        "required": ["marks"]
+      },
+      "executor": "tools/screen-point-at.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "screen_clear_marks",
+      "description": "Take down whatever is drawn on the user's shared screen. Use it when the step is done, when the user has moved on, or when the conversation has left the screen behind. Marks come down on their own when the share ends or moves to another surface.",
+      "category": "screen-annotation",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "target_client_id": {
+            "type": "string",
+            "description": "ID of the specific client to target. Required when multiple clients support host_cu; omit when only one is connected."
+          }
+        },
+        "required": []
+      },
+      "executor": "tools/screen-clear-marks.ts",
+      "execution_target": "host"
+    }
+  ]
+}

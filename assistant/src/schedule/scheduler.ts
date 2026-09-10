@@ -1,6 +1,7 @@
 import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
 import { resolveSingleRouteProfileKey } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
+import { findConversation } from "../daemon/conversation-registry.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -10,6 +11,7 @@ import { processMessage } from "../daemon/process-message.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 import { emitBackgroundFailureSignal } from "../notifications/background-failure-signal.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { emitScheduleResultNotification } from "../notifications/schedule-result-producer.js";
 import { getConversation } from "../persistence/conversation-crud.js";
 import { isLifecycleQuiesced } from "../persistence/lifecycle-quiesce.js";
 import { invalidateAssistantInferredItemsForConversation } from "../plugins/defaults/memory/task-memory-cleanup.js";
@@ -22,6 +24,7 @@ import {
 } from "../runtime/background-job-runner.js";
 import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { runSequencesOnce } from "../sequence/engine.js";
+import { getSubagentManager } from "../subagent/index.js";
 import type { TurnFailure } from "../telemetry/turn-outcome.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
@@ -65,6 +68,77 @@ import {
 } from "./worker-control.js";
 
 const log = getLogger("scheduler");
+
+/** How often {@link awaitDelegatedWork} re-checks the run's conversation. */
+const DELEGATED_WORK_POLL_MS = 100;
+
+/**
+ * Consecutive quiet polls required before delegated work counts as settled.
+ *
+ * Two, not one: a child clears its in-flight marker as it delivers its
+ * terminal notification, and the parent registers the continuation that
+ * notification starts a hop later. One quiet read can land inside that gap and
+ * call a run finished while its real answer is still on the way.
+ */
+const DELEGATED_WORK_QUIET_POLLS = 2;
+
+/**
+ * Wait for work a scheduled turn delegated before the run is called done.
+ *
+ * A turn that consults a subagent resolves as soon as its own reply is
+ * written: the child runs on, and its terminal notification then starts the
+ * continuation that writes the reply the guidance actually informed. The
+ * schedule's result producer fires once per run and reads the conversation's
+ * latest assistant row, so completing at the first resolve ships the
+ * pre-consult reply and drops the informed one for good.
+ *
+ * Returns immediately for a conversation that never delegated anything, which
+ * is the ordinary case, so no scheduled run pays for this unless it spawned.
+ *
+ * Bounded by what is left of the schedule turn timeout, so the whole run (its
+ * turn plus the work it delegated) stays inside the one ceiling that stops a
+ * wedged schedule from blocking the next tick. Exhausting the ceiling is not a
+ * failure: the run still completes and still produces a result, just from
+ * whatever had been written by then.
+ */
+async function awaitDelegatedWork(
+  conversationId: string,
+  runStartedAt: number,
+  rlog: typeof log,
+): Promise<void> {
+  if (!conversationId || conversationId.startsWith("bootstrap-error:")) {
+    return;
+  }
+  const conversation = findConversation(conversationId);
+  if (!conversation) {
+    return;
+  }
+  // Terminal children stay readable for their retention window, so this asks
+  // "did this conversation ever delegate?" and skips the polling entirely for
+  // the schedules that never do.
+  if (getSubagentManager().getChildrenOf(conversationId).length === 0) {
+    return;
+  }
+
+  const deadline =
+    runStartedAt + getConfig().timeouts.scheduleTurnTimeoutSec * 1000;
+  let quiet = 0;
+  while (Date.now() < deadline) {
+    if (conversation.hasInFlightWork()) {
+      quiet = 0;
+    } else {
+      quiet += 1;
+      if (quiet >= DELEGATED_WORK_QUIET_POLLS) {
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, DELEGATED_WORK_POLL_MS));
+  }
+  rlog.warn(
+    { conversationId },
+    "Delegated work still in flight at the schedule turn ceiling; producing the result from what is written",
+  );
+}
 
 import type { ScheduleMessageOptions } from "./scheduler-types.js";
 
@@ -963,6 +1037,11 @@ export async function runDueSchedulesOnce(
     let failedTurn: TurnFailure | undefined;
     const conversationReused = reusedConversationId != null;
     let runConversationId = reusedConversationId;
+    // Captured before the run so the post-run "did this run notify?" probe has
+    // a lower bound. A reused conversation carries every prior run's
+    // notifications, and without this bound the first run to notify would
+    // silence the fallback for every run after it.
+    const runStartedAt = Date.now();
     const runId = await createScheduleRun(job.id, reusedConversationId);
 
     if (reusedConversationId) {
@@ -1066,7 +1145,23 @@ export async function runDueSchedulesOnce(
     }
 
     if (ok) {
+      // The turn resolved, but work it delegated may still be running. Settle
+      // that before the run is called done and its one result is produced.
+      await awaitDelegatedWork(conversationId, runStartedAt, log);
       await completeScheduleRun(runId, { status: "ok" });
+      // The run succeeded; make sure it was not invisible. No-ops when the run
+      // already notified or produced nothing user-facing, so a schedule whose
+      // prompt ends in an explicit `assistant notifications send` is unaffected.
+      // Awaited rather than fired and forgotten: the schedule worker can exit
+      // once the tick's loop drains, and a detached emit would race that exit.
+      await emitScheduleResultNotification({
+        scheduleId: job.id,
+        scheduleName: job.name,
+        conversationId,
+        runId,
+        runStartedAt,
+        rlog: log,
+      });
       if (isOneShot) {
         await completeOneShot(job.id);
       }

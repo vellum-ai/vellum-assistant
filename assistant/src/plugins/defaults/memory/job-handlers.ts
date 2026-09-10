@@ -72,6 +72,7 @@ import {
 } from "./v2/backfill-jobs.js";
 // V3.
 import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
+import { listOverlongSections } from "./v3/overlong-sections.js";
 
 const log = getLogger("memory-job-handlers");
 
@@ -276,7 +277,9 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_v2_consolidate",
     handler: async (job, config) =>
-      resolveConsolidationOutcome(await memoryV2ConsolidateJob(job, config)),
+      resolveConsolidationOutcome(
+        await memoryV2ConsolidateJob(job, config, { listOverlongSections }),
+      ),
   },
   {
     type: "memory_v2_reembed",

@@ -1,10 +1,25 @@
 package ai.vellum.assistant;
 
+import androidx.annotation.Nullable;
 import java.net.URI;
 import java.net.URISyntaxException;
 
-final class AndroidAppLink {
+public final class AndroidAppLink {
+    private static final String CONVERSATION_PATH = "/assistant/conversations/";
+    // A conversation id that survives both ownsPath and the normalization
+    // check: no escaping, no relative segment, nothing that rewrites the route.
+    private static final String CONVERSATION_ID_PATTERN = "[A-Za-z0-9_-]{1,128}";
+
     private AndroidAppLink() {}
+
+    /** The link {@link #parse} accepts back for a conversation. */
+    @Nullable
+    public static String conversationUrl(String host, @Nullable String conversationId) {
+        if (conversationId == null || !conversationId.matches(CONVERSATION_ID_PATTERN)) {
+            return null;
+        }
+        return "https://" + host + CONVERSATION_PATH + conversationId;
+    }
 
     static URI parse(String raw, String expectedHost) {
         if (raw == null || expectedHost == null) {
@@ -50,7 +65,7 @@ final class AndroidAppLink {
             case "/assistant/settings/usage":
                 return true;
             default:
-                return path.startsWith("/assistant/conversations/")
+                return path.startsWith(CONVERSATION_PATH)
                     || path.startsWith("/assistant/settings/billing/");
         }
     }

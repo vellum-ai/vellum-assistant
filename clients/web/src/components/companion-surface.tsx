@@ -1,6 +1,8 @@
 import {
   AudioLines,
   Check,
+  Circle,
+  Eraser,
   Eye,
   EyeOff,
   Mic,
@@ -8,6 +10,8 @@ import {
   Pencil,
   ScreenShare,
   ScrollText,
+  Slash,
+  Square,
   Volume2,
   VolumeX,
   X,
@@ -29,9 +33,9 @@ import type {
 import {
   COMPANION_BASE_AVATAR_BOX,
   COMPANION_BASE_AVATAR_IMAGE,
-  COMPANION_BASE_RESTING_PILL_HEIGHT,
 } from "@vellumai/ipc-contract";
 import type {
+  CompanionAnnotationTool,
   CompanionCharacter,
   CompanionWatchRetro,
   VoiceActivityControlAction,
@@ -240,35 +244,39 @@ const AVATAR_IMAGE = COMPANION_BASE_AVATAR_IMAGE;
  * colour is not, and being hollow is what keeps it from taking the screen away
  * from whatever the user is actually working in.
  *
- * **Two sizes, because the shape answers the pointer.** `idle` is the marker:
- * the creature is tucked behind it and peeks out of it every few seconds.
- * `active` is what a hand arriving grows it into, big enough for the creature
- * to stand up in. That growth is the whole of what hover does here, and it is
- * why the creature coming out and the pill opening read as one gesture rather
- * than two.
+ * **Two sizes, because the shape gives way to the creature.** `idle` is the
+ * marker: the creature is tucked behind it and peeks out of it every few
+ * seconds. `closing` is where it ends when a hand arrives and the creature
+ * stands up, which is on the creature's own artwork: the marker draws in from
+ * both ends until it is a ring the size of the creature, and goes out as the
+ * creature reaches full size. One gesture, and the thing it hands the surface
+ * over to is the creature.
  *
- * **Only `active` scales with the creature.** It has to contain it, so at
- * `ridiculous` it is five times the pill it is at `small`. `idle` holds one
- * size on every setting: sizing the creature is a statement about the
- * creature, and someone who wants a big mascot when they look at it has not
- * asked for a big lozenge sitting over their work all day. The rim holds one
- * thickness for the same reason, so the line stays a line instead of
+ * **Inward, not outward.** The pill used to grow into a frame the creature
+ * stood inside. The marker is wide and the creature is not, so that read as
+ * the surface swelling under the pointer and then the creature appearing in
+ * the middle of it, which is two events; drawing in reads as one shape
+ * becoming the other. It also leaves nothing lit behind the standing creature,
+ * which is the state hover is actually for.
+ *
+ * **Only `closing` scales with the creature**, because it lands on it. `idle`
+ * holds one size on every setting: sizing the creature is a statement about
+ * the creature, and someone who wants a big mascot when they look at it has
+ * not asked for a big lozenge sitting over their work all day. The rim holds
+ * one thickness for the same reason, so the line stays a line instead of
  * thickening into a frame.
  */
 const RESTING_PILL = {
   /** The marker. Wider than the artwork it stands in for, and hollow. */
   idle: { width: 64, height: 14 },
   /**
-   * What a pointer grows it into: the frame the whole creature stands in.
-   *
-   * The height is the contract's, because main places the window by it: this
-   * shape reaches further below the avatar's centre than the creature does,
-   * and a placement that did not know how far would hang its lower rim off
-   * the bottom of the display.
+   * Where the line ends up: the creature's own artwork, squared, so a
+   * `rounded-full` shape drawn at it is a ring on the creature's edge. Scaled
+   * with the creature by the caller, since the creature is what it lands on.
    */
-  active: { width: 150, height: COMPANION_BASE_RESTING_PILL_HEIGHT },
+  closing: AVATAR_IMAGE,
   /** The lit line's thickness, at every size and every setting. */
-  rim: 2.5,
+  rim: 2,
   /** How far that line throws light, as the nearer of its two blooms. */
   bloom: 4,
 };
@@ -424,6 +432,18 @@ export const FALLBACK_WIDTHS: Record<
   // the row's gaps.
   call: 4 + CALL_LINE_WIDTH + CALL_CONTROLS_WIDTH,
 };
+
+/**
+ * The keys that make the call row's presses from anywhere on the desktop, as
+ * the caption spells them (`⌥S`). One per control that has a key; the row's
+ * other controls have none and are named alone.
+ */
+export interface CompanionCallShortcuts {
+  share: string;
+  draw: string;
+  muteMicrophone: string;
+  muteAssistant: string;
+}
 
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
@@ -614,12 +634,57 @@ export interface CompanionSurfaceProps {
    */
   annotating?: boolean;
   /**
+   * What a press on that frame draws, which the strip Draw opens shows held
+   * down. Main's the way {@link CompanionSurfaceProps.annotating} is, and
+   * read the same way: the pill chooses, and this is what main did with it.
+   *
+   * Absent is a shell that names no tool, which is a shell with only the
+   * pencil, and then no strip is drawn: a strip offering shapes to a shell
+   * that cannot take the choice would draw the pencil held down whatever
+   * was pressed.
+   */
+  annotationTool?: CompanionAnnotationTool;
+  /** A press on the strip: the tool the user reached for. */
+  onAnnotationTool?: (tool: CompanionAnnotationTool) => void;
+  /**
+   * The strip of drawing tools, handed out for the reason
+   * {@link CompanionSurfaceProps.rootRef} is: it stands off the pill, above
+   * or below it, and the host hit-tests a union of rects, so a strip it is
+   * not told about is one whose presses fall through to the desktop.
+   */
+  drawToolsRef?: Ref<HTMLDivElement>;
+  /**
    * The press of Draw, carrying the state it is asking for rather than being
    * a toggle. The mode is the shell's and the shell may refuse it (a share
    * that has ended takes it down), so the press says what it wants and the
    * pushed state says what happened.
    */
   onAnnotate?: (annotating: boolean) => void;
+  /**
+   * Whether anything is on the shared surface to take down: the assistant's
+   * marks, or the mode the user's own ink is drawn under. Draws Clear beside
+   * Draw for as long as it is.
+   *
+   * Absent rather than disabled when nothing is, for the reason Draw is
+   * absent off a share: a control with nothing to be about. The host says,
+   * since the marks are on a window this surface cannot see.
+   */
+  marked?: boolean;
+  /**
+   * The press of Clear: take down everything on the shared surface and leave
+   * the share running. Main's, the way Draw's press is: it holds the marks
+   * and opened the frame the ink is on, and the pushed state says what
+   * happened.
+   */
+  onClearMarks?: () => void;
+  /**
+   * The keys the call row's controls also answer to, as the caption spells
+   * them (`⌥S`). Absent where the host watches no chord, so the caption never
+   * names a key that does nothing. The share and the pen are shown their key
+   * only while the row offers Share at all, since that is the answer the
+   * binding is armed on too.
+   */
+  shortcuts?: CompanionCallShortcuts;
   /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
@@ -788,7 +853,13 @@ export function CompanionSurface({
   onShare,
   onStopShare,
   annotating = false,
+  annotationTool,
+  onAnnotationTool,
+  drawToolsRef,
   onAnnotate,
+  marked = false,
+  onClearMarks,
+  shortcuts,
   onAvatarClick,
   working = false,
   watching = false,
@@ -944,22 +1015,23 @@ export function CompanionSurface({
   /**
    * The creature's box over the one this file's lengths are authored for.
    *
-   * The activated pill takes it, because it has to contain the creature; the
-   * idle marker and the rim do not. See {@link RESTING_PILL}.
+   * The closing ring takes it, because it lands on the creature; the idle
+   * marker and the rim do not. See {@link RESTING_PILL}.
    */
   const restingScale = avatarBox / COMPANION_BASE_AVATAR_BOX;
 
   /**
-   * The resting pill's box: the marker, or what a pointer has grown it into.
+   * The lit line's box: the marker, or the ring it draws in to on the
+   * creature's own edge as the creature stands up.
    *
    * Read off `creatureOut` rather than off `hovered`, so the one thing that
-   * decides whether the creature is standing decides whether there is
-   * anywhere for it to stand. The two are the same gesture.
+   * decides whether the creature is standing decides where the line goes. The
+   * two are the same gesture: the marker becomes the creature.
    */
   const restingBox = creatureOut
     ? {
-        width: RESTING_PILL.active.width * restingScale,
-        height: RESTING_PILL.active.height * restingScale,
+        width: RESTING_PILL.closing * restingScale,
+        height: RESTING_PILL.closing * restingScale,
       }
     : RESTING_PILL.idle;
 
@@ -1115,12 +1187,19 @@ export function CompanionSurface({
                 shareEnabled={shareEnabled}
                 sharePicking={sharePicking}
                 annotating={annotating}
+                marked={marked}
+                annotationTool={annotationTool}
+                cardGrowth={cardGrowth}
+                drawToolsRef={drawToolsRef}
+                onAnnotationTool={onAnnotationTool}
                 onControl={onControl}
                 onWatch={onWatch}
                 onTeach={onTeach}
                 onShare={onShare}
                 onStopShare={onStopShare}
                 onAnnotate={onAnnotate}
+                onClearMarks={onClearMarks}
+                shortcuts={shortcuts}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -1139,8 +1218,8 @@ export function CompanionSurface({
       </div>
       {/* The pill the surface rests in: the assistant's own colour as a lit
         edge and nothing inside it. A marker with the creature tucked behind
-        it until a pointer arrives, then grown to the size the creature stands
-        up in. See {@link RESTING_PILL}.
+        it until a pointer arrives, then drawn in onto the creature and out.
+        See {@link RESTING_PILL}.
 
         A sibling of the pill that carries content rather than the same
         element, and the two cross-fade. They are different shapes in different
@@ -1150,26 +1229,31 @@ export function CompanionSurface({
         the centre to an edge mid-transition, which reads as the surface
         flinching.
 
+        **The footprint and the line are two nodes, and only the line moves.**
+        This one is the marker's own box and never changes size, because it is
+        what the pointer is hit-tested against: a shape that drew in from under
+        the hand that arrived would take the surface out from under it, the
+        pointer would land on the desktop, the creature would tuck back, and
+        the marker would return under the same stationary pointer to start
+        again. So the reach stays the marker's for as long as the creature is
+        out, and staying anywhere the marker covered keeps it out.
+
         A drag handle, as the creature and the pill both are. It is the largest
         thing on screen at rest, so it is what a hand reaches for to move the
-        surface, and a 150pt shape that ignored the press would read as broken.
+        surface, and a shape that ignored the press would read as broken.
         `aria-hidden` because it says nothing the creature beside it does not
         already say: the creature carries the accessible name and the press. */}
       <div
-        className="absolute cursor-grab rounded-full transition-[width,height,opacity] duration-300 active:cursor-grabbing"
+        className="absolute cursor-grab active:cursor-grabbing"
         style={{
-          width: inUnits(restingBox.width),
-          height: inUnits(restingBox.height),
-          // **Faded is not gone.** Opacity leaves the box where it is, and
-          // this one is drawn after the pill that carries content and centred
-          // on the same point the call's bar stands on, so a live call would
-          // hand its presses to an invisible sheet instead of to mute and
-          // end. It takes the pointer only while it is the shape on screen.
-          pointerEvents: expanded ? "none" : undefined,
-          // A reader who asked for stillness keeps the cross-fade and loses
-          // the growth: the box going from a marker to a frame is travel
-          // across the screen, which is the thing they asked not to have.
-          transitionProperty: reduce ? "opacity" : undefined,
+          width: inUnits(RESTING_PILL.idle.width),
+          height: inUnits(RESTING_PILL.idle.height),
+          // **The reach is not the drawing.** This box outlives the line
+          // inside it, and it is drawn after the pill that carries content and
+          // centred on the same point the call's bar stands on, so a live call
+          // would hand its presses to an invisible sheet instead of to mute
+          // and end. It takes the pointer only while the creature is in it.
+          pointerEvents: creatureOut ? "none" : undefined,
           // Centred on the point the host put the window around, which is the
           // point the creature holds. The creature is a sibling drawn on that
           // same point, so centring the pill on it is what puts the creature
@@ -1178,21 +1262,40 @@ export function CompanionSurface({
           left: "50%",
           top: lineAt(cardGrowth, 0),
           transform: "translate(-50%, -50%)",
-          boxShadow: restingRim(
-            accentHex,
-            inUnits(RESTING_PILL.rim),
-            inUnits(RESTING_PILL.bloom),
-          ),
-          // Gone the moment there is a pill with something in it. Not
-          // unmounted: the fade is what makes the two read as one surface
-          // changing shape rather than one object replacing another.
-          opacity: expanded ? 0 : 1,
         }}
         onPointerDown={onSurfacePointerDown}
         onContextMenu={onSurfaceContextMenu}
         ref={restingPillRef}
         aria-hidden
-      />
+      >
+        {/* The lit line itself, centred in that footprint: the marker at rest,
+          and the ring on the creature's own edge once the creature is out.
+          Drawn in rather than grown, so the marker reads as becoming the
+          creature rather than as swelling around it. */}
+        <div
+          className="absolute top-1/2 left-1/2 rounded-full transition-[width,height,opacity] duration-300"
+          style={{
+            width: inUnits(restingBox.width),
+            height: inUnits(restingBox.height),
+            transform: "translate(-50%, -50%)",
+            transitionTimingFunction: "cubic-bezier(.2,.8,.2,1)",
+            // A reader who asked for stillness keeps the fade and loses the
+            // draw-in: the line travelling in across the screen is the thing
+            // they asked not to have.
+            transitionProperty: reduce ? "opacity" : undefined,
+            boxShadow: restingRim(
+              accentHex,
+              inUnits(RESTING_PILL.rim),
+              inUnits(RESTING_PILL.bloom),
+            ),
+            // Gone the moment the creature is out, which is what the draw-in
+            // hands the surface over to. Not unmounted: the fade is what makes
+            // the two read as one surface changing shape rather than one
+            // object replacing another.
+            opacity: creatureOut ? 0 : 1,
+          }}
+        />
+      </div>
       {/* The creature's name for a press, the way the Dock names an icon: a
           small label centred above it rather than a control standing beside
           it.
@@ -1323,6 +1426,11 @@ const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
  * Dock's own tooltip carries nothing but the name. A small rectangle rather
  * than the pill's stadium shape, so the two never share a silhouette.
  *
+ * `shortcut` is the key that does the same thing, after the name and dimmer
+ * than it, the way a menu writes its accelerator: the name is what the control
+ * is, the key is a second way to it. Glyphs rather than copy, so it is not
+ * translated.
+ *
  * Placed by the caller: `className` carries whether it is shown and any lift
  * off the thing it names, `style` any offsets the layout works out. Absolute
  * with no offsets of its own, so a caller that sets none gets the static
@@ -1335,11 +1443,13 @@ function Caption({
   className,
   style,
   label,
+  shortcut,
   ...data
 }: {
   className: string;
   style?: CSSProperties;
   label: string;
+  shortcut?: string;
 } & Partial<Record<`data-${string}`, string>>) {
   return (
     <span
@@ -1349,6 +1459,11 @@ function Caption({
       {...data}
     >
       {label}
+      {shortcut === undefined ? null : (
+        <span className="ml-1.5 font-normal text-white/60" data-shortcut>
+          {shortcut}
+        </span>
+      )}
       {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
           nudged down to meet it, so the two blurred panes meet at a seam
           rather than compositing on top of each other. Centred under the
@@ -1812,12 +1927,19 @@ function CallBody({
   shareEnabled,
   sharePicking,
   annotating,
+  marked,
+  annotationTool,
+  cardGrowth,
+  drawToolsRef,
+  onAnnotationTool,
   onControl,
   onWatch,
   onTeach,
   onShare,
   onStopShare,
   onAnnotate,
+  onClearMarks,
+  shortcuts,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -1828,12 +1950,19 @@ function CallBody({
   shareEnabled: boolean;
   sharePicking: boolean;
   annotating: boolean;
+  marked: boolean;
+  annotationTool?: CompanionAnnotationTool;
+  cardGrowth: CompanionSurfaceCardGrowth;
+  drawToolsRef?: Ref<HTMLDivElement>;
+  onAnnotationTool?: (tool: CompanionAnnotationTool) => void;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
   onTeach?: () => void;
   onShare?: () => void;
   onStopShare?: () => void;
   onAnnotate?: (annotating: boolean) => void;
+  onClearMarks?: () => void;
+  shortcuts?: CompanionCallShortcuts;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1916,6 +2045,7 @@ function CallBody({
         sharing={sharing}
         shareEnabled={shareEnabled}
         sharePicking={sharePicking}
+        shortcut={shareEnabled ? shortcuts?.share : undefined}
         onShare={onShare}
         onStopShare={onStopShare}
       />
@@ -1924,7 +2054,20 @@ function CallBody({
       <DrawButton
         sharing={sharing}
         annotating={annotating}
+        shortcut={shareEnabled ? shortcuts?.draw : undefined}
+        tool={annotationTool}
+        cardGrowth={cardGrowth}
+        toolsRef={drawToolsRef}
         onAnnotate={onAnnotate}
+        onTool={onAnnotationTool}
+      />
+      {/* Behind Draw and only while something is on the shared surface,
+          because that is what it acts on: the marks come down and the share
+          goes on. */}
+      <ClearButton
+        sharing={sharing}
+        marked={marked}
+        onClearMarks={onClearMarks}
       />
       <PillButton
         icon={
@@ -1935,6 +2078,7 @@ function CallBody({
             ? t("companionSurface.unmuteMicrophone")
             : t("companionSurface.muteMicrophone")
         }
+        shortcut={shortcuts?.muteMicrophone}
         onClick={() => {
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
@@ -1952,6 +2096,7 @@ function CallBody({
             ? t("companionSurface.unmuteAssistant")
             : t("companionSurface.muteAssistant")
         }
+        shortcut={shortcuts?.muteAssistant}
         onClick={() => {
           onControl?.(
             outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
@@ -1981,12 +2126,14 @@ function ShareButton({
   sharing,
   shareEnabled,
   sharePicking,
+  shortcut,
   onShare,
   onStopShare,
 }: {
   sharing: boolean;
   shareEnabled: boolean;
   sharePicking: boolean;
+  shortcut?: string;
   onShare?: () => void;
   onStopShare?: () => void;
 }) {
@@ -1998,6 +2145,7 @@ function ShareButton({
     <PillButton
       icon={<ScreenShare className="size-4" />}
       label={t("companionSurface.share")}
+      shortcut={shortcut}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
     />
@@ -2018,27 +2166,180 @@ function ShareButton({
  * of a click on the app underneath. That is a big thing to do quietly, which
  * is why it is a mode with a control drawn held down for as long as it lasts
  * rather than something that happens on a modifier nobody can see.
+ *
+ * While the mode is on, the tools stand off this control in a strip of their
+ * own ({@link DrawTools}). Off it rather than in the row, since the row is
+ * one thin line of controls by design and the tools are a choice inside one
+ * of them; and only while the mode is on, since a tool is a fact about the
+ * next press on the frame, and off the mode there is no such press. Not at
+ * all on a shell that names no tool: that shell cannot take the choice.
  */
 function DrawButton({
   sharing,
   annotating,
+  shortcut,
+  tool,
+  cardGrowth,
+  toolsRef,
   onAnnotate,
+  onTool,
 }: {
   sharing: boolean;
   annotating: boolean;
+  shortcut?: string;
+  /** Absent on a shell with only the pencil, which draws no strip. */
+  tool?: CompanionAnnotationTool;
+  cardGrowth: CompanionSurfaceCardGrowth;
+  toolsRef?: Ref<HTMLDivElement>;
   onAnnotate?: (annotating: boolean) => void;
+  onTool?: (tool: CompanionAnnotationTool) => void;
 }) {
   const { t } = useTranslation();
   if (!sharing) {
     return null;
   }
   return (
+    <>
+      <PillButton
+        icon={<Pencil className="size-4" />}
+        label={t("companionSurface.draw")}
+        shortcut={shortcut}
+        pressed={annotating}
+        // The anchor the strip hangs off. See `.companion-draw-anchor`.
+        className="companion-draw-anchor"
+        onClick={() => {
+          onAnnotate?.(!annotating);
+        }}
+      />
+      {annotating && tool !== undefined && (
+        <DrawTools
+          tool={tool}
+          cardGrowth={cardGrowth}
+          toolsRef={toolsRef}
+          onTool={onTool}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * The drawing tools, in a strip hung off the Draw control: the pencil, a
+ * line, a box and a circle, the current one drawn held down.
+ *
+ * **On the card side of the pill.** The canvas keeps only its own pad on the
+ * other side, which a strip standing there would be cut off by, so the strip
+ * goes where the introduction's card and the picker go: above the pill where
+ * the card grows up, below it where the card grows down. The stylesheet
+ * places it against the control by CSS anchor positioning
+ * (`.companion-draw-tools`), so nothing here measures where in the row the
+ * control ended up, and the row's own clipping cannot take it: its containing
+ * block is the row's positioned parent, the same way the captions escape.
+ *
+ * A press on the strip's own padding is stopped like a press on a control,
+ * so the strip is not a drag handle for the surface: it is a menu, and a
+ * menu that moved the pill when missed would move the thing it was hung off.
+ */
+function DrawTools({
+  tool,
+  cardGrowth,
+  toolsRef,
+  onTool,
+}: {
+  tool: CompanionAnnotationTool;
+  cardGrowth: CompanionSurfaceCardGrowth;
+  toolsRef?: Ref<HTMLDivElement>;
+  onTool?: (tool: CompanionAnnotationTool) => void;
+}) {
+  const { t } = useTranslation();
+  const tools: readonly {
+    tool: CompanionAnnotationTool;
+    icon: ReactNode;
+    label: string;
+  }[] = [
+    {
+      tool: "freehand",
+      icon: <Pencil className="size-4" />,
+      label: t("companionSurface.drawFreehand"),
+    },
+    {
+      tool: "line",
+      icon: <Slash className="size-4" />,
+      label: t("companionSurface.drawLine"),
+    },
+    {
+      tool: "box",
+      icon: <Square className="size-4" />,
+      label: t("companionSurface.drawBox"),
+    },
+    {
+      tool: "circle",
+      icon: <Circle className="size-4" />,
+      label: t("companionSurface.drawCircle"),
+    },
+  ];
+  return (
+    <div
+      className={`companion-draw-tools absolute flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-white/10 bg-[#17181b]/95 p-0.5 shadow-lg shadow-black/40 ${
+        cardGrowth === "up"
+          ? "companion-draw-tools-above"
+          : "companion-draw-tools-below"
+      }`}
+      role="group"
+      aria-label={t("companionSurface.drawTools")}
+      data-testid="companion-draw-tools"
+      ref={toolsRef}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+      }}
+    >
+      {tools.map((one) => (
+        <PillButton
+          key={one.tool}
+          icon={one.icon}
+          label={one.label}
+          pressed={tool === one.tool}
+          onClick={() => {
+            onTool?.(one.tool);
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Take down everything on the shared surface: the assistant's marks, and
+ * the user's own ink. Beside Draw, since both act on the same surface.
+ *
+ * Absent unless something is up, for the reason {@link DrawButton} is absent
+ * off a share: a control with nothing to be about. What counts as something
+ * up is the host's to say, since the marks are on a window this surface
+ * cannot see.
+ *
+ * Not the end of anything. The share goes on, the mode stays where it was,
+ * and the assistant's next mark lands on a clean surface: this is how a mark
+ * comes down without ending the share it was about.
+ */
+function ClearButton({
+  sharing,
+  marked,
+  onClearMarks,
+}: {
+  sharing: boolean;
+  marked: boolean;
+  onClearMarks?: () => void;
+}) {
+  const { t } = useTranslation();
+  if (!sharing || !marked) {
+    return null;
+  }
+  return (
     <PillButton
-      icon={<Pencil className="size-4" />}
-      label={t("companionSurface.draw")}
-      pressed={annotating}
+      icon={<Eraser className="size-4" />}
+      label={t("companionSurface.clearMarks")}
       onClick={() => {
-        onAnnotate?.(!annotating);
+        onClearMarks?.();
       }}
     />
   );
@@ -2198,16 +2499,22 @@ const CONTROL_CAPTION_LIFT = "-translate-y-[calc(50%+22px)]";
 function PillButton({
   icon,
   label,
+  shortcut,
   tone,
   showLabel = false,
   pressed,
+  className = "",
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  /** The key that makes the same press, written into the caption after the name. */
+  shortcut?: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
   pressed?: boolean;
+  /** A name for the stylesheet, for a control something else is placed against. */
+  className?: string;
   onClick?: () => void;
 }) {
   return (
@@ -2221,7 +2528,7 @@ function PillButton({
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${className} ${
         pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"
@@ -2241,6 +2548,7 @@ function PillButton({
         // hold that this word is hidden until the pointer arrives.
         <Caption
           label={label}
+          shortcut={shortcut}
           className={`opacity-0 group-hover:opacity-100 ${CONTROL_CAPTION_LIFT}`}
           data-label="hover"
         />

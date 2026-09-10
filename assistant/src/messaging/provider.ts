@@ -56,14 +56,21 @@ export interface MessagingProvider {
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult>;
-  sendMessage(
+
+  // ── Optional operations (platforms implement what they support) ───
+
+  /**
+   * Send through the provider's own API. A provider whose channel has a
+   * direct transport omits this: its sends go through the transport, which
+   * is the one send implementation per addressable channel, and the
+   * messaging tool routes there before it looks for this method.
+   */
+  sendMessage?(
     connection: OAuthConnection | undefined,
     conversationId: string,
     text: string,
     options?: SendOptions,
   ): Promise<SendResult>;
-
-  // ── Optional operations (platforms implement what they support) ───
 
   getThreadReplies?(
     connection: OAuthConnection | undefined,

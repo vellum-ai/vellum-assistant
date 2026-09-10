@@ -12,6 +12,7 @@ import { isElectron } from "@/runtime/is-electron";
 import type {
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
@@ -148,6 +149,44 @@ export function setCompanionAnnotating(annotating: boolean): void {
 }
 
 /**
+ * The same mode, turned over.
+ *
+ * For the keyboard, which has one gesture for both directions and no view of
+ * the mode to work out which one it is asking for. Main holds it, so main is
+ * the side that can flip it; a caller comparing against the last pushed state
+ * would be a press behind whenever the two crossed.
+ */
+export function toggleCompanionAnnotating(): void {
+  bridge()?.toggleAnnotating?.();
+}
+
+/**
+ * Take down everything on the shared surface without ending the share: the
+ * assistant's marks, and the user's own ink.
+ *
+ * Main's, for the reason the mode is: it holds the assistant's marks, and the
+ * ink is on a window it opened that this renderer cannot reach. What comes
+ * back is the marks gone from the pushed state and `marksCleared` stepped on
+ * it.
+ */
+export function clearCompanionMarks(): void {
+  bridge()?.clearMarks?.();
+}
+
+/**
+ * Choose what a press on the shared surface draws: the pointer's own path, or
+ * a line, box or circle stretched between press and release.
+ *
+ * Main's for the reason the mode is: the pill chooses and the frame draws, and
+ * what comes back is `annotationTool` on the pushed state.
+ */
+export function setCompanionAnnotationTool(
+  tool: CompanionAnnotationTool,
+): void {
+  bridge()?.setAnnotationTool?.(tool);
+}
+
+/**
  * A mark the user is drawing on the shared surface, from the frame's own
  * window: the hand still on it, or off it with the strokes it left.
  *
@@ -165,6 +204,20 @@ export function annotateCompanionShare(
 }
 
 /**
+ * Tell main the user is scrolling the app under the frame, or has moved the
+ * pointer since, from the frame's own window while drawing is on.
+ *
+ * The frame takes the wheel along with the presses and cannot forward it, so
+ * main answers a scroll by making the frame click-through until the pointer
+ * moves: the rest of the scroll reaches the app underneath, and the first
+ * forwarded move is the frame's cue to take the mouse back. Main holds the
+ * state; this only reports the two events it cannot see.
+ */
+export function setCompanionFrameScrolling(scrolling: boolean): void {
+  bridge()?.setFrameScrolling?.(scrolling);
+}
+
+/**
  * One frame of what the user is sharing, as the helper takes it.
  *
  * The one call in this module made from the app's own window on a cadence
@@ -173,6 +226,21 @@ export function annotateCompanionShare(
  * predates the share, and whenever the helper could not take one, and the
  * caller reads every one of those as a frame to skip.
  */
+/**
+ * Tell the shell a frame of `target` reached the call.
+ *
+ * Sent on the acknowledgement rather than on the capture, because those are
+ * different moments: a frame is taken here, then uploaded and sent, and a
+ * reconnect or a failed upload can void it in between. Main gates the
+ * assistant's own marks on having shown the current surface, so counting a
+ * capture as a showing would open that gate for a picture the call never got.
+ *
+ * A no-op off the desktop shell, the bargain every call in this module makes.
+ */
+export function reportCompanionSharedFrame(target: WatchCaptureTarget): void {
+  bridge()?.sharedFrame?.(target);
+}
+
 export function captureCompanionScreen(
   target: WatchCaptureTarget,
 ): Promise<ScreenCaptureFrame | null> {

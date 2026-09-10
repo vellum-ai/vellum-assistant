@@ -125,7 +125,7 @@ function groupSection(all: Conversation[] = DERIVED): SidebarSection {
 }
 
 function assistantSection(all: Conversation[] = []): SidebarSection {
-  return { type: "assistant", key: "assistant", label: "On My Mind", all };
+  return { type: "assistant", key: "assistant", label: "From me", all };
 }
 
 function openGate() {

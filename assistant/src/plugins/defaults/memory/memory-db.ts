@@ -31,6 +31,10 @@ export function memorySqliteOrNull(context: string) {
   return sqlite;
 }
 
+/** The raw memory connection {@link memorySqliteOrNull} resolves, for modules
+ *  that hand the handle to a helper. */
+export type MemorySqlite = NonNullable<ReturnType<typeof memorySqliteOrNull>>;
+
 /**
  * The drizzle counterpart of {@link memorySqliteOrNull}: returns the memory
  * connection's `DrizzleDb`, or `null` (with the same degraded-mode warning)

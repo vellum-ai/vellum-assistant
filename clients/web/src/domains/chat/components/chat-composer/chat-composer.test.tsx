@@ -11,13 +11,7 @@
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef, type FormEvent, type ReactNode } from "react";
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  within,
-} from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 
 import {
   type ChatAttachment,
@@ -48,7 +42,7 @@ import {
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // The two device-side axes are driven by stubbing `window.matchMedia`, not by
 // mocking `use-is-mobile`, so a test says which signal the composer actually
@@ -873,9 +867,7 @@ function renderTouchTabletComposer(props: RenderComposerProps = {}) {
  * composer has focus, because the status controls beside the pills do.
  */
 function pillsRow(container: HTMLElement) {
-  return container.querySelector(
-    '[data-slot="composer-settings-pills-group"]',
-  );
+  return container.querySelector('[data-slot="composer-settings-pills-group"]');
 }
 
 /** The always-present row that holds the pills group and the status controls. */
@@ -1162,6 +1154,56 @@ describe("ChatComposer — send/stop button visibility", () => {
     useTurnStore.setState(INITIAL_TURN_STATE);
     const html = renderComposer({ isAssistantBusy: true });
     expect(html).toContain('aria-label="Stop generating"');
+  });
+});
+
+/**
+ * Under `interrupt-on-send` a turn in flight is not a reason to take Send
+ * away: the message the user types stops that turn and is answered at once, so
+ * Stop has nothing left to offer that Send does not. The row keeps its resting
+ * shape for the whole turn.
+ */
+describe("ChatComposer: send/stop under interrupt-on-send", () => {
+  function setInterruptOnSend(value: boolean) {
+    act(() => {
+      useAssistantFeatureFlagStore.getState().setFlags({
+        interruptOnSend: value,
+      });
+    });
+  }
+
+  afterEach(() => {
+    setInterruptOnSend(false);
+  });
+
+  test("a busy composer offers Send, never Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Send message"');
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("a busy composer with an empty draft still offers Send, not Stop", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "", isAssistantBusy: true });
+    expect(html).not.toContain('aria-label="Stop generating"');
+  });
+
+  test("the attach control stays on the busy row", () => {
+    setInterruptOnSend(true);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Attach file"');
+  });
+
+  test("the flag off leaves the busy row exactly as it was", () => {
+    setInterruptOnSend(false);
+    viewport.set({ narrow: false, coarsePointer: false });
+    const html = renderComposer({ input: "hello", isAssistantBusy: true });
+    expect(html).toContain('aria-label="Stop generating"');
+    expect(html).not.toContain('aria-label="Send message"');
   });
 });
 
@@ -2024,7 +2066,8 @@ describe("ChatComposer: the mobile send slot", () => {
   // classes: it answers to the same width signal that produces the row, so it
   // lands on every narrow window rather than only on the coarse-pointer ones
   // the `touch-mobile:` variant reaches.
-  const SEND_FILL_CLASS = "bg-[var(--system-positive-strong)]";
+  // The fill is the assistant's accent, falling back to the primary token.
+  const SEND_FILL_CLASS = "bg-[var(--avatar-accent-fill,var(--primary-base))]";
 
   test("an empty draft leaves the circular live-voice button in the slot", () => {
     // GIVEN a phone composer with nothing to send
@@ -2136,15 +2179,16 @@ describe("ChatComposer: the mobile send slot", () => {
     }
   });
 
-  test("desktop keeps the primitive's own send chrome", () => {
+  test("desktop keeps the primitive's own send chrome, in the accent", () => {
     // GIVEN a roomy window
     viewport.set({ narrow: false, coarsePointer: false });
     const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
 
-    // THEN none of the row's chrome reaches it
+    // THEN none of the row's chrome reaches it, but the fill is the
+    // assistant's accent at every width
     const send = queryByLabelText("Send message");
     expect(send?.className).not.toContain("rounded-full");
-    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
     expect(glyphClassOf(send)).not.toContain(MOBILE_GLYPH_CLASS);
   });
 });
@@ -3213,67 +3257,5 @@ describe("ChatComposer — text area during a live-voice session", () => {
 
     // THEN the ghost paints as it would without a session
     expect(container.textContent).toContain("ghost completion text");
-  });
-});
-
-/**
- * The Eyes camera control. The viewfinder it raises mounts with the chat
- * layout's desktop branch, so every surface that branch skips must skip the
- * control too or the press opens a camera nobody can see or close.
- */
-describe("Eyes toggle placement", () => {
-  const EYES_LABEL = "Turn on camera vision";
-
-  function setVisionMode(value: "off" | "on") {
-    act(() => {
-      useClientFeatureFlagStore
-        .getState()
-        .setStringFlags({ visionMode: value }, null);
-    });
-  }
-
-  beforeEach(() => {
-    setVisionMode("on");
-    mockIsNativeMobile = false;
-  });
-
-  afterEach(() => {
-    setVisionMode("off");
-    mockIsNativeMobile = false;
-  });
-
-  /** A mouse-driven window with room to spare: the row the toggle belongs to. */
-  function renderDesktopComposer(props: RenderComposerProps = {}) {
-    viewport.set({ narrow: false, coarsePointer: false });
-    return renderComposerView(props);
-  }
-
-  test("rides the desktop action row", () => {
-    const { container } = renderDesktopComposer({ ...SETTINGS_SLOTS });
-
-    expect(within(container).queryByLabelText(EYES_LABEL)).not.toBeNull();
-  });
-
-  test("is absent below the width breakpoint, where the tile does not mount", () => {
-    const { container } = renderPhoneComposer({ ...SETTINGS_SLOTS });
-
-    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
-  });
-
-  test("is absent on a roomy native shell, which clears that breakpoint", () => {
-    // A Capacitor tablet in landscape: wide enough for the desktop row, and the
-    // one shell whose viewfinder is a native preview layer rather than a
-    // `getUserMedia` `<video>`.
-    mockIsNativeMobile = true;
-    const { container } = renderTouchTabletComposer({ ...SETTINGS_SLOTS });
-
-    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
-  });
-
-  test("is absent while the vision-mode flag is off", () => {
-    setVisionMode("off");
-    const { container } = renderDesktopComposer({ ...SETTINGS_SLOTS });
-
-    expect(within(container).queryByLabelText(EYES_LABEL)).toBeNull();
   });
 });

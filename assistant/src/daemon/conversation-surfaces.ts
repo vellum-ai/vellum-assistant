@@ -1,3 +1,4 @@
+import type pino from "pino";
 import { v4 as uuid, v7 as uuidv7 } from "uuid";
 import { z } from "zod";
 
@@ -54,6 +55,7 @@ import {
   isActivationMomentParam,
 } from "../telemetry/activation-funnel.js";
 import { resolveAppId } from "../tools/apps/resolve-app-id.js";
+import { POINT_AT_PROXY_TOOL } from "../tools/computer-use/skill-proxy-bridge.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
@@ -68,6 +70,7 @@ import {
   type SurfaceStateEntry,
 } from "./conversation-surface-state.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
+import { resolveHostCuTarget } from "./host-cu-target.js";
 import type {
   AnySurfaceData,
   CardSurfaceData,
@@ -87,6 +90,7 @@ import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import { isRowVisibleToUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context-types.js";
 import { restingTrust } from "./trust-context-types.js";
+import { turnActorPrincipalId } from "./turn-actor.js";
 export {
   buildSurfaceShowPair,
   type CurrentTurnSurface,
@@ -161,6 +165,24 @@ const NON_BLOCKING_PENDING_SURFACE_TYPES = new Set<SurfaceType>([
   "visual",
   "voice_picker",
 ]);
+
+/**
+ * Whether a surface this conversation showed is still waiting on the user.
+ *
+ * The one-interactive-surface-at-a-time gate reads it to reject a second
+ * card, and the turn boundary reads it to tell a turn that delivered from a
+ * turn that posed a question and handed control back.
+ */
+export function hasBlockingPendingSurface(ctx: {
+  pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
+}): boolean {
+  for (const entry of ctx.pendingSurfaceActions.values()) {
+    if (!NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Surface types that carry no terminal action: the card settles when the user
@@ -613,6 +635,7 @@ export function removeSurfaceBlock(
 const TASK_PROGRESS_TEMPLATE_FIELDS = ["title", "status", "steps"] as const;
 
 const TASK_PROGRESS_CARD_STATUSES = new Set([
+  "pending",
   "in_progress",
   "completed",
   "failed",
@@ -2946,6 +2969,181 @@ function ensureHostCuProxy(ctx: Conversation): HostCuProxy | undefined {
 }
 
 /**
+ * Merge a partial `patch` into a live surface's data and push the result to
+ * every consumer that tracks it: the in-memory `surfaceState`, the client (via
+ * `ui_surface_update`), the current turn's snapshot, and the persisted
+ * `ui_surface` block. The single writer behind the model's `ui_update` tool
+ * and the daemon's own surface mutations.
+ */
+export function applySurfaceUpdate(
+  ctx: Conversation,
+  surfaceId: string,
+  patch: Record<string, unknown>,
+): ToolExecutionResult {
+  // Merge the partial patch into the stored full surface data
+  const stored = ctx.surfaceState.get(surfaceId);
+  let mergedData: AnySurfaceData;
+  let mergedPair: SurfaceShowPair | undefined;
+  if (stored) {
+    if (stored.surfaceType === "card") {
+      patch = normalizeTaskProgressCardPatch(stored.data, patch);
+    }
+    // Push current HTML to undo stack for dynamic pages
+    if (stored.surfaceType === "dynamic_page") {
+      pushUndoState(ctx.surfaceUndoStacks, surfaceId, stored.data.html);
+    }
+    const rawMerged = { ...stored.data, ...patch };
+    if (!isKnownSurfaceType(stored.surfaceType)) {
+      // Restore preserves an unknown-but-non-empty persisted `surfaceType`
+      // verbatim (a newer/custom client-rendered surface). There is no
+      // canonical schema to validate or normalize against (and indexing
+      // `SURFACE_DATA_SCHEMAS` with it would read `undefined` and throw), so
+      // forward the merge opaquely rather than dropping the update, mirroring
+      // restore's verbatim handling of the same types.
+      mergedData = rawMerged as AnySurfaceData;
+      ctx.surfaceState.set(surfaceId, {
+        ...stored,
+        data: rawMerged,
+      } as SurfaceStateEntry);
+    } else {
+      // Validate the merged data through the surface type's canonical schema
+      // so malformed patches (e.g. metadata as a string) are caught here
+      // instead of crashing the client's safeParse. Keep unmodeled
+      // client-owned keys from the raw merge, but take the schema-NORMALIZED
+      // value for every modeled field: a tolerant field (e.g. dynamic_page
+      // `html` is `z.string().catch("")`, file_upload `acceptedTypes` coerces
+      // to `string[]`) can accept a malformed input and coerce it, and later
+      // daemon code (active-workspace injection's `truncateHtml`, undo-stack
+      // pushes) assumes the canonical shape, so storing the raw value would
+      // poison `surfaceState`. `mergedPair.data` holds only modeled keys, so
+      // spreading it over `rawMerged` normalizes those while preserving the
+      // client-owned ones. Only a failed parse reverts to the stored data.
+      mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
+      if (mergedPair !== undefined) {
+        const normalized = { ...rawMerged, ...mergedPair.data };
+        mergedData = normalized as AnySurfaceData;
+        ctx.surfaceState.set(surfaceId, {
+          ...stored,
+          data: normalized,
+        } as SurfaceStateEntry);
+      } else {
+        log.warn(
+          { surfaceId, surfaceType: stored.surfaceType },
+          "ui_update patch produced invalid merged data; reverting to stored data",
+        );
+        mergedData =
+          safeParseSurfaceData(stored.surfaceType, stored.data) ?? stored.data;
+      }
+    }
+  } else {
+    // No stored state for this surfaceId, so its surface type, and
+    // therefore its canonical schema, is unknown; forward the patch
+    // opaquely rather than dropping the update.
+    mergedData = patch;
+  }
+
+  ctx.emit({
+    type: "ui_surface_update",
+    conversationId: ctx.conversationId,
+    surfaceId,
+    data: mergedData,
+  });
+
+  // Keep the persisted snapshot in sync so updates survive conversation
+  // restart. This must track EVERY branch that changed `mergedData`, not
+  // just the schema-parsed one, because the turn-end persist loop writes
+  // `currentTurnSurfaces[idx].data` to the same `ui_surface` block that the
+  // debounced `scheduleSurfaceDataPersist` below writes. If an unknown-type
+  // (opaquely forwarded) update updated `surfaceState` but not this array,
+  // the two writers would persist divergent data and race on which lands
+  // last. Gating on `idx !== -1` alone keeps all three in lockstep.
+  const idx = ctx.currentTurnSurfaces.findIndex(
+    (s) => s.surfaceId === surfaceId,
+  );
+  if (idx !== -1) {
+    ctx.currentTurnSurfaces[idx] = {
+      ...ctx.currentTurnSurfaces[idx],
+      data: mergedData,
+    } as CurrentTurnSurface;
+  }
+
+  // Persist the merged data back to the assistant message's
+  // `ui_surface` content block so a refresh / restart shows the
+  // current state instead of the original creation-time snapshot.
+  // Debounced to coalesce bursts of rapid updates.
+  scheduleSurfaceDataPersist(ctx.conversationId, surfaceId, mergedData);
+
+  return { content: "Surface updated", isError: false };
+}
+
+/**
+ * A task_progress card, or any of its steps, still reads `in_progress`.
+ * Such a card renders a live spinner, which only means something while a
+ * turn is running.
+ */
+function taskProgressStillRunning(data: Record<string, unknown>): boolean {
+  if (!isTaskProgressCardData(data) || !isPlainObject(data.templateData)) {
+    return false;
+  }
+  const templateData = data.templateData;
+  if (templateData.status === "in_progress") {
+    return true;
+  }
+  const steps = Array.isArray(templateData.steps) ? templateData.steps : [];
+  return steps.some(
+    (step) => isPlainObject(step) && step.status === "in_progress",
+  );
+}
+
+/**
+ * Settle every task_progress card the conversation still shows as running.
+ * Called when a turn reaches its terminal outcome (reply, hand-off to the
+ * user, or cancellation): nothing is executing any more, so a spinner is a
+ * false claim. Each `in_progress` card status and step status becomes
+ * `pending`. Steps the model already marked `completed` or `failed` stand,
+ * and no step is promoted to `completed`: the model is the only party that
+ * can assert an outcome, and its silence is not one.
+ *
+ * Covers cards from earlier turns as well as this one. A card the model
+ * resumes on a later turn is advanced back to `in_progress` by its own
+ * `ui_update`, exactly as it would advance a step it is starting.
+ */
+export function settleRunningTaskProgressSurfaces(
+  ctx: Conversation,
+  rlog: pino.Logger,
+): void {
+  for (const [surfaceId, entry] of ctx.surfaceState) {
+    if (entry.surfaceType !== "card" || !taskProgressStillRunning(entry.data)) {
+      continue;
+    }
+    const templateData = entry.data.templateData as Record<string, unknown>;
+    const steps = Array.isArray(templateData.steps) ? templateData.steps : [];
+    const patch = {
+      templateData: {
+        ...(templateData.status === "in_progress" ? { status: "pending" } : {}),
+        steps: steps.map((step) =>
+          isPlainObject(step) && step.status === "in_progress"
+            ? { ...step, status: "pending" }
+            : step,
+        ),
+      },
+    };
+    rlog.info(
+      { surfaceId },
+      "Turn ended with a task_progress card still in progress; settling it to pending",
+    );
+    try {
+      applySurfaceUpdate(ctx, surfaceId, patch);
+      // A settle is the last write of the turn, with no burst to coalesce, so
+      // land it now rather than leaving it to the debounce window.
+      flushSurfaceDataPersist(surfaceId);
+    } catch (err) {
+      rlog.warn({ err, surfaceId }, "Failed to settle task_progress card");
+    }
+  }
+}
+
+/**
  * Resolve a proxy tool call that targets a UI surface.
  * Handles ui_show, ui_update, ui_dismiss, computer_use_* proxy tools, and app_open.
  */
@@ -2996,61 +3194,25 @@ export async function surfaceProxyResolver(
     // validate at the tool-resolution layer for the same reason. The proxy
     // re-checks same-user (single authoritative gate); using the shared
     // helper keeps log payload and error wording identical at both layers.
-    const sourceActorPrincipalId =
-      ctx.currentTurnSourceActorPrincipalId ??
-      ctx.currentTurnAuthContext?.actorPrincipalId ??
-      ctx.authContext?.actorPrincipalId;
-    if (targetClientId != null) {
-      const client = assistantEventHub.getClientById(targetClientId);
-      if (!client) {
-        return {
-          content: `No connected client with id '${targetClientId}'. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        };
-      }
-      if (!client.capabilities.includes("host_cu")) {
-        return {
-          content: `Client '${targetClientId}' does not support host_cu. Run \`assistant clients list --capability host_cu\` to see available clients.`,
-          isError: true,
-        };
-      }
-      const rejection = enforceSameActorOrErrorResult({
-        hub: assistantEventHub,
-        sourceActorPrincipalId,
-        targetClientId,
-        op: "host_cu",
-      });
-      if (rejection) {
-        return rejection;
-      }
+    const sourceActorPrincipalId = turnActorPrincipalId(ctx);
+    const target = resolveHostCuTarget({
+      toolName,
+      targetClientId,
+      sourceActorPrincipalId,
+    });
+    if (target.kind === "error") {
+      return target.result;
     }
+    targetClientId = target.targetClientId;
 
-    // Untargeted CU must resolve to exactly one same-user capable client
-    // before dispatch. Otherwise the proxy would broadcast without a target
-    // actor binding, which is unsafe in shared runtimes.
-    if (targetClientId == null) {
-      const resolved = pickSameUserAutoResolve({
-        hub: assistantEventHub,
-        capability: "host_cu",
-        sourceActorPrincipalId,
-      });
-      if (resolved.kind === "ambiguous") {
-        return ambiguousSameUserError("host_cu");
-      }
-      if (resolved.kind === "match") {
-        targetClientId = resolved.clientId;
-      } else if (
-        assistantEventHub.listClientsByCapability("host_cu").length > 0
-      ) {
-        return {
-          content:
-            "Computer use is not available for the current actor. Connect a host_cu-capable client as the same user.",
-          isError: true,
-        };
-      }
+    // Pointing at the screen is not a computer-use step. It drives nothing
+    // and the user does the acting, so counting it against
+    // `maxStepsPerSession` would let a long walkthrough exhaust a budget
+    // meant for actions and be told to call `computer_use_done`, which has
+    // nothing to do with what it was doing.
+    if (toolName !== POINT_AT_PROXY_TOOL) {
+      hostCuProxy.recordAction(toolName, input, reasoning);
     }
-
-    hostCuProxy.recordAction(toolName, input, reasoning);
     return hostCuProxy.request(
       toolName,
       input,
@@ -3107,10 +3269,7 @@ export async function surfaceProxyResolver(
         ? input.target_client_id
         : undefined;
 
-    const sourceActorPrincipalId =
-      ctx.currentTurnSourceActorPrincipalId ??
-      ctx.currentTurnAuthContext?.actorPrincipalId ??
-      ctx.authContext?.actorPrincipalId;
+    const sourceActorPrincipalId = turnActorPrincipalId(ctx);
     if (targetClientId != null) {
       const client = assistantEventHub.getClientById(targetClientId);
       if (!client) {
@@ -3405,10 +3564,7 @@ export async function surfaceProxyResolver(
     // content rather than a question posed to the user, so a pending one
     // never blocks the next surface.
     if (awaitAction) {
-      const hasExistingPending = [...ctx.pendingSurfaceActions.values()].some(
-        (entry) => !NON_BLOCKING_PENDING_SURFACE_TYPES.has(entry.surfaceType),
-      );
-      if (hasExistingPending) {
+      if (hasBlockingPendingSurface(ctx)) {
         return {
           content:
             "Another interactive surface is already awaiting user input. Present one at a time — wait for the user to respond to the current surface before showing the next.",
@@ -3530,103 +3686,11 @@ export async function surfaceProxyResolver(
   if (toolName === "ui_update") {
     const surfaceId =
       typeof input.surface_id === "string" ? input.surface_id : "";
-    let patch = coerceSurfaceDataRecord(input.data);
-
-    // Merge the partial patch into the stored full surface data
-    const stored = ctx.surfaceState.get(surfaceId);
-    let mergedData: AnySurfaceData;
-    let mergedPair: SurfaceShowPair | undefined;
-    if (stored) {
-      if (stored.surfaceType === "card") {
-        patch = normalizeTaskProgressCardPatch(stored.data, patch);
-      }
-      // Push current HTML to undo stack for dynamic pages
-      if (stored.surfaceType === "dynamic_page") {
-        pushUndoState(ctx.surfaceUndoStacks, surfaceId, stored.data.html);
-      }
-      const rawMerged = { ...stored.data, ...patch };
-      if (!isKnownSurfaceType(stored.surfaceType)) {
-        // Restore preserves an unknown-but-non-empty persisted `surfaceType`
-        // verbatim (a newer/custom client-rendered surface). There is no
-        // canonical schema to validate or normalize against — and indexing
-        // `SURFACE_DATA_SCHEMAS` with it would read `undefined` and throw — so
-        // forward the merge opaquely rather than dropping the update, mirroring
-        // restore's verbatim handling of the same types.
-        mergedData = rawMerged as AnySurfaceData;
-        ctx.surfaceState.set(surfaceId, {
-          ...stored,
-          data: rawMerged,
-        } as SurfaceStateEntry);
-      } else {
-        // Validate the merged data through the surface type's canonical schema
-        // so malformed patches (e.g. metadata as a string) are caught here
-        // instead of crashing the client's safeParse. Keep unmodeled
-        // client-owned keys from the raw merge, but take the schema-NORMALIZED
-        // value for every modeled field: a tolerant field (e.g. dynamic_page
-        // `html` is `z.string().catch("")`, file_upload `acceptedTypes` coerces
-        // to `string[]`) can accept a malformed input and coerce it, and later
-        // daemon code (active-workspace injection's `truncateHtml`, undo-stack
-        // pushes) assumes the canonical shape — so storing the raw value would
-        // poison `surfaceState`. `mergedPair.data` holds only modeled keys, so
-        // spreading it over `rawMerged` normalizes those while preserving the
-        // client-owned ones. Only a failed parse reverts to the stored data.
-        mergedPair = buildSurfaceShowPair(stored.surfaceType, rawMerged);
-        if (mergedPair !== undefined) {
-          const normalized = { ...rawMerged, ...mergedPair.data };
-          mergedData = normalized as AnySurfaceData;
-          ctx.surfaceState.set(surfaceId, {
-            ...stored,
-            data: normalized,
-          } as SurfaceStateEntry);
-        } else {
-          log.warn(
-            { surfaceId, surfaceType: stored.surfaceType },
-            "ui_update patch produced invalid merged data; reverting to stored data",
-          );
-          mergedData =
-            safeParseSurfaceData(stored.surfaceType, stored.data) ??
-            stored.data;
-        }
-      }
-    } else {
-      // No stored state for this surfaceId, so its surface type — and
-      // therefore its canonical schema — is unknown; forward the patch
-      // opaquely rather than dropping the update.
-      mergedData = patch;
-    }
-
-    ctx.emit({
-      type: "ui_surface_update",
-      conversationId: ctx.conversationId,
+    return applySurfaceUpdate(
+      ctx,
       surfaceId,
-      data: mergedData,
-    });
-
-    // Keep the persisted snapshot in sync so updates survive conversation
-    // restart. This must track EVERY branch that changed `mergedData` — not
-    // just the schema-parsed one — because the turn-end persist loop writes
-    // `currentTurnSurfaces[idx].data` to the same `ui_surface` block that the
-    // debounced `scheduleSurfaceDataPersist` below writes. If an unknown-type
-    // (opaquely forwarded) update updated `surfaceState` but not this array,
-    // the two writers would persist divergent data and race on which lands
-    // last. Gating on `idx !== -1` alone keeps all three in lockstep.
-    const idx = ctx.currentTurnSurfaces.findIndex(
-      (s) => s.surfaceId === surfaceId,
+      coerceSurfaceDataRecord(input.data),
     );
-    if (idx !== -1) {
-      ctx.currentTurnSurfaces[idx] = {
-        ...ctx.currentTurnSurfaces[idx],
-        data: mergedData,
-      } as CurrentTurnSurface;
-    }
-
-    // Persist the merged data back to the assistant message's
-    // `ui_surface` content block so a refresh / restart shows the
-    // current state instead of the original creation-time snapshot.
-    // Debounced to coalesce bursts of rapid updates.
-    scheduleSurfaceDataPersist(ctx.conversationId, surfaceId, mergedData);
-
-    return { content: "Surface updated", isError: false };
   }
 
   if (toolName === "ui_dismiss") {

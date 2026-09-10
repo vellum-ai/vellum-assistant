@@ -94,8 +94,8 @@ export function KeyConceptsChannelsContent() {
             Desktop App
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            The flagship experience. A native macOS menu bar app with full
-            capabilities:
+            The desktop experience is available on macOS and Windows, with a menu bar
+            presence on Mac and a system tray icon on Windows:
           </p>
           <ul className="mb-4 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
@@ -104,11 +104,11 @@ export function KeyConceptsChannelsContent() {
             </li>
             <li>
               <strong>Computer use</strong> — your assistant can see your screen
-              and control your Mac directly
+              and control your Mac or Windows PC directly
             </li>
             <li>
-              <strong>Voice input</strong> — hold your activation key and speak,
-              or enable wake word detection
+              <strong>Voice input</strong>: use the in-app voice controls or configure
+              your voice shortcut in Settings
             </li>
             <li>
               <strong>Document editor</strong> — long-form writing with your
@@ -128,8 +128,12 @@ export function KeyConceptsChannelsContent() {
             </li>
           </ul>
           <p className="mb-0 text-zinc-600">
-            Every tool, every skill, every feature is available here. If a
-            capability exists, the desktop app supports it.
+            Some features depend on the operating system. The Fn voice key and floating
+            companion are macOS-only. Windows uses a configurable voice mode shortcut
+            and supports computer control in normal, non-elevated windows. See{" "}
+            <a href="/docs/trust-security/the-permissions-model#windows-system-permissions">
+              Windows system permissions
+            </a>.
           </p>
         </section>
 

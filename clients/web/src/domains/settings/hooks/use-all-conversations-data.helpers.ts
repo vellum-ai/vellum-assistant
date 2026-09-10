@@ -5,6 +5,7 @@
  */
 
 import type { Conversation } from "@/types/conversation-types";
+import { displayConversationTitle } from "@/utils/conversation-title";
 
 /** Three-way filter across the merged conversation list. Default `all`. */
 export type ConversationFilter = "all" | "active" | "archived";
@@ -181,16 +182,24 @@ export function filterByState(
   return rows;
 }
 
-/** Case-insensitive title match. Rows with no title never match a query. */
+/**
+ * Case-insensitive title match against the visible label and the persisted
+ * title. Empty titles render through {@link displayConversationTitle}, so
+ * a query must hit that localized copy as well as the stored title.
+ */
 export function filterBySearch(
   rows: AllConversationsRow[],
   searchText: string,
+  displayTitle: (title: string | null | undefined) => string = (title) =>
+    displayConversationTitle(title),
 ): AllConversationsRow[] {
   const query = searchText.trim().toLowerCase();
   if (!query) {
     return rows;
   }
-  return rows.filter((row) =>
-    (row.conversation.title ?? "").toLowerCase().includes(query),
-  );
+  return rows.filter((row) => {
+    const persisted = (row.conversation.title ?? "").toLowerCase();
+    const visible = displayTitle(row.conversation.title).toLowerCase();
+    return persisted.includes(query) || visible.includes(query);
+  });
 }

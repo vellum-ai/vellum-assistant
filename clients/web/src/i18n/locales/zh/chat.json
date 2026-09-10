@@ -114,7 +114,8 @@
     "bulkActionMembersFailed": "无法加载此部分的所有对话。请重试。",
     "closeNavAria": "关闭导航",
     "navAria": "助手导航",
-    "searchShortcut": "搜索 ({shortcut})"
+    "searchShortcut": "搜索 ({shortcut})",
+    "search": "搜索"
   },
   "assistantSleepStage": {
     "dismissLabel": "隐藏休眠画面",
@@ -152,6 +153,8 @@
     "closePreviewAria": "关闭预览",
     "downloadAria": "下载 {filename}",
     "downloadLabel": "下载",
+    "legacyUnavailable": "预览不可用。文件内容未保存在聊天记录中。",
+    "loadFailed": "无法加载预览。",
     "nextAttachmentAria": "下一个附件",
     "pdfLoadFailed": "无法显示此 PDF",
     "previewAria": "{filename} 的预览",
@@ -315,7 +318,8 @@
     "title": "显示"
   },
   "cardSurface": {
-    "tasksProgress": "已完成 {completed} / 共 {total} 个任务"
+    "tasksProgress": "已完成 {completed} / 共 {total} 个任务",
+    "viewDetails": "查看详情"
   },
   "channelReferenceChip": {
     "heading": "引用 {channel} 消息",
@@ -391,8 +395,27 @@
   },
   "chatConversationHeader": {
     "archived": "[已归档]",
-    "newChat": "新建聊天",
-    "untitled": "无标题"
+    "newChat": "新建聊天"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "应用",
+    "backAria": "返回聊天信息",
+    "backTooltip": "聊天信息",
+    "closeAria": "关闭聊天信息",
+    "empty": "此聊天中还没有内容",
+    "filesTitle": "文档与图片",
+    "framesTitle": "相机帧",
+    "loadFailed": "无法加载内容",
+    "loadMore": "加载更多",
+    "openAppAria": "打开 {name}",
+    "openDocumentAria": "打开 {name}",
+    "previewAttachmentAria": "预览 {filename}",
+    "previewFrameAria": "预览相机帧",
+    "seeAll": "查看全部",
+    "seeAllAppsAria": "查看全部应用",
+    "seeAllFilesAria": "查看全部文档与图片",
+    "seeAllFramesAria": "查看全部相机帧",
+    "title": "聊天信息"
   },
   "chatLayout": {
     "navigationAria": "导航"
@@ -541,7 +564,10 @@
     "toolLabel": "工具："
   },
   "contactActions": {
-    "saveFailed": "保存联系人失败。请重试。"
+    "saveFailed": "保存联系人失败。请重试。",
+    "cancelFailed": "关闭表单失败，请重试。",
+    "recordCancelFailed": "关闭表单失败，请重试。",
+    "recordSaveFailed": "保存联系人失败，请重试。"
   },
   "contactPromptCard": {
     "addContact": "添加联系人",
@@ -552,7 +578,9 @@
     "namePlaceholder": "名称",
     "notesLabel": "备注",
     "save": "保存",
-    "saving": "正在保存…"
+    "saving": "正在保存…",
+    "markVerified": "将此地址标记为已验证",
+    "markVerifiedHelp": "已验证的地址可以向您的助手发送消息。"
   },
   "contactRecordCard": {
     "channelType": "{channel}：",
@@ -564,7 +592,19 @@
     "mergeWarning": "这些渠道将转移到 {survivor}，并删除 {donor} 的记录。",
     "nameLabel": "姓名",
     "notesLabel": "备注",
-    "notesPlaceholder": "添加备注"
+    "notesPlaceholder": "添加备注",
+    "cancel": "取消",
+    "contactDeleted": "联系人已删除",
+    "contactSaved": "联系人已保存",
+    "createTitle": "添加联系人",
+    "delete": "删除",
+    "deleteTitle": "删除 {name}？",
+    "deleteWarning": "这也将移除其所有渠道，对方将无法再联系到您的助手。",
+    "namePlaceholder": "姓名",
+    "noChannels": "该联系人暂无渠道。",
+    "save": "保存",
+    "saving": "正在保存…",
+    "updateTitle": "更新 {name}"
   },
   "contextWindowIndicator": {
     "clearContext": "清除上下文",
@@ -614,12 +654,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}",
+    "ariaLabelUnavailable": "对话资产，无法加载",
     "ariaLabelUnseen": "对话资产，{count, plural, one {# 个项目} other {# 个项目}}（未查看的更改）",
-    "heading": "资产",
-    "label": "{count, plural, one {# 个资产} other {# 个资产}}"
-  },
-  "conversationRow": {
-    "untitled": "无标题"
+    "label": "{count, plural, one {# 个资产} other {# 个资产}}",
+    "labelUnavailable": "无法加载资产"
   },
   "conversationStarterDock": {
     "caption": "尝试以下建议："
@@ -666,8 +704,7 @@
     "cancel": "取消",
     "confirm": "删除",
     "message": "删除“{title}”？这将永久删除对话及其消息。相关资产和记忆可能仍会保留。此操作无法撤消。",
-    "title": "删除对话",
-    "untitled": "无标题"
+    "title": "删除对话"
   },
   "deletedMessageRow": {
     "label": "此消息已被删除"
@@ -774,7 +811,42 @@
   },
   "frameGateHud": {
     "collapse": "隐藏帧筛选读数",
-    "expand": "显示帧筛选读数"
+    "expand": "显示帧筛选读数",
+    "decisionOrder": "决策顺序",
+    "detailLabel": "细节度 (亮度标准差)",
+    "keep": "保留",
+    "keptFrameAlt": "已保留画面",
+    "maxIntervalLabel": "心跳间隔",
+    "minDetailLabel": "最低细节度",
+    "motionLabel": "与前一帧运动量",
+    "noKeeps": "尚未保留任何画面。",
+    "noveltyLabel": "与上次保留的新颖度",
+    "noveltyThresholdLabel": "新颖度阈值",
+    "overridden": "已偏离默认值",
+    "reasonFeatureless": "细节过少，无法比较。",
+    "reasonFirst": "尚未保留画面，画面已稳定。",
+    "reasonForced": "为当前提出的问题保留。",
+    "reasonHeartbeat": "画面未发生变化，但上一张照片时间已过久。",
+    "reasonMoving": "画面仍在晃动中。",
+    "reasonNovel": "与上一张照片相比发生了足够的变化。",
+    "reasonUnchanged": "画面稳定、采集时间近且与上一张照片基本一致。",
+    "reasonWarmup": "仍处于曝光预热阶段。",
+    "recentFrames": "最近画面帧",
+    "recentKeeps": "最近保留帧",
+    "reset": "重置",
+    "settleThresholdLabel": "稳定阈值",
+    "skip": "跳过",
+    "stepFeatureless": "最低细节度",
+    "stepFirst": "首帧保留",
+    "stepForced": "用户请求",
+    "stepHeartbeat": "心跳",
+    "stepMoving": "画面稳定",
+    "stepNovel": "新颖度",
+    "stepUnchanged": "未变更",
+    "stepWarmup": "预热",
+    "surfaceVoice": "语音通话摄像头",
+    "thresholds": "阈值",
+    "valueAbsent": "无"
   },
   "groupActions": {
     "archiveAll": "全部归档…",
@@ -857,7 +929,8 @@
     "windows": "语音已在 Windows 应用中激活。"
   },
   "liveVoiceButton": {
-    "startVoiceMode": "启动语音模式"
+    "startVoiceMode": "启动语音模式",
+    "tooltip": "用语音模式开口交谈"
   },
   "liveVoiceStatus": {
     "connecting": "正在连接…",
@@ -866,7 +939,8 @@
     "muted": "已静音",
     "reconnecting": "正在重新连接…",
     "speaking": "正在说话…",
-    "thinking": "正在思考…"
+    "thinking": "正在思考…",
+    "askUnsupported": "该助手尚不支持以这种方式提问。请更新后重试。"
   },
   "llmCallErrorCard": {
     "chipCode": "代码",
@@ -991,6 +1065,12 @@
     "breakdownSource": "来源",
     "breakdownSpreadDelta": "传播 Δ",
     "breakdownStatus": "状态",
+    "candidatePoolChosenChip": "已选择",
+    "candidatePoolNoneBody": "本轮未记录候选池。",
+    "candidatePoolPassthroughSubtitle": "{poolSize, plural, other {# 个候选未经选择器评判直接通过}} · 选择器已禁用",
+    "candidatePoolSelectorNotRunBody": "本轮未运行选择器。",
+    "candidatePoolSubtitle": "{poolSize, plural, other {已向选择器展示 # 个候选}} · {selectedCount, plural, other {已选择 # 个页面}}",
+    "candidatePoolTitle": "候选池",
     "candidateScores": "语义 {semantic} · 近期 {recency}",
     "carriedPill": "携带: {count}",
     "conceptActivationsSubtitle": "按最终激活排序。技能条目以 `skills/` 前缀显示；展开一行可查看激活明细。",
@@ -1039,8 +1119,6 @@
     "pillMemoryV2": "记忆 V2",
     "pillMemoryV3": "记忆 V3",
     "pillRecallV1": "召回 (v1)",
-    "pinnedChip": "已固定",
-    "pinnedPill": "已固定: {count}",
     "providerLabel": "提供者",
     "queryContextSubtitle": "作为语义检索搜索向量嵌入的文本。",
     "queryContextTitle": "查询上下文",
@@ -1097,17 +1175,30 @@
     "bookmark": "书签",
     "copied": "已复制",
     "copy": "复制",
+    "copyFailed": "无法复制这条消息。",
     "forkFromHere": "从此分叉",
     "inspect": "检查",
+    "loading": "朗读中…",
     "openInSlack": "在 Slack 中打开",
+    "playFailed": "无法朗读这条消息。",
+    "readAloud": "朗读",
     "removeBookmark": "移除书签",
     "retry": "重试",
+    "stop": "停止",
     "summarizeUpToHere": "总结到此处"
   },
   "messageLongPressActions": {
     "bookmark": "书签",
     "copied": "已复制",
+    "copy": "复制",
+    "copyFailed": "无法复制这条消息。",
+    "forkFromHere": "从此分叉",
+    "inspect": "检查",
+    "openInSlack": "在 Slack 中打开",
+    "readAloud": "朗读",
     "removeBookmark": "移除书签",
+    "stop": "停止",
+    "summarizeUpToHere": "总结到此处",
     "title": "消息操作"
   },
   "micPermissionPrimer": {
@@ -1279,7 +1370,8 @@
     "railAria": "进度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "进度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "无活动会话。请重试。"
@@ -1622,11 +1714,14 @@
     "settings": "设置"
   },
   "toolDetailPanel": {
+    "changes": "更改",
     "closeAria": "关闭工具详情",
+    "command": "命令",
     "denied": "此工具调用未获批准，因此没有运行。",
     "emptyOutput": "该工具没有返回任何输出。",
+    "input": "输入",
     "output": "输出",
-    "riskLevel": "风险级别",
+    "requestedChanges": "请求的更改",
     "running": "正在运行…"
   },
   "toolStepPill": {
@@ -1641,7 +1736,8 @@
     "stopWorkflow": "停止工作流"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "处理中"
   },
   "useConversationLoader": {
     "authFailed": "用户身份验证失败。"
@@ -1650,9 +1746,6 @@
     "assistantBusy": "您的助手正忙。请在回复完成后重试。",
     "retryFailed": "无法重试响应",
     "summarizeFailed": "无法总结对话"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "无标题"
   },
   "useSendMessage": {
     "commandFailed": "无法运行该命令。请重试。",
@@ -1682,7 +1775,8 @@
     "seed": "嘿，我刚和你开始了语音对话。此消息是自动发送的。请用一句话问候我，然后问我想做什么。"
   },
   "voiceErrors": {
-    "nativeSttNoTranscript": "{clientName} 原生听写未返回转录文本。请检查系统设置中的原生语音识别，然后重试。"
+    "nativeSttNoTranscript": "{clientName} 原生听写未返回转录文本。请检查系统设置中的原生语音识别，然后重试。",
+    "askUnavailable": "助手当前无法接收语音提问。"
   },
   "voiceFirstRunCard": {
     "backAria": "返回",
@@ -1710,6 +1804,8 @@
     "flashOff": "关闭闪光灯",
     "flashOn": "开启闪光灯",
     "flipCamera": "翻转摄像头",
+    "lightOff": "关闭补光灯",
+    "lightOn": "开启补光灯",
     "minimizeAria": "最小化语音房间",
     "minimizeTooltip": "最小化（会话仍在进行）",
     "muteAssistant": "静音助手",
@@ -1733,6 +1829,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "已静音"
+  },
+  "wakeCard": {
+    "commandFinished": "后台命令已完成",
+    "incomingEvent": "收到事件",
+    "memoryReview": "记忆回顾",
+    "ranOnItsOwn": "自动运行",
+    "resumed": "中断后已恢复",
+    "scheduledRun": "定时运行",
+    "watchReview": "观察会话回顾",
+    "workflowFinished": "工作流已完成"
+  },
+  "wakeDetailPanel": {
+    "close": "关闭",
+    "details": "详细信息",
+    "result": "结果",
+    "runStatus": "运行状态",
+    "title": "对话已唤醒",
+    "workflow": "工作流"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",
@@ -1804,7 +1918,23 @@
     "doneDiscarded": "未保存",
     "doneNotRight": "已标记为有误",
     "doneSaved": "技能已保存",
-    "recommended": "推荐"
+    "recommended": "推荐",
+    "back": "上一步",
+    "dontSave": "不保存",
+    "looksRight": "确认无误",
+    "next": "下一步",
+    "save": "保存技能",
+    "skip": "跳过",
+    "somethingOff": "有地方不对",
+    "stepCount": "{count, plural, one {# 个步骤} other {# 个步骤}}",
+    "stepQuestion": "问题 {number}",
+    "stepRecap": "回顾",
+    "stepSummary": "保存",
+    "summarySay": "提示词",
+    "summarySteps": "步骤",
+    "summaryTitle": "已准备好保存",
+    "summaryUnanswered": "未设置",
+    "untitledTask": "观察到的操作"
   },
   "restoreManagedCredentialButton": {
     "restore": "恢复访问",
@@ -1815,5 +1945,9 @@
     "failedReplacementRejected": "Vellum 拒绝了新的凭据。请登录 Vellum 平台后重试。",
     "failedUnconfirmed": "新凭据已保存，但无法与 Vellum 确认。它可能很快就会生效。",
     "failedGeneric": "无法恢复访问。请稍后重试。"
+  },
+  "assistantSection": {
+    "emptyBody": "我随时都在思考。当有值得您关注的事情时，我会在这里发起对话。",
+    "emptyTitle": "目前还没有任何想法。"
   }
 }

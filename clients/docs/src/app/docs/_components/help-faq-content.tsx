@@ -29,7 +29,7 @@ export function HelpFaqContent() {
           </SectionHeading>
           <p className="mb-6 text-zinc-600">
             A personal AI assistant that lives on your computer. It can take real actions on your
-            behalf: reading files, sending emails, browsing the web, controlling your Mac, building
+            behalf: reading files, sending emails, browsing the web, controlling your Mac or Windows PC, building
             apps, managing your schedule, making phone calls, and more. It has its own identity,
             personality, and long-term memory that persists across conversations. See{" "}
             <a href="/docs/getting-started/what-is-vellum">What is Vellum?</a> for the full
@@ -84,7 +84,7 @@ export function HelpFaqContent() {
             >
               vellum.ai
             </Link>
-            , the iPhone and iPad app, the macOS desktop app, and a
+            , the iPhone and iPad app, the macOS and Windows desktop apps, and a
             command-line interface. Beyond those first-party surfaces,
             channels include Telegram, Slack, email, and phone calls.
           </p>
@@ -119,7 +119,7 @@ export function HelpFaqContent() {
                   Local hosting
                 </Link>
               </strong>
-              . The assistant runs on your Mac. Your data stays on your
+              . The assistant runs on your computer. Your data stays on your
               machine, and the assistant has direct access to your local
               files and tools. The right pick if you want maximum data
               control or fully offline operation, and you&apos;re okay
@@ -301,9 +301,10 @@ export function HelpFaqContent() {
           <p className="mb-6 text-zinc-600">
             Yes, with your permission. The Computer Use skill lets your assistant see your screen
             (via accessibility APIs and screenshots) and control mouse and keyboard input. This
-            requires macOS Accessibility and Screen Recording permissions, and each action is
-            prompted individually for approval. Sessions are capped at 50 steps with loop detection
-            and destructive action blocking. See{" "}
+            requires Accessibility and Screen Recording permissions on macOS. On Windows,
+            check screen capture access in Settings &gt; Permissions &amp; Privacy; there
+            is no Accessibility permission prompt. Windows computer control cannot act
+            on elevated or protected windows. In-app permissions still apply. See{" "}
             <a href="/docs/skills-reference/computer-use">Computer Use</a>.
           </p>
 

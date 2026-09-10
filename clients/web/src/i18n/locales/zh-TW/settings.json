@@ -56,8 +56,7 @@
     "searchPlaceholder": "搜尋對話",
     "unarchive": "取消封存",
     "unarchiveFailed": "無法取消封存對話。",
-    "unarchiving": "正在取消封存",
-    "untitled": "未命名對話"
+    "unarchiving": "正在取消封存"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "正在檢查此裝置的通知存取權。",
@@ -382,8 +381,7 @@
     "errorTitle": "載入書籤失敗",
     "open": "開啟",
     "removeBookmark": "移除書籤",
-    "retry": "重試",
-    "untitledConversation": "未命名對話"
+    "retry": "重試"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, other {# 個動作目前使用 {profile}}}",
@@ -455,12 +453,12 @@
     "urlPlaceholder": "在此貼上回呼 URL..."
   },
   "checkoutBonusModal": {
-    "body": "領取一次性 {amount} 點數，我們將直接將其新增至您的帳戶餘額。無需付款。",
-    "claim": "領取 {amount} 點數",
+    "body": "領取一次性 {amount} 額外用量，我們將直接將其新增至您的使用餘額。無需付款。",
+    "claim": "領取 {amount} 額外用量",
     "decline": "不用了，謝謝",
-    "errorToast": "無法新增點數。請再試一次。",
-    "grantedToast": "{amount} 點數已新增至您的帳戶。",
-    "title": "我們贈送您 {amount}",
+    "errorToast": "無法新增額外用量。請再試一次。",
+    "grantedToast": "{amount} 額外用量已新增至您的使用餘額。",
+    "title": "我們贈送您 {amount} 額外用量",
     "unavailableToast": "此優惠已不再提供。"
   },
   "checkoutPage": {
@@ -998,6 +996,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 帳號",
+    "cancel": "取消",
     "connectAccount": "連接帳號",
     "connectAccountLower": "連接帳號",
     "connectToContinue": "連接帳號以繼續",
@@ -1042,8 +1041,7 @@
     "emptyTitle": "無 MCP 伺服器",
     "loadError": "載入 MCP 伺服器失敗。請檢查助理是否正在執行。",
     "loading": "正在載入 MCP 伺服器...",
-    "reloadAriaLabel": "重新載入 MCP 伺服器",
-    "reloadTooltip": "重新載入所有伺服器",
+    "reloadButton": "重新整理",
     "removeDialogConfirm": "移除",
     "removeDialogMessage": "您確定要移除「{serverId}」嗎？這將會中斷此伺服器提供的所有工具。",
     "removeDialogTitle": "移除 MCP 伺服器",
@@ -1058,8 +1056,6 @@
     "toastAuthStartFailed": "無法啟動 {serverId} 的驗證",
     "toastAuthTimedOut": "{serverId} 驗證逾時",
     "toastAuthenticatedSuccess": "{serverId} 驗證成功",
-    "toastDisableFailed": "停用 {serverId} 失敗",
-    "toastEnableFailed": "啟用 {serverId} 失敗",
     "toastOAuthRevokeFailed": "撤銷 {serverId} 的 OAuth 失敗",
     "toastOAuthRevoked": "{serverId} 的 OAuth 憑證已撤銷",
     "toastReloadFailed": "重新載入 MCP 伺服器失敗",
@@ -1072,26 +1068,21 @@
     "totalTools": "{count, plural, other {# 個工具}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "關閉",
     "authenticate": "驗證",
+    "authenticatedBadge": "已驗證",
     "authenticating": "正在驗證...",
     "configure": "設定",
-    "configureTooltip": "設定",
     "estimatedTokens": "~{count} 個權杖",
-    "oauthBadge": "OAuth",
+    "moreActions": "{serverId} 的更多操作",
     "reAuth": "重新驗證",
-    "reAuthTooltip": "重新驗證 OAuth",
     "registeredTools": "{count, plural, other {# 個已註冊工具}}",
-    "removeServerAriaLabel": "移除 {serverId}",
-    "removeServerTooltip": "移除伺服器",
+    "removeServer": "刪除伺服器",
     "revoke": "撤銷",
     "revokeOAuthTooltip": "撤銷 OAuth 憑證",
-    "revoking": "正在撤銷...",
     "statusConnected": "已連線",
-    "statusDisabled": "已停用",
     "statusError": "錯誤",
     "statusNeedsAuth": "需要驗證",
-    "toggleDisableAriaLabel": "停用 {serverId}",
-    "toggleEnableAriaLabel": "啟用 {serverId}",
     "toolCount": "{count, plural, other {# 個工具}}",
     "toolTokensAbbrev": "~{count} 權杖"
   },
@@ -1107,7 +1098,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "•••••••• (留空以保留目前值)",
     "cancel": "取消",
-    "defaultRiskLevel": "預設風險等級",
     "description": "{transport} 傳輸 · {status}",
     "emptyDescription": "-",
     "headerName": "標頭名稱",
@@ -1115,9 +1105,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "透過 OAuth 流程管理",
     "registeredToolsHeading": "已註冊工具 ({count})",
-    "riskHigh": "高",
-    "riskLow": "低",
-    "riskMedium": "中",
     "save": "儲存",
     "saving": "正在儲存...",
     "tableDescription": "描述",
@@ -1531,6 +1518,18 @@
     "selectModelError": "請選擇模型。",
     "selectModelPlaceholder": "選擇模型",
     "selectProviderPlaceholder": "選擇供應商…"
+  },
+  "profileModalitiesSection": {
+    "audio": "音訊",
+    "enableAria": "啟用{modality}",
+    "enabledColumn": "啟用",
+    "helper": "只有在模態已啟用且標示為模型支援時，才會傳給模型。未以此方式傳送的圖片會改為文字說明。",
+    "image": "圖片",
+    "resolvedOff": "不傳給模型",
+    "resolvedOn": "傳給模型",
+    "supportedAria": "模型支援{modality}",
+    "supportedColumn": "模型支援",
+    "title": "模態"
   },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的動作",
@@ -2304,6 +2303,38 @@
     "redirectUrl": "重新導向網址",
     "waitingAuthorization": "等待授權中..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "夥伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "獨立",
+        "right": "協作"
+      },
+      "genzBoomer": {
+        "left": "Z 世代",
+        "right": "嬰兒潮世代"
+      },
+      "playfulSerious": {
+        "left": "活潑",
+        "right": "嚴肅"
+      },
+      "politeUnfiltered": {
+        "left": "有禮",
+        "right": "直率"
+      }
+    },
+    "loadError": "無法載入個性滑桿。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "儲存",
+    "saveErrorToast": "無法儲存個性滑桿。請再試一次。",
+    "saveSuccessToast": "個性滑桿已儲存。",
+    "saving": "正在儲存…",
+    "subtitle": "將這些滑桿值儲存到此助手。這不會改寫身分檔案。",
+    "title": "個性"
+  },
   "sidebar": {
     "general": "一般",
     "model": "模型與服務",
@@ -2319,6 +2350,7 @@
     "community": "社群",
     "debug": "偵錯",
     "developer": "開發者",
+    "personality": "個性",
     "logout": "登出",
     "login": "登入",
     "title": "設定"
@@ -2328,7 +2360,48 @@
       "general": "一般",
       "terminal": "終端機",
       "doctor": "診斷",
+      "database": "資料庫",
       "conversations": "對話"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "資料庫",
+    "subtitle": "此助手的遷移狀態，包括失敗與被延後的步驟。",
+    "refresh": "重新整理",
+    "loading": "正在載入資料庫狀態…",
+    "unsupported": "此助手版本尚不提供資料庫診斷資訊。",
+    "loadError": "無法載入資料庫診斷資訊。",
+    "statusReady": "就緒",
+    "statusRunning": "正在遷移",
+    "statusFailed": "失敗",
+    "statusNotStarted": "未開始",
+    "migratingHint": "遷移仍在進行。如果某一步擲出錯誤，失敗步驟會顯示在這裡。",
+    "noFailures": "沒有失敗的遷移。",
+    "failedHeading": "失敗的遷移",
+    "deferredHeading": "被延後的遷移",
+    "validationHeading": "驗證錯誤",
+    "missingDeps": "等待：{deps}"
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "新增 API 金鑰",
+    "cancelConnect": "取消設定",
+    "chooseFromList": "從清單中選取",
+    "connectedTag": "已連線",
+    "customModelAriaLabel": "自訂模型 ID",
+    "customModelHint": "輸入提供商所需的精確模型識別碼。該識別碼將按原樣發送至連線。",
+    "customModelOption": "輸入自訂模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "無相符的模型",
+    "modelPlaceholder": "搜尋模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 個可用模型} other {# 個可用模型}}。使用上下方向鍵瀏覽，按 Enter 鍵選取。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推薦",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "設定",
+    "signInTag": "登入",
+    "soleProviderHint": "僅 {name} 提供此模型。"
   }
 }

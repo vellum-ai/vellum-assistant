@@ -6,14 +6,15 @@
  * and hands the surfaces to `WorkspacePanes`, which draws them. Side panels
  * and overlays keep their own shells.
  *
- * Side-panel state (app, document, subagent, tool-detail) is read directly
- * from stores — no props required for layout decisions.
+ * Side-panel state (app, document, subagent, tool-detail, chat-info) is read
+ * directly from stores: no props required for layout decisions.
  */
 
 import { lazy, useCallback, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
+import { CHAT_INFO_DRAWER_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 import { ProgressStack } from "@/domains/chat/components/progress-stack";
 import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -30,7 +31,11 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
 import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import {
+  chatInfoTargetKey,
+  type MainView,
+  useViewerStore,
+} from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -53,6 +58,8 @@ const importActivityStepsPanel = () =>
   import("@/domains/chat/components/activity-steps-panel");
 const importMessageFilesPanel = () =>
   import("@/domains/chat/components/message-files-panel");
+const importChatInfoPanel = () =>
+  import("@/domains/chat/components/chat-info-panel");
 const importAcpRunDetailPanel = () =>
   import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
@@ -61,6 +68,8 @@ const importBackgroundTaskDetailPanel = () =>
   import("@/domains/chat/components/background-task-detail-panel/background-task-detail-panel");
 const importSkillDetailPanel = () =>
   import("@/domains/chat/components/skill-detail-panel");
+const importWakeDetailPanel = () =>
+  import("@/domains/chat/components/wake-detail-panel");
 const importChannelTranscriptPanel = () =>
   import("@/domains/chat/channel-sidecar/channel-transcript-panel");
 
@@ -82,6 +91,9 @@ const ActivityStepsPanel = lazy(() =>
 const MessageFilesPanel = lazy(() =>
   importMessageFilesPanel().then((m) => ({ default: m.MessageFilesPanel })),
 );
+const ChatInfoPanel = lazy(() =>
+  importChatInfoPanel().then((m) => ({ default: m.ChatInfoPanel })),
+);
 const BackgroundTaskDetailPanel = lazy(() =>
   importBackgroundTaskDetailPanel().then((m) => ({
     default: m.BackgroundTaskDetailPanel,
@@ -90,11 +102,40 @@ const BackgroundTaskDetailPanel = lazy(() =>
 const SkillDetailPanel = lazy(() =>
   importSkillDetailPanel().then((m) => ({ default: m.SkillDetailPanel })),
 );
+const WakeDetailPanel = lazy(() =>
+  importWakeDetailPanel().then((m) => ({ default: m.WakeDetailPanel })),
+);
 const ChannelTranscriptPanel = lazy(() =>
   importChannelTranscriptPanel().then((m) => ({
     default: m.ChannelTranscriptPanel,
   })),
 );
+
+export interface RightDrawerWidthProfile {
+  /** `localStorage` key the drawer remembers this profile's width under. */
+  storageKey: string;
+  /** Omitted for the shared profile, which opens at the drawer's own default. */
+  defaultWidth?: number;
+}
+
+/**
+ * Which width the one shared side drawer opens at, and where it remembers it.
+ *
+ * Chat Info draws fitted rows of tiles the other panels have no equivalent of,
+ * so it opens at the width the mock draws those rows at and keeps its own
+ * remembered width; every other panel shares one.
+ */
+export function rightDrawerWidthProfile(
+  mainView: MainView,
+): RightDrawerWidthProfile {
+  if (mainView === "chat-info") {
+    return {
+      storageKey: "chatInfoPanelWidth",
+      defaultWidth: CHAT_INFO_DRAWER_WIDTH_PX,
+    };
+  }
+  return { storageKey: "rightPanelWidth" };
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -116,6 +157,9 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const closeActivitySteps = useViewerStore.use.closeActivitySteps();
   const activeMessageFiles = useViewerStore.use.activeMessageFiles();
   const closeMessageFiles = useViewerStore.use.closeMessageFiles();
+  const activeChatInfo = useViewerStore.use.activeChatInfo();
+  const closeChatInfo = useViewerStore.use.closeChatInfo();
+  const setChatInfoCategory = useViewerStore.use.setChatInfoCategory();
   // Subscribe to only the active subagent's entry rather than the whole `byId`
   // map, so streaming events from *other* subagents don't re-render the chat
   // layout (and the chat transcript it hosts) on every token.
@@ -134,6 +178,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
   );
   const activeSkillDetailId = useViewerStore.use.activeSkillDetailId();
+  const activeWakeDetail = useViewerStore.use.activeWakeDetail();
   const activeChannelSetup = useViewerStore.use.activeChannelSetup();
   const activeChannelTranscript = useViewerStore.use.activeChannelTranscript();
 
@@ -242,6 +287,10 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeSkillDetail();
   }, []);
 
+  const onCloseWakeDetail = useCallback(() => {
+    useViewerStore.getState().closeWakeDetail();
+  }, []);
+
   const onCloseChannelSetup = useCallback(() => {
     useViewerStore.getState().closeChannelSetup();
   }, []);
@@ -348,10 +397,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       importToolDetailPanel().catch(() => {});
       importActivityStepsPanel().catch(() => {});
       importMessageFilesPanel().catch(() => {});
+      importChatInfoPanel().catch(() => {});
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
       importBackgroundTaskDetailPanel().catch(() => {});
       importSkillDetailPanel().catch(() => {});
+      importWakeDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -448,8 +499,8 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     </SideControlPlacementBoundary>
   );
 
-  // Right-hand detail panels — document viewer, subagent detail, tool detail,
-  // and workflow detail — all share ONE AnimatedRightDrawer so the chat
+  // Right-hand detail panels (document viewer, subagent detail, tool detail,
+  // workflow detail, chat info) all share ONE AnimatedRightDrawer so the chat
   // (`left`) keeps a stable position in the React tree and is NEVER unmounted
   // when a panel opens, closes, or switches between them. Only the (lazy,
   // lightweight) right-pane subtree changes; the transcript keeps its DOM and
@@ -566,6 +617,20 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           />
         </LazyBoundary>
       );
+    } else if (mainView === "chat-info" && activeChatInfo) {
+      rightPanel = (
+        <LazyBoundary>
+          {/* Re-key per conversation so a switch remounts the panel rather
+              than reusing one whose preview and delete state belong to the
+              previous chat. */}
+          <ChatInfoPanel
+            key={chatInfoTargetKey(activeChatInfo)}
+            payload={activeChatInfo}
+            onClose={closeChatInfo}
+            onSelectCategory={setChatInfoCategory}
+          />
+        </LazyBoundary>
+      );
     } else if (
       mainView === "acp-run-detail" &&
       activeAcpRunId &&
@@ -617,6 +682,15 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
           />
         </LazyBoundary>
       );
+    } else if (mainView === "wake-detail" && activeWakeDetail) {
+      rightPanel = (
+        <LazyBoundary>
+          <WakeDetailPanel
+            payload={activeWakeDetail}
+            onClose={onCloseWakeDetail}
+          />
+        </LazyBoundary>
+      );
     } else if (mainView === "channel-setup" && activeChannelSetup) {
       rightPanel = (
         <ChannelSetupPanel
@@ -640,9 +714,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     }
   }
 
+  // One drawer instance across every panel, so switching profiles moves the
+  // width the hook reports and motion eases it rather than remounting.
+  const widthProfile = rightDrawerWidthProfile(mainView);
+
   return (
     <AnimatedRightDrawer
-      storageKey="rightPanelWidth"
+      storageKey={widthProfile.storageKey}
+      defaultWidth={widthProfile.defaultWidth}
       open={rightPanel != null}
       left={chatContent}
       right={rightPanel}

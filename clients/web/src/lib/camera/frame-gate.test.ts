@@ -43,9 +43,11 @@ const TEST_OPTIONS: FrameGateOptions = {
   // shipped tuning moves as real footage accumulates: coupling the two makes a
   // threshold change look like a broken state machine.
   noveltyThreshold: 0.35,
-  minIntervalMs: 100,
   maxIntervalMs: 1_000,
   settleGraceMs: 200,
+  // Off, so a settled frame is judged the moment it arrives. The dwell has
+  // its own suite below.
+  settleDwellMs: 0,
   warmupMs: 0,
 };
 
@@ -160,10 +162,25 @@ function noveltyBetween(baseline: FrameGrid, candidate: FrameGrid): number {
 }
 
 describe("shipped frame gate defaults", () => {
-  test("the rate floor is three seconds, which is what a call pays for freshness", () => {
-    // Pinned because it is the one default with a cost attached: every second
-    // taken off it raises the ceiling on images a long call re-sends.
-    expect(DEFAULT_FRAME_GATE_OPTIONS.minIntervalMs).toBe(3_000);
+  test("the asked-for bar sits below the ambient one and above the nuisance floor", () => {
+    // A question lowers the bar rather than removing it: under the nuisance
+    // ceiling the gate would keep sensor noise for every utterance, and at
+    // the ambient threshold the arm would add nothing the cadence lacks.
+    expect(DEFAULT_FRAME_GATE_OPTIONS.forcedNoveltyThreshold).toBeGreaterThan(
+      NUISANCE_CEILING,
+    );
+    expect(DEFAULT_FRAME_GATE_OPTIONS.forcedNoveltyThreshold).toBeLessThan(
+      DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
+    );
+  });
+
+  test("the dwell fits inside an ask's window, so a pause can still answer it", () => {
+    expect(DEFAULT_FRAME_GATE_OPTIONS.settleDwellMs).toBeLessThan(
+      FRAME_GATE_FORCED_KEEP_TTL_MS,
+    );
+    expect(DEFAULT_FRAME_GATE_OPTIONS.settleDwellMs).toBeLessThan(
+      DEFAULT_FRAME_GATE_OPTIONS.settleGraceMs,
+    );
   });
 });
 
@@ -404,35 +421,43 @@ describe("frame gate keep policy", () => {
     expect(beat.reason).toBe("heartbeat");
   });
 
-  test("the rate floor bounds the keep rate on a saturating view", () => {
+  test("a new view is kept the moment it settles, with no floor in the way", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
+
+    // The desk-bound case: a new object arrives one frame after a keep. The
+    // frame it arrives on is moving against the one before it, and the frame
+    // after that is not. Nothing but the settle check stands between the
+    // second one and the transcript, so it lands ahead of the turn that asks
+    // about it.
+    expect(gate.offer(scene({ seed: 9 }), 33).reason).toBe("moving");
+    const settled = gate.offer(scene({ seed: 9 }), 66);
+    expect(settled.keep).toBe(true);
+    expect(settled.reason).toBe("novel");
+  });
+
+  test("a view that never settles keeps once per settle grace", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
 
-    // The busy-street case: a new scene every other frame, each held for one
-    // repeat so a settled, wildly novel frame arrives about every 66 ms. That
-    // asks for far more keeps than the floor's one per 100 ms, and the settle
-    // check cannot be what limits them, so only the floor stands between this
-    // and a flood. This is the assertion that bounds the feature's cost.
+    // The walking case: a different view every frame, none of them settled.
+    // With no floor the grace is the only bound, and each keep restarts it,
+    // so this is the assertion that bounds the feature's cost on the move.
     const frames = 300;
     const frameGapMs = 33;
     let keeps = 0;
     let time = 0;
     for (let step = 0; step < frames; step++) {
-      if (gate.offer(scene({ seed: 100 + Math.floor(step / 2) }), time).keep) {
+      if (gate.offer(scene({ seed: 100 + step }), time).keep) {
         keeps += 1;
       }
       time += frameGapMs;
     }
-    // Offered ~150 settled novel frames; the floor admits at most one per
-    // `minIntervalMs`. The upper bound sits far below both the offered frame
-    // count and the eligible-keep count, so removing or breaking the
-    // rate-floor rung fails this assertion rather than slipping past it. The
-    // lower bound proves the gate is keeping near the floor's rate instead of
-    // going silent.
     const elapsedMs = frames * frameGapMs;
-    const floorBound = Math.floor(elapsedMs / TEST_OPTIONS.minIntervalMs) + 1;
-    expect(keeps).toBeLessThanOrEqual(floorBound);
-    expect(keeps).toBeGreaterThanOrEqual(Math.floor(floorBound / 2));
+    const graceBound = Math.floor(elapsedMs / TEST_OPTIONS.settleGraceMs) + 1;
+    expect(keeps).toBeLessThanOrEqual(graceBound);
+    expect(keeps).toBeGreaterThanOrEqual(Math.floor(graceBound / 2));
   });
 });
 
@@ -451,40 +476,26 @@ describe("frame gate reset", () => {
     expect(afterFlip.novelty).toBeNull();
   });
 
-  test("a reset does not open a gap in the rate floor", () => {
-    const gate = createFrameGate(TEST_OPTIONS);
-    gate.reset(0);
-    expect(gate.offer(scene({ seed: 16 }), 0).keep).toBe(true);
-
-    // A flip right on the heels of a keep. The baseline is rightly gone, but
-    // the keep was already paid for, so the next keep still waits out the
-    // floor: otherwise flipping back and forth doubles the keep rate.
-    gate.reset(20);
-    const tooSoon = gate.offer(scene({ seed: 160 }), 50);
-    expect(tooSoon.keep).toBe(false);
-    expect(tooSoon.reason).toBe("rate-floor");
-
-    const afterFloor = gate.offer(scene({ seed: 160 }), 150);
-    expect(afterFloor.keep).toBe(true);
-    expect(afterFloor.reason).toBe("first");
-    expect(afterFloor.novelty).toBeNull();
-  });
-
-  test("the settle grace after a reset waits out the retained rate floor", () => {
+  test("the settle grace after a reset runs from the first offer past it", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
     expect(gate.offer(scene({ seed: 18 }), 0).keep).toBe(true);
 
-    // A flip right after a keep, with the camera still moving. A keep becomes
-    // possible only when the retained floor expires at 100 ms, so the settle
-    // check owns the full grace from there and the earliest forced keep lands
-    // at 300 ms. Anchoring the grace at the first post-reset offer instead
-    // would force a smeared keep the moment the floor opens.
+    // A flip right after a keep, with the camera still moving. The keep before
+    // the flip is history the flip discards, so the grace is anchored at the
+    // first post-reset offer and the earliest keep the grace forces lands one
+    // grace after it. Primed first, the way frames offered during a real
+    // warmup prime it, so the first offer has a motion reading to be judged
+    // on.
     gate.reset(10);
+    gate.observe(scene({ seed: 18 }), 12);
     let firstKeepAtMs: number | null = null;
     for (let step = 0; step < 12; step++) {
       const time = 20 + step * 33;
-      const decision = gate.offer(scene({ seed: 18, panX: step * 2 }), time);
+      const decision = gate.offer(
+        scene({ seed: 18, panX: 2 + step * 2 }),
+        time,
+      );
       if (decision.keep) {
         firstKeepAtMs = time;
         break;
@@ -492,7 +503,7 @@ describe("frame gate reset", () => {
     }
     expect(firstKeepAtMs).not.toBeNull();
     expect(firstKeepAtMs!).toBeGreaterThanOrEqual(
-      TEST_OPTIONS.minIntervalMs + TEST_OPTIONS.settleGraceMs,
+      20 + TEST_OPTIONS.settleGraceMs,
     );
   });
 });
@@ -513,12 +524,13 @@ describe("frame gate decision path", () => {
     warmup: true,
     featureless: true,
     first: true,
-    "rate-floor": true,
     moving: true,
+    settling: true,
     heartbeat: true,
     novel: true,
     unchanged: true,
     forced: true,
+    answered: true,
   } satisfies Record<FrameGateReason, true>) as FrameGateReason[];
 
   /** The checks that need a kept frame to score against. */
@@ -532,9 +544,10 @@ describe("frame gate decision path", () => {
    * One scripted camera session that reaches every check, on both branches.
    *
    * The timings are chosen against {@link TEST_OPTIONS} to walk the gate
-   * through warmup, a wall, a swing, a settle, the floor, a repeat view, a new
-   * view, a long idle, and a second swing, then a flip that drops the baseline
-   * while the floor's clock survives it.
+   * through warmup, a wall, a swing, a settle, a repeat view, a new view, a
+   * long idle, a second swing, an ask answered by a fresh frame and one the
+   * last keep already answers, then a flip that drops the baseline, and a
+   * view that has stopped but not yet paused.
    */
   function collectDecisions(): FrameGateDecision[] {
     const wall = flatWall(makeRandom(7));
@@ -554,12 +567,19 @@ describe("frame gate decision path", () => {
     decisions.push(gate.offer(scene({ seed: 3 }), 2_450));
     gate.armForcedKeep(2_460);
     decisions.push(gate.offer(scene({ seed: 3 }), 2_470));
+    gate.armForcedKeep(2_480);
+    decisions.push(gate.offer(scene({ seed: 3 }), 2_490));
 
     const flipped = createFrameGate(TEST_OPTIONS);
     flipped.reset(0);
     decisions.push(flipped.offer(scene({ seed: 1 }), 0));
     flipped.reset(10);
     decisions.push(flipped.offer(scene({ seed: 1 }), 50));
+
+    // A gate with a dwell, offered a view that has only just stopped.
+    const dwelling = createFrameGate({ ...TEST_OPTIONS, settleDwellMs: 100 });
+    dwelling.reset(0);
+    decisions.push(dwelling.offer(scene({ seed: 1 }), 0));
 
     return decisions;
   }
@@ -604,20 +624,17 @@ describe("frame gate decision path", () => {
     }
   });
 
-  test("the floor is checked before the first keep, not after it", () => {
+  test("an answered ask is placed before the keep it stands in for", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
-    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
+    gate.offer(scene({ seed: 1 }), 0);
 
-    // A flip drops the baseline and keeps the floor's clock, so the next frame
-    // is turned away by the floor with nothing kept to score it against.
-    gate.reset(10);
-    const decision = gate.offer(scene({ seed: 1 }), 50);
-    expect(decision.reason).toBe("rate-floor");
-    expect(decision.novelty).toBeNull();
+    gate.armForcedKeep(10);
+    const decision = gate.offer(scene({ seed: 1 }), 20);
+    expect(decision.reason).toBe("answered");
 
     const path = frameGateDecisionPath(decision);
-    expect(path.indexOf("rate-floor")).toBeLessThan(path.indexOf("first"));
+    expect(path.indexOf("answered")).toBeLessThan(path.indexOf("forced"));
   });
 });
 
@@ -665,7 +682,7 @@ describe("frame gate primer", () => {
     expect(gate.offer(second, 220).motion).toBe(0);
   });
 
-  test("never keeps the frame it is given, and does not move the rate floor", () => {
+  test("never keeps the frame it is given", () => {
     const view = scene({ seed: 3 });
     const other = scene({ seed: 21 });
 
@@ -677,12 +694,13 @@ describe("frame gate primer", () => {
     gate.observe(view, 100);
     gate.observe(other, 200);
     const decision = gate.offer(other, 220);
-    // "first" is the proof: had either primer kept, this would be an ordinary
-    // offer inside the rate floor instead.
+    // "first" is the proof: had either primer kept, this would be judged
+    // against it as unchanged instead.
     expect(decision.keep).toBe(true);
     expect(decision.reason).toBe("first");
-    // And the floor runs from the offer, not from either primed frame.
-    expect(gate.offer(other, 250).reason).toBe("rate-floor");
+    // And the keep is the offer's: the same view offered back is judged
+    // against it.
+    expect(gate.offer(other, 250).reason).toBe("unchanged");
   });
 
   test("does not become the novelty baseline", () => {
@@ -751,39 +769,77 @@ describe("frame gate primer", () => {
  * it rather than firing again.
  */
 describe("frame gate forced keep", () => {
-  test("keeps a frame the rate floor would have turned away", () => {
+  test("keeps a settled frame the ambient threshold would have turned away", () => {
+    // The kept scene with a little of another mixed in: novelty above the
+    // asked-for bar and below the ambient one. Found by asking the gate,
+    // since the score is a property of the metric rather than a number worth
+    // pinning, and a blend moves it continuously where a pan jumps.
+    const base = scene({ seed: 1 });
+    const other = scene({ seed: 9 });
+    function blended(weight: number): FrameGrid {
+      const out = new Uint8Array(FRAME_GRID_CELLS);
+      for (let i = 0; i < FRAME_GRID_CELLS; i++) {
+        out[i] = clampLuma(base[i]! * (1 - weight) + other[i]! * weight);
+      }
+      return out;
+    }
+    let weight = 0;
+    while (
+      weight < 1 &&
+      noveltyBetween(base, blended(weight)) <
+        TEST_OPTIONS.forcedNoveltyThreshold
+    ) {
+      weight += 0.01;
+    }
+    const shifted = blended(weight);
+    expect(noveltyBetween(base, shifted)).toBeLessThan(
+      TEST_OPTIONS.noveltyThreshold,
+    );
+
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
-    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
-    expect(gate.offer(scene({ seed: 1 }), 20).reason).toBe("rate-floor");
+    gate.offer(base, 0);
+    expect(gate.offer(shifted, 500).reason).toBe("unchanged");
 
-    gate.armForcedKeep(30);
-    const decision = gate.offer(scene({ seed: 1 }), 40);
+    gate.armForcedKeep(510);
+    const decision = gate.offer(shifted, 700);
     expect(decision.keep).toBe(true);
     expect(decision.reason).toBe("forced");
   });
 
-  test("keeps a moving frame, and one nothing changed in", () => {
-    const still = scene({ seed: 4 });
-    const panned = scene({ seed: 4, panX: 4 });
+  test("waits for the view to settle rather than keeping a smeared frame", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
-    gate.offer(still, 0);
+    gate.offer(scene({ seed: 4 }), 0);
 
-    // Mid-pan: motion against the frame 20ms before it is over the settle
-    // threshold, which is what normally holds a smeared frame back.
-    gate.offer(panned, 200);
+    // Mid-swing at the moment of the ask: motion against the frame 20ms
+    // before is over the settle threshold, and a smeared frame answers
+    // nobody's question.
+    gate.offer(scene({ seed: 4, panX: 4 }), 200);
     gate.armForcedKeep(210);
-    const moving = gate.offer(still, 220);
+    const moving = gate.offer(scene({ seed: 21 }), 220);
     expect(moving.motion).toBeGreaterThan(TEST_OPTIONS.settleThreshold);
-    expect(moving.reason).toBe("forced");
+    expect(moving.reason).toBe("moving");
 
-    // The other end of the same exception: a view the gate has already kept
-    // and would otherwise call unchanged.
-    gate.armForcedKeep(400);
-    const same = gate.offer(still, 420);
-    expect(same.novelty).toBeLessThan(TEST_OPTIONS.noveltyThreshold);
-    expect(same.reason).toBe("forced");
+    // The arm stands, and the first settled frame inside the window spends it.
+    expect(gate.offer(scene({ seed: 21 }), 240).reason).toBe("forced");
+  });
+
+  test("spends nothing on a view the last keep already shows, and stands for one that changes", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+
+    gate.armForcedKeep(10);
+    const same = gate.offer(scene({ seed: 1 }), 20);
+    expect(same.keep).toBe(false);
+    expect(same.reason).toBe("answered");
+    expect(same.novelty).toBeLessThan(TEST_OPTIONS.forcedNoveltyThreshold);
+
+    // The question may be about something still on its way into view, so the
+    // arm outlives the frame that did not need it.
+    expect(gate.offer(scene({ seed: 9 }), 60).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 100).reason).toBe("forced");
   });
 
   test("keeps before any baseline exists, in place of the first keep", () => {
@@ -802,25 +858,22 @@ describe("frame gate forced keep", () => {
 
     gate.armForcedKeep(0);
     expect(gate.offer(scene({ seed: 1 }), 10).reason).toBe("forced");
-    // The whole point of a one-shot: a second arm is a second ask, and a
-    // second keep off one ask would double every utterance's cost.
-    expect(gate.offer(scene({ seed: 2 }), 20).reason).toBe("rate-floor");
+    // The whole point of a one-shot: the same view offered back is judged as
+    // the cadence judges it, not answered by an arm that is gone.
+    expect(gate.offer(scene({ seed: 1 }), 20).reason).toBe("unchanged");
   });
 
-  test("re-arms the rate floor, so the next frame does not keep behind it", () => {
+  test("moves the novelty baseline, so the next frame is judged against it", () => {
     const gate = createFrameGate(TEST_OPTIONS);
     gate.reset(0);
     gate.offer(scene({ seed: 1 }), 0);
 
     gate.armForcedKeep(200);
-    expect(gate.offer(scene({ seed: 1 }), 210).reason).toBe("forced");
-    // Recorded like any other keep, so the floor's clock moved with it. A
-    // forced keep that skipped that would fire a second, ambient keep of the
-    // same scene on the very next frame.
-    expect(gate.offer(scene({ seed: 9 }), 260).reason).toBe("rate-floor");
-    // And the novelty baseline moved too: this is the forced frame's own view
-    // offered back once the floor has passed.
-    expect(gate.offer(scene({ seed: 1 }), 400).reason).toBe("unchanged");
+    expect(gate.offer(scene({ seed: 9 }), 400).reason).toBe("forced");
+    // Recorded like any other keep: the forced frame's own view offered back
+    // is unchanged, and the view before it is now the novel one.
+    expect(gate.offer(scene({ seed: 9 }), 600).reason).toBe("unchanged");
+    expect(gate.offer(scene({ seed: 1 }), 800).reason).toBe("novel");
   });
 
   test("keeps nothing while the camera is still warming up", () => {
@@ -844,9 +897,9 @@ describe("frame gate forced keep", () => {
     gate.armForcedKeep(0);
     expect(gate.offer(flatWall(makeRandom(3)), 10).reason).toBe("featureless");
     expect(gate.offer(occluded(makeRandom(5)), 20).reason).toBe("featureless");
-    // Still armed: the hand comes off the lens and that is the view the ask
-    // was about.
-    expect(gate.offer(scene({ seed: 1 }), 30).reason).toBe("forced");
+    // Still armed: the hand comes off the lens and, once the view has
+    // settled, that is the view the ask was about.
+    expect(gate.offer(scene({ seed: 1 }), 160).reason).toBe("forced");
   });
 
   test("expires rather than keeping a scene the ask has outlived", () => {
@@ -872,7 +925,7 @@ describe("frame gate forced keep", () => {
 
     gate.armForcedKeep(10);
     expect(
-      gate.offer(scene({ seed: 1 }), 10 + FRAME_GATE_FORCED_KEEP_TTL_MS).reason,
+      gate.offer(scene({ seed: 9 }), 10 + FRAME_GATE_FORCED_KEEP_TTL_MS).reason,
     ).toBe("forced");
   });
 
@@ -885,7 +938,7 @@ describe("frame gate forced keep", () => {
     // before the arm: the pre-question scene, exactly what the arm exists to
     // get past. It is judged like any ambient frame instead.
     gate.armForcedKeep(50);
-    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("rate-floor");
+    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("moving");
   });
 
   test("stands past a pre-ask frame and is spent by the next fresh one", () => {
@@ -894,7 +947,7 @@ describe("frame gate forced keep", () => {
     gate.offer(scene({ seed: 1 }), 0);
 
     gate.armForcedKeep(50);
-    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("rate-floor");
+    expect(gate.offer(scene({ seed: 9 }), 40).reason).toBe("moving");
     // The follow-up pair, captured after the ask, is the one the arm is for.
     expect(gate.offer(scene({ seed: 9 }), 60).reason).toBe("forced");
   });
@@ -904,8 +957,8 @@ describe("frame gate forced keep", () => {
     gate.reset(0);
     gate.offer(scene({ seed: 1 }), 0);
 
-    gate.armForcedKeep(50);
-    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("forced");
+    gate.armForcedKeep(200);
+    expect(gate.offer(scene({ seed: 9 }), 200).reason).toBe("forced");
   });
 
   test("a capture begun before the ask cannot spend the arm, however late it lands", () => {
@@ -913,12 +966,16 @@ describe("frame gate forced keep", () => {
     gate.reset(0);
     gate.offer(scene({ seed: 1 }), 0);
 
-    // A bridge request issued at 40 that answers at 60: the offer's stamp
-    // postdates the arm, but the picture cannot be proven to.
+    // A bridge request issued at 40 that answers at 200: the offer's stamp
+    // postdates the arm, but the picture cannot be proven to. It is judged as
+    // the cadence judges it, and a new view is kept as one.
     gate.armForcedKeep(50);
-    expect(gate.offer(scene({ seed: 9 }), 60, 40).reason).toBe("rate-floor");
-    // The arm survives it, for a capture that provably began after the ask.
-    expect(gate.offer(scene({ seed: 9 }), 70, 65).reason).toBe("forced");
+    expect(gate.offer(scene({ seed: 9 }), 200, 40).reason).toBe("novel");
+    // The arm survives it: the same view, provably captured after the ask, is
+    // answered by that keep rather than judged unchanged, and a view that
+    // provably postdates the ask is what spends it.
+    expect(gate.offer(scene({ seed: 9 }), 400, 300).reason).toBe("answered");
+    expect(gate.offer(scene({ seed: 3 }), 600, 500).reason).toBe("forced");
   });
 
   test("a capture begun at the ask's own moment consumes it", () => {
@@ -927,7 +984,7 @@ describe("frame gate forced keep", () => {
     gate.offer(scene({ seed: 1 }), 0);
 
     gate.armForcedKeep(50);
-    expect(gate.offer(scene({ seed: 1 }), 60, 50).reason).toBe("forced");
+    expect(gate.offer(scene({ seed: 9 }), 200, 50).reason).toBe("forced");
   });
 
   test("a reset drops an unspent arm", () => {
@@ -937,10 +994,10 @@ describe("frame gate forced keep", () => {
 
     gate.armForcedKeep(20);
     // A flip points the camera somewhere else entirely, so the ask was about a
-    // scene this gate can no longer be asked for. The floor's clock survives
-    // the reset, which is what the next frame is turned away by.
+    // scene this gate can no longer be asked for. The next frame is the new
+    // camera's first keep, not the old ask's answer.
     gate.reset(30);
-    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("rate-floor");
+    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("first");
   });
 
   test("names a check the readout can place, on both branches", () => {
@@ -953,12 +1010,182 @@ describe("frame gate forced keep", () => {
     withBaseline.reset(0);
     withBaseline.offer(scene({ seed: 1 }), 0);
     withBaseline.armForcedKeep(10);
-    const later = withBaseline.offer(scene({ seed: 1 }), 20);
+    const later = withBaseline.offer(scene({ seed: 9 }), 200);
 
     expect(first.novelty).toBeNull();
     expect(later.novelty).not.toBeNull();
     for (const decision of [first, later]) {
       expect(frameGateDecisionPath(decision)).toContain("forced");
     }
+  });
+});
+
+/**
+ * The settle dwell: a stop is not a pause. Everything here uses a gate with a
+ * dwell, since the rest of the suite runs with it at zero so the mechanism
+ * under each other test is the one named.
+ */
+describe("frame gate settle dwell", () => {
+  const DWELL_OPTIONS: FrameGateOptions = {
+    ...TEST_OPTIONS,
+    settleDwellMs: 100,
+    // Out of reach, so the dwell and not the grace decides every frame here.
+    settleGraceMs: 10_000,
+  };
+
+  test("a first keep waits out the dwell like any other", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 1 }), 50).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("first");
+  });
+
+  test("a momentary stop between moves is not a pause", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("first");
+
+    // A person shifting in their chair: a new position, two still frames,
+    // another position. Each stop is settled and novel by the other numbers
+    // alone, and without the dwell each would be a keep.
+    expect(gate.offer(scene({ seed: 9 }), 133).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 166).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 9 }), 199).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 3 }), 232).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 3 }), 265).reason).toBe("settling");
+
+    // Holding the last position is a pause, and the dwell runs from the
+    // first still frame of it rather than from the last keep.
+    expect(gate.offer(scene({ seed: 3 }), 298).reason).toBe("settling");
+    const held = gate.offer(scene({ seed: 3 }), 365);
+    expect(held.keep).toBe(true);
+    expect(held.reason).toBe("novel");
+  });
+
+  test("a keep asked for waits out the dwell too", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    gate.offer(scene({ seed: 1 }), 100);
+
+    // The ask lands as a new view arrives. The arm stands through the dwell,
+    // and a smeared or barely-stopped frame is not what it is spent on.
+    gate.armForcedKeep(120);
+    expect(gate.offer(scene({ seed: 9 }), 133).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 166).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 9 }), 233).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 9 }), 266).reason).toBe("forced");
+  });
+
+  test("a move mid-dwell starts the dwell over", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    gate.offer(scene({ seed: 1 }), 100);
+
+    expect(gate.offer(scene({ seed: 9 }), 133).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9 }), 200).reason).toBe("settling");
+    // A twitch at 220 resets the clock, so 300 is not 100ms of stillness
+    // even though the view stopped at 166; 340 is, measured from 233.
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 220).reason).toBe("moving");
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 233).reason).toBe(
+      "settling",
+    );
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 300).reason).toBe(
+      "settling",
+    );
+    expect(gate.offer(scene({ seed: 9, panX: 6 }), 340).reason).toBe("novel");
+  });
+
+  test("the grace waives the dwell for a camera that never holds still", () => {
+    const gate = createFrameGate({ ...DWELL_OPTIONS, settleGraceMs: 200 });
+    gate.reset(0);
+
+    // A view that stops for one frame in every two: still frames arrive, but
+    // never two in a row, so the dwell never accrues. The grace is what keeps
+    // this camera from going silent.
+    let firstKeepAtMs: number | null = null;
+    for (let step = 0; step < 20; step++) {
+      const time = step * 33;
+      const frame = scene({ seed: 40 + Math.floor(step / 2) });
+      if (gate.offer(frame, time).keep) {
+        firstKeepAtMs = time;
+        break;
+      }
+    }
+    expect(firstKeepAtMs).not.toBeNull();
+    expect(firstKeepAtMs!).toBeGreaterThanOrEqual(200);
+    expect(firstKeepAtMs!).toBeLessThan(300);
+  });
+
+  test("a reset forgets how long the view had been still", () => {
+    const gate = createFrameGate(DWELL_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 1 }), 0);
+    expect(gate.offer(scene({ seed: 1 }), 100).reason).toBe("first");
+
+    // A flip is a new camera, and its first frame has held still for no time
+    // at all whatever the old one was doing.
+    gate.reset(110);
+    expect(gate.offer(scene({ seed: 1 }), 120).reason).toBe("settling");
+    expect(gate.offer(scene({ seed: 1 }), 220).reason).toBe("first");
+  });
+});
+
+describe("frame gate adopt", () => {
+  test("the adopted frame is what the next offer is judged against", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(gate.offer(scene({ seed: 1 }), 0).reason).toBe("first");
+
+    // A frame the caller sent on its own, of a different view. Nothing was
+    // offered, so without this the gate still thinks the call is looking at
+    // the first scene.
+    gate.adopt(scene({ seed: 2 }), 100);
+    // The view the call was just given is not news.
+    expect(gate.offer(scene({ seed: 2 }), 200).reason).toBe("unchanged");
+    // And the view it had before is, again.
+    expect(gate.offer(scene({ seed: 1 }), 300).reason).toBe("novel");
+  });
+
+  test("stands in for the first keep when nothing has been kept yet", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.adopt(scene({ seed: 3 }), 0);
+    const next = gate.offer(scene({ seed: 3 }), 10);
+    expect(next.keep).toBe(false);
+    expect(next.reason).toBe("unchanged");
+    expect(next.novelty).not.toBeNull();
+  });
+
+  test("restarts the heartbeat, as a keep does", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 4 }), 0);
+    gate.adopt(scene({ seed: 4 }), 800);
+    // 1s past the first keep, but only 200ms past the adopted one.
+    expect(gate.offer(scene({ seed: 4 }), 1_000).reason).toBe("unchanged");
+    expect(gate.offer(scene({ seed: 4 }), 1_800).reason).toBe("heartbeat");
+  });
+
+  test("spends a standing arm, since the call was given a frame of the moment", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    gate.offer(scene({ seed: 5 }), 0);
+    gate.armForcedKeep(100);
+    gate.adopt(scene({ seed: 5 }), 150);
+    // With the arm standing this would be `answered`; spent, the same frame is
+    // plain `unchanged`, and a small change is judged at the ambient bar.
+    expect(gate.offer(scene({ seed: 5 }), 200).reason).toBe("unchanged");
+  });
+
+  test("rejects a grid of the wrong size, exactly as an offer does", () => {
+    const gate = createFrameGate(TEST_OPTIONS);
+    gate.reset(0);
+    expect(() => gate.adopt(new Uint8Array(64), 0)).toThrow(
+      /expects 256 cells, received 64/,
+    );
   });
 });

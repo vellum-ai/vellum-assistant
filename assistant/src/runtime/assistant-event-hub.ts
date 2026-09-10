@@ -742,7 +742,13 @@ export function broadcastMessage(
   const targetInterfaceId = options?.targetInterfaceId;
 
   const event = buildAssistantEvent(msg, resolvedConversationId);
-  const targetCapability = capabilityForMessageType(msg.type);
+  // A reconnect can overlap an older executor with the same device ID.
+  // Filter at delivery too, not only when HostCuProxy resolves its target.
+  const targetCapability =
+    msg.type === "host_cu_request" &&
+    Object.hasOwn(msg.input, "capture_window_id")
+      ? "host_cu_window_capture"
+      : capabilityForMessageType(msg.type);
   // Self-echo suppression: a `sync_changed` carrying an `originClientId`
   // means a specific client just mutated the resource. The hub must not
   // re-deliver the invalidation to that client — it already updated its

@@ -589,6 +589,8 @@ function makeWakeConversation(options: {
       probe.callSequence.push("maybeCompact");
       return null;
     },
+    // The wake rebuilds the loop prompt under its per-turn stamps.
+    syncLoopSystemPrompt: () => {},
     // Consumed by the wake's over-window pre-flight (suppressed wakes only).
     contextWindowManager: {
       estimateInputTokens: () => options.estimatedInputTokens ?? 0,

@@ -18,6 +18,7 @@ import {
   isBackupProfileKey,
   isDefaultProfileKey,
 } from "../default-profile-names.js";
+import { InputModalitiesSchema } from "../input-modalities.js";
 
 /**
  * Unified LLM configuration schema.
@@ -223,6 +224,7 @@ export const LLMCallSiteEnum = z.enum([
   "vision",
   "voiceProgressNarration",
   "voiceFrontDoor",
+  "voiceContinuationLabel",
   "trustRuleSuggestion",
   "homeGreeting",
   "homeSuggestedPrompts",
@@ -641,6 +643,13 @@ export const ProfileEntry = LLMConfigFragment.extend({
    */
   allowUnlisted: z.boolean().optional(),
   /**
+   * Per-profile input-modality policy and capability overrides. Absent
+   * inherits the model catalog (unknown models fail closed at send time).
+   * `.nullable()` matches `label` so edit-mode PATCH can send `null` to
+   * clear a previously stored override.
+   */
+  inputModalities: InputModalitiesSchema.nullable().optional(),
+  /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
    * "send `null` to clear" sentinel works for status too — a managed
    * re-enable body of `{status: null}` clears back to active-by-absence
@@ -1040,13 +1049,15 @@ export const LLMSchema = z
     // --- Mix profile validation --------------------------------------------
     // Config keys a mix profile must NOT also set (a mix only references other
     // profiles + metadata). Derived from the fragment shape plus the
-    // ProfileEntry-only `provider_connection` and `fallbackProfile` (a mix
-    // carries no config of its own, so it has no route to fall back from) so
-    // it can't drift if a new config field is added to `LLMConfigFragment`.
+    // ProfileEntry-only `provider_connection`, `fallbackProfile` (a mix
+    // carries no config of its own, so it has no route to fall back from),
+    // and `inputModalities` so it can't drift if a new config field is added
+    // to `LLMConfigFragment`.
     const MIX_DISALLOWED_CONFIG_KEYS = [
       ...Object.keys(LLMConfigFragment.shape),
       "provider_connection",
       "fallbackProfile",
+      "inputModalities",
     ];
     const mixProfileNames = new Set(
       Object.entries(config.profiles ?? {})

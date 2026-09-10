@@ -64,7 +64,7 @@ import {
   parsePendingSecretState,
   parsePendingConfirmationData,
 } from "@/domains/chat/utils/send-message-utils";
-import type { AssistantStateKind } from "@/domains/chat/types";
+import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
   getPendingInteractions,
@@ -761,38 +761,45 @@ export function useConversationHistory({
   }, [pagination.isFetchingOlderPages, setTranscriptPagination]);
 
   // -------------------------------------------------------------------------
-  // Surface TanStack Query errors.
-  //
-  // An initial-page failure inside the resume grace window is held back: the
-  // refetch that fires when the client returns from the background often
-  // fails transiently against a still-waking pod. It is still reported, and
-  // the blocking error surfaces once the window expires.
+  // Cached history stays usable when a refresh or older-page fetch fails.
+  // Only an initial load can surface an error, after the resume grace window.
   // -------------------------------------------------------------------------
   const isResumeGraceActive = useResumeGrace();
+  const historyErrorRef = useRef<ChatError | null>(null);
   useEffect(() => {
+    if (historyErrorRef.current && (pagination.isSuccess || isResumeGraceActive)) {
+      const historyError = historyErrorRef.current;
+      setError((current) => (current === historyError ? null : current));
+      historyErrorRef.current = null;
+    }
+
     if (!pagination.isError || !pagination.error) {
       return;
     }
 
-    const isOlderPageError = pagination.isSuccess;
+    const hasLoadedHistory = pagination.latestPage !== undefined;
     captureError(pagination.error, {
-      context: isOlderPageError
-        ? "conversation_history_older_page"
+      context: hasLoadedHistory
+        ? "conversation_history_refresh"
         : "conversation_history_initial",
+      bestEffort: hasLoadedHistory,
     });
 
-    if (!isOlderPageError) {
+    if (!hasLoadedHistory) {
       setIsLoadingHistory(false);
       if (!isResumeGraceActive) {
-        setError({
+        const historyError: ChatError = {
           message: "Failed to load conversation history. Please try again.",
-        });
+        };
+        historyErrorRef.current = historyError;
+        setError(historyError);
       }
     }
   }, [
     pagination.isError,
     pagination.isSuccess,
     pagination.error,
+    pagination.latestPage,
     isResumeGraceActive,
     setIsLoadingHistory,
     setError,

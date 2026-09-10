@@ -24,8 +24,12 @@ import type {
   AppVersionInfo,
   AssistantStatus,
   BundleScanData,
+  ChordBinding,
+  ChordRegistrationResult,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
+  CompanionCoachmark,
   CompanionCharacter,
   CompanionContext,
   CompanionIntroAction,
@@ -235,10 +239,11 @@ export interface VellumBridge {
     restart(): Promise<HelperRestartResult>;
     onState(callback: (state: HelperState) => void): () => void;
     /**
-     * The global voice bindings. macOS exposes the held modifier set the
-     * voice key rides on (`setModifierHold`); Windows exposes the voice mode
-     * shortcut's bare-modifier chord (`setVoiceModeChord`) plus
-     * registration-state events. Absent on shells with no global trigger.
+     * The global keyboard bindings. macOS exposes the held modifier set the
+     * voice key rides on (`setModifierHold`) and the chords a call answers
+     * (`setChords`); Windows exposes the voice mode shortcut's bare-modifier
+     * chord (`setVoiceModeChord`) plus registration-state events. Absent on
+     * shells with no global trigger.
      */
     hotkey?: {
       setVoiceModeChord?(
@@ -251,6 +256,17 @@ export interface VellumBridge {
       setModifierHold?(
         hold: ModifierHold,
       ): Promise<ModifierHoldRegistrationResult>;
+      /**
+       * Watch for a modifier set pressed with one of a few keys, or clear the
+       * binding with `off`. Absent on shells whose helper cannot watch the
+       * raw keyboard.
+       *
+       * Events come back to the window that registered them rather than to
+       * whichever one the user last focused, since the binding is armed by
+       * the window that can answer it and a chord means nothing anywhere
+       * else.
+       */
+      setChords?(binding: ChordBinding): Promise<ChordRegistrationResult>;
       /**
        * What is highlighted in the application in front, or `null` when
        * nothing is. Absent on shells whose helper cannot read it.
@@ -647,6 +663,36 @@ export interface VellumBridge {
      */
     setAnnotating?(annotating: boolean): void;
     /**
+     * Choose what a press on the frame draws while the mode is on.
+     *
+     * Main's the way the mode is: the pill chooses and the frame draws, and
+     * neither window can tell the other. What comes back is
+     * `annotationTool` on `onState`. Absent on a shell that predates the
+     * shapes, which the surface reads as having only the pencil to offer.
+     */
+    setAnnotationTool?(tool: CompanionAnnotationTool): void;
+    /**
+     * The same mode, flipped rather than set, for a press that has to be its
+     * own way back and no view of which way that is.
+     *
+     * The keyboard's version of the control above: the mode is main's, so
+     * main is the side that can say what turning it over means. A renderer
+     * deciding from the last pushed state would answer with the mode as it
+     * was when that push left.
+     */
+    toggleAnnotating?(): void;
+    /**
+     * Take down everything on the shared surface without ending the share:
+     * the assistant's marks, and the user's own ink.
+     *
+     * Main's, since it holds the marks and opened the frame the ink is on.
+     * What comes back is `coachmarks` gone from `onState` and `marksCleared`
+     * stepped on it, which is what the frame's drawing layer drops its ink
+     * on. Absent on a shell that predates the control, which the surface
+     * reads as having no clear to offer.
+     */
+    clearMarks?(): void;
+    /**
      * A mark the user is drawing over the shared surface, from the frame's
      * own window: `drawing` while the hand is still on it, `released` when it
      * comes off, carrying every stroke still on the overlay.
@@ -661,6 +707,19 @@ export interface VellumBridge {
       ink: string,
     ): void;
     /**
+     * The user is scrolling the app under the frame, or has moved the
+     * pointer since, from the frame's own window while it is taking presses.
+     *
+     * A window taking presses takes the wheel with them and cannot forward
+     * it, so on `true` main makes the frame click-through with mouse-move
+     * forwarded, which lets the rest of the scroll reach the app underneath
+     * and still shows the renderer where the pointer is; on `false` it takes
+     * the mouse back. Refused while drawing is off, since there is no mouse
+     * to hand back. Absent on a shell that predates it, which the frame
+     * reads as having no scroll to let through.
+     */
+    setFrameScrolling?(scrolling: boolean): void;
+    /**
      * One frame of `target`, as the helper takes it, for the window holding a
      * shared call to hand to the session. Resolves to null when no frame
      * could be taken: the window has gone, the display was unplugged, or
@@ -669,6 +728,21 @@ export interface VellumBridge {
     captureScreen?(
       target: WatchCaptureTarget,
     ): Promise<ScreenCaptureFrame | null>;
+    /**
+     * A frame of `target` has reached the call, so the assistant has now been
+     * shown that surface.
+     *
+     * Told rather than inferred, and told here rather than at the capture.
+     * Taking a frame is not showing it: it is prepared, uploaded and sent
+     * afterwards, and any of those can fail or be voided by a reconnect. Main
+     * refuses marks measured against a surface the call has not been shown
+     * ({@link CompanionSurfaceState.coachmarks}), and a capture counted as a
+     * showing would open that gate for a picture nobody received.
+     *
+     * Only the window holding the session knows the frame arrived, which is
+     * why this comes from the renderer rather than being settled in main.
+     */
+    sharedFrame?(target: WatchCaptureTarget): void;
     /**
      * A preview of one row of the picker, as a JPEG data URL, for the tile
      * that row is drawn as.

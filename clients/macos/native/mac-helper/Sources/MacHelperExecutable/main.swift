@@ -7,11 +7,15 @@ import IOKit.hid
 import MacHelperCore
 import Speech
 
-/// The keyboard tap's callback. Listen-only, so the event is always handed
-/// back untouched; what is read off it is the modifier flags and the fact of a
-/// key going down. A tap the system has switched off for taking too long is
-/// switched back on here, since a dead tap is a dead key with nothing to say
-/// so.
+/// The keyboard tap's callback. What is read off an event is the modifier
+/// flags and the fact of a key going down. A tap the system has switched off
+/// for taking too long is switched back on here, since a dead tap is a dead
+/// key with nothing to say so.
+///
+/// Every event is handed back as it came except one: a key the binding named
+/// as a chord, pressed inside a hold, is taken. That press is a gesture the
+/// user made at this app, and letting it through would type a letter into
+/// whatever they are working in on its way past.
 private func keyboardTapCallback(
     _ proxy: CGEventTapProxy,
     _ type: CGEventType,
@@ -26,7 +30,9 @@ private func keyboardTapCallback(
     case .flagsChanged:
         helper.handleFlagsChanged(event.flags)
     case .keyDown:
-        helper.handleRawKeyDown()
+        if helper.handleRawKeyDown(event) {
+            return nil
+        }
     case .leftMouseDown, .rightMouseDown, .otherMouseDown:
         helper.handleMouseDown()
     case .tapDisabledByTimeout, .tapDisabledByUserInput:
@@ -48,7 +54,9 @@ final class MacHelper: @unchecked Sendable {
     /// key with an active session-level tap that swallows it, and a monitor
     /// downstream of that never hears the press at all. The HID point is
     /// upstream of every session tap, so the key is seen before anyone can
-    /// take it. Listen-only, since the helper only ever reads.
+    /// take it. Active, so the one press that is a gesture at this app can be
+    /// taken rather than passed on; every other event is handed back as it
+    /// came.
     private var keyboardTap: CFMachPort?
     private var keyboardTapSource: CFRunLoopSource?
     private var modifierHoldDetector = ModifierHoldDetector()
@@ -58,11 +66,42 @@ final class MacHelper: @unchecked Sendable {
     /// so "held" is per modifier rather than per bit.
     private var modifierHoldMasks: [UInt32] = []
     private var isModifierHoldDown = false
+    /// The chord binding: the modifiers that must be held, and the keys that
+    /// mean something with them. Its own binding rather than a mode of the
+    /// hold's, because it is a different question about the keyboard: the hold
+    /// asks what a bare set of modifiers is doing, and this asks which key was
+    /// pressed under one. Empty masks are a binding that is off.
+    private var chordModifierMasks: [UInt32] = []
+    private var chordKeys = ChordKeySet()
     /// Whether presses are reported as activity, and when the last was, so a
     /// burst of typing is one notification every so often rather than one per
     /// key.
     private var activityWatch = false
     private var lastActivityReport = Date.distantPast
+    /// The global scroll-wheel monitor, up only while main is waiting to hear
+    /// a scroll end, and the debounce that decides when one has. A scroll is
+    /// many events, from a trackpad's phases through its momentum to a mouse
+    /// wheel's plain ticks, and the one thing they share is that they stop:
+    /// the end is a quiet gap after the last of them.
+    ///
+    /// An `NSEvent` monitor rather than a second event tap because it reads
+    /// mouse and scroll events without Input Monitoring, which only the
+    /// keyboard side of a global monitor needs, so the frame's scroll
+    /// stepping does not depend on the grant the voice key needs.
+    private var scrollMonitor: Any?
+    private var scrollEndReport: DispatchWorkItem?
+    private static let scrollEndGap: TimeInterval = 0.12
+    /// The global mouse-down monitor, up only while main is waiting for a
+    /// press on something the assistant is pointing at, and the rectangles
+    /// that press would have to land in. The monitor comes down on the first
+    /// hit: a mark is one step, and the step is done once.
+    ///
+    /// Where a press landed is read here and nowhere else, and only against
+    /// these rectangles: what leaves the process is which of them was hit,
+    /// never the point. An `NSEvent` monitor for the reason the scroll one
+    /// is, so pointing does not depend on Input Monitoring.
+    private var pressMonitor: Any?
+    private var pressRects: [CGRect] = []
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -125,6 +164,30 @@ final class MacHelper: @unchecked Sendable {
             }
             let modifiers = object["modifiers"] as? [String] ?? []
             return try self.setModifierHold(enable: enable, modifiers: modifiers)
+        }
+        // The chords a call answers: modifiers that must be held, and the
+        // keys that mean something under them. Armed while a session is
+        // running and cleared when it ends, so the keys are the user's own
+        // the rest of the time.
+        router.register("hotkey.chords") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.chords requires enable"
+                )
+            }
+            let modifiers = object["modifiers"] as? [String] ?? []
+            let keys = object["keys"] as? [String] ?? []
+            return try self.setChords(
+                enable: enable,
+                modifiers: modifiers,
+                keys: keys
+            )
         }
         // What is highlighted in the application in front, read when the app
         // asks rather than on every press: a hold that has outlasted the
@@ -192,6 +255,54 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setActivityWatch(enable: enable)
+        }
+        // Whether a scroll is still going anywhere on the desktop, reported
+        // as the moment it stops and nothing else, for a window that stepped
+        // aside for one and has to know when to take the mouse back.
+        router.register("input.setScrollWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setScrollWatch requires enable"
+                )
+            }
+            return try self.setScrollWatch(enable: enable)
+        }
+        // Whether the next press lands on something the assistant is pointing
+        // at. `rects` are where those things are, in screen points with the
+        // origin at the top-left of the primary display; none is the watch
+        // coming down. Reported once, as the index of the rectangle hit.
+        router.register("input.setPressWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let rects = object["rects"] as? [[String: Any]]
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setPressWatch requires rects"
+                )
+            }
+            let parsed = try rects.map { rect -> CGRect in
+                guard
+                    let x = rect["x"] as? Double,
+                    let y = rect["y"] as? Double,
+                    let width = rect["width"] as? Double,
+                    let height = rect["height"] as? Double
+                else {
+                    throw JsonRpcDispatchError.invalidParams(
+                        "input.setPressWatch rects need x, y, width and height"
+                    )
+                }
+                return CGRect(x: x, y: y, width: width, height: height)
+            }
+            return try self.setPressWatch(rects: parsed)
         }
         // Where a paste would land, asked when there are words to paste rather
         // than when a hold opens. No hold guard: the hold is over by then, and
@@ -410,14 +521,67 @@ final class MacHelper: @unchecked Sendable {
         return false
     }
 
-    /// A key went down somewhere while the tap is watching. Only its
-    /// existence is consumed, never its identity: the one fact needed is
-    /// that the current hold is a chord (Fn+Delete, Fn+arrow), not a hold.
-    func handleRawKeyDown() {
+    /// A key went down somewhere while the tap is watching.
+    ///
+    /// For the hold, only its existence is consumed, never its identity: the
+    /// one fact needed is that the current hold is a chord (Fn+Delete,
+    /// Fn+arrow) and not a hold.
+    ///
+    /// For the chord binding, which key it is has to be read, and is: only
+    /// while that binding is armed, and only once the modifiers under it
+    /// already match, so the question is asked of a press the app is owed an
+    /// answer about and of no other.
+    ///
+    /// Returns whether the press belongs to this app and should go no further.
+    func handleRawKeyDown(_ event: CGEvent) -> Bool {
         for edge in modifierHoldDetector.keyDown() {
             emitModifierHold(edge: edge)
         }
         reportInputActivity()
+        guard let key = chordKey(for: event) else {
+            return false
+        }
+        // A key held down repeats as further key-downs. The press was answered
+        // on the first of them; the repeats are still this app's (left alone
+        // they would type the key's character into the front app) and are
+        // taken without being reported, so a chord that toggles something
+        // toggles it once per press rather than once per repeat.
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return true
+        }
+        writeNotification(
+            method: "hotkey.event",
+            params: ["kind": "chord", "state": "down", "key": key]
+        )
+        return true
+    }
+
+    /// Which of the binding's keys `event` is, or nil when the binding is off,
+    /// the modifiers under it are not exactly the ones asked for, or the key
+    /// is not one of them.
+    ///
+    /// The modifiers are checked first because they are the cheap half and
+    /// because they are what makes reading the key legitimate. Exactly the
+    /// set: another modifier joining makes it somebody else's shortcut
+    /// (Option+Shift+S is not Option+S), and letting that through is what
+    /// keeps this binding out of the way of the ones the user already has.
+    private func chordKey(for event: CGEvent) -> String? {
+        guard !chordModifierMasks.isEmpty, !chordKeys.isEmpty else {
+            return nil
+        }
+        let modifiers = Self.carbonModifiers(event.flags)
+        let union = chordModifierMasks.reduce(UInt32(0)) { $0 | $1 }
+        guard
+            chordModifierMasks.allSatisfy({ (modifiers & $0) != 0 }),
+            (modifiers & Self.everyModifierMask & ~union) == 0
+        else {
+            return nil
+        }
+        let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        guard let character = KeyboardLayout.unmodifiedCharacter(for: keyCode) else {
+            return nil
+        }
+        return chordKeys.match(character)
     }
 
     /// A mouse button went down somewhere. Only the fact is consumed, never
@@ -444,6 +608,102 @@ final class MacHelper: @unchecked Sendable {
             releaseMonitorIfUnused()
         }
         return ["enabled": enable]
+    }
+
+    /// Watch every scroll on the desktop for the moment it stops, or stop
+    /// watching. Idempotent: a second enable keeps the monitor it has, and
+    /// a disable with none up is nothing to take down.
+    ///
+    /// The watch is asked for by a scroll already under way: the caller saw
+    /// the first wheel event itself, and that one is over before the monitor
+    /// is up. A single tick is a whole scroll, so the end is scheduled on
+    /// enable and only pushed out by whatever the monitor sees after.
+    private func setScrollWatch(enable: Bool) throws -> [String: Any] {
+        if !enable {
+            removeScrollMonitor()
+            return ["enabled": false]
+        }
+        if scrollMonitor == nil {
+            guard
+                let monitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] _ in
+                    self?.pushScrollEnd()
+                })
+            else {
+                throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.scrollWheel)")
+            }
+            scrollMonitor = monitor
+        }
+        pushScrollEnd()
+        return ["enabled": true]
+    }
+
+    /// The scroll is not over yet: the watch just went up for one, or a
+    /// wheel event went by. Where it went, and how far, is never read. The
+    /// report of its end is pushed out by the gap again.
+    private func pushScrollEnd() {
+        scrollEndReport?.cancel()
+        let report = DispatchWorkItem { [weak self] in
+            guard let self, self.scrollMonitor != nil else { return }
+            self.scrollEndReport = nil
+            self.writeNotification(method: "input.scrollEnded")
+        }
+        scrollEndReport = report
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollEndGap, execute: report)
+    }
+
+    private func removeScrollMonitor() {
+        scrollEndReport?.cancel()
+        scrollEndReport = nil
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
+        }
+        scrollMonitor = nil
+    }
+
+    /// Watch for the next press inside one of `rects`, or stop watching when
+    /// there are none. A new list replaces the old one under a monitor that
+    /// is already up, so pointing at the next step does not take the monitor
+    /// down and put it back.
+    private func setPressWatch(rects: [CGRect]) throws -> [String: Any] {
+        pressRects = rects
+        if rects.isEmpty {
+            removePressMonitor()
+            return ["enabled": false]
+        }
+        if pressMonitor == nil {
+            guard
+                let monitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in
+                    self?.handlePress()
+                })
+            else {
+                throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.leftMouseDown)")
+            }
+            pressMonitor = monitor
+        }
+        return ["enabled": true]
+    }
+
+    /// A press went down somewhere on the desktop while main is waiting for
+    /// one. Only whether it landed in a watched rectangle is read, and which;
+    /// a press anywhere else is nothing, and keeps the watch up.
+    private func handlePress() {
+        guard let primaryHeight = NSScreen.screens.first?.frame.maxY else {
+            return
+        }
+        let point = PressWatch.flipped(NSEvent.mouseLocation, primaryHeight: primaryHeight)
+        guard let index = PressWatch.hit(point, in: pressRects) else {
+            return
+        }
+        removePressMonitor()
+        writeNotification(method: "input.pressed", params: ["index": index])
+    }
+
+    private func removePressMonitor() {
+        pressRects = []
+        if let pressMonitor {
+            NSEvent.removeMonitor(pressMonitor)
+        }
+        pressMonitor = nil
     }
 
     private func readCommands() {
@@ -477,6 +737,9 @@ final class MacHelper: @unchecked Sendable {
                 return
             case "capture.frame":
                 dispatchCaptureFrame(line: line)
+                return
+            case "ax.locate":
+                dispatchAxLocate(line: line)
                 return
             case "appControl.perform":
                 dispatchAppControlPerform(line: line)
@@ -552,6 +815,170 @@ final class MacHelper: @unchecked Sendable {
             self.writeResponse(
                 JsonRpcCodec.successResponse(id: id, result: payload.toDictionary())
             )
+        }
+    }
+
+    /// How many names a refusal carries back, and how long each may be.
+    ///
+    /// The tree behind them can be a web page: ten thousand elements, any
+    /// number of them carrying a paragraph of `aria-label` apiece. Sent whole
+    /// that is an IPC payload the caller cannot act on and a turn's context
+    /// spent reading it. Bounded here rather than at the far end, because the
+    /// far end can only bound what has already crossed. The count travels
+    /// beside the list so the caller can still say how many it is not naming.
+    ///
+    /// The limit is well past what anything chooses between by reading, and
+    /// the length is a name rather than a description of one.
+    private static let labelsReturned = 48
+    private static let labelLength = 60
+
+    private static func shortlist(_ labels: [String]) -> [String] {
+        AXLabel.shortlist(labels, limit: labelsReturned, each: labelLength)
+    }
+
+    /// Where in a window the control someone named actually is.
+    ///
+    /// The point of the whole errand: the accessibility tree knows every
+    /// labelled control's frame exactly, so a caller that wants to draw around
+    /// one never has to estimate where it is from a picture. The frame comes
+    /// back in screen points, which is the space the window's own bounds are
+    /// in, so the caller can express it against whatever surface it is drawing
+    /// on without knowing anything about this one.
+    ///
+    /// A query that fits more than one control is refused rather than resolved
+    /// (see `AXTargetMatch`), and both refusals carry labels: `ambiguous` the
+    /// ones that fit, `available` everything there was. A caller with no match
+    /// can then say what is on the surface instead of pointing at a guess.
+    private func dispatchAxLocate(line: String) {
+        Task { @MainActor in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            guard let query = params["query"] as? String else {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "ax.locate requires query, and windowId or displayId"
+                ))
+                return
+            }
+            // A window names its own tree. A display does not have one, so the
+            // frontmost window standing on it is the tree to read: a person
+            // sharing their screen and naming a control means the one they are
+            // looking at, which is the same window computer use reads.
+            let enumerator = AccessibilityTreeEnumerator()
+            let windowId = (params["windowId"] as? NSNumber).map { CGWindowID($0.uint32Value) }
+            let displayId = (params["displayId"] as? NSNumber)?.uint32Value
+            let located = if let windowId {
+                await enumerator.enumerateWindow(windowId: windowId)
+            } else {
+                await enumerator.enumerateCurrentWindow()
+            }
+            guard let tree = located else {
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-tree",
+                ]))
+                return
+            }
+
+            // The rectangle the caller is going to measure against: the
+            // display's bounds or the window's, whichever is being shared.
+            // Nothing outside it is on the surface, whatever the tree says.
+            let surface: CGRect? = if let displayId {
+                CGDisplayBounds(CGDirectDisplayID(displayId))
+            } else if let windowId {
+                enumerator.serverWindow(for: windowId)?.bounds
+            } else {
+                nil
+            }
+            let flattened = AccessibilityTreeEnumerator.flattenClipped(tree.elements)
+
+            // Focus is one thing across every monitor, so the window it names
+            // can be standing on a different screen from the one asked about.
+            // The caller normalises what comes back against that screen's
+            // bounds, so a frame from elsewhere resolves to somewhere
+            // arbitrary on it: a tree that is not on the display is no tree.
+            // Read off the whole tree rather than the candidates below, since
+            // where a window is and what it has worth pointing at are two
+            // questions.
+            if let displayId,
+               !AXDisplayMatch.tree(
+                   at: flattened.map(\.element.frame),
+                   standsOn: CGDisplayBounds(CGDirectDisplayID(displayId))
+               ) {
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-tree",
+                ]))
+                return
+            }
+
+            // Anything named and actually on screen is a thing that can be
+            // pointed at, interactive or not: a value someone is reading is as
+            // legitimate a target as a button they are about to press.
+            //
+            // Where it can actually be seen, though. A tree reaches past what
+            // is being shown, in two directions: outward, since a window can
+            // lie across the seam between two monitors, and inward, since a
+            // scroll view keeps the rows above and below the ones on screen at
+            // the frames they would have if they were on screen. The first
+            // draws at a clamped edge, the second squarely over unrelated
+            // content, and both while the answer says it landed exactly.
+            // Neither is a candidate, and a query that named one comes back
+            // with the labels that can be seen instead.
+            //
+            // What comes back is the part that can be seen, not the whole
+            // frame. A control half over the seam between two monitors is
+            // worth pointing at from the shared one, but its middle can be on
+            // the other, and the caller aims at the middle of what it is
+            // given: clipped here, every answer is a rectangle wholly on the
+            // surface it will be measured against.
+            let elements = flattened.compactMap {
+                candidate -> (element: AXElement, frame: CGRect)? in
+                let element = candidate.element
+                guard let title = element.title, !title.isEmpty else { return nil }
+                guard element.frame.width > 0, element.frame.height > 0 else { return nil }
+                var seen = element.frame
+                for bound in [candidate.visible, surface] {
+                    guard let bound else { continue }
+                    seen = seen.intersection(bound)
+                }
+                guard !seen.isEmpty else { return nil }
+                return (element: element, frame: seen)
+            }
+            let outcome = AXTargetMatch.locate(
+                query: query,
+                among: elements.map { AXTargetMatch.Candidate(label: $0.element.title ?? "") }
+            )
+
+            switch outcome {
+            case let .found(index):
+                let (element, frame) = elements[index]
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": true,
+                    "label": AXLabel.singleLine(element.title ?? "", max: Self.labelLength),
+                    "role": element.role,
+                    "x": Double(frame.origin.x),
+                    "y": Double(frame.origin.y),
+                    "width": Double(frame.width),
+                    "height": Double(frame.height),
+                ]))
+            case let .ambiguous(labels):
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "ambiguous",
+                    "ambiguous": Self.shortlist(labels),
+                    "candidateCount": labels.count,
+                ]))
+            case let .notFound(labels):
+                self.writeResponse(JsonRpcCodec.successResponse(id: id, result: [
+                    "found": false,
+                    "reason": "no-match",
+                    "available": Self.shortlist(labels),
+                    "candidateCount": labels.count,
+                ]))
+            }
         }
     }
 
@@ -1005,6 +1432,51 @@ final class MacHelper: @unchecked Sendable {
         return ["enabled": true]
     }
 
+    private func setChords(
+        enable: Bool,
+        modifiers: [String],
+        keys: [String]
+    ) throws -> [String: Any] {
+        guard enable else {
+            chordModifierMasks = []
+            chordKeys = ChordKeySet()
+            releaseMonitorIfUnused()
+            return ["enabled": false]
+        }
+
+        let masks = try modifiers.map { name -> UInt32 in
+            guard let mask = Self.masks(forModifier: name) else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "hotkey.chords does not know the modifier \(name)"
+                )
+            }
+            return mask
+        }
+        guard !masks.isEmpty else {
+            throw JsonRpcDispatchError.invalidParams(
+                "hotkey.chords requires at least one modifier"
+            )
+        }
+        let set = ChordKeySet(keys)
+        guard !set.isEmpty else {
+            throw JsonRpcDispatchError.invalidParams(
+                "hotkey.chords requires at least one key"
+            )
+        }
+
+        chordModifierMasks = masks
+        chordKeys = set
+        do {
+            try ensureMonitorInstalled()
+        } catch {
+            chordModifierMasks = []
+            chordKeys = ChordKeySet()
+            releaseMonitorIfUnused()
+            throw error
+        }
+        return ["enabled": true]
+    }
+
     /// Close an open hold, so a binding that goes away does not stand a
     /// microphone open with nothing left to close it.
     private func cancelModifierHold() {
@@ -1092,16 +1564,18 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func releaseMonitorIfUnused() {
-        guard modifierHoldMasks.isEmpty, !activityWatch else {
+        guard modifierHoldMasks.isEmpty, chordModifierMasks.isEmpty, !activityWatch
+        else {
             return
         }
         removeEventHandlers()
     }
 
     private func installEventHandlers() throws {
-        // Modifier changes carry the hold; key presses are observed only to
-        // disqualify a chord (`handleRawKeyDown`), and their contents are
-        // never read.
+        // Modifier changes carry the hold; key presses are observed to
+        // disqualify a chord (`handleRawKeyDown`). Which key one was is read
+        // only against the keys the binding named, and only for a press that
+        // closes a hold.
         // Mouse presses ride along only to report activity: a click moves the
         // cursor, and an offer to replace the last edit is void once it has
         // moved. Where the click landed is never read.
@@ -1113,15 +1587,31 @@ final class MacHelper: @unchecked Sendable {
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
         // Creation fails without Input Monitoring, which is the one way the
         // grant shows itself here: the tap is silent rather than refused.
-        guard let tap = CGEvent.tapCreate(
+        //
+        // Active, because one press has to be taken rather than watched: a
+        // key the binding named, pressed inside a hold, is a gesture at this
+        // app and would otherwise also type itself into the app the user is
+        // working in. Everything else the callback sees is handed straight
+        // back. A tap that cannot be active is still worth having, since the
+        // hold itself only ever reads, so the fallback keeps the key working
+        // and lets a named chord through to the front app as well.
+        let tap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(mask),
+            callback: keyboardTapCallback,
+            userInfo: userInfo
+        ) ?? CGEvent.tapCreate(
             tap: .cghidEventTap,
             place: .headInsertEventTap,
             options: .listenOnly,
             eventsOfInterest: CGEventMask(mask),
             callback: keyboardTapCallback,
             userInfo: userInfo
-        ) else {
-            throw HelperError.eventTap("CGEvent.tapCreate(HID, listenOnly)")
+        )
+        guard let tap else {
+            throw HelperError.eventTap("CGEvent.tapCreate(HID)")
         }
         let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
@@ -1154,8 +1644,12 @@ final class MacHelper: @unchecked Sendable {
         // down with the binding.
         cancelModifierHold()
         modifierHoldMasks = []
+        chordModifierMasks = []
+        chordKeys = ChordKeySet()
         activityWatch = false
         releaseMonitorIfUnused()
+        removeScrollMonitor()
+        removePressMonitor()
     }
 
     private func writeNotification(method: String, params: Any? = nil) {
@@ -1183,6 +1677,7 @@ final class MacHelper: @unchecked Sendable {
 private enum HelperError: LocalizedError {
     case carbon(String, OSStatus)
     case eventTap(String)
+    case eventMonitor(String)
 
     var errorDescription: String? {
         switch self {
@@ -1190,6 +1685,8 @@ private enum HelperError: LocalizedError {
             return "\(operation) failed with status \(status)"
         case let .eventTap(operation):
             return "\(operation) failed; Input Monitoring may not be granted"
+        case let .eventMonitor(operation):
+            return "\(operation) returned no monitor"
         }
     }
 }

@@ -10,6 +10,7 @@ import {
   sanitizeUsageMetadataValue,
 } from "../usage/attribution.js";
 import { resolveSubagentAttribution } from "../usage/subagent-attribution.js";
+import { getExistingDeviceId } from "../util/device-id.js";
 import {
   type ProviderCredentialSource,
   ProviderError,
@@ -647,6 +648,11 @@ function normalizeSendMessageOptions(
         : undefined;
     const requestHeaders = buildOpenCodeRequestHeaders({
       conversationId,
+      // Background call paths (memory/commit-message enrichment,
+      // proactivity, workflow runs) have no conversationId - reuse the
+      // existing stable per-device ID so those requests still carry a
+      // session header instead of persisting a new ID for this purpose.
+      fallbackSessionId: getExistingDeviceId() ?? undefined,
       requestId: randomUUID(),
     });
     if (Object.keys(requestHeaders).length > 0) {

@@ -16,10 +16,16 @@ exactly (except where noted).
 | `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons)   | CC0-1.0 (public domain, no attribution required)                  |
 | `eventbrite`, `salesforce`                                                                            | [glincker/thesvg](https://github.com/glincker/thesvg)          | MIT (notice below)                                                |
 | `monday`                                                                                              | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1)   | Trademark of monday.com; no software licence granted (see Trademark, below) |
+| `stripe-link`                                                                                         | [link.com](https://link.com)                                   | Trademark of Stripe; no software licence granted (see Trademark, below) |
 
 `monday`'s path data and fill colours are byte-identical to the source. Only
 the outer `viewBox` and a wrapping group transform were changed, to fit the
 source's wide mark into a square icon slot.
+
+`stripe-link` is the green Link symbol inlined in link.com's own header, with
+the site's CSS custom properties resolved to the brand colours they carry there
+(`#00D66F` circle, `#011E0F` mark). Link is a Stripe product with its own mark,
+so the parent Stripe `S` is not a stand-in for it.
 
 ## Unrecorded provenance
 

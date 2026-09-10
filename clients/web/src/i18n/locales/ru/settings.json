@@ -56,8 +56,7 @@
     "searchPlaceholder": "Поиск диалогов",
     "unarchive": "Вернуть из архива",
     "unarchiveFailed": "Не удалось вернуть диалог из архива.",
-    "unarchiving": "Возврат из архива",
-    "untitled": "Диалог без названия"
+    "unarchiving": "Возврат из архива"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Проверяем доступ к уведомлениям на этом устройстве.",
@@ -368,8 +367,7 @@
     "errorTitle": "Не удалось загрузить закладки",
     "open": "Открыть",
     "removeBookmark": "Убрать закладку",
-    "retry": "Повторить",
-    "untitledConversation": "Диалог без названия"
+    "retry": "Повторить"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# действие сейчас использует {profile}} few {# действия сейчас используют {profile}} many {# действий сейчас используют {profile}} other {# действия сейчас используют {profile}}}",
@@ -441,12 +439,12 @@
     "urlPlaceholder": "Callback URL..."
   },
   "checkoutBonusModal": {
-    "body": "Разовый кредит {amount}: сразу зачислим его на баланс. Платить не нужно.",
-    "claim": "Забрать {amount} кредитами",
+    "body": "Разовое дополнительное использование на {amount}: сразу зачислим его на баланс использования. Платить не нужно.",
+    "claim": "Забрать {amount} дополнительного использования",
     "decline": "Нет, спасибо",
-    "errorToast": "Не удалось добавить кредиты. Повторите попытку.",
-    "grantedToast": "На аккаунт добавлено {amount} кредитами.",
-    "title": "Держи {amount} от нас",
+    "errorToast": "Не удалось добавить дополнительное использование. Повторите попытку.",
+    "grantedToast": "На баланс использования добавлено {amount} дополнительного использования.",
+    "title": "Держи {amount} дополнительного использования от нас",
     "unavailableToast": "Это предложение больше недоступно."
   },
   "checkoutPage": {
@@ -984,6 +982,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "Аккаунт {name}",
+    "cancel": "Отмена",
     "connectAccount": "Подключить аккаунт",
     "connectAccountLower": "Подключить аккаунт",
     "connectToContinue": "Подключение аккаунта для продолжения",
@@ -1028,8 +1027,7 @@
     "emptyTitle": "Нет MCP-серверов",
     "loadError": "Не удалось загрузить MCP-серверы. Проверь, что ассистент запущен.",
     "loading": "Загрузка MCP-серверов...",
-    "reloadAriaLabel": "Перезагрузить MCP-серверы",
-    "reloadTooltip": "Перезагрузить все серверы",
+    "reloadButton": "Обновить",
     "removeDialogConfirm": "Удалить",
     "removeDialogMessage": "Точно удалить \"{serverId}\"? Это отключит все инструменты этого сервера.",
     "removeDialogTitle": "Удалить MCP-сервер",
@@ -1044,8 +1042,6 @@
     "toastAuthStartFailed": "Не удалось начать аутентификацию для {serverId}",
     "toastAuthTimedOut": "Время аутентификации истекло для {serverId}",
     "toastAuthenticatedSuccess": "{serverId} успешно аутентифицирован",
-    "toastDisableFailed": "Не удалось выключить {serverId}",
-    "toastEnableFailed": "Не удалось включить {serverId}",
     "toastOAuthRevokeFailed": "Не удалось отозвать OAuth для {serverId}",
     "toastOAuthRevoked": "Учётные данные OAuth отозваны для {serverId}",
     "toastReloadFailed": "Не удалось перезагрузить MCP-серверы",
@@ -1058,26 +1054,21 @@
     "totalTools": "{count, plural, one {всего # инструмент} few {всего # инструмента} many {всего # инструментов} other {всего # инструмента}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "Закрыть",
     "authenticate": "Аутентифицировать",
+    "authenticatedBadge": "Аутентифицировано",
     "authenticating": "Аутентификация...",
     "configure": "Настроить",
-    "configureTooltip": "Настроить",
     "estimatedTokens": "~{count} токенов",
-    "oauthBadge": "OAuth",
+    "moreActions": "Другие действия для {serverId}",
     "reAuth": "Повторная аутентификация",
-    "reAuthTooltip": "Повторно аутентифицировать OAuth",
     "registeredTools": "{count, plural, one {# зарегистрированный инструмент} few {# зарегистрированных инструмента} many {# зарегистрированных инструментов} other {# зарегистрированных инструмента}}",
-    "removeServerAriaLabel": "Удалить {serverId}",
-    "removeServerTooltip": "Удалить сервер",
+    "removeServer": "Удалить сервер",
     "revoke": "Отозвать",
     "revokeOAuthTooltip": "Отозвать учётные данные OAuth",
-    "revoking": "Отзыв...",
     "statusConnected": "Подключён",
-    "statusDisabled": "Выключен",
     "statusError": "Ошибка",
     "statusNeedsAuth": "Нужна аутентификация",
-    "toggleDisableAriaLabel": "Выключить {serverId}",
-    "toggleEnableAriaLabel": "Включить {serverId}",
     "toolCount": "{count, plural, one {# инструмент} few {# инструмента} many {# инструментов} other {# инструмента}}",
     "toolTokensAbbrev": "~{count} ток"
   },
@@ -1093,7 +1084,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "••••••••  (пустое поле сохраняет текущий)",
     "cancel": "Отмена",
-    "defaultRiskLevel": "Уровень риска по умолчанию",
     "description": "транспорт {transport} · {status}",
     "emptyDescription": "-",
     "headerName": "Имя заголовка",
@@ -1101,9 +1091,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "управляется через поток OAuth",
     "registeredToolsHeading": "Зарегистрированные инструменты ({count})",
-    "riskHigh": "Высокий",
-    "riskLow": "Низкий",
-    "riskMedium": "Средний",
     "save": "Сохранить",
     "saving": "Сохранение...",
     "tableDescription": "Описание",
@@ -1536,6 +1523,18 @@
     "selectModelError": "Выбор модели.",
     "selectModelPlaceholder": "Выбор модели",
     "selectProviderPlaceholder": "Выбор провайдера…"
+  },
+  "profileModalitiesSection": {
+    "audio": "Аудио",
+    "enableAria": "Включить {modality}",
+    "enabledColumn": "Включено",
+    "helper": "Модель получает модальность, только если она включена и отмечена как поддерживаемая. Изображения, которые не отправляются так, подписываются текстом.",
+    "image": "Изображение",
+    "resolvedOff": "Не отправляется модели",
+    "resolvedOn": "Отправляется модели",
+    "supportedAria": "Модель поддерживает {modality}",
+    "supportedColumn": "Модель поддерживает",
+    "title": "Модальности"
   },
   "profileRow": {
     "actionsAriaLabel": "Действия для {displayName}",
@@ -2306,5 +2305,37 @@
     "redirectHint": "Этот URL: в настройки перенаправления OAuth-приложения.",
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Ожидание авторизации..."
+  },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Компаньон",
+        "right": "Коллега"
+      },
+      "executeCollaborate": {
+        "left": "Самостоятельный",
+        "right": "Совместный"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Игривый",
+        "right": "Серьёзный"
+      },
+      "politeUnfiltered": {
+        "left": "Вежливый",
+        "right": "Без фильтра"
+      }
+    },
+    "loadError": "Не удалось загрузить ползунки личности.",
+    "rangeAriaLabel": "{left} до {right}",
+    "save": "Сохранить",
+    "saveErrorToast": "Не удалось сохранить ползунки личности. Повторите попытку.",
+    "saveSuccessToast": "Ползунки личности сохранены.",
+    "saving": "Сохранение…",
+    "subtitle": "Сохраняет значения ползунков у этого ассистента. Файлы идентичности не переписываются.",
+    "title": "Личность"
   }
 }

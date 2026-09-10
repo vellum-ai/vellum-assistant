@@ -3,7 +3,7 @@
  * Zustand `useAssistantIdentityStore` for the whole authenticated app.
  *
  * Mounted in `RootLayout` so identity is populated on every route under
- * `/assistant/*` — chat, settings, logs — not only while a chat route is
+ * `/assistant/*` (chat, settings, logs), not only while a chat route is
  * on screen. Consumers include the chat sidebar header, the
  * intelligence/identity tab, and `useElectronIdentitySync` (which titles
  * the Electron window, tray, and About panel from the store name).
@@ -11,11 +11,11 @@
  * Hydration sources, in order: the optimistic onboarding seed
  * (`consumePendingAssistantName`), then the daemon `/identity` fetch via
  * TanStack Query. SSE `identity_changed` refreshes are written to the
- * store directly by `ChatPage` — idempotent with this hook.
+ * store directly by `ChatPage`, idempotent with this hook.
  *
  * Lives in top-level `hooks/` (not under `domains/`) because the
- * assistant identity is consumed by multiple domains — chat sidebar,
- * intelligence/identity tab, library, contacts — with no single
+ * assistant identity is consumed by multiple domains (chat sidebar,
+ * intelligence/identity tab, library, contacts) with no single
  * domain owner. See CONVENTIONS.md → Top-level shared directories.
  *
  * Pattern (server state in TanStack Query, synced into Zustand for
@@ -49,7 +49,7 @@ export function useAssistantIdentityInit({
   assistantStateKind,
 }: UseAssistantIdentityInitParams) {
   // Identity is fetchable whenever the daemon proxy can answer for the
-  // assistant — that's true for "active" *and* "self_hosted" (which
+  // assistant. That's true for "active" *and* "self_hosted" (which
   // also renders chat per `shouldRenderChat` in ChatPage). The other
   // lifecycle states (initializing, cleaning_up, retired, error, etc.)
   // can't satisfy the identity endpoint.
@@ -110,7 +110,7 @@ export function useAssistantIdentityInit({
     const data = identityQuery.data;
     // `fetchAssistantIdentity` returns null on transient failures
     // (initializing assistant, unreachable runtime). Don't clobber a
-    // good cached name with a transient null on the same assistant —
+    // good cached name with a transient null on the same assistant:
     // cross-assistant clears are handled by the effect above.
     if (!data) {
       return;
@@ -120,4 +120,19 @@ export function useAssistantIdentityInit({
       .setIdentity(data.name ?? null, data.version ?? null, assistantId);
     lastWrittenForRef.current = assistantId;
   }, [identityQuery.data, assistantId]);
+
+  // The fetch has run and produced nothing: it errored, or it resolved to the
+  // `null` `fetchAssistantIdentity` returns for an unreachable runtime. The
+  // store keeps its (absent) name and version, since a later refetch may still
+  // answer, and records the dead end so a consumer that has to decide
+  // something can stop waiting. Declared after the write above so a refetch
+  // that lands data clears the bit in the same commit that sets the version.
+  const identityUnavailable =
+    canFetchIdentity && identityQuery.isFetched && !identityQuery.data;
+  useEffect(() => {
+    if (!identityUnavailable) {
+      return;
+    }
+    useAssistantIdentityStore.getState().markIdentityUnavailable(assistantId);
+  }, [identityUnavailable, assistantId]);
 }

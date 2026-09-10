@@ -106,8 +106,6 @@ import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pi
 import { AssistantDesktopAffordance } from "@/domains/chat/desktop/assistant-desktop-affordance";
 import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { useSeedLiveVoiceSnapshot } from "@/domains/chat/voice/live-voice/use-seed-live-voice-snapshot";
-import { FrameGateHud } from "@/domains/chat/frame-gate-hud";
-import { SightTile } from "@/domains/chat/sight/sight-tile";
 import { VoiceRoom } from "@/domains/chat/voice/voice-room/voice-room";
 import { useIsVoiceRoomVisible } from "@/domains/chat/voice/voice-room/use-is-voice-room-visible";
 import { ChatConversationHeader } from "./chat-conversation-header";
@@ -170,14 +168,26 @@ interface SideMenuRenderArgs {
  */
 export function ChatLayout({
   topBarAccessory,
+  topBarPill,
 }: {
   /**
    * Persistent element for the header's top-right, after the per-route
    * slot content (currently the notifications bell). Injected by
    * `routes.tsx` because its implementation lives in another domain,
    * which this layout must not import directly.
+   *
+   * Restated in the mobile drawer's glyph row, so only a control the drawer
+   * is meant to carry belongs here.
    */
   topBarAccessory?: ReactNode;
+  /**
+   * Persistent element for the header's top-right, ahead of
+   * {@link topBarAccessory}, and nowhere else. Its own slot because the
+   * drawer's glyph row seats icon-sized controls beside the close button and
+   * a full pill does not fit there; the accessory slot reaches that row and
+   * this one does not.
+   */
+  topBarPill?: ReactNode;
 } = {}) {
   const { t } = useTranslation("chat");
   const navigate = useNavigate();
@@ -1159,6 +1169,7 @@ export function ChatLayout({
           topBarRightSlot={
             <>
               {topBarRightSlot}
+              {topBarPill}
               <AssistantDesktopAffordance />
               {topBarAccessory}
             </>
@@ -1329,22 +1340,6 @@ export function ChatLayout({
                 transcript render underneath, hidden by it. */}
             <VoiceRoom variant="content" />
           </main>
-          {/* The Eyes viewfinder, a sibling of `<main>` rather than a child:
-              it is a fixed corner tile, and nesting it under a box that can
-              take a filter would make that box the containing block for its
-              `position: fixed` and park it against `<main>`'s rectangle
-              instead of the viewport. Self-gates on the camera's status. */}
-          <SightTile />
-          {/* The frame gate's tuning readout for the tile above, parked beside
-              it. A sibling of `<main>` for the same reason the tile is: it is
-              also `position: fixed`, and a filtered ancestor would make that
-              ancestor its containing block. Self-gates on the readout being
-              enabled and on the composer's camera being the one feeding the
-              gate, so it is absent for everyone else. */}
-          <FrameGateHud
-            surface="composer"
-            className="fixed bottom-28 right-[17.5rem] z-30 max-h-[70vh]"
-          />
         </div>
       )}
 

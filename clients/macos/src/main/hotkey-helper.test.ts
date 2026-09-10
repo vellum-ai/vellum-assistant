@@ -121,6 +121,17 @@ Object.defineProperty(process, "resourcesPath", {
 });
 
 const { setPointerOnCompanion } = await import("./companion-pointer");
+const {
+  __resetFrameScrollWatchForTesting,
+  unwatchFrameScroll,
+  watchFrameScroll,
+} = await import("./frame-scroll-watch");
+
+const {
+  __resetCoachmarkPressWatchForTesting,
+  unwatchCoachmarkPress,
+  watchCoachmarkPress,
+} = await import("./coachmark-press-watch");
 
 const {
   __resetForTesting,
@@ -152,15 +163,58 @@ const invokeSetModifierHold = (hold: unknown = CTRL_OPTION) =>
  */
 const registerHold = async (
   sender: FakeWebContents = defaultSender,
-  id = 1,
+  id?: number,
 ): Promise<unknown> => {
   const pending = invokeSetModifierHoldFrom(CTRL_OPTION, sender);
   await wait(5);
+  const request = lastChild?.stdin.writes.at(-1) ?? "";
+  const answered = id ?? (JSON.parse(request) as { id: number }).id;
+  lastChild?.stdout.emit(
+    "data",
+    Buffer.from(
+      `{"jsonrpc":"2.0","id":${answered},"result":{"enabled":true}}\n`,
+    ),
+  );
+  return pending;
+};
+
+const OPTION_CHORDS = {
+  kind: "chord",
+  modifiers: ["option"],
+  keys: ["s", "d"],
+};
+
+const invokeSetChords = (binding: unknown, sender: FakeWebContents) =>
+  handlers["vellum:helper:hotkey:setChords"](
+    { sender },
+    binding,
+  ) as Promise<unknown>;
+
+/**
+ * Arm the chords from `sender` and answer the helper's reply.
+ *
+ * The id is read back off the request rather than assumed: the fake child
+ * outlives a test, so which id a call gets depends on what ran before it.
+ */
+const registerChords = async (sender: FakeWebContents): Promise<unknown> => {
+  const pending = invokeSetChords(OPTION_CHORDS, sender);
+  await wait(5);
+  const request = lastChild?.stdin.writes.at(-1) ?? "";
+  const id = (JSON.parse(request) as { id: number }).id;
   lastChild?.stdout.emit(
     "data",
     Buffer.from(`{"jsonrpc":"2.0","id":${id},"result":{"enabled":true}}\n`),
   );
   return pending;
+};
+
+const emitChord = (key: string): void => {
+  lastChild?.stdout.emit(
+    "data",
+    Buffer.from(
+      `{"jsonrpc":"2.0","method":"hotkey.event","params":{"kind":"chord","state":"down","key":"${key}"}}\n`,
+    ),
+  );
 };
 
 const invokeReadFrontSelection = () =>
@@ -199,6 +253,8 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetForTesting();
+  __resetFrameScrollWatchForTesting();
+  __resetCoachmarkPressWatchForTesting();
 });
 
 describe("getMacHelperPath", () => {
@@ -517,6 +573,89 @@ describe("installHotkeyHelper", () => {
     );
   });
 
+  /**
+   * A chord binding is a different question from the hold's, and travels as
+   * its own registration: the modifiers that must be held, and the keys that
+   * mean something under them.
+   */
+  test("sends hotkey.chords to the helper process", async () => {
+    installHotkeyHelper();
+    expect(await registerChords(makeWebContents())).toEqual({
+      ok: true,
+      enabled: true,
+    });
+
+    const sent = lastChild?.stdin.writes.join("") ?? "";
+    expect(sent).toContain('"method":"hotkey.chords"');
+    expect(sent).toContain('"enable":true');
+    expect(sent).toContain('"modifiers":["option"]');
+    expect(sent).toContain('"keys":["s","d"]');
+  });
+
+  /**
+   * The window that armed them, whatever is focused. A hold's edges follow
+   * focus because a hold is a microphone the user pointed somewhere; a chord
+   * asks something of the session, which lives in one window, so a pop-out in
+   * front must not take a press meant for the call.
+   */
+  test("a chord goes to the window that armed it, not the focused one", async () => {
+    installHotkeyHelper();
+    const owner = makeWebContents();
+    const focused = makeWebContents();
+    expect(await registerChords(owner)).toEqual({ ok: true, enabled: true });
+    // The other window takes the hold's ownership, which does follow focus.
+    expect(await registerHold(focused)).toEqual({ ok: true, enabled: true });
+
+    emitChord("s");
+
+    const chord = { kind: "chord", state: "down", key: "s" };
+    expect(owner.send).toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      chord,
+    );
+    expect(focused.send).not.toHaveBeenCalledWith(
+      "vellum:helper:hotkey:event",
+      chord,
+    );
+  });
+
+  /**
+   * A binding armed with nothing left to answer it is the helper going on
+   * taking presses that are the user's own again.
+   */
+  test("clears the chords when the window that armed them goes", async () => {
+    installHotkeyHelper();
+    const owner = makeWebContents();
+    expect(await registerChords(owner)).toEqual({ ok: true, enabled: true });
+    const before = lastChild?.stdin.writes.length ?? 0;
+
+    owner.emit("destroyed");
+    await wait(5);
+
+    const sent = lastChild?.stdin.writes.slice(before).join("") ?? "";
+    expect(sent).toContain('"method":"hotkey.chords"');
+    expect(sent).toContain('"enable":false');
+  });
+
+  /**
+   * And a chord that arrives anyway is dropped rather than handed to whoever
+   * is focused: the press asked something of a session that has gone.
+   */
+  test("drops a chord once the window that armed it has gone", async () => {
+    installHotkeyHelper();
+    const owner = makeWebContents();
+    const other = makeWebContents();
+    expect(await registerChords(owner)).toEqual({ ok: true, enabled: true });
+    expect(await registerHold(other)).toEqual({ ok: true, enabled: true });
+    owner.emit("destroyed");
+    await wait(5);
+    other.send.mockClear();
+
+    emitChord("s");
+
+    expect(other.send).not.toHaveBeenCalled();
+  });
+
   test("carries the reason a hold closed through to the owner", async () => {
     installHotkeyHelper();
     expect(await registerHold()).toEqual({ ok: true, enabled: true });
@@ -723,6 +862,90 @@ describe("installHotkeyHelper", () => {
     const writes = lastChild?.stdin.writes.join("") ?? "";
     expect(writes).toContain('"method":"input.setActivityWatch"');
     expect(writes).toContain('"enable":true');
+  });
+
+  /**
+   * The watch frame asks for the scroll watch through `frame-scroll-watch.ts`
+   * rather than through the renderer: it is main's own window, and the end
+   * of the scroll is main's to act on.
+   */
+  test("asks the helper to watch for the scroll ending and reports it", async () => {
+    __setSupervisorOptionsForTesting({ initialBackoffMs: 1, maxBackoffMs: 1 });
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    let ended = 0;
+    watchFrameScroll(() => {
+      ended += 1;
+    });
+    await wait(0);
+    let writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setScrollWatch"');
+    expect(writes).toContain('"enable":true');
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.scrollEnded"}\n'),
+    );
+    expect(ended).toBe(1);
+
+    // The watch goes down with the helper and comes back with it.
+    lastChild?.emit("close", 1, null);
+    await wait(10);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setScrollWatch"');
+
+    unwatchFrameScroll();
+    await wait(0);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"enable":false');
+  });
+
+  /**
+   * The marks ask for the press watch through `coachmark-press-watch.ts`, the
+   * way the frame asks for the scroll watch: they are main's, and the press
+   * is main's to act on.
+   */
+  test("asks the helper to watch for a press on a pointed-at control and reports it", async () => {
+    __setSupervisorOptionsForTesting({ initialBackoffMs: 1, maxBackoffMs: 1 });
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    const pressed: number[] = [];
+    const rect = { x: 120, y: 80, width: 60, height: 20 };
+    watchCoachmarkPress([rect], (index) => {
+      pressed.push(index);
+    });
+    await wait(0);
+    let writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setPressWatch"');
+    expect(writes).toContain(JSON.stringify({ rects: [rect] }));
+
+    // The watch goes down with the helper and comes back with it, still on
+    // the same rectangles.
+    lastChild?.emit("close", 1, null);
+    await wait(10);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setPressWatch"');
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.pressed","params":{"index":0}}\n'),
+    );
+    expect(pressed).toEqual([0]);
+
+    // A press is one-shot on both sides: a second report is nobody's.
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.pressed","params":{"index":0}}\n'),
+    );
+    expect(pressed).toEqual([0]);
+
+    watchCoachmarkPress([rect], () => {});
+    unwatchCoachmarkPress();
+    await wait(0);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"rects":[]');
   });
 
   test("forwards input activity to the window that holds the key", async () => {

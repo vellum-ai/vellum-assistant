@@ -379,6 +379,13 @@ enum HostCuActionRunner {
         var screenHeightPt: Int?
         var secondaryWindowsText: String?
 
+        // Targeted reads are standalone snapshots, never a desktop diff baseline.
+        // Clear before enumeration, including failed/missing-window captures, so
+        // the next ordinary observation also starts with a fresh baseline.
+        if captureTarget != nil {
+            previousAXElements.removeValue(forKey: conversationId)
+        }
+
         // The tree stays inside what the screenshot shows. A window target
         // reads that window's tree, focused or not; a display target reads
         // the frontmost window on that display. Neither falls back to the
@@ -406,12 +413,12 @@ enum HostCuActionRunner {
                 appName: result.appName
             )
             let flat = AccessibilityTreeEnumerator.flattenElements(result.elements)
-            currentElements = flat
+            currentElements = captureTarget == nil ? flat : nil
             let interactiveCount = flat.filter { AccessibilityTreeEnumerator.interactiveRoles.contains($0.role) }.count
             log.info("[\(stepNumber)] AX tree: \(result.appName) — \"\(result.windowTitle)\" — \(flat.count) elements (\(interactiveCount) interactive)")
 
             // Compute AX diff against previous step's elements
-            if let previousFlat = previousAXElements[conversationId] {
+            if captureTarget == nil, let previousFlat = previousAXElements[conversationId] {
                 axDiffText = AXTreeDiff.diff(previousFlat: previousFlat, currentFlat: flat)
             }
 

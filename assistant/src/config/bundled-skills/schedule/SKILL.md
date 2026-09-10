@@ -27,7 +27,7 @@ When the user wants something checked on a cadence (a status page, dashboard, si
 - Recurrence, cutoff times, escalation, and notifications are schedule and notification primitives. Do not reimplement them in a workspace file the user has to run.
 - Prefer **execute** mode: the scheduled message browses or fetches the source, applies the user's rules, and notifies on exceptions. Use **script** mode only for a cheap deterministic check against a live source the assistant can already reach (curl an API, read a file in the workspace). A script-mode job is still a schedule, not a file you hand the user.
 - Looking at a page, pasting HTML, or gathering a roster is setup for the schedule, not a reason to skip creating one.
-- If browsing cannot reach the page, still create the schedule. Offer the desktop app (https://www.vellum.ai/download) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) so a logged-in browser session can run it. Do not replace the schedule with a parser against a pasted export, and do not assign comparison-run homework before anything is scheduled.
+- If browsing cannot reach the page, still create the schedule. Offer the desktop app (https://www.vellum.ai/downloads) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) so a logged-in browser session can run it. Do not replace the schedule with a parser against a pasted export, and do not assign comparison-run homework before anything is scheduled.
 - Watchers cover Gmail, Google Calendar, GitHub, Linear, and Outlook event polling. An arbitrary web page or status dashboard is this skill, not the watcher skill.
 
 ## Schedule Syntax
@@ -200,6 +200,16 @@ Use `syntax` + `expression` to specify the schedule type explicitly, or just `ex
 - Use `schedule_create` for both recurring automation ("every day at 9am") and one-time reminders ("remind me at 3pm").
 - `fire_at` must be a strict ISO 8601 timestamp with timezone offset or Z (e.g. `2025-03-15T09:00:00-05:00`).
 
+### In-app links (Vellum chat)
+
+When you mention a schedule or a conversation it owns in Vellum chat, write a markdown link so the name is clickable:
+
+- `[Weekly digest](/assistant/schedules/<id>)`
+- `[Digest ready](/assistant/conversations/<id>)`
+
+Use these paths only in Vellum chat. Do not use them in Slack, Telegram, Discord, email, or notifications. Those surfaces cannot navigate `/assistant/...` routes.
+
+
 ### Anchored & Ambiguous Relative Time
 
 Phrases like "at the 45 minute mark", "at the top of the hour", "at noon", or "20 minutes in" are **clock-position or anchored relative time** expressions. Do NOT treat them as offsets from now.
@@ -233,18 +243,26 @@ If any required capability is missing:
 
 1. **Still create the schedule** so timing is preserved. Do not tell the user it is ready to run.
 2. Explain what is missing and why the next fire will fail until that is fixed.
-3. Offer to set up the missing integration first. For a page the assistant cannot reach, offer the desktop app (https://www.vellum.ai/download) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) before asking for a screenshot or pasted export.
+3. Offer to set up the missing integration first. For a page the assistant cannot reach, offer the desktop app (https://www.vellum.ai/downloads) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) before asking for a screenshot or pasted export.
 4. Do not replace the schedule with a workspace script the user has to run themselves.
 
 ## Delivering Results
 
-Scheduled messages run without user interaction. If the task produces output that the user should see (e.g. a digest, summary, or report), the scheduled message **must** include an explicit instruction to deliver the results. Without this, the output only lives in the conversation log and never reaches the user.
+Scheduled messages run without user interaction, in a conversation nobody has open. If the task produces output the user should see (a digest, summary, report, or a check whose answer is "nothing changed"), the scheduled message **must** end with an explicit instruction to deliver it. Without one, the output lives in a conversation log the user never opens.
+
+Write the delivery step into the `message` when you create the schedule — not as a vague "let me know", but as the actual call, with a real title:
+
+> "…then send the summary with `assistant notifications send --title \"Inbox digest\" --message \"<the summary>\"`."
+
+A schedule whose message has no delivery step is not finished. Before calling `schedule_create` in `execute` mode, read your own message back and check that it says where the output goes.
+
+There is a safety net, and it is not a substitute for the above. When an execute-mode run finishes with user-facing output and delivered nothing — no `assistant notifications send`, no `messaging_send`, no Slack `chat.postMessage` — the assistant sends a notification carrying the run's final reply, so a schedule can no longer run and leave no trace. It fires on the raw reply — whatever the run happened to end on, at whatever length. An authored delivery step gets a title and body you chose, sent at the moment you chose. Rely on the net and you get the machine's guess instead.
 
 Choose the right delivery tool based on the content:
 
-- **Rich content** (digests, summaries, reports): For Gmail, use `messaging_send` with the target platform and conversation ID. For Slack, use the Slack Web API directly via CLI (`chat.postMessage`). This preserves the full content and posts directly.
+- **Rich content** (digests, summaries, reports): For Gmail, use `messaging_send` with the target platform and conversation ID. For Slack, call `chat.postMessage` through `assistant oauth request`, with the provider the **slack** skill says to pass for posting on this workspace (`slack_channel` when the bot is set up; where only the `slack` integration exists, the skill says to tell the user before posting as them), never through `curl` or a revealed token. This preserves the full content and posts directly.
 - **Short alerts** (status updates, completion notices): Use `assistant notifications send` via `bash` to let the notification router pick the best channel. Note: the router's decision engine rewrites content into short alerts, so it is not suitable for rich content.
 
 Example schedule message for a Slack digest:
 
-> "Scan my Slack channels for the last 24 hours using the Slack Web API via bash (network_mode: proxied, credential_ids: ['slack_channel/bot_token']), then post the summary to the channel the user named."
+> "Scan my Slack channels for the last 24 hours using `assistant oauth request` for every Slack Web API call, with the provider the slack skill names for this workspace, then post the summary with `chat.postMessage` through the same command to the channel the user named."

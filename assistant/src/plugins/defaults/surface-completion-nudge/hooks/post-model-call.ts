@@ -50,6 +50,7 @@ import {
   type HookFunction,
   INTERNAL_NUDGE_OUTPUT_SUPPRESSION,
   type Message,
+  parseSurfaceShowResultId,
   type PostModelCallContext,
 } from "@vellumai/plugin-api";
 
@@ -157,17 +158,6 @@ function surfaceIdOf(input: Record<string, unknown>): string | undefined {
   return typeof input.surface_id === "string" ? input.surface_id : undefined;
 }
 
-/** Parse the `{ surfaceId }` JSON a successful `ui_show` returns. */
-function parseSurfaceId(content: string): string | undefined {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-    const record = asRecord(parsed);
-    return typeof record?.surfaceId === "string" ? record.surfaceId : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 interface SurfaceState {
   /** Latest known status, lowercased; `undefined` when never set explicitly. */
   status: string | undefined;
@@ -249,7 +239,7 @@ function hasDanglingProgressSurface(messages: ReadonlyArray<Message>): boolean {
       }
       const initialStatus = pendingShows.get(block.tool_use_id);
       pendingShows.delete(block.tool_use_id);
-      const id = parseSurfaceId(block.content);
+      const id = parseSurfaceShowResultId(block.content);
       if (!id) {
         continue;
       }

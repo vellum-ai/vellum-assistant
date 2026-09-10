@@ -70,7 +70,7 @@ export function resolveTrustClass(
  *
  * This is THE personal-memory trust gate. Every surface that exposes private
  * user content — the v2 dynamic/static `<memory>` layers, PKB context, NOW.md,
- * memory-v3 cards/spotlight, and the `loadFromDb` rehydration of persisted
+ * memory-v3 sections/pointer, and the `loadFromDb` rehydration of persisted
  * memory blocks — must call this one helper so the exposure rule cannot drift
  * between copies.
  *

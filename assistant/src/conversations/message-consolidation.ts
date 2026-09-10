@@ -33,6 +33,7 @@
 
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { isStandaloneAssistantMessage } from "../persistence/conversation-crud.js";
+import { assistantTextVisibilityOf } from "../persistence/user-facing-content.js";
 import type { ContentBlock } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 
@@ -48,6 +49,24 @@ const log = getLogger("message-consolidation");
  */
 function isStandaloneAssistantRow(msg: MessageRow): boolean {
   return isStandaloneAssistantMessage(msg.role, msg.metadata);
+}
+
+/**
+ * Whether two adjacent assistant rows agree about what their plain text is.
+ *
+ * A merged run keeps the anchor's metadata, and the user-facing projection
+ * keys on that metadata, so folding rows that disagree would apply one row's
+ * answer to the other's text. The case that matters: a `send_user_message`
+ * turn's private row followed by the fallback row that surfaced its raw text.
+ * Merged under the anchor's `"private"` marker, the fallback answer would
+ * project to working notes and vanish from the transcript on reload. They are
+ * two display turns because they were two different things.
+ */
+function sameAssistantTextVisibility(a: MessageRow, b: MessageRow): boolean {
+  return (
+    assistantTextVisibilityOf(a.metadata) ===
+    assistantTextVisibilityOf(b.metadata)
+  );
 }
 
 // ── Block predicates ────────────────────────────────────────────────
@@ -71,6 +90,10 @@ function isSystemNoticeText(block: ContentBlock): boolean {
  * tool_use ↔ tool_result pairing requirement but are never displayed
  * to the user. Any write-path that walks DB rows in display order
  * must treat them as part of the surrounding assistant turn.
+ *
+ * `excludesToolResultRows()` in `persistence/conversation-crud.ts` mirrors
+ * this predicate in SQL for the attachment listing; the two must change
+ * together.
  */
 export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
   if (msg.role !== "user") {
@@ -101,7 +124,8 @@ export function isToolResultOnlyUserMessage(msg: MessageRow): boolean {
  *
  * For assistant rows, advances past any consecutive rows that the
  * read-path collapse would fold into the same display turn:
- *   - another assistant row → part of the consecutive-assistant run, OR
+ *   - another assistant row carrying the anchor's text visibility → part
+ *     of the consecutive-assistant run, OR
  *   - a tool-result-only user row → suppressed at display time, sits
  *     between two halves of the same assistant turn.
  *
@@ -134,7 +158,11 @@ export function findDisplayTurnEndIndex(
     if (!next) {
       break;
     }
-    if (next.role === "assistant" && !isStandaloneAssistantRow(next)) {
+    if (
+      next.role === "assistant" &&
+      !isStandaloneAssistantRow(next) &&
+      sameAssistantTextVisibility(messages[startIdx]!, next)
+    ) {
       endIdx += 1;
       continue;
     }
@@ -308,7 +336,8 @@ export function mergeConsecutiveAssistantMessages(messages: MessageRow[]): {
       !isStandaloneAssistantRow(msg) &&
       lastIdx >= 0 &&
       result[lastIdx].role === "assistant" &&
-      !isStandaloneAssistantRow(result[lastIdx]);
+      !isStandaloneAssistantRow(result[lastIdx]) &&
+      sameAssistantTextVisibility(result[lastIdx], msg);
 
     if (!isConsecutiveAssistant) {
       result.push(msg);

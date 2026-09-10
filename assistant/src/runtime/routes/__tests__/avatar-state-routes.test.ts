@@ -9,7 +9,27 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import * as realSyncEvents from "../../sync/resource-sync-events.js";
+
+/** The origin id handed to the fan-out, one entry per announced change. */
+const publishedOrigins: Array<string | undefined> = [];
+mock.module("../../sync/resource-sync-events.js", () => ({
+  getOriginClientId: realSyncEvents.getOriginClientId,
+  publishAvatarChanged: (originClientId?: string) => {
+    publishedOrigins.push(originClientId);
+  },
+}));
+
+/** Every telemetry event the store records, in order. */
+const recorded: Array<{ name: string; fields: Record<string, unknown> }> = [];
+mock.module("../../../telemetry/telemetry-events-outbox.js", () => ({
+  recordTelemetryEvent: (name: string, fields: Record<string, unknown>) => {
+    recorded.push({ name, fields });
+    return { id: "evt", createdAt: 0 };
+  },
+}));
 
 import type { AvatarState } from "../../../avatar/avatar-manifest.js";
 import { writeManifest } from "../../../avatar/avatar-manifest.js";
@@ -232,6 +252,8 @@ describe("avatar write/remove handlers", () => {
     mkdirSync(avatarDir, { recursive: true });
     prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
     process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+    publishedOrigins.length = 0;
+    recorded.length = 0;
   });
 
   afterEach(() => {
@@ -260,6 +282,12 @@ describe("avatar write/remove handlers", () => {
     }
     return JSON.parse(readFileSync(manifestPath, "utf-8")) as ManifestShape;
   };
+
+  const uploadRed = (headers?: Record<string, string>) =>
+    getHandler("avatar_upload_image")({
+      body: { content: RED_PNG.toString("base64") },
+      headers,
+    });
 
   describe("POST /avatar/render-from-traits", () => {
     test("rejects missing required fields without writing a manifest", () => {
@@ -369,8 +397,7 @@ describe("avatar write/remove handlers", () => {
     });
 
     test("reads the accent out of the uploaded image", async () => {
-      const handler = getHandler("avatar_upload_image");
-      await handler({ body: { content: RED_PNG.toString("base64") } });
+      await uploadRed();
       expect(readManifestFile()!.accent).toEqual({
         hex: "#c81e1e",
         source: "derived",
@@ -428,13 +455,28 @@ describe("avatar write/remove handlers", () => {
     });
   });
 
-  describe("POST /avatar/accent", () => {
-    const uploadRed = async () => {
-      await getHandler("avatar_upload_image")({
-        body: { content: RED_PNG.toString("base64") },
-      });
-    };
+  describe("POST /settings/avatar/generate (legacy alias)", () => {
+    test("validates the body the way avatar/generate does", async () => {
+      const route = ROUTES.find(
+        (r) => r.operationId === "settings_avatar_generate_post",
+      );
+      expect(route?.endpoint).toBe("settings/avatar/generate");
+      await expect(
+        getHandler("settings_avatar_generate_post")({ body: {} }),
+      ).rejects.toThrow(/description is required/);
+      await expect(
+        getHandler("settings_avatar_generate_post")({
+          body: { description: "   " },
+        }),
+      ).rejects.toThrow(/description is required/);
+      await expect(
+        getHandler("avatar_generate")({ body: { description: " \n " } }),
+      ).rejects.toThrow(/description is required/);
+      expect(readManifestFile()).toBeNull();
+    });
+  });
 
+  describe("POST /avatar/accent", () => {
     test("sets a custom accent over an image and returns the state as written", async () => {
       await uploadRed();
       const result = (await getHandler("avatar_set_accent")({
@@ -540,6 +582,32 @@ describe("avatar write/remove handlers", () => {
       expect(result.ok).toBe(true);
       expect(result.hadAvatar).toBe(false);
       expect(readManifestFile()).toBeNull();
+    });
+  });
+
+  describe("client OS on avatar_changed", () => {
+    test("the client-os header reaches the event, sanitized", async () => {
+      await uploadRed({ "x-vellum-client-os": " macOS " });
+
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]!.name).toBe("avatar_changed");
+      expect(recorded[0]!.fields).toMatchObject({
+        action: "upload_image",
+        client_os: "macos",
+      });
+    });
+
+    test("an out-of-bounds client-os header is dropped, not forwarded", async () => {
+      await uploadRed({ "x-vellum-client-os": "a".repeat(65) });
+
+      expect(recorded).toHaveLength(1);
+      expect(recorded[0]!.fields).not.toHaveProperty("client_os");
+    });
+
+    test("the client id reaches the fan-out", async () => {
+      await uploadRed({ "x-vellum-client-id": "web-1" });
+
+      expect(publishedOrigins).toEqual(["web-1"]);
     });
   });
 });

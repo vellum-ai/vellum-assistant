@@ -71,7 +71,6 @@ import {
   isPrivateNetworkOrigin,
   isPrivateNetworkPeer,
 } from "./middleware/auth.js";
-import { withErrorHandling } from "./middleware/error-handler.js";
 import {
   extractClientIp,
   ipRateLimiter,
@@ -89,7 +88,6 @@ import {
   TWILIO_WEBHOOK_RE,
   validateTwilioWebhook,
 } from "./middleware/twilio-validation.js";
-import { ROUTES as APP_ROUTES } from "./routes/app-routes.js";
 import { ROUTES as AUDIO_ROUTES } from "./routes/audio-routes.js";
 import { RouteError } from "./routes/errors.js";
 import {
@@ -142,6 +140,24 @@ function dbMigrationUnavailableForPath(path: string): Response | null {
   return dbMigrationUnavailableResponse();
 }
 
+/** Shareable app pages are the one route served outside the /v1/ namespace. */
+const PAGES_PATH_RE = /^\/pages\/[^/]+$/;
+
+/**
+ * Router endpoint for a request path, or null when the path names no route.
+ * Only /v1/ and the shareable-page path resolve, so a bare path can never
+ * reach a /v1 route.
+ */
+function routerEndpointForPath(path: string): string | null {
+  if (path.startsWith("/v1/")) {
+    // Strip trailing slashes so routes match regardless of whether the caller
+    // includes one (e.g. platform proxy paths use Django's trailing-slash
+    // convention, so the gateway may forward paths with a trailing /).
+    return path.slice("/v1/".length).replace(/\/$/, "");
+  }
+  return PAGES_PATH_RE.test(path) ? path.slice(1) : null;
+}
+
 /**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
  * The `wsType` discriminator routes frames to the media-stream call
@@ -183,6 +199,19 @@ interface SttStreamWebSocketData {
  */
 interface LiveVoiceWebSocketData {
   wsType: "live-voice";
+  /**
+   * The guardian the gateway admitted this socket for, when it named one.
+   *
+   * The runtime cannot work this out for itself: the gateway dials with a
+   * service token, so every socket arrives as the same caller, and any
+   * identity resolved here would be a second reading of a binding that can
+   * change between the admission and the read. Absent when the gateway
+   * admitted nobody, which the session reads as a turn with no actor.
+   *
+   * Trusted because it arrives on this dial, which only the gateway can make
+   * (see {@link verifyGatewayServiceToken}), and never from a client header.
+   */
+  guardianPrincipalId?: string;
 }
 
 /**
@@ -379,6 +408,11 @@ export class RuntimeHttpServer {
                 send: (frame) => {
                   ws.send(JSON.stringify(frame));
                 },
+                ...(liveVoiceWs.data.guardianPrincipalId
+                  ? {
+                      guardianPrincipalId: liveVoiceWs.data.guardianPrincipalId,
+                    }
+                  : {}),
                 // Lets the daemon hang up on a client that stopped answering.
                 // A normal close (not a retryable one) so the client ends the
                 // call rather than reconnecting into a session that is gone.
@@ -887,21 +921,11 @@ export class RuntimeHttpServer {
     }
     const authContext = authResult.context;
 
-    // Serve shareable app pages (outside /v1/ namespace, no rate limiting)
-    const pagesMatch = path.match(/^\/pages\/([^/]+)$/);
-    if (pagesMatch && req.method === "GET") {
-      return withErrorHandling("pages", async () => {
-        const pageDef = APP_ROUTES.find(
-          (r) => r.operationId === "pages_serve",
-        )!;
-        const args = { pathParams: { appId: pagesMatch[1] } };
-        const body = pageDef.handler(args) as string;
-        const headers =
-          typeof pageDef.responseHeaders === "function"
-            ? pageDef.responseHeaders(args)
-            : pageDef.responseHeaders;
-        return new Response(body, { headers });
-      });
+    // Every remaining path dispatches through the router, so a route's policy
+    // is enforced wherever it is served from.
+    const endpoint = routerEndpointForPath(path);
+    if (endpoint === null) {
+      return httpError("NOT_FOUND", "Not found", 404);
     }
 
     // Per-client-IP rate limiting for /v1/* endpoints. Authenticated requests
@@ -909,17 +933,9 @@ export class RuntimeHttpServer {
     // abuse surface. We key on IP rather than bearer token because the gateway
     // uses a single shared token for all proxied requests, which would collapse
     // all users into one bucket.
-    // Skip rate limiting entirely when HTTP auth is disabled (local Docker dev).
-    if (!path.startsWith("/v1/")) {
-      return httpError("NOT_FOUND", "Not found", 404);
-    }
-
-    // Strip trailing slashes so routes match regardless of whether the
-    // caller includes one (e.g. platform proxy paths use Django's trailing-
-    // slash convention, so the gateway may forward paths with a trailing /).
-    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
-
-    if (!isHttpAuthDisabled()) {
+    // Shareable app pages are outside the limiter, as is local Docker dev with
+    // HTTP auth disabled.
+    if (path.startsWith("/v1/") && !isHttpAuthDisabled()) {
       const clientIp = extractClientIp(req, server);
       const token = extractBearerToken(req);
       // Authenticated loopback clients (desktop app, CLI — anything on the
@@ -1081,12 +1097,13 @@ export class RuntimeHttpServer {
     req: Request,
     server: ReturnType<typeof Bun.serve>,
   ): Response {
-    return this.upgradeRuntimeStream(
-      req,
-      server,
-      "live voice",
-      () => ({ wsType: "live-voice" }) satisfies LiveVoiceWebSocketData,
-    );
+    return this.upgradeRuntimeStream(req, server, "live voice", (query) => {
+      const guardianPrincipalId = query.get("guardianPrincipalId")?.trim();
+      return {
+        wsType: "live-voice",
+        ...(guardianPrincipalId ? { guardianPrincipalId } : {}),
+      } satisfies LiveVoiceWebSocketData;
+    });
   }
 
   /** Handle WebSocket upgrade for `/v1/watch/stream`. */

@@ -43,13 +43,13 @@ ACP is always available - default profiles for `claude` and `codex` ship out-of-
 
 When `acp_spawn` finds the agent's binary missing from PATH, the assistant installs it once via a sandboxed bun global install and then runs the real installed binary. The install runs in a fresh empty temporary directory (never the task's project directory), with known secrets stripped from the installer environment and the registry pinned to the public npm registry, so a malicious project directory cannot hijack package resolution or capture a token. After this one-time install, the adapter is a normal trusted binary on PATH and every later spawn (and resume) uses it directly.
 
-Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@zed-industries/codex-acp`); user-configured agents with custom commands are never installed automatically.
+Only the allowlisted out-of-box packages are ever installed this way (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`); user-configured agents with custom commands are never installed automatically.
 
 Manual installation is fallback guidance for unusual setups: bun unavailable, restricted global installs, or an auto-install failure (the failure reason is surfaced in the tool result).
 
 ```bash
 bun add -g @agentclientprotocol/claude-agent-acp   # claude
-bun add -g @zed-industries/codex-acp               # codex
+bun add -g @agentclientprotocol/codex-acp          # codex
 ```
 
 ## Claude setup
@@ -72,14 +72,11 @@ Do NOT ask the user to paste the token into chat — the secure prompt keeps it 
 
 ## Codex setup
 
-The `codex-acp` adapter is installed automatically when missing, but it shells out to the underlying `codex` CLI, which must also be on PATH:
+The `@agentclientprotocol/codex-acp` adapter runs Codex App Server using its included `@openai/codex` dependency.
 
-1. **Install the Codex CLI** (version 0.111 or higher) via OpenAI's distribution channel of choice. The adapter will fail if `codex` isn't on PATH.
+**Authenticate.** The adapter reuses an existing Codex login. To sign in, use `codex login` from an installed Codex CLI. API-key authentication supports `CODEX_API_KEY` and `OPENAI_API_KEY`.
 
-2. **Authenticate.** The `codex-acp` adapter inherits whatever auth the underlying `codex` CLI uses. Typical flows:
-   - `codex login` (OAuth)
-   - `CODEX_API_KEY` environment variable
-   - `OPENAI_API_KEY` environment variable
+**Optional CLI override.** Set `CODEX_PATH` in the agent profile's `env` to use a different compatible Codex executable. Keep the agent command as `codex-acp`.
 
 Do NOT put API keys (or any secret) in the workspace config file - secrets never belong in the workspace directory. Use the credential store instead.
 
@@ -92,15 +89,15 @@ Do NOT put API keys (or any secret) in the workspace config file - secrets never
 
 ## Updating an adapter
 
-Adapters are installed once via a bun global install. To update one to the latest version, ask the user first, then re-install it globally:
+Adapters are installed automatically when missing. To update an installed adapter, ask the user first and use its owning package manager. For bun installations:
 
 ```bash
 bun add -g @agentclientprotocol/claude-agent-acp@latest
 # or
-bun add -g @zed-industries/codex-acp@latest
+bun add -g @agentclientprotocol/codex-acp@latest
 ```
 
-Then retry the `acp_spawn` call.
+Codex uses the adapter's bundled dependency by default, within the version range declared by the adapter. If `CODEX_PATH` selects a separate CLI, update that installation separately. Verify the required model with a fresh `acp_spawn` call after updating.
 
 ## When to use acp_steer vs acp_spawn
 

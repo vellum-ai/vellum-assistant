@@ -450,6 +450,17 @@ async function waitForCondition(
   }
 }
 
+/** Count the history reloads a conversation performs from this point on. */
+function countHistoryReloads(conversation: Conversation): () => number {
+  const originalLoad = conversation.loadFromDb.bind(conversation);
+  let reloads = 0;
+  conversation.loadFromDb = async () => {
+    reloads++;
+    return originalLoad();
+  };
+  return () => reloads;
+}
+
 /**
  * Resolve the Nth pending AgentLoop.run() call. Fires the minimal events
  * that `runAgentLoop` expects (usage + message_complete) so the conversation
@@ -547,6 +558,31 @@ describe("Conversation message queue", () => {
     // Complete the second run
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("enqueueMessage drops an idle send unless the caller asks it to queue", () => {
+    // The idle fast path stores nothing and reports `queued: false`, so a
+    // caller that treats "not rejected" as success loses the message. Callers
+    // that have already decided the send cannot run now pass `queueWhenIdle`
+    // and own the drain kick.
+    const conversation = makeConversation();
+    expect(conversation.isProcessing()).toBe(false);
+
+    const dropped = conversation.enqueueMessage({
+      content: "idle-1",
+      requestId: "idle-req-1",
+    });
+    expect(dropped.queued).toBe(false);
+    expect(dropped.rejected).toBeUndefined();
+    expect(conversation.getQueueDepth()).toBe(0);
+
+    const queued = conversation.enqueueMessage({
+      content: "idle-2",
+      requestId: "idle-req-2",
+      queueWhenIdle: true,
+    });
+    expect(queued.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(1);
   });
 
   test("enqueueMessage captures the sender's trust, immune to a later slot change", async () => {
@@ -685,6 +721,292 @@ describe("Conversation message queue", () => {
     expect(conversation.currentTurnTrustContext?.requesterExternalUserId).toBe(
       "U-contact",
     );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drained turn commits its sender as the resting actor and re-scopes history", async () => {
+    // A contact's channel turn leaves the resting slot, and the resident
+    // history scoped from it, naming the contact. The guardian's message
+    // queued behind that turn must run as the guardian everywhere the slot is
+    // read, not only in the per-turn snapshot: the `<turn_context>` actor
+    // section is derived at turn start and history is scoped from the slot,
+    // so a drain that stamped only the snapshot rendered the guardian's own
+    // web turn as a trusted contact's and hid the guardian's rows from it.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    const reloads = countHistoryReloads(conversation);
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Read while run 2 is in flight: the slot, the snapshot, and the frozen
+    // actor section all describe the guardian, and the history was reloaded
+    // for that scope exactly once.
+    expect(conversation.getTrustContext()).toBe(guardian);
+    expect(conversation.currentTurnTrustContext).toBe(guardian);
+    expect(conversation.currentTurnInboundActorContext).toBeNull();
+    expect(reloads()).toBe(1);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a batched drain commits the head's sender as the resting actor", async () => {
+    // Same commitment on the batched path, which coalesces only messages that
+    // share a trust identity, so the head's sender is the batch's actor.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    const reloads = countHistoryReloads(conversation);
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      requestId: "req-3",
+      trustContext: guardian,
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // One batched run for both siblings, committed as the guardian.
+    expect(pendingRuns.length).toBe(2);
+    expect(conversation.getTrustContext()).toBe(guardian);
+    expect(conversation.currentTurnTrustContext).toBe(guardian);
+    expect(conversation.currentTurnInboundActorContext).toBeNull();
+    expect(reloads()).toBe(1);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drained turn keeps its sender when the slot moves during the history reload", async () => {
+    // The commit captures the sender before the reload awaits. A writer that
+    // moves the slot inside that await (a wake's stamp, a pointer elevation)
+    // must not become the turn's actor: the history was reloaded for the
+    // sender, and running someone else's trust over it is the escalation.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    const intruder = {
+      trustClass: "unknown" as const,
+      sourceChannel: "telegram" as const,
+      requesterExternalUserId: "T-stranger",
+    };
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+
+    // The drain's reload is the await the writer lands inside.
+    const originalLoad = conversation.loadFromDb.bind(conversation);
+    let movedDuringReload = false;
+    conversation.loadFromDb = async () => {
+      const result = await originalLoad();
+      conversation.setTrustContext(intruder);
+      movedDuringReload = true;
+      return result;
+    };
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(movedDuringReload).toBe(true);
+    expect(conversation.getTrustContext()).toBe(intruder);
+    expect(conversation.currentTurnTrustContext).toBe(guardian);
+    expect(conversation.currentTurnInboundActorContext).toBeNull();
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drain whose history reload fails puts the resting actor back", async () => {
+    // A reload that fails starts no turn: the message is requeued for the
+    // next drain, so the slot must not keep naming a sender whose turn never
+    // began, or conversation-level readers report an owner that is not there.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const contact = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "slack" as const,
+      requesterExternalUserId: "U-contact",
+    };
+    conversation.setTrustContext(contact);
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+
+    let reloadAttempts = 0;
+    conversation.loadFromDb = async () => {
+      reloadAttempts++;
+      throw new Error("history store exploded");
+    };
+
+    // Finish the first turn; the drain (and its one retry) fail on the reload.
+    await resolveRun(0);
+    await p1;
+    await waitForCondition(() => reloadAttempts >= 2);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(pendingRuns.length).toBe(1);
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(conversation.getTrustContext()).toBe(contact);
+  });
+
+  test("the turn-context actor section follows the turn's actor when the slot moves before the loop opens", async () => {
+    // The actor section is frozen at turn start from the turn's own actor,
+    // not from the resting slot. The drain stamps the slot and then awaits
+    // (persist) before the loop opens; an out-of-band writer landing in that
+    // window (pointer elevation restore, a wake's restore) moves the slot
+    // without owning the turn, and a read of the slot there would describe
+    // that writer's actor to the model.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const contact = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "slack" as const,
+      requesterExternalUserId: "U-contact",
+    };
+    conversation.setTrustContext(contact);
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+
+    // Land the out-of-band slot write inside the drain's window, after its
+    // stamp and before the loop opens: the drain awaits persistUserMessage
+    // there. The resting slot alone is moved; the per-turn snapshot is the
+    // drain's to carry into the run.
+    const originalPersist = conversation.persistUserMessage.bind(conversation);
+    let slotMoved = false;
+    (
+      conversation as unknown as {
+        persistUserMessage: typeof conversation.persistUserMessage;
+      }
+    ).persistUserMessage = async (opts) => {
+      const result = await originalPersist(opts);
+      conversation.setTrustContext(contact);
+      slotMoved = true;
+      return result;
+    };
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Guard the test itself: the injection must have run, and the slot must
+    // disagree with the turn, or the assertion below passes for the wrong
+    // reason.
+    expect(slotMoved).toBe(true);
+    expect(conversation.getTrustContext()).toBe(contact);
+    expect(conversation.currentTurnTrustContext).toBe(guardian);
+    // The guardian's turn renders no actor section, whatever the slot says.
+    expect(conversation.currentTurnInboundActorContext).toBeNull();
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
@@ -884,6 +1206,121 @@ describe("Conversation message queue", () => {
 
     // Three runs total (msg-1, msg-2, msg-3) — msg-3 was not batched with msg-2.
     expect(pendingRuns.length).toBe(3);
+  });
+
+  test("[experimental] batched siblings run under their firing's cron run id", async () => {
+    // A batched drain runs after the enqueuing turn has ended, so the firing's
+    // attribution has to travel on the queued messages. Without it the batch's
+    // LLM spend is recorded with a null `cron_run_id` and the schedule's cost
+    // is undercounted.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-9",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      cronRunId: "cron-run-9",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // One batched run carrying the firing both members belong to.
+    expect(pendingRuns.length).toBe(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-9");
+  });
+
+  test("[experimental] queued siblings from different firings do NOT batch", async () => {
+    // The batch runs as one turn under one `cron_run_id`, so coalescing across
+    // firings would bill the tail's spend to the head's schedule.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-a",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      cronRunId: "cron-run-b",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-a");
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Three runs, not two: each firing keeps its own attribution.
+    expect(pendingRuns.length).toBe(3);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-b");
+  });
+
+  test("[experimental] a firing's message does NOT batch with an unscheduled one", async () => {
+    // Same head-wins hazard in the other direction: an ordinary user message
+    // coalesced into a firing's batch would be billed to that schedule.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-c",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-c");
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(pendingRuns.length).toBe(3);
+    // Not merely a different value: the unscheduled turn claims no firing.
+    expect(conversation.currentTurnCronRunId ?? null).toBeNull();
   });
 
   // `Conversation.clientOs` is a live field that only a transport-carrying
@@ -1369,6 +1806,55 @@ describe("Conversation message queue", () => {
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drain the interrupt armed keeps its message queued until the repair is durable", async () => {
+    // `pendingInterruptRepair` is armed by an interrupt whose own durable
+    // repair failed, and the message it queued behind it is the interrupting
+    // prompt. Persisting that prompt while the abandoned `tool_use` still has
+    // no durable result writes a sequence every provider rejects on the next
+    // load, however well the in-memory history reads to the turn running now.
+    // So a drain that cannot make the repair durable leaves both where they
+    // are rather than settling for the memory copy.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.messages.push({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu-durable-repair",
+          name: "bash",
+          input: {},
+        },
+      ],
+    });
+    conversation.pendingInterruptRepair = true;
+    conversation.enqueueMessage({
+      content: "the interrupting prompt",
+      requestId: "req-interrupting",
+      queueWhenIdle: true,
+    });
+
+    // The repair row is the only write naming the abandoned call.
+    addMessageShouldThrowForContent.add("toolu-durable-repair");
+
+    await expect(conversation.drainQueue()).rejects.toThrow(
+      "Simulated addMessage failure",
+    );
+
+    // Armed for the drain that follows, the prompt still queued behind it, and
+    // neither the prompt nor a half-repair in what a reload would read.
+    expect(conversation.pendingInterruptRepair).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(conversation.messages).toHaveLength(1);
+    expect(
+      capturedAddMessages.some((m) =>
+        m.content.includes("the interrupting prompt"),
+      ),
+    ).toBe(false);
+    expect(pendingRuns).toHaveLength(0);
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {

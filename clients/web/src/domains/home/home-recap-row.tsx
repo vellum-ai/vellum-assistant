@@ -1,3 +1,4 @@
+import { MessageSquare } from "lucide-react";
 import { useMemo } from "react";
 
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
@@ -11,13 +12,12 @@ import {
   type FeedItemStatus,
 } from "@vellumai/assistant-api";
 import {
+  Button,
   cn,
   CrossfadeStack,
   Typography,
-  type TypographyVariant,
 } from "@vellumai/design-library";
 
-import { FeedCategoryChip } from "./feed-category-chip";
 import { flattenSummary, resolvePreview } from "./feed-preview";
 import {
   buildRecapActions,
@@ -43,59 +43,61 @@ const skipRowControls = (target: Element | null) => {
   return control != null && !control.hasAttribute(CARD_LINK_ATTRIBUTE);
 };
 
-/** Source labels that carry nothing the category chip does not already say. */
-const GENERIC_SOURCE_LABELS = new Set(["Conversation", "Other"]);
+/**
+ * The decision a row's inline buttons submit for a pending approval. Mirrors
+ * the canonical decision route's `action` field, so the bell can hand it to
+ * the mutation unchanged.
+ */
+export type HomeRecapRowDecision = "approve_once" | "reject";
 
-export type HomeRecapRowDensity = "comfortable" | "compact";
-
-interface DensityStyle {
-  /** Card padding. */
-  card: string;
-  /** Gap between the rows of the content stack. */
-  stack: string;
-  titleVariant: TypographyVariant;
-  clamp: string;
-  /**
-   * Whether the first line is a meta row naming the item's category and
-   * source, with the title on its own line under it. Without that row the
-   * title takes the first line and shares it with the timestamp.
-   */
-  showsMetaRow: boolean;
-}
-
-const DENSITY_STYLES: Record<HomeRecapRowDensity, DensityStyle> = {
-  comfortable: {
-    card: "p-[var(--app-spacing-md)]",
-    stack: "gap-[var(--app-spacing-xs)]",
-    titleVariant: "title-small",
-    clamp: "line-clamp-2",
-    showsMetaRow: true,
-  },
-  compact: {
-    card: "p-[var(--app-spacing-sm)]",
-    stack: "gap-[var(--app-spacing-xxs)]",
-    titleVariant: "body-medium-default",
-    clamp: "line-clamp-1",
-    showsMetaRow: false,
-  },
-};
+/**
+ * The line under the title, in the indented column: a description where the
+ * title alone does not say what the row needs, and the thread it came from.
+ * The dot's gutter (8px) plus the gap beside it (8px) is what this indent
+ * matches, so the column starts where the title starts.
+ */
+const BODY_COLUMN_CLASS =
+  "pointer-events-none relative flex min-w-0 flex-col gap-[var(--app-spacing-xs)] pl-[var(--app-spacing-lg)]";
 
 export interface HomeRecapRowProps {
   item: FeedItem;
   isActive?: boolean;
   validConversationIds?: Set<string>;
+  /**
+   * The name of the thread the item came from, resolved by the caller from
+   * the conversation lists. Read under the title; omitted when unknown.
+   */
+  threadName?: string | null;
   onSelect: (item: FeedItem) => void;
   onDismiss: (itemId: string) => void;
   onToggleRead?: (itemId: string, newStatus: FeedItemStatus) => void;
   onGoToThread?: (conversationId: string) => void;
+  /**
+   * Submits a decision on a pending approval from the row itself. Without it
+   * the row offers no buttons and the request is decided from its detail.
+   */
+  onDecide?: (item: FeedItem, decision: HomeRecapRowDecision) => void;
+  /** True while a decision is in flight, holding every row's buttons inert. */
+  isDecisionPending?: boolean;
+  /**
+   * True once this request was decided this session, so the buttons stay
+   * down while the feed still projects it as pending.
+   */
+  isDecided?: boolean;
   trailingAction?: HomeRecapRowTrailingAction;
-  density?: HomeRecapRowDensity;
 }
 
 /**
- * One item of the home recap, as a card: the item's category and source, its
- * title, a preview of its summary, when it arrived, and the commands that act
- * on it.
+ * One notification in the bell: an unread dot, the title, when it arrived,
+ * and under it the thread it came from.
+ *
+ * The title carries the row. A description only appears when the row needs
+ * something of the user and the title cannot say what: a pending question
+ * quotes the ask, a pending approval describes what is being asked for, and
+ * an item the assistant attached offers to previews the body behind them.
+ * Every description is also checked against the title (`resolvePreview`) so
+ * a body that only restates it is dropped. A row that only reports shows its
+ * title alone; its body waits in the detail.
  *
  * Every command has a path for each input. A pointer reveals the row's inline
  * buttons, which share a cell with the timestamp and cross-fade with it. Where
@@ -109,16 +111,18 @@ export function HomeRecapRow({
   item,
   isActive = false,
   validConversationIds,
+  threadName = null,
   onSelect,
   onDismiss,
   onToggleRead,
   onGoToThread,
+  onDecide,
+  isDecisionPending = false,
+  isDecided = false,
   trailingAction = "dismiss",
-  density = "comfortable",
 }: HomeRecapRowProps) {
   const { t } = useTranslation("home");
   const isUnread = item.status === "new";
-  const densityStyle = DENSITY_STYLES[density];
 
   const actions = buildRecapActions({
     item,
@@ -138,19 +142,18 @@ export function HomeRecapRow({
   const actionsLabel = t("homeRecapRow.actionsTitle");
 
   const needsAttention = isPendingGuardianFeedItem(item);
-  const sourceLabel =
-    item.sourceLabel && !GENERIC_SOURCE_LABELS.has(item.sourceLabel)
-      ? item.sourceLabel
-      : null;
+  const isPendingQuestion =
+    needsAttention && item.guardianRequest?.intent === "question";
+  const isPendingApproval =
+    needsAttention && item.guardianRequest?.intent === "approval";
 
-  /* A waiting request takes the row's two lines like any other item, with
-     different content in them: it is named by what it asks of the user,
-     since its own title is the generic name of the kind of request, and
-     the ask itself (which lives in the body) reads underneath. */
+  /* A waiting request is named by what it asks of the user, since its own
+     title is the generic name of the kind of request, and the ask itself
+     (which lives in the body) reads underneath. */
   const attentionLabelKey = needsAttention ? guardianLabelKey(item) : null;
 
-  // Both memoized: each parses the summary as markdown, and the feed re-renders
-  // every card whenever its filter changes.
+  // Both memoized: each parses the summary as markdown, and the bell re-renders
+  // every row whenever the feed changes.
   const title = useMemo(
     () =>
       attentionLabelKey
@@ -159,28 +162,22 @@ export function HomeRecapRow({
     [attentionLabelKey, t, item.title, item.summary],
   );
 
-  const preview = useMemo(
-    () =>
-      attentionLabelKey
-        ? flattenSummary(item.summary)
-        : resolvePreview(title, item.summary),
-    [attentionLabelKey, title, item.summary],
-  );
+  const hasOffers = (item.actions?.length ?? 0) > 0;
+  const description = useMemo(() => {
+    if (attentionLabelKey) {
+      const ask = flattenSummary(item.summary);
+      return ask.length > 0 ? ask : null;
+    }
+    return hasOffers ? resolvePreview(title, item.summary) : null;
+  }, [attentionLabelKey, hasOffers, title, item.summary]);
 
-  // leading-snug: the title-small token is line-height:1, and line-clamp's
-  // overflow clipping would cut descenders without real line height.
   const titleLine = (
     <Typography
       data-testid="home-recap-row-title"
-      variant={densityStyle.titleVariant}
-      className={cn(
-        "leading-snug text-[var(--content-default)]",
-        // On the first line the title has to yield to the timestamp beside it,
-        // so it shrinks and ellipsizes rather than pushing the timestamp out.
-        densityStyle.showsMetaRow
-          ? densityStyle.clamp
-          : "min-w-0 flex-1 truncate",
-      )}
+      variant="body-medium-default"
+      // On the first line the title has to yield to the timestamp beside it,
+      // so it shrinks and ellipsizes rather than pushing the timestamp out.
+      className="min-w-0 flex-1 truncate text-[var(--content-emphasised)]"
     >
       {title}
     </Typography>
@@ -191,35 +188,53 @@ export function HomeRecapRow({
      stand down for. */
   const timestamp = (
     <Typography
-      variant="body-small-default"
-      className="text-[var(--content-tertiary)]"
+      variant="label-small-default"
+      className="whitespace-nowrap text-[var(--content-disabled)]"
       {...(showsActionButtons ? { "data-reveal-yield": "" } : {})}
     >
       {formatRelativeDate(item.timestamp)}
     </Typography>
   );
 
+  const decisionButtons =
+    isPendingApproval && onDecide && !isDecided ? (
+      /* The buttons stand above the stretched link and take their own
+         clicks, so deciding a request does not also open it. */
+      <div
+        data-testid="home-recap-row-decision"
+        className="pointer-events-auto flex gap-[var(--app-spacing-sm)] pt-[var(--app-spacing-sm)]"
+      >
+        <Button
+          variant="primary"
+          disabled={isDecisionPending}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDecide(item, "approve_once");
+          }}
+        >
+          {t("homeRecapRow.approve")}
+        </Button>
+        <Button
+          variant="outlined"
+          disabled={isDecisionPending}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDecide(item, "reject");
+          }}
+        >
+          {t("homeRecapRow.reject")}
+        </Button>
+      </div>
+    ) : null;
+
   const card = (
     <div
       data-reveal-row=""
       data-needs-attention={needsAttention ? "" : undefined}
       className={cn(
-        "group relative flex w-full items-start gap-[var(--app-spacing-sm)]",
-        "rounded-[var(--radius-lg)] border",
-        "transition-[background-color,opacity] duration-150",
-        densityStyle.card,
-        // A row waiting on the user carries the attention hue, so it reads as
-        // the one thing to act on among rows that only report. It never dims
-        // on read: the request is outstanding whether or not it has been seen.
-        needsAttention
-          ? "border-[var(--system-mid-strong)] bg-[var(--system-mid-weak)]"
-          : cn(
-              "border-[var(--border-base)]",
-              isActive
-                ? "bg-[var(--surface-active)]"
-                : "bg-[var(--surface-overlay)] hover:bg-[var(--surface-hover)]",
-              !isUnread && !isActive && "opacity-70",
-            ),
+        "group relative flex w-full flex-col gap-[var(--app-spacing-xs)]",
+        "transition-[background-color] duration-150",
+        isActive && "bg-[var(--surface-active)]",
       )}
     >
       {/* Stretched link: the card's single click target. Everything else stacks
@@ -230,85 +245,102 @@ export function HomeRecapRow({
         aria-label={title}
         onClick={() => onSelect(item)}
         {...cardLinkProps}
-        className="absolute inset-0 w-full cursor-pointer rounded-[var(--radius-lg)]"
+        // Bleeds a little past the text on every side, so the hover wash
+        // reads as the row's own; the list keeps the rule between rows
+        // outside this box.
+        className="absolute -inset-x-[var(--app-spacing-sm)] -inset-y-[var(--app-spacing-xs)] cursor-pointer rounded-[var(--radius-md)] hover:bg-[var(--surface-hover)]"
       />
 
-      {/* The gutter is reserved whether or not the item is unread, so a card
-          keeps the same text alignment once it is marked read. h-8 is the
-          height of the first line, which the h-8 action buttons set, so the dot
-          sits against the meta row or the title depending on density. */}
-      <div
-        data-testid="home-recap-row-dot-gutter"
-        className="pointer-events-none relative flex h-8 w-2 shrink-0 items-center"
-      >
-        {isUnread && (
+      <div className="pointer-events-none relative flex items-center gap-[var(--app-spacing-sm)]">
+        {/* The dot marks the row whether or not it is unread, so a row keeps
+            its alignment once it is marked read: unread carries the positive
+            hue, read fades to the divider colour. */}
+        <div
+          data-testid="home-recap-row-dot-gutter"
+          className="flex w-2 shrink-0 items-center justify-center"
+        >
           <span
-            data-testid="home-recap-row-unread-dot"
+            data-testid={
+              isUnread ? "home-recap-row-unread-dot" : "home-recap-row-read-dot"
+            }
             aria-hidden="true"
-            className="h-2 w-2 rounded-full bg-[var(--system-mid-strong)]"
+            className={cn(
+              "h-2 w-2 rounded-full",
+              isUnread
+                ? "bg-[var(--system-positive-strong)]"
+                : "bg-[var(--border-subtle)]",
+            )}
           />
-        )}
-      </div>
-
-      <div
-        className={cn(
-          "pointer-events-none relative flex min-w-0 flex-1 flex-col",
-          densityStyle.stack,
-        )}
-      >
-        <div className="flex items-center gap-[var(--app-spacing-sm)]">
-          {densityStyle.showsMetaRow ? (
-            <>
-              <FeedCategoryChip category={item.category} />
-
-              {sourceLabel !== null && (
-                <Typography
-                  variant="body-small-default"
-                  className="min-w-0 truncate text-[var(--content-tertiary)]"
-                >
-                  {sourceLabel}
-                </Typography>
-              )}
-            </>
-          ) : (
-            titleLine
-          )}
-
-          {showsActionButtons ? (
-            /* Timestamp and buttons share one cell so the card keeps a stable
-               width as they cross-fade. */
-            <CrossfadeStack className="ml-auto justify-items-end">
-              {timestamp}
-
-              <span
-                data-reveal=""
-                className="flex items-center gap-[var(--app-spacing-sm)]"
-              >
-                <RecapActionButtons actions={actions} />
-              </span>
-            </CrossfadeStack>
-          ) : (
-            <span className="ml-auto flex items-center gap-[var(--app-spacing-sm)]">
-              {timestamp}
-              <RecapActionsTrigger label={actionsLabel} />
-            </span>
-          )}
         </div>
 
-        {densityStyle.showsMetaRow && titleLine}
+        {titleLine}
 
-        {preview !== null && (
-          <Typography
-            variant="body-medium-lighter"
-            className={cn(
-              "leading-normal text-[var(--content-secondary)]",
-              densityStyle.clamp,
-            )}
-          >
-            {preview}
-          </Typography>
+        {showsActionButtons ? (
+          /* Timestamp and buttons share one cell so the row keeps a stable
+             width as they cross-fade. */
+          <CrossfadeStack className="ml-auto justify-items-end">
+            {timestamp}
+
+            <span
+              data-reveal=""
+              className="flex items-center gap-[var(--app-spacing-xs)]"
+            >
+              <RecapActionButtons actions={actions} />
+            </span>
+          </CrossfadeStack>
+        ) : (
+          <span className="ml-auto flex items-center gap-[var(--app-spacing-xs)]">
+            {timestamp}
+            <RecapActionsTrigger label={actionsLabel} />
+          </span>
         )}
       </div>
+
+      {description !== null || threadName !== null || decisionButtons ? (
+        <div className={BODY_COLUMN_CLASS}>
+          {description !== null ? (
+            isPendingQuestion ? (
+              /* The ask, set as the quoted message it is, so the row reads as
+                 someone waiting on a reply rather than as a report. */
+              <div
+                data-testid="home-recap-row-question"
+                className="flex h-8 min-w-0 items-center gap-[var(--app-spacing-xs)] rounded-[var(--radius-md)] bg-[var(--surface-hover)] px-[var(--app-spacing-sm)]"
+              >
+                <MessageSquare
+                  className="size-4 shrink-0 text-[var(--content-secondary)]"
+                  aria-hidden="true"
+                />
+                <Typography
+                  variant="body-medium-lighter"
+                  className="min-w-0 truncate text-[var(--content-tertiary)]"
+                >
+                  {description}
+                </Typography>
+              </div>
+            ) : (
+              <Typography
+                data-testid="home-recap-row-description"
+                variant="label-medium-default"
+                className="line-clamp-2 leading-normal text-[var(--content-secondary)]"
+              >
+                {description}
+              </Typography>
+            )
+          ) : null}
+
+          {threadName !== null ? (
+            <Typography
+              data-testid="home-recap-row-thread"
+              variant="label-medium-default"
+              className="truncate leading-normal text-[var(--content-tertiary)]"
+            >
+              {threadName}
+            </Typography>
+          ) : null}
+
+          {decisionButtons}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -323,7 +355,6 @@ export function HomeRecapRow({
         <SwipeActionReveal
           leadingActions={swipeActionsFor(actions, "leading")}
           trailingActions={swipeActionsFor(actions, "trailing")}
-          className="rounded-[var(--radius-lg)]"
         >
           {card}
         </SwipeActionReveal>

@@ -22,7 +22,10 @@
  */
 
 import { existsSync, readdirSync, statSync } from "node:fs";
+import { posix } from "node:path";
 import { join, relative, resolve, sep } from "node:path";
+
+import { PLUGIN_NOTICES_ROUTE_PREFIX } from "@vellumai/gateway-client";
 
 import {
   getDefaultPluginRouteRoots,
@@ -194,6 +197,24 @@ export function isReservedWorkspaceRoutePath(routePath: string): boolean {
   return (
     routePath === PLUGIN_ROUTE_SEGMENT ||
     routePath.startsWith(`${PLUGIN_ROUTE_SEGMENT}/`)
+  );
+}
+
+/**
+ * True when an `/x/` route path lands in a plugin's `notices/` namespace, the
+ * namespace root included.
+ *
+ * Judged on the path as the handler lookup will see it, not as it was
+ * spelled: the lookup joins the path onto the routes directory, which folds
+ * doubled slashes and `.` segments, and a case-insensitive filesystem serves
+ * `Notices/x` from `notices/x.ts`. Any spelling that resolves into the
+ * namespace counts, so the reservation cannot be sidestepped by respelling.
+ */
+export function isPluginNoticeRoutePath(routePath: string): boolean {
+  const segments = posix.normalize(routePath.replace(/^\/+/, "")).split("/");
+  return (
+    segments[0] === PLUGIN_ROUTE_SEGMENT &&
+    segments[2]?.toLowerCase() === PLUGIN_NOTICES_ROUTE_PREFIX
   );
 }
 

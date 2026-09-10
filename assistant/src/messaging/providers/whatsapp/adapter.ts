@@ -5,8 +5,6 @@
  */
 
 import type { OAuthConnection } from "../../../oauth/connection.js";
-import { getOrCreateConversation } from "../../../persistence/conversation-key-store.js";
-import { upsertOutboundBinding } from "../../../persistence/external-conversation-store.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../../security/secure-keys.js";
 import type { MessagingProvider } from "../../provider.js";
@@ -18,10 +16,7 @@ import type {
   Message,
   SearchOptions,
   SearchResult,
-  SendOptions,
-  SendResult,
 } from "../../provider-types.js";
-import * as whatsapp from "./client.js";
 
 /** Check whether WhatsApp credentials are stored. */
 async function hasWhatsAppCredentials(): Promise<boolean> {
@@ -41,7 +36,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
   id: "whatsapp",
   displayName: "WhatsApp",
   credentialService: "whatsapp",
-  capabilities: new Set(["send"]),
+  capabilities: new Set(),
 
   async isConnected(): Promise<boolean> {
     return hasWhatsAppCredentials();
@@ -71,48 +66,6 @@ export const whatsappMessagingProvider: MessagingProvider = {
       metadata: {
         phoneNumberId: phoneNumberId.slice(0, 6) + "...",
       },
-    };
-  },
-
-  async sendMessage(
-    _connection: OAuthConnection | undefined,
-    conversationId: string,
-    text: string,
-    options?: SendOptions,
-  ): Promise<SendResult> {
-    const assistantId = options?.assistantId;
-
-    const sent = await whatsapp.sendMessage(conversationId, text);
-    if (!sent.messageId) {
-      throw new Error(
-        "WhatsApp accepted the message but returned no message id",
-      );
-    }
-
-    // Upsert external conversation binding so the conversation key mapping
-    // exists for the next inbound WhatsApp message from this number.
-    try {
-      const sourceChannel = "whatsapp";
-      const conversationKey = `asst:${assistantId ?? "self"}:${sourceChannel}:${conversationId}`;
-      const { conversationId: internalId } =
-        getOrCreateConversation(conversationKey);
-      if (!assistantId || assistantId === "self") {
-        upsertOutboundBinding({
-          conversationId: internalId,
-          sourceChannel,
-          externalChatId: conversationId,
-        });
-      }
-    } catch {
-      // Best-effort — don't fail the send if binding upsert fails
-    }
-
-    // The id is the one the Cloud API assigned, so a later reaction or
-    // delete carrying that id resolves to this send.
-    return {
-      id: sent.messageId,
-      timestamp: Date.now(),
-      conversationId,
     };
   },
 

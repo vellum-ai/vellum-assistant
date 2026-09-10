@@ -1,4 +1,7 @@
 {
+  "statusBanner": {
+    "reconnecting": "Восстанавливаем соединение с вашим ассистентом…"
+  },
   "addCreditsModal": {
     "configureAutoReload": "Настроить автопополнение"
   },
@@ -34,6 +37,17 @@
     "skip": "Пропустить",
     "next": "Далее",
     "done": "Понятно"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "Показываем ваш экран",
+    "sharingScreenNamed": "Показываем ваш экран {name}",
+    "sharingWindow": "Показываем окно",
+    "sharingWindowNamed": "Показываем окно {name}",
+    "teaching": "Обучаем",
+    "teachingNamed": "Обучаем {name}"
+  },
+  "conversationTitle": {
+    "untitled": "Без названия"
   },
   "deployStore": {
     "appExported": "Приложение экспортировано",
@@ -93,7 +107,9 @@
     "verificationFailed": "Проверка не прошла",
     "verifiedTitle": "Записи DNS подтверждены. Домен готов отправлять и получать почту.",
     "verifyingDomain": "Проверка домена…",
-    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут."
+    "verifyingTitle": "Записи DNS подготовлены. Ждём, пока почтовый провайдер их подтвердит: обычно это несколько минут.",
+    "setupRequired": "Требуется настройка домена",
+    "setupRequiredTitle": "Этот домен не подготовлен у почтового провайдера. Он не может отправлять или получать почту, пока настройка не будет завершена."
   },
   "downloadFeedback": {
     "failed": "Не удалось скачать файл",
@@ -205,12 +221,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "Аккаунт {name} подключён.",
-    "authPopupClosed": "Не удалось подключить {name}: окно авторизации закрыто.",
     "authorizationError": "Ошибка {name}: {code}",
     "authorizationFailed": "Авторизация {name} не удалась",
     "popupBlocked": "Всплывающее окно заблокировано. Разрешите всплывающие окна и повторите попытку.",
-    "popupClosed": "Не удалось подключить {name}: всплывающее окно закрыто.",
-    "startFailed": "Не удалось начать авторизацию {name}."
+    "startFailed": "Не удалось начать авторизацию {name}.",
+    "startFailedWithReason": "Не удалось начать авторизацию {name}: {reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "Браузер заблокировал страницу, которую ассистент пытался открыть.",

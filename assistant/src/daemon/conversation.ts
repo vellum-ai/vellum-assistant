@@ -30,6 +30,7 @@ import type {
 } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
+import { isInterruptOnSendEnabled } from "../config/interrupt-on-send-gate.js";
 import {
   contextWindowConfigFromEffective,
   resolveEffectiveContextWindow,
@@ -37,6 +38,7 @@ import {
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite, Speed } from "../config/schemas/llm.js";
+import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
 import {
   derefToolResultReReads,
   postTurnTruncateToolResults,
@@ -56,8 +58,8 @@ import {
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { extractTextFromStoredMessageContent } from "../persistence/message-content.js";
 import { reportSlowSync } from "../persistence/slow-sync-log.js";
+import { userFacingTextOfRow } from "../persistence/user-facing-content.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -74,11 +76,22 @@ import {
   wrapMemoryBlock,
 } from "../plugins/defaults/memory/memory-marker.js";
 import {
-  getPrunedSlugs,
+  getPrunedSections,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
+  type SectionRefSet,
+  v3BlockFormatOf,
 } from "../plugins/defaults/memory/v3/ever-injected-store.js";
-import { filterPrunedCardSections } from "../plugins/defaults/memory/v3/prune.js";
-import { MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY } from "../plugins/defaults/memory/v3/types.js";
+import {
+  filterResidentPointerEntries,
+  filterResidentSections,
+  newestCopyIndexes,
+  persistedV3Block,
+} from "../plugins/defaults/memory/v3/prune.js";
+import {
+  LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY,
+  markV3LiveBlock,
+  MEMORY_V3_POINTER_BLOCK_METADATA_KEY,
+} from "../plugins/defaults/memory/v3/types.js";
 import {
   applyBootstrapTemplate,
   buildSystemPrompt,
@@ -115,6 +128,7 @@ import {
   abortConversation,
   disposeConversation,
   reinjectAttachmentPathAnnotations,
+  reinjectInterruptTurnNote,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -164,6 +178,7 @@ import type {
   WakeToolContextPin,
 } from "./conversation-tool-setup.js";
 import {
+  canSpawnSubagentsForTurn,
   createResolveToolsCallback,
   createToolExecutor,
 } from "./conversation-tool-setup.js";
@@ -273,6 +288,7 @@ import {
   isPersonalMemoryAllowed,
 } from "./trust-context.js";
 import type { TrustContext } from "./trust-context-types.js";
+import { turnActorPrincipalId } from "./turn-actor.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;
@@ -473,6 +489,35 @@ export class Conversation {
   enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
+   * The `clientMessageId` the running turn was started by, recorded in the same
+   * synchronous step that takes the processing lock.
+   *
+   * A retransmitted send is normally recognised by finding the row its original
+   * already wrote, but a turn takes the lock and arms its abort controller
+   * before it inserts that row. In that window a retry finds a busy
+   * conversation and no row, and would abort the very turn its own original
+   * request just started, then deduplicate against the row that lands a moment
+   * later and start nothing. This is what lets such a retry recognise the turn
+   * as its own.
+   * @internal
+   */
+  currentTurnClientMessageId?: string;
+  /**
+   * `clientMessageId` to `requestId` for sends this conversation has accepted
+   * but not yet persisted.
+   *
+   * {@link currentTurnClientMessageId} covers a retry that races a turn already
+   * starting. This covers the window the interrupt opens ahead of that: a send
+   * is answered `202` and its abort, waits, repair and persist all run
+   * afterwards, so a retransmission arriving in between finds no running turn
+   * of its own to recognise and no row yet either, and both copies would race
+   * the unique `clientMessageId` insert with one losing. Reserved
+   * synchronously before the handover is detached, so the second copy is
+   * recognised and answered with the first's id.
+   * @internal
+   */
+  readonly inFlightSendRequestIds = new Map<string, string>();
+  /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
    * `options?.callSite ?? "mainAgent"`. Lets the per-turn plugin context tell
    * the main reply apart from background agent-loop work (compaction,
@@ -561,12 +606,56 @@ export class Conversation {
    * @internal
    */
   currentTurnCronRunId?: string | null;
-  /** @internal */   currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnIsNonInteractive?: boolean;
   /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
+  /**
+   * Whether this turn routes its user-facing text through `send_user_message`,
+   * resolved once at turn start. The agent loop's suppression is pinned to
+   * this value for the whole turn, so the tool surface, the reserved row's
+   * visibility marker, and the prompt section read the same snapshot rather
+   * than the live flag: a remote flag change mid-turn must not mark an
+   * ordinarily streamed row private, nor take the only delivery tool away from
+   * a run that is still suppressing its text.
+   * @internal
+   */
+  currentTurnSendUserMessageActive?: boolean;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
-  /** @internal */ currentTurnSourceActorPrincipalId?: string;
+  /**
+   * Whether this turn resolved its own actor and found none, which is not the
+   * same as a turn that never looked. See {@link turnActorPrincipalId}.
+   *
+   * @internal
+   */
+  currentTurnActorFallbackSuppressed = false;
+  /** @internal */ private _currentTurnSourceActorPrincipalId?: string;
+  /**
+   * How many times the actor stamp has been written on this conversation.
+   *
+   * A turn that stamped the actor and later needs to know whether its own
+   * stamp is still the one standing cannot ask the value: two turns for the
+   * same guardian write the identical string, so the field cannot say who
+   * wrote it. Every write moves this counter, whoever makes it, so a reader
+   * that remembers the count at its own write can tell "still mine" from
+   * "someone stamped after me" without every writer having to cooperate.
+   *
+   * Behind the accessor below rather than bumped at the call sites, because
+   * the writers are spread across the routes and the turn pipeline and a
+   * counter they had to remember to move is one they would eventually not.
+   *
+   * @internal
+   */
+  currentTurnActorStampGeneration = 0;
+  /** @internal */
+  get currentTurnSourceActorPrincipalId(): string | undefined {
+    return this._currentTurnSourceActorPrincipalId;
+  }
+  /** @internal */
+  set currentTurnSourceActorPrincipalId(value: string | undefined) {
+    this._currentTurnSourceActorPrincipalId = value;
+    this.currentTurnActorStampGeneration += 1;
+  }
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ loadedHistoryPersonalMemoryAllowed?: boolean;
   /** @internal */ loadedHistoryStale = false;
@@ -638,6 +727,39 @@ export class Conversation {
    * @internal
    */
   pendingInterruptRepair = false;
+  /**
+   * Set by `interruptRunningTurn` once it has handed the conversation over, and
+   * consumed by the agent loop at the head of the very next turn, which emits
+   * the `thinking` / `message_interrupted` transition.
+   *
+   * The transition bridges a gap the interrupt opens: the stopped turn's
+   * `generation_cancelled` idles every client's turn state, and the ordinary
+   * send path emits no `thinking` of its own, so without it the composer sits
+   * idle until the replacement turn's first delta. It is deferred to the loop
+   * rather than emitted by the interrupt because the send can still fail
+   * between the two (slash resolution, a `/compact` claim, the user-row
+   * persist), and an activity state is cached and replayed to reconnecting
+   * clients: emitted early, a failed send leaves every client showing a busy
+   * conversation that is not running anything. A flag nobody consumes emits
+   * nothing.
+   * @internal
+   */
+  pendingInterruptActivityBridge = false;
+  /**
+   * Set by `interruptRunningTurn` when the abort it ran landed with no tool
+   * call in flight, and consumed exactly once by the persist of the
+   * interrupting user message, which appends
+   * {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing content
+   * and stamps `interruptedPriorTurn` on the row.
+   *
+   * An interrupt caught mid-tool needs nothing here: the synthetic
+   * `tool_result` the loop or the repair writes already tells the model a
+   * message preempted it. Caught mid-provider-call there is no `tool_use` to
+   * answer, so the note is the only signal, and it rides on the message that
+   * did the interrupting.
+   * @internal
+   */
+  pendingInterruptNote = false;
   /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
@@ -1019,6 +1141,13 @@ export class Conversation {
           personaOverride: this.wakePersonaOverride,
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
+          sendUserMessageTool: resolveSendUserMessageActive(this),
+          // Read off this turn's resolved tool surface: a workspace
+          // `tools.exclude` entry, a background run's `allowedTools` scope, a
+          // read-only subagent pass, or tools disabled all answer no, and the
+          // delegation section renders off rather than pointing at a tool the
+          // turn cannot call.
+          canSpawnSubagents: canSpawnSubagentsForTurn(this),
         });
   }
 
@@ -1176,23 +1305,23 @@ export class Conversation {
     // in the HTTP-auth-disabled dev bypass, so a turn with no bound actor
     // resolves the same way on both paths.
     const personalMemoryAllowed = isPersonalMemoryAllowed(this.trustContext);
-    // Pruned v3 card slugs, read lazily on the first row that carries a v3
+    // Pruned v3 sections, read lazily on the first row that carries a v3
     // block (most conversations carry none, so most loads never query). The
-    // prune valve marks cards pruned in the everInjected store instead of
+    // prune valve marks sections pruned in the section store instead of
     // rewriting the persisted metadata, so the v3 rehydration splice below
     // re-applies the filter on every load — that is what makes a prune
     // survive daemon restarts. Defensive catch: a store failure degrades to
     // an unfiltered (pre-prune) rehydration rather than a failed load.
-    let v3PrunedSlugsMemo: Set<string> | null = null;
-    const v3PrunedSlugs = (): Set<string> => {
-      if (v3PrunedSlugsMemo === null) {
+    let v3PrunedSectionsMemo: SectionRefSet | null = null;
+    const v3PrunedSections = (): SectionRefSet => {
+      if (v3PrunedSectionsMemo === null) {
         try {
-          v3PrunedSlugsMemo = getPrunedSlugs(this.conversationId);
+          v3PrunedSectionsMemo = getPrunedSections(this.conversationId);
         } catch {
-          v3PrunedSlugsMemo = new Set();
+          v3PrunedSectionsMemo = new Map();
         }
       }
-      return v3PrunedSlugsMemo;
+      return v3PrunedSectionsMemo;
     };
     // Provider-id → row-text index for reaction target resolution, built
     // lazily on the first reaction row: most conversations carry none, so
@@ -1214,7 +1343,10 @@ export class Conversation {
             rowMeta.deletedAt === undefined &&
             rowMeta.messageId
           ) {
-            const text = extractTextFromStoredMessageContent(row.content);
+            // Quote what the channel actually carried: on a row a
+            // `send_user_message` turn wrote, that is the message the tool
+            // delivered, not the private working notes beside it.
+            const text = userFacingTextOfRow(row.content, row.metadata);
             if (text) {
               // A split reply posts several provider messages from one row;
               // a reaction may name any of them. A post deleted on its own
@@ -1237,12 +1369,31 @@ export class Conversation {
       }
       return reactionTargetIndexMemo.get(targetMessageId);
     };
+    // The message index carrying each v3 section's newest persisted copy,
+    // read lazily like the pruned set: a section re-injected after a prune
+    // has an older copy on an earlier message, and only the newest copy is
+    // rehydrated (the older one left the live history when the section was
+    // pruned). Indexed over the same rows the map below walks.
+    let v3NewestCopyMemo: ReadonlyMap<string, number> | null = null;
+    const v3NewestCopy = (): ReadonlyMap<string, number> => {
+      if (v3NewestCopyMemo === null) {
+        v3NewestCopyMemo = newestCopyIndexes(
+          slicedDbMessages.map((row, rowIndex) =>
+            row.role === "user" && rowIndex >= preStrippedCount
+              ? persistedV3Block(row.metadata)
+              : null,
+          ),
+        );
+      }
+      return v3NewestCopyMemo;
+    };
     const parsedMessages: Message[] = slicedDbMessages.map((m, index, arr) => {
       const isPreStripped = index < preStrippedCount;
       const role = m.role as "user" | "assistant";
       let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
+      content = reinjectInterruptTurnNote(content, role, m.metadata);
 
       // Channel facts stamped in metadata render at load time rather than
       // at persist time, so every stored row reads correctly whenever it
@@ -1318,19 +1469,19 @@ export class Conversation {
           // (pkb-context 30, pkb-reminder 35, memory-v2-static 38,
           // now-md 40, memory-v3-shadow 1000 — the v2 static block lands
           // inside the memory prefix, so now-md splices *after* it; the
-          // v3 card block is `<memory>`-wrapped and splices LAST, landing
+          // v3 section block is `<memory>`-wrapped and splices LAST, landing
           // at the memory boundary after the `<info>` block but before
           // now-md's earlier splice):
           //   [<workspace>, <turn_context>, <memory>dynamic</memory>,
-          //    <info>v2static</info>, <memory>v3cards</memory>,
-          //    <memory_spotlight>, <NOW.md>,
+          //    <info>v2static</info>, <memory>v3sections</memory>,
+          //    <memory_pointer>, <NOW.md>,
           //    <system_reminder>, <knowledge_base>, ...original]
           // The v2 static block is replayed verbatim from stored metadata,
           // so rows may carry either `<info>…</info>` or `<memory>…</memory>`
           // depending on when they were persisted.
           // Required so Anthropic's prefix cache keeps matching msg[0]
           // across daemon restart and conversation eviction. The tail
-          // row only rehydrates `memoryInjectedBlock` and the v3 card
+          // row only rehydrates `memoryInjectedBlock` and the v3 section
           // block — the next turn re-injects the rest fresh.
           if (!isTail && typeof meta.pkbContextBlock === "string") {
             content = [
@@ -1353,32 +1504,61 @@ export class Conversation {
             ];
           }
 
-          // The memory-v3 per-turn `<memory_spotlight>` persists under its
-          // own key as the wrapped block that was sent. Rehydrated on ALL
-          // rows (tail included), matching frozen cards: after a reload the
+          // The memory-v3 per-turn `<memory_pointer>` persists under its own
+          // key as the wrapped block that was sent. Rehydrated on ALL rows
+          // (tail included), matching frozen sections: after a reload the
           // last completed turn is the tail, and the next user message is
           // appended without re-running loadFromDb. Prepended here, after
-          // now-md and before the v3 card block, so the inverted prepends
-          // land as [cards, spotlight, now-md, ...]. Trust-gated on
-          // `personalMemoryAllowed` like the cards: the spotlight carries
-          // matched personal-memory sections.
+          // now-md and before the v3 section block, so the inverted prepends
+          // land as [sections, pointer, now-md, ...]. Trust-gated on
+          // `personalMemoryAllowed` like the sections: the pointer names
+          // personal-memory pages and headings. A pruned section's line, and
+          // a line naming a section whose newest copy sits on a later message
+          // (the pointer predates its re-injection), are filtered out here
+          // the way the section is filtered out of its frozen block below; a
+          // pointer left with no entries is skipped entirely (matching the
+          // live strip in `memory/v3/prune.ts`).
           if (
             personalMemoryAllowed &&
-            typeof meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] === "string"
+            typeof meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] === "string"
+          ) {
+            const pointer = filterResidentPointerEntries(
+              meta[MEMORY_V3_POINTER_BLOCK_METADATA_KEY] as string,
+              index,
+              v3PrunedSections(),
+              v3NewestCopy(),
+            );
+            if (pointer.length > 0) {
+              content = [{ type: "text" as const, text: pointer }, ...content];
+            }
+          }
+
+          // Rows persisted by builds that shipped the per-turn
+          // `<memory_spotlight>` layer carry that turn's wrapped block under
+          // the legacy key. No producer writes it; it is rehydrated verbatim,
+          // in the slot those builds spliced it (the pointer's), so the
+          // prompts those turns were sent with stay byte-identical across
+          // the upgrade. Trust-gated like the pointer.
+          if (
+            personalMemoryAllowed &&
+            typeof meta[LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] ===
+              "string"
           ) {
             content = [
               {
                 type: "text" as const,
-                text: meta[MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY] as string,
+                text: meta[
+                  LEGACY_MEMORY_V3_SPOTLIGHT_BLOCK_METADATA_KEY
+                ] as string,
               },
               ...content,
             ];
           }
 
-          // The memory-v3 frozen card block (net-new compact cards) persists
+          // The memory-v3 frozen section block (net-new sections) persists
           // under its own key, stored UNWRAPPED like v2's dynamic block below.
           // Rehydrated on ALL rows (tail included): the next turn injects only
-          // net-new cards — deduped via the v3 everInjected store — so this
+          // net-new sections, deduped via the v3 section store, so this
           // row's block must be back in history byte-identical for the dedup
           // (and the provider prefix cache) to hold. A row carries at most one
           // of the v3 and v2-dynamic keys (the user-prompt-submit hook
@@ -1387,16 +1567,17 @@ export class Conversation {
           // first leaves it BELOW both in the final content, matching the
           // live after-memory-prefix splice (order 1000 lands at the memory
           // boundary, after `<info>` / `<memory>` prefix blocks).
-          // Pruned slugs' card sections are filtered out here (the metadata
-          // itself is never rewritten — auditable and reversible); an
-          // all-pruned block is skipped entirely, matching the live strip in
-          // `memory/v3/prune.ts`.
+          // Pruned sections, and copies superseded by a re-injection on a
+          // later message, are filtered out here by their header span (the
+          // metadata itself is never rewritten, auditable and reversible);
+          // a block left with nothing is skipped entirely, matching the live
+          // strip in `memory/v3/prune.ts`.
           // Trust-gated on `personalMemoryAllowed`, mirroring the v2 static
-          // block below and the live v3 injector: v3 cards carry personal user
-          // memory (memory pages, PKB, matched sections), so an untrusted-actor
-          // view must not read them back through persisted metadata. The tail
-          // is still rehydrated for trusted views (unlike v2) — the gate is the
-          // only constraint added here.
+          // block below and the live v3 injector: v3 sections carry personal
+          // user memory (memory pages, PKB, matched sections), so an
+          // untrusted-actor view must not read them back through persisted
+          // metadata. The tail is still rehydrated for trusted views (unlike
+          // v2), the gate is the only constraint added here.
           if (
             personalMemoryAllowed &&
             typeof meta[MEMORY_V3_INJECTED_BLOCK_METADATA_KEY] === "string"
@@ -1404,13 +1585,27 @@ export class Conversation {
             const v3Block = meta[
               MEMORY_V3_INJECTED_BLOCK_METADATA_KEY
             ] as string;
-            const v3Resident = filterPrunedCardSections(
+            // The block's rendering format is the row's own provenance (the
+            // persisting build's stamp, absent on pre-stamp rows), never
+            // read off the block's content: a current block is filtered by
+            // section, a legacy block by card under each card's lead ref.
+            const v3Format = v3BlockFormatOf(meta);
+            const v3Resident = filterResidentSections(
               unwrapMemoryBlock(v3Block),
-              v3PrunedSlugs(),
+              v3Format,
+              index,
+              v3PrunedSections(),
+              v3NewestCopy(),
             );
             if (v3Resident.length > 0) {
               content = [
-                { type: "text" as const, text: wrapMemoryBlock(v3Resident) },
+                markV3LiveBlock(
+                  {
+                    type: "text" as const,
+                    text: wrapMemoryBlock(v3Resident),
+                  },
+                  v3Format,
+                ),
                 ...content,
               ];
             }
@@ -2289,7 +2484,21 @@ export class Conversation {
     return this.queue.removeByRequestId(requestId);
   }
 
+  /**
+   * Whether the agent loop may yield at a turn-boundary checkpoint to let a
+   * queued message take over.
+   *
+   * Under `interrupt-on-send` a message sent while this conversation is busy
+   * never queues, so the handoff has nothing to hand off to. Answering `false`
+   * outright keeps the loop from taking the branch on a queue that only holds
+   * entries the interrupt path deliberately left there (another actor's send
+   * falling back to the queue, a daemon-internal enqueue): those run on the
+   * ordinary end-of-turn drain rather than by cutting a turn short.
+   */
   canHandoffAtCheckpoint(): boolean {
+    if (isInterruptOnSendEnabled()) {
+      return false;
+    }
     return this._processing && this.hasQueuedMessages();
   }
 
@@ -2913,9 +3122,13 @@ export class Conversation {
       this.messages,
     );
     const stripped = stripInjectionsForCompaction(this.messages);
+    // The marker is what keeps `loadFromDb` from rehydrating the stripped
+    // blocks, so it lands before the ledgers reset (a reset without it would
+    // let a restart rehydrate blocks the ledgers no longer claim); a failed
+    // write surfaces as the command's error with nothing changed.
+    setConversationHistoryStrippedAt(this.conversationId, Date.now());
     this.messages = stripped;
     await this.graphMemory.onCompacted(0);
-    setConversationHistoryStrippedAt(this.conversationId, Date.now());
     const estimatedInputTokens = await this.calculateTokens(this.messages);
     return {
       previousEstimatedInputTokens,
@@ -3005,11 +3218,7 @@ export class Conversation {
    * correctly. Returns `undefined` when no actor identity is known.
    */
   getTurnActorPrincipalId(): string | undefined {
-    return (
-      this.currentTurnSourceActorPrincipalId ??
-      this.currentTurnAuthContext?.actorPrincipalId ??
-      this.authContext?.actorPrincipalId
-    );
+    return turnActorPrincipalId(this);
   }
 
   setVoiceCallControlPrompt(prompt: string | null): void {

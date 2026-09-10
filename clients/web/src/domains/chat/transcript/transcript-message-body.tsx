@@ -45,9 +45,12 @@ import {
   type IconName,
 } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import {
+  activityHasDedicatedCard,
   activityItemsToCardData,
   type ContentBlockActivityItem,
+  finalResponseStartIndex,
   groupContentBlocks,
+  groupOptionsForMessage,
   isSubagentSpawnCall,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
@@ -58,6 +61,7 @@ import { AnsweredQuestionCard } from "@/domains/chat/components/answered-questio
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useTranslation } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -172,6 +176,13 @@ export function TranscriptMessageBody({
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
+  // Two reasons this row shows no reasoning: the transcript-wide gate, and the
+  // row's own private marker. `groupOptionsForMessage` drops the settled blocks
+  // for either; this is what keeps the live row from shimmering a "Thinking"
+  // label over the reply while the turn is still running.
+  const hideThinkingUi = useHideThinkingUi();
+  const hidesThinking =
+    hideThinkingUi || message.assistantTextVisibility === "private";
   const hasAttachments = Boolean(message.attachments?.length);
   // Gated on the transcript owner: an older daemon neutralizes nothing, so
   // sentinel-shaped text in its transcripts must never chip-ify, and only the
@@ -179,10 +190,12 @@ export function TranscriptMessageBody({
   const supportsRedactedCredentialChips =
     useSupportsRedactedCredentialChips(assistantId);
 
-  // User-typed thinking tags must render verbatim; only assistant text splits.
-  const groups = groupContentBlocks(message.contentBlocks ?? [], {
-    splitInlineThinking: !isUser,
-  });
+  // User-typed thinking tags must render verbatim, and a row marked private
+  // carries no reasoning the user reads.
+  const groups = groupContentBlocks(
+    message.contentBlocks ?? [],
+    groupOptionsForMessage(message, hideThinkingUi),
+  );
 
   // Only the trailing text group of a streaming assistant message is still
   // growing, so only it gets the typewriter re-pacing; earlier groups (and
@@ -437,9 +450,10 @@ export function TranscriptMessageBody({
    * question with nothing to show are all not card-backed, so they keep the
    * chip instead of vanishing from the transcript.
    *
-   * Read by all three places that must agree on this: the chip filter, the
-   * group's suppression set, and the collapse guard that keeps a card-backed
-   * group out of the "Earlier activity" disclosure.
+   * Read by the places that must agree on this: the chip filter, the group's
+   * suppression set, the collapse guard that keeps a card-backed group out of
+   * the "Earlier activity" disclosure, and the final-response boundary that
+   * treats a dedicated card as visible output.
    */
   const isCardBacked = (tc: ChatMessageToolCall): boolean =>
     cardBackedWorkflowRunId(tc) !== null ||
@@ -910,7 +924,8 @@ export function TranscriptMessageBody({
     // inline thinking `SingleActivity`, plus any spawn cards. A trailing run
     // reads as still-streaming only while the row is live.
     const combinedThinking = thinkingContents.join("\n");
-    const showThinking = combinedThinking || (isStreaming && isLastGroup);
+    const showThinking =
+      !hidesThinking && (combinedThinking || (isStreaming && isLastGroup));
     return (
       <Fragment key={key}>
         {showThinking && (
@@ -1018,6 +1033,25 @@ export function TranscriptMessageBody({
   };
 
   /**
+   * Whether a group draws anything the user can see. Timeline rows
+   * (`groupRendersRow`) plus dedicated inline cards that the timeline
+   * predicate excludes: those cards are not chips, but they are visible
+   * output and bound the final-response walk.
+   */
+  const groupDrawsVisibleOutput = (
+    group: (typeof groups)[number],
+    groupIndex: number,
+  ): boolean => {
+    if (groupRendersRow(group, groupIndex)) {
+      return true;
+    }
+    if (group.type !== "activity") {
+      return false;
+    }
+    return activityHasDedicatedCard(group.items, isCardBacked);
+  };
+
+  /**
    * Timeline glyph for one group inside an "Earlier activity" disclosure: the
    * first renderable step's icon, a globe for a web run (`deriveStepLabel`
    * covers non-web tools only), a brain for a thinking-only run, and none for
@@ -1096,23 +1130,17 @@ export function TranscriptMessageBody({
   // truncates inside the card instead of overflowing the message column.
   const columnClass = `flex w-full min-w-0 flex-col gap-2 ${isUser ? "items-end" : "items-start"}`;
 
-  // See `TranscriptMessageBodyProps.isLatestMessage` for why only the latest
-  // message collapses this row instead of reserving its height. `-mt-2`
-  // cancels the column's `gap-2` slot while collapsed — a zero-height flex
-  // item still incurs the parent gap — and animates back to `mt-0` on reveal.
-  const trailerHeightClass = isLatestMessage
-    ? "h-0 -mt-2 overflow-hidden group-hover/msg:h-8 group-hover/msg:mt-0 has-[:focus-visible]:h-8 has-[:focus-visible]:mt-0 group-data-[revealed=true]/msg:h-8 group-data-[revealed=true]/msg:mt-0"
-    : "h-6 overflow-hidden";
-
+  // Copy and Read aloud stay visible on every copyable row, including the
+  // latest turn sitting above the parked avatar. Secondary actions (retry,
+  // bookmark, Slack, fork, summarize, inspect) stay hover/tap-revealed inside
+  // `MessageHoverActions`.
   const trailer = (
     <>
       <SlackMessageAttribution
         message={message}
         assistantDisplayName={assistantDisplayName}
       />
-      <div
-        className={`${trailerHeightClass} opacity-0 transition-[height,margin,opacity] duration-200 ease-out group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100 motion-reduce:transition-none`}
-      >
+      <div className="h-6">
         <MessageHoverActions
           message={message}
           conversationId={conversationId}
@@ -1175,14 +1203,24 @@ export function TranscriptMessageBody({
     );
   }
 
-  const finalResponseGroupIndex = groups.findLastIndex(
-    (group) => group.type === "text" && group.text.trim().length > 0,
+  const finalResponseGroupIndex = finalResponseStartIndex(
+    groups,
+    groupDrawsVisibleOutput,
   );
-  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
-  // no group is collapsible, so the whole response renders inline at full
-  // size and none of the collapsed styling applies.
+  // Three reasons no group is collapsible, after which the whole response
+  // renders inline at full size and none of the collapsed styling applies: the
+  // per-user opt-out; the `send-user-message` flag, under which every text
+  // block is a message the assistant chose to send and none is "earlier"
+  // prose to fold away; and a row the daemon marks private, whose prose
+  // arrives projected into thinking blocks with the reply as its own text.
+  // The third reason is the row's own marker, so a row sent under the flag
+  // stays inline after the flag is turned off.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
-    if (inlineAssistantIntermediates) {
+    if (
+      inlineAssistantIntermediates ||
+      hideThinkingUi ||
+      message.assistantTextVisibility === "private"
+    ) {
       return [];
     }
     if (groupIndex >= finalResponseGroupIndex) {
@@ -1210,12 +1248,11 @@ export function TranscriptMessageBody({
         message.attachments,
         embeddedImageNames,
       ).length > 0 ||
+      activityHasDedicatedCard(group.items, isCardBacked) ||
       toolCalls.some(
         (toolCall) =>
           isToolCallRunning(toolCall) ||
           toolCall.pendingConfirmation !== undefined ||
-          isSubagentSpawnCall(toolCall) ||
-          isCardBacked(toolCall) ||
           acpConnectToolUseId === toolCall.id ||
           unknownNudgeToolCallIds?.has(toolCall.id) === true,
       );

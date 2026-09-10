@@ -186,7 +186,24 @@
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
-    "unmuteMicrophone": "解除麥克風靜音"
+    "unmuteMicrophone": "解除麥克風靜音",
+    "dictating": "正在聆聽",
+    "dictatingTranscribing": "正在思考",
+    "draw": "繪製",
+    "clearMarks": "清除標記",
+    "drawTools": "繪圖工具",
+    "drawFreehand": "自由繪製",
+    "drawLine": "直線",
+    "drawBox": "方框",
+    "drawCircle": "圓形"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的螢幕",
+    "sharingScreenNamed": "正在與 {name} 分享你的螢幕",
+    "sharingWindow": "正在分享一個視窗",
+    "sharingWindowNamed": "正在與 {name} 分享一個視窗",
+    "teaching": "正在教學",
+    "teachingNamed": "正在教 {name}"
   },
   "contentActionBar": {
     "copiedAria": "已複製",
@@ -194,6 +211,9 @@
     "copyFileContentsAria": "複製檔案內容",
     "downloadFileAria": "下載檔案",
     "editFileAria": "編輯檔案"
+  },
+  "conversationTitle": {
+    "untitled": "未命名"
   },
   "createAssistantDialog": {
     "cancel": "取消",
@@ -572,6 +592,7 @@
     "reloadApp": "重新載入應用程式"
   },
   "statusBanner": {
+    "reconnecting": "正在重新連線至你的助理…",
     "dismiss": "關閉",
     "goToDoctor": "前往診斷",
     "resumeAssistant": "恢復助理",
@@ -778,12 +799,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 帳號已連線。",
-    "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
     "authorizationError": "{name} 錯誤：{code}",
     "authorizationFailed": "{name} 授權失敗",
     "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
-    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
-    "startFailed": "無法啟動 {name} 授權。"
+    "startFailed": "無法啟動 {name} 授權。",
+    "startFailedWithReason": "無法啟動 {name} 授權：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",
@@ -846,7 +866,9 @@
     "verificationFailed": "驗證失敗",
     "verifiedTitle": "DNS 記錄已驗證。您的網域已準備好傳送和接收電子郵件。",
     "verifyingDomain": "正在驗證網域…",
-    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。"
+    "verifyingTitle": "DNS 記錄已佈建。正在等待電子郵件提供者驗證它們 - 這通常需要幾分鐘。",
+    "setupRequired": "需要設定網域",
+    "setupRequiredTitle": "此網域尚未在電子郵件提供者完成佈建。在完成設定前，它無法傳送或接收電子郵件。"
   },
   "managedServicesBanner": {
     "body": "受管服務按用量計費，並從您的 Vellum 帳戶餘額中扣除。<link>檢視定價</link>"
@@ -882,5 +904,10 @@
       "label": "完全存取",
       "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小時",
+    "everyMinutes": "每 {count} 分鐘",
+    "retrospectiveSubtitle": "在對話活動後觸發"
   }
 }

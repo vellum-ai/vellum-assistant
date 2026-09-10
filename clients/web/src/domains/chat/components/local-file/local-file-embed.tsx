@@ -15,10 +15,10 @@ import type { ReactNode } from "react";
 import { toast } from "@vellumai/design-library";
 import { Skeleton } from "@vellumai/design-library/components/skeleton";
 
-import { LocalFileCard } from "@/domains/chat/components/local-file/local-file-card";
-import { localFileKindFromFilename } from "@/domains/chat/components/local-file/local-file-icon";
+import { LocalFileCard } from "@/components/local-file/local-file-card";
+import { localFileKindFromFilename } from "@/components/local-file/local-file-icon";
 import { MAX_INLINE_MEDIA_BYTES } from "@/domains/chat/components/local-file/local-file-limits";
-import { LocalFileMenu } from "@/domains/chat/components/local-file/local-file-menu";
+import { LocalFileMenu } from "@/components/local-file/local-file-menu";
 import { resolveLocalFileTarget } from "@/domains/chat/components/local-file/local-file-target";
 import { useTranslation } from "@/i18n";
 import {

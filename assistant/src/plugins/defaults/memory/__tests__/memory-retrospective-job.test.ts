@@ -20,6 +20,7 @@ let mockState: StateRow = null;
 let stateUpserts: Array<{
   conversationId: string;
   lastProcessedMessageId: string;
+  lastProcessedCreatedAt?: number | null;
   lastRunAt: number;
   rememberedLog?: string[];
 }> = [];
@@ -149,6 +150,7 @@ mock.module("../memory-retrospective-state.js", () => ({
   upsertRetrospectiveState: (args: {
     conversationId: string;
     lastProcessedMessageId: string;
+    lastProcessedCreatedAt?: number | null;
     lastRunAt: number;
     rememberedLog?: string[];
   }) => {
@@ -518,6 +520,11 @@ describe("memoryRetrospectiveJob", () => {
     }
     expect(stateUpserts).toHaveLength(1);
     expect(stateUpserts[0]!.lastProcessedMessageId).toBe("m3");
+    // The cutoff's `createdAt` rides along so the cursor keeps bounding reads
+    // after a regenerate deletes m3.
+    expect(stateUpserts[0]!.lastProcessedCreatedAt).toBe(
+      Date.parse("2026-05-11T10:10:00Z"),
+    );
     expect(lastRunAtBumps).toHaveLength(0);
     expect(wakeCalls).toHaveLength(1);
     // Forks off the source so future runs can find it via

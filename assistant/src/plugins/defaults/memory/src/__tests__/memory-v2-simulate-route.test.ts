@@ -33,7 +33,6 @@ import type { ToolDefinition } from "../../llm-helpers.js";
 
 // Skill store: empty by default so the page index only contains test pages.
 mock.module("../../substrate/skill-store.js", () => ({
-  SKILL_SLUG_PREFIX: "skills/",
   listSkillEntries: () => [],
   listAlwaysCandidateSkillSlugs: () => [],
   seedV2SkillEntries: async () => undefined,

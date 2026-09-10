@@ -56,8 +56,7 @@
     "searchPlaceholder": "Search conversations",
     "unarchive": "Unarchive",
     "unarchiveFailed": "Failed to unarchive conversation.",
-    "unarchiving": "Unarchiving",
-    "untitled": "Untitled conversation"
+    "unarchiving": "Unarchiving"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Checking notification access for this device.",
@@ -382,8 +381,7 @@
     "errorTitle": "Failed to load bookmarks",
     "open": "Open",
     "removeBookmark": "Remove bookmark",
-    "retry": "Retry",
-    "untitledConversation": "Untitled conversation"
+    "retry": "Retry"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# action currently uses {profile}} other {# actions currently use {profile}}}",
@@ -455,12 +453,12 @@
     "urlPlaceholder": "Paste callback URL here..."
   },
   "checkoutBonusModal": {
-    "body": "Claim a one-time {amount} credit and we'll add it straight to your account balance. No payment required.",
-    "claim": "Claim {amount} in credits",
+    "body": "Claim {amount} in one-time extra usage and we'll add it straight to your usage balance. No payment required.",
+    "claim": "Claim {amount} in extra usage",
     "decline": "No thanks",
-    "errorToast": "Could not add the credits. Please try again.",
-    "grantedToast": "{amount} in credits added to your account.",
-    "title": "Here's {amount} on us",
+    "errorToast": "Could not add the extra usage. Please try again.",
+    "grantedToast": "{amount} in extra usage added to your usage balance.",
+    "title": "Here's {amount} of extra usage on us",
     "unavailableToast": "This offer is no longer available."
   },
   "checkoutPage": {
@@ -998,6 +996,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} Account",
+    "cancel": "Cancel",
     "connectAccount": "Connect Account",
     "connectAccountLower": "Connect account",
     "connectToContinue": "Connect Account to continue",
@@ -1042,8 +1041,7 @@
     "emptyTitle": "No MCP Servers",
     "loadError": "Failed to load MCP servers. Check that an assistant is running.",
     "loading": "Loading MCP servers...",
-    "reloadAriaLabel": "Reload MCP servers",
-    "reloadTooltip": "Reload all servers",
+    "reloadButton": "Refresh",
     "removeDialogConfirm": "Remove",
     "removeDialogMessage": "Are you sure you want to remove \"{serverId}\"? This will disconnect all tools provided by this server.",
     "removeDialogTitle": "Remove MCP Server",
@@ -1058,8 +1056,6 @@
     "toastAuthStartFailed": "Failed to start authentication for {serverId}",
     "toastAuthTimedOut": "Authentication timed out for {serverId}",
     "toastAuthenticatedSuccess": "{serverId} authenticated successfully",
-    "toastDisableFailed": "Failed to disable {serverId}",
-    "toastEnableFailed": "Failed to enable {serverId}",
     "toastOAuthRevokeFailed": "Failed to revoke OAuth for {serverId}",
     "toastOAuthRevoked": "OAuth credentials revoked for {serverId}",
     "toastReloadFailed": "Failed to reload MCP servers",
@@ -1072,26 +1068,21 @@
     "totalTools": "{count, plural, one {# total tool} other {# total tools}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "Close",
     "authenticate": "Authenticate",
+    "authenticatedBadge": "Authenticated",
     "authenticating": "Authenticating...",
     "configure": "Configure",
-    "configureTooltip": "Configure",
     "estimatedTokens": "~{count} tokens",
-    "oauthBadge": "OAuth",
+    "moreActions": "More actions for {serverId}",
     "reAuth": "Re-auth",
-    "reAuthTooltip": "Re-authenticate OAuth",
     "registeredTools": "{count, plural, one {# registered tool} other {# registered tools}}",
-    "removeServerAriaLabel": "Remove {serverId}",
-    "removeServerTooltip": "Remove server",
+    "removeServer": "Delete server",
     "revoke": "Revoke",
     "revokeOAuthTooltip": "Revoke OAuth credentials",
-    "revoking": "Revoking...",
     "statusConnected": "Connected",
-    "statusDisabled": "Disabled",
     "statusError": "Error",
     "statusNeedsAuth": "Needs Auth",
-    "toggleDisableAriaLabel": "Disable {serverId}",
-    "toggleEnableAriaLabel": "Enable {serverId}",
     "toolCount": "{count, plural, one {# tool} other {# tools}}",
     "toolTokensAbbrev": "~{count} tok"
   },
@@ -1107,7 +1098,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "••••••••  (leave blank to keep current)",
     "cancel": "Cancel",
-    "defaultRiskLevel": "Default risk level",
     "description": "{transport} transport · {status}",
     "emptyDescription": "-",
     "headerName": "Header name",
@@ -1115,9 +1105,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "managed via OAuth flow",
     "registeredToolsHeading": "Registered tools ({count})",
-    "riskHigh": "High",
-    "riskLow": "Low",
-    "riskMedium": "Medium",
     "save": "Save",
     "saving": "Saving...",
     "tableDescription": "Description",
@@ -1422,6 +1409,16 @@
     "unavailableTitle": "Preview channel is unavailable",
     "unknownDate": "Unknown"
   },
+  "previewUiChannel": {
+    "description": "Loads the preview build of this app in this browser. Your assistant is unaffected.",
+    "offAriaLabel": "Preview UI is off",
+    "onAriaLabel": "Preview UI is on",
+    "runningPreview": "Running: preview build {version}",
+    "runningStable": "Running: stable build {version}",
+    "title": "Preview UI",
+    "unavailableHint": "No preview build is being served, so this browser is still on stable. Delete the vellum_preview cookie in devtools to reset.",
+    "versionUnknown": "unknown"
+  },
   "privacyPage": {
     "llmLogRetentionDescription": "How long to keep LLM request and response logs on this device. These logs record the prompts and completions sent to model providers and are used for debugging. Shorter retention improves privacy; longer retention helps troubleshoot issues.",
     "llmLogRetentionLabel": "LLM Request Log Retention",
@@ -1553,6 +1550,18 @@
     "selectModelError": "Select a model.",
     "selectModelPlaceholder": "Select a model",
     "selectProviderPlaceholder": "Select a provider…"
+  },
+  "profileModalitiesSection": {
+    "audio": "Audio",
+    "enableAria": "Enable {modality}",
+    "enabledColumn": "Enabled",
+    "helper": "The model receives a modality only when it is enabled and marked as supported. Images that are not sent this way are captioned.",
+    "image": "Image",
+    "resolvedOff": "Not sent to the model",
+    "resolvedOn": "Sent to the model",
+    "supportedAria": "Model supports {modality}",
+    "supportedColumn": "Model supports it",
+    "title": "Modalities"
   },
   "profileRow": {
     "actionsAriaLabel": "Actions for {displayName}",
@@ -2326,6 +2335,38 @@
     "redirectUrl": "Redirect URL",
     "waitingAuthorization": "Waiting for authorization..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Companion",
+        "right": "Coworker"
+      },
+      "executeCollaborate": {
+        "left": "Independent",
+        "right": "Collaborative"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Playful",
+        "right": "Serious"
+      },
+      "politeUnfiltered": {
+        "left": "Polite",
+        "right": "Unfiltered"
+      }
+    },
+    "loadError": "Could not load personality sliders.",
+    "rangeAriaLabel": "{left} to {right}",
+    "save": "Save",
+    "saveErrorToast": "Could not save personality sliders. Please try again.",
+    "saveSuccessToast": "Personality sliders saved.",
+    "saving": "Saving…",
+    "subtitle": "Save the slider values to this assistant. This does not rewrite identity files.",
+    "title": "Personality"
+  },
   "sidebar": {
     "general": "General",
     "model": "Models & Services",
@@ -2341,6 +2382,7 @@
     "community": "Community",
     "debug": "Debug",
     "developer": "Developer",
+    "personality": "Personality",
     "logout": "Log Out",
     "login": "Log In",
     "title": "Settings"
@@ -2350,7 +2392,26 @@
       "general": "General",
       "terminal": "Terminal",
       "doctor": "Doctor",
+      "database": "Database",
       "conversations": "Conversations"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "Database",
+    "subtitle": "Migration status for this assistant, including failed and deferred steps.",
+    "refresh": "Refresh",
+    "loading": "Loading database status…",
+    "unsupported": "This assistant version does not report database diagnostics yet.",
+    "loadError": "Could not load database diagnostics.",
+    "statusReady": "Ready",
+    "statusRunning": "Migrating",
+    "statusFailed": "Failed",
+    "statusNotStarted": "Not started",
+    "migratingHint": "Migrations are still running. Failed steps will appear here if a step throws.",
+    "noFailures": "No failed migrations.",
+    "failedHeading": "Failed migrations",
+    "deferredHeading": "Deferred migrations",
+    "validationHeading": "Validation error",
+    "missingDeps": "Waiting on: {deps}"
   }
 }

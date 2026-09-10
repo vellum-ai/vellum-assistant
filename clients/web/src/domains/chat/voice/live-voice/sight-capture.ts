@@ -51,13 +51,14 @@ import { prepareImageAttachmentForUpload } from "@/domains/chat/components/chat-
 import { recordFrameGateKeep } from "@/lib/camera/frame-gate-debug";
 import { captureError } from "@/lib/sentry/capture-error";
 
+import type { LiveVoiceSightFrameTiming } from "./live-voice-client";
 import { sendLiveVoiceSightFrame, useLiveVoiceStore } from "./live-voice-store";
 
 /**
  * How many finished captures may wait on an unfinished older one.
  *
- * Overlap is naturally shallow: the gate's rate floor is seconds and an upload
- * is not, so at most one or two captures are usually in flight. The cap is for
+ * Overlap is naturally shallow: keeps are seconds apart in practice and an
+ * upload is not, so at most one or two captures are usually in flight. The cap is for
  * the pathological case, an upload that hangs rather than fails, which would
  * otherwise hold every later keep behind it for the rest of the call.
  */
@@ -79,9 +80,26 @@ export interface SightSharedFrame {
   readonly frame: File;
 }
 
+/** Why a frame was kept, for the timing it reports. */
+export interface SightKeepOrigin {
+  /**
+   * The gate's reason, or a source's own word for a keep no gate judged. Goes
+   * to the daemon's log as-is.
+   */
+  readonly reason: string;
+  /**
+   * When the arm this keep answers was taken, on `performance.now`'s clock.
+   * Set only for a keep a speech onset asked for: the distance from it to the
+   * keep is the first leg of the frame the question is about.
+   */
+  readonly armedAtMs?: number;
+}
+
 export interface SightCaptureRequest {
   /** The assistant the frame is uploaded against, which is the session's. */
   readonly assistantId: string;
+  /** Why this frame was kept, carried to the daemon with the frame's timing. */
+  readonly keep: SightKeepOrigin;
   /**
    * The JPEG: the browser path encodes the `<video>` it is watching, the
    * native path wraps the sample the gate has already judged. Null is a frame
@@ -94,6 +112,15 @@ export interface SightCaptureRequest {
    * so a source that shows the last shared frame shows only frames that were.
    */
   readonly onShared: (shared: SightSharedFrame) => void;
+  /**
+   * A frame the call will never be given: refused, not produced, not
+   * uploaded, or given back unsent. Exactly one of this and `onShared` is
+   * called for every capture, and either can come after `capture` resolves,
+   * since a finished capture waits its turn behind older ones. For a source
+   * that keeps its own idea of what the call has seen, which cannot be read
+   * off `capture` resolving: a resolved capture may still be parked.
+   */
+  readonly onDropped?: () => void;
 }
 
 export interface SightCapture {
@@ -126,6 +153,38 @@ export interface SightCapture {
    * and the frames in flight stale: a flipped camera, a transport reconnect.
    */
   invalidate(): void;
+}
+
+/** The marks one capture stamps on its way to the send. */
+interface SightCaptureMarks {
+  readonly keptAtMs: number;
+  readonly encodedAtMs: number;
+  readonly uploadedAtMs: number;
+  readonly sentAtMs: number;
+  readonly bytes: number;
+}
+
+/**
+ * Fold a capture's marks into the durations the wire carries. Rounded to whole
+ * milliseconds and floored at zero, which is what the daemon accepts; a mark
+ * never runs backwards on one clock, so the floor is for the rounding alone.
+ */
+export function sightFrameTiming(
+  keep: SightKeepOrigin,
+  marks: SightCaptureMarks,
+): LiveVoiceSightFrameTiming {
+  const between = (from: number, to: number): number =>
+    Math.max(0, Math.round(to - from));
+  return {
+    reason: keep.reason,
+    ...(keep.armedAtMs === undefined
+      ? {}
+      : { armToKeepMs: between(keep.armedAtMs, marks.keptAtMs) }),
+    keepToEncodedMs: between(marks.keptAtMs, marks.encodedAtMs),
+    encodedToUploadedMs: between(marks.encodedAtMs, marks.uploadedAtMs),
+    uploadedToSentMs: between(marks.uploadedAtMs, marks.sentAtMs),
+    bytes: marks.bytes,
+  };
 }
 
 /**
@@ -208,20 +267,24 @@ export function createSightCapture(errorContext: string): SightCapture {
 
   async function capture({
     assistantId,
+    keep,
     produceFrame,
     onShared,
+    onDropped,
   }: SightCaptureRequest): Promise<void> {
     // Consent is already gone, and the loop has not been torn down yet. The
     // epoch cannot speak for this one: a capture beginning after the bump
     // reads the new number and would pass the guard on the way out, so a
     // frame taken after the user said stop is refused before it is taken.
     if (!consented) {
+      onDropped?.();
       return;
     }
     // Nothing this assistant is told about lands, and each attempt would
     // strand another upload, so the sampler runs on and every keep is
     // dropped here. See `sightFramesUnsupported` on the live-voice store.
     if (useLiveVoiceStore.getState().sightFramesUnsupported) {
+      onDropped?.();
       return;
     }
     // Read before the encode, not after the upload. Everything below can
@@ -234,6 +297,10 @@ export function createSightCapture(errorContext: string): SightCapture {
     // them in.
     const seq = captureSeq;
     captureSeq += 1;
+    // The marks of this frame's client leg, reported to the daemon with the
+    // frame. The keep is now; the encode, the upload and the send each stamp
+    // their own, and the daemon adds its half.
+    const keptAtMs = performance.now();
     let pending: PendingSightSend | null = null;
     try {
       frameCount += 1;
@@ -248,12 +315,19 @@ export function createSightCapture(errorContext: string): SightCapture {
       // attachment rather than like a special case.
       const prepared = await prepareImageAttachmentForUpload(frame);
       const file = prepared.status === "failed" ? frame : prepared.file;
+      const encodedAtMs = performance.now();
 
       const uploaded = await uploadChatAttachment(assistantId, file);
       if (!uploaded.ok) {
         return;
       }
-      const abandonUpload = (): void => reclaimUpload(assistantId, uploaded.id);
+      const uploadedAtMs = performance.now();
+      // Every way an uploaded frame ends unsent goes through here, so the
+      // upload is given back and the source told, once, on each of them.
+      const abandonUpload = (): void => {
+        reclaimUpload(assistantId, uploaded.id);
+        onDropped?.();
+      };
       // The guards run when the turn comes, not now, so a frame that waited
       // is still checked against the session and camera of the moment it
       // would land in.
@@ -274,13 +348,32 @@ export function createSightCapture(errorContext: string): SightCapture {
             abandonUpload();
             return;
           }
+          const timing = sightFrameTiming(keep, {
+            keptAtMs,
+            encodedAtMs,
+            uploadedAtMs,
+            sentAtMs: performance.now(),
+            bytes: file.size,
+          });
           // Sent before it is shown, and shown only if it was sent. During a
           // reconnect gap it has not been, and a frame that never left is this
           // module's to give back, since the daemon never saw it.
-          if (!sendLiveVoiceSightFrame(uploaded.id, sessionGeneration)) {
+          if (
+            !sendLiveVoiceSightFrame(uploaded.id, sessionGeneration, timing)
+          ) {
             abandonUpload();
             return;
           }
+          // The renderer console reaches the desktop shell's log, so the
+          // client leg can be read beside the daemon's without a debugger.
+          // One string: the shell's forwarder joins console arguments with
+          // their string form, and an object's is "[object Object]".
+          console.info(
+            `[live-voice sight] frame sent ${JSON.stringify({
+              attachmentId: uploaded.id,
+              ...timing,
+            })}`,
+          );
           onShared({ attachmentId: uploaded.id, frame });
         },
       };
@@ -289,6 +382,12 @@ export function createSightCapture(errorContext: string): SightCapture {
       // costs one frame and says nothing to the user.
       captureError(cause, { context: errorContext, bestEffort: true });
     } finally {
+      // A capture that produced no send is over here: nothing was uploaded,
+      // or the upload failed, or the encode threw. One with a send is not,
+      // and its word goes out with the send or its discard.
+      if (pending === null) {
+        onDropped?.();
+      }
       // Every path, including the ones that produced nothing: a capture that
       // never sends must still release the captures behind it.
       settleCapture(seq, pending);

@@ -39,7 +39,7 @@ import { useLocation } from "react-router";
 import {
   isDocumentOpen,
   openedDocumentSurfaceId,
-} from "@/domains/chat/components/local-file/open-local-file";
+} from "@/components/local-file/open-local-file";
 import { useUnseenDocumentChangesStore } from "@/domains/chat/unseen-document-changes-store";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useViewerStore } from "@/stores/viewer-store";

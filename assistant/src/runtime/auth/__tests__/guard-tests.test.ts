@@ -72,9 +72,7 @@ describe("route policy coverage", () => {
     // registry had no entry for these endpoints, so `enforcePolicy`
     // returned allowed). Migration preserves behavior. Triage these
     // and assign real policies in a follow-up PR:
-    //   - PATCH/DELETE documents/:id/comments/:commentId
-    //   - integrations/a2a/{config,invite/accept}
-    //   - integrations/vercel/config
+    //   - integrations/a2a/invite/accept
     const INTENTIONALLY_UNPROTECTED = new Set([
       // A — design-intentional
       "health",
@@ -90,10 +88,7 @@ describe("route policy coverage", () => {
       "playground/seeded-conversations",
       "playground/seeded-conversations/:id",
       // C — pre-existing latent unprotected (follow-up audit owed)
-      "documents/:id/comments/:commentId",
-      "integrations/a2a/config",
       "integrations/a2a/invite/accept",
-      "integrations/vercel/config",
     ]);
 
     const unprotectedFound: string[] = [];
@@ -276,6 +271,7 @@ describe("scope profile contract", () => {
       "internal.write",
     ],
     local_v1: ["local.all"],
+    oauth_proxy_v1: ["oauth.proxy"],
     speech_relay_v1: ["speech.relay"],
     ui_page_v1: ["settings.read"],
   };
@@ -295,16 +291,7 @@ describe("scope profile contract", () => {
     // The type system ensures EXPECTED_PROFILES covers all ScopeProfile
     // values via the Record<ScopeProfile, ...> type. This test verifies
     // that resolveScopeProfile returns a non-empty set for each.
-    const profiles: ScopeProfile[] = [
-      "actor_client_v1",
-      "gateway_ingress_v1",
-      "gateway_service_v1",
-      "local_v1",
-      "speech_relay_v1",
-      "ui_page_v1",
-    ];
-
-    for (const profile of profiles) {
+    for (const profile of Object.keys(EXPECTED_PROFILES) as ScopeProfile[]) {
       const scopes = resolveScopeProfile(profile);
       expect(scopes.size).toBeGreaterThan(0);
     }

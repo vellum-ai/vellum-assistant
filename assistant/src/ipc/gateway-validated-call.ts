@@ -6,8 +6,10 @@
  * Uses the persistent IPC client: these are fail-closed control-plane relays
  * and the persistent socket avoids per-call connect overhead. Transport
  * failures (`IpcCallError`, carrying the gateway's statusCode/errorCode)
- * propagate unchanged so relay routes surface 4xx engine reasons as 4xx; a
- * schema-invalid response throws a generic malformed-response error.
+ * propagate unchanged so relay routes surface 4xx engine reasons as 4xx.
+ * Connect failures are mapped to `ServiceUnavailableError` (503) inside
+ * `ipcCallPersistent`. A schema-invalid response throws a generic
+ * malformed-response error.
  *
  * The hot voice call-setup path (`calls/gateway-invite-reader.ts`)
  * deliberately does NOT use this — it needs one-shot `ipcCall` with explicit

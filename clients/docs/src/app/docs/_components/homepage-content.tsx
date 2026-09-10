@@ -116,7 +116,7 @@ export function HomepageContent() {
               so it&apos;s always on and reachable from any browser, ready when you are. Your
               workspace, memories, and config are encrypted, exportable, and yours to delete.
               Want to keep everything on your own machine instead? You can self-host Vellum on
-              macOS or your own infrastructure.
+              macOS, Windows, or your own infrastructure.
             </p>
             <p className="mb-3 text-zinc-600">
               <strong>Personalized to you.</strong> It knows your preferences, your context, your

@@ -109,6 +109,7 @@ describe("createLiveVoiceWebsocketHandler", () => {
     expect(upgradedData<LiveVoiceSocketData>(server)).toEqual({
       wsType: "live-voice",
       config,
+      guardianPrincipalId: "test-user",
     });
   });
 
@@ -309,6 +310,25 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
 
     expect(res).toBeUndefined();
     expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * Velay attests a platform user, not an actor principal, so this path has
+   * no principal in the request at all. The binding supplies it, which is
+   * what lets the managed deployment carry an identity downstream rather than
+   * leaving the daemon to resolve one of its own.
+   */
+  test("managed mode carries the bound guardian's principal on the socket", async () => {
+    setPlatform(true);
+    const handler = createLiveVoiceWebsocketHandler(makeConfig());
+    const server = makeFakeServer();
+    await handler(makeVelayReq(), server);
+
+    const call = (server.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
+    expect(
+      (call[1] as { data: LiveVoiceSocketData }).data.guardianPrincipalId,
+    ).toBe("test-user");
   });
 
   // Guardian pinning on the velay path: the attested caller must match the

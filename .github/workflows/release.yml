@@ -2125,6 +2125,60 @@ jobs:
       - name: Stamp release version into package.json
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
 
+      # The Communication Notifications entitlement is restricted: it may only
+      # be signed into a build that embeds a provisioning profile authorizing
+      # it for that build's bundle id. Without the secret the pack signs the
+      # plain entitlements and posts plain notifications.
+      - name: Provision the Communication Notifications profile
+        env:
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+          # electron-builder.config.cjs derives the app id from
+          # VELLUM_ENVIRONMENT, which the pack step below sets from the same
+          # staging/production switch.
+          EXPECTED_BUNDLE_ID: ${{ needs.extract-version.outputs.is_staging == 'true' && 'com.vellum.vellum-assistant-electron-staging' || 'com.vellum.vellum-assistant-electron' }}
+        run: |
+          if [ -z "$MAC_PROVISIONING_PROFILE" ]; then
+            echo "::warning::MAC_PROVISIONING_PROFILE is unset, so the native notifier ships disabled: notifications post through Electron without the assistant avatar."
+            exit 0
+          fi
+          PROFILE_PATH="$RUNNER_TEMP/vellum-communication.provisionprofile"
+          echo "$MAC_PROVISIONING_PROFILE" | base64 -D > "$PROFILE_PATH"
+          DECODED_PATH="$RUNNER_TEMP/vellum-communication-profile.plist"
+          # A truncated or mis-encoded secret decodes to a file that codesign
+          # accepts and macOS then rejects at launch, so prove it parses here.
+          if ! security cms -D -i "$PROFILE_PATH" > "$DECODED_PATH"; then
+            echo "::error::MAC_PROVISIONING_PROFILE does not decode as a provisioning profile. Re-export the .provisionprofile from the Apple Developer portal and store it base64-encoded in the secret."
+            exit 1
+          fi
+          # Exporting the variable below makes the pack sign
+          # com.apple.developer.usernotifications.communication unconditionally,
+          # and macOS kills an app whose embedded profile does not authorize
+          # that entitlement for its bundle id. Parsing is therefore not enough.
+          GRANTED="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.usernotifications.communication" "$DECODED_PATH" 2>/dev/null || true)"
+          if [ "$GRANTED" != "true" ]; then
+            echo "::error::The provisioning profile does not grant com.apple.developer.usernotifications.communication. Enable Communication Notifications on the $EXPECTED_BUNDLE_ID App ID in the Apple Developer portal, regenerate the profile, and update the MAC_PROVISIONING_PROFILE secret."
+            exit 1
+          fi
+          # A macOS profile carries the app id under
+          # com.apple.application-identifier; the bare key is the iOS shape,
+          # which some older exports still use.
+          APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          if [ -z "$APPLICATION_ID" ]; then
+            APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          fi
+          if [ -z "$APPLICATION_ID" ]; then
+            echo "::error::The provisioning profile carries no application-identifier entitlement, so the bundle id it authorizes cannot be read. Re-export the .provisionprofile for the $EXPECTED_BUNDLE_ID App ID and update the MAC_PROVISIONING_PROFILE secret."
+            exit 1
+          fi
+          case "$APPLICATION_ID" in
+            *".$EXPECTED_BUNDLE_ID") ;;
+            *)
+              echo "::error::The provisioning profile authorizes '$APPLICATION_ID', not the '$EXPECTED_BUNDLE_ID' bundle this build packages. Regenerate the profile for that App ID and update the MAC_PROVISIONING_PROFILE secret."
+              exit 1
+              ;;
+          esac
+          echo "VELLUM_MAC_PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
+
       - name: Build and package Electron app
         env:
           CSC_NAME: Developer ID Application
@@ -2651,11 +2705,7 @@ jobs:
     needs: [extract-version, publish-meta-prod, publish-meta-staging, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: >-
       ${{
-        (
-          (needs.extract-version.outputs.is_staging == 'true' && vars.WINDOWS_STAGING_RELEASE_ENABLED == 'true')
-          || (needs.extract-version.outputs.is_staging != 'true' && vars.WINDOWS_PRODUCTION_RELEASE_ENABLED == 'true')
-        )
-        && always() && !cancelled()
+        always() && !cancelled()
         && needs.extract-version.result == 'success'
         && needs.push-assistant-manifest.result == 'success'
         && needs.push-gateway-manifest.result == 'success'

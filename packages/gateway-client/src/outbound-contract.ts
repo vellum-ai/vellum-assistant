@@ -287,6 +287,14 @@ export const ChannelDeliveryResultSchema = z.object({
   ok: z.boolean(),
   /** The message timestamp returned by the delivery endpoint. */
   ts: z.string().optional(),
+  /**
+   * Every provider post the text of this delivery created, in send order, in
+   * the channel's own id space: one id for a single post, one per chunk when
+   * the channel split the text. Posts made for attachments are not included.
+   * A recorder needs every one of these, since a reaction, edit, or delete
+   * can name any chunk; `ts` alone names at most one.
+   */
+  messageIds: z.array(z.string()).optional(),
 });
 
 export type ChannelDeliveryResult = z.infer<typeof ChannelDeliveryResultSchema>;

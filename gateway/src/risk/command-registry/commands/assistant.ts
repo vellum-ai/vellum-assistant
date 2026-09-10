@@ -1,3 +1,5 @@
+import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
+
 import type {
   ArgRule,
   CommandRiskSpec,
@@ -14,6 +16,8 @@ import type {
 const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "apps",
   "apps list",
+  "apps inspect",
+  "apps refresh",
   "attachment",
   "attachment register",
   "attachment lookup",
@@ -77,6 +81,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channels",
   "channels list",
   "channels get",
+  "channels request",
   "clients",
   "clients disconnect",
   "clients list",
@@ -235,6 +240,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "oauth request",
   "oauth disconnect",
   "oauth token",
+  "oauth proxy-url",
   "platform",
   "platform connect",
   "platform status",
@@ -454,6 +460,11 @@ const riskOverrides: AssistantRiskOverride[] = [
 
   // Mutating assistant state / external side effects
   { path: "attachment register", risk: "medium" },
+  {
+    path: "apps refresh",
+    risk: "medium",
+    reason: "Compiles workspace app source and refreshes open surfaces",
+  },
   { path: "avatar generate", risk: "low" },
   { path: "avatar set", risk: "low" },
   { path: "avatar remove", risk: "low" },
@@ -830,6 +841,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Makes authenticated OAuth request",
   },
   {
+    path: "channels request",
+    risk: "high",
+    reason:
+      "Acts as the channel's bot with any effect the bot's API allows (sends, edits, deletes, uploads, reactions, as well as reads); the effect is the endpoint's, which the command cannot tell apart",
+  },
+  {
     path: "oauth connect",
     risk: "low",
     reason: "Creates OAuth connection",
@@ -843,6 +860,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "oauth providers update", risk: "medium" },
   { path: "oauth providers delete", risk: "medium" },
   { path: "oauth apps delete", risk: "medium" },
+  {
+    path: "oauth proxy-url",
+    risk: "medium",
+    reason:
+      "Mints a scoped, expiring grant a third-party CLI presents to reach a provider API through the passthrough proxy",
+  },
   { path: "platform connect", risk: "low" },
   { path: "platform disconnect", risk: "medium" },
   { path: "platform callback-routes register", risk: "low" },
@@ -978,6 +1001,34 @@ const oauthModeArgRules: ArgRule[] = [
   },
 ];
 getExistingPath(spec, "oauth mode").argRules = oauthModeArgRules;
+
+// `oauth request` is medium-risk as an authenticated request through a
+// person's OAuth integration, but the same door reaches a channel's bot when
+// `--provider` names a bot credential, and acting as the bot carries every
+// effect the bot's API allows. That form is high, like `channels request`.
+// The bot provider keys come from the channel contract, never a list kept
+// here, so a channel that gains a bot credential is covered by joining the
+// contract's map.
+const botProviderKeyPattern = Object.values(CHANNEL_BOT_PROVIDER)
+  .map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+const oauthRequestArgRules: ArgRule[] = [
+  {
+    id: "assistant-oauth-request:bot-provider",
+    flags: ["--provider"],
+    valuePattern: `^(${botProviderKeyPattern})$`,
+    risk: "high",
+    reason:
+      "Acts as a channel's bot through the OAuth request door, with every effect the bot's API allows",
+  },
+];
+const oauthRequestNode = getExistingPath(spec, "oauth request");
+oauthRequestNode.argRules = oauthRequestArgRules;
+// `--provider` consumes the next token as a value; so do the account
+// selectors, so the arg parser pairs every value flag correctly.
+oauthRequestNode.argSchema = {
+  valueFlags: ["--provider", "--account", "--client-id"],
+};
 
 const assistantBashArgRules: ArgRule[] = [
   {

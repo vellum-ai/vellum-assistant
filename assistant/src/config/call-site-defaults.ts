@@ -153,6 +153,16 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  // Names the background continuation a barge-in spawns, from the interrupted
+  // transcript. The label is fixed at spawn, so the call runs under a short
+  // timeout and the deterministic label stands in when it misses; that makes
+  // the latency-class profile wasted spend here.
+  voiceContinuationLabel: {
+    profile: "cost-optimized",
+    effort: "low",
+    thinking: { enabled: false },
+    disableCache: true,
+  },
   inviteInstructionGenerator: {
     profile: "cost-optimized",
     effort: "low",

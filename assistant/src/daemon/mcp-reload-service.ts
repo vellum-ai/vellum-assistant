@@ -12,6 +12,7 @@ import {
 } from "../mcp/effective-config.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { migrateLegacyMcpHeaders } from "../mcp/mcp-header-store.js";
+import { signalMcpReloaded } from "../mcp/reload-signal.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { registerMcpTools, unregisterAllMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -22,8 +23,6 @@ const log = getLogger("mcp-reload-service");
 export interface McpReloadServerResult {
   id: string;
   connected: boolean;
-  /** True when the server is explicitly disabled in config. */
-  disabled?: boolean;
   toolCount: number;
   tools: string[];
 }
@@ -132,15 +131,12 @@ async function doReload(): Promise<McpReloadResult> {
           tools: acceptedNames,
         });
       }
-      // Include servers that were configured but failed to connect or are disabled
+      // Include servers that were configured but failed to connect
       for (const id of serverIds) {
         if (!servers.some((s) => s.id === id)) {
-          const serverConfig = mcpConfig.servers[id];
-          const isDisabled = serverConfig?.enabled === false;
           servers.push({
             id,
             connected: false,
-            disabled: isDisabled || undefined,
             toolCount: 0,
             tools: [],
           });
@@ -154,6 +150,11 @@ async function doReload(): Promise<McpReloadResult> {
     // to evict sessions.
 
     log.info({ serverCount, toolCount }, "MCP servers reloaded");
+    // Other processes hold their own connections to the same servers and have
+    // no watcher of their own; this is how they learn the set moved. Only on
+    // success: a reload that failed before the teardown left this process on
+    // its existing servers, so there is nothing for anyone to mirror.
+    signalMcpReloaded();
     return { success: true, serverCount, toolCount, servers };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);

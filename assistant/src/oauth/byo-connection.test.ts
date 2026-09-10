@@ -324,6 +324,70 @@ describe("BYOOAuthConnection", () => {
       expect(parsed.searchParams.get("labelIds")).toBe("INBOX");
     });
 
+    test("appends rawQuery verbatim, keeping interleaved repeated keys", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "?a=1&b=2&a=3",
+      });
+
+      // Rebuilding through URLSearchParams would group the two `a` values.
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?a=1&b=2&a=3",
+      );
+    });
+
+    test("leaves %20 and a valueless flag as the caller wrote them", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "q=a%20b&flag",
+      });
+
+      // URLSearchParams would emit `q=a+b&flag=`, which a signed query rejects.
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?q=a%20b&flag",
+      );
+    });
+
+    test("falls back to the parsed query when rawQuery is empty", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "",
+        query: { maxResults: "10" },
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
+      );
+    });
+
+    test("prefers rawQuery over the parsed query", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({
+        method: "GET",
+        path: "/messages",
+        rawQuery: "?signed=1",
+        query: { maxResults: "10" },
+      });
+
+      expect(mockFetch.mock.calls[0][0]).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?signed=1",
+      );
+    });
+
     test("uses per-request baseUrl override", async () => {
       await setupCredential("google");
       const conn = createConnection();
@@ -503,6 +567,105 @@ describe("BYOOAuthConnection", () => {
       expect(result.status).toBe(200);
       expect(Buffer.isBuffer(result.body)).toBe(true);
       expect(Buffer.from(result.body as Uint8Array).equals(binary)).toBe(true);
+    });
+
+    test("returns the provider's exact bytes when rawResponseBody is set", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const raw = Buffer.from(
+        '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+        "utf8",
+      );
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(raw, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/payment_methods",
+        rawResponseBody: true,
+      });
+
+      expect(Buffer.isBuffer(result.body)).toBe(true);
+      expect((result.body as Buffer).equals(raw)).toBe(true);
+    });
+
+    test("parses JSON when rawResponseBody is unset", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+      const raw = Buffer.from(
+        '{\n  "id": "pm_1",\n  "amount":   9007199254740993,\n  "id": "pm_2"\n}\n',
+        "utf8",
+      );
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(
+          new Response(raw, {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        ),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/payment_methods",
+      });
+
+      // The lossy path every existing caller still gets: the duplicate key
+      // collapses and the oversized integer rounds.
+      expect(result.body).toEqual({ id: "pm_2", amount: 9007199254740992 });
+    });
+
+    test("returns a 302 verbatim when manualRedirect is set", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      const redirectFetch = mock((_url: string, _init: RequestInit) =>
+        Promise.resolve(
+          new Response("moved", {
+            status: 302,
+            headers: {
+              location: "https://files.example.com/blob/abc",
+              "content-type": "text/plain",
+            },
+          }),
+        ),
+      );
+      globalThis.fetch = redirectFetch as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "POST",
+        path: "/files",
+        body: { name: "report" },
+        manualRedirect: true,
+      });
+
+      expect(redirectFetch.mock.calls[0][1].redirect).toBe("manual");
+      expect(result.status).toBe(302);
+      expect(result.headers["location"]).toBe(
+        "https://files.example.com/blob/abc",
+      );
+      expect(result.body).toBe("moved");
+      // One upstream call: the redirect was surfaced, not walked.
+      expect(redirectFetch).toHaveBeenCalledTimes(1);
+    });
+
+    test("follows redirects when manualRedirect is unset", async () => {
+      await setupCredential("google");
+      const conn = createConnection();
+
+      await conn.request({ method: "GET", path: "/messages" });
+
+      expect((mockFetch.mock.calls[0][1] as RequestInit).redirect).toBe(
+        "follow",
+      );
     });
 
     test("returns response headers", async () => {

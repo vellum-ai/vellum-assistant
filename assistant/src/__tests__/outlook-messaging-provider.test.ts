@@ -148,6 +148,15 @@ mock.module("../messaging/providers/outlook/client.js", () => ({
   getAutoReplySettings: mockGetAutoReplySettings,
   updateAutoReplySettings: mockUpdateAutoReplySettings,
   listMessagesDelta: mockListMessagesDelta,
+  toOutlookFileAttachments: (
+    attachments: Array<{ filename: string; mimeType: string; data: Buffer }>,
+  ) =>
+    attachments.map((att) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: att.filename,
+      contentType: att.mimeType,
+      contentBytes: att.data.toString("base64"),
+    })),
 }));
 
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
@@ -420,7 +429,7 @@ describe("Outlook messaging provider", () => {
   describe("sendMessage", () => {
     test("sends a new message with correct recipient, subject, and body", async () => {
       const conn = createMockConnection();
-      const result = await outlookMessagingProvider.sendMessage(
+      const result = await outlookMessagingProvider.sendMessage!(
         conn,
         "recipient@example.com",
         "Hello!",
@@ -443,7 +452,7 @@ describe("Outlook messaging provider", () => {
 
     test("uses empty string for subject when not provided", async () => {
       const conn = createMockConnection();
-      await outlookMessagingProvider.sendMessage(
+      await outlookMessagingProvider.sendMessage!(
         conn,
         "recipient@example.com",
         "Hello!",
@@ -462,7 +471,7 @@ describe("Outlook messaging provider", () => {
 
     test("calls replyToMessage when inReplyTo is provided", async () => {
       const conn = createMockConnection();
-      const result = await outlookMessagingProvider.sendMessage(
+      const result = await outlookMessagingProvider.sendMessage!(
         conn,
         "conv-id",
         "Reply text",
@@ -484,7 +493,7 @@ describe("Outlook messaging provider", () => {
 
     test("attaches files to a new message as Graph file attachments", async () => {
       const conn = createMockConnection();
-      await outlookMessagingProvider.sendMessage(
+      await outlookMessagingProvider.sendMessage!(
         conn,
         "recipient@example.com",
         "See attached",
@@ -521,7 +530,7 @@ describe("Outlook messaging provider", () => {
 
     test("forwards attachments to replyToMessage when replying", async () => {
       const conn = createMockConnection();
-      await outlookMessagingProvider.sendMessage(
+      await outlookMessagingProvider.sendMessage!(
         conn,
         "conv-id",
         "Reply body",
@@ -554,7 +563,7 @@ describe("Outlook messaging provider", () => {
 
     test("throws when connection is undefined", async () => {
       await expect(
-        outlookMessagingProvider.sendMessage(
+        outlookMessagingProvider.sendMessage!(
           undefined,
           "recipient@example.com",
           "Hello!",

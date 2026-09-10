@@ -56,8 +56,7 @@
     "searchPlaceholder": "搜索对话",
     "unarchive": "取消归档",
     "unarchiveFailed": "未能取消归档对话。",
-    "unarchiving": "正在取消归档",
-    "untitled": "未命名对话"
+    "unarchiving": "正在取消归档"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "正在检查此设备的通知访问权限。",
@@ -382,8 +381,7 @@
     "errorTitle": "加载书签失败",
     "open": "打开",
     "removeBookmark": "移除书签",
-    "retry": "重试",
-    "untitledConversation": "无标题对话"
+    "retry": "重试"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, other {# 个操作当前使用 {profile}}}",
@@ -455,12 +453,12 @@
     "urlPlaceholder": "在此处粘贴回调 URL..."
   },
   "checkoutBonusModal": {
-    "body": "领取一次性 {amount} 积分，我们将直接将其添加到您的账户余额中。无需支付。",
-    "claim": "领取 {amount} 积分",
+    "body": "领取一次性 {amount} 额外用量，我们将直接将其添加到您的使用余额中。无需支付。",
+    "claim": "领取 {amount} 额外用量",
     "decline": "不用了，谢谢",
-    "errorToast": "无法添加积分。请重试。",
-    "grantedToast": "{amount} 积分已添加到您的账户。",
-    "title": "我们赠送您 {amount}",
+    "errorToast": "无法添加额外用量。请重试。",
+    "grantedToast": "{amount} 额外用量已添加到您的使用余额。",
+    "title": "我们赠送您 {amount} 额外用量",
     "unavailableToast": "此优惠已不再可用。"
   },
   "checkoutPage": {
@@ -998,6 +996,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "{name} 账户",
+    "cancel": "取消",
     "connectAccount": "连接账户",
     "connectAccountLower": "连接账户",
     "connectToContinue": "连接账户以继续",
@@ -1042,8 +1041,7 @@
     "emptyTitle": "无 MCP 服务器",
     "loadError": "加载 MCP 服务器失败。请检查助手是否正在运行。",
     "loading": "正在加载 MCP 服务器...",
-    "reloadAriaLabel": "重新加载 MCP 服务器",
-    "reloadTooltip": "重新加载所有服务器",
+    "reloadButton": "刷新",
     "removeDialogConfirm": "移除",
     "removeDialogMessage": "您确定要移除“{serverId}”吗？这将断开此服务器提供的所有工具。",
     "removeDialogTitle": "移除 MCP 服务器",
@@ -1058,8 +1056,6 @@
     "toastAuthStartFailed": "未能启动 {serverId} 的身份验证",
     "toastAuthTimedOut": "{serverId} 身份验证超时",
     "toastAuthenticatedSuccess": "{serverId} 身份验证成功",
-    "toastDisableFailed": "禁用 {serverId} 失败",
-    "toastEnableFailed": "启用 {serverId} 失败",
     "toastOAuthRevokeFailed": "撤销 {serverId} 的 OAuth 失败",
     "toastOAuthRevoked": "{serverId} 的 OAuth 凭据已撤销",
     "toastReloadFailed": "重新加载 MCP 服务器失败",
@@ -1072,26 +1068,21 @@
     "totalTools": "{count, plural, other {# 个工具}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "关闭",
     "authenticate": "认证",
+    "authenticatedBadge": "已认证",
     "authenticating": "正在认证...",
     "configure": "配置",
-    "configureTooltip": "配置",
     "estimatedTokens": "~{count} 个 Token",
-    "oauthBadge": "OAuth",
+    "moreActions": "{serverId} 的更多操作",
     "reAuth": "重新认证",
-    "reAuthTooltip": "重新认证 OAuth",
     "registeredTools": "{count, plural, other {# 个已注册工具}}",
-    "removeServerAriaLabel": "移除 {serverId}",
-    "removeServerTooltip": "移除服务器",
+    "removeServer": "删除服务器",
     "revoke": "撤销",
     "revokeOAuthTooltip": "撤销 OAuth 凭据",
-    "revoking": "正在撤销...",
     "statusConnected": "已连接",
-    "statusDisabled": "已禁用",
     "statusError": "错误",
     "statusNeedsAuth": "需要认证",
-    "toggleDisableAriaLabel": "禁用 {serverId}",
-    "toggleEnableAriaLabel": "启用 {serverId}",
     "toolCount": "{count, plural, other {# 个工具}}",
     "toolTokensAbbrev": "~{count} Token"
   },
@@ -1107,7 +1098,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "•••••••• (留空以保留当前值)",
     "cancel": "取消",
-    "defaultRiskLevel": "默认风险级别",
     "description": "{transport} 传输 · {status}",
     "emptyDescription": "-",
     "headerName": "请求头名称",
@@ -1115,9 +1105,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "通过 OAuth 流程管理",
     "registeredToolsHeading": "已注册工具 ({count})",
-    "riskHigh": "高",
-    "riskLow": "低",
-    "riskMedium": "中",
     "save": "保存",
     "saving": "正在保存...",
     "tableDescription": "描述",
@@ -1531,6 +1518,18 @@
     "selectModelError": "请选择一个模型。",
     "selectModelPlaceholder": "选择模型",
     "selectProviderPlaceholder": "选择提供商…"
+  },
+  "profileModalitiesSection": {
+    "audio": "音频",
+    "enableAria": "启用{modality}",
+    "enabledColumn": "启用",
+    "helper": "仅当模态已启用且标记为模型支持时，才会发送给模型。未按此方式发送的图片会生成文字说明。",
+    "image": "图片",
+    "resolvedOff": "不发送给模型",
+    "resolvedOn": "发送给模型",
+    "supportedAria": "模型支持{modality}",
+    "supportedColumn": "模型支持",
+    "title": "模态"
   },
   "profileRow": {
     "actionsAriaLabel": "{displayName} 的操作",
@@ -2304,6 +2303,38 @@
     "redirectUrl": "重定向 URL",
     "waitingAuthorization": "等待授权..."
   },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "伙伴",
+        "right": "同事"
+      },
+      "executeCollaborate": {
+        "left": "独立",
+        "right": "协作"
+      },
+      "genzBoomer": {
+        "left": "Z世代",
+        "right": "婴儿潮一代"
+      },
+      "playfulSerious": {
+        "left": "活泼",
+        "right": "严肃"
+      },
+      "politeUnfiltered": {
+        "left": "礼貌",
+        "right": "直率"
+      }
+    },
+    "loadError": "无法加载个性滑块。",
+    "rangeAriaLabel": "{left} 到 {right}",
+    "save": "保存",
+    "saveErrorToast": "无法保存个性滑块。请重试。",
+    "saveSuccessToast": "个性滑块已保存。",
+    "saving": "正在保存…",
+    "subtitle": "将这些滑块值保存到此助手。这不会改写身份文件。",
+    "title": "个性"
+  },
   "sidebar": {
     "general": "常规",
     "model": "模型与服务",
@@ -2319,6 +2350,7 @@
     "community": "社区",
     "debug": "调试",
     "developer": "开发者",
+    "personality": "个性",
     "logout": "退出登录",
     "login": "登录",
     "title": "设置"
@@ -2328,7 +2360,48 @@
       "general": "常规",
       "terminal": "终端",
       "doctor": "诊断",
+      "database": "数据库",
       "conversations": "会话"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "数据库",
+    "subtitle": "此助手的迁移状态，包括失败和被推迟的步骤。",
+    "refresh": "刷新",
+    "loading": "正在加载数据库状态…",
+    "unsupported": "此助手版本尚不提供数据库诊断信息。",
+    "loadError": "无法加载数据库诊断信息。",
+    "statusReady": "就绪",
+    "statusRunning": "正在迁移",
+    "statusFailed": "失败",
+    "statusNotStarted": "未开始",
+    "migratingHint": "迁移仍在进行。如果某一步抛出错误，失败步骤会显示在这里。",
+    "noFailures": "没有失败的迁移。",
+    "failedHeading": "失败的迁移",
+    "deferredHeading": "被推迟的迁移",
+    "validationHeading": "校验错误",
+    "missingDeps": "等待：{deps}"
+  },
+  "profileCreateModelFirst": {
+    "addApiKeyTag": "添加 API 密钥",
+    "cancelConnect": "取消设置",
+    "chooseFromList": "从列表中选择",
+    "connectedTag": "已连接",
+    "customModelAriaLabel": "自定义模型 ID",
+    "customModelHint": "输入提供商所需的精确模型标识符。该标识符将按原样发送至连接。",
+    "customModelOption": "输入自定义模型 ID…",
+    "customModelPlaceholder": "provider/model-id",
+    "modelAriaLabel": "模型",
+    "modelLabel": "模型",
+    "modelNoMatches": "无匹配的模型",
+    "modelPlaceholder": "搜索模型…",
+    "modelResultsAnnouncement": "{count, plural, one {# 个可用模型} other {# 个可用模型}}。使用上下方向键浏览，按回车键选择。",
+    "providerLabel": "提供商",
+    "recommendedMeta": "推荐",
+    "seeLess": "收起",
+    "seeMore": "查看更多",
+    "setUpTag": "设置",
+    "signInTag": "登录",
+    "soleProviderHint": "仅 {name} 提供此模型。"
   }
 }

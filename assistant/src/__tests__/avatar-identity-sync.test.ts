@@ -3,8 +3,12 @@ import { describe, expect, mock, test } from "bun:test";
 mock.module("../platform/sync-avatar.js", () => ({
   syncAvatarToPlatform: () => {},
 }));
+mock.module("../telemetry/telemetry-events-outbox.js", () => ({
+  recordTelemetryEvent: () => ({ id: "evt", createdAt: 0 }),
+}));
 
 import type { AssistantEventEnvelope } from "../api/index.js";
+import { clearAvatar } from "../avatar/avatar-store.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as AVATAR_ROUTES } from "../runtime/routes/avatar-routes.js";
@@ -38,6 +42,32 @@ describe("avatar and identity sync events", () => {
       expect(route).toBeDefined();
 
       await route!.handler({});
+      await waitFor(() => received.length === 2);
+
+      expect(received.map((event) => event.message.type)).toEqual([
+        "avatar_updated",
+        "sync_changed",
+      ]);
+      expect(received[1].message).toEqual({
+        type: "sync_changed",
+        tags: [SYNC_TAGS.assistantAvatar],
+      });
+    } finally {
+      subscription.dispose();
+    }
+  });
+
+  test("a store mutation publishes the avatar event and sync tag on its own", async () => {
+    const received: AssistantEventEnvelope[] = [];
+    const subscription = assistantEventHub.subscribe({
+      type: "process",
+      callback: (event) => {
+        received.push(event);
+      },
+    });
+
+    try {
+      clearAvatar();
       await waitFor(() => received.length === 2);
 
       expect(received.map((event) => event.message.type)).toEqual([

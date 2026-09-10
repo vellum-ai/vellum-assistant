@@ -56,8 +56,7 @@
     "searchPlaceholder": "Buscar conversaciones",
     "unarchive": "Desarchivar",
     "unarchiveFailed": "No se pudo desarchivar la conversación.",
-    "unarchiving": "Desarchivando",
-    "untitled": "Conversación sin título"
+    "unarchiving": "Desarchivando"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Comprobando el acceso a notificaciones de este dispositivo.",
@@ -382,8 +381,7 @@
     "errorTitle": "No se pudieron cargar los marcadores",
     "open": "Abrir",
     "removeBookmark": "Eliminar marcador",
-    "retry": "Reintentar",
-    "untitledConversation": "Conversación sin título"
+    "retry": "Reintentar"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# acción usa actualmente {profile}} other {# acciones usan actualmente {profile}}}",
@@ -455,12 +453,12 @@
     "urlPlaceholder": "Pega aquí la URL de devolución de llamada..."
   },
   "checkoutBonusModal": {
-    "body": "Reclama un crédito único de {amount} y lo añadiremos directamente al saldo de tu cuenta. No se requiere ningún pago.",
-    "claim": "Reclamar {amount} en créditos",
+    "body": "Reclama {amount} de uso adicional por única vez y lo añadiremos directamente a tu saldo de uso. No se requiere ningún pago.",
+    "claim": "Reclamar {amount} en uso adicional",
     "decline": "No, gracias",
-    "errorToast": "No se pudieron añadir los créditos. Inténtalo de nuevo.",
-    "grantedToast": "Se añadieron {amount} en créditos a tu cuenta.",
-    "title": "Aquí tienes {amount} de nuestra parte",
+    "errorToast": "No se pudo añadir el uso adicional. Inténtalo de nuevo.",
+    "grantedToast": "Se añadieron {amount} en uso adicional a tu saldo de uso.",
+    "title": "Aquí tienes {amount} de uso adicional de nuestra parte",
     "unavailableToast": "Esta oferta ya no está disponible."
   },
   "checkoutPage": {
@@ -998,6 +996,7 @@
   },
   "managedOauthTab": {
     "accountFallback": "Cuenta de {name}",
+    "cancel": "Cancelar",
     "connectAccount": "Conectar cuenta",
     "connectAccountLower": "Conectar cuenta",
     "connectToContinue": "Conecta una cuenta para continuar",
@@ -1042,8 +1041,7 @@
     "emptyTitle": "Sin servidores MCP",
     "loadError": "No se pudieron cargar los servidores MCP. Comprueba que un asistente esté en ejecución.",
     "loading": "Cargando servidores MCP...",
-    "reloadAriaLabel": "Recargar servidores MCP",
-    "reloadTooltip": "Recargar todos los servidores",
+    "reloadButton": "Actualizar",
     "removeDialogConfirm": "Eliminar",
     "removeDialogMessage": "¿Seguro que quieres eliminar \"{serverId}\"? Esto desconectará todas las herramientas proporcionadas por este servidor.",
     "removeDialogTitle": "Eliminar servidor MCP",
@@ -1058,8 +1056,6 @@
     "toastAuthStartFailed": "No se pudo iniciar la autenticación para {serverId}",
     "toastAuthTimedOut": "La autenticación expiró para {serverId}",
     "toastAuthenticatedSuccess": "{serverId} se autenticó correctamente",
-    "toastDisableFailed": "No se pudo deshabilitar {serverId}",
-    "toastEnableFailed": "No se pudo habilitar {serverId}",
     "toastOAuthRevokeFailed": "No se pudo revocar OAuth para {serverId}",
     "toastOAuthRevoked": "Se revocaron las credenciales OAuth para {serverId}",
     "toastReloadFailed": "No se pudieron recargar los servidores MCP",
@@ -1072,26 +1068,21 @@
     "totalTools": "{count, plural, one {# herramienta en total} other {# herramientas en total}}"
   },
   "mcpServerCard": {
+    "actionsSheetClose": "Cerrar",
     "authenticate": "Autenticar",
+    "authenticatedBadge": "Autenticado",
     "authenticating": "Autenticando...",
     "configure": "Configurar",
-    "configureTooltip": "Configurar",
     "estimatedTokens": "~{count} tokens",
-    "oauthBadge": "OAuth",
+    "moreActions": "Más acciones para {serverId}",
     "reAuth": "Reautenticar",
-    "reAuthTooltip": "Volver a autenticar OAuth",
     "registeredTools": "{count, plural, one {# herramienta registrada} other {# herramientas registradas}}",
-    "removeServerAriaLabel": "Eliminar {serverId}",
-    "removeServerTooltip": "Eliminar servidor",
+    "removeServer": "Eliminar servidor",
     "revoke": "Revocar",
     "revokeOAuthTooltip": "Revocar credenciales de OAuth",
-    "revoking": "Revocando...",
     "statusConnected": "Conectado",
-    "statusDisabled": "Desactivado",
     "statusError": "Error",
     "statusNeedsAuth": "Requiere autenticación",
-    "toggleDisableAriaLabel": "Desactivar {serverId}",
-    "toggleEnableAriaLabel": "Activar {serverId}",
     "toolCount": "{count, plural, one {# herramienta} other {# herramientas}}",
     "toolTokensAbbrev": "~{count} tok"
   },
@@ -1107,7 +1098,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "••••••••  (dejar en blanco para mantener el actual)",
     "cancel": "Cancelar",
-    "defaultRiskLevel": "Nivel de riesgo predeterminado",
     "description": "{transport} transporte · {status}",
     "emptyDescription": "-",
     "headerName": "Nombre del encabezado",
@@ -1115,9 +1105,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "administrado mediante el flujo de OAuth",
     "registeredToolsHeading": "Herramientas registradas ({count})",
-    "riskHigh": "Alto",
-    "riskLow": "Bajo",
-    "riskMedium": "Medio",
     "save": "Guardar",
     "saving": "Guardando...",
     "tableDescription": "Descripción",
@@ -1553,6 +1540,18 @@
     "selectModelError": "Selecciona un modelo.",
     "selectModelPlaceholder": "Selecciona un modelo",
     "selectProviderPlaceholder": "Selecciona un proveedor…"
+  },
+  "profileModalitiesSection": {
+    "audio": "Audio",
+    "enableAria": "Activar {modality}",
+    "enabledColumn": "Activado",
+    "helper": "El modelo recibe una modalidad solo si está activada y marcada como compatible. Las imágenes que no se envían así se convierten en una descripción.",
+    "image": "Imagen",
+    "resolvedOff": "No se envía al modelo",
+    "resolvedOn": "Se envía al modelo",
+    "supportedAria": "El modelo admite {modality}",
+    "supportedColumn": "El modelo lo admite",
+    "title": "Modalidades"
   },
   "profileRow": {
     "actionsAriaLabel": "Acciones para {displayName}",
@@ -2324,5 +2323,37 @@
     "redirectHint": "Añade esta URL a la configuración de redirección de tu app OAuth.",
     "redirectUrl": "URL de redirección",
     "waitingAuthorization": "Esperando autorización..."
+  },
+  "personalityPage": {
+    "axes": {
+      "companionCoworker": {
+        "left": "Compañero",
+        "right": "Colega"
+      },
+      "executeCollaborate": {
+        "left": "Independiente",
+        "right": "Colaborativo"
+      },
+      "genzBoomer": {
+        "left": "Gen Z",
+        "right": "Baby Boomer"
+      },
+      "playfulSerious": {
+        "left": "Juguetón",
+        "right": "Serio"
+      },
+      "politeUnfiltered": {
+        "left": "Educado",
+        "right": "Sin filtro"
+      }
+    },
+    "loadError": "No se pudieron cargar los controles de personalidad.",
+    "rangeAriaLabel": "{left} a {right}",
+    "save": "Guardar",
+    "saveErrorToast": "No se pudieron guardar los controles de personalidad. Inténtalo de nuevo.",
+    "saveSuccessToast": "Controles de personalidad guardados.",
+    "saving": "Guardando…",
+    "subtitle": "Guarda estos valores en el asistente. Esto no reescribe los archivos de identidad.",
+    "title": "Personalidad"
   }
 }

@@ -70,6 +70,7 @@ import {
   type Message,
 } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -229,11 +230,17 @@ export interface MessagingConversationContext {
   releaseProcessing(owner: number): boolean;
   abortController: AbortController | null;
   currentRequestId?: string;
+  /** See {@link Conversation.currentTurnClientMessageId}. */
+  currentTurnClientMessageId?: string;
   readonly queue: MessageQueue;
   trustContext?: TrustContext;
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
+  /** See {@link turnActorPrincipalId}. */
+  currentTurnActorFallbackSuppressed?: boolean;
+  /** See {@link Conversation.pendingInterruptNote}. */
+  pendingInterruptNote?: boolean;
   /**
    * OS surface reported by the connected client, re-applied from transport
    * metadata on every inbound message.
@@ -814,6 +821,25 @@ export interface EnqueueMessageOptions {
    * set to this sender.
    */
   trustContext?: TrustContext;
+  /**
+   * Queue the message even when the conversation reads idle, instead of taking
+   * the idle fast path that stores nothing.
+   *
+   * The fast path exists so a caller that races a turn ending can notice and
+   * run the message itself. The interrupt fallback cannot: it reaches here
+   * precisely because the turn it stopped left the conversation in a state this
+   * send must not run against (a turn-boundary commit still staging the working
+   * tree, a `tool_use` repair that could not be persisted), so the message has
+   * to wait for a drain rather than be run now or dropped. Callers passing this
+   * own kicking the drain, since there is no running turn whose `finally` will.
+   */
+  queueWhenIdle?: boolean;
+  /**
+   * Firing's `cron_runs.id` to attribute the drained turn's LLM spend to.
+   * Carried on the queued message because the drain runs after the enqueuing
+   * turn has ended, so there is no in-flight turn left to read it from.
+   */
+  cronRunId?: string | null;
 }
 
 // ── enqueueMessage ───────────────────────────────────────────────────
@@ -835,6 +861,7 @@ export function enqueueMessage(
     transport,
     clientMessageId,
     authContext,
+    cronRunId,
   } = options;
   const queuedAuthContext =
     authContext ?? ctx.currentTurnAuthContext ?? ctx.authContext;
@@ -846,7 +873,7 @@ export function enqueueMessage(
   // in-flight turn's actor, which is precisely who this message is not from.
   const queuedTrustContext = options.trustContext ?? ctx.trustContext;
 
-  if (!ctx.isProcessing()) {
+  if (!ctx.isProcessing() && options.queueWhenIdle !== true) {
     return { queued: false, requestId };
   }
 
@@ -876,6 +903,7 @@ export function enqueueMessage(
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
+    cronRunId,
   });
   if (!accepted) {
     onEvent?.({
@@ -1064,6 +1092,10 @@ export async function persistUserMessage(
 
   const reqId = options.requestId ?? uuidv7();
   ctx.currentRequestId = reqId;
+  // Recorded in the same synchronous step as the abort controller and the lock
+  // below, so a retransmission of this very send can never find the turn armed
+  // but unattributed and abort it.
+  ctx.currentTurnClientMessageId = options.clientMessageId;
   ctx.abortController = new AbortController();
 
   let owner: number | null = null;
@@ -1095,6 +1127,7 @@ export async function persistUserMessage(
       ctx.releaseProcessing(owner);
       ctx.abortController = null;
       ctx.currentRequestId = undefined;
+      ctx.currentTurnClientMessageId = undefined;
     }
     return result;
   } catch (err) {
@@ -1114,6 +1147,7 @@ export async function persistUserMessage(
     }
     ctx.abortController = null;
     ctx.currentRequestId = undefined;
+    ctx.currentTurnClientMessageId = undefined;
     throw err;
   }
 }
@@ -1521,16 +1555,41 @@ export async function persistQueuedMessageBody(
 
     // Same list enrichMessageWithSourcePaths sees, so history reload rebuilds
     // an identical annotation block (prefix-cache parity).
-    const attachmentStoredPaths =
-      extractAttachmentStoredPaths(sentAttachments);
+    const attachmentStoredPaths = extractAttachmentStoredPaths(sentAttachments);
     if (attachmentStoredPaths) {
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
 
-    const llmMessage = enrichMessageWithSourcePaths(
+    // An interrupt whose abort landed before the turn made a tool call left
+    // the model no `tool_result` saying it was cut off, so this message
+    // carries the notice instead. Consumed here, once: a second message must
+    // not repeat a note about a turn it did not interrupt. Stamped after the
+    // insert, like the stored paths above, so a persist that never lands
+    // leaves the flag armed for the send that replaces it.
+    const carriesInterruptNote = ctx.pendingInterruptNote === true;
+    if (carriesInterruptNote) {
+      ctx.pendingInterruptNote = false;
+      updateMessageMetadata(persistedUserMessage.id, {
+        interruptedPriorTurn: true,
+      });
+    }
+
+    const enrichedMessage = enrichMessageWithSourcePaths(
       cleanMessage,
       sentAttachments,
     );
+    // Appended to the LLM-facing content only, so the persisted row stays what
+    // the user typed. `reinjectInterruptTurnNote` rebuilds this same block
+    // from the metadata above on every later load.
+    const llmMessage: Message = carriesInterruptNote
+      ? {
+          ...enrichedMessage,
+          content: [
+            ...enrichedMessage.content,
+            { type: "text", text: INTERRUPTED_TURN_NOTE_TEXT },
+          ],
+        }
+      : enrichedMessage;
     log.info(
       {
         requestId,

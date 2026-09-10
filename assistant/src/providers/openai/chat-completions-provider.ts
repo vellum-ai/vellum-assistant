@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import OpenAI from "openai";
 
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
@@ -9,12 +11,12 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { partialTagSuffix as sharedPartialTagSuffix } from "../../util/think-tag-stream.js";
 import { clampProviderString } from "../content-block-size.js";
 import { fileBlockToProviderText } from "../file-block-text.js";
+import { requestSupportsInlineAudio } from "../inline-audio-support.js";
 import {
   base64Source,
   mediaSourceByteLength,
   resolveMediaReferences,
 } from "../media-resolve.js";
-import { modelSupportsAudioInput } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -25,6 +27,7 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
+  ToolUseContent,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -35,6 +38,11 @@ import {
   wrapUnparseableToolArgs,
 } from "../unparseable-tool-args.js";
 import {
+  salvageXmlToolCalls,
+  shouldSalvageXmlToolCalls,
+  splitXmlToolCallHoldback,
+} from "../xml-tool-call-salvage.js";
+import {
   captureRawErrorBodyFetch,
   formatNormalizedOpenAIAPIError,
   normalizedErrorText,
@@ -44,6 +52,15 @@ import {
   coerceObjectParamsToJsonString,
   decodeCoercedObjectArgs,
 } from "./coerce-object-args.js";
+import {
+  applyGemini3UnsignedToolCallFallback,
+  attachGoogleThoughtSignatureIfNeeded,
+  classifyGoogleThoughtSignatureRetry,
+  geminiThoughtSignaturesByToolCallId,
+  type GoogleToolCallExtraContent,
+  thoughtSignatureFromToolUseMetadata,
+  toolUseMetadataFromChatCompletionsDelta,
+} from "./google-thought-signature.js";
 import {
   isOpenAICompatInlineAudio,
   OPENAI_COMPAT_MAX_INLINE_AUDIO_BYTES,
@@ -177,6 +194,12 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  with minimax-m3 on Fireworks). Off by default; scalars/arrays unaffected.
    *  See {@link coerceObjectParamsToJsonString}. */
   coerceObjectArgsToJsonString?: boolean;
+  /**
+   * Convert complete `<invoke>` XML in assistant text into `tool_use` blocks.
+   * Defaults to on for DeepSeek model ids and off otherwise. Set explicitly to
+   * override the model-id default.
+   */
+  salvageXmlToolCalls?: boolean;
   /** Drop `tool_choice` when thinking/reasoning is on the wire. Strict
    *  OpenAI-compatible reasoning upstreams (DeepSeek thinking mode) reject any
    *  explicit `tool_choice` with `Thinking mode does not support this
@@ -191,7 +214,13 @@ const log = getLogger("chat-completions");
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
  *  `"max"`, but Fireworks accepts it for DeepSeek V4; the assignment to
  *  `params.reasoning_effort` casts through this union. */
-type ReasoningEffortWire = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ReasoningEffortWire =
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 const REASONING_EFFORT_RANK: Record<ReasoningEffortWire, number> = {
   none: 0,
@@ -621,6 +650,82 @@ function flattenContentPartsToStrings(params: unknown): boolean {
   return flattened;
 }
 
+type OpenAICompatRetryKind =
+  | "reasoning-opt-out"
+  | "thinking-tool-choice"
+  | "missing-reasoning-content"
+  | "unknown-reasoning-field"
+  | "missing-thought-signature"
+  | "unknown-extra-content"
+  | "chat-template";
+
+function classifyOpenAICompatRetry(
+  error: unknown,
+  params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming,
+  thoughtSignaturesByCallId: ReadonlyMap<string, string>,
+): { kind: OpenAICompatRetryKind; message: string; apply: () => void } | null {
+  if (isReasoningOptOutRejection(error, params)) {
+    return {
+      kind: "reasoning-opt-out",
+      message:
+        "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+      apply: () => {
+        delete params.reasoning_effort;
+        delete (params as unknown as Record<string, unknown>).reasoning;
+      },
+    };
+  }
+  if (isThinkingModeToolChoiceRejection(error, params)) {
+    return {
+      kind: "thinking-tool-choice",
+      message:
+        "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
+      apply: () => {
+        delete params.tool_choice;
+      },
+    };
+  }
+  if (isMissingReasoningContentRejection(error, params)) {
+    return {
+      kind: "missing-reasoning-content",
+      message:
+        "Upstream requires reasoning_content round-trip; retrying with empty field on assistant messages",
+      apply: () => {
+        backfillEmptyReasoningContent(params);
+      },
+    };
+  }
+  if (isUnknownAssistantReasoningFieldRejection(error, params)) {
+    return {
+      kind: "unknown-reasoning-field",
+      message:
+        "Upstream rejected assistant reasoning field; retrying without it",
+      apply: () => {
+        stripAssistantReasoningFields(params);
+      },
+    };
+  }
+  const thoughtSignatureRetry = classifyGoogleThoughtSignatureRetry(params, {
+    isClientError: isClientErrorStatus(error),
+    haystack: openaiCompatErrorHaystack(error),
+    capturedByCallId: thoughtSignaturesByCallId,
+  });
+  if (thoughtSignatureRetry) {
+    return thoughtSignatureRetry;
+  }
+  if (isChatTemplateRejection(error, params)) {
+    return {
+      kind: "chat-template",
+      message:
+        "Upstream chat template rejected structured message content; retrying with flattened plain-text content",
+      apply: () => {
+        flattenContentPartsToStrings(params);
+      },
+    };
+  }
+  return null;
+}
+
 /**
  * Translate the neutral (Anthropic-shaped) `tool_choice` carried on the call
  * config into the OpenAI chat-completions wire format. Callers express
@@ -692,8 +797,11 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
   private assistantReasoningField:
-    "reasoning" | "reasoning_content" | undefined;
+    | "reasoning"
+    | "reasoning_content"
+    | undefined;
   private coerceObjectArgsToJsonString: boolean;
+  private salvageXmlToolCalls: boolean;
   private omitToolChoiceWhenReasoning: boolean;
 
   constructor(
@@ -722,6 +830,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.assistantReasoningField = options.assistantReasoningField;
     this.coerceObjectArgsToJsonString =
       options.coerceObjectArgsToJsonString ?? false;
+    this.salvageXmlToolCalls =
+      options.salvageXmlToolCalls ?? shouldSalvageXmlToolCalls(model);
     this.omitToolChoiceWhenReasoning =
       options.omitToolChoiceWhenReasoning ?? false;
   }
@@ -740,12 +850,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const modelOverride = configObj?.model as string | undefined;
     const effort = configObj?.effort as string | undefined;
     const logitBias = configObj?.logit_bias as
-      Record<string, number> | undefined;
+      | Record<string, number>
+      | undefined;
     const topP = configObj?.top_p as number | undefined;
     const usageAttributionHeaders = configObj?.usageAttributionHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
     const perRequestHeaders = configObj?.requestHeaders as
-      Record<string, string> | undefined;
+      | Record<string, string>
+      | undefined;
 
     // Per-tool keys whose object schemas were rewritten to JSON strings for the
     // wire, to be decoded back on the response. Empty unless
@@ -753,10 +866,13 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const coercedObjectKeys = new Map<string, string[]>();
 
     try {
+      const thoughtSignaturesByCallId =
+        geminiThoughtSignaturesByToolCallId(messages);
       const openaiMessages = await this.toOpenAIMessages(
         messages,
         systemPrompt,
-        modelSupportsAudioInput(modelOverride ?? this.model),
+        requestSupportsInlineAudio(modelOverride ?? this.model),
+        modelOverride ?? this.model,
       );
 
       recordProviderRequestDiagnostics({
@@ -812,6 +928,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         ) as OpenAI.Chat.Completions.ChatCompletionCreateParams["reasoning_effort"];
       }
 
+      const offeredToolNames = new Set((tools ?? []).map((t) => t.name));
+      let xmlToolCallSalvageEnabled = false;
+
       if (tools && tools.length > 0) {
         params.tools = tools.map((t) => {
           let parameters = t.input_schema as OpenAI.FunctionParameters;
@@ -844,6 +963,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
         // receive them; the generic openai-compatible adapter drops every
         // explicit value in thinking mode via `omitToolChoiceWhenReasoning`.
         const toolChoice = mapNeutralToolChoice(configObj?.tool_choice);
+        xmlToolCallSalvageEnabled =
+          this.salvageXmlToolCalls && toolChoice !== "none";
         if (toolChoice !== undefined) {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
@@ -862,6 +983,33 @@ export class OpenAIChatCompletionsProvider implements Provider {
       let reasoningText = "";
       let insideThinkBlock = false;
       let pendingContent = "";
+      let xmlHeld = "";
+
+      const emitVisibleText = (delta: string): void => {
+        if (!delta) {
+          return;
+        }
+        if (!xmlToolCallSalvageEnabled) {
+          contentText += delta;
+          onEvent?.({ type: "text_delta", text: delta });
+          return;
+        }
+        const split = splitXmlToolCallHoldback(xmlHeld + delta);
+        xmlHeld = split.held;
+        if (split.visible) {
+          contentText += split.visible;
+          onEvent?.({ type: "text_delta", text: split.visible });
+        }
+      };
+
+      const flushHeldXmlAsText = (): void => {
+        if (!xmlHeld) {
+          return;
+        }
+        contentText += xmlHeld;
+        onEvent?.({ type: "text_delta", text: xmlHeld });
+        xmlHeld = "";
+      };
 
       const flushPendingContent = (final: boolean): void => {
         while (pendingContent.length > 0) {
@@ -896,8 +1044,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
             if (openIdx >= 0) {
               const text = pendingContent.substring(0, openIdx);
               if (text) {
-                contentText += text;
-                onEvent?.({ type: "text_delta", text });
+                emitVisibleText(text);
               }
               insideThinkBlock = true;
               pendingContent = pendingContent.substring(
@@ -909,9 +1056,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 : partialTagSuffix(pendingContent, "<think>");
               const safeLen = pendingContent.length - partial;
               if (safeLen > 0) {
-                const t = pendingContent.substring(0, safeLen);
-                contentText += t;
-                onEvent?.({ type: "text_delta", text: t });
+                emitVisibleText(pendingContent.substring(0, safeLen));
               }
               pendingContent =
                 partial > 0 ? pendingContent.substring(safeLen) : "";
@@ -923,7 +1068,12 @@ export class OpenAIChatCompletionsProvider implements Provider {
 
       const toolCallMap = new Map<
         number,
-        { id: string; name: string; args: string }
+        {
+          id: string;
+          name: string;
+          args: string;
+          providerMetadata?: ToolUseContent["providerMetadata"];
+        }
       >();
       const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
@@ -940,6 +1090,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ...(usageAttributionHeaders ?? {}),
           ...(perRequestHeaders ?? {}),
         };
+        const extraBody = this.buildRequestExtraBody(options);
+        if (extraBody) {
+          Object.assign(params, extraBody);
+        }
         const createStream = () =>
           this.client.chat.completions.create(params, {
             signal: timeoutSignal,
@@ -947,68 +1101,31 @@ export class OpenAIChatCompletionsProvider implements Provider {
               ? { headers: requestHeaders }
               : {}),
           });
+        const attemptedCompatRetries = new Set<OpenAICompatRetryKind>();
         let stream: Awaited<ReturnType<typeof createStream>>;
-        try {
-          stream = await createStream();
-        } catch (error) {
-          if (isReasoningOptOutRejection(error, params)) {
+        for (;;) {
+          try {
+            stream = await createStream();
+            break;
+          } catch (error) {
+            const retry = classifyOpenAICompatRetry(
+              error,
+              params,
+              thoughtSignaturesByCallId,
+            );
+            if (!retry || attemptedCompatRetries.has(retry.kind)) {
+              throw error;
+            }
+            attemptedCompatRetries.add(retry.kind);
             log.warn(
               {
                 provider: this.name,
                 model: modelOverride ?? this.model,
                 error: error instanceof Error ? error.message : String(error),
               },
-              "Model rejected the explicit reasoning opt-out; retrying without reasoning params",
+              retry.message,
             );
-            delete params.reasoning_effort;
-            delete (params as unknown as Record<string, unknown>).reasoning;
-            stream = await createStream();
-          } else if (isThinkingModeToolChoiceRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream rejected tool_choice in thinking mode; retrying without tool_choice",
-            );
-            delete params.tool_choice;
-            stream = await createStream();
-          } else if (isMissingReasoningContentRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream requires reasoning_content round-trip; retrying with empty field on assistant messages",
-            );
-            backfillEmptyReasoningContent(params);
-            stream = await createStream();
-          } else if (isUnknownAssistantReasoningFieldRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream rejected assistant reasoning field; retrying without it",
-            );
-            stripAssistantReasoningFields(params);
-            stream = await createStream();
-          } else if (isChatTemplateRejection(error, params)) {
-            log.warn(
-              {
-                provider: this.name,
-                model: modelOverride ?? this.model,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              "Upstream chat template rejected structured message content; retrying with flattened plain-text content",
-            );
-            flattenContentPartsToStrings(params);
-            stream = await createStream();
-          } else {
-            throw error;
+            retry.apply();
           }
         }
 
@@ -1020,8 +1137,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 pendingContent += choice.delta.content;
                 flushPendingContent(false);
               } else {
-                contentText += choice.delta.content;
-                onEvent?.({ type: "text_delta", text: choice.delta.content });
+                emitVisibleText(choice.delta.content);
               }
             }
 
@@ -1097,6 +1213,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
                     entry.args,
                   );
                 }
+                const providerMetadata =
+                  toolUseMetadataFromChatCompletionsDelta(tc);
+                if (
+                  providerMetadata &&
+                  !thoughtSignatureFromToolUseMetadata(entry.providerMetadata)
+                ) {
+                  entry.providerMetadata = providerMetadata;
+                }
               }
             }
 
@@ -1142,6 +1266,42 @@ export class OpenAIChatCompletionsProvider implements Provider {
         flushPendingContent(true);
       }
 
+      // DeepSeek (and any caller that sets salvageXmlToolCalls) may emit
+      // `<invoke>` XML as assistant text instead of native `tool_calls`.
+      // Convert complete offered-tool invokes into tool_use blocks so the
+      // agent loop can execute them. Native tool_calls win.
+      if (xmlToolCallSalvageEnabled && toolCallMap.size === 0) {
+        const salvaged = salvageXmlToolCalls(
+          contentText + xmlHeld,
+          offeredToolNames,
+        );
+        if (salvaged) {
+          contentText = salvaged.text;
+          xmlHeld = "";
+          log.info(
+            {
+              salvagedToolCount: salvaged.calls.length,
+              salvagedToolNames: salvaged.calls.map((call) => call.name),
+            },
+            "Converted XML-formatted assistant text into native tool calls",
+          );
+          for (const [index, call] of salvaged.calls.entries()) {
+            toolCallMap.set(index, {
+              id: `call_${randomUUID()}`,
+              name: call.name,
+              args: JSON.stringify(call.input),
+            });
+          }
+          if (finishReason === "stop" || finishReason === "unknown") {
+            finishReason = "tool_calls";
+          }
+        } else {
+          flushHeldXmlAsText();
+        }
+      } else {
+        flushHeldXmlAsText();
+      }
+
       // Build content blocks
       const finalReasoning = this.parseThinkTags
         ? reasoningText.trim()
@@ -1182,6 +1342,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
           id: tc.id,
           name: tc.name,
           input,
+          ...(tc.providerMetadata
+            ? { providerMetadata: tc.providerMetadata }
+            : {}),
         });
       }
 
@@ -1195,11 +1358,19 @@ export class OpenAIChatCompletionsProvider implements Provider {
               content: contentText || null,
               tool_calls:
                 toolCallMap.size > 0
-                  ? Array.from(toolCallMap.values()).map((tc) => ({
-                      id: tc.id,
-                      type: "function",
-                      function: { name: tc.name, arguments: tc.args },
-                    }))
+                  ? Array.from(toolCallMap.values()).map((tc) =>
+                      attachGoogleThoughtSignatureIfNeeded(
+                        {
+                          id: tc.id,
+                          type: "function",
+                          function: { name: tc.name, arguments: tc.args },
+                        },
+                        thoughtSignatureFromToolUseMetadata(
+                          tc.providerMetadata,
+                        ),
+                        modelOverride ?? this.model,
+                      ),
+                    )
                   : undefined,
             },
             finish_reason: finishReason,
@@ -1363,6 +1534,17 @@ export class OpenAIChatCompletionsProvider implements Provider {
   }
 
   /**
+   * Fields merged onto the `chat.completions.create` params object. The
+   * OpenAI Node SDK sends unknown body fields as-is, so hosted-Qwen
+   * `directions` reach the runtime proxy on the JSON body.
+   */
+  protected buildRequestExtraBody(
+    _options?: SendMessageOptions,
+  ): Record<string, unknown> | undefined {
+    return undefined;
+  }
+
+  /**
    * Per-request reasoning_effort ceiling. Defaults to the provider-wide
    * `maxReasoningEffort` from constructor options. Subclasses (e.g. Fireworks)
    * override to consult the model catalog so per-model accepted ranges are
@@ -1392,6 +1574,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     messages: Message[],
     systemPrompt?: string,
     audioInputEnabled = false,
+    model = this.model,
   ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
     // Swap any persisted attachment references back to inline base64 before
     // serializing, so the block transforms below can read `source.data`.
@@ -1413,7 +1596,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const emittedToolCallIds = new Set<string>();
     for (const msg of messages) {
       if (msg.role === "assistant") {
-        const assistantMessage = this.toOpenAIAssistantMessage(msg);
+        const assistantMessage = this.toOpenAIAssistantMessage(msg, model);
         for (const toolCall of assistantMessage.tool_calls ?? []) {
           emittedToolCallIds.add(toolCall.id);
         }
@@ -1491,11 +1674,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
   /** Convert an assistant message with text + tool_use blocks to OpenAI format. */
   private toOpenAIAssistantMessage(
     msg: Message,
+    model: string,
   ): OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam {
     const textParts: string[] = [];
     const reasoningParts: string[] = [];
-    const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] =
-      [];
+    const toolCalls: Array<
+      OpenAI.Chat.Completions.ChatCompletionMessageToolCall &
+        GoogleToolCallExtraContent
+    > = [];
 
     for (const block of msg.content) {
       switch (block.type) {
@@ -1509,14 +1695,20 @@ export class OpenAIChatCompletionsProvider implements Provider {
           }
           break;
         case "tool_use":
-          toolCalls.push({
-            id: block.id,
-            type: "function",
-            function: {
-              name: block.name,
-              arguments: JSON.stringify(block.input),
-            },
-          });
+          toolCalls.push(
+            attachGoogleThoughtSignatureIfNeeded(
+              {
+                id: block.id,
+                type: "function",
+                function: {
+                  name: block.name,
+                  arguments: JSON.stringify(block.input),
+                },
+              },
+              thoughtSignatureFromToolUseMetadata(block.providerMetadata),
+              model,
+            ),
+          );
           break;
         case "server_tool_use":
           textParts.push(`[Web search: ${block.name}]`);
@@ -1535,6 +1727,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       };
 
     if (toolCalls.length > 0) {
+      applyGemini3UnsignedToolCallFallback(toolCalls, model);
       result.tool_calls = toolCalls;
     }
 

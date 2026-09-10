@@ -133,9 +133,7 @@ export function seedSkillGraphNodes(): void {
       if (summary.id === "mcp-setup") {
         const servers = config.mcp?.servers;
         if (servers) {
-          const names = Object.keys(servers).filter(
-            (name: string) => servers[name]?.enabled !== false,
-          );
+          const names = Object.keys(servers);
           if (names.length > 0) {
             input.description += ` Configured: ${names.join(", ")}`;
           }

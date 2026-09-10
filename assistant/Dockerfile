@@ -108,6 +108,7 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 COPY --link --from=builder /app /app
 
 # Copy source after installing dependencies for better layer caching.
+COPY packages/app-icons /app/packages/app-icons
 COPY packages/avatar-catalog /app/packages/avatar-catalog
 COPY packages/avatar-manifest /app/packages/avatar-manifest
 COPY packages/ces-client /app/packages/ces-client
@@ -121,6 +122,10 @@ COPY packages/slack-text /app/packages/slack-text
 COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
+
+# Resolve production workspace dependencies from the filesystem layout shipped
+# in the image.
+RUN bun run scripts/smoke-container-workspace-dependencies.ts
 
 # The repo-root .dockerignore decides which skills (and files) ship.
 COPY skills /app/skills

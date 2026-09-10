@@ -1,3 +1,4 @@
+import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
 import { describe, expect, test } from "bun:test";
 
 import { DEFAULT_COMMAND_REGISTRY } from "./command-registry/index.js";
@@ -390,6 +391,16 @@ describe("command-registry", () => {
       expect(assistantSpec.baseRisk).toBe("low");
     });
 
+    describe("apps", () => {
+      test("assistant apps inspect is low risk", () => {
+        expect(getAssistantPath("apps inspect").baseRisk).toBe("low");
+      });
+
+      test("assistant apps refresh is medium risk", () => {
+        expect(getAssistantPath("apps refresh").baseRisk).toBe("medium");
+      });
+    });
+
     // ── oauth subcommand ──────────────────────────────────────────────────
     describe("oauth", () => {
       const oauthSpec = assistantSubs.oauth;
@@ -420,12 +431,36 @@ describe("command-registry", () => {
         expect(oauthSpec.subcommands!.request.baseRisk).toBe("medium");
       });
 
+      test("assistant oauth request as a channel bot escalates to high, keyed on the contract's map", () => {
+        const requestSpec = oauthSpec.subcommands!.request;
+        const botRule = requestSpec.argRules!.find(
+          (r) => r.id === "assistant-oauth-request:bot-provider",
+        );
+        expect(botRule).toBeDefined();
+        expect(botRule!.flags).toEqual(["--provider"]);
+        expect(botRule!.risk).toBe("high");
+        expect(requestSpec.argSchema?.valueFlags).toContain("--provider");
+        // Every bot provider the contract names matches; a person's
+        // integration does not. The rule is derived from the map, so a
+        // channel that gains a bot credential is covered without a list here.
+        const pattern = new RegExp(botRule!.valuePattern!);
+        for (const key of Object.values(CHANNEL_BOT_PROVIDER)) {
+          expect(pattern.test(key)).toBe(true);
+        }
+        expect(pattern.test("google")).toBe(false);
+        expect(pattern.test("slack")).toBe(false);
+      });
+
       test("assistant oauth connect is low risk", () => {
         expect(oauthSpec.subcommands!.connect.baseRisk).toBe("low");
       });
 
       test("assistant oauth disconnect is medium risk", () => {
         expect(oauthSpec.subcommands!.disconnect.baseRisk).toBe("medium");
+      });
+
+      test("assistant oauth proxy-url is medium risk", () => {
+        expect(oauthSpec.subcommands!["proxy-url"].baseRisk).toBe("medium");
       });
     });
 
@@ -509,6 +544,7 @@ describe("command-registry", () => {
       expect(oauthSubs).toContain("request");
       expect(oauthSubs).toContain("connect");
       expect(oauthSubs).toContain("disconnect");
+      expect(oauthSubs).toContain("proxy-url");
     });
 
     test("credentials has all expected sub-subcommands", () => {

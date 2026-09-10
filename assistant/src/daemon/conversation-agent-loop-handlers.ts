@@ -10,6 +10,7 @@ import { SENTINEL_REDACTION_VERSION } from "@vellumai/service-contracts/redacted
 import type pino from "pino";
 import { v4 as uuid } from "uuid";
 
+import { onActivationToolCall } from "../activation/turn-hooks.js";
 import type { AgentEvent } from "../agent/loop.js";
 import type { AnsweredQuestion } from "../api/events/question-answered.js";
 import type { AssistantEvent } from "../api/index.js";
@@ -19,6 +20,8 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
+import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
@@ -52,6 +55,12 @@ import {
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
 import { endSection, markSection } from "../persistence/slow-sync-log.js";
+import type { AssistantTextVisibility } from "../persistence/user-facing-content.js";
+import {
+  ASSISTANT_TEXT_VISIBILITY_KEY,
+  projectUserFacingContent,
+  sendUserMessageText,
+} from "../persistence/user-facing-content.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
@@ -158,19 +167,77 @@ function shouldPersistProviderErrorAsAssistantMessage(classified: {
 /**
  * Persist the history-stripped marker after the loop strips runtime injections
  * for compaction / overflow recovery. The marker is a durability hint, not
- * turn-critical state — a transient SQLite write failure (SQLITE_BUSY,
+ * turn-critical state: a transient SQLite write failure (SQLITE_BUSY,
  * disk-full, read-only FS) must not abort the turn, so failures log a warning
- * and continue.
+ * and continue. Returns whether the marker is durable, which gates the
+ * memory-injection ledger reset ({@link resetInjectionLedgersForStrip}).
  */
-export function markHistoryStrippedBestEffort(conversationId: string): void {
+function markHistoryStrippedBestEffort(conversationId: string): boolean {
   try {
     setConversationHistoryStrippedAt(conversationId, Date.now());
+    return true;
   } catch (err) {
     log.warn(
       { err, conversationId },
       "Failed to persist history-stripped marker after compaction strip (non-fatal)",
     );
+    return false;
   }
+}
+
+/**
+ * Reset the memory-injection ledgers for an injection strip of the durable
+ * history. The history-stripped marker is what keeps `loadFromDb` from
+ * rehydrating the stripped blocks: a reset without it would leave a restart
+ * rehydrating blocks the ledgers no longer claim, so each would inject again
+ * beside its rehydrated copy. `historyStripMarkerDurable` reports a marker
+ * write for this strip that already succeeded (the loop's `history_stripped`
+ * dispatch), which counts as durable without a second write; otherwise the
+ * marker is written here. When no write succeeds, the reset is skipped while
+ * the durable history can still be committed with its injections intact, so
+ * the rehydrated blocks and the claiming ledgers agree.
+ * `historyAlreadyStripped` states that it cannot (a compacted result has
+ * already lost its frozen blocks to the summary), and the ledgers reset
+ * regardless: leaving them claiming sections whose blocks are gone would point
+ * every later selection at nothing, while a reload rehydrating the kept tail's
+ * blocks unclaimed costs one duplicate until the newest-copy filter retires
+ * it. Every skipped or marker-less reset is logged. `compactedMessageCount` is
+ * the summarized count, 0 when nothing was summarized. Returns whether the
+ * reset ran behind a durable marker and every ledger cleared, so the caller
+ * can commit a history whose frozen blocks are the ones the ledgers claim.
+ */
+export async function resetInjectionLedgersForStrip(
+  ctx: Pick<Conversation, "conversationId" | "graphMemory">,
+  compactedMessageCount: number,
+  options: {
+    historyStripMarkerDurable?: boolean;
+    historyAlreadyStripped?: boolean;
+  } = {},
+): Promise<boolean> {
+  const markerDurable =
+    (options.historyStripMarkerDurable ?? false) ||
+    markHistoryStrippedBestEffort(ctx.conversationId);
+  if (!markerDurable) {
+    if (!options.historyAlreadyStripped) {
+      log.warn(
+        { conversationId: ctx.conversationId },
+        "History-stripped marker not durable; leaving the memory-injection ledgers intact",
+      );
+      return false;
+    }
+    log.warn(
+      { conversationId: ctx.conversationId },
+      "History-stripped marker not durable; resetting the memory-injection ledgers for the compacted history anyway",
+    );
+  }
+  const cleared = await ctx.graphMemory.onCompacted(compactedMessageCount);
+  if (!cleared) {
+    log.warn(
+      { conversationId: ctx.conversationId },
+      "Memory-injection ledger reset incomplete; a ledger still claims sections",
+    );
+  }
+  return markerDurable && cleared;
 }
 
 // ── Partial-persistence tunables ─────────────────────────────────────
@@ -254,6 +321,13 @@ export interface EventHandlerState {
   providerErrorProfile: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
+  /**
+   * Visibility marker stamped on {@link lastAssistantMessageId}, when the turn
+   * routed its reply through `send_user_message`. The turn's terminal
+   * `message_complete` SSE carries it so a client can give the live row the
+   * same per-row treatment history will hand it.
+   */
+  lastAssistantTextVisibility?: AssistantTextVisibility;
   /**
    * True when `handleLlmCallStarted` has reserved an empty assistant row
    * that has NOT yet been finalized via `handleMessageComplete`
@@ -418,6 +492,26 @@ export interface EventHandlerState {
    */
   readonly compactionStartMessages: Map<string, Message[]>;
   /**
+   * `compactionId`s whose `history_stripped` dispatch made the
+   * history-stripped marker durable. The paired `compaction_completed`
+   * dispatch consumes (deletes) the entry and resets the memory-injection
+   * ledgers on its strength, so a marker that is already durable needs no
+   * second write there.
+   */
+  readonly durableHistoryStripMarkers: Set<string>;
+  /**
+   * `compactionId`s whose `compaction_completed` dispatch reset the
+   * memory-injection ledgers on a pipeline run that compacted nothing. Handed
+   * to the loop as its run's `injectionLedgerResets`: the loop consumes the
+   * entry after the dispatch settles and strips its continuation base only
+   * when one is present, so a skipped reset (marker not durable, or a
+   * ledger whose clear failed) keeps the frozen blocks the ledgers still
+   * claim in the live history. A compacted
+   * result continues from the summary output regardless, so no entry is
+   * recorded for it.
+   */
+  readonly injectionLedgerResets: Set<string>;
+  /**
    * Cursor into the turn's latency-mark list marking how far prior calls have
    * already been serialized, so each `usage` event emits only its own call's
    * latency segment. Advances on every `handleUsage`.
@@ -564,14 +658,17 @@ export interface EventHandlerDeps {
   /**
    * Commit a successful inline compaction to durable state. Invoked from the
    * `compaction_completed` dispatch case (when `compacted`) with the
-   * loop's compaction result and the stripped pre-compaction history. Supplied
-   * by the orchestrator because the body writes Conversation DB-record fields,
-   * projects Slack provenance, and emits transport the loop is intentionally
-   * blind to.
+   * loop's compaction result, the stripped pre-compaction history, and
+   * whether the pair's `history_stripped` dispatch already made the
+   * history-stripped marker durable (so the memory-injection ledger reset
+   * needs no second marker write). Supplied by the orchestrator because the
+   * body writes Conversation DB-record fields, projects Slack provenance, and
+   * emits transport the loop is intentionally blind to.
    */
   readonly applyCompaction: (
     result: ContextWindowResult,
     messages: Message[],
+    historyStripMarkerDurable: boolean,
   ) => Promise<void>;
   /**
    * Per-turn first-token latency instrumentation. The orchestrator stamps the
@@ -644,6 +741,8 @@ export function createEventHandlerState(): EventHandlerState {
     lastStreamedContentSeq: undefined,
     flushedContentSeq: undefined,
     compactionStartMessages: new Map(),
+    durableHistoryStripMarkers: new Set(),
+    injectionLedgerResets: new Set(),
     latencyCursor: 0,
     deferredFinalizeEffects: [],
     revealCandidateRefs: [],
@@ -875,7 +974,52 @@ export function buildPersistedAssistantContent(
         : {}),
     } as unknown as ContentBlock);
   }
+  // One redactor for every block shape below, so the plain-text branch and the
+  // tool-delivered branch can never drift on which mode they run in.
+  const redact = (value: string): string =>
+    revealCandidates !== undefined
+      ? redactSecretsForChat(value, revealCandidates, forChatMints)
+      : redactCandidateValuesLegacy(value, legacyFallbackCandidates);
+
+  /**
+   * Give a delivered message the same cleaning a top-level text block gets:
+   * the projection turns it into this row's text, so a legacy
+   * `<vellum-attachment />` tag left inside it renders to the user verbatim.
+   * Running it through `cleanAssistantContent` rather than re-implementing the
+   * strip keeps the two from drifting as the directive syntax evolves.
+   *
+   * Discovery of the directive is separate and already runs over the projected
+   * blocks in `handleMessageComplete`, so this only removes the markup; the
+   * attachment it names is still resolved and linked to the row.
+   */
+  const stripDirectiveMarkup = (message: string): string => {
+    if (!message.includes("<vellum-attachment")) {
+      return message;
+    }
+    const [cleaned] = cleanAssistantContent([{ type: "text", text: message }])
+      .cleanedContent as Array<{ text?: unknown } | undefined>;
+    return typeof cleaned?.text === "string" ? cleaned.text : message;
+  };
+
   return withSurfaces.map((block) => {
+    // A `send_user_message` call carries text a user reads: the read-side
+    // projection turns it into this row's text block, and history, exports,
+    // previews and the lexical index all show it. It is redacted here, at the
+    // one place the row is built, so no secret the model quoted into the
+    // message reaches SQLite in the clear.
+    const delivered = sendUserMessageText(block);
+    if (delivered !== null) {
+      const redacted = redact(stripDirectiveMarkup(delivered));
+      if (redacted === delivered) {
+        return block;
+      }
+      const tu = block as Extract<ContentBlock, { type: "tool_use" }>;
+      return {
+        ...tu,
+        input: { ...tu.input, message: redacted },
+        _redactionVersion: SENTINEL_REDACTION_VERSION,
+      } as ContentBlock;
+    }
     if (block.type === "text") {
       const tb = block as Extract<ContentBlock, { type: "text" }>;
       // Sentinel mode (chat-credential-reveal flag on) persists redactions
@@ -1353,6 +1497,15 @@ function buildAssistantChannelMetadata(
 ): Record<string, unknown> {
   const metadata: Record<string, unknown> = {
     ...provenanceFromTrustContext(turnOrRestingTrust(deps.ctx)),
+    // A turn routing its reply through `send_user_message` writes working
+    // notes, so the row is marked private from the moment it is reserved: a
+    // turn that dies before `message_complete` still has its scratchpad
+    // projected out of every user-facing read. The finalize below re-stamps
+    // it, promoting the row to `"visible"` when the fallback surfaced the raw
+    // text after all.
+    ...(resolveSendUserMessageActive(deps.ctx)
+      ? { [ASSISTANT_TEXT_VISIBILITY_KEY]: "private" }
+      : {}),
     userMessageChannel: deps.turnChannelContext.userMessageChannel,
     assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
@@ -1540,6 +1693,25 @@ function handleTextDelta(
   }
 }
 
+/**
+ * Whether a completed tool should drive a "Processing ... results" status.
+ *
+ * The delivery tool is mechanical: its call IS the reply the user just read
+ * and its result is a bare receipt, so "Processing send user message results"
+ * narrates plumbing at the exact moment the user is reading the answer.
+ *
+ * Skipping the emission rather than blanking the text is deliberate: the
+ * client overwrites its status on every `assistant_activity_state`, so an
+ * emission with no `statusText` would clear whatever the turn was showing.
+ * This is the same reason the thinking-delta site skips when no tool has
+ * completed at all.
+ */
+function announcesToolResultStatus(
+  toolName: string | undefined,
+): toolName is string {
+  return toolName !== undefined && toolName !== SEND_USER_MESSAGE_TOOL_NAME;
+}
+
 function handleThinkingDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -1555,7 +1727,7 @@ function handleThinkingDelta(
     // after approval"). Even omitting statusText from the message would
     // cause the client to clear it, since the client overwrites
     // assistantStatusText for every assistant_activity_state event.
-    if (lastToolName) {
+    if (announcesToolResultStatus(lastToolName)) {
       const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
       deps.ctx.emitActivityState("thinking", "thinking_delta", {
         requestId: deps.reqId,
@@ -1589,6 +1761,10 @@ export function handleToolUse(
   event: Extract<AgentEvent, { type: "tool_use" }>,
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
+  // Activation checklist: keep the launched task's live step count moving.
+  // Fire-and-forget and throttled inside the hook; a no-op for every
+  // conversation no activation task points at.
+  onActivationToolCall(deps.ctx.conversationId);
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }
@@ -2376,13 +2552,15 @@ export async function handleToolResult(
 
   // Emit activity state immediately so clients show a thinking indicator
   // during the gap between tool_result and the next thinking_delta/text_delta.
-  const statusText = `Processing ${friendlyToolName(
-    state.lastCompletedToolName ?? "",
-  )} results`;
-  deps.ctx.emitActivityState("thinking", "tool_result_received", {
-    requestId: deps.reqId,
-    statusText,
-  });
+  if (announcesToolResultStatus(state.lastCompletedToolName)) {
+    const statusText = `Processing ${friendlyToolName(
+      state.lastCompletedToolName,
+    )} results`;
+    deps.ctx.emitActivityState("thinking", "tool_result_received", {
+      requestId: deps.reqId,
+      statusText,
+    });
+  }
 
   // Once all tools for this turn have completed, annotate the persisted
   // assistant message with timing and confirmation metadata.
@@ -2931,8 +3109,17 @@ export async function handleMessageComplete(
   // it here separately is the cheapest way to keep the directive
   // side-effects local to this handler while letting the shared helper
   // own the persisted-content shape.
+  // On a row whose plain text is private working notes, the text a user reads
+  // is what `send_user_message` carried, so that is where an attachment
+  // directive has to be found: scanning the raw blocks would miss a
+  // `vellum://` link the model put in its message and the file would never be
+  // attached to the delivered reply.
   const { directives: msgDirectives, warnings: msgWarnings } =
-    cleanAssistantContent(event.message.content);
+    cleanAssistantContent(
+      event.assistantTextVisibility === "private"
+        ? projectUserFacingContent(event.message.content, { toolGated: true })
+        : event.message.content,
+    );
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -2989,12 +3176,24 @@ export async function handleMessageComplete(
   // assembly can attribute each assistant message to the model that actually
   // ran it — including per-call reroutes by a `pre-model-call` hook. Absent on
   // synthesized completions with no provider response; the key is omitted then.
+  // How this row's plain text reached the user, reported by the loop and
+  // stamped in the same transaction as the final content. Only a run under the
+  // tool-gated reply surface carries it: `"private"` for working notes the
+  // projection hides, `"visible"` for a fallback turn whose raw text the user
+  // actually saw and which therefore has to render and deliver like any reply.
+  const finalizeMetadata: Record<string, unknown> = {
+    ...(event.model ? { model: event.model } : {}),
+    ...(event.assistantTextVisibility
+      ? { [ASSISTANT_TEXT_VISIBILITY_KEY]: event.assistantTextVisibility }
+      : {}),
+  };
+  state.lastAssistantTextVisibility = event.assistantTextVisibility;
   const persisted = await finalizeInflightContent(
     state.inflightWriters.get(assistantMessageId),
     assistantMessageId,
     contentJson,
     deps.rlog,
-    event.model ? { model: event.model } : undefined,
+    Object.keys(finalizeMetadata).length > 0 ? finalizeMetadata : undefined,
   );
   // Keep the writer on a failed finalize (e.g. persistent SQLITE_BUSY) so
   // the turn tail's stranded fold can retry — deleting it would leave the
@@ -3085,8 +3284,11 @@ export async function handleMessageComplete(
   }
 
   try {
+    // The loop advances `turnCount` after the turn ends, so here it is still
+    // the `turnIndex` the injector stamped on this turn's v3 rows.
     backfillMemoryV3SelectionMessageId(
       deps.ctx.conversationId,
+      deps.ctx.turnCount,
       assistantMessageId,
     );
   } catch (err) {
@@ -3502,30 +3704,69 @@ export async function dispatchAgentEvent(
         deps.onEvent(event);
         break;
       case "compaction_completed": {
-        // Always commit the stripped pre-compaction history as the durable
-        // message base so re-injection re-applies onto the stripped history
-        // even when the pipeline ran but did not compact. The base is
-        // re-derived from the buffered start event's messages (the end event
-        // carries only the pipeline's output). When the pipeline did compact,
-        // commit the durable result (DB-record fields, Slack provenance,
-        // SSE) — which overwrites `ctx.messages` with the compacted history.
-        // This runs before the loop's `reinject` hook (the loop awaits this
-        // dispatch), so the committed history is in place in time. A failed
-        // durable commit re-throws below to abort the turn rather than
-        // re-injecting against half-applied state.
+        // Commit the pre-compaction history as the durable message base in
+        // the shape the memory-injection ledger reset leaves it: stripped of
+        // its injections when the ledgers reset (so re-injection re-applies
+        // onto the stripped history even when the pipeline ran but did not
+        // compact), with its injections intact when the reset was skipped
+        // (the history-stripped marker could not be made durable, or a
+        // ledger clear failed): the ledgers then still claim the frozen
+        // blocks, the persisted rows still carry them, and a reload
+        // rehydrates them with no marker to skip them. The base is
+        // re-derived from the buffered start event's
+        // messages (the end event carries only the pipeline's output). When
+        // the pipeline did compact, commit the durable result (DB-record
+        // fields, Slack provenance, SSE), which overwrites `ctx.messages`
+        // with the compacted history. This runs before the loop's `reinject`
+        // hook (the loop awaits this dispatch), so the committed history is
+        // in place in time. A failed durable commit re-throws below to abort
+        // the turn rather than re-injecting against half-applied state.
         recordCompactionEndBestEffort(deps.ctx.conversationId, event);
         const startMessages = state.compactionStartMessages.get(
           event.compactionId,
         );
         state.compactionStartMessages.delete(event.compactionId);
+        // Whether the pair's `history_stripped` dispatch made the marker
+        // durable; both branches below reset the injection ledgers on that
+        // strength instead of requiring a second successful marker write.
+        const historyStripMarkerDurable =
+          state.durableHistoryStripMarkers.delete(event.compactionId);
         // Fall back to the pipeline's output when the start event was never
         // buffered — on the no-compaction path it is the stripped input.
         const strippedBase = startMessages
           ? stripInjectionsForCompaction(startMessages)
           : event.messages;
-        deps.ctx.messages = strippedBase;
         if (event.compacted) {
-          await deps.applyCompaction(event, strippedBase);
+          deps.ctx.messages = strippedBase;
+          await deps.applyCompaction(
+            event,
+            strippedBase,
+            historyStripMarkerDurable,
+          );
+        } else {
+          // The strip alone leaves durable history without the frozen memory
+          // blocks the injection ledgers claim (nothing eligible to summarize,
+          // or an overflow rung that reduced without summarizing), so the
+          // ledgers reset as `applyCompactionResult` resets them on a real
+          // compaction; otherwise every later turn points at sections whose
+          // blocks are gone. Nothing was summarized, so the count is zero, as
+          // on `/clean`. The loop reads the outcome from
+          // `injectionLedgerResets` and continues from the matching shape
+          // (`AgentLoop.compact`), so the re-injection that follows renders a
+          // section the reset left unclaimed once, with no frozen copy left on
+          // an earlier message, and points at a section a skipped reset still
+          // claims where its frozen copy still sits.
+          const ledgersReset = await resetInjectionLedgersForStrip(
+            deps.ctx,
+            0,
+            { historyStripMarkerDurable },
+          );
+          if (ledgersReset) {
+            state.injectionLedgerResets.add(event.compactionId);
+            deps.ctx.messages = strippedBase;
+          } else {
+            deps.ctx.messages = startMessages ?? event.messages;
+          }
         }
         break;
       }
@@ -3533,8 +3774,13 @@ export async function dispatchAgentEvent(
         // Record the history-stripped DB marker right after the loop strips
         // injections (before the pipeline). Best-effort: a transient marker
         // write must not abort the turn, so unlike `compaction_completed` this
-        // is not on the re-throw allowlist below.
-        markHistoryStrippedBestEffort(deps.ctx.conversationId);
+        // is not on the re-throw allowlist below. A durable write is recorded
+        // for the pair so the `compaction_completed` dispatch resets the
+        // injection ledgers without a second write; a failure here only defers
+        // the marker to the re-attempt there.
+        if (markHistoryStrippedBestEffort(deps.ctx.conversationId)) {
+          state.durableHistoryStripMarkers.add(event.compactionId);
+        }
         break;
       case "error":
         handleError(state, deps, event);

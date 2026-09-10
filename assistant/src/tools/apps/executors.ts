@@ -8,6 +8,8 @@
  * ToolDefinition or ToolContext types.
  */
 
+import { normalizeAppIcon } from "@vellumai/app-icons";
+
 import type { AppDefinition } from "../../apps/app-store.js";
 import { getAppDirPath } from "../../apps/app-store.js";
 import { compileApp } from "../../bundler/app-compiler.js";
@@ -208,14 +210,12 @@ export async function executeAppCreate(
     return sourceFilesError;
   }
 
-  // Extract icon from preview if provided - only persist emoji-like values,
-  // not URLs which would render as raw strings in UI and bundle manifests.
-  // Lenient alias: a top-level `icon` is folded in when preview.icon is absent.
-  const rawIcon = (preview?.icon ??
-    (typeof input.icon === "string" ? input.icon : undefined)) as
-    | string
-    | undefined;
-  const icon = rawIcon && !rawIcon.startsWith("http") ? rawIcon : undefined;
+  // The app's icon comes from preview.icon: a name from the app icon
+  // registry (`@vellumai/app-icons`), or an emoji the registry maps. URLs are
+  // dropped there; they would render as raw strings in UI and bundle
+  // manifests. Lenient alias: a top-level `icon` is folded in when
+  // preview.icon is absent.
+  const icon = normalizeAppIcon(preview?.icon ?? input.icon);
 
   const app = store.createApp({
     name,
@@ -514,6 +514,8 @@ export interface AppGenerateIconInput {
 export async function executeAppGenerateIcon(
   input: AppGenerateIconInput,
   store: AppStoreReader,
+  /** Turn cancellation, checked before the rename and the paid generation. */
+  signal?: AbortSignal,
 ): Promise<ExecutorResult> {
   const app = store.getApp(input.app_id);
   if (!app) {
@@ -530,16 +532,31 @@ export async function executeAppGenerateIcon(
   const iconPath = join(getAppDirPath(input.app_id), "icon.png");
   const tempPath = join(getAppDirPath(input.app_id), "icon.tmp.png");
 
+  // The dynamic imports above yield, so recheck before moving the user's
+  // existing icon aside and paying for a replacement.
+  signal?.throwIfAborted();
+
   // Temporarily move existing icon aside so generateAppIcon doesn't skip
   if (existsSync(iconPath)) {
     renameSync(iconPath, tempPath);
   }
 
-  await generateAppIcon(
-    input.app_id,
-    app.name,
-    input.description ?? app.description,
-  );
+  try {
+    await generateAppIcon(
+      input.app_id,
+      app.name,
+      input.description ?? app.description,
+      signal ? { signal } : undefined,
+    );
+  } catch (err) {
+    // The existing icon is sitting at the temp path. Put it back before the
+    // cancellation leaves, or a stopped turn costs the user the icon it was
+    // only meant to replace.
+    if (existsSync(tempPath) && !existsSync(iconPath)) {
+      renameSync(tempPath, iconPath);
+    }
+    throw err;
+  }
 
   if (existsSync(iconPath)) {
     // Success - clean up the old icon backup

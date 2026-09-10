@@ -23,14 +23,10 @@ export interface McpServerEntry {
   id: string;
   status: string;
   transport: McpServerTransport;
-  enabled: boolean;
-  defaultRiskLevel: string;
   hasOAuth: boolean;
   hasStaticAuth: boolean;
   authType: "none" | "bearer" | "api-key";
   authHeaderName?: string;
-  allowedTools?: string[];
-  blockedTools?: string[];
 }
 
 export interface McpToolEntry {
@@ -90,11 +86,6 @@ export async function updateMcpServer(
   assistantId: string,
   body: {
     name: string;
-    enabled?: boolean;
-    defaultRiskLevel?: string;
-    maxTools?: number;
-    allowedTools?: string[] | null;
-    blockedTools?: string[] | null;
     headers?: Record<string, string> | null;
   },
 ): Promise<void> {
@@ -116,8 +107,6 @@ export async function addMcpServer(
     url?: string;
     command?: string;
     args?: string[];
-    risk?: string;
-    disabled?: boolean;
     headers?: Record<string, string>;
   },
 ): Promise<void> {

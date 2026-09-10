@@ -44,6 +44,9 @@ let ipcResults: Record<string, unknown> = {};
 /** Whether the fake ipcCall should simulate a connection error. */
 let simulateError = false;
 
+/** `IpcConnectError.code` used when `simulateError` is set. */
+let simulateErrorCode: string | undefined;
+
 /** Throw a transient (retryable) error for the first N persistent calls, then succeed. */
 let failFirstN = 0;
 
@@ -69,10 +72,10 @@ class FakePersistentIpcClient extends EventEmitter {
       if (failWithIpcCallError) {
         throw new FakeIpcCallError("Mock deterministic gateway error");
       }
-      throw new Error("Mock IPC socket error");
+      throw mockConnectError();
     }
     if (simulateError) {
-      throw new Error("Mock IPC socket error");
+      throw mockConnectError();
     }
     if (method in ipcResults) {
       return ipcResults[method];
@@ -131,7 +134,39 @@ class FakeIpcCallError extends Error {
   }
 }
 
+class FakeIpcConnectError extends Error {
+  readonly code?: string;
+
+  constructor(message: string, code?: string) {
+    super(message);
+    this.name = "IpcConnectError";
+    if (code !== undefined) {
+      this.code = code;
+    }
+  }
+}
+
+const RETRYABLE_CONNECT_CODES = new Set(["ENOENT", "ECONNREFUSED"]);
+
+function isRetryableIpcConnectError(err: unknown): boolean {
+  if (typeof err === "object" && err !== null && "code" in err) {
+    const code = (err as { code?: unknown }).code;
+    return typeof code === "string" && RETRYABLE_CONNECT_CODES.has(code);
+  }
+  return false;
+}
+
+function mockConnectError(): FakeIpcConnectError {
+  return new FakeIpcConnectError(
+    "Mock IPC socket error",
+    simulateErrorCode ?? "ENOENT",
+  );
+}
+
 export function installGatewayIpcMock(): void {
+  // Named exports here must cover every ipc-client symbol the package barrel
+  // re-exports. Bun's mock replaces that module for relative and package
+  // imports, so a missing name fails assistant tests at load time.
   mock.module("@vellumai/gateway-client/ipc-client", () => ({
     ipcCall: async (
       _socketPath: string,
@@ -151,6 +186,8 @@ export function installGatewayIpcMock(): void {
       return undefined;
     },
     IpcCallError: FakeIpcCallError,
+    IpcConnectError: FakeIpcConnectError,
+    isRetryableIpcConnectError,
     PersistentIpcClient: FakePersistentIpcClient,
   }));
 }
@@ -165,7 +202,7 @@ export function installGatewayIpcMock(): void {
  * @param flags — feature flag map returned by `get_feature_flags`. Pass
  *   `null` to skip setting a result (useful when only simulating errors).
  * @param opts.error — simulate a socket connection error
- * @param opts.code — error code (kept for API compat, unused by package mock)
+ * @param opts.code - `IpcConnectError.code` when simulating a connect failure
  * @param opts.results — raw method->result map for arbitrary IPC methods
  */
 export function mockGatewayIpc(
@@ -189,6 +226,9 @@ export function mockGatewayIpc(
   if (opts?.error) {
     simulateError = true;
   }
+  if (opts?.code !== undefined) {
+    simulateErrorCode = opts.code;
+  }
   if (opts?.failFirstN !== undefined) {
     failFirstN = opts.failFirstN;
   }
@@ -211,6 +251,7 @@ export function getMockPersistentCallCount(method: string): number {
 export function resetMockGatewayIpc(): void {
   ipcResults = {};
   simulateError = false;
+  simulateErrorCode = undefined;
   failFirstN = 0;
   failWithIpcCallError = false;
   for (const key of Object.keys(persistentCallCounts)) {

@@ -19,6 +19,7 @@ on:
       - 'skills/**'
       - 'packages/**'
       - '.github/workflows/pr-windows.yaml'
+      - '.github/workflows/release-windows.yaml'
 
 concurrency:
   group: pr-windows-${{ github.event.pull_request.number }}
@@ -110,6 +111,10 @@ jobs:
 
       - name: Install dependencies
         run: bun install --frozen-lockfile --filter=@vellumai/native-sidecar --filter=@vellumai/windows
+
+      - name: Test release signature verification
+        shell: pwsh
+        run: ./scripts/verify-release.tests.ps1
 
       - name: Test and publish helper
         run: bun scripts/build-native-helper.ts --arch all --test
