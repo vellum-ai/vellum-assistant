@@ -130,17 +130,22 @@ Examples:
       ],
       helpText: `
 Posts one message through the channel's own transport, the same path a
-reply takes, and records it in the chat's conversation once the channel
-acknowledges it. The record is what lets the assistant see later what it
-said here, and what lets a reaction or an edit naming that post resolve
-back to it.
+reply takes. Once the channel acknowledges it, the daemon records it in
+the chat's conversation, which is what lets the assistant see later what
+it said here and lets a reaction or an edit naming that post resolve back
+to it. Recording is best effort and never fails a send that already went
+out, so the result names the conversation only when the record was
+written.
 
 This sends a message people will read, so it is classified high risk and
 asks for approval like any other action with effects nobody can take back.
 
 The send fails, and records nothing, when the channel does not acknowledge
 it or names no message id for it. A channel the assistant cannot address
-from a named chat is refused before anything is sent.
+from a named chat is refused before anything is sent. If the daemon does
+not answer in time, the message may still go out: that is reported as an
+unknown outcome rather than a failure, so check the chat before sending
+again.
 
 Attachments are not sent from here.
 

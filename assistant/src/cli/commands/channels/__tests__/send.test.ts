@@ -5,7 +5,11 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // answer. IPC is stubbed to capture that request; the exit-code helper
 // stays real, so the tests assert the mapping that ships.
 
-const ipcCalls: Array<{ method: string; params: Record<string, unknown> }> = [];
+const ipcCalls: Array<{
+  method: string;
+  params: Record<string, unknown>;
+  opts?: Record<string, unknown>;
+}> = [];
 let ipcResult: Record<string, unknown> = {
   ok: true,
   result: {
@@ -20,8 +24,12 @@ let ipcResult: Record<string, unknown> = {
 const actualCliClient = await import("../../../../ipc/cli-client.js");
 mock.module("../../../../ipc/cli-client.js", () => ({
   ...actualCliClient,
-  cliIpcCall: async (method: string, params: Record<string, unknown>) => {
-    ipcCalls.push({ method, params });
+  cliIpcCall: async (
+    method: string,
+    params: Record<string, unknown>,
+    opts?: Record<string, unknown>,
+  ) => {
+    ipcCalls.push({ method, params, ...(opts ? { opts } : {}) });
     return ipcResult;
   },
 }));
@@ -98,6 +106,22 @@ describe("the request the command makes", () => {
     expect(body.channel).toBe("telegram");
   });
 
+  test("sends the text as the caller wrote it, whitespace included", async () => {
+    await runSend([
+      "slack",
+      "C0123456789",
+      "--text",
+      "  indented  ",
+      "--plain",
+    ]);
+    expect(sentBody().text).toBe("  indented  ");
+  });
+
+  test("waits longer than the IPC default, since the send itself retries", async () => {
+    await runSend(["slack", "C0123456789", "--text", "hi"]);
+    expect(ipcCalls[0]!.opts).toMatchObject({ timeoutMs: 120_000 });
+  });
+
   test("refuses an empty text before it sends anything", async () => {
     for (const args of [
       ["slack", "C0123456789"],
@@ -162,6 +186,14 @@ describe("what the command reports", () => {
       actualCliClient.exitCodeFromIpcResult({ statusCode: 400 }),
     );
     expect(r.stderr).toContain("not addressable");
+  });
+
+  test("a timeout is reported as an unknown outcome, not a failure to retry", async () => {
+    ipcResult = { ok: false, error: "Request timed out", timedOut: true };
+    const r = await runSend(["slack", "C0123456789", "--text", "hello"]);
+    expect(r.stderr).toContain("may still be in flight");
+    expect(r.stderr).toContain("before sending again");
+    expect(r.stderr).not.toContain("The send failed");
   });
 
   test("a refusal in --json mode is a JSON error envelope", async () => {
