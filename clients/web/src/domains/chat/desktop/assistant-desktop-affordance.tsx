@@ -58,7 +58,7 @@ export function AssistantDesktopAffordance() {
           </Modal.Header>
           <Modal.Body className="min-h-0 overflow-hidden p-0">
             <LazyBoundary>
-              <DesktopPanel assistantId={assistantId} />
+              <DesktopPanel key={assistantId} assistantId={assistantId} />
             </LazyBoundary>
           </Modal.Body>
         </Modal.Content>

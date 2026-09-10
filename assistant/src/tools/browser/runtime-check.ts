@@ -8,15 +8,7 @@ import { getExternalDir } from "../../util/platform.js";
 
 const log = getLogger("runtime-check");
 
-/**
- * The playwright the container image builds against, and therefore the one
- * whose Chromium build id is baked into `/opt/ms-playwright` (see
- * `assistant/Dockerfile`). The runtime install below asks for this exact
- * version rather than floating: a different playwright looks for a different
- * browser build id, so a floating install would re-download Chromium and the
- * bake would buy the pod nothing. Read from the manifest so the pin has one
- * home.
- */
+/** Runtime installs match the bundled Playwright API version. */
 export const PLAYWRIGHT_VERSION: string = assistantPkg.dependencies.playwright;
 
 export interface BrowserRuntimeStatus {
@@ -63,12 +55,7 @@ async function tryBundledPlaywright(): Promise<
   return undefined;
 }
 
-/**
- * Version of the runtime-installed playwright, or null when there is none.
- *
- * A copy left behind by an earlier floating install is a copy that disagrees
- * with the baked browser, so it is replaced rather than reused.
- */
+/** Version of the runtime-installed Playwright, or null when absent. */
 function installedPlaywrightVersion(pkgDir: string): string | null {
   try {
     const pkg = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf-8"));

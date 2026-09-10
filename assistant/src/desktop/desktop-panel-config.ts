@@ -1,9 +1,8 @@
 /**
  * The generated tint2 config behind the assistant desktop's dock: a
- * bottom-centered floating strip with icon-only launchers for Chromium and a
+ * bottom-centered floating strip with icon-only launchers for Google Chrome and a
  * terminal, plus the window list. Generated at desktop start rather than baked
- * into the image because the Chromium launcher points at Playwright's
- * executable, whose path is only known at runtime.
+ * into the image because Chrome is installed on demand.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -51,7 +50,7 @@ const BROWSER_ICON_BASE64 = [
 export interface DesktopPanelConfigRequest {
   /** Runtime directory the config, launchers and icons are written to. */
   readonly configDir: string;
-  /** Playwright's Chromium, as resolved for the desktop's own browser. */
+  /** Google Chrome, as resolved for the desktop's own browser. */
   readonly chromiumPath: string;
   /** Profile the launcher shares with that browser, so it reuses the window. */
   readonly chromiumProfileDir: string;
@@ -78,9 +77,9 @@ export function writeDesktopPanelConfig(
   writeFileSync(
     chromiumEntry,
     desktopEntry({
-      name: "Chromium",
+      name: "Google Chrome",
       icon: browserIcon,
-      // The same profile as the desktop's own Chromium, so the launcher opens
+      // The same profile as the desktop's own Google Chrome, so the launcher opens
       // a window in that instance instead of a second untracked browser.
       exec: `"${request.chromiumPath}" --no-sandbox --no-first-run --disable-dev-shm-usage "--user-data-dir=${request.chromiumProfileDir}"`,
     }),

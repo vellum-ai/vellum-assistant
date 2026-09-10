@@ -111,7 +111,7 @@ mock.module("./desktop-connection", () => ({
   }),
 }));
 
-const { DesktopPanel } = await import("./desktop-panel");
+const { DesktopViewer: DesktopPanel } = await import("./desktop-panel");
 
 // bun:test has no fake timers, so the session's connect timeout is captured
 // from a patched `setTimeout` and fired by hand.
