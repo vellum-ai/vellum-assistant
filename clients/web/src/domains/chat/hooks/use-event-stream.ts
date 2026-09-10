@@ -57,7 +57,11 @@ export interface UseEventStreamParams {
   conversationExistsOnServer: boolean;
 
   // Callbacks from useStreamEventHandler / useMessageReconciliation
-  handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
+  handleStreamEvent: (
+    event: AssistantEvent,
+    epoch: number,
+    envelopeConversationId: string | undefined,
+  ) => void;
   reconcileActiveConversation: (
     trigger: ReconcileTrigger,
     authoritative?: boolean,
@@ -226,8 +230,8 @@ export function useEventStream({
     // eslint-disable-next-line react-hooks/refs
     return createSseEventConsumer({
       activeConversationIdRef: activeConversationIdLatestRef,
-      handleStreamEvent: (event, epoch) =>
-        handleStreamEventRef.current(event, epoch),
+      handleStreamEvent: (event, epoch, envelopeConversationId) =>
+        handleStreamEventRef.current(event, epoch, envelopeConversationId),
       // Seq-gap reconcile: a proven out-of-ring gap means the live suffix
       // is non-contiguous, so re-bootstrap authoritatively from the server
       // snapshot rather than keeping the holey local rows.

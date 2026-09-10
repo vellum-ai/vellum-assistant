@@ -2,17 +2,17 @@
  * `subagent_status_changed` SSE event.
  *
  * Server → client notification that a subagent's status has
- * transitioned. Carries `subagentId`, the parent `conversationId`, the
- * new `status`, an optional `error` message (typically present when
- * transitioning into `failed`), and an optional rolling `usage` snapshot.
+ * transitioned. Carries `subagentId`, the new `status`, an optional
+ * `error` message (typically present when transitioning into
+ * `failed`), and an optional rolling `usage` snapshot.
  *
- * `conversationId` is the PARENT conversation, as on `subagent_event`.
- * The daemon emits through the parent's sink, which is the assistant
- * event hub, and the hub scopes and seq-stamps an event by the
- * `conversationId` on its payload: without it the event fans out
- * unscoped to every subscriber and is never replayed on reconnect, and a
- * client that never saw the `spawned` event has no parent to file the
- * status under.
+ * No `conversationId` field: the parent conversation is the envelope's,
+ * stamped by that conversation's sink (`conversationEventSink` in
+ * `daemon/conversation-event-sink.ts`), which is what the hub filters
+ * and seq-stamps on. Clients read the parent from the envelope. Adding
+ * it to this payload instead would be a breaking wire change, since
+ * this schema is `.strict()` and already-deployed clients reject an
+ * unknown key by dropping the whole event.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
@@ -59,13 +59,6 @@ export const SubagentStatusChangedEventSchema = z
   .object({
     type: z.literal("subagent_status_changed"),
     subagentId: z.string(),
-    /**
-     * Parent conversation id, the scope the event hub filters and
-     * seq-stamps on. Optional on the wire only because older assistants
-     * omit it and the web client validates their events with this
-     * schema; every emit site sets it.
-     */
-    conversationId: z.string().optional(),
     status: SubagentStatusSchema,
     error: z.string().optional(),
     usage: SubagentUsageStatsSchema.optional(),

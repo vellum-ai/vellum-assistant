@@ -215,12 +215,9 @@ describe("SubagentManager abort notification", () => {
     expect(statusMsg).toBeDefined();
     expect(statusMsg!.subagentId).toBe(subagentId);
     expect(statusMsg!.status).toBe("aborted");
-    // The parent scopes the event on the hub, and a client that never saw
-    // the spawn files the status under it.
-    expect(statusMsg!.conversationId).toBe("parent-sess-1");
   });
 
-  test("reannounce sends each child's status scoped to the parent", () => {
+  test("reannounce sends each child's current status through the stored sender", () => {
     const manager = new SubagentManager();
     const subagentId = "sub-1";
 
@@ -242,7 +239,6 @@ describe("SubagentManager abort notification", () => {
     expect(statusMsg).toBeDefined();
     expect(statusMsg!.subagentId).toBe(subagentId);
     expect(statusMsg!.status).toBe("running");
-    expect(statusMsg!.conversationId).toBe("parent-sess-1");
   });
 
   test("abort returns false for unknown subagent", () => {

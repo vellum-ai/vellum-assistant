@@ -30,7 +30,7 @@ export function handleSubagentSpawned(
 
 export function handleSubagentStatusChanged(
   event: SubagentStatusChangedEvent,
-  _ctx: StreamHandlerContext,
+  ctx: StreamHandlerContext,
 ): void {
   const store = useSubagentStore.getState();
   // Evidence of a subagent the store has never seen: its `subagent_spawned`
@@ -42,10 +42,11 @@ export function handleSubagentStatusChanged(
   // the real identity, and any sibling subagent that streamed nothing at all,
   // a round-trip later.
   if (!store.byId[event.subagentId]) {
-    // Older assistants name no parent; only for them is the conversation on
-    // screen taken as one.
+    // The event names no conversation of its own; the transport does. Only an
+    // assistant too old to stamp the envelope leaves the conversation on
+    // screen as the one thing left to guess from.
     const parentConversationId =
-      event.conversationId || legacySubagentStatusParentConversationId();
+      ctx.eventConversationId ?? legacySubagentStatusParentConversationId();
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),
