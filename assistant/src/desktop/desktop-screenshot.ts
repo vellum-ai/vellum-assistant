@@ -9,7 +9,7 @@ function chunk(type: string, data: Buffer): Buffer {
   return result;
 }
 
-/** Decode the 24-bit TrueColor XWD produced by our X server. */
+/** Decode 24-bit TrueColor and DirectColor XWD screenshots. */
 export function desktopScreenshot(xwd: Buffer): {
   png: Buffer;
   width: number;
@@ -22,13 +22,14 @@ export function desktopScreenshot(xwd: Buffer): {
   const width = field(4);
   const height = field(5);
   const stride = field(12);
+  const visualClass = field(13);
   const offset = field(0) + field(19) * 12;
   if (
     field(1) !== 7 ||
     field(2) !== 2 ||
     field(3) !== 24 ||
     field(11) !== 32 ||
-    field(13) !== 4 ||
+    (visualClass !== 4 && visualClass !== 5) ||
     field(6) !== 0 ||
     field(7) > 1 ||
     field(14) !== 0xff0000 ||
@@ -41,17 +42,42 @@ export function desktopScreenshot(xwd: Buffer): {
     stride < width * 4 ||
     offset + stride * height > xwd.length
   ) {
-    throw new Error("Unsupported desktop screenshot layout");
+    throw new Error(
+      `Unsupported desktop screenshot layout (visual=${visualClass}, depth=${field(3)}, bitsPerPixel=${field(11)}, size=${width}x${height}, stride=${stride}, bytes=${xwd.length})`,
+    );
   }
   const littleEndian = field(7) === 0;
+  const red = Uint8Array.from({ length: 256 }, (_, value) => value);
+  const green = red.slice();
+  const blue = red.slice();
+  if (visualClass === 5) {
+    // DirectColor maps each channel separately; absent entries retain linear RGB.
+    for (let entry = field(0); entry < offset; entry += 12) {
+      const pixel = xwd.readUInt32BE(entry);
+      const flags = xwd[entry + 10]!;
+      if (flags & 1) {
+        red[(pixel >>> 16) & 0xff] = Math.round(
+          xwd.readUInt16BE(entry + 4) / 257,
+        );
+      }
+      if (flags & 2) {
+        green[(pixel >>> 8) & 0xff] = Math.round(
+          xwd.readUInt16BE(entry + 6) / 257,
+        );
+      }
+      if (flags & 4) {
+        blue[pixel & 0xff] = Math.round(xwd.readUInt16BE(entry + 8) / 257);
+      }
+    }
+  }
   const scanlines = Buffer.alloc((width * 3 + 1) * height);
   for (let y = 0; y < height; y++) {
     let dest = y * (width * 3 + 1) + 1;
     for (let x = 0; x < width; x++) {
       const source = offset + y * stride + x * 4;
-      scanlines[dest++] = xwd[source + (littleEndian ? 2 : 1)]!;
-      scanlines[dest++] = xwd[source + (littleEndian ? 1 : 2)]!;
-      scanlines[dest++] = xwd[source + (littleEndian ? 0 : 3)]!;
+      scanlines[dest++] = red[xwd[source + (littleEndian ? 2 : 1)]!]!;
+      scanlines[dest++] = green[xwd[source + (littleEndian ? 1 : 2)]!]!;
+      scanlines[dest++] = blue[xwd[source + (littleEndian ? 0 : 3)]!]!;
     }
   }
   const header = Buffer.alloc(13);
