@@ -43,6 +43,24 @@ export const MOBILE_CONTROL_CLASS = "h-10 w-10 rounded-full";
 export const MOBILE_GLYPH_CLASS = "size-5 [&_svg]:size-5";
 
 /**
+ * The composer's filled controls, send and live voice, in the assistant's own
+ * colour rather than the primary black, at every width: the accent as a
+ * surface that carries a glyph (`--avatar-accent-fill`, see
+ * `use-avatar-accent-var`) with the glyph ink the avatar surfaces use on it
+ * (white on every accent but yellow), deepened a step under the pointer and
+ * the press the way the primary tokens step. Both fall back to the primary
+ * tokens for an assistant with no accent (an uploaded image, or an avatar
+ * still loading), so the controls never lose their fill. The `primary` variant's own disabled fill still wins on a
+ * control that cannot be pressed, since its classes are variant-prefixed.
+ */
+export const ACCENT_FILL_CLASS = [
+  "bg-[var(--avatar-accent-fill,var(--primary-base))]",
+  "[--vbtn-fg:var(--avatar-accent-glyph,var(--content-inset))]",
+  "hover:bg-[color-mix(in_srgb,#000_10%,var(--avatar-accent-fill,var(--primary-hover)))]",
+  "active:bg-[color-mix(in_srgb,#000_16%,var(--avatar-accent-fill,var(--primary-active)))]",
+].join(" ");
+
+/**
  * The press wash under the row's unfilled glyphs. The primitive paints one for
  * ghost icon-only buttons under `touch-mobile:` alone, so the row carries its
  * own and every narrow window lights up the same way.
