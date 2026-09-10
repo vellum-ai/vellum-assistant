@@ -1,5 +1,11 @@
 import type { AcpAgentConfig } from "./acp-schema.js";
 
+/**
+ * A bundled profile always names its command; a user entry for the same id
+ * may omit `command` and inherit this one.
+ */
+export type AcpAgentProfile = AcpAgentConfig & { command: string };
+
 // Shared frozen empty args array — these defaults are read by every ACP spawn,
 // so a single accidental `args.push(...)` from one caller would corrupt every
 // subsequent read. Cast through `unknown` because `AcpAgentConfig.args` is
@@ -13,17 +19,22 @@ const FROZEN_EMPTY_ARGS = Object.freeze([] as string[]) as unknown as string[];
  * falls back to this map so common agents like `claude` and `codex` Just Work
  * without requiring per-user config.
  *
- * Keyed by agent id. Deeply frozen — the outer object, each profile, and the
- * `args` arrays — so mutation throws in strict mode rather than silently
+ * A profile's `model` is the model a session of that agent starts on when the
+ * ask names none, and is the rung `acp.agents.<id>.model` fills: a user config
+ * entry that names a model overrides it, one that omits it inherits it.
+ *
+ * Keyed by agent id. Deeply frozen: the outer object, each profile, and the
+ * `args` arrays, so mutation throws in strict mode rather than silently
  * corrupting the shared defaults.
  */
 export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
-  Record<string, AcpAgentConfig>
+  Record<string, AcpAgentProfile>
 > = Object.freeze({
   claude: Object.freeze({
     command: "claude-agent-acp",
     args: FROZEN_EMPTY_ARGS,
     description: "Claude Code (via @agentclientprotocol/claude-agent-acp)",
+    model: "opus",
   }),
   codex: Object.freeze({
     command: "codex-acp",

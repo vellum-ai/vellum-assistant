@@ -2,9 +2,9 @@
  * Regression tests for AcpSessionManager state population — specifically
  * that `parentConversationId` is set on every session state at spawn time
  * and is therefore visible through `getStatus()` from t=0, plus the model a
- * spawn resolves, applies through the adapter, and publishes, the live switch
- * that changes it mid-session, and the unsolicited updates an adapter sends
- * when the model changes from the transcript.
+ * spawn resolves, applies through the adapter, and publishes, and the
+ * unsolicited updates an adapter sends when the model changes from the
+ * transcript.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -13,10 +13,11 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
 import type { AssistantEvent } from "../../api/index.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { AcpAuthRequiredError, isAcpAuthRequired } from "../auth-required.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
+import { AcpConfigOptionRefusedError } from "../types.js";
 import { installAcpConfigStub } from "./helpers/acp-config-stub.js";
-import { readHistoryRow } from "./helpers/acp-history-db.js";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
@@ -104,14 +105,10 @@ mock.module("../agent-process.js", () => ({
   },
 }));
 
-// Installed before the manager is imported so its `getConfig` call resolves
-// through the stub, which is what drives the global-default rung.
-const config = await installAcpConfigStub();
-const {
-  AcpModelSelectionUnsupportedError,
-  AcpSessionManager,
-  AcpSessionNotFoundError,
-} = await import("../session-manager.js");
+// Installed before the manager is imported so its own `getConfig` calls
+// resolve through the stub rather than the real workspace config.
+await installAcpConfigStub();
+const { AcpSessionManager } = await import("../session-manager.js");
 await initializeDb();
 
 type Manager = InstanceType<typeof AcpSessionManager>;
@@ -122,7 +119,6 @@ beforeEach(() => {
   setConfigOptionCalls.length = 0;
   setConfigOptionResult = [];
   setConfigOptionResponder = null;
-  config.setConfig({});
 });
 
 describe("AcpSessionManager — parentConversationId population", () => {
@@ -327,17 +323,15 @@ describe("AcpSessionManager: model selection at spawn", () => {
   });
 
   test("an inherited model on an agent with no selector warns nobody", async () => {
-    config.setConfig({ defaultModel: "opus" });
-
     const { modelWarning } = await spawnWithModel({
       conversationId: "conv-no-selector-inherited",
+      agentModel: "opus",
     });
 
     expect(modelWarning).toBeUndefined();
   });
 
-  test("an explicit request outranks every other rung", async () => {
-    config.setConfig({ defaultModel: "haiku" });
+  test("an explicit request outranks the agent's own model", async () => {
     scriptedConfigOptions = [[modelOption("default")]];
 
     await spawnWithModel({
@@ -351,8 +345,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     ]);
   });
 
-  test("the agent's own model outranks the global default", async () => {
-    config.setConfig({ defaultModel: "haiku" });
+  test("the agent's own model applies when the ask names none", async () => {
     scriptedConfigOptions = [[modelOption("default")]];
 
     await spawnWithModel({
@@ -361,15 +354,6 @@ describe("AcpSessionManager: model selection at spawn", () => {
     });
 
     expect(selectedValue()).toBe("fable");
-  });
-
-  test("the global default applies when nothing more specific is set", async () => {
-    config.setConfig({ defaultModel: "haiku" });
-    scriptedConfigOptions = [[modelOption("default")]];
-
-    await spawnWithModel({ conversationId: "conv-ladder" });
-
-    expect(selectedValue()).toBe("haiku");
   });
 
   test("a spawn with no rung set leaves the adapter on its own model", async () => {
@@ -395,14 +379,14 @@ describe("AcpSessionManager: model selection at spawn", () => {
   });
 
   test("an inherited model the adapter refuses warns nobody", async () => {
-    config.setConfig({ defaultModel: "nope" });
     scriptedConfigOptions = [[modelOption("opus")]];
-    setConfigOptionResult = new Error(
+    setConfigOptionResult = new AcpConfigOptionRefusedError(
       "Invalid value for config option model: nope",
     );
 
     const { modelWarning, state } = await spawnWithModel({
       conversationId: "conv-refused-inherited",
+      agentModel: "nope",
     });
 
     // Logged, not surfaced: nobody typed this model here.
@@ -412,7 +396,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("a refused model warns and runs unpinned", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
-    setConfigOptionResult = new Error(
+    setConfigOptionResult = new AcpConfigOptionRefusedError(
       "Invalid value for config option model: nope",
     );
 
@@ -439,6 +423,117 @@ describe("AcpSessionManager: model selection at spawn", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+  });
+
+  test("an authentication failure during the pin surfaces as auth required", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    setConfigOptionResult = new AcpAuthRequiredError(
+      "agent-model",
+      "Claude refused the configured credential",
+    );
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-auth",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+
+    const failure = await spawned.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(isAcpAuthRequired(failure)).toBe(true);
+    expect(sent).toEqual([]);
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  test("Claude's message-shaped 401 during the pin surfaces as auth required", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    // Not the structured auth_required answer: the CLI's own words, which the
+    // spawn boundary only recognises once the manager has classified them.
+    setConfigOptionResult = new Error(
+      "Failed to authenticate. Please run /login",
+    );
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "claude",
+      { command: "claude-agent-acp", args: [] },
+      "task",
+      "/tmp",
+      "conv-pin-auth-message",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+
+    const failure = await spawned.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(isAcpAuthRequired(failure)).toBe(true);
+    expect((failure as Error).message).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+    expect(sent).toEqual([]);
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  test("the message-shaped 401 is still recognised when the adapter runs by full path", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    setConfigOptionResult = new Error("Not logged in");
+
+    const manager = new AcpSessionManager(5);
+    const failure = await manager
+      .spawn(
+        "claude",
+        { command: "/opt/bin/claude-agent-acp", args: [] },
+        "task",
+        "/tmp",
+        "conv-pin-auth-path",
+        () => {},
+        { model: "opus" },
+      )
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(isAcpAuthRequired(failure)).toBe(true);
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  test("a pin the connection cannot carry tears the spawn down", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    // A plain Error is how the SDK rejects a request when the stream closes
+    // or the process exits: not the adapter's answer, so not a refusal.
+    setConfigOptionResult = new Error("ACP connection closed");
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    await expect(
+      manager.spawn(
+        "agent-model",
+        { command: "echo", args: ["hi"] },
+        "task",
+        "/tmp",
+        "conv-pin-transport",
+        (msg) => sent.push(msg),
+        { model: "opus" },
+      ),
+    ).rejects.toThrow("ACP connection closed");
+
+    // The pin was attempted, then nothing was announced or prompted, and
+    // nothing is left registered.
+    expect(setConfigOptionCalls).toHaveLength(1);
+    expect(sent).toEqual([]);
+    expect(manager.getStatus()).toEqual([]);
   });
 
   test("a pin answered without the selector warns and leaves no model", async () => {
@@ -478,9 +573,6 @@ describe("AcpSessionManager: model selection at spawn", () => {
       acpSessionId: result.acpSessionId,
       availableModels: [],
     });
-
-    manager.close(result.acpSessionId);
-    expect(readHistoryRow(result.acpSessionId)?.model).toBeNull();
   });
 
   test("a selector announced while the pin was open is withdrawn from clients", async () => {
@@ -532,12 +624,12 @@ describe("AcpSessionManager: model selection at spawn", () => {
   });
 
   test("an inherited model whose pin loses the selector warns nobody", async () => {
-    config.setConfig({ defaultModel: "opus" });
     scriptedConfigOptions = [[modelOption("sonnet")]];
     setConfigOptionResult = [nonModelOption()];
 
     const { modelWarning, state } = await spawnWithModel({
       conversationId: "conv-pin-dropped-inherited",
+      agentModel: "opus",
     });
 
     expect(modelWarning).toBeUndefined();
@@ -609,267 +701,6 @@ async function waitForConfigOptionCalls(count: number): Promise<void> {
   }
 }
 
-describe("AcpSessionManager: live model switching", () => {
-  test("applies the model and publishes what the adapter confirmed", async () => {
-    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-set");
-    // The adapter resolves the alias it was handed to a full model id.
-    setConfigOptionResult = [modelOption("claude-opus-4-5")];
-
-    const state = await manager.setModel(acpSessionId, "opus");
-
-    expect(setConfigOptionCalls).toEqual([
-      { sessionId: "proto-agent-model", configId: "model", value: "opus" },
-    ]);
-    expect(state.model).toBe("claude-opus-4-5");
-    expect(state.availableModels).toEqual(MODEL_OPTION_MODELS);
-    expect(sent).toEqual([
-      {
-        type: "acp_session_model_update",
-        acpSessionId,
-        model: "claude-opus-4-5",
-        availableModels: MODEL_OPTION_MODELS,
-      },
-    ]);
-  });
-
-  test("the prompt in flight keeps running", async () => {
-    cancelCalls.length = 0;
-    const { manager, acpSessionId } = await spawnSwitchable("conv-in-flight");
-    setConfigOptionResult = [modelOption("opus")];
-
-    await manager.setModel(acpSessionId, "opus");
-
-    expect(cancelCalls).toEqual([]);
-    expect((manager.getStatus(acpSessionId) as AcpSessionState).status).toBe(
-      "running",
-    );
-  });
-
-  test("an unknown session id is a not-found error", async () => {
-    const manager = new AcpSessionManager(5);
-
-    await expect(
-      manager.setModel("no-such-session", "opus"),
-    ).rejects.toBeInstanceOf(AcpSessionNotFoundError);
-    expect(setConfigOptionCalls).toEqual([]);
-  });
-
-  test("an adapter with no model selector cannot be switched", async () => {
-    const manager = new AcpSessionManager(5);
-    const { acpSessionId } = await manager.spawn(
-      "agent-model",
-      { command: "echo", args: ["hi"] },
-      "task",
-      "/tmp",
-      "conv-unsupported",
-      () => {},
-    );
-
-    await expect(manager.setModel(acpSessionId, "opus")).rejects.toBeInstanceOf(
-      AcpModelSelectionUnsupportedError,
-    );
-    expect(setConfigOptionCalls).toEqual([]);
-  });
-
-  test("a value the adapter never offered is rejected without a round trip", async () => {
-    const { manager, acpSessionId, sent } =
-      await spawnSwitchable("conv-unknown-value");
-
-    await expect(manager.setModel(acpSessionId, "gpt-5")).rejects.toThrow(
-      'does not offer model "gpt-5"',
-    );
-    expect(setConfigOptionCalls).toEqual([]);
-    expect(sent).toEqual([]);
-  });
-
-  test("overlapping switches run in order and the later choice wins", async () => {
-    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-race");
-    const confirmed: string[] = [];
-    setConfigOptionResponder = async (value) => {
-      // The first switch answers last if the calls are allowed to overlap.
-      if (value === "opus") {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-      confirmed.push(String(value));
-      return [modelOption(String(value))];
-    };
-
-    const first = manager.setModel(acpSessionId, "opus");
-    const second = manager.setModel(acpSessionId, "sonnet");
-    await Promise.all([first, second]);
-
-    expect(confirmed).toEqual(["opus", "sonnet"]);
-    expect(setConfigOptionCalls.map((call) => call.value)).toEqual([
-      "opus",
-      "sonnet",
-    ]);
-    expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
-      "sonnet",
-    );
-    expect(sent).toHaveLength(2);
-    expect(sent[sent.length - 1]).toMatchObject({
-      type: "acp_session_model_update",
-      model: "sonnet",
-    });
-  });
-
-  test("a switch issued during the spawn pin waits for it instead of overlapping it", async () => {
-    config.setConfig({ defaultModel: "opus" });
-    scriptedConfigOptions = [[modelOption("default")]];
-    let releasePin = () => {};
-    const pinHeld = new Promise<void>((resolve) => {
-      releasePin = resolve;
-    });
-    let releaseSwitch = () => {};
-    const switchHeld = new Promise<void>((resolve) => {
-      releaseSwitch = resolve;
-    });
-    setConfigOptionResponder = async (value) => {
-      await (value === "opus" ? pinHeld : switchHeld);
-      return [modelOption(String(value))];
-    };
-
-    const manager = new AcpSessionManager(5);
-    const spawned = manager.spawn(
-      "agent-model",
-      { command: "echo", args: ["hi"] },
-      "task",
-      "/tmp",
-      "conv-pin-queue",
-      () => {},
-    );
-    await waitForConfigOptionCalls(1);
-    const acpSessionId = manager.getActiveAndPendingIds()[0]!;
-    const switched = manager.setModel(acpSessionId, "sonnet");
-
-    // The pin holds the adapter until it answers, so the switch has not been
-    // dispatched yet.
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(setConfigOptionCalls.map((call) => call.value)).toEqual(["opus"]);
-
-    releasePin();
-    await spawned;
-    await waitForConfigOptionCalls(2);
-
-    releaseSwitch();
-    await expect(switched).resolves.toMatchObject({ model: "sonnet" });
-    expect(setConfigOptionCalls.map((call) => call.value)).toEqual([
-      "opus",
-      "sonnet",
-    ]);
-  });
-
-  test("a refused switch leaves the next one free to run", async () => {
-    const { manager, acpSessionId } = await spawnSwitchable("conv-chain");
-    setConfigOptionResponder = async (value) => {
-      if (value === "opus") {
-        throw new Error("Invalid value for config option model: opus");
-      }
-      return [modelOption(String(value))];
-    };
-
-    const refused = manager.setModel(acpSessionId, "opus");
-    const next = manager.setModel(acpSessionId, "sonnet");
-
-    await expect(refused).rejects.toThrow(
-      "Invalid value for config option model: opus",
-    );
-    await expect(next).resolves.toMatchObject({ model: "sonnet" });
-  });
-
-  test("a response that drops the selector clears the model and empties the picker", async () => {
-    const { manager, acpSessionId, sent } = await spawnSwitchable(
-      "conv-switch-dropped",
-    );
-    setConfigOptionResult = [nonModelOption()];
-
-    const state = await manager.setModel(acpSessionId, "opus");
-
-    expect(state.model).toBeUndefined();
-    expect(state.availableModels).toEqual([]);
-    expect(sent).toEqual([
-      {
-        type: "acp_session_model_update",
-        acpSessionId,
-        availableModels: [],
-      },
-    ]);
-    await expect(manager.setModel(acpSessionId, "opus")).rejects.toBeInstanceOf(
-      AcpModelSelectionUnsupportedError,
-    );
-  });
-
-  test("a response landing after the session closed changes nothing", async () => {
-    const { manager, acpSessionId, sent } = await spawnSwitchable("conv-late");
-    const state = manager.getStatus(acpSessionId) as AcpSessionState;
-    let release = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    setConfigOptionResponder = async (value) => {
-      await held;
-      return [modelOption(String(value))];
-    };
-
-    const switched = manager.setModel(acpSessionId, "opus");
-    await waitForConfigOptionCalls(1);
-    manager.close(acpSessionId);
-    release();
-
-    await expect(switched).rejects.toBeInstanceOf(AcpSessionNotFoundError);
-    expect(state.model).toBe("sonnet");
-    expect(sent).toEqual([]);
-  });
-
-  test("a switch queued behind a slow one never reaches a closed session", async () => {
-    const { manager, acpSessionId } = await spawnSwitchable("conv-late-queued");
-    let release = () => {};
-    const held = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    setConfigOptionResponder = async (value) => {
-      await held;
-      return [modelOption(String(value))];
-    };
-
-    // Settled up front: the queued switch rejects while the first one is
-    // still being awaited, and an unhandled rejection would fail the test.
-    const settled = Promise.allSettled([
-      manager.setModel(acpSessionId, "opus"),
-      manager.setModel(acpSessionId, "sonnet"),
-    ]);
-    await waitForConfigOptionCalls(1);
-    manager.close(acpSessionId);
-    release();
-
-    const outcomes = await settled;
-    for (const outcome of outcomes) {
-      expect(outcome.status).toBe("rejected");
-      expect((outcome as PromiseRejectedResult).reason).toBeInstanceOf(
-        AcpSessionNotFoundError,
-      );
-    }
-    // The queued switch never reached the adapter.
-    expect(setConfigOptionCalls.map((call) => call.value)).toEqual(["opus"]);
-  });
-
-  test("an adapter refusal surfaces verbatim and leaves the session as it was", async () => {
-    const { manager, acpSessionId, sent } =
-      await spawnSwitchable("conv-refuse");
-    setConfigOptionResult = new Error(
-      "Invalid value for config option model: opus",
-    );
-
-    await expect(manager.setModel(acpSessionId, "opus")).rejects.toThrow(
-      "Invalid value for config option model: opus",
-    );
-    const state = manager.getStatus(acpSessionId) as AcpSessionState;
-    expect(state.status).toBe("running");
-    expect(state.model).toBe("sonnet");
-    expect(sent).toEqual([]);
-  });
-});
-
 describe("AcpSessionManager: unsolicited model updates", () => {
   test("a model changed from the transcript updates state and publishes", async () => {
     const { manager, acpSessionId, sent } = await spawnSwitchable("conv-typed");
@@ -907,9 +738,6 @@ describe("AcpSessionManager: unsolicited model updates", () => {
         availableModels: [],
       },
     ]);
-    await expect(manager.setModel(acpSessionId, "opus")).rejects.toBeInstanceOf(
-      AcpModelSelectionUnsupportedError,
-    );
     expect(setConfigOptionCalls).toEqual([]);
   });
 
@@ -968,15 +796,9 @@ describe("AcpSessionManager: unsolicited model updates", () => {
         availableModels: MODEL_OPTION_MODELS,
       },
     ]);
-    // The picker is live from here, so a switch is accepted.
-    setConfigOptionResult = [modelOption("sonnet")];
-    await expect(
-      manager.setModel(acpSessionId, "sonnet"),
-    ).resolves.toMatchObject({ model: "sonnet" });
   });
 
   test("a selector announced during session/new survives a response that omits it", async () => {
-    config.setConfig({ defaultModel: "opus" });
     // The adapter answers session/new with no config options at all.
     scriptedConfigOptions = [[]];
     setConfigOptionResult = [modelOption("opus")];
@@ -989,7 +811,7 @@ describe("AcpSessionManager: unsolicited model updates", () => {
     const sent: AssistantEvent[] = [];
     const spawning = manager.spawn(
       "agent-model",
-      { command: "echo", args: ["hi"] },
+      { command: "echo", args: ["hi"], model: "opus" },
       "task",
       "/tmp",
       "conv-open-race",
@@ -1002,7 +824,7 @@ describe("AcpSessionManager: unsolicited model updates", () => {
     release();
     await spawning;
 
-    // The selector is still there for the configured default to be pinned
+    // The selector is still there for the agent's own model to be pinned
     // through, and the picker still reaches the client after the spawn.
     expect(setConfigOptionCalls).toEqual([
       { sessionId: "proto-agent-model", configId: "model", value: "opus" },

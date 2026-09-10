@@ -365,7 +365,6 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
       parentConversationId: "conv-model",
       startedAt: 1000,
       status: "completed",
-      model: "sonnet",
     });
 
     const handler = getSessionsHandler();
@@ -379,9 +378,8 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
         { value: "opus", label: "Opus" },
       ],
     });
-    // A finished run records what it ran on, but has no process left to ask
-    // what it could switch to.
-    expect(hist?.model).toBe("sonnet");
+    // A finished run has no live process to ask, so it reports neither.
+    expect(hist?.model).toBeUndefined();
     expect(hist?.availableModels).toBeUndefined();
   });
 

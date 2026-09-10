@@ -14,6 +14,11 @@ import type { AcpModelOption } from "./model-config.js";
  */
 export interface AcpAgentConfig extends ConfiguredAcpAgent {
   /**
+   * Always set on a resolved agent: the resolver fills in a bundled profile's
+   * command when the config entry omits it.
+   */
+  command: string;
+  /**
    * Identity of the Claude token `prepareAgentEnv` resolved into `env`,
    * whichever source it came from. Recorded on the history row when Claude
    * refuses it, so the marker can later be compared against the credential a
@@ -58,7 +63,7 @@ export interface AcpSessionState {
    * invisible for agents that cannot switch models.
    */
   model?: string;
-  /** Models this session can switch to, flattened from the adapter's selector. */
+  /** Models the adapter offers this session, flattened from its selector. */
   availableModels?: AcpModelOption[];
 }
 
@@ -86,4 +91,17 @@ export interface AcpUsageSnapshot {
   inputTokens?: number;
   /** Cumulative output tokens across all turns, from `PromptResponse.usage`. */
   outputTokens?: number;
+}
+
+/**
+ * The adapter answered `session/set_config_option` with an error: the value
+ * was refused. Raised only for the adapter's own answer to that request, so a
+ * closed connection, an exited process, or a failed authentication is never
+ * mistaken for a refusal.
+ */
+export class AcpConfigOptionRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AcpConfigOptionRefusedError";
+  }
 }

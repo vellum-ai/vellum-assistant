@@ -129,7 +129,6 @@ function injectSession(
     parentConversationId,
     cwd: "/tmp",
     command: "noop",
-    modelSwitchQueue: Promise.resolve(),
   };
   (manager as any).sessions.set(acpSessionId, entry);
   return entry;

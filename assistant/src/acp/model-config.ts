@@ -13,11 +13,12 @@
  * or `category === "model"` only. Option `name` is a human label an adapter
  * may localize or restyle at will, so it is never matched against.
  *
- * `resolveAcpModel` is the precedence ladder a spawn walks before it talks to
- * the adapter: an explicit request beats the per-agent config default, which
- * beats the global one. Values are adapter-reported aliases (`opus`,
- * `sonnet`), never Assistant catalog ids, and are passed through unvalidated:
- * only the adapter knows what it accepts.
+ * `resolveAcpModel` is the precedence ladder a spawn or a resume walks before
+ * it talks to the adapter: an explicit request beats the per-agent default from
+ * `acp.agents.<id>.model`, and nothing named there leaves the adapter on its
+ * own. Values are adapter-reported aliases (`opus`, `sonnet`), never Assistant
+ * catalog ids, and are passed through unvalidated: only the adapter knows what
+ * it accepts.
  *
  * Both helpers are synchronous and side-effect free.
  */
@@ -50,7 +51,6 @@ export type AcpModelInfo = {
 type ResolveAcpModelInput = {
   requestedModel?: string;
   agentModel?: string;
-  defaultModel?: string;
 };
 
 type ModelSelectOption = Extract<SessionConfigOption, { type: "select" }>;
@@ -126,7 +126,7 @@ export function deriveModelInfo(
 export function resolveAcpModel(
   input: ResolveAcpModelInput,
 ): string | undefined {
-  const ladder = [input.requestedModel, input.agentModel, input.defaultModel];
+  const ladder = [input.requestedModel, input.agentModel];
 
   for (const candidate of ladder) {
     const trimmed = candidate?.trim();

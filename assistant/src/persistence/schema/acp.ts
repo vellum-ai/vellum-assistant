@@ -45,11 +45,6 @@ export const acpSessionHistory = sqliteTable(
     // before these columns existed.
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
-    /** Model the adapter confirmed the run was on. Null when the adapter
-     *  advertises no model selector, and for rows written before migration
-     *  377. A record of the run, and what a resume puts the fresh adapter
-     *  process back on. */
-    model: text("model"),
   },
   (table) => [
     index("idx_acp_session_history_started_at").on(table.startedAt),

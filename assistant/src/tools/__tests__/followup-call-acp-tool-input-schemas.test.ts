@@ -5,8 +5,6 @@ import { describe, test } from "bun:test";
 import type { z } from "zod";
 
 import { acpAbortInputSchema } from "../acp/abort.js";
-import { acpSetDefaultModelInputSchema } from "../acp/set-default-model.js";
-import { acpSetModelInputSchema } from "../acp/set-model.js";
 import { acpSpawnInputSchema } from "../acp/spawn.js";
 import { acpStatusInputSchema } from "../acp/status.js";
 import { acpSteerInputSchema } from "../acp/steer.js";
@@ -106,17 +104,6 @@ const CASES: {
     name: "acp_steer",
     schema: acpSteerInputSchema,
     advertiseRequired: ["acp_session_id", "instruction"],
-  },
-  {
-    skill: "acp",
-    name: "acp_set_model",
-    schema: acpSetModelInputSchema,
-    advertiseRequired: ["acp_session_id", "model"],
-  },
-  {
-    skill: "acp",
-    name: "acp_set_default_model",
-    schema: acpSetDefaultModelInputSchema,
   },
 ];
 

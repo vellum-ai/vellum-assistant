@@ -1,8 +1,15 @@
 import { z } from "zod";
 
+import { DEFAULT_ACP_AGENT_PROFILES } from "./acp-defaults.js";
+
 export const AcpAgentConfigSchema = z
   .object({
-    command: z.string().describe("Command to spawn the ACP agent process"),
+    command: z
+      .string()
+      .optional()
+      .describe(
+        "Command to spawn the ACP agent process. Required unless the id has a bundled profile, whose command is inherited when this is unset",
+      ),
     args: z
       .array(z.string())
       .default([])
@@ -19,7 +26,7 @@ export const AcpAgentConfigSchema = z
       .string()
       .optional()
       .describe(
-        "Default model for this agent, overriding acp.defaultModel. An adapter-reported alias.",
+        "Model sessions of this agent start on when the ask names none (an adapter-reported alias such as 'opus' or 'sonnet' for Claude, not an Assistant catalog id). Overrides the bundled profile's value; unset inherits it.",
       ),
   })
   .describe("Configuration for an individual ACP agent");
@@ -36,14 +43,23 @@ export const AcpConfigSchema = z
       ),
     agents: z
       .record(z.string(), AcpAgentConfigSchema)
+      .superRefine((agents, ctx) => {
+        for (const [id, agent] of Object.entries(agents)) {
+          if (
+            agent.command !== undefined ||
+            Object.hasOwn(DEFAULT_ACP_AGENT_PROFILES, id)
+          ) {
+            continue;
+          }
+          ctx.addIssue({
+            code: "custom",
+            path: [id, "command"],
+            message: `acp.agents.${id} needs a command: only the bundled ids (${Object.keys(DEFAULT_ACP_AGENT_PROFILES).join(", ")}) inherit one`,
+          });
+        }
+      })
       .default({})
       .describe("Map of agent names to their configurations"),
-    defaultModel: z
-      .string()
-      .optional()
-      .describe(
-        "Default model the coding agent starts with (an adapter-reported alias such as 'opus' or 'sonnet' for Claude, not an Assistant catalog id). Unset means the agent's own default.",
-      ),
   })
   .describe(
     "Agent Communication Protocol (ACP) — inter-agent communication and delegation",

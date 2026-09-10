@@ -25,15 +25,13 @@ Users can refer to agents by natural names: "claude code", "codex cli", and "ope
 
 ## Choosing a model
 
-Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
+Claude runs on Opus unless the user names a model; every other agent starts on its own default.
 
-- **The user names a model for this piece of work.** Pass it as `model` on `acp_spawn`.
-- **"From now on", "always", "by default".** Call `acp_set_default_model`, then state in one line what is now set. Add `agent` to scope it to one agent (`acp.agents.<id>.model`); leave it off to cover every agent (`acp.defaultModel`). `model: null` clears the setting.
-- **"Switch this to X" about a session that is already running.** Call `acp_set_model` with that `acp_session_id`. The agent applies it from the next turn, so a prompt in flight finishes on the model it started on.
+When the user does name one, pass it as `model` on `acp_spawn`. Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, `fable`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
 
-A spawn with no `model` starts on `acp.agents.<id>.model`, then `acp.defaultModel`, then the agent's own default.
+If the agent refuses the model, or advertises no model selector, the spawn result says so: relay it in one sentence and carry on, because the session is live on the agent's own model.
 
-When the agent advertises no model selector, or does not offer the model, the tool result says so: relay it in one sentence and carry on. A result saying the switch could not be completed leaves the session's state unknown, so check it with `acp_status` rather than assuming which model it is on.
+A session runs on the model it started on, so a different model means a new `acp_spawn`. A standing default per agent lives in the config at `acp.agents.<id>.model`.
 
 ## When the user names Claude Code or Codex
 
@@ -98,7 +96,7 @@ Do NOT put API keys (or any secret) in the workspace config file - secrets never
 
 - Two agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter) and `codex` (via the `codex-acp` adapter).
 - NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters.
-- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An `acp.agents.<id>` entry replaces the bundled default entirely (no field merge), so any override must spell out the full `command` and `args`, not just the field being changed.
+- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An entry that still runs the bundled adapter, whether it omits `command` or names the same binary by name or full path, inherits every field it leaves out, so a single-field change such as `acp.agents.claude.model` is all it takes. An entry that points the id at a different binary stands on its own, so it must spell out everything it needs, `command` included.
 - NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp` or `codex-acp`, leave it alone.
 
 ## Updating an adapter

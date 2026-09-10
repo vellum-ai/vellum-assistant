@@ -4,8 +4,7 @@
  * Server to client snapshot of an ACP session's model selection, derived from
  * the adapter's `configOptions`. `model` is the currently selected value (absent
  * when the adapter reports none) and `availableModels` is the flattened set of
- * values the session can switch to, empty when the adapter advertises no model
- * selector. A side gauge, not part of the ordered update timeline: carries no
+ * values the adapter offers, empty when it advertises no model selector. A side gauge, not part of the ordered update timeline: carries no
  * `seq`.
  *
  * `.strict()` like the other ACP events, for the reason spelled out in

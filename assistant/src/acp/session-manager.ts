@@ -11,7 +11,6 @@ import { eq, inArray } from "drizzle-orm";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
-import { getConfig } from "../config/loader.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -28,6 +27,7 @@ import { AcpAgentProcess } from "./agent-process.js";
 import {
   ACP_AUTH_RECOVERY_GUIDANCE,
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  AcpAuthRequiredError,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
@@ -43,6 +43,7 @@ import { claudeResumeHint } from "./resume-hint.js";
 import {
   ACP_LIVE_STATUSES,
   type AcpAgentConfig,
+  AcpConfigOptionRefusedError,
   type AcpSessionState,
   isLiveAcpStatus,
 } from "./types.js";
@@ -83,37 +84,6 @@ export class AcpSessionNotFoundError extends Error {
   constructor(public readonly acpSessionId: string) {
     super(`ACP session "${acpSessionId}" not found`);
     this.name = "AcpSessionNotFoundError";
-  }
-}
-
-/**
- * Thrown when a live model switch is asked of a session whose adapter
- * advertises no model selector. Distinct from not-found on purpose: the
- * session exists and is healthy, so callers map this to a conflict rather
- * than pretending the session is gone.
- */
-export class AcpModelSelectionUnsupportedError extends Error {
-  constructor(public readonly acpSessionId: string) {
-    super(
-      `ACP session "${acpSessionId}" runs an agent that advertises no model selector`,
-    );
-    this.name = "AcpModelSelectionUnsupportedError";
-  }
-}
-
-/**
- * Thrown when a live switch names a value the session's adapter does not
- * offer. The picker is built out of exactly those options, so this is a
- * caller mistake rather than an adapter failure, and callers map it to their
- * transport's bad-request shape.
- */
-export class AcpModelNotOfferedError extends Error {
-  constructor(acpSessionId: string, model: string, available: string[]) {
-    super(
-      `ACP session "${acpSessionId}" does not offer model "${model}". ` +
-        `Available: ${available.join(", ") || "none"}`,
-    );
-    this.name = "AcpModelNotOfferedError";
   }
 }
 
@@ -169,10 +139,6 @@ interface SessionEntry {
    *  none. Both the id to write a model back through and the flag that says
    *  this session has a model to publish at all. */
   modelConfigId?: string;
-  /** Tail of this session's model-switch chain, so the manager's own spawn
-   *  and resume pins and any overlapping setModel calls reach the adapter one
-   *  at a time and the last choice wins. */
-  modelSwitchQueue: Promise<void>;
 }
 
 /** What a spawn or resume pin did about the model it was asked for. */
@@ -362,7 +328,6 @@ export class AcpSessionManager {
     const resolvedModel = resolveAcpModel({
       requestedModel,
       agentModel: agentConfig.model,
-      defaultModel: getConfig().acp.defaultModel,
     });
 
     let configOptions: SessionConfigOption[] = [];
@@ -412,12 +377,24 @@ export class AcpSessionManager {
       cancellation.signal.throwIfAborted();
     }
 
-    const { warning: modelWarning } = await this.pinSessionModel(
-      entry,
-      configOptions,
-      requestedModel,
-      resolvedModel,
-    );
+    let modelWarning: string | undefined;
+    try {
+      ({ warning: modelWarning } = await this.pinSessionModel(
+        entry,
+        configOptions,
+        requestedModel,
+        resolvedModel,
+      ));
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId, err },
+        "ACP spawn failed while applying the model",
+      );
+      const failure = this.classifyPinFailure(err, agentId, agentConfig);
+      // No prompt has fired yet, so no permissions can be pending.
+      this.teardownSession(acpSessionId, entry);
+      throw failure;
+    }
 
     // Recheck: the model pin is an await too, and everything below it either
     // announces the session or hands the agent the task.
@@ -476,9 +453,8 @@ export class AcpSessionManager {
   /**
    * Writes what the adapter reports onto the entry. `modelConfigId` doubles
    * as the "this adapter has a model selector" flag, so state is left
-   * untouched when there is none: a resumed session keeps the model its
-   * history row recorded instead of having it wiped by an adapter that never
-   * reports one.
+   * untouched when there is none: an adapter that reports no selector cannot
+   * wipe a model another response already named.
    */
   private recordModelInfo(entry: SessionEntry, info: AcpModelInfo): void {
     entry.modelConfigId = info.modelConfigId;
@@ -489,60 +465,51 @@ export class AcpSessionManager {
   }
 
   /**
-   * Puts a session on `resolvedModel` and records what the adapter reports
-   * back. The value crosses the wire unvalidated: the adapter's own resolver
-   * accepts aliases and full ids and rejects everything else, and duplicating
-   * that judgement here would refuse values it would have taken. A refusal
-   * leaves the run on the adapter's default and comes back as the message to
-   * relay, because a session that is live and working is worth more than one
-   * that never started over a model name.
-   *
-   * A caller who named the model is owed the news when it was not applied,
-   * whether the adapter has no selector or refused the value; an inherited
-   * rung (a config default, a resume's recorded model) is only logged, so a
-   * value the caller never named does not surface as a warning on every
-   * spawn.
-   */
-  private pinSessionModel(
-    entry: SessionEntry,
-    configOptions: SessionConfigOption[],
-    requestedModel: string | undefined,
-    resolvedModel: string | undefined,
-  ): Promise<ModelPinResult> {
-    return this.enqueueModelWork(entry, () =>
-      this.applyModelPin(entry, configOptions, requestedModel, resolvedModel),
-    );
-  }
-
-  /**
-   * Chains `work` onto this session's model-switch queue, so the manager's
-   * own spawn and resume pins and any `setModel` reach the adapter one at a
-   * time and the last one to run is the one the session ends on.
-   *
-   * A refusal belongs to its caller alone; the chain carries on either way.
-   */
-  private enqueueModelWork<T>(
-    entry: SessionEntry,
-    work: () => Promise<T>,
-  ): Promise<T> {
-    const queued = entry.modelSwitchQueue.then(work);
-    entry.modelSwitchQueue = queued.then(
-      () => undefined,
-      () => undefined,
-    );
-    return queued;
-  }
-
-  /**
-   * The pin itself: record what the opening response says about the model,
-   * then put the session on `resolvedModel` if that is somewhere else.
+   * Records what the opening response says about the model, then puts the
+   * session on `resolvedModel` if that is somewhere else. The value crosses
+   * the wire unvalidated: the adapter's own resolver accepts aliases and full
+   * ids and rejects everything else, and duplicating that judgement here
+   * would refuse values it would have taken. A refusal leaves the run on the
+   * adapter's default and comes back as the message to relay, because a
+   * session that is live and working is worth more than one that never
+   * started over a model name.
    *
    * An answer that carries no model selector is not a pin that landed: the
    * session is left with no model rather than one only the superseded
    * response ever named, and the empty picker goes out so no client is left
    * holding a selector the answer retired.
+   *
+   * A caller who named the model is owed the news when it was not applied,
+   * whether the adapter has no selector or refused the value; an inherited
+   * rung (the per-agent config model) is only logged, so a value the caller
+   * never named does not surface as a warning on every spawn.
    */
-  private async applyModelPin(
+  /**
+   * A model pin that fails for authentication is the same failure a session
+   * that could not open: Claude refused the configured credential, so it is
+   * written down before teardown and surfaced in the shape the spawn boundary
+   * recognises, whether the adapter answered with a structured
+   * `auth_required` or with Claude's message-shaped 401.
+   */
+  private classifyPinFailure(
+    err: unknown,
+    agentId: string,
+    agentConfig: { command: string; credentialDigest?: string },
+  ): unknown {
+    const message = err instanceof Error ? err.message : String(err);
+    const authCode = claudeAuthRequiredCode(err, message, {
+      command: basename(agentConfig.command),
+    });
+    if (authCode === undefined && !isAcpAuthRequired(err)) {
+      return err;
+    }
+    noteClaudeTokenRefused(agentConfig.credentialDigest, Date.now());
+    return isAcpAuthRequired(err)
+      ? err
+      : new AcpAuthRequiredError(agentId, message);
+  }
+
+  private async pinSessionModel(
     entry: SessionEntry,
     configOptions: SessionConfigOption[],
     requestedModel: string | undefined,
@@ -592,6 +559,12 @@ export class AcpSessionManager {
       }
       return { applied: true };
     } catch (err) {
+      // Only the adapter's own answer is a refusal. A closed connection, an
+      // exited process, or a failed authentication is the caller's failure
+      // to tear down, not a model to fall back from.
+      if (!(err instanceof AcpConfigOptionRefusedError)) {
+        throw err;
+      }
       log.warn(
         { acpSessionId: state.id, agentId: state.agentId, resolvedModel, err },
         "ACP agent refused the requested model; running on its own model",
@@ -702,7 +675,6 @@ export class AcpSessionManager {
       task: opts.task,
       command: basename(opts.agentConfig.command),
       credentialDigest: opts.agentConfig.credentialDigest,
-      modelSwitchQueue: Promise.resolve(),
     };
 
     this.sessions.set(acpSessionId, entry);
@@ -745,89 +717,10 @@ export class AcpSessionManager {
   }
 
   /**
-   * Switches a live session onto `model` and publishes what the adapter
-   * confirmed.
-   *
-   * Unlike the spawn pin, the value is checked against the selector the
-   * adapter advertised before the adapter is asked: a live switch comes from
-   * a picker built out of exactly those options, so anything else is a caller
-   * bug worth naming rather than a round trip that would fail. A genuine
-   * adapter refusal propagates verbatim and leaves the session on the model
-   * it was already running.
-   *
-   * The in-flight prompt is left alone: the adapter applies the new model to
-   * the next turn, and cancelling a running turn to change a model would cost
-   * the user the work in flight.
-   *
-   * Switches run one at a time per session, on the same queue as the
-   * manager's own spawn and resume pins. Two round trips in flight at once
-   * would otherwise let a slow first one land last and put the state and the
-   * client back on the model the caller already moved off.
-   */
-  async setModel(
-    acpSessionId: string,
-    model: string,
-  ): Promise<AcpSessionState> {
-    const entry = this.sessions.get(acpSessionId);
-    if (!entry) {
-      throw new AcpSessionNotFoundError(acpSessionId);
-    }
-    return this.enqueueModelWork(entry, () =>
-      this.applyModelSwitch(acpSessionId, entry, model),
-    );
-  }
-
-  /**
-   * One link of a session's model-switch chain: validates the value against
-   * the options the adapter advertised, asks for the switch, then records and
-   * publishes what came back.
-   *
-   * A session torn down while the round trip was in flight takes the answer
-   * with it: the caller's request is no longer actionable, so it comes back
-   * as not-found rather than mutating a state nobody reads.
-   */
-  private async applyModelSwitch(
-    acpSessionId: string,
-    entry: SessionEntry,
-    model: string,
-  ): Promise<AcpSessionState> {
-    const { state, modelConfigId } = entry;
-    if (!this.isEntryLive(acpSessionId, entry)) {
-      throw new AcpSessionNotFoundError(acpSessionId);
-    }
-    if (!modelConfigId) {
-      throw new AcpModelSelectionUnsupportedError(acpSessionId);
-    }
-
-    const available = state.availableModels ?? [];
-    if (!available.some((option) => option.value === model)) {
-      throw new AcpModelNotOfferedError(
-        acpSessionId,
-        model,
-        available.map((option) => option.value),
-      );
-    }
-
-    const refreshed = await entry.process.setConfigOption(
-      state.acpSessionId,
-      modelConfigId,
-      model,
-    );
-    if (!this.isEntryLive(acpSessionId, entry)) {
-      throw new AcpSessionNotFoundError(acpSessionId);
-    }
-    this.applyModelInfo(entry, refreshed);
-    if (!this.clearVanishedModelSelector(acpSessionId, entry)) {
-      this.sendModelEvent(acpSessionId, entry);
-    }
-    return state;
-  }
-
-  /**
    * Whether `entry` is still this manager's live entry for `acpSessionId`.
-   * A response that lands after close, cancellation, or prompt completion has
-   * nothing left to update: the terminal row is already written, so applying
-   * it would leave history on one model and clients on another.
+   * A notification that lands after close, cancellation, or prompt completion
+   * has nothing left to update: the terminal row is already written, so
+   * applying it would leave history on one model and clients on another.
    */
   private isEntryLive(acpSessionId: string, entry: SessionEntry): boolean {
     return (
@@ -838,15 +731,14 @@ export class AcpSessionManager {
 
   /**
    * Drops the live model snapshot a vanished selector took with it and
-   * publishes the empty picker. `applyModelInfo` keeps the recorded model for
-   * adapters that never had one, which here would leave the client on options
-   * `setModel` now rejects. Returns whether it fired, so callers skip the
-   * publish that assumes a model is still there.
+   * publishes the empty picker. `applyModelInfo` keeps the model already
+   * recorded for adapters that never had a selector, which here would leave
+   * the client holding options the session cannot reach. Returns whether it
+   * fired, so callers skip the publish that assumes a model is still there.
    *
    * A published picker is what says the selector was there to vanish: only an
    * adapter that advertised one ever populates it, so an adapter that never
-   * had one publishes nothing. `state.model` would not do: a resume seeds it
-   * from the history row for adapters that report no selector at all.
+   * had one publishes nothing.
    */
   private clearVanishedModelSelector(
     acpSessionId: string,
@@ -1029,11 +921,6 @@ export class AcpSessionManager {
     );
     const { process: agentProcess, state } = entry;
 
-    // The terminal upsert rewrites every column, so a model left unseeded
-    // would be NULLed by a resumed run that never touched one. It is also
-    // what the pin after reattach puts the fresh adapter process back on.
-    state.model = row.model ?? undefined;
-
     // Seed the latest usage snapshot from the persisted columns. A fresh
     // usage_update during the resumed run overwrites this; if none fires the
     // prior snapshot is re-persisted on terminal transition. Pre-migration
@@ -1128,28 +1015,37 @@ export class AcpSessionManager {
       throw err;
     }
 
-    // A fresh adapter process starts on its own default, so the run the user
-    // resumes is put back on the model its history row recorded.
-    const recordedModel = row.model ?? undefined;
-    const { applied } = await this.pinSessionModel(
-      entry,
-      configOptions,
-      undefined,
-      recordedModel,
-    );
-    if (recordedModel && !applied) {
+    // A fresh adapter process starts on its own default, so the resumed run
+    // is pinned through the same ladder a spawn walks.
+    const resolvedModel = resolveAcpModel({ agentModel: agentConfig.model });
+    let applied: boolean;
+    try {
+      ({ applied } = await this.pinSessionModel(
+        entry,
+        configOptions,
+        undefined,
+        resolvedModel,
+      ));
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId: row.agentId, err },
+        "ACP resume failed while applying the model",
+      );
+      const failure = this.classifyPinFailure(err, row.agentId, agentConfig);
+      this.teardownSession(acpSessionId, entry);
+      throw failure;
+    }
+    if (resolvedModel && !applied) {
       // State keeps the adapter's own answer, so the model event, the status
-      // projection, the panel and the terminal row all name the model the run
-      // is really on. A later resume then re-pins to that, which is the run
-      // the user is coming back to.
+      // projection and the panel all name the model the run is really on.
       log.warn(
         {
           acpSessionId,
           agentId: row.agentId,
-          recordedModel,
+          resolvedModel,
           model: state.model,
         },
-        "ACP resume could not restore the recorded model; running on the agent's own model",
+        "ACP resume could not apply the configured model; running on the agent's own model",
       );
     }
 
@@ -1541,9 +1437,6 @@ export class AcpSessionManager {
       parentToolUseId: entry.state.parentToolUseId ?? null,
       authErrorCode: entry.state.authErrorCode ?? null,
       authErrorCredential: entry.state.authErrorCredential ?? null,
-      // The adapter's own truth: the row records the model the run ended on,
-      // which is what a later resume re-pins to.
-      model: entry.state.model ?? null,
       usedTokens: usage?.usedTokens ?? null,
       contextSize: usage?.contextSize ?? null,
       costAmount: usage?.costAmount ?? null,

@@ -10,8 +10,7 @@ afterAll(() => {
   which.restore();
 });
 
-const { resolveAcpAgent, listAcpAgents, resolveAcpAgentId } =
-  await import("./resolve-agent.js");
+const { resolveAcpAgent, listAcpAgents } = await import("./resolve-agent.js");
 
 beforeEach(() => {
   config.setConfig({});
@@ -290,6 +289,178 @@ describe("resolveAcpAgent", () => {
     expect(result.agent.args).toEqual(["--verbose"]);
   });
 
+  test("the bundled claude profile carries its model", () => {
+    config.setConfig({ agents: {} });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.model).toBe("opus");
+  });
+
+  test("a user entry that names a model overrides the bundled one", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "claude-agent-acp", args: [], model: "sonnet" },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.model).toBe("sonnet");
+  });
+
+  test("a user entry keeping the profile command and omitting model inherits it", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "claude-agent-acp", args: ["--my-flag"] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.args).toEqual(["--my-flag"]);
+    expect(result.agent.model).toBe("opus");
+  });
+
+  test("a user entry that omits command entirely still inherits the model", () => {
+    // The schema admits a command-less entry for a bundled id; the profile's
+    // command is inherited with the rest.
+    config.setConfig({
+      agents: {
+        claude: JSON.parse('{"args": ["--my-flag"]}'),
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("claude-agent-acp");
+    expect(result.agent.model).toBe("opus");
+  });
+
+  test("a user entry running the profile adapter by full path still inherits the model", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "/opt/bin/claude-agent-acp", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("/opt/bin/claude-agent-acp");
+    expect(result.agent.model).toBe("opus");
+  });
+
+  test("a user entry pointing the id at another adapter inherits no model", () => {
+    // The bundled aliases are Claude's own vocabulary, so an unrelated
+    // adapter under the `claude` id must not be handed `opus`.
+    config.setConfig({
+      agents: {
+        claude: { command: "my-custom-claude", args: ["--my-flag"] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("my-custom-claude");
+    expect(result.agent.model).toBeUndefined();
+  });
+
+  test("a user entry naming its own model keeps it across a replaced command", () => {
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "my-custom-claude",
+          args: [],
+          model: "my-fork-large",
+        },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("my-custom-claude");
+    expect(result.agent.model).toBe("my-fork-large");
+  });
+
+  test("a user entry pointing the id at another adapter inherits no description", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "my-custom-claude", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.description).toBeUndefined();
+    const listed = listAcpAgents().agents.find(
+      (entry) => entry.id === "claude",
+    );
+    expect(listed?.command).toBe("my-custom-claude");
+    expect(listed?.description).toBeUndefined();
+  });
+
+  test("a user entry running the profile adapter by full path inherits its description", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "/opt/bin/claude-agent-acp", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.description).toContain(
+      "@agentclientprotocol/claude-agent-acp",
+    );
+  });
+
+  test("a bundled profile with no model leaves the resolved agent without one", () => {
+    config.setConfig({ agents: {} });
+
+    const result = resolveAcpAgent("codex");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.model).toBeUndefined();
+  });
+
   test("resolves a full-path command directly without rewriting it", () => {
     config.setConfig({
       agents: {
@@ -497,78 +668,13 @@ describe("listAcpAgents", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// resolveAcpAgentId
-// ---------------------------------------------------------------------------
-
-describe("resolveAcpAgentId", () => {
-  test("resolves a bundled id to its canonical key and command", () => {
-    config.setConfig({ agents: {} });
-
-    const result = resolveAcpAgentId("claude");
-
-    expect(result).toEqual({
-      ok: true,
-      id: "claude",
-      command: "claude-agent-acp",
-    });
-  });
-
-  test("resolves a natural name to the canonical key", () => {
-    config.setConfig({ agents: {} });
-
-    expect(resolveAcpAgentId("OpenAI Codex")).toEqual({
-      ok: true,
-      id: "codex",
-      command: "codex-acp",
-    });
-  });
-
-  test("resolves a user id containing a dot as one literal key", () => {
-    config.setConfig({
-      agents: { "team.agent": { command: "custom-acp", args: [] } },
-    });
-
-    expect(resolveAcpAgentId("team.agent")).toEqual({
-      ok: true,
-      id: "team.agent",
-      command: "custom-acp",
-    });
-  });
-
-  test("does not consult the binary, so an uninstalled agent still resolves", () => {
-    config.setConfig({ agents: {} });
-    which.setWhich(() => null);
-
-    expect(resolveAcpAgentId("claude").ok).toBe(true);
-    expect(resolveAcpAgent("claude").ok).toBe(false);
-  });
-
-  test("an unknown id reports the configured agents", () => {
-    config.setConfig({ agents: {} });
-
-    expect(resolveAcpAgentId("gemini")).toEqual({
-      ok: false,
-      reason: "unknown_agent",
-      available: ["claude", "codex"],
-    });
-  });
-});
-
 describe("agent ids that name Object.prototype members", () => {
   // An id read off the prototype chain would resolve as a configured agent
-  // that does not exist, and a caller writing settings under it would reach
-  // the prototype itself.
+  // that does not exist, and a spawn would start a process for a config
+  // nobody wrote.
   for (const id of ["__proto__", "constructor", "prototype"]) {
     test(`"${id}" resolves to nothing`, () => {
       config.setConfig({ agents: {} });
-
-      const byId = resolveAcpAgentId(id);
-      expect(byId.ok).toBe(false);
-      if (byId.ok) {
-        return;
-      }
-      expect(byId.available).toEqual(["claude", "codex"]);
 
       const resolved = resolveAcpAgent(id);
       expect(resolved.ok).toBe(false);
@@ -576,6 +682,10 @@ describe("agent ids that name Object.prototype members", () => {
         return;
       }
       expect(resolved.reason).toBe("unknown_agent");
+      if (resolved.reason !== "unknown_agent") {
+        return;
+      }
+      expect(resolved.available).toEqual(["claude", "codex"]);
     });
   }
 

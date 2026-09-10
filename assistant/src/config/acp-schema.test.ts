@@ -1,8 +1,12 @@
 /**
- * Covers the ACP config leaves that carry model selection: `acp.defaultModel`
- * and the per-agent `model` override. Both are optional with no `.default()`,
- * so an absent value must stay absent after parsing rather than becoming a
- * value the daemon would then apply to a session.
+ * Covers the ACP config leaf that carries model selection, the per-agent
+ * `model`. It is optional with no `.default()`, so an absent value must stay
+ * absent after parsing: the bundled profile supplies the model a session
+ * starts on, and a key materialized as `undefined` would shadow it.
+ *
+ * `command` is optional in the same shape, so an entry for a bundled id can
+ * carry a model and nothing else; the record's own check keeps a command
+ * required for every id that has no bundled profile to inherit one from.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -10,22 +14,44 @@ import { describe, expect, test } from "bun:test";
 import { AcpAgentConfigSchema, AcpConfigSchema } from "./acp-schema.js";
 
 describe("AcpConfigSchema", () => {
-  test("populates defaults and leaves defaultModel unset for an empty config", () => {
-    const parsed = AcpConfigSchema.parse({});
+  test("populates defaults for an empty config", () => {
+    expect(AcpConfigSchema.parse({})).toEqual({
+      maxConcurrentSessions: 4,
+      agents: {},
+    });
+  });
+});
 
-    expect(parsed).toEqual({ maxConcurrentSessions: 4, agents: {} });
-    expect(parsed.defaultModel).toBeUndefined();
-    expect("defaultModel" in parsed).toBe(false);
+describe("AcpConfigSchema agents", () => {
+  test("a bundled id's entry may omit command and name only a model", () => {
+    const parsed = AcpConfigSchema.parse({
+      agents: { claude: { model: "sonnet" } },
+    });
+
+    expect(parsed.agents).toEqual({ claude: { args: [], model: "sonnet" } });
+    expect("command" in parsed.agents.claude!).toBe(false);
   });
 
-  test("round-trips a defaultModel alias", () => {
-    expect(AcpConfigSchema.parse({ defaultModel: "opus" }).defaultModel).toBe(
-      "opus",
-    );
+  test("an id with no bundled profile needs a command", () => {
+    const result = AcpConfigSchema.safeParse({
+      agents: { mine: { model: "sonnet" } },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+    expect(result.error.issues.map((issue) => issue.path)).toEqual([
+      ["agents", "mine", "command"],
+    ]);
+    expect(result.error.issues[0]?.message).toContain("acp.agents.mine");
   });
 
-  test("rejects a non-string defaultModel", () => {
-    expect(AcpConfigSchema.safeParse({ defaultModel: 3 }).success).toBe(false);
+  test("an id naming an Object.prototype member inherits no command", () => {
+    expect(
+      AcpConfigSchema.safeParse({ agents: { constructor: { model: "x" } } })
+        .success,
+    ).toBe(false);
   });
 });
 
@@ -39,10 +65,17 @@ describe("AcpAgentConfigSchema", () => {
     ).toEqual({ command: "claude-agent-acp", args: [], model: "opus" });
   });
 
-  test("leaves model unset when omitted", () => {
+  test("leaves model unset when omitted, so a bundled profile's shows through", () => {
     const parsed = AcpAgentConfigSchema.parse({ command: "claude-agent-acp" });
 
     expect(parsed.model).toBeUndefined();
     expect("model" in parsed).toBe(false);
+  });
+
+  test("rejects a non-string model", () => {
+    expect(
+      AcpAgentConfigSchema.safeParse({ command: "claude-agent-acp", model: 3 })
+        .success,
+    ).toBe(false);
   });
 });
