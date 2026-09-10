@@ -350,6 +350,38 @@ describe("ROUTES policy declarations", () => {
     expect(route!.policy!.requiredScopes).toContain("ingress.write");
   });
 
+  test("a plugin's notices/ namespace is gateway-only, ahead of the /x catch-all", async () => {
+    // Both routers take the first definition that matches, and the gateway's
+    // IPC proxy compiles the schema in ROUTES order, so the reservation holds
+    // only while every notice definition precedes its catch-all sibling.
+    const { ROUTES } = await import("../../routes/index.js");
+    const methods = [
+      "GET",
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE",
+      "HEAD",
+      "OPTIONS",
+    ];
+    for (const method of methods) {
+      const notice = ROUTES.findIndex(
+        (r) =>
+          r.endpoint === "x/plugins/:plugin/notices/:path*" &&
+          r.method === method,
+      );
+      const catchAll = ROUTES.findIndex(
+        (r) => r.endpoint === "x/:path*" && r.method === method,
+      );
+      expect(notice).toBeGreaterThan(-1);
+      expect(catchAll).toBeGreaterThan(notice);
+      const policy = ROUTES[notice]!.policy;
+      expect(policy).not.toBeNull();
+      expect(policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+      expect(policy!.requiredScopes).toContain("internal.write");
+    }
+  });
+
   test("internal/twilio/voice-webhook is gateway-only", async () => {
     const { ROUTES } = await import("../../routes/index.js");
     const route = ROUTES.find(
