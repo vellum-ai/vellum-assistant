@@ -5441,9 +5441,7 @@ paths:
     post:
       operationId: channels_send_post
       summary: Send text to a channel chat
-      description:
-        Deliver text to a chat or person on a channel through the channel's transport, recorded after the channel
-        acknowledges it.
+      description: Deliver text to a chat on a channel through the channel's transport, recorded after the channel acknowledges it.
       tags:
         - channels
       requestBody:
@@ -5468,36 +5466,22 @@ paths:
                     - plugin
                   description: Channel to send on
                 target:
-                  oneOf:
-                    - type: object
-                      properties:
-                        kind:
-                          type: string
-                          const: chat
-                        chatId:
-                          type: string
-                          minLength: 1
-                          description: Chat id in the channel's own id space
-                        threadId:
-                          description: Thread within the chat, in the channel's own id space
-                          type: string
-                          minLength: 1
-                      required:
-                        - kind
-                        - chatId
-                    - type: object
-                      properties:
-                        kind:
-                          type: string
-                          const: person
-                        userId:
-                          type: string
-                          minLength: 1
-                          description: Person to reach in their DM, in the channel's own id space
-                      required:
-                        - kind
-                        - userId
                   type: object
+                  properties:
+                    kind:
+                      type: string
+                      const: chat
+                    chatId:
+                      type: string
+                      minLength: 1
+                      description: Chat id in the channel's own id space
+                    threadId:
+                      description: Thread within the chat, in the channel's own id space
+                      type: string
+                      minLength: 1
+                  required:
+                    - kind
+                    - chatId
                 text:
                   type: string
                   minLength: 1

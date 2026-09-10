@@ -22,7 +22,7 @@ let deliverResult: Record<string, unknown> = {
 
 function fakeTransport(
   channel: "slack" | "telegram",
-  opts: { binds?: boolean; addressable?: boolean } = {},
+  opts: { binds?: boolean; addressable?: boolean; refuses?: boolean } = {},
 ): ChannelTransport {
   const transport: ChannelTransport = {
     channel,
@@ -37,9 +37,8 @@ function fakeTransport(
     },
   };
   if (opts.addressable !== false) {
-    // Asynchronous, as a transport that opens a DM to address a person is.
-    transport.addressFor = async (target: ProactiveTarget) => {
-      if (target.kind === "person") {
+    transport.addressFor = (target: ProactiveTarget) => {
+      if (opts.refuses) {
         return undefined;
       }
       const threadId = target.threadId?.trim();
@@ -167,7 +166,7 @@ describe("addressability", () => {
     expect(isProactivelyAddressable("not-a-channel")).toBe(false);
   });
 
-  test("refuses before delivery when the channel or the target shape cannot be addressed", async () => {
+  test("refuses before delivery when the channel has no addressing, or refuses the chat", async () => {
     await expect(
       sendChannelText({
         channel: "email",
@@ -175,10 +174,12 @@ describe("addressability", () => {
         text: "hi",
       }),
     ).rejects.toBeInstanceOf(ChannelNotAddressableError);
+
+    transports.slack = fakeTransport("slack", { refuses: true });
     await expect(
       sendChannelText({
         channel: "slack",
-        target: { kind: "person", userId: "U1" },
+        target: { kind: "chat", chatId: "C-unreachable" },
         text: "hi",
       }),
     ).rejects.toBeInstanceOf(ChannelNotAddressableError);
