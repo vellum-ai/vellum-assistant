@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import {
+  pickConversationIdWireField,
+  resolveConversationIdWireField,
+} from "@/lib/backwards-compat/conversation-id-wire-field";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 function setVersion(version: string | null) {
@@ -57,5 +60,24 @@ describe("pickConversationIdWireField", () => {
     expect(pickConversationIdWireField()).toBe("conversationKey");
     setVersion("0.8");
     expect(pickConversationIdWireField()).toBe("conversationKey");
+  });
+});
+
+describe("resolveConversationIdWireField", () => {
+  test("waits for an unhydrated version instead of answering conversationKey", async () => {
+    setVersion(null);
+
+    const pending = resolveConversationIdWireField();
+    // The synchronous pick is what a caller must not use here: unhydrated
+    // reads as the legacy field, which a gated write would refuse on.
+    expect(pickConversationIdWireField()).toBe("conversationKey");
+
+    setVersion("0.9.0");
+    expect(await pending).toBe("conversationId");
+  });
+
+  test("answers conversationKey once a genuinely old version is known", async () => {
+    setVersion("0.8.5");
+    expect(await resolveConversationIdWireField()).toBe("conversationKey");
   });
 });

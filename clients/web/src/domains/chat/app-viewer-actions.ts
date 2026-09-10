@@ -36,7 +36,7 @@
 
 import { postChatMessage } from "@/domains/chat/api/messages";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { resolveConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -63,7 +63,7 @@ function relayPrompt(
   const targetConversationId =
     typeof data?.conversationId === "string" ? data.conversationId : "";
   if (targetConversationId) {
-    relayPromptToConversation(targetConversationId, prompt);
+    void relayPromptToConversation(targetConversationId, prompt);
     return;
   }
 
@@ -101,15 +101,32 @@ function relayPrompt(
  * nothing more; see the accepted one-click path in `visual-surface.tsx`.
  *
  * Exact targeting needs the strict `conversationId` wire field. An assistant
- * that predates it is sent `conversationKey`, which is a create-or-lookup by
- * external key, so an internal id that key space does not hold would mint a
- * stray conversation and run the prompt there. On such an assistant the relay
- * is dropped and reported rather than misdelivered.
+ * that predates it is sent `conversationKey`, a create-or-lookup by external
+ * key, so an internal id that key space does not hold would mint a stray
+ * conversation and run the prompt there. On such an assistant the relay is
+ * dropped and reported rather than misdelivered.
+ *
+ * The send is deliberately NOT marked `scripted`. That marker is for text an
+ * onboarding flow auto-sends with no user action behind it; a CTA the user
+ * clicked is user-initiated, which is why the `?prompt=` relay is unmarked too
+ * (see `use-auto-send-effects.ts`) and what the analytics classifier expects.
+ * The activation gate above is what makes that true of every send from here.
  */
-function relayPromptToConversation(
+async function relayPromptToConversation(
   conversationId: string,
   prompt: string,
-): void {
+): Promise<void> {
+  const report = (error: unknown, level?: "warning"): void => {
+    captureError(error, {
+      context: "app_viewer_relay_prompt",
+      ...(level ? { level } : {}),
+      extra: { conversationId },
+    });
+  };
+
+  // Read before the first await: an activation is transient, so a gate that
+  // resolved it after waiting on version hydration would be asking whether the
+  // user has clicked recently rather than whether this call came from a click.
   if (!navigator.userActivation?.isActive) {
     return;
   }
@@ -117,35 +134,24 @@ function relayPromptToConversation(
   if (!assistantId) {
     return;
   }
-  if (pickConversationIdWireField() !== "conversationId") {
-    captureError(
-      new Error("relay_prompt to an exact conversation needs assistant 0.8.6+"),
-      {
-        context: "app_viewer_relay_prompt",
-        level: "warning",
-        extra: { conversationId },
-      },
-    );
-    return;
+
+  try {
+    if ((await resolveConversationIdWireField()) !== "conversationId") {
+      report(
+        new Error(
+          "relay_prompt to an exact conversation needs a newer assistant",
+        ),
+        "warning",
+      );
+      return;
+    }
+    const result = await postChatMessage(assistantId, conversationId, prompt);
+    if (!result.ok) {
+      report(new Error(`relay_prompt send rejected: HTTP ${result.status}`));
+    }
+  } catch (err) {
+    report(err);
   }
-  void postChatMessage(assistantId, conversationId, prompt)
-    .then((result) => {
-      if (!result.ok) {
-        captureError(
-          new Error(`relay_prompt send rejected: HTTP ${result.status}`),
-          {
-            context: "app_viewer_relay_prompt",
-            extra: { conversationId },
-          },
-        );
-      }
-    })
-    .catch((err: unknown) => {
-      captureError(err, {
-        context: "app_viewer_relay_prompt",
-        extra: { conversationId },
-      });
-    });
 }
 
 /**

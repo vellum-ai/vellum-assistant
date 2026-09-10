@@ -38,11 +38,18 @@ function makeCtx(isMobile = false) {
   return { navigate: mock((_to: string) => {}), isMobile };
 }
 
+const originalUserActivation = navigator.userActivation;
+
 function setUserActivation(isActive: boolean): void {
   Object.defineProperty(navigator, "userActivation", {
     value: { isActive, hasBeenActive: isActive },
     configurable: true,
   });
+}
+
+/** Let the relay's awaits settle; it is dispatched as fire-and-forget. */
+function flush(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 let restoreViewport: (() => void) | undefined;
@@ -65,6 +72,10 @@ afterEach(() => {
   });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
   useAssistantIdentityStore.setState({ version: null });
+  Object.defineProperty(navigator, "userActivation", {
+    value: originalUserActivation,
+    configurable: true,
+  });
 });
 
 describe("handleAppViewerAction — relay_prompt", () => {
@@ -133,25 +144,28 @@ describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
     setUserActivation(true);
   });
 
-  it("posts the prompt into the named conversation as the user, without navigating", () => {
+  it("posts the prompt into the named conversation as the user, without navigating", async () => {
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "relay_prompt", {
       prompt: "review this",
       conversationId: "conv-9",
     });
+    await flush();
 
+    // Exactly three arguments: no options, so the send carries no `scripted`
+    // marker. A clicked CTA is user-initiated, matching the `?prompt=` relay.
     expect(postChatMessageMock).toHaveBeenCalledTimes(1);
-    expect(postChatMessageMock.mock.calls[0]?.slice(0, 3)).toEqual([
+    expect(postChatMessageMock).toHaveBeenCalledWith(
       "asst-1",
       "conv-9",
       "review this",
-    ]);
+    );
     expect(ctx.navigate).not.toHaveBeenCalled();
     expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
   });
 
-  it("an explicit conversationId wins over conversation: 'new'", () => {
+  it("an explicit conversationId wins over conversation: 'new'", async () => {
     const ctx = makeCtx();
 
     handleAppViewerAction(ctx, "relay_prompt", {
@@ -159,13 +173,14 @@ describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
       conversation: "new",
       conversationId: "conv-9",
     });
+    await flush();
 
     expect(postChatMessageMock.mock.calls[0]?.[1]).toBe("conv-9");
     expect(ctx.navigate).not.toHaveBeenCalled();
     expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
   });
 
-  it("is dropped without a transient user activation", () => {
+  it("is dropped without a transient user activation", async () => {
     setUserActivation(false);
     const ctx = makeCtx();
 
@@ -173,29 +188,50 @@ describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
       prompt: "on load",
       conversationId: "conv-9",
     });
+    await flush();
 
     expect(postChatMessageMock).not.toHaveBeenCalled();
     expect(ctx.navigate).not.toHaveBeenCalled();
   });
 
-  it("is dropped when no assistant is active", () => {
+  it("is dropped when no assistant is active", async () => {
     useResolvedAssistantsStore.setState({ activeAssistantId: null });
 
     handleAppViewerAction(makeCtx(), "relay_prompt", {
       prompt: "hi",
       conversationId: "conv-9",
     });
+    await flush();
 
     expect(postChatMessageMock).not.toHaveBeenCalled();
   });
 
-  it("is dropped and reported on an assistant without the conversationId wire field", () => {
+  it("delivers a click that lands before the assistant version hydrates", async () => {
+    useAssistantIdentityStore.setState({ version: null });
+
+    handleAppViewerAction(makeCtx(), "relay_prompt", {
+      prompt: "early",
+      conversationId: "conv-9",
+    });
+    await flush();
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    await flush();
+
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe("conv-9");
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("is dropped and reported on an assistant without the conversationId wire field", async () => {
     useAssistantIdentityStore.setState({ version: "0.8.5" });
 
     handleAppViewerAction(makeCtx(), "relay_prompt", {
       prompt: "hi",
       conversationId: "conv-9",
     });
+    await flush();
 
     expect(postChatMessageMock).not.toHaveBeenCalled();
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
@@ -216,14 +252,27 @@ describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
       prompt: "hi",
       conversationId: "conv-gone",
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    await flush();
 
     expect(captureErrorMock).toHaveBeenCalledTimes(1);
     expect(captureErrorMock.mock.calls[0]?.[1]).toMatchObject({
       context: "app_viewer_relay_prompt",
       extra: { conversationId: "conv-gone" },
     });
+  });
+
+  it("reports a send that throws", async () => {
+    postChatMessageMock.mockImplementationOnce(async () => {
+      throw new Error("offline");
+    });
+
+    handleAppViewerAction(makeCtx(), "relay_prompt", {
+      prompt: "hi",
+      conversationId: "conv-9",
+    });
+    await flush();
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
   });
 });
 

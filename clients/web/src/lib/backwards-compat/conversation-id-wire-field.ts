@@ -24,6 +24,8 @@
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { compareParsed, parseSemver } from "@/utils/semver";
 
+import { whenAssistantVersionKnown } from "./utils";
+
 const MIN_VERSION = "0.8.6";
 
 export type ConversationIdWireField = "conversationId" | "conversationKey";
@@ -53,4 +55,20 @@ export function pickConversationIdWireField(): ConversationIdWireField {
   return compareParsed({ ...parsed, pre: null }, min) >= 0
     ? "conversationId"
     : "conversationKey";
+}
+
+/**
+ * The same pick, for a caller whose behavior changes on the answer rather
+ * than only the field name it sends.
+ *
+ * {@link pickConversationIdWireField} answers `"conversationKey"` both for an
+ * assistant that predates the strict field and for one whose version has not
+ * hydrated yet. A body builder may collapse the two, because the legacy field
+ * is understood either way. A caller that refuses to act on the legacy answer
+ * cannot: the unhydrated read would refuse against a modern assistant, which
+ * is the gated-write case `whenAssistantVersionKnown` exists for.
+ */
+export async function resolveConversationIdWireField(): Promise<ConversationIdWireField> {
+  await whenAssistantVersionKnown();
+  return pickConversationIdWireField();
 }
