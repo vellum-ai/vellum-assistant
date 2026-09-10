@@ -41,6 +41,7 @@ import {
 } from "@/domains/chat/composer-store";
 import {
   keepsProcessingMarker,
+  type PendingDocumentReplyPayload,
   useDocumentComposerReplyStore,
 } from "@/domains/chat/document-composer-reply-store";
 import {
@@ -86,28 +87,32 @@ const SENT_STATUS_MS = 1500;
 /**
  * A send that has listed itself among a conversation's pending sends: the
  * nonce it carries, the payload that nonce is valid for, the conversation it
- * went toward, and whether its POST is still out.
+ * went toward, the message it took, and whether its POST is still out.
  */
 interface DocumentComposerAttempt {
   clientMessageId: string;
   snapshot: string;
   targetConversationId: string;
   inFlight: boolean;
+  /** What the send carried, to hand back to the document it was composed for
+   *  when the attempt ends with no composer of its own holding it. */
+  payload: PendingDocumentReplyPayload;
 }
 
 /**
  * Take `attempt`'s entry off the pending list, and the conversation's
- * processing mark with it when no other document work keeps it up. Nothing can
- * settle an entry the daemon never spoke for once no attempt can retry it,
- * and its mark would stand until an assistant switch. An acknowledged entry
- * stays, because its reply is still coming.
+ * processing mark with it when no other document work keeps it up, reporting
+ * whether an entry came off. Nothing can settle an entry the daemon never
+ * spoke for once no attempt can retry it, and its mark would stand until an
+ * assistant switch. An acknowledged entry stays, because its reply is still
+ * coming.
  */
 function abandonAttempt(
   attempt: Pick<
     DocumentComposerAttempt,
     "clientMessageId" | "targetConversationId"
   >,
-): void {
+): boolean {
   const dropped = useDocumentComposerReplyStore
     .getState()
     .dropUnacknowledgedReply(
@@ -125,6 +130,7 @@ function abandonAttempt(
       .getState()
       .removeProcessingConversationId(attempt.targetConversationId);
   }
+  return dropped;
 }
 
 /**
@@ -194,11 +200,16 @@ export function useDocumentComposerSubmit({
     // draft at all, so the next send is a different message with a nonce of
     // its own. An entry an earlier attempt listed stays listed while its POST
     // is out, or once the daemon has taken the message in; one the daemon
-    // never took in and no attempt can retry comes off.
+    // never took in and no attempt can retry comes off, and the message it
+    // carried is held for its document, since the outgoing owner's slot is
+    // cleared with it and nothing on the stream can hand the message back. An
+    // acknowledged entry keeps its message with it.
     return () => {
       const previous = pendingClientMessageRef.current;
-      if (previous && !previous.inFlight) {
-        abandonAttempt(previous);
+      if (previous && !previous.inFlight && abandonAttempt(previous)) {
+        useDocumentComposerReplyStore
+          .getState()
+          .stashFailedSend(previous.payload);
       }
       pendingClientMessageRef.current = null;
       // An unmounted hook owns no assistant. A continuation still out past
@@ -442,11 +453,24 @@ export function useDocumentComposerSubmit({
       if (previousAttempt && !sameMessage) {
         abandonAttempt(previousAttempt);
       }
+      // The message this send is carrying rides along with its entry: the
+      // daemon can report the send failed after the composer has been cleared
+      // and told the user it went out, and nothing else holds the message by
+      // then.
+      const sentPayload: PendingDocumentReplyPayload = {
+        surfaceId: doc.surfaceId,
+        content,
+        attachments: documentAttachments.filter(
+          (attachment): attachment is UploadedAttachment =>
+            attachment.kind === "uploaded",
+        ),
+      };
       attempt = {
         clientMessageId,
         snapshot: payloadSnapshot,
         targetConversationId,
         inFlight: true,
+        payload: sentPayload,
       };
       if (ownsSlotAtSend) {
         pendingClientMessageRef.current = attempt;
@@ -462,18 +486,6 @@ export function useDocumentComposerSubmit({
         }
       };
 
-      // The message this send is carrying rides along with its entry: the
-      // daemon can report the send failed after the composer has been cleared
-      // and told the user it went out, and nothing else holds the message by
-      // then.
-      const sentPayload = {
-        surfaceId: doc.surfaceId,
-        content,
-        attachments: documentAttachments.filter(
-          (attachment): attachment is UploadedAttachment =>
-            attachment.kind === "uploaded",
-        ),
-      };
       // List this send among `conversationId`'s pending sends, under the nonce
       // it is carrying, so the watcher can tell stream events that echo it
       // apart from events about any other message in the conversation. A send
@@ -533,10 +545,16 @@ export function useDocumentComposerSubmit({
         // the next attempt goes out as a fresh send rather than a duplicate
         // the daemon would dedupe against nothing. Only the entry carrying
         // this nonce goes, and it goes even on a composer the slot has moved
-        // past, since a refused message can never be replied to.
+        // past, since a refused message can never be replied to. A refused
+        // message on a composer the slot has moved past is held for its
+        // document, which takes it back when it opens again; one still on its
+        // own composer stays in the draft the user sees.
         useDocumentComposerReplyStore
           .getState()
           .stopAwaitingReply(targetConversationId, clientMessageId);
+        if (!(isMountedRef.current && ownsSlotNow())) {
+          useDocumentComposerReplyStore.getState().stashFailedSend(sentPayload);
+        }
         // The mark stands for every send still running in the conversation, so
         // it comes down only once this one was the last pending there.
         if (
@@ -698,11 +716,19 @@ export function useDocumentComposerSubmit({
       // the daemon can dedupe and the reply it may already be generating
       // still raises the toast. An attempt the slot has moved past, or that
       // outlived the hook, cannot be retried, so its entry goes unless the
-      // daemon has taken the message in.
+      // daemon has taken the message in, and the message that entry carried is
+      // held for its document, since nothing on the stream can hand it back.
+      // An acknowledged entry keeps its message with it: the daemon can still
+      // report the send failed, and the watcher hands it back then.
       if (attempt) {
         attempt.inFlight = false;
-        if (!(isMountedRef.current && ownsSlotNow())) {
-          abandonAttempt(attempt);
+        if (
+          !(isMountedRef.current && ownsSlotNow()) &&
+          abandonAttempt(attempt)
+        ) {
+          useDocumentComposerReplyStore
+            .getState()
+            .stashFailedSend(attempt.payload);
         }
       }
       if (ownsSlotNow()) {

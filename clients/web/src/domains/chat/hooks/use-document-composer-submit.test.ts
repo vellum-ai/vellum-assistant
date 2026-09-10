@@ -349,6 +349,15 @@ function awaitingPayload(conversationId: string) {
 }
 
 /**
+ * The message held for `surfaceId`, taken the way that document's composer
+ * panel takes it when the document opens again. Null when the surface holds
+ * none.
+ */
+function takeHeldMessage(surfaceId: string) {
+  return useDocumentComposerReplyStore.getState().takeFailedSend(surfaceId);
+}
+
+/**
  * How the oldest send still awaiting a reply in `conversationId` stands:
  * whether the daemon has taken it in, and whether it is queued rather than
  * running. `undefined` when nothing is awaiting a reply there.
@@ -393,7 +402,10 @@ beforeEach(() => {
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
   });
-  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
+  useDocumentComposerReplyStore.setState({
+    pendingReplies: new Map(),
+    failedSends: new Map(),
+  });
   useViewerStore.setState({ openedDocumentState: null });
   // Below the server-mint floor, so the legacy path is the default and the
   // send's bounded wait for a resolved version settles immediately.
@@ -418,7 +430,10 @@ afterEach(() => {
   cleanup();
   window.sessionStorage.clear();
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
-  useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
+  useDocumentComposerReplyStore.setState({
+    pendingReplies: new Map(),
+    failedSends: new Map(),
+  });
   useViewerStore.setState({ openedDocumentState: null });
 });
 
@@ -3142,6 +3157,62 @@ describe("an attempt nothing can retry", () => {
     expect(isProcessing("conv-a")).toBe(true);
   });
 
+  test("a refused send after a document switch hands its message back to that document", async () => {
+    // GIVEN a send still in flight for the first document.
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+
+    // WHEN the composer moves to another document and only then does the
+    // daemon refuse the message, so no composer is left holding it.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    await act(async () => {
+      settle({ ok: false, status: 500, error: { detail: "boom" } });
+      await submitted;
+    });
+
+    // THEN the message waits for the document it was written in, and nothing
+    // is left owing a reply on the row it went toward.
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      surfaceId: SURFACE_ID,
+      content: "about the first doc",
+      attachments: [],
+    });
+    expect(isAwaitingReply("conv-a")).toBe(false);
+  });
+
+  test("a refused send on its own composer holds nothing", async () => {
+    // GIVEN a composer that never moved on.
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> => ({
+        ok: false,
+        status: 500,
+        error: { detail: "boom" },
+      }),
+    );
+    useComposerStore.getState().setInput("about the doc", "document");
+    const { result } = renderSubmit("conv-a");
+
+    // WHEN the daemon refuses the message with that composer still on screen.
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // THEN the draft the user is looking at is the only copy of it.
+    expect(result.current.status).toBe("error");
+    expect(takeHeldMessage(SURFACE_ID)).toBeNull();
+    expect(useComposerStore.getState().documentInput).toBe("about the doc");
+  });
+
   test("an unmount after a thrown send takes the entry and the mark down", async () => {
     // GIVEN a send that threw, still listed for a retry.
     throwFirstPostChatMessage("conv-a");
@@ -3159,6 +3230,35 @@ describe("an attempt nothing can retry", () => {
     // THEN the attempt has no composer left to retry it from.
     expect(isAwaitingReply("conv-a")).toBe(false);
     expect(isProcessing("conv-a")).toBe(false);
+  });
+
+  test("a document switch after a thrown send hands its message back to that document", async () => {
+    // GIVEN a send that threw with the composer it started on still on screen,
+    // so its entry stands for a retry.
+    throwFirstPostChatMessage("conv-a");
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(isAwaitingReply("conv-a")).toBe(true);
+
+    // WHEN the composer moves to another document, which takes the slot the
+    // draft was written in with it.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+
+    // THEN the message waits for the document it was written in, and nothing
+    // is left owing a reply on the row it went toward.
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      surfaceId: SURFACE_ID,
+      content: "about the first doc",
+      attachments: [],
+    });
+    expect(isAwaitingReply("conv-a")).toBe(false);
   });
 
   test("an unmount while the POST is out leaves the entry listed", async () => {
@@ -3213,6 +3313,47 @@ describe("an attempt nothing can retry", () => {
 
     expect(isAwaitingReply("conv-a")).toBe(false);
     expect(isProcessing("conv-a")).toBe(false);
+    // The entry the daemon never took in came off, so nothing on the stream
+    // can hand the message back: it waits for the document it was written in.
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      surfaceId: SURFACE_ID,
+      content: "about the first doc",
+      attachments: [],
+    });
+  });
+
+  test("a thrown send whose entry the daemon acknowledged holds nothing when abandoned", async () => {
+    // GIVEN a send in flight for the first document, echoed back as running.
+    const fail = failPostChatMessage();
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    act(() => {
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyRunning("conv-a", awaitingSends("conv-a")[0].clientMessageId);
+    });
+
+    // WHEN the composer moves to another document and only then does the POST
+    // throw.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+    await act(async () => {
+      fail();
+      await submitted;
+    });
+
+    // THEN the entry the daemon spoke for stays, message and all: the daemon
+    // can still report the send failed, and the watcher hands it back then.
+    expect(isAwaitingReply("conv-a")).toBe(true);
+    expect(takeHeldMessage(SURFACE_ID)).toBeNull();
   });
 
   test("a send that throws under its own owner keeps its entry for the retry", async () => {
