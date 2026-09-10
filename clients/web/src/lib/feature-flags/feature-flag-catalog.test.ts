@@ -115,6 +115,21 @@ describe("feature flag catalog", () => {
     expect("summarizeUpToHere" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
+  test("does not expose the retired balanced-model experiment as a feature flag", () => {
+    expect("experimentBalancedModel20260831" in CLIENT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect("experimentBalancedModel20260831" in ASSISTANT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect(
+      "experimentBalancedModel20260831" in CLIENT_STRING_FLAG_DEFAULTS,
+    ).toBe(false);
+    expect(
+      "experimentBalancedModel20260831" in ASSISTANT_STRING_FLAG_DEFAULTS,
+    ).toBe(false);
+  });
+
   test("does not expose GA desktop presence suppression as a feature flag", () => {
     expect("desktopPresenceSuppression" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("desktopPresenceSuppression" in ASSISTANT_FLAG_DEFAULTS).toBe(false);

@@ -7,7 +7,7 @@
  *   backup profile that exists in the code catalog.
  * - Cross-provider rule: a backup pins its model at a DIFFERENT managed
  *   upstream than its primary, so an outage at the primary's provider can
- *   be served by the backup. Holds for the experiment arms too.
+ *   be served by the backup.
  * - Probe coverage: every backup model is a catalog member of its upstream
  *   provider, which is what feeds the platform's model liveness probe.
  * - Scoping: backups exist for the managed column only. A BYOK or chatgpt
@@ -18,9 +18,8 @@
  *   are delete-protected like the other managed defaults.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
-import { BALANCED_MODEL_EXPERIMENT_FLAG_KEY } from "../config/balanced-model-experiment.js";
 import {
   CODE_DEFAULT_PROFILE_ENTRIES,
   getEffectiveProfile,
@@ -38,7 +37,6 @@ import {
   DEFAULT_PROFILE_PROVIDERS,
   FALLBACK_PROFILE_BY_KEY,
 } from "../config/default-profile-names.js";
-import { clearCachedOverrides } from "../config/feature-flag-cache.js";
 import {
   type DefaultProviderConfig,
   LLMSchema,
@@ -46,13 +44,8 @@ import {
 } from "../config/schemas/llm.js";
 import { isModelInCatalog } from "../providers/model-catalog.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 const vellum: DefaultProviderConfig = { provider: "vellum" };
-
-afterEach(() => {
-  clearCachedOverrides();
-});
 
 describe("fallbackProfile pointers on the vellum column", () => {
   test("every default profile's vellum impl points at an existing backup", () => {
@@ -96,24 +89,6 @@ describe("cross-provider rule", () => {
       expect(primaryUpstream).not.toBeNull();
       expect(backupUpstream).not.toBeNull();
       expect(backupUpstream).not.toBe(primaryUpstream);
-    }
-  });
-
-  test("the balanced experiment arms keep the cross-provider split", () => {
-    const backup =
-      CODE_DEFAULT_PROFILE_ENTRIES[FALLBACK_PROFILE_BY_KEY.balanced];
-    const backupUpstream = getManagedUpstream(backup.model as string);
-    for (const arm of ["terra", "glm-5p2"]) {
-      setOverridesForTesting({ [BALANCED_MODEL_EXPERIMENT_FLAG_KEY]: arm });
-      const armed = resolveDefaultProfileForProvider(
-        undefined,
-        "balanced",
-        vellum,
-      );
-      expect(armed?.fallbackProfile).toBe(FALLBACK_PROFILE_BY_KEY.balanced);
-      const armedUpstream = getManagedUpstream(armed?.model as string);
-      expect(armedUpstream).not.toBeNull();
-      expect(armedUpstream).not.toBe(backupUpstream);
     }
   });
 
