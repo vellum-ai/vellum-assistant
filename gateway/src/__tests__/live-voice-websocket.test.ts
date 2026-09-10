@@ -512,13 +512,50 @@ describe("createLiveVoiceWebsocketHandler — velay-attested managed auth", () =
     expect(server.upgrade).not.toHaveBeenCalled();
   });
 
-  test("local mode does NOT trust X-Velay-* headers even with bridge proof", async () => {
+  test("a gateway with no velay tunnel does NOT trust X-Velay-* headers even with bridge proof", async () => {
     setPlatform(false);
     const handler = createLiveVoiceWebsocketHandler(makeConfig());
     const server = makeFakeServer();
     const res = await handler(makeVelayReq(), server);
 
     expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A locally hosted assistant reaches the mobile app through a velay tunnel
+   * with IS_PLATFORM unset. The attestation arrives through the same bridge
+   * as on a managed pod, so the tunnel, not the env var, is what admits it.
+   */
+  test("a locally hosted gateway with a velay tunnel trusts an attested caller with bridge proof", async () => {
+    setPlatform(false);
+    const handler = createLiveVoiceWebsocketHandler(
+      makeConfig({ velayBaseUrl: "https://velay.example.test" }),
+    );
+    const server = makeFakeServer();
+    const res = await handler(makeVelayReq(), server);
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+    const call = (server.upgrade as ReturnType<typeof mock>).mock
+      .calls[0] as unknown[];
+    expect(
+      (call[1] as { data: LiveVoiceSocketData }).data.guardianPrincipalId,
+    ).toBe("test-user");
+  });
+
+  test("a locally hosted gateway with a velay tunnel still ignores spoofed headers without bridge proof", async () => {
+    setPlatform(false);
+    const handler = createLiveVoiceWebsocketHandler(
+      makeConfig({ velayBaseUrl: "https://velay.example.test" }),
+    );
+    const server = makeFakeServer();
+    const res = await handler(
+      makeVelayReq(undefined, { bridgeAuth: false }),
+      server,
+    );
+
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();
   });

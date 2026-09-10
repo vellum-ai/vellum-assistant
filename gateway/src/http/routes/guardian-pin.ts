@@ -15,14 +15,16 @@
  *
  * Two callers, two shapes, because there are two ways a caller arrives:
  *
- * - **Managed / cloud.** Velay validates the browser's token, strips any
+ * - **Through velay.** Velay validates the browser's token, strips any
  *   client-supplied copies of the `X-Velay-*` headers, and injects the
  *   authenticated caller. That attestation proves the caller is *a* platform
  *   user who traversed velay, so it is cross-checked against the stored
- *   `platform_user_id` by {@link requireManagedGuardian}.
- * - **Self-hosted and everything else.** The caller presents an actor edge JWT
- *   and its principal is compared against the binding by
- *   {@link requireBoundGuardian}.
+ *   `platform_user_id` by {@link requireManagedGuardian}. A gateway takes
+ *   this path when {@link acceptsVelayAttestation} says it has a velay tunnel
+ *   at all: a managed pod, or a locally hosted assistant whose gateway dialed
+ *   velay so the mobile app can reach it.
+ * - **Everything else.** The caller presents an actor edge JWT and its
+ *   principal is compared against the binding by {@link requireBoundGuardian}.
  *
  * Not every audio proxy wants this. `/v1/stt/stream` carries dictation, which
  * is not a guardian-only surface and accepts any valid actor, which is why the
@@ -33,6 +35,7 @@
 import type { Logger } from "pino";
 
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
+import type { GatewayConfig } from "../../config.js";
 import { credentialKey } from "../../credential-key.js";
 import { readCredential } from "../../credential-reader.js";
 
@@ -48,6 +51,21 @@ const VELAY_ACTOR_HEADER = "x-velay-actor";
 export function isPlatformManaged(): boolean {
   const v = process.env.IS_PLATFORM?.trim().toLowerCase();
   return v === "1" || v === "true";
+}
+
+/**
+ * True when a velay-attested caller can reach this gateway at all: a managed
+ * pod, or any gateway started with a velay tunnel (`VELAY_BASE_URL`), which is
+ * how a locally hosted assistant is reachable from the mobile app.
+ *
+ * Only the bridge proof makes an attestation trustworthy; this predicate says
+ * whether there is a bridge to have come through. A gateway with no tunnel
+ * never sees velay traffic, so its routes go straight to the token path.
+ */
+export function acceptsVelayAttestation(
+  config: Pick<GatewayConfig, "velayBaseUrl">,
+): boolean {
+  return isPlatformManaged() || config.velayBaseUrl !== undefined;
 }
 
 /** Velay-attested managed caller context, extracted from injected headers. */
