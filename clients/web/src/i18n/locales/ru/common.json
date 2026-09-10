@@ -46,6 +46,9 @@
     "teaching": "Обучаем",
     "teachingNamed": "Обучаем {name}"
   },
+  "conversationTitle": {
+    "untitled": "Без названия"
+  },
   "deployStore": {
     "appExported": "Приложение экспортировано",
     "deployFailed": "Не удалось опубликовать",

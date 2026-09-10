@@ -168,6 +168,12 @@
     "deny": "Deny",
     "dictating": "Listening",
     "draw": "Draw",
+    "clearMarks": "Clear marks",
+    "drawTools": "Drawing tool",
+    "drawFreehand": "Freehand",
+    "drawLine": "Line",
+    "drawBox": "Box",
+    "drawCircle": "Circle",
     "dictatingTranscribing": "Thinking",
     "endSession": "End session",
     "muteAssistant": "Mute assistant",
@@ -205,6 +211,9 @@
     "copyFileContentsAria": "Copy file contents",
     "downloadFileAria": "Download file",
     "editFileAria": "Edit file"
+  },
+  "conversationTitle": {
+    "untitled": "Untitled"
   },
   "createAssistantDialog": {
     "cancel": "Cancel",

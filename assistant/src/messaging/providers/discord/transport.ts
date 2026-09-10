@@ -1,6 +1,7 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
@@ -50,6 +51,28 @@ async function sendTarget(
 
 export const discordTransport: ChannelTransport = {
   channel: "discord",
+
+  /**
+   * A chat is a channel id, with `threadId` naming the thread, which is its
+   * own channel. A person is reached in their DM, which is opened here so
+   * the address names the DM channel the post lands in: that is the id
+   * Discord's later events carry for it, so the record and the chat's home
+   * are found again by it.
+   */
+  async addressFor(target) {
+    if (target.kind === "person") {
+      return {
+        ctx: directDeliveryContext("discord"),
+        chatId: await openDiscordDmChannel(target.userId),
+      };
+    }
+    const threadId = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("discord", threadId ? { threadId } : {}),
+      chatId: target.chatId,
+      ...(threadId ? { threadId } : {}),
+    };
+  },
 
   // Discord clears a typing indicator after ten seconds.
   activityRefreshMs: 8_000,

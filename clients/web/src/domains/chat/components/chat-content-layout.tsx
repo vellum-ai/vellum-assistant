@@ -14,6 +14,7 @@ import { lazy, useCallback, useEffect, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { Loader2 } from "lucide-react";
 import { AnimatedRightDrawer } from "@/domains/chat/components/animated-right-drawer";
+import { CHAT_INFO_DRAWER_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 import { ProgressStack } from "@/domains/chat/components/progress-stack";
 import { SideControlPlacementBoundary } from "@/domains/chat/components/side-control-placement";
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -30,7 +31,11 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { paneState } from "@/stores/pane-state";
 import { WorkspacePanes } from "@/domains/chat/components/workspace-panes";
 import { useDeployStore } from "@/stores/deploy-store";
-import { chatInfoTargetKey, useViewerStore } from "@/stores/viewer-store";
+import {
+  chatInfoTargetKey,
+  type MainView,
+  useViewerStore,
+} from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
@@ -105,6 +110,32 @@ const ChannelTranscriptPanel = lazy(() =>
     default: m.ChannelTranscriptPanel,
   })),
 );
+
+export interface RightDrawerWidthProfile {
+  /** `localStorage` key the drawer remembers this profile's width under. */
+  storageKey: string;
+  /** Omitted for the shared profile, which opens at the drawer's own default. */
+  defaultWidth?: number;
+}
+
+/**
+ * Which width the one shared side drawer opens at, and where it remembers it.
+ *
+ * Chat Info draws fitted rows of tiles the other panels have no equivalent of,
+ * so it opens at the width the mock draws those rows at and keeps its own
+ * remembered width; every other panel shares one.
+ */
+export function rightDrawerWidthProfile(
+  mainView: MainView,
+): RightDrawerWidthProfile {
+  if (mainView === "chat-info") {
+    return {
+      storageKey: "chatInfoPanelWidth",
+      defaultWidth: CHAT_INFO_DRAWER_WIDTH_PX,
+    };
+  }
+  return { storageKey: "rightPanelWidth" };
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -683,9 +714,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     }
   }
 
+  // One drawer instance across every panel, so switching profiles moves the
+  // width the hook reports and motion eases it rather than remounting.
+  const widthProfile = rightDrawerWidthProfile(mainView);
+
   return (
     <AnimatedRightDrawer
-      storageKey="rightPanelWidth"
+      storageKey={widthProfile.storageKey}
+      defaultWidth={widthProfile.defaultWidth}
       open={rightPanel != null}
       left={chatContent}
       right={rightPanel}

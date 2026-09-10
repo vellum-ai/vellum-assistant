@@ -38,8 +38,13 @@ export function GettingStartedContent() {
               Connects to your cloud assistant.
             </li>
             <li>
-              <strong>For the desktop app:</strong> macOS 15 (Sequoia) or later, Apple Silicon
+              <strong>For the Mac app:</strong> macOS 15 (Sequoia) or later, Apple Silicon
               or Intel, plus ~500 MB free disk space. Connects to a cloud or local assistant.
+            </li>
+            <li>
+              <strong>For the Windows app:</strong> Windows 10 or later. Choose the x64
+              installer for Intel or AMD PCs, or ARM64 for Windows on Arm. Connects to a
+              cloud or local assistant.
             </li>
             <li>
               Internet connection (your assistant uses cloud AI models to think)
@@ -122,8 +127,8 @@ export function GettingStartedContent() {
             Desktop app
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
-            The desktop app gives you a menu bar presence, voice input with hold-to-talk, and
-            the ability to control your Mac through accessibility APIs. It connects to a
+            The desktop app is available on macOS and Windows, with a menu bar or system tray
+            presence, voice input, and computer control. It connects to a
             cloud assistant by default (so your conversations and memory show up in both the
             web and desktop apps), but it can also run a local assistant entirely on your
             machine. See{" "}
@@ -131,6 +136,12 @@ export function GettingStartedContent() {
               Hosting options
             </a>{" "}
             for the local-only setup.
+          </p>
+          <p className="mb-4 text-zinc-600">
+            The Windows download is currently a <strong>dev build</strong>. It connects
+            to Vellum&apos;s development environment, so your production cloud assistant
+            and its history will not appear there. The main download is x64; select
+            Other downloads for ARM64.
           </p>
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
@@ -140,18 +151,25 @@ export function GettingStartedContent() {
               for Vellum if you haven&apos;t already.
             </li>
             <li>
-              Download the macOS <code>.dmg</code> from your account dashboard.
+              Download the macOS <code>.dmg</code> or Windows <code>.exe</code> from the{" "}
+              <a href="https://www.vellum.ai/download" className="font-semibold text-emerald-700 underline hover:text-emerald-800">
+                download page
+              </a>.
             </li>
             <li>
-              Open the <code>.dmg</code>, drag Vellum to Applications, and launch it.
+              On macOS, open the <code>.dmg</code>, drag Vellum to Applications, and launch it.
+              On Windows, run the <code>.exe</code> installer and open Vellum from Start.
             </li>
             <li>
-              Sign in with your Vellum account. Your cloud assistant shows up automatically.
+              Sign in with your Vellum account. Production builds connect to your existing
+              cloud assistant; the Windows dev build connects to the development environment.
             </li>
           </ol>
           <p className="mb-6 text-zinc-600">
-            That&apos;s the whole process. No terminal commands, no package managers, no YAML
-            files. Standard <code>.dmg</code>, signed and notarized.
+            The installers include everything needed to run the app. macOS downloads are signed
+            and notarized; Windows downloads are Authenticode-signed. No terminal setup is
+            needed. On Windows, the app also installs the <code>vellum</code> CLI for your
+            user account. Open a new terminal after the first launch to use it.
           </p>
         </section>
 
@@ -187,7 +205,7 @@ export function GettingStartedContent() {
             <li>
               <strong>Bring your own API key</strong> — Self-host the runtime and connect it to
               your own Anthropic API key. Useful if you want to run everything on your own
-              machine. Your key is stored in your macOS Keychain.
+              machine. Vellum manages your credentials separately from the assistant.
             </li>
           </ul>
         </section>
@@ -235,7 +253,7 @@ export function GettingStartedContent() {
           </SectionHeading>
           <p className="mb-4 text-zinc-600">
             Vellum doesn&apos;t ask for all its permissions upfront. Instead, permissions are
-            requested only when they&apos;re actually needed:
+            requested only when they&apos;re actually needed. The table below describes macOS:
           </p>
           <div className="mb-6 overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -311,10 +329,16 @@ export function GettingStartedContent() {
               </tbody>
             </table>
           </div>
+          <p className="mb-4 text-zinc-600">
+            On Windows, open Settings &gt; Permissions &amp; Privacy in Vellum to check
+            microphone, screen capture, speech, and notification access. Use the settings
+            link beside a permission to open the corresponding Windows settings page.
+            Accessibility, Input Monitoring, and Automation permissions are macOS-only
+            and do not appear on Windows. Computer control cannot interact with elevated
+            or protected windows.
+          </p>
           <p className="mb-6 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-zinc-700">
-            <strong>Worth knowing:</strong> The app accesses files through normal sandbox
-            entitlements, not Full Disk Access. Individual file and shell actions still require
-            your approval through the in-app permission system. Check out{" "}
+            Individual file and shell actions are governed by the in-app permission system. Check out{" "}
             <a href="/docs/trust-security">Trust &amp; Security</a> for the full picture.
           </p>
         </section>

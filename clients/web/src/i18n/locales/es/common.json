@@ -167,6 +167,12 @@
     "captureWindows": "Ventanas",
     "deny": "Denegar",
     "draw": "Dibujar",
+    "clearMarks": "Borrar marcas",
+    "drawTools": "Herramienta de dibujo",
+    "drawFreehand": "Mano alzada",
+    "drawLine": "Línea",
+    "drawBox": "Recuadro",
+    "drawCircle": "Círculo",
     "endSession": "Finalizar sesión",
     "muteAssistant": "Silenciar asistente",
     "muteMicrophone": "Silenciar micrófono",
@@ -203,6 +209,9 @@
     "copyFileContentsAria": "Copiar contenido del archivo",
     "downloadFileAria": "Descargar archivo",
     "editFileAria": "Editar archivo"
+  },
+  "conversationTitle": {
+    "untitled": "Sin título"
   },
   "createAssistantDialog": {
     "cancel": "Cancelar",

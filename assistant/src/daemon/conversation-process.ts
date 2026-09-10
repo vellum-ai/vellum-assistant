@@ -64,7 +64,7 @@ import { preactivateHostProxySkills } from "./host-proxy-preactivation.js";
 import type { UserMessageAttachment } from "./message-protocol.js";
 import { buildTransportHints } from "./transport-hints.js";
 import { sameTrustIdentity, type TrustContext } from "./trust-context-types.js";
-import { turnOrRestingTrust } from "./trust-context-types.js";
+import { restingTrust, turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
@@ -646,6 +646,52 @@ export async function kickQueueDrain(
   }
 }
 
+/**
+ * Commit `actor` as the actor the turn about to start runs for: the resting
+ * slot names them, so the history is scoped to them and every reader of the
+ * slot (the `<turn_context>` actor section, memory retrieval, the Slack
+ * transcript filters) describes them rather than whoever sent last, and the
+ * per-turn snapshot then reads back that same actor, which is also returned
+ * for callers that must hold it in a local. A caller with no actor of its own
+ * (internal dispatch, or a queued message whose enqueue found the slot empty)
+ * passes `undefined`, and the resting actor stands.
+ *
+ * `reloadHistory` is off only for a steered drain, which keeps its resident
+ * history: a steer comes from the actor whose turn it cut off, and that
+ * history may hold the in-memory repair of the abandoned `tool_use`, which a
+ * reload would discard.
+ *
+ * The committed actor is captured and snapshotted before the reload awaits:
+ * the slot is writable out-of-band across that await (a wake's stamp, a
+ * pointer elevation), and a read after it would hand the turn that writer's
+ * actor. A reload that fails starts no turn, so the slot is put back to what
+ * it held before, guarded so a writer that legitimately moved it in between
+ * is left alone.
+ */
+async function commitTurnActor(
+  conversation: Conversation,
+  actor: TrustContext | undefined,
+  options: { reloadHistory: boolean },
+): Promise<TrustContext | undefined> {
+  const prior = restingTrust(conversation);
+  if (actor) {
+    conversation.setTrustContext(actor);
+  }
+  const turnTrustContext = restingTrust(conversation);
+  conversation.currentTurnTrustContext = turnTrustContext;
+  if (options.reloadHistory) {
+    try {
+      await conversation.ensureActorScopedHistory();
+    } catch (err) {
+      if (actor && restingTrust(conversation) === actor) {
+        conversation.setTrustContext(prior ?? null);
+      }
+      throw err;
+    }
+  }
+  return turnTrustContext;
+}
+
 async function drainSingleMessage(
   conversation: Conversation,
   next: QueuedMessage,
@@ -749,8 +795,11 @@ async function drainSingleMessage(
   // Trust comes from the queued message, not the live slot: the slot holds
   // whichever actor sent most recently, which is this sender only when nobody
   // else sent while this message waited.
-  conversation.currentTurnTrustContext =
-    next.trustContext ?? conversation.trustContext;
+  const turnTrustContext = await commitTurnActor(
+    conversation,
+    next.trustContext,
+    { reloadHistory: !steered },
+  );
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1220,10 +1269,10 @@ async function drainSingleMessage(
     cronRunId?: string | null;
   } = {
     isUserMessage: true,
-    // Carry the sender's trust into the run. The loop re-initializes the
-    // per-turn snapshot on entry, so without this the stamp above is undone
-    // and the turn reverts to the conversation's most recent actor.
-    turnTrustContext: conversation.currentTurnTrustContext,
+    // Carry the sender's trust into the run from the local captured at the
+    // commit: the loop re-initializes the per-turn snapshot on entry, and the
+    // field is writable out-of-band across the awaits above.
+    turnTrustContext,
   };
   if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
@@ -1359,8 +1408,11 @@ async function drainBatch(
   // `buildPassthroughBatch` refuses to coalesce messages from different
   // actors; without that boundary this would run a tail under the head's
   // trust.
-  conversation.currentTurnTrustContext =
-    head.trustContext ?? conversation.trustContext;
+  const turnTrustContext = await commitTurnActor(
+    conversation,
+    head.trustContext,
+    { reloadHistory: true },
+  );
   conversation.currentTurnChannelCapabilities =
     conversation.channelCapabilities;
 
@@ -1703,9 +1755,9 @@ async function drainBatch(
     cronRunId?: string | null;
   } = {
     isUserMessage: true,
-    // Same reason as the single-message drain: the loop re-initializes the
-    // per-turn snapshot, so the head's trust has to travel with the call.
-    turnTrustContext: conversation.currentTurnTrustContext,
+    // Same reason as the single-message drain: the head's trust travels from
+    // the local captured at the commit, not a late read of the field.
+    turnTrustContext,
   };
   if (lastPushEligibleUserMessageId !== undefined) {
     drainLoopOptions.notifyUserMessageId = lastPushEligibleUserMessageId;
@@ -1838,20 +1890,16 @@ export async function processMessage(
     metadata: callerMetadata,
     trustContext: committingTrustContext,
   } = options;
-  if (committingTrustContext) {
-    conversation.setTrustContext(committingTrustContext);
-  }
-  await conversation.ensureActorScopedHistory();
-  // Snapshot persona context at turn start so later tool turns can't pick up
-  // a different actor's context if a concurrent request mutates the live fields.
-  //
   // Held in a local as well as on the conversation: the field is writable
   // out-of-band while this turn is in flight (`agent-wake` stamps it and
   // restores the prior value in a `finally`), so reading it back at the agent
   // loop call below would reintroduce the late read this capture exists to
   // avoid. The local is what the loop runs under.
-  const turnTrustContext = conversation.trustContext;
-  conversation.currentTurnTrustContext = turnTrustContext;
+  const turnTrustContext = await commitTurnActor(
+    conversation,
+    committingTrustContext,
+    { reloadHistory: true },
+  );
   conversation.currentTurnAuthContext = conversation.authContext;
   conversation.currentTurnSourceActorPrincipalId =
     sourceActorPrincipalId ?? conversation.authContext?.actorPrincipalId;

@@ -215,6 +215,7 @@ describe("api-interceptors / requestInterceptor", () => {
     const headers = await intercept("GET");
     expect(headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(headers.get("X-Vellum-Interface-Id")).toBe("web");
+    expect(headers.get("Accept-Language")).toBe("en");
   });
 
   test("attaches X-Vellum-Client-Id and X-Vellum-Interface-Id on POST", async () => {

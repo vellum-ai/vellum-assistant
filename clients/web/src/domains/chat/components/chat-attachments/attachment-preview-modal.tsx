@@ -18,10 +18,10 @@ import { TextPreview } from "@/domains/chat/components/chat-attachments/text-pre
 import {
   classifyAttachment,
   formatAttachmentSize,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import { useGallerySwipe } from "@/domains/chat/components/chat-attachments/use-gallery-swipe";
-import { baseMimeType, extensionOf } from "@/domains/chat/utils/mime-sniff";
+import { baseMimeType, extensionOf } from "@/utils/mime-sniff";
 import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import { useTranslation } from "@/i18n";

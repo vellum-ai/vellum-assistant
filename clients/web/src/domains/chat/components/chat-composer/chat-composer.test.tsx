@@ -867,9 +867,7 @@ function renderTouchTabletComposer(props: RenderComposerProps = {}) {
  * composer has focus, because the status controls beside the pills do.
  */
 function pillsRow(container: HTMLElement) {
-  return container.querySelector(
-    '[data-slot="composer-settings-pills-group"]',
-  );
+  return container.querySelector('[data-slot="composer-settings-pills-group"]');
 }
 
 /** The always-present row that holds the pills group and the status controls. */
@@ -2068,7 +2066,8 @@ describe("ChatComposer: the mobile send slot", () => {
   // classes: it answers to the same width signal that produces the row, so it
   // lands on every narrow window rather than only on the coarse-pointer ones
   // the `touch-mobile:` variant reaches.
-  const SEND_FILL_CLASS = "bg-[var(--system-positive-strong)]";
+  // The fill is the assistant's accent, falling back to the primary token.
+  const SEND_FILL_CLASS = "bg-[var(--avatar-accent-fill,var(--primary-base))]";
 
   test("an empty draft leaves the circular live-voice button in the slot", () => {
     // GIVEN a phone composer with nothing to send
@@ -2180,15 +2179,16 @@ describe("ChatComposer: the mobile send slot", () => {
     }
   });
 
-  test("desktop keeps the primitive's own send chrome", () => {
+  test("desktop keeps the primitive's own send chrome, in the accent", () => {
     // GIVEN a roomy window
     viewport.set({ narrow: false, coarsePointer: false });
     const { queryByLabelText } = renderVoiceComposer({ input: "hello" });
 
-    // THEN none of the row's chrome reaches it
+    // THEN none of the row's chrome reaches it, but the fill is the
+    // assistant's accent at every width
     const send = queryByLabelText("Send message");
     expect(send?.className).not.toContain("rounded-full");
-    expect(send?.className).not.toContain(SEND_FILL_CLASS);
+    expect(send?.className).toContain(SEND_FILL_CLASS);
     expect(glyphClassOf(send)).not.toContain(MOBILE_GLYPH_CLASS);
   });
 });

@@ -14,6 +14,7 @@ import { z } from "zod";
 
 import { CHANNEL_IDS } from "../../channels/types.js";
 import { isAssistantInitiatedThreadsEnabled } from "../../config/assistant-initiated-threads-gate.js";
+import { localeFromAcceptLanguage } from "../../i18n/index.js";
 import { channelBindingSchema } from "../../messaging/channel-binding-schema.js";
 import {
   type Confidence,
@@ -244,7 +245,10 @@ function parseEnumQueryParam<const T extends readonly string[]>(
   );
 }
 
-function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
+function handleListConversations({
+  queryParams = {},
+  headers,
+}: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   // "background" is the back-compat umbrella (background + scheduled); newer
@@ -365,6 +369,7 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         // Checks in-memory flag first (hot path), falls back to the
         // persisted `processing_started_at` column for cold conversations.
         isProcessing: isConversationProcessing(conversation.id),
+        locale: localeFromAcceptLanguage(headers?.["accept-language"]),
       }),
     ),
     nextOffset,
@@ -579,8 +584,14 @@ function handleMarkUnread({ body = {}, headers }: RouteHandlerArgs) {
   }
 }
 
-function handleGetConversation({ pathParams = {} }: RouteHandlerArgs) {
-  const detail = buildConversationDetailResponse(pathParams.id!);
+function handleGetConversation({
+  pathParams = {},
+  headers,
+}: RouteHandlerArgs) {
+  const detail = buildConversationDetailResponse(
+    pathParams.id!,
+    localeFromAcceptLanguage(headers?.["accept-language"]),
+  );
   if (!detail) {
     throw new NotFoundError(`Conversation ${pathParams.id} not found`);
   }

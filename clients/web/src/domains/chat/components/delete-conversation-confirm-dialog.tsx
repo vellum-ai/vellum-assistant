@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "@/i18n";
 
 import type { Conversation } from "@/types/conversation-types";
+import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { Checkbox, ConfirmDialog } from "@vellumai/design-library";
 
 /**
@@ -71,9 +72,9 @@ export function DeleteConversationConfirmDialog({
   onCancel,
 }: DeleteConversationConfirmDialogProps) {
   const { t } = useTranslation("chat");
+  const displayTitle = useDisplayConversationTitle();
   const [acknowledged, setAcknowledged] = useState(false);
-  const title =
-    pending?.title?.trim() || t("deleteConversationConfirmDialog.untitled");
+  const title = displayTitle(pending?.title);
 
   useEffect(() => {
     setAcknowledged(false);

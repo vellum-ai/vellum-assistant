@@ -125,7 +125,7 @@
     },
     {
       "name": "messaging_send",
-      "description": "Send a message, reply to a thread, or create a draft. On Gmail and Outlook, always creates a real mailbox draft for review (recipients optional on Outlook). Supports replies (via thread_id), attachments (via attachment_paths, Gmail and Outlook), and all messaging platforms.",
+      "description": "Send a message, reply to a thread, or create a draft. On Gmail and Outlook, always creates a real mailbox draft for review (recipients optional on Outlook). On a channel (Slack, Telegram, Discord, WhatsApp) the message goes out as the channel's own bot, threaded when thread_id names a thread. Supports replies (via thread_id) and attachments (via attachment_paths, Gmail and Outlook).",
       "category": "messaging",
       "risk": "high",
       "input_schema": {
@@ -133,11 +133,11 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
+            "description": "Platform (e.g. \"gmail\", \"slack\", \"telegram\", \"discord\"). Auto-detected if only one is connected."
           },
           "account": {
             "type": "string",
-            "description": "Email address of the account to use. Required when multiple accounts are connected for the same platform. If omitted, uses the most recently connected account."
+            "description": "Email address of the account to use. Required when multiple accounts are connected for the same email platform. If omitted, uses the most recently connected account. Does not apply to a channel: a channel send goes out as the channel's own bot."
           },
           "conversation_id": {
             "type": "string",

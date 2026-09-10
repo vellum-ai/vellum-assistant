@@ -110,6 +110,7 @@ export type {
   HookBroadcast,
   HookFunction,
   InitContext,
+  MessageDeletedContext,
   ModelProfileInfo,
   PluginLogger,
   PostCompactContext,

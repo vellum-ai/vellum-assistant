@@ -17,7 +17,7 @@ import {
 } from "@/domains/chat/components/conversation-asset-actions";
 import { AttachmentPreviewBox } from "@/domains/chat/components/chat-attachments/attachment-preview-box";
 import { useAttachmentObjectUrl } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
-import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { classifyAttachment } from "@/utils/attachment-utils";
 import type { ConversationFileAsset } from "@/domains/chat/hooks/use-conversation-assets";
 import { useInView } from "@/hooks/use-in-view";
 import { useTranslation } from "@/i18n";
@@ -124,10 +124,12 @@ export function ChatInfoFileTile({
         </AssetActionsSlot>
       ) : null}
 
+      {/* The variant's line height is 1, which leaves `truncate` no room for a
+          descender; `leading-normal` gives the line box the 18px it needs. */}
       <Typography
         variant="body-small-default"
         title={label}
-        className="truncate text-[var(--content-tertiary)]"
+        className="truncate leading-normal text-[var(--content-tertiary)]"
       >
         {label}
       </Typography>

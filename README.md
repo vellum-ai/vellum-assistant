@@ -23,7 +23,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 | **Identity**                  | Behavior lives in SOUL.md. During onboarding the assistant observes how you communicate and writes its own personality files. It keeps a per-user journal of reflections and uses NOW.md as a scratchpad for current focus and active threads. |
 | **Proactivity**               | Every hour the assistant re-reads its notes, looks for anything unfinished or due soon, and messages you if something needs attention. Notifications go to the right channel and won't interrupt an active conversation. |
 | **Security**                  | Actor identity (guardian, trusted, unknown) is resolved once and enforced everywhere; unknown actors can't read memory, trigger tools, or escalate. Credentials live in a separate process and never reach the model. Every tool call runs in a sandbox. The default is to deny. |
-| **Channels**           | macOS, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
+| **Channels**           | macOS, Windows, iOS, Web, Voice, Email, Telegram, Slack, Twilio. One assistant, one memory, every channel. |
 | **OAuth**             | Slack, Notion, Google, HubSpot, Linear, Discord, Twitter, Telegram, Twilio. No hand-rolled token refresh. |
 | **Hosting**      | Managed runtime on Vellum Platform, or self-hosted. Same codebase, same data model. |
 
@@ -32,6 +32,8 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 ## Get Started
 
 **1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/downloads)**
+
+The desktop app is available for macOS and Windows. The Windows download is currently a dev build connected to the development environment, with x64 (Intel/AMD) and ARM64 installers. See the [installation guide](https://www.vellum.ai/docs/getting-started/installation) for setup and permissions.
 
 **2. Pick your mode**
 
@@ -61,7 +63,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 
 <br>
 
-The CLI works but the desktop app is our primary focus. Available for advanced users, contributors, and non-macOS environments.
+The CLI works but the desktop app is our primary focus. Available for advanced users, contributors, and terminal-based workflows. The Windows desktop app installs the bundled CLI for your user account on first launch; open a new terminal afterward to use `vellum`.
 
 **Install**
 
@@ -107,7 +109,7 @@ All commands target the default assistant. If you have multiple, pass the assist
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Computer use**           | The assistant works in its own sandbox, and with your approval reaches your actual machine: reads and edits files, runs commands, drives the browser. Every action is permission-gated, and you can grant once, for ten minutes, or always. |
 | **Skills**                 | Plugins defined by a SKILL.md and a TOOLS.json that add tools and prompt sections at runtime, sandboxed like everything else. Install them from the catalog, bundle them, or drop them in the workspace.                                                                                      |
-| **Channels**               | One assistant with one memory, reachable from the macOS app, Telegram, or Slack. Start a thought in one channel and pick it up in another.                                                                                                                                                              |
+| **Channels**               | One assistant with one memory, reachable from the macOS or Windows app, Telegram, or Slack. Start a thought in one channel and pick it up in another.                                                                                                                                                              |
 | **Multi-provider support** | Works with Anthropic, OpenAI, Google Gemini, Fireworks, OpenRouter, MiniMax, [Atlas Cloud](https://www.atlascloud.ai/?utm_source=github&utm_medium=link&utm_campaign=vellum-assistant), and any OpenAI-compatible endpoint. Local models run through Ollama. Embeddings run on local ONNX by default and fall back to cloud providers automatically.                                                                                    |
 
 ---

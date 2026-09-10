@@ -19,6 +19,15 @@ interface SidebarShellProps {
   backHref: string;
   title?: string;
   menuRoute?: string;
+  /**
+   * Whether the nav list is the whole screen on a narrow viewport, so the
+   * routed page can be left unmounted while it is shown.
+   *
+   * Opt in only when the menu route's own child renders nothing the user
+   * needs. A child that redirects has to mount to do its work, and leaving it
+   * out strands the visitor on the menu instead.
+   */
+  menuReplacesContentOnMobile?: boolean;
 }
 
 /**
@@ -35,12 +44,25 @@ export function SidebarShell({
   backHref,
   title = "Settings",
   menuRoute = routes.settings.root,
+  menuReplacesContentOnMobile = false,
 }: SidebarShellProps) {
   const { t } = useTranslation();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const isMenuRoute = pathname === menuRoute;
   const isMobile = useIsMobile();
+
+  // The two-page flow: on a narrow viewport the menu route is the nav list and
+  // a sub-page is the content, so one signal decides which is on screen rather
+  // than each hiding itself at its own breakpoint.
+  const showsMobileMenu = isMobile && isMenuRoute;
+  // A page that is on screen for nobody can also skip mounting, but only where
+  // the caller says its menu-route child has nothing to do out of sight. A
+  // mounted page runs its render, its effects and its request fan-out whether
+  // or not anything shows it, which on a phone is the whole Settings landing
+  // tree behind a list of links. The route's chunk is fetched either way: the
+  // router resolves it before this renders.
+  const contentMounted = !(showsMobileMenu && menuReplacesContentOnMobile);
 
   // Edge-swipe back gesture for the mobile two-page flow. It mirrors the
   // header back arrow: from a sub-page it returns to the menu root, and from
@@ -161,30 +183,34 @@ export function SidebarShell({
 
         {/* Body — sidebar + content */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          <aside
-            className="hidden w-64 shrink-0 overflow-y-auto md:block"
-            aria-label={t("sidebarShell.navigationAria", { title })}
-          >
-            {sidebar}
-          </aside>
+          {isMobile ? null : (
+            <aside
+              className="w-64 shrink-0 overflow-y-auto"
+              aria-label={t("sidebarShell.navigationAria", { title })}
+            >
+              {sidebar}
+            </aside>
+          )}
 
-          {isMenuRoute ? (
+          {showsMobileMenu ? (
             /* `overflow-x-hidden`: `overflow-y: auto` alone computes
                `overflow-x: auto`, so any child overflowing horizontally makes
                the whole page pannable sideways on touch devices. */
-            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-6 md:hidden">
+            <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-6">
               {sidebar}
             </div>
           ) : null}
 
-          <main
-            ref={contentRef}
-            className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:flex md:px-6 md:pt-0 ${
-              isMenuRoute ? "hidden" : "flex"
-            }`}
-          >
-            {children}
-          </main>
+          {contentMounted ? (
+            <main
+              ref={contentRef}
+              className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:px-6 md:pt-0 ${
+                showsMobileMenu ? "hidden" : "flex"
+              }`}
+            >
+              {children}
+            </main>
+          ) : null}
         </div>
       </div>
     </div>

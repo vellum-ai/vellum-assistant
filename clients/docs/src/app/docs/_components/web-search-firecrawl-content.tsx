@@ -45,7 +45,7 @@ export function WebSearchFirecrawlContent() {
           </SectionHeading>
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600 dark:text-zinc-400">
             <li>
-              A running Vellum assistant. Cloud, self-hosted, or the macOS desktop app all work.
+              A running Vellum assistant. Cloud, self-hosted, or the desktop apps all work.
             </li>
             <li>
               A Firecrawl API key. Create one at{" "}
