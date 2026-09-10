@@ -1,4 +1,4 @@
-import { PinOff, Rocket } from "lucide-react";
+import { PinOff } from "lucide-react";
 import { useMemo } from "react";
 
 import {
@@ -13,6 +13,7 @@ import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
+import { DEFAULT_APP_ICON, resolveAppIcon } from "@/utils/app-icon-registry";
 import { cn, ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -87,9 +88,12 @@ export function PinnedAppNavItem({
      covers both shapes. */
   const tintStyle = pinTintStyle(app.pinColor);
 
-  /* The Lucide fallback for an app whose manifest carries no emoji. */
-  const LeadingIcon =
-    typeof app.icon === "string" ? Rocket : (app.icon ?? Rocket);
+  /* The app's icon as the manifest names it: a Lucide glyph from the app
+     icon registry for an app the assistant built since the registry, the
+     emoji itself for one built before it, the default glyph for neither. */
+  const glyph = resolveAppIcon(app.icon);
+  const LeadingIcon = glyph?.kind === "icon" ? glyph.Icon : DEFAULT_APP_ICON;
+  const emoji = glyph?.kind === "emoji" ? glyph.emoji : null;
 
   /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
      array each render would re-mint them each render. */
@@ -109,10 +113,9 @@ export function PinnedAppNavItem({
   const sideMenuItem = (
     <SideMenu.Item
       style={tintStyle}
-      // Apps source their icon as an emoji string on the manifest
-      // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
-      // apps still get a leading icon in the rail.
-      icon={app.icon ?? Rocket}
+      /* The same glyph the expanded pill leads with; `SideMenu.Item` takes
+         an emoji string or a Lucide component. */
+      icon={emoji ?? LeadingIcon}
       label={app.name}
       /* The collapsed-rail affordance, surface included. */
       shape="tile"
@@ -166,10 +169,10 @@ export function PinnedAppNavItem({
       shape="pill"
       /* The glyph in a chip rather than at its own width, so on a phone the
          pill's label starts where the assistant's name does and the glyph
-         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`). An
-         app's icon is an emoji string on its manifest; the Rocket stands in
-         for an app with no emoji, at the size and in the ink `PanelItem`
-         gives a leading icon. */
+         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`). A
+         Lucide glyph is drawn at the size and in the ink `PanelItem` gives a
+         leading icon; a legacy emoji sits in the same box at the same
+         size. */
       leadingSlot={
         <span
           aria-hidden
@@ -178,9 +181,9 @@ export function PinnedAppNavItem({
             SIDEBAR_CHIP_CLASSES,
           )}
         >
-          {typeof app.icon === "string" ? (
+          {emoji ? (
             <span className="text-[14px] leading-none max-md:text-[16px]">
-              {app.icon}
+              {emoji}
             </span>
           ) : (
             <LeadingIcon

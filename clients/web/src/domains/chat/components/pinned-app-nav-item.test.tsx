@@ -204,6 +204,33 @@ describe("PinnedAppNavItem", () => {
     expect(onUnpin).toHaveBeenCalledWith("app-1");
   });
 
+  /* The manifest names a registry icon and the pill wears the Lucide glyph;
+     an app from before the registry keeps its emoji. */
+  test("expanded: draws a registry icon name as its Lucide glyph", () => {
+    const { container } = render(
+      <PinnedAppNavItem
+        app={{ ...APP, icon: "calculator" }}
+        active={false}
+        collapsed={false}
+        {...actions()}
+      />,
+    );
+    expect(container.querySelector(".lucide-calculator")).not.toBeNull();
+  });
+
+  test("expanded: keeps a legacy emoji icon as text", () => {
+    const { container } = render(
+      <PinnedAppNavItem
+        app={{ ...APP, icon: "☕" }}
+        active={false}
+        collapsed={false}
+        {...actions()}
+      />,
+    );
+    expect(container.textContent).toContain("☕");
+    expect(container.querySelector(".lucide-rocket")).toBeNull();
+  });
+
   /* A pill is its own swipe box. The wrapper takes the pill's shape, so the
      action behind it is a capsule the pill's size and the gesture arms on the
      pill rather than across the rail beside it. */
