@@ -353,6 +353,23 @@ describe("resolveAcpAgent", () => {
     expect(result.agent.model).toBe("opus");
   });
 
+  test("a user entry running the profile adapter by full path still inherits the model", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "/opt/bin/claude-agent-acp", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("/opt/bin/claude-agent-acp");
+    expect(result.agent.model).toBe("opus");
+  });
+
   test("a user entry pointing the id at another adapter inherits no model", () => {
     // The bundled aliases are Claude's own vocabulary, so an unrelated
     // adapter under the `claude` id must not be handed `opus`.

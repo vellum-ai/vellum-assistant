@@ -9,15 +9,13 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import {
-  RequestError,
-  type SessionConfigOption,
-} from "@agentclientprotocol/sdk";
+import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
 import type { AssistantEvent } from "../../api/index.js";
 import { initializeDb } from "../../persistence/db-init.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
+import { AcpConfigOptionRefusedError } from "../types.js";
 import { installAcpConfigStub } from "./helpers/acp-config-stub.js";
 import {
   MODEL_OPTION_MODELS,
@@ -381,8 +379,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("an inherited model the adapter refuses warns nobody", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
-    setConfigOptionResult = new RequestError(
-      -32603,
+    setConfigOptionResult = new AcpConfigOptionRefusedError(
       "Invalid value for config option model: nope",
     );
 
@@ -398,8 +395,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("a refused model warns and runs unpinned", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
-    setConfigOptionResult = new RequestError(
-      -32603,
+    setConfigOptionResult = new AcpConfigOptionRefusedError(
       "Invalid value for config option model: nope",
     );
 

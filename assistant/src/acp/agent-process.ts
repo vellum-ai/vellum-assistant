@@ -25,7 +25,7 @@ import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
 import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
-import type { AcpAgentConfig } from "./types.js";
+import { type AcpAgentConfig, AcpConfigOptionRefusedError } from "./types.js";
 
 const log = getLogger("acp");
 
@@ -454,9 +454,19 @@ export class AcpAgentProcess {
         ? { sessionId, configId, type: "boolean", value }
         : { sessionId, configId, value };
 
-    const response = await this.withAuthRetry(() =>
-      this.requireConnection().setSessionConfigOption(request),
-    );
+    const response = await this.withAuthRetry(async () => {
+      try {
+        return await this.requireConnection().setSessionConfigOption(request);
+      } catch (err) {
+        // Wrapped here, at the request itself, so `withAuthRetry` still sees
+        // an auth_required answer and a caller cannot confuse the adapter's
+        // refusal with a transport or authentication failure.
+        if (err instanceof acp.RequestError && !isAcpAuthRequired(err)) {
+          throw new AcpConfigOptionRefusedError(err.message);
+        }
+        throw err;
+      }
+    });
 
     return normalizeConfigOptions(response.configOptions);
   }

@@ -27,6 +27,8 @@
  * `available` / `setupHint` derived from the same binary resolution.
  */
 
+import { basename } from "node:path";
+
 import {
   DEFAULT_ACP_AGENT_PROFILES,
   DEFAULT_AGENT_NPM_PACKAGES,
@@ -244,8 +246,10 @@ function mergeWithProfile(
   }
   const merged: AcpAgentConfig = { ...profile, ...userAgent };
   const command: string | undefined = userAgent.command;
+  // A full path to the bundled binary is still the bundled adapter; the
+  // basename is the adapter's identity everywhere else in this module.
   const runsProfileAdapter =
-    command === undefined || command === profile.command;
+    command === undefined || basename(command) === basename(profile.command);
   if (!runsProfileAdapter && userAgent.model === undefined) {
     delete merged.model;
   }

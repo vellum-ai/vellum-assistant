@@ -15,8 +15,6 @@
  * "Connect Claude Code" card.
  */
 
-import { RequestError } from "@agentclientprotocol/sdk";
-
 export { ACP_CLAUDE_AUTH_REQUIRED_CODE } from "../api/events/acp-auth-required.js";
 
 /**
@@ -102,13 +100,3 @@ export const ACP_AUTH_RECOVERY_GUIDANCE =
   'say "below", "above", "at the bottom", or "here". Do NOT tell them to run ' +
   "`claude setup-token`, paste a token in chat, run credential CLI commands, " +
   "or re-run the agent yourself; the card and auto-continue handle it.";
-
-/**
- * Whether `err` is the adapter's own answer to a request. The SDK rejects a
- * pending request with `RequestError` only for a JSON-RPC error response; a
- * closed stream or an exited process rejects with a plain Error, which is a
- * transport failure the caller has to treat as fatal rather than a refusal.
- */
-export function isAdapterRequestError(err: unknown): err is RequestError {
-  return err instanceof RequestError;
-}

@@ -29,7 +29,6 @@ import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
-  isAdapterRequestError,
   isClaudeAuthFailureMessage,
 } from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
@@ -43,6 +42,7 @@ import { claudeResumeHint } from "./resume-hint.js";
 import {
   ACP_LIVE_STATUSES,
   type AcpAgentConfig,
+  AcpConfigOptionRefusedError,
   type AcpSessionState,
   isLiveAcpStatus,
 } from "./types.js";
@@ -532,10 +532,10 @@ export class AcpSessionManager {
       }
       return { applied: true };
     } catch (err) {
-      // Only the adapter's own answer is a refusal. A closed connection or an
-      // exited process is the caller's failure to tear down, not a model to
-      // fall back from.
-      if (!isAdapterRequestError(err)) {
+      // Only the adapter's own answer is a refusal. A closed connection, an
+      // exited process, or a failed authentication is the caller's failure
+      // to tear down, not a model to fall back from.
+      if (!(err instanceof AcpConfigOptionRefusedError)) {
         throw err;
       }
       log.warn(

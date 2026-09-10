@@ -13,8 +13,10 @@ import type {
   InitializeResponse,
   SessionConfigOption,
 } from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk";
 
 import { AcpAgentProcess } from "../agent-process.js";
+import { AcpConfigOptionRefusedError } from "../types.js";
 import { modelOption } from "./helpers/acp-model-option.js";
 
 function makeProcess(): AcpAgentProcess {
@@ -414,6 +416,32 @@ describe("AcpAgentProcess auth_required retry", () => {
       internals,
     };
   }
+
+  test("setConfigOption surfaces the adapter's error answer as a refusal", async () => {
+    const { proc } = await setupAuthProcess({
+      setConfigOptionRejections: [
+        new acp.RequestError(
+          -32603,
+          "Invalid value for config option model: nope",
+        ),
+      ],
+    });
+
+    await expect(
+      proc.setConfigOption("session-1", "model", "nope"),
+    ).rejects.toBeInstanceOf(AcpConfigOptionRefusedError);
+  });
+
+  test("setConfigOption leaves a transport failure untyped", async () => {
+    const closed = new Error("ACP connection closed");
+    const { proc } = await setupAuthProcess({
+      setConfigOptionRejections: [closed],
+    });
+
+    await expect(
+      proc.setConfigOption("session-1", "model", "opus"),
+    ).rejects.toBe(closed);
+  });
 
   test("createSession does not authenticate when newSession succeeds", async () => {
     const { proc, newSession, authenticate } = await setupAuthProcess({

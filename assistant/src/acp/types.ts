@@ -87,3 +87,16 @@ export interface AcpUsageSnapshot {
   /** Cumulative output tokens across all turns, from `PromptResponse.usage`. */
   outputTokens?: number;
 }
+
+/**
+ * The adapter answered `session/set_config_option` with an error: the value
+ * was refused. Raised only for the adapter's own answer to that request, so a
+ * closed connection, an exited process, or a failed authentication is never
+ * mistaken for a refusal.
+ */
+export class AcpConfigOptionRefusedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AcpConfigOptionRefusedError";
+  }
+}
