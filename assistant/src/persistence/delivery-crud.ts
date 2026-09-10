@@ -161,9 +161,12 @@ function legacySlackConversationHasThreadEvidence(
     }
     for (const metadata of metadataRows) {
       const meta = readProviderMetadata(metadata, { allowFlatLegacy: true });
+      // A row in the thread, or the row the thread is rooted at: a thread
+      // under the assistant's own flat post continues the conversation the
+      // post was recorded in.
       if (
         meta?.conversationExternalId === externalChatId &&
-        meta.threadId === sourceThreadId
+        (meta.threadId === sourceThreadId || meta.messageId === sourceThreadId)
       ) {
         return true;
       }
