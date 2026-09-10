@@ -2485,10 +2485,9 @@ export async function handleSendMessage(
       "Queue fallback for an accepted send was rejected; telling the sender",
     );
     broadcastMessage({
-      type: "error",
+      type: "message_failed",
       conversationId: mapping.conversationId,
       requestId: sendRequestId,
-      scope: "message",
       ...(clientMessageId ? { clientMessageId } : {}),
       code: "QUEUE_FULL",
       category: "queue_drain_failed",
@@ -3252,10 +3251,9 @@ export async function handleSendMessage(
           // One message's failure, like the refused queue above: the turn
           // this send tried to interrupt runs on.
           broadcastMessage({
-            type: "error",
+            type: "message_failed",
             conversationId: mapping.conversationId,
             requestId: sendRequestId,
-            scope: "message",
             ...(clientMessageId ? { clientMessageId } : {}),
             code: "SEND_FAILED",
             message:

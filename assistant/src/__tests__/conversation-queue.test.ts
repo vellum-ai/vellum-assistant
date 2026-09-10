@@ -1665,10 +1665,10 @@ describe("Conversation message queue", () => {
     // msg-3 should have been dequeued and started a new AgentLoop.run
     await waitForPendingRun(2);
 
-    // The empty message should have received an error event
-    const err2 = events2.find((e) => e.type === "error");
+    // The empty message should have received a message failure event.
+    const err2 = events2.find((e) => e.type === "message_failed");
     expect(err2).toBeDefined();
-    if (err2 && err2.type === "error") {
+    if (err2?.type === "message_failed") {
       expect(err2.message).toContain("required");
     }
 
@@ -2388,8 +2388,8 @@ describe("Batched drain correctness fixes", () => {
     await p1;
     await waitForPendingRun(2);
 
-    // mid should have emitted an error event via persist failure.
-    const errMid = events3.find((e) => e.type === "error");
+    // mid should have emitted a message failure event via persist failure.
+    const errMid = events3.find((e) => e.type === "message_failed");
     expect(errMid).toBeDefined();
 
     // The agent loop should have been invoked with the tail's userMessageId
@@ -2453,7 +2453,7 @@ describe("Batched drain correctness fixes", () => {
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(events3.find((e) => e.type === "error")).toBeDefined();
+    expect(events3.find((e) => e.type === "message_failed")).toBeDefined();
     expect(events3.find((e) => e.type === "message_complete")).toBeUndefined();
 
     expect(events2.find((e) => e.type === "message_complete")).toBeDefined();
@@ -2490,11 +2490,10 @@ describe("Batched drain correctness fixes", () => {
     // The failure names the message, so a client listing its sends by nonce
     // fails the right one, and the turn that message was to start ends,
     // since no turn is coming to close it.
-    expect(events2.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
+    expect(events2.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
       conversationId: "conv-1",
       requestId: "req-2",
-      scope: "message",
       clientMessageId: "cm-2",
     });
     expect(events2.some((e) => e.type === "generation_cancelled")).toBe(true);
@@ -2536,14 +2535,12 @@ describe("Batched drain correctness fixes", () => {
     await p1;
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(events2.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
-      scope: "message",
+    expect(events2.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
       clientMessageId: "cm-head",
     });
-    expect(events3.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
-      scope: "message",
+    expect(events3.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
     });
     // One terminal closes the turn, sent once the last failed sibling has
     // been answered; the head's own drain does not add a second.
@@ -2627,9 +2624,8 @@ describe("Batched drain correctness fixes", () => {
     await p1;
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(events2.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
-      scope: "message",
+    expect(events2.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
       clientMessageId: "cm-2",
     });
     // The command's terminal closed the turn, so no cancel contradicts it.
@@ -2681,14 +2677,12 @@ describe("Batched drain correctness fixes", () => {
     await p1;
     await new Promise((r) => setTimeout(r, 20));
 
-    expect(events2.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
-      scope: "message",
+    expect(events2.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
       clientMessageId: "cm-head",
     });
-    expect(events3.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
-      scope: "message",
+    expect(events3.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
     });
     expect(eventsSlash.some((e) => e.type === "message_complete")).toBe(true);
     expect(events2.some((e) => e.type === "generation_cancelled")).toBe(false);
@@ -2740,17 +2734,16 @@ describe("Batched drain correctness fixes", () => {
     await p1;
     await waitForPendingRun(2);
 
-    expect(events3.find((e) => e.type === "error")).toMatchObject({
-      type: "error",
+    expect(events3.find((e) => e.type === "message_failed")).toMatchObject({
+      type: "message_failed",
       conversationId: "conv-1",
       requestId: "req-nonce-mid",
-      scope: "message",
       clientMessageId: "cm-mid",
     });
 
     // The siblings persisted, so neither is told anything failed.
-    expect(events2.find((e) => e.type === "error")).toBeUndefined();
-    expect(events4.find((e) => e.type === "error")).toBeUndefined();
+    expect(events2.find((e) => e.type === "message_failed")).toBeUndefined();
+    expect(events4.find((e) => e.type === "message_failed")).toBeUndefined();
 
     // Cleanup: resolve the batched run.
     await resolveRun(1);
@@ -2774,8 +2767,8 @@ describe("Batched drain correctness fixes", () => {
     });
     await waitForPendingRun(1);
 
-    // A sender that supplies no nonce still has to be told the failure is
-    // one message's, not the turn's, so the scope carries it on its own.
+    // A sender that supplies no nonce still has to be told the failure is one
+    // message's, not the turn's, so the discriminator carries that distinction.
     addMessageShouldThrowForContent.add("scope-mid-marker");
 
     conversation.enqueueMessage({
@@ -2798,18 +2791,17 @@ describe("Batched drain correctness fixes", () => {
     await p1;
     await waitForPendingRun(2);
 
-    const midError = events3.find((e) => e.type === "error");
+    const midError = events3.find((e) => e.type === "message_failed");
     expect(midError).toMatchObject({
-      type: "error",
+      type: "message_failed",
       conversationId: "conv-1",
       requestId: "req-scope-mid",
-      scope: "message",
     });
     expect(midError).not.toHaveProperty("clientMessageId");
 
     // The siblings persisted, so neither is told anything failed.
-    expect(events2.find((e) => e.type === "error")).toBeUndefined();
-    expect(events4.find((e) => e.type === "error")).toBeUndefined();
+    expect(events2.find((e) => e.type === "message_failed")).toBeUndefined();
+    expect(events4.find((e) => e.type === "message_failed")).toBeUndefined();
 
     // Cleanup: resolve the batched run.
     await resolveRun(1);
@@ -3450,10 +3442,10 @@ describe("Conversation checkpoint handoff", () => {
     // C should have been dequeued and started a new AgentLoop.run
     await waitForPendingRun(2);
 
-    // B should have received an error event
-    const errB = eventsB.find((e) => e.type === "error");
+    // B should have received a message failure event.
+    const errB = eventsB.find((e) => e.type === "message_failed");
     expect(errB).toBeDefined();
-    if (errB && errB.type === "error") {
+    if (errB?.type === "message_failed") {
       expect(errB.message).toContain("required");
     }
 

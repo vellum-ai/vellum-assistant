@@ -1127,23 +1127,22 @@ async function drainSingleMessage(
       },
       "Failed to persist queued message",
     );
-    // The failure is this one message's: the event carries the message
-    // scope and, when the sender supplied one, the nonce it tracks its send
-    // by, so a client listing its sends by nonce fails the right one.
+    // The failure is this one message's. Its event has a distinct discriminator
+    // and, when the sender supplied one, the nonce it tracks its send by, so a
+    // client listing its sends by nonce fails the right one.
     next.onEvent({
-      type: "error",
+      type: "message_failed",
       conversationId: conversation.conversationId,
       requestId: next.requestId,
       message,
-      scope: "message",
       ...(next.clientMessageId
         ? { clientMessageId: next.clientMessageId }
         : {}),
     });
     // Continue draining — don't strand remaining messages
     const closed = await drainQueue(conversation);
-    // A message-scoped error leaves a client's turn open for the turn that
-    // runs on. When the drain neither ran one nor answered with a terminal of
+    // A message failure leaves a client's turn open for the turn that runs on.
+    // When the drain neither ran one nor answered with a terminal of
     // its own, and no turn took the lock meanwhile, nothing is coming to
     // close it, so the turn the failed message was to start ends here.
     if (!closed && !conversation.isProcessing()) {
@@ -1554,15 +1553,14 @@ async function drainBatch(
         },
         "Failed to persist batched queued message",
       );
-      // The failure belongs to this one batch member, not the turn, so the
-      // event carries the message scope and, when the sender supplied one,
+      // The failure belongs to this one batch member, not the turn, so its
+      // event has a distinct discriminator and, when the sender supplied one,
       // the nonce it tracks its send by.
       qm.onEvent({
-        type: "error",
+        type: "message_failed",
         conversationId: conversation.conversationId,
         requestId: qm.requestId,
         message,
-        scope: "message",
         ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
       });
 
@@ -1578,8 +1576,8 @@ async function drainBatch(
           batch.slice(1),
           reason,
         );
-        // The message-scoped error above leaves a client's turn open for the
-        // turn that runs on. When the drain neither ran one nor answered with
+        // The message failure above leaves a client's turn open for the turn
+        // that runs on. When the drain neither ran one nor answered with
         // a terminal of its own, and no turn took the lock meanwhile, nothing
         // is coming to close it, so the turn the failed head was to start
         // ends here.

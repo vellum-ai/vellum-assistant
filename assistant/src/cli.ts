@@ -449,11 +449,15 @@ export async function startCli(): Promise<void> {
         lastDisplayedError = null;
         break;
 
+      case "message_failed":
+        lastDisplayedError = msg.message;
+        process.stdout.write(`\n[Error: ${msg.message}]\n`);
+        break;
+
       case "error":
         if (isMessageScopedError(msg)) {
-          // One queued message failed while the turn it was batched into keeps
-          // generating, so the line prints under the running spinner and no
-          // prompt comes back.
+          // Compatibility with assistants that emitted this signal as a
+          // scoped error before it had its own discriminator.
           lastDisplayedError = msg.message;
           process.stdout.write(`\n[Error: ${msg.message}]\n`);
           break;

@@ -99,13 +99,22 @@ function publishStreamError(
     publish("sse.event", {
       id: `evt-error-${conversationId ?? "none"}`,
       emittedAt: new Date().toISOString(),
-      message: {
-        type: "error",
-        message: "Something went wrong.",
-        ...(conversationId ? { conversationId } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-        ...(scope ? { scope } : {}),
-      },
+      message:
+        scope === "message" && conversationId
+          ? {
+              type: "message_failed",
+              message: "Something went wrong.",
+              conversationId,
+              requestId: `req-${conversationId}`,
+              ...(clientMessageId ? { clientMessageId } : {}),
+            }
+          : {
+              type: "error",
+              message: "Something went wrong.",
+              ...(conversationId ? { conversationId } : {}),
+              ...(clientMessageId ? { clientMessageId } : {}),
+              ...(scope ? { scope } : {}),
+            },
     });
   });
 }

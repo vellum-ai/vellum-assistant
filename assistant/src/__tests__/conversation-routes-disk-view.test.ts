@@ -917,7 +917,10 @@ describe("host-proxy preactivation across an interrupt", () => {
     const reported = await waitFor(() => {
       for (const envelope of events) {
         const message = envelope.message as Record<string, unknown> | undefined;
-        if (message?.type === "error" && message.code === "QUEUE_FULL") {
+        if (
+          message?.type === "message_failed" &&
+          message.code === "QUEUE_FULL"
+        ) {
           return message;
         }
       }
@@ -931,7 +934,6 @@ describe("host-proxy preactivation across an interrupt", () => {
     // This one message's failure, not the turn's: the turn it tried to
     // interrupt runs on. The nonce the send came with names the message for a
     // client that lists its sends by nonce.
-    expect(reported.scope).toBe("message");
     expect(reported.clientMessageId).toBe(rejectedNonce);
     // And ONLY that one. `enqueueMessage` also announces a refused enqueue as a
     // generic uncorrelated `queue_full` error, which a client reads as the
@@ -1068,14 +1070,16 @@ describe("host-proxy preactivation across an interrupt", () => {
     const reported = await waitFor(() => {
       for (const envelope of events) {
         const message = envelope.message as Record<string, unknown> | undefined;
-        if (message?.type === "error" && message.code === "QUEUE_FULL") {
+        if (
+          message?.type === "message_failed" &&
+          message.code === "QUEUE_FULL"
+        ) {
           return message;
         }
       }
       return undefined;
     });
     expect(reported.category).toBe("queue_drain_failed");
-    expect(reported.scope).toBe("message");
 
     subscription.dispose();
   });

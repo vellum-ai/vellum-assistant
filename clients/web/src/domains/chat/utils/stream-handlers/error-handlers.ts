@@ -12,9 +12,12 @@ import type {
   ConversationErrorEvent,
   ConversationNoticeEvent,
   ErrorEvent,
+  MessageFailedEvent,
 } from "@vellumai/assistant-api";
 
-function resolveErrorDetail(event: ErrorEvent): string {
+type ErrorDetailEvent = ErrorEvent | MessageFailedEvent;
+
+function resolveErrorDetail(event: ErrorDetailEvent): string {
   return (
     (event.code && ERROR_MESSAGES[event.code]) ||
     event.message ||
@@ -23,11 +26,9 @@ function resolveErrorDetail(event: ErrorEvent): string {
 }
 
 /**
- * `isMessageScopedError` is the one place that decides what an error belongs
- * to. A message-scoped error is one message's failure rather than the turn's:
- * a queued batch member the daemon could not persist while the batch it was
- * dequeued with runs on, so the turn on screen keeps streaming and only that
- * send is marked failed. Everything else is the turn's terminal error.
+ * Scoped errors are accepted for compatibility with assistants that emitted
+ * a message failure before `message_failed` had its own discriminator.
+ * Everything else is the turn's terminal error.
  */
 export function handleStreamError(
   event: ErrorEvent,
@@ -88,6 +89,13 @@ export function handleStreamError(
   ctx.cancelAndClearStream();
 }
 
+export function handleMessageFailed(
+  event: MessageFailedEvent,
+  ctx: StreamHandlerContext,
+): void {
+  handleMessageScopedError(event, event.clientMessageId, ctx);
+}
+
 /**
  * The one message's failure: no `endTurn`, no `isProcessing` patch, no stream
  * cancel, because the turn the batch is running is still generating a reply.
@@ -101,7 +109,7 @@ export function handleStreamError(
  * conversation this handler is already looking at.
  */
 function handleMessageScopedError(
-  event: ErrorEvent,
+  event: ErrorDetailEvent,
   clientMessageId: string | undefined,
   ctx: StreamHandlerContext,
 ): void {

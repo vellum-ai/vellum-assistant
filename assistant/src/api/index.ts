@@ -81,6 +81,7 @@ import { MemoryRecalledEventSchema } from "./events/memory-recalled.js";
 import { MemoryStatusEventSchema } from "./events/memory-status.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
+import { MessageFailedEventSchema } from "./events/message-failed.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
@@ -476,6 +477,10 @@ export {
   type MessageDequeuedEvent,
   MessageDequeuedEventSchema,
 } from "./events/message-dequeued.js";
+export {
+  type MessageFailedEvent,
+  MessageFailedEventSchema,
+} from "./events/message-failed.js";
 export {
   type MessageQueuedEvent,
   MessageQueuedEventSchema,
@@ -1028,6 +1033,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MemoryStatusEventSchema,
   MessageCompleteEventSchema,
   MessageDequeuedEventSchema,
+  MessageFailedEventSchema,
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,

@@ -73,13 +73,22 @@ function publishStreamError(
     publish("sse.event", {
       id: `evt-error-${conversationId}`,
       emittedAt: new Date().toISOString(),
-      message: {
-        type: "error",
-        message: "Failed to persist message.",
-        conversationId,
-        scope,
-        ...(clientMessageId ? { clientMessageId } : {}),
-      },
+      message:
+        scope === "message"
+          ? {
+              type: "message_failed",
+              message: "Failed to persist message.",
+              conversationId,
+              requestId: `req-${conversationId}`,
+              ...(clientMessageId ? { clientMessageId } : {}),
+            }
+          : {
+              type: "error",
+              message: "Failed to persist message.",
+              conversationId,
+              scope,
+              ...(clientMessageId ? { clientMessageId } : {}),
+            },
     });
   });
 }

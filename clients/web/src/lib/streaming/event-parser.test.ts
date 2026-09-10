@@ -1053,6 +1053,78 @@ describe("parseAssistantEvent", () => {
   });
 
   // ---------------------------------------------------------------------
+  // message_failed (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_failed with all fields", () => {
+    const event = parseEvent({
+      type: "message_failed",
+      message: "The queued message could not be persisted.",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      clientMessageId: "client-1",
+      code: "SEND_FAILED",
+      category: "queue_drain_failed",
+      errorCategory: "internal",
+    });
+    expect(event).toEqual({
+      type: "message_failed",
+      message: "The queued message could not be persisted.",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      clientMessageId: "client-1",
+      code: "SEND_FAILED",
+      category: "queue_drain_failed",
+      errorCategory: "internal",
+    });
+  });
+
+  test("parses message_failed with required fields only", () => {
+    const event = parseEvent({
+      type: "message_failed",
+      message: "The message failed.",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+    expect(event).toEqual({
+      type: "message_failed",
+      message: "The message failed.",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+  });
+
+  test("returns unknown message_failed when required correlation is missing", () => {
+    const data = {
+      type: "message_failed",
+      message: "The message failed.",
+      conversationId: "conv-1",
+    };
+    expect(parseEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_failed",
+      conversationId: "conv-1",
+      data,
+    });
+  });
+
+  test("strips unknown fields from message_failed", () => {
+    const event = parseEvent({
+      type: "message_failed",
+      message: "The message failed.",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      legacyField: "ignored",
+    });
+    expect(event).toEqual({
+      type: "message_failed",
+      message: "The message failed.",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
   // conversation_error (schema-validated)
   // ---------------------------------------------------------------------
 

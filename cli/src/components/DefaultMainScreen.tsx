@@ -1860,11 +1860,14 @@ function ChatApp({
                 break;
               }
 
+              case "message_failed":
+                hRef.showError(event.message ?? "Unknown error");
+                break;
+
               case "error":
                 if (isMessageScopedError(event)) {
-                  // One queued message failed while the turn it was
-                  // batched into keeps generating, so the notice stands
-                  // alone and the turn stays busy.
+                  // Compatibility with assistants that emitted this signal
+                  // as a scoped error before it had its own discriminator.
                   hRef.showError(event.message ?? "Unknown error");
                   break;
                 }

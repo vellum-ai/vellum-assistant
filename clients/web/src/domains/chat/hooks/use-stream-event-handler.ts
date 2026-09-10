@@ -28,6 +28,7 @@ import {
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import {
+  handleMessageFailed,
   handleStreamError,
   handleConversationErrorEvent,
   handleConversationNoticeEvent,
@@ -308,6 +309,9 @@ export function useStreamEventHandler(
           break;
         case "error":
           handleStreamError(event, ctx);
+          break;
+        case "message_failed":
+          handleMessageFailed(event, ctx);
           break;
         case "conversation_error":
           handleConversationErrorEvent(event, ctx);

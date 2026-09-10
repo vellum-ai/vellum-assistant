@@ -80,7 +80,10 @@ export function QueuedSendRecoveryWatcher() {
       return;
     }
 
-    if (event.type !== "error" || !isMessageScopedError(event)) {
+    if (
+      event.type !== "message_failed" &&
+      (event.type !== "error" || !isMessageScopedError(event))
+    ) {
       return;
     }
     const { clientMessageId } = event;

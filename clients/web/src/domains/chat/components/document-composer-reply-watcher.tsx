@@ -199,6 +199,7 @@ export function DocumentComposerReplyWatcher() {
       event.type !== "generation_handoff" &&
       event.type !== "generation_cancelled" &&
       event.type !== "error" &&
+      event.type !== "message_failed" &&
       event.type !== "conversation_error" &&
       event.type !== "message_complete"
     ) {
@@ -213,13 +214,14 @@ export function DocumentComposerReplyWatcher() {
     if (!conversationId) {
       return;
     }
-    // The scope says the error is one message's, a queued member the daemon
-    // could not persist while the batch it was dequeued with runs on; the
-    // nonce, when the sender supplied one, says which. Without it nothing here
-    // can be the failed message for certain, and the running sends are still
-    // owed their own terminals. An error the daemon scopes to no message is
-    // the turn's, and ends every send running in it.
-    if (event.type === "error" && isMessageScopedError(event)) {
+    // A message failure belongs to one queued member while the surrounding
+    // turn runs on. Scoped errors are accepted for compatibility with builds
+    // that emitted this signal before it had its own discriminator. The nonce,
+    // when the sender supplied one, says which message failed.
+    if (
+      event.type === "message_failed" ||
+      (event.type === "error" && isMessageScopedError(event))
+    ) {
       const { clientMessageId } = event;
       if (clientMessageId === undefined) {
         return;
