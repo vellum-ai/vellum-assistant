@@ -21,6 +21,10 @@ import {
   type AssistantTextVisibility,
   isSendUserMessageCall,
 } from "@/domains/chat/utils/assistant-text-visibility";
+import {
+  isSilentToolCall,
+  isUiSurfaceToolCall,
+} from "@/domains/chat/utils/silent-tool-calls";
 import { isArtifactPointerSurface } from "@/domains/chat/transcript/response-artifacts";
 import {
   containsInlineThinkingTag,
@@ -85,6 +89,16 @@ export interface GroupContentBlocksOptions {
    * timeline, and the detail drawer reading one projection.
    */
   dropThinking?: boolean;
+  /**
+   * Drop bookkeeping and surface tool calls (see `isSilentToolCall`) instead of
+   * grouping them, the way a `send_user_message` call is dropped. Pass under
+   * the `send-user-message` flag, where the assistant's own filing away, a
+   * memory write landing after the answer, a skill body load, a follow-up it
+   * left for itself, is not a step of the work the user asked for. Dropping
+   * rather than suppressing later leaves the surrounding run open, so the tool
+   * calls either side merge as they would had the call never been made.
+   */
+  dropSilentTools?: boolean;
 }
 
 /**
@@ -94,7 +108,9 @@ export interface GroupContentBlocksOptions {
  *
  * `hideThinkingUi` is the transcript-wide gate (see `useHideThinkingUi`); the
  * row's own `private` marker says the same thing about this row alone. Either
- * is enough to drop the reasoning.
+ * is enough to drop the reasoning. Only the transcript-wide gate drops the
+ * silent tools, so a transcript rendered with the flag off keeps every step it
+ * has always drawn.
  */
 export function groupOptionsForMessage(
   message: {
@@ -107,6 +123,7 @@ export function groupOptionsForMessage(
     splitInlineThinking: message.role !== "user",
     dropThinking:
       hideThinkingUi || message.assistantTextVisibility === "private",
+    dropSilentTools: hideThinkingUi,
   };
 }
 
@@ -242,6 +259,12 @@ export function groupContentBlocks(
       if (isSendUserMessageCall(block.toolCall)) {
         continue;
       }
+      // Every other silent tool is dropped the same way, and for the same
+      // reason: it draws nothing, so grouping it only opens a run with nothing
+      // renderable in it and adds a step no card can show.
+      if (options?.dropSilentTools && isSilentToolCall(block.toolCall)) {
+        continue;
+      }
       openActivity().items.push({
         type: "tool_use",
         toolCall: block.toolCall,
@@ -371,15 +394,7 @@ export function activityItemsToCardData(items: ContentBlockActivityItem[]): {
  * confirmation policy, so it is suppressed unconditionally.
  */
 export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
-  if (isSendUserMessageCall(tc)) {
-    return true;
-  }
-  return (
-    !tc.pendingConfirmation &&
-    (tc.name === "ui_show" ||
-      tc.name === "ui_update" ||
-      tc.name === "ui_dismiss")
-  );
+  return isSendUserMessageCall(tc) || isUiSurfaceToolCall(tc);
 }
 
 /**

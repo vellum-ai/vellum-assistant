@@ -788,3 +788,122 @@ describe("a private row's reasoning", () => {
     );
   });
 });
+
+describe("silent tools in the transcript projection", () => {
+  /** The options a transcript rendered with the flag on projects a row with. */
+  const flagOn = groupOptionsForMessage({ role: "assistant" }, true);
+
+  test("a bookkeeping call after the reply opens no activity group", () => {
+    // GIVEN a delivered reply followed by the memory write the assistant made
+    // once it had answered
+    const blocks: ConversationContentBlock[] = [
+      { type: "text", text: "Here you go." },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-remember", name: "remember" }),
+      },
+    ];
+
+    // WHEN grouped with the flag on
+    // THEN only the prose survives. A trailing activity run would draw a
+    // "Noting dropped essay request" row under a finished answer.
+    expect(groupContentBlocks(blocks, flagOn)).toEqual([
+      { type: "text", text: "Here you go." },
+    ]);
+  });
+
+  test("does not split the activity run around one", () => {
+    // GIVEN real work either side of a memory write
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-remember", name: "remember" }),
+      },
+      { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+    ];
+
+    // WHEN grouped with the flag on
+    // THEN the two real steps merge into one run, so the step count reads 2
+    const groups = groupContentBlocks(blocks, flagOn);
+    expect(groups).toEqual([
+      {
+        type: "activity",
+        items: [
+          { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+          { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+        ],
+      },
+    ]);
+    const group = groups[0];
+    expect(group?.type === "activity" ? group.items : []).toHaveLength(2);
+    expect(
+      activityItemsToCardData(
+        group?.type === "activity" ? group.items : [],
+      ).toolCalls.map((tc) => tc.id),
+    ).toEqual(["call-a", "call-b"]);
+  });
+
+  test("keeps drawing every step with the flag off", () => {
+    // The flag-off transcript is untouched: the same blocks still group into
+    // one run of three steps.
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-a" }) },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-remember", name: "remember" }),
+      },
+      { type: "tool_use", toolCall: toolCall({ id: "call-b" }) },
+    ];
+
+    const group = groupContentBlocks(
+      blocks,
+      groupOptionsForMessage({ role: "assistant" }),
+    )[0];
+    expect(group?.type === "activity" ? group.items : []).toHaveLength(3);
+  });
+
+  test("keeps a surface tool carrying a pending confirmation", () => {
+    // The chip is where the inline confirmation card renders, so dropping the
+    // call would leave the user nothing to answer.
+    const blocks: ConversationContentBlock[] = [
+      {
+        type: "tool_use",
+        toolCall: toolCall({
+          id: "call-ui",
+          name: "ui_show",
+          pendingConfirmation: { requestId: "req-1" },
+        }),
+      },
+    ];
+
+    expect(groupContentBlocks(blocks, flagOn)).toEqual([
+      {
+        type: "activity",
+        items: [
+          {
+            type: "tool_use",
+            toolCall: toolCall({
+              id: "call-ui",
+              name: "ui_show",
+              pendingConfirmation: { requestId: "req-1" },
+            }),
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("keeps the work the user asked for", () => {
+    const blocks: ConversationContentBlock[] = [
+      { type: "tool_use", toolCall: toolCall({ id: "call-bash", name: "bash" }) },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-ask", name: "ask_question" }),
+      },
+    ];
+
+    const group = groupContentBlocks(blocks, flagOn)[0];
+    expect(group?.type === "activity" ? group.items : []).toHaveLength(2);
+  });
+});
