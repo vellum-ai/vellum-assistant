@@ -158,18 +158,22 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
     if (callSites !== null) {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         // Call-site fragments carry no binding (the schema strips a raw
-        // `provider_connection`), so only the declared provider counts.
+        // `provider_connection`), so only the declared provider counts, and
+        // an invalid provider leaf (null, empty) is stripped the same way,
+        // leaving a providerless pin.
         const isRouted = (fragment: Record<string, unknown>): boolean => {
+          const provider = fragment.provider;
+          const declared = typeof provider === "string" && provider.length > 0;
           if (!KNOWN_CALL_SITES.has(site)) {
-            return lookup.isSubscription(fragment.provider);
+            return declared && lookup.isSubscription(provider);
           }
-          if (fragment.provider === undefined) {
+          if (!declared) {
             return anySelectableSubscriptionProfile();
           }
-          if (fragment.provider === "openai") {
+          if (provider === "openai") {
             return anySelectableSubscriptionBinding();
           }
-          return lookup.isSubscription(fragment.provider);
+          return lookup.isSubscription(provider);
         };
         changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
@@ -307,15 +311,22 @@ const DEFAULT_PROFILE_KEYS = new Set([
 // workspace shadow of these names and serves the code-owned body, which
 // never routes through the subscription on its own (`latency-optimized`
 // is judged through the default provider like the other default keys).
-// Every other managed stub (a default key, a backup, `os-beta`) is likewise
-// its code-owned body: the default provider's column for a default key, a
-// vellum body otherwise.
 const CODE_OWNED_PROFILE_NAMES = new Set([
   "latency-optimized",
   "balanced-backup",
   "quality-optimized-backup",
   "cost-optimized-backup",
   "latency-optimized-backup",
+]);
+
+// The names with a code-owned body: a `source: "managed"` entry under one
+// of these is a stub for that body (the default provider's column for a
+// default key, a vellum body otherwise), while a managed-source entry
+// under any other name is an ordinary workspace profile resolution serves.
+const CATALOG_BODY_NAMES = new Set([
+  ...DEFAULT_PROFILE_KEYS,
+  ...CODE_OWNED_PROFILE_NAMES,
+  "os-beta",
 ]);
 
 // Frozen snapshot of `LLMCallSiteEnum`: the sites whose resolution this
@@ -436,9 +447,11 @@ function profileReachesSubscription(
 }
 
 /**
- * A user-owned `llm.profiles` entry that resolution honors. A managed stub
- * is not a shadow, and a shadow of a code-owned name is ignored in favor of
- * the code-owned body.
+ * The `llm.profiles` entry resolution honors for `name`, or null when it
+ * serves a code-owned body instead: a shadow of a code-owned name is
+ * ignored, and a managed-source entry under a name with a catalog body is
+ * a stub for that body. A managed-source entry under any other name is a
+ * workspace profile like any other.
  */
 function userShadow(
   name: string,
@@ -448,7 +461,12 @@ function userShadow(
     return null;
   }
   const shadow = readObject(readObject(llm.profiles)?.[name]);
-  return shadow === null || shadow.source === "managed" ? null : shadow;
+  if (shadow === null) {
+    return null;
+  }
+  return shadow.source === "managed" && CATALOG_BODY_NAMES.has(name)
+    ? null
+    : shadow;
 }
 
 /**

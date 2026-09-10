@@ -517,6 +517,46 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     }
   });
 
+  test("treats an invalid call-site provider leaf as absent", () => {
+    // The loader strips a null or empty provider leaf and keeps the model,
+    // so the entry resolves as a providerless pin.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        callSites: {
+          recall: { provider: null, model: STALE },
+          heartbeatAgent: { provider: "", model: STALE_MINI },
+          futureSite: { provider: null, model: STALE },
+        },
+      },
+    });
+
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+
+    const llm = readLlm();
+    expect(llm.callSites.recall.model).toBe(REPLACEMENT);
+    expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
+    expect(llm.callSites.futureSite.model).toBe(STALE);
+  });
+
+  test("honors a managed-source profile under a name with no catalog body", () => {
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "vellum" },
+        callSites: { recall: { model: STALE } },
+        profiles: {
+          // Resolution serves this entry as-is: only catalog names have a
+          // code-owned body for a managed stub to stand in for.
+          custom: { source: "managed", provider: "chatgpt", model: "gpt-5.5" },
+        },
+      },
+    });
+
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+
+    expect(readLlm().callSites.recall.model).toBe(REPLACEMENT);
+  });
+
   test("leaves providerless pins on unknown call sites alone", () => {
     writeConfig({
       llm: {
