@@ -155,6 +155,15 @@ export interface DocumentComposerReplyActions {
    */
   clearReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /**
+   * The daemon put the send carrying `clientMessageId` back in
+   * `conversationId`'s queue after taking it off for a turn it could not
+   * start, so it is queued again. When the event or every pending send lacks a
+   * nonce, the send the last dequeue made running is the one put back: the
+   * newest send the stream queued and then started. A nonce that names none of
+   * them is another client's message.
+   */
+  markReplyRequeued: (conversationId: string, clientMessageId?: string) => void;
+  /**
    * Move the send carrying `clientMessageId` under `conversationId`, and
    * report the conversation it moved from. A send listed under the client key
    * the POST went out with moves under the row the daemon answers on as soon
@@ -459,6 +468,35 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         }
         const next = [...pending];
         next[index] = { ...pending[index], queued: false };
+        return {
+          pendingReplies: withPending(s.pendingReplies, conversationId, next),
+        };
+      });
+    },
+
+    markReplyRequeued: (conversationId, clientMessageId) => {
+      set((s) => {
+        const pending = s.pendingReplies.get(conversationId);
+        if (!pending || pending.length === 0) {
+          return s;
+        }
+        const index = indexOfAwaitedSend(
+          pending,
+          clientMessageId,
+          pending.findLastIndex(
+            (p) => p.acknowledged && !p.queued && p.queuedOnStream,
+          ),
+        );
+        if (index === -1 || pending[index].queued) {
+          return s;
+        }
+        const next = [...pending];
+        next[index] = {
+          ...pending[index],
+          acknowledged: true,
+          queued: true,
+          queuedOnStream: true,
+        };
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };

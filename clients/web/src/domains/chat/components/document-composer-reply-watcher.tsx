@@ -149,13 +149,23 @@ export function DocumentComposerReplyWatcher() {
 
     // The queue ack, not the send's POST response, is what acknowledges a send
     // as queued: it rides the same stream as the terminals below, while the
-    // response can return after the running turn has already handed off. A
-    // requeue is that same ack after a rolled-back dequeue, so it re-flags.
-    if (event.type === "message_queued" || event.type === "message_requeued") {
+    // response can return after the running turn has already handed off.
+    if (event.type === "message_queued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
       useDocumentComposerReplyStore
         .getState()
         .markReplyQueued(event.conversationId, event.clientMessageId);
+      return;
+    }
+
+    // A requeue puts back the send a dequeue took off the queue, for a turn
+    // the daemon could not start, so it is the send that dequeue made running
+    // that is queued again rather than whichever send is newest.
+    if (event.type === "message_requeued") {
+      rekeyByNonce(event.conversationId, event.clientMessageId);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyRequeued(event.conversationId, event.clientMessageId);
       return;
     }
 

@@ -623,6 +623,85 @@ describe("clearReplyQueued", () => {
   });
 });
 
+describe("markReplyRequeued", () => {
+  test("a requeue carrying no nonce re-flags the send the dequeue started", () => {
+    // GIVEN a daemon that echoes no nonce, and two sends it queued one after
+    // the other, the older of which a dequeue started
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1");
+    getState().startAwaitingReply("conv-1", "cm-2");
+    getState().markReplyQueued("conv-1");
+    getState().clearReplyQueued("conv-1");
+
+    getState().markReplyRequeued("conv-1");
+
+    // THEN the send that was taken off the queue is back in it, and the one
+    // waiting behind it is untouched
+    expect(queuedFlags("conv-1")).toEqual([true, true]);
+    expect(acknowledgedFlags("conv-1")).toEqual([true, true]);
+    // Neither is running, so the terminal of the turn that took the lock
+    // instead settles nothing.
+    expect(getState().settleRunningReplies("conv-1")).toBe(0);
+  });
+
+  test("flags the send carrying the nonce", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().startAwaitingReply("conv-1", "cm-2");
+    getState().markReplyQueued("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1", "cm-2");
+    getState().clearReplyQueued("conv-1", "cm-1");
+    getState().clearReplyQueued("conv-1", "cm-2");
+
+    getState().markReplyRequeued("conv-1", "cm-1");
+
+    expect(queuedFlags("conv-1")).toEqual([true, false]);
+  });
+
+  test("is a no-op when no send was taken off the queue", () => {
+    // GIVEN a send its response acknowledged as running, which the stream
+    // never queued
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().acknowledgeReply("conv-1", "cm-1", false);
+    const before = getState().pendingReplies;
+
+    getState().markReplyRequeued("conv-1");
+
+    expect(getState().pendingReplies).toBe(before);
+    expect(queuedFlags("conv-1")).toEqual([false]);
+    expect(getState().settleRunningReplies("conv-1")).toBe(1);
+  });
+
+  test("is a no-op for a nonce none of the sends carry", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1", "cm-1");
+    getState().clearReplyQueued("conv-1", "cm-1");
+    const before = getState().pendingReplies;
+
+    getState().markReplyRequeued("conv-1", "cm-someone-else");
+
+    expect(getState().pendingReplies).toBe(before);
+    expect(queuedFlags("conv-1")).toEqual([false]);
+  });
+
+  test("is a no-op for a send already queued", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1", "cm-1");
+    const before = getState().pendingReplies;
+
+    getState().markReplyRequeued("conv-1", "cm-1");
+
+    expect(getState().pendingReplies).toBe(before);
+  });
+
+  test("is a no-op for a conversation with nothing pending", () => {
+    const before = getState().pendingReplies;
+
+    getState().markReplyRequeued("conv-1", "cm-1");
+
+    expect(getState().pendingReplies).toBe(before);
+  });
+});
+
 describe("rekeyReplyByNonce", () => {
   test("moves the send under the row the daemon answered on", () => {
     // GIVEN a send listed under the client key its POST went out with

@@ -1133,6 +1133,29 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
     });
 
+    test("a nonce-less message_requeued re-flags the send the dequeue started", () => {
+      // GIVEN a daemon that echoes no nonce on its queue events
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueued("conv-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-2");
+      publishMessageQueued("conv-1", undefined, 2);
+      publishMessageDequeued("conv-1");
+
+      expect(queuedFlags("conv-1")).toEqual([false, true]);
+
+      publishMessageRequeued("conv-1");
+
+      // THEN the send the dequeue started is queued again, and the one behind
+      // it stays where it was
+      expect(queuedFlags("conv-1")).toEqual([true, true]);
+    });
+
     test("a message_requeued naming another client's message is ignored", () => {
       useDocumentComposerReplyStore
         .getState()
