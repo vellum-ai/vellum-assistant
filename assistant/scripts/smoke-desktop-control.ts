@@ -16,7 +16,7 @@ if (process.platform !== "linux") {
   );
 }
 
-import { DESKTOP_INPUT_PARAMETERS } from "../src/desktop/desktop-display.js";
+import { DESKTOP_OVERRIDABLE_PARAMETERS } from "../src/desktop/desktop-display.js";
 
 const directory = await mkdtemp(join(tmpdir(), "desktop-input-smoke-"));
 const resultPath = join(directory, "form.json");
@@ -69,7 +69,7 @@ try {
     "-SecurityTypes",
     "None",
     "-AllowOverride",
-    DESKTOP_INPUT_PARAMETERS.join(","),
+    DESKTOP_OVERRIDABLE_PARAMETERS.join(","),
     "-geometry",
     "1440x900",
     "-depth",

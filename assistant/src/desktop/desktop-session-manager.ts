@@ -19,7 +19,7 @@ import {
 } from "./desktop-dependencies.js";
 import {
   DESKTOP_DISPLAY,
-  DESKTOP_INPUT_PARAMETERS,
+  DESKTOP_OVERRIDABLE_PARAMETERS,
 } from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 
@@ -625,7 +625,7 @@ function xServerCommand(executable: string): string[] {
     "-rfbport",
     String(DESKTOP_VNC_PORT),
     "-AllowOverride",
-    DESKTOP_INPUT_PARAMETERS.join(","),
+    DESKTOP_OVERRIDABLE_PARAMETERS.join(","),
     "-geometry",
     DESKTOP_GEOMETRY,
     "-depth",

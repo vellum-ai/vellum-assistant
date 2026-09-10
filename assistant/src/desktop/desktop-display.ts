@@ -5,3 +5,11 @@ export const DESKTOP_INPUT_PARAMETERS = [
   "AcceptCutText",
   "AcceptSetDesktopSize",
 ] as const;
+
+export const DESKTOP_OVERRIDABLE_PARAMETERS = [
+  "desktop",
+  "SendCutText",
+  "SendPrimary",
+  "SetPrimary",
+  ...DESKTOP_INPUT_PARAMETERS,
+] as const;
