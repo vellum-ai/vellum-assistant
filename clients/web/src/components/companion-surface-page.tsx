@@ -152,6 +152,11 @@ export function CompanionSurfacePage() {
   // reason the marks are: it holds them, and it is the side that takes them
   // down.
   const [pointedAt, setPointedAt] = useState(false);
+  // Whether the shell has a Clear to answer at all. Read off the count it
+  // steps on every clear, the way the mode is read off `annotating`: a shell
+  // that predates the control names no count, and a Clear drawn for it would
+  // be a control whose press goes nowhere.
+  const [clearable, setClearable] = useState(false);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
@@ -251,6 +256,7 @@ export function CompanionSurfacePage() {
       // Main sends the marks only while the frame is around the share, so a
       // list with anything in it is something on the surface right now.
       setPointedAt((state.coachmarks?.length ?? 0) > 0);
+      setClearable(state.marksCleared !== undefined);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -856,9 +862,10 @@ export function CompanionSurfacePage() {
         }}
         // Clear, offered while there is something on the shared surface to
         // take down: the assistant's marks, or the mode the user's own ink is
-        // drawn under. Main's both ways, like Draw: the press asks, and the
-        // marks going from the pushed state is what happened.
-        marked={pointedAt || annotating}
+        // drawn under, and only from a shell with a Clear to answer it.
+        // Main's both ways, like Draw: the press asks, and the marks going
+        // from the pushed state is what happened.
+        marked={clearable && (pointedAt || annotating)}
         onClearMarks={() => {
           clearCompanionMarks();
         }}

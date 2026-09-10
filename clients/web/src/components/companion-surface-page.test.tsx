@@ -1913,7 +1913,8 @@ describe("the picker behind Share", () => {
     /**
      * Clear, beside Draw. What is on the shared surface is main's to say:
      * the assistant's marks arrive on the pushed state, and the mode is
-     * where the user's own ink is drawn, which main never sees.
+     * where the user's own ink is drawn, which main never sees. A shell
+     * with a Clear to answer names the count it steps on every clear.
      */
     describe("clearing what is on it", () => {
       const clearOf = (container: HTMLElement): HTMLButtonElement | null =>
@@ -1934,10 +1935,10 @@ describe("the picker behind Share", () => {
         await pinSurface(container);
         expect(clearOf(container)).toBeNull();
 
-        pushState({ ...STATE, coachmarks: [MARK] });
+        pushState({ ...STATE, marksCleared: 0, coachmarks: [MARK] });
         expect(clearOf(container)).not.toBeNull();
 
-        pushState({ ...STATE });
+        pushState({ ...STATE, marksCleared: 0 });
         expect(clearOf(container)).toBeNull();
       });
 
@@ -1945,15 +1946,28 @@ describe("the picker behind Share", () => {
         STATE.screenShare = { kind: "window", windowId: 9 };
         const { container } = render(<CompanionSurfacePage />);
         await pinSurface(container);
-        pushState({ ...STATE, annotating: true });
+        pushState({ ...STATE, marksCleared: 0, annotating: true });
         expect(clearOf(container)).not.toBeNull();
+      });
+
+      /**
+       * A newer renderer can meet an older shell, which publishes marks and
+       * the mode but has no Clear on its bridge. A control drawn for it
+       * would be one whose press goes nowhere.
+       */
+      test("is not offered by a shell that has no Clear to answer it", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, coachmarks: [MARK], annotating: true });
+        expect(clearOf(container)).toBeNull();
       });
 
       test("the press asks main to clear", async () => {
         STATE.screenShare = { kind: "window", windowId: 9 };
         const { container } = render(<CompanionSurfacePage />);
         await pinSurface(container);
-        pushState({ ...STATE, coachmarks: [MARK] });
+        pushState({ ...STATE, marksCleared: 0, coachmarks: [MARK] });
         const clear = clearOf(container);
         if (clear === null) {
           throw new Error("Expected Clear to render");
