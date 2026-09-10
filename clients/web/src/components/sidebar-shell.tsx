@@ -56,12 +56,9 @@ export function SidebarShell({
   // a sub-page is the content, so one signal decides which is on screen rather
   // than each hiding itself at its own breakpoint.
   const showsMobileMenu = isMobile && isMenuRoute;
-  // A page that is on screen for nobody can also skip mounting, but only where
-  // the caller says its menu-route child has nothing to do out of sight. A
-  // mounted page runs its render, its effects and its request fan-out whether
-  // or not anything shows it, which on a phone is the whole Settings landing
-  // tree behind a list of links. The route's chunk is fetched either way: the
-  // router resolves it before this renders.
+  // A mounted page runs its render, its effects and its request fan-out
+  // whether or not anything shows it. Its chunk arrives either way, since the
+  // router resolves a lazy component before this renders.
   const contentMounted = !(showsMobileMenu && menuReplacesContentOnMobile);
 
   // Edge-swipe back gesture for the mobile two-page flow. It mirrors the
@@ -183,14 +180,14 @@ export function SidebarShell({
 
         {/* Body — sidebar + content */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {isMobile ? null : (
+          {!isMobile ? (
             <aside
               className="w-64 shrink-0 overflow-y-auto"
               aria-label={t("sidebarShell.navigationAria", { title })}
             >
               {sidebar}
             </aside>
-          )}
+          ) : null}
 
           {showsMobileMenu ? (
             /* `overflow-x-hidden`: `overflow-y: auto` alone computes

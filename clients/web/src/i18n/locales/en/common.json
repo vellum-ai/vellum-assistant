@@ -866,7 +866,9 @@
     "verificationFailed": "Verification failed",
     "verifiedTitle": "DNS records have been verified. Your domain is ready to send and receive email.",
     "verifyingDomain": "Verifying domain…",
-    "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes."
+    "verifyingTitle": "DNS records have been provisioned. Waiting for the email provider to verify them - this usually takes a few minutes.",
+    "setupRequired": "Domain setup required",
+    "setupRequiredTitle": "This domain has not been provisioned with the email provider. It cannot send or receive email until setup is complete."
   },
   "managedServicesBanner": {
     "body": "Managed services are metered and deducted from your Vellum account balance. <link>View pricing</link>"

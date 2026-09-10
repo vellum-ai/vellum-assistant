@@ -6,10 +6,14 @@ import {
   FileCode,
   GitBranch,
   ListCollapse,
+  Loader2,
   RotateCcw,
+  Square,
+  Volume2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { useMessageReadAloudStore } from "@/domains/chat/message-read-aloud-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messageCopyText } from "@/domains/chat/utils/message-plain-text";
 import {
@@ -17,8 +21,10 @@ import {
   useCanBookmark,
   useIsBookmarked,
 } from "@/hooks/use-bookmarks";
+import { useCanUseInternalThreadActions } from "@/lib/auth/internal-thread-actions";
 import { copyToClipboard } from "@/lib/copy-to-clipboard";
 import { useTranslation } from "@/i18n";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 export type MessageHoverActionsProps = {
   /** The message whose text is copied and whose role/timestamp drive the row. */
@@ -39,6 +45,9 @@ export type MessageHoverActionsProps = {
    *  regenerates it. */
   onRetry?: () => void;
 };
+
+const ACTION_BUTTON_CLASS =
+  "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]";
 
 function formatTimestamp(epoch: number): string {
   const date = new Date(epoch);
@@ -118,6 +127,7 @@ export function MessageHoverActions({
   // (and only touch TanStack Query) for bookmarkable rows; that keeps the
   // unsupported-assistant and no-conversation paths free of any query client.
   const canBookmark = useCanBookmark(message, conversationId);
+  const canReadAloud = useCanUseInternalThreadActions();
 
   // Flat plain-text body derived from the message's text blocks (empty for a
   // row deleted on its channel); this is the copy payload and mirrors the
@@ -147,7 +157,7 @@ export function MessageHoverActions({
 
   const handleCopy = useCallback(() => {
     copyToClipboard(content, {
-      errorMessage: "Couldn't copy the message.",
+      errorMessage: t("messageHoverActions.copyFailed"),
       onCopied: () => {
         setShowCopied(true);
         if (timerRef.current) {
@@ -159,7 +169,7 @@ export function MessageHoverActions({
         }, 1500);
       },
     });
-  }, [content]);
+  }, [content, t]);
 
   return (
     // The timestamp and these controls are chrome, not message content: a
@@ -186,7 +196,12 @@ export function MessageHoverActions({
               ? t("messageHoverActions.copied")
               : t("messageHoverActions.copy")
           }
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+          aria-label={
+            showCopied
+              ? t("messageHoverActions.copied")
+              : t("messageHoverActions.copy")
+          }
+          className={ACTION_BUTTON_CLASS}
         >
           {showCopied ? (
             <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
@@ -196,70 +211,137 @@ export function MessageHoverActions({
         </button>
       )}
 
-      {onRetry && (
-        <button
-          type="button"
-          onClick={onRetry}
-          title={t("messageHoverActions.retry")}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-        >
-          <RotateCcw className="h-3.5 w-3.5" />
-        </button>
-      )}
-
-      {canBookmark && conversationId && message.id && (
-        <MessageBookmarkButton
+      {hasCopyableText && message.id && canReadAloud && (
+        <MessageReadAloudButton
           messageId={message.id}
+          text={content}
           conversationId={conversationId}
         />
       )}
 
-      {openInSlackUrl && (
-        <a
-          href={openInSlackUrl}
-          target="_blank"
-          rel="noreferrer noopener"
-          aria-label={t("messageHoverActions.openInSlack")}
-          title={t("messageHoverActions.openInSlack")}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </a>
-      )}
+      <div className="flex items-center gap-0.5 opacity-0 pointer-events-none transition-opacity duration-200 ease-out group-hover/msg:opacity-100 group-hover/msg:pointer-events-auto has-[:focus-visible]:opacity-100 has-[:focus-visible]:pointer-events-auto group-data-[revealed=true]/msg:opacity-100 group-data-[revealed=true]/msg:pointer-events-auto motion-reduce:transition-none">
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            title={t("messageHoverActions.retry")}
+            aria-label={t("messageHoverActions.retry")}
+            className={ACTION_BUTTON_CLASS}
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+          </button>
+        )}
 
-      {onFork && (
-        <button
-          type="button"
-          onClick={onFork}
-          title={t("messageHoverActions.forkFromHere")}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-        >
-          <GitBranch className="h-3.5 w-3.5" />
-        </button>
-      )}
+        {canBookmark && conversationId && message.id && (
+          <MessageBookmarkButton
+            messageId={message.id}
+            conversationId={conversationId}
+          />
+        )}
 
-      {onSummarizeUpToHere && (
-        <button
-          type="button"
-          onClick={onSummarizeUpToHere}
-          title={t("messageHoverActions.summarizeUpToHere")}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-        >
-          <ListCollapse className="h-3.5 w-3.5" />
-        </button>
-      )}
+        {openInSlackUrl && (
+          <a
+            href={openInSlackUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            aria-label={t("messageHoverActions.openInSlack")}
+            title={t("messageHoverActions.openInSlack")}
+            className={ACTION_BUTTON_CLASS}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
+        )}
 
-      {onInspect && (
-        <button
-          type="button"
-          onClick={onInspect}
-          title={t("messageHoverActions.inspect")}
-          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
-        >
-          <FileCode className="h-3.5 w-3.5" />
-        </button>
-      )}
+        {onFork && (
+          <button
+            type="button"
+            onClick={onFork}
+            title={t("messageHoverActions.forkFromHere")}
+            aria-label={t("messageHoverActions.forkFromHere")}
+            className={ACTION_BUTTON_CLASS}
+          >
+            <GitBranch className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        {onSummarizeUpToHere && (
+          <button
+            type="button"
+            onClick={onSummarizeUpToHere}
+            title={t("messageHoverActions.summarizeUpToHere")}
+            aria-label={t("messageHoverActions.summarizeUpToHere")}
+            className={ACTION_BUTTON_CLASS}
+          >
+            <ListCollapse className="h-3.5 w-3.5" />
+          </button>
+        )}
+
+        {onInspect && (
+          <button
+            type="button"
+            onClick={onInspect}
+            title={t("messageHoverActions.inspect")}
+            aria-label={t("messageHoverActions.inspect")}
+            className={ACTION_BUTTON_CLASS}
+          >
+            <FileCode className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+function MessageReadAloudButton({
+  messageId,
+  text,
+  conversationId,
+}: {
+  messageId: string;
+  text: string;
+  conversationId?: string | null;
+}) {
+  const { t } = useTranslation("chat");
+  const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
+  const activeMessageId = useMessageReadAloudStore.use.messageId();
+  const status = useMessageReadAloudStore.use.status();
+  const isThisMessage = activeMessageId === messageId;
+  const isLoading = isThisMessage && status === "loading";
+  const isPlaying = isThisMessage && status === "playing";
+
+  const title = isLoading
+    ? t("messageHoverActions.loading")
+    : isPlaying
+      ? t("messageHoverActions.stop")
+      : t("messageHoverActions.readAloud");
+
+  const handleClick = useCallback(() => {
+    useMessageReadAloudStore.getState().toggle({
+      messageId,
+      text,
+      assistantId,
+      conversationId,
+    });
+  }, [assistantId, conversationId, messageId, text]);
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={isPlaying}
+      aria-busy={isLoading}
+      className={ACTION_BUTTON_CLASS}
+    >
+      {isLoading ? (
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      ) : isPlaying ? (
+        <Square className="h-3.5 w-3.5" />
+      ) : (
+        <Volume2 className="h-3.5 w-3.5" />
+      )}
+    </button>
   );
 }
 
@@ -292,8 +374,13 @@ function MessageBookmarkButton({
           ? t("messageHoverActions.removeBookmark")
           : t("messageHoverActions.bookmark")
       }
+      aria-label={
+        isBookmarked
+          ? t("messageHoverActions.removeBookmark")
+          : t("messageHoverActions.bookmark")
+      }
       aria-pressed={isBookmarked}
-      className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+      className={ACTION_BUTTON_CLASS}
     >
       <Bookmark
         className={`h-3.5 w-3.5 ${
