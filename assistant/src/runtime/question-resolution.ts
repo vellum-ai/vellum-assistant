@@ -2,7 +2,7 @@
  * Shared resolution core for pending `ask_question` interactions.
  *
  * A pending `question` interaction (registered by {@link QuestionPrompter}) can
- * be resolved from two places:
+ * be resolved from three places:
  *
  *  - `POST /v1/question-response` — an app/web client submits the user's
  *    batched selection (see `routes/question-routes.ts`).
@@ -10,8 +10,11 @@
  *    or bare-text answer routes through the guardian reply router to the
  *    `pending_question` resolver, which builds the submission (see
  *    `approvals/guardian-request-resolvers.ts`).
+ *  - the enqueue path: a message typed into the chat while the card is open
+ *    answers the parked question as free text (see
+ *    `daemon/handlers/conversations.ts`).
  *
- * Both funnel through {@link resolvePendingQuestion} so the validate → consume
+ * All funnel through {@link resolvePendingQuestion} so the validate → consume
  * → `rpcResolve` sequence has a single implementation. The helper is
  * transport-agnostic: it returns a discriminated outcome rather than throwing
  * route errors, so each caller maps the outcome to its own surface (HTTP status
@@ -28,12 +31,20 @@ import {
 import * as pendingInteractions from "./pending-interactions.js";
 
 /**
- * How to resolve a pending question: a batched submission (one entry per
- * question) or a close (every question reported as `skipped`).
+ * How to resolve a pending question:
+ *
+ *  - `submit`: a batched submission, one entry per question.
+ *  - `close`: the card was dismissed; every question is reported as
+ *    `skipped`.
+ *  - `chat_reply`: the user typed a message into the chat while the card was
+ *    open. The text answers the first question as free text and the rest stay
+ *    `skipped`; the result is flagged so the tool tells the model where the
+ *    answer came from.
  */
 export type QuestionResolutionInput =
   | { kind: "submit"; submissions: QuestionBatchSubmission[] }
-  | { kind: "close" };
+  | { kind: "close" }
+  | { kind: "chat_reply"; text: string };
 
 /**
  * Outcome of {@link resolvePendingQuestion}.
@@ -57,9 +68,10 @@ export type QuestionResolutionOutcome =
   | { status: "invalid"; message: string };
 
 /**
- * Resolve a pending `question` interaction with a batched submission or a
- * close. Validation runs BEFORE the interaction is consumed, so an `invalid`
- * outcome leaves the pending prompt (and its timer) intact for a retry.
+ * Resolve a pending `question` interaction with a batched submission, a close,
+ * or a chat reply. Validation runs BEFORE the interaction is consumed, so an
+ * `invalid` outcome leaves the pending prompt (and its timer) intact for a
+ * retry.
  */
 export function resolvePendingQuestion(
   requestId: string,
@@ -81,6 +93,8 @@ export function resolvePendingQuestion(
         })),
         overall: "closed",
       };
+    } else if (input.kind === "chat_reply") {
+      result = buildChatReplyResult(input.text, interaction);
     } else {
       result = buildCompletedResult(input.submissions, interaction);
     }
@@ -134,6 +148,38 @@ function buildCompletedResult(
     submissions,
   );
   return { entries, overall: "completed" };
+}
+
+/**
+ * Build the result for a chat reply: the typed text answers the first question
+ * as free text, every other question stays `skipped`.
+ *
+ * The daemon holds no partial per-question state (the card keeps the user's
+ * in-progress answers locally until the whole batch is posted), so the first
+ * question is by construction the first unanswered one. Which question the
+ * text really speaks to is the model's call, not the daemon's: the flag on the
+ * result tells it the answer came from the chat rather than the card, and it
+ * maps the reply onto the batch from there.
+ */
+function buildChatReplyResult(
+  text: string,
+  interaction: ReturnType<typeof pendingInteractions.get>,
+): QuestionPromptResult {
+  const { orderedIds } = readBatchMetadata(interaction);
+  if (orderedIds.length === 0) {
+    throw new QuestionBatchValidationError(
+      "No registered question ids for this batch",
+    );
+  }
+  return {
+    entries: orderedIds.map((id, index) =>
+      index === 0
+        ? { questionId: id, decision: "free_text" as const, text }
+        : { questionId: id, decision: "skipped" as const },
+    ),
+    overall: "completed",
+    answeredInChat: true,
+  };
 }
 
 /**

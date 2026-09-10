@@ -73,6 +73,38 @@ describe("resolvePendingQuestion", () => {
     });
   });
 
+  test("chat_reply: the typed text answers the first question, the rest stay unanswered", () => {
+    const resolved: QuestionPromptResult[] = [];
+    registerQuestion(
+      "req-1",
+      [
+        { id: "q1", options: ["a"] },
+        { id: "q2", options: ["b"] },
+      ],
+      (v) => resolved.push(v as QuestionPromptResult),
+    );
+
+    const outcome = resolvePendingQuestion("req-1", {
+      kind: "chat_reply",
+      text: "tuesday, and keep it short",
+    });
+
+    expect(outcome.status).toBe("resolved");
+    expect(resolved[0]).toEqual({
+      overall: "completed",
+      entries: [
+        {
+          questionId: "q1",
+          decision: "free_text",
+          text: "tuesday, and keep it short",
+        },
+        { questionId: "q2", decision: "skipped" },
+      ],
+      answeredInChat: true,
+    });
+    expect(pendingInteractions.get("req-1")).toBeUndefined();
+  });
+
   test("not_found: unknown or wrong-kind requestId leaves nothing resolved", () => {
     expect(resolvePendingQuestion("missing", { kind: "close" })).toEqual({
       status: "not_found",
