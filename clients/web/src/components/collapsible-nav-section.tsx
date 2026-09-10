@@ -410,7 +410,12 @@ function CollapsibleNavSectionSection({
         </SideMenu.SectionHeader>
       )}
       {collapsible || trailing || collapsedIndicator ? (
-        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+        /* No inset of its own on a phone: the card's 12px right padding plus
+           the 30px chevron box's 6px lead-out puts the chevron glyph's right
+           edge 18px in, which is where the pinned-app pill above sets its
+           unpin glyph (8px padding plus a 36px target's 10px lead-out), so
+           the two right edges are one line down the drawer. */
+        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-0">
           {trailing || collapsedIndicator ? (
             <CrossfadeStack>
               {collapsedIndicator ? (
