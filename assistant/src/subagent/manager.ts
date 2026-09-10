@@ -1809,6 +1809,7 @@ export class SubagentManager {
       managed.parentSendToClient({
         type: "subagent_status_changed",
         subagentId: childId,
+        conversationId: parentConversationId,
         status: managed.state.status,
         error: managed.state.error,
         usage: managed.state.usage,
@@ -2115,6 +2116,7 @@ export class SubagentManager {
     parentSendToClient({
       type: "subagent_status_changed",
       subagentId,
+      conversationId: managed.state.config.parentConversationId,
       status,
       error,
       usage: managed.state.usage,

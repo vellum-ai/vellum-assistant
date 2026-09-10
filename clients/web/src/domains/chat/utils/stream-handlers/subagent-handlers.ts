@@ -10,6 +10,8 @@ import {
   useSubagentStore,
 } from "@/domains/chat/subagent-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import { supportsScopedSubagentStatus } from "@/lib/backwards-compat/subagent-status-conversation-id";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export function handleSubagentSpawned(
   event: SubagentSpawnedEvent,
@@ -27,6 +29,25 @@ export function handleSubagentSpawned(
   });
 }
 
+/**
+ * The parent conversation a status event belongs to. Older assistants name
+ * none, and only for them is the conversation on screen taken as the parent:
+ * the guess that files a subagent still running in the conversation the user
+ * left under the one they opened. A missing id on an assistant that names the
+ * parent is a defect, not a cue to guess, so the stub stays unscoped there.
+ */
+function resolveStatusParentConversationId(
+  event: SubagentStatusChangedEvent,
+): string | undefined {
+  if (event.conversationId) {
+    return event.conversationId;
+  }
+  if (supportsScopedSubagentStatus()) {
+    return undefined;
+  }
+  return useConversationStore.getState().activeConversationId ?? undefined;
+}
+
 export function handleSubagentStatusChanged(
   event: SubagentStatusChangedEvent,
   _ctx: StreamHandlerContext,
@@ -34,20 +55,23 @@ export function handleSubagentStatusChanged(
   const store = useSubagentStore.getState();
   // Evidence of a subagent the store has never seen: its `subagent_spawned`
   // was missed (SSE gap, page reload) or the store was reset after it
-  // arrived. Materialize a stub so the status lands instead of silently
-  // vanishing — a dropped terminal status is how the inline card dies (the
-  // avatar row expands to nothing and the detail panel can't open). The event
-  // carries no conversation ids at all, so `ensureEntry` scopes the stub to
-  // the conversation on screen. The reconcile kick then recovers the real
-  // identity, and any sibling subagent that streamed nothing at all, a
-  // round-trip later.
+  // arrived. Materialize a stub, scoped to the parent the event names, so the
+  // status lands instead of silently vanishing: a dropped terminal status is
+  // how the inline card dies (the avatar row expands to nothing and the
+  // detail panel can't open). The reconcile kick on that parent then recovers
+  // the real identity, and any sibling subagent that streamed nothing at all,
+  // a round-trip later.
   if (!store.byId[event.subagentId]) {
+    const parentConversationId = resolveStatusParentConversationId(event);
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),
       status: event.status,
+      parentConversationId,
     });
-    requestSubagentReconcile();
+    if (parentConversationId) {
+      requestSubagentReconcile(parentConversationId);
+    }
   }
   store.changeStatus({
     subagentId: event.subagentId,
@@ -100,7 +124,9 @@ export function handleSubagentEvent(
     // Reconcile the envelope's OWN parent: this event may belong to a
     // background conversation, whose subagents the active chat's snapshot
     // would say nothing about.
-    requestSubagentReconcile(parentConversationId);
+    if (parentConversationId) {
+      requestSubagentReconcile(parentConversationId);
+    }
   }
 
   if (inner.type === "usage_progress") {

@@ -2,15 +2,17 @@
  * `subagent_status_changed` SSE event.
  *
  * Server → client notification that a subagent's status has
- * transitioned. Carries `subagentId`, the new `status`, an optional
- * `error` message (typically present when transitioning into
- * `failed`), and an optional rolling `usage` snapshot.
+ * transitioned. Carries `subagentId`, the parent `conversationId`, the
+ * new `status`, an optional `error` message (typically present when
+ * transitioning into `failed`), and an optional rolling `usage` snapshot.
  *
- * NOTE: no `conversationId` field. Like `subagent_spawned`, status
- * transitions route to the parent conversation's SSE stream via
- * `parentSendToClient` closure, not via conversation-scoped seq
- * stamping. The subagent is identified by `subagentId`; clients
- * already know the parent association from the prior `spawned` event.
+ * `conversationId` is the PARENT conversation, as on `subagent_event`.
+ * The daemon emits through the parent's sink, which is the assistant
+ * event hub, and the hub scopes and seq-stamps an event by the
+ * `conversationId` on its payload: without it the event fans out
+ * unscoped to every subscriber and is never replayed on reconnect, and a
+ * client that never saw the `spawned` event has no parent to file the
+ * status under.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via
@@ -57,6 +59,13 @@ export const SubagentStatusChangedEventSchema = z
   .object({
     type: z.literal("subagent_status_changed"),
     subagentId: z.string(),
+    /**
+     * Parent conversation id, the scope the event hub filters and
+     * seq-stamps on. Optional on the wire only because older assistants
+     * omit it and the web client validates their events with this
+     * schema; every emit site sets it.
+     */
+    conversationId: z.string().optional(),
     status: SubagentStatusSchema,
     error: z.string().optional(),
     usage: SubagentUsageStatsSchema.optional(),

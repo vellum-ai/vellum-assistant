@@ -209,15 +209,40 @@ describe("SubagentManager abort notification", () => {
     manager.abort(subagentId, sendToClient);
 
     const statusMsg = clientMessages.find(
-      (m) => m.type === "subagent_status_changed",
+      (m): m is Extract<AssistantEvent, { type: "subagent_status_changed" }> =>
+        m.type === "subagent_status_changed",
     );
     expect(statusMsg).toBeDefined();
-    expect((statusMsg as unknown as Record<string, unknown>).subagentId).toBe(
+    expect(statusMsg!.subagentId).toBe(subagentId);
+    expect(statusMsg!.status).toBe("aborted");
+    // The parent scopes the event on the hub, and a client that never saw
+    // the spawn files the status under it.
+    expect(statusMsg!.conversationId).toBe("parent-sess-1");
+  });
+
+  test("reannounce sends each child's status scoped to the parent", () => {
+    const manager = new SubagentManager();
+    const subagentId = "sub-1";
+
+    const clientMessages: AssistantEvent[] = [];
+    const sendToClient = (msg: AssistantEvent) => clientMessages.push(msg);
+    injectFakeSubagent(
+      manager,
       subagentId,
+      makeState(subagentId),
+      sendToClient,
     );
-    expect((statusMsg as unknown as Record<string, unknown>).status).toBe(
-      "aborted",
+
+    manager.reannounceChildStatuses("parent-sess-1");
+
+    const statusMsg = clientMessages.find(
+      (m): m is Extract<AssistantEvent, { type: "subagent_status_changed" }> =>
+        m.type === "subagent_status_changed",
     );
+    expect(statusMsg).toBeDefined();
+    expect(statusMsg!.subagentId).toBe(subagentId);
+    expect(statusMsg!.status).toBe("running");
+    expect(statusMsg!.conversationId).toBe("parent-sess-1");
   });
 
   test("abort returns false for unknown subagent", () => {
