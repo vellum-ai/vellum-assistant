@@ -8,7 +8,6 @@ import { basename } from "node:path";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { eq, inArray } from "drizzle-orm";
-import { v7 as uuidv7 } from "uuid";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
@@ -187,7 +186,7 @@ export interface AcpCancellationOptions {
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
   /** Scopes process-local model revisions across assistant restarts. */
-  private readonly modelRevisionEpoch = uuidv7();
+  private readonly modelRevisionEpoch = randomUUID();
   /** Orders model snapshots within this assistant process. */
   private modelRevision = 0;
   /**

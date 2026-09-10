@@ -110,9 +110,8 @@ export interface AcpRunEntry {
   /** Models the session can switch to; absent when the adapter has no selector. */
   availableModels?: AcpModelOption[];
   /**
-   * Time-ordered identifier of the assistant process issuing model revisions.
-   * Absent on history rows and responses from assistants predating revision
-   * epochs.
+   * Identifier of the assistant process issuing model revisions. Absent on
+   * history rows and responses from assistants predating revision epochs.
    */
   modelRevisionEpoch?: string;
   /** Monotonic server revision within `modelRevisionEpoch`. */
@@ -126,6 +125,12 @@ export interface PendingModelUpdate {
   availableModels: AcpModelOption[];
   modelRevisionEpoch: string;
   modelRevision: number;
+}
+
+/** Model ordering state captured when an ACP snapshot request begins. */
+export interface AcpModelRevision {
+  modelRevisionEpoch?: string;
+  modelRevision?: number;
 }
 
 /** How many sessions can hold a buffered model update at once. */
@@ -284,7 +289,10 @@ export interface AcpRunActions {
    * buffered update from `pendingModelUpdates` is folded in by the same rule
    * and dropped either way.
    */
-  seedFromHistory: (entries: AcpRunEntry[]) => void;
+  seedFromHistory: (
+    entries: AcpRunEntry[],
+    modelRevisionsAtFetch?: ReadonlyMap<string, AcpModelRevision>,
+  ) => void;
 
   reset: () => void;
 }
@@ -356,10 +364,11 @@ function mergeEvents(
 /**
  * Fold a snapshot's model selection into a live entry.
  *
- * The higher time-ordered `modelRevisionEpoch` wins across assistant restarts,
- * then the higher `modelRevision` wins within one process. Equal ordering keys
- * describe the same authoritative state, so the existing copy stays in place.
- * A revisioned copy also wins over an unrevisioned history or legacy snapshot.
+ * Revisions order updates within one assistant process. Different process
+ * epochs are ordered causally: live events arrive in stream order, while a
+ * snapshot may establish a different epoch only when the model revision has
+ * not changed since its request began. A revisioned copy also wins over an
+ * unrevisioned history or legacy snapshot.
  *
  * Otherwise the snapshot rules apply: a row carrying `availableModels` is
  * authoritative for both fields, so the supported no-selection state (no
@@ -370,21 +379,22 @@ function mergeEvents(
 function mergeModelSelection(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
+  existingAtFetch?: AcpModelRevision | null,
 ): Pick<
   AcpRunEntry,
   "model" | "availableModels" | "modelRevisionEpoch" | "modelRevision"
 > {
   const existingEpoch = existing.modelRevisionEpoch;
   const incomingEpoch = incoming.modelRevisionEpoch;
+  const differentEpochs = existingEpoch !== incomingEpoch;
+  const existingChangedSinceFetch =
+    existingAtFetch !== undefined &&
+    !sameModelRevision(modelRevisionOf(existing), existingAtFetch);
   const keepExisting =
-    existingEpoch !== undefined || incomingEpoch !== undefined
-      ? existingEpoch !== undefined &&
-        (incomingEpoch === undefined ||
-          existingEpoch > incomingEpoch ||
-          (existingEpoch === incomingEpoch &&
-            existing.modelRevision !== undefined &&
-            (incoming.modelRevision === undefined ||
-              existing.modelRevision >= incoming.modelRevision)))
+    differentEpochs
+      ? incomingEpoch === undefined
+        ? existingEpoch !== undefined
+        : existingChangedSinceFetch
       : existing.modelRevision !== undefined &&
         (incoming.modelRevision === undefined ||
           existing.modelRevision >= incoming.modelRevision);
@@ -398,7 +408,9 @@ function mergeModelSelection(
   }
   const modelRevisionEpoch =
     incoming.modelRevisionEpoch ?? existing.modelRevisionEpoch;
-  const modelRevision = incoming.modelRevision ?? existing.modelRevision;
+  const modelRevision = differentEpochs
+    ? incoming.modelRevision
+    : (incoming.modelRevision ?? existing.modelRevision);
   if (incoming.availableModels !== undefined) {
     return {
       model: incoming.model,
@@ -415,6 +427,31 @@ function mergeModelSelection(
   };
 }
 
+function modelRevisionOf(
+  value: AcpModelRevision,
+): AcpModelRevision | null {
+  if (
+    value.modelRevisionEpoch === undefined &&
+    value.modelRevision === undefined
+  ) {
+    return null;
+  }
+  return {
+    modelRevisionEpoch: value.modelRevisionEpoch,
+    modelRevision: value.modelRevision,
+  };
+}
+
+function sameModelRevision(
+  left: AcpModelRevision | null,
+  right: AcpModelRevision | null,
+): boolean {
+  return (
+    left?.modelRevisionEpoch === right?.modelRevisionEpoch &&
+    left?.modelRevision === right?.modelRevision
+  );
+}
+
 /**
  * Buffer a model update for a session with no entry, replacing any earlier one
  * for the same id. Re-inserting the key keeps the map in recency order so the
@@ -428,9 +465,8 @@ function rememberPendingModelUpdate(
   const existing = pendingModelUpdates.get(acpSessionId);
   if (
     existing &&
-    (existing.modelRevisionEpoch > update.modelRevisionEpoch ||
-      (existing.modelRevisionEpoch === update.modelRevisionEpoch &&
-        existing.modelRevision >= update.modelRevision))
+    existing.modelRevisionEpoch === update.modelRevisionEpoch &&
+    existing.modelRevision >= update.modelRevision
   ) {
     return pendingModelUpdates;
   }
@@ -473,6 +509,7 @@ function dropPendingModelUpdates(
 function applyPendingModelUpdate(
   entry: AcpRunEntry,
   pending: PendingModelUpdate,
+  existingAtFetch?: AcpModelRevision | null,
 ): AcpRunEntry {
   return {
     ...entry,
@@ -485,6 +522,7 @@ function applyPendingModelUpdate(
         modelRevision: pending.modelRevision,
       },
       entry,
+      existingAtFetch,
     ),
   };
 }
@@ -513,6 +551,7 @@ function withPendingModelUpdate(
 function mergeHistoryEntry(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
+  existingAtFetch?: AcpModelRevision | null,
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
@@ -535,7 +574,7 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
-    ...mergeModelSelection(existing, incoming),
+    ...mergeModelSelection(existing, incoming, existingAtFetch),
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -622,10 +661,13 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           task: existing.task ?? params.task,
           parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
           // The resumed session reports its own model right after this event
-          // when its adapter has a selector. Keep the previous revision while
-          // clearing the pair so an older snapshot cannot restore it.
+          // when its adapter has a selector. Clear the pair and revision so the
+          // next process epoch can be established without relying on
+          // wall-clock ordering.
           model: undefined,
           availableModels: undefined,
+          modelRevisionEpoch: undefined,
+          modelRevision: undefined,
         },
         pending,
       );
@@ -894,7 +936,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     });
   },
 
-  seedFromHistory: (entries) => {
+  seedFromHistory: (entries, modelRevisionsAtFetch) => {
     const {
       byId,
       orderedIds,
@@ -911,7 +953,15 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       // An update that landed before this snapshot created the entry waited in
       // `pendingModelUpdates` for the row to arrive.
       const pending = pendingModelUpdates.get(entry.acpSessionId);
-      return pending ? applyPendingModelUpdate(entry, pending) : entry;
+      return pending
+        ? applyPendingModelUpdate(
+            entry,
+            pending,
+            modelRevisionsAtFetch
+              ? (modelRevisionsAtFetch.get(entry.acpSessionId) ?? null)
+              : undefined,
+          )
+        : entry;
     });
     const { byId: nextById, orderedIds: nextOrderedIds } =
       seedEntriesFromHistory({
@@ -919,7 +969,14 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
-        merge: mergeHistoryEntry,
+        merge: (existing, incoming) =>
+          mergeHistoryEntry(
+            existing,
+            incoming,
+            modelRevisionsAtFetch
+              ? (modelRevisionsAtFetch.get(incoming.acpSessionId) ?? null)
+              : undefined,
+          ),
       });
 
     let nextByToolUseId = byToolUseId;

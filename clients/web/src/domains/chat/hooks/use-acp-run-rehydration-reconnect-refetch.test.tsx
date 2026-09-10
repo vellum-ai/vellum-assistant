@@ -404,14 +404,60 @@ describe("useAcpRunRehydration: re-reading once a Connect flow settles", () => {
 describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", () => {
   const flush = () => new Promise((r) => setTimeout(r, 5));
 
-  test("keeps a live model update that landed while the fetch was open", async () => {
-    // The request read `opus` at revision 1; a live model update moved the
-    // session to `sonnet` at revision 2 before the response arrived.
+  test("accepts a new process epoch even when its UUID sorts lower", async () => {
     useAcpRunStore.getState().spawnRun({
       acpSessionId: "run-A",
       agent: "claude",
       parentConversationId: "conv-A",
       startedAt: 0,
+    });
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "01910000-0000-7000-8000-000000000001",
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    mockSessions = [
+      {
+        id: "run-A",
+        agentId: "claude",
+        acpSessionId: "run-A",
+        parentConversationId: "conv-A",
+        status: "running",
+        startedAt: 0,
+        model: "sonnet",
+        modelRevisionEpoch: "018f0000-0000-7000-8000-000000000001",
+        modelRevision: 1,
+        availableModels: [{ value: "sonnet", label: "Sonnet" }],
+      },
+    ];
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+
+    await waitFor(() => {
+      expect(useAcpRunStore.getState().byId["run-A"]!.model).toBe("sonnet");
+    });
+    expect(
+      useAcpRunStore.getState().byId["run-A"]!.modelRevisionEpoch,
+    ).toBe("018f0000-0000-7000-8000-000000000001");
+  });
+
+  test("keeps a live model update that landed while the fetch was open", async () => {
+    // The request read the prior process's `opus`; a live event from the new
+    // process moved the session to `sonnet` before the response arrived.
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "run-A",
+      agent: "claude",
+      parentConversationId: "conv-A",
+      startedAt: 0,
+    });
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "01910000-0000-7000-8000-000000000001",
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
     });
 
     let releaseSnapshot = (_v: unknown) => {};
@@ -431,8 +477,8 @@ describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", 
               status: "running",
               startedAt: 0,
               model: "opus",
-              modelRevisionEpoch: "01900000-0000-7000-8000-000000000001",
-              modelRevision: 1,
+              modelRevisionEpoch: "01910000-0000-7000-8000-000000000001",
+              modelRevision: 10,
               availableModels: [{ value: "opus", label: "Opus" }],
             },
           ],
@@ -446,8 +492,8 @@ describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", 
 
     useAcpRunStore.getState().setModel({
       acpSessionId: "run-A",
-      modelRevisionEpoch: "01900000-0000-7000-8000-000000000001",
-      modelRevision: 2,
+      modelRevisionEpoch: "018f0000-0000-7000-8000-000000000001",
+      modelRevision: 1,
       model: "sonnet",
       availableModels: [{ value: "sonnet", label: "Sonnet" }],
     });

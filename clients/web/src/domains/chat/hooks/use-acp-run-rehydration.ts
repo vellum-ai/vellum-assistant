@@ -30,6 +30,7 @@ import { captureError } from "@/lib/sentry/capture-error";
 import {
   useAcpRunStore,
   type AcpModelOption,
+  type AcpModelRevision,
   type AcpRunEntry,
   type AcpRunRawEvent,
 } from "@/domains/chat/acp-run-store";
@@ -338,6 +339,30 @@ function activeRunIdsFor(conversationId: string): string[] {
   });
 }
 
+/** Model revisions known when an ACP snapshot request begins. */
+function captureModelRevisions(): Map<string, AcpModelRevision> {
+  const { byId, pendingModelUpdates } = useAcpRunStore.getState();
+  const revisions = new Map<string, AcpModelRevision>();
+  for (const [id, entry] of Object.entries(byId)) {
+    if (
+      entry.modelRevisionEpoch !== undefined ||
+      entry.modelRevision !== undefined
+    ) {
+      revisions.set(id, {
+        modelRevisionEpoch: entry.modelRevisionEpoch,
+        modelRevision: entry.modelRevision,
+      });
+    }
+  }
+  for (const [id, pending] of pendingModelUpdates) {
+    revisions.set(id, {
+      modelRevisionEpoch: pending.modelRevisionEpoch,
+      modelRevision: pending.modelRevision,
+    });
+  }
+  return revisions;
+}
+
 /**
  * Apply an authoritative snapshot: seed the reported runs and retire any run
  * that was active in the store for this conversation but is absent from the
@@ -395,6 +420,7 @@ function applyAcpSnapshot(
   snapshotConversationId: string | null = null,
   revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
   generation?: number,
+  modelRevisionsAtFetch?: ReadonlyMap<string, AcpModelRevision>,
 ): void {
   if (entries === null) {
     return;
@@ -406,7 +432,7 @@ function applyAcpSnapshot(
     isNewestAcpSnapshot(snapshotConversationId, generation);
   const store = useAcpRunStore.getState();
   if (entries.length > 0) {
-    store.seedFromHistory(entries);
+    store.seedFromHistory(entries, modelRevisionsAtFetch);
   }
   // Outside the length check: a conversation whose only marked run was cleared
   // can come back empty, and that emptiness is exactly the signal that the
@@ -447,6 +473,7 @@ export function useAcpRunRehydration(
     // response must not speak for.
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     const generation = beginAcpSnapshot(conversationId);
+    const modelRevisionsAtFetch = captureModelRevisions();
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       if (cancelled) {
         return;
@@ -457,6 +484,7 @@ export function useAcpRunRehydration(
         conversationId ?? null,
         revisionAtFetch,
         generation,
+        modelRevisionsAtFetch,
       );
     });
     return () => {
@@ -507,6 +535,7 @@ export function useAcpRunRehydration(
     const priorActiveIds = activeRunIdsFor(conversationId);
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     const generation = beginAcpSnapshot(conversationId);
+    const modelRevisionsAtFetch = captureModelRevisions();
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       applyAcpSnapshot(
         entries,
@@ -514,6 +543,7 @@ export function useAcpRunRehydration(
         conversationId ?? null,
         revisionAtFetch,
         generation,
+        modelRevisionsAtFetch,
       );
     });
   });
@@ -541,6 +571,7 @@ export function useAcpRunRehydration(
     const priorActiveIds = activeRunIdsFor(conversationId);
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     const generation = beginAcpSnapshot(conversationId);
+    const modelRevisionsAtFetch = captureModelRevisions();
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       applyAcpSnapshot(
         entries,
@@ -548,6 +579,7 @@ export function useAcpRunRehydration(
         conversationId,
         revisionAtFetch,
         generation,
+        modelRevisionsAtFetch,
       );
     });
   }, [flowActive, assistantId, conversationId]);
@@ -568,6 +600,7 @@ export function useAcpRunRehydration(
       const priorActiveIds = activeRunIdsFor(conversationId);
       const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
       const generation = beginAcpSnapshot(conversationId);
+      const modelRevisionsAtFetch = captureModelRevisions();
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
         applyAcpSnapshot(
           entries,
@@ -575,6 +608,7 @@ export function useAcpRunRehydration(
           conversationId ?? null,
           revisionAtFetch,
           generation,
+          modelRevisionsAtFetch,
         );
       });
     },

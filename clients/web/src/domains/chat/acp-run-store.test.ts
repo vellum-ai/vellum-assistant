@@ -273,7 +273,7 @@ describe("spawnRun", () => {
     spawn();
     setModel({
       acpSessionId: "acp-1",
-      modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
+      modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
       modelRevision: 10,
       model: "opus",
       availableModels: [{ value: "opus", label: "Opus" }],
@@ -287,7 +287,7 @@ describe("spawnRun", () => {
     spawn();
     setModel({
       acpSessionId: "acp-1",
-      modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+      modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
       modelRevision: 1,
       model: "sonnet",
       availableModels: [{ value: "sonnet", label: "Sonnet" }],
@@ -295,33 +295,53 @@ describe("spawnRun", () => {
 
     const entry = getState().byId["acp-1"]!;
     expect(entry.model).toBe("sonnet");
-    expect(entry.modelRevisionEpoch).toBe(NEW_MODEL_REVISION_EPOCH);
+    expect(entry.modelRevisionEpoch).toBe(OLD_MODEL_REVISION_EPOCH);
     expect(entry.modelRevision).toBe(1);
   });
 
-  it("rejects an older assistant incarnation after the new one lands", () => {
+  it("rejects a pre-fetch incarnation after a live transition lands", () => {
     spawn();
     setModel({
       acpSessionId: "acp-1",
       modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    const modelRevisionsAtFetch = new Map([
+      [
+        "acp-1",
+        {
+          modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+          modelRevision: 10,
+        },
+      ],
+    ]);
+
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
       modelRevision: 1,
       model: "sonnet",
       availableModels: [{ value: "sonnet", label: "Sonnet" }],
     });
 
-    getState().seedFromHistory([
-      historyEntry({
-        acpSessionId: "acp-1",
-        modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
-        modelRevision: 99,
-        model: "opus",
-        availableModels: [{ value: "opus", label: "Opus" }],
-      }),
-    ]);
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+          modelRevision: 10,
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      modelRevisionsAtFetch,
+    );
 
     const entry = getState().byId["acp-1"]!;
     expect(entry.model).toBe("sonnet");
-    expect(entry.modelRevisionEpoch).toBe(NEW_MODEL_REVISION_EPOCH);
+    expect(entry.modelRevisionEpoch).toBe(OLD_MODEL_REVISION_EPOCH);
     expect(entry.modelRevision).toBe(1);
   });
 
@@ -340,16 +360,28 @@ describe("spawnRun", () => {
 
   it("a snapshot from before the resume cannot restore the old model", () => {
     spawnCompletedRunOnOpus();
+    const modelRevisionsAtFetch = new Map([
+      [
+        "acp-1",
+        {
+          modelRevisionEpoch: MODEL_REVISION_EPOCH,
+          modelRevision: 1,
+        },
+      ],
+    ]);
     spawn();
 
-    getState().seedFromHistory([
-      historyEntry({
-        acpSessionId: "acp-1",
-        model: "opus",
-        availableModels: [{ value: "opus", label: "Opus" }],
-        modelRevision: 1,
-      }),
-    ]);
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+          modelRevision: 1,
+        }),
+      ],
+      modelRevisionsAtFetch,
+    );
 
     const entry = getState().byId["acp-1"]!;
     expect(entry.model).toBeUndefined();
