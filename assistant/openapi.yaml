@@ -11146,7 +11146,9 @@ paths:
     post:
       operationId: credentials_list_post
       summary: List all credentials with metadata
-      description: Return all stored credentials with metadata, OAuth connection info, and platform-managed credentials.
+      description:
+        Return credentials from the live credential vault, with OAuth connection info and platform-managed
+        credentials. Fails if the vault is unreachable.
       tags:
         - credentials
       requestBody:
