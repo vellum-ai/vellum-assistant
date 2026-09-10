@@ -583,6 +583,17 @@ export const guardianRequests = sqliteTable(
     answerText: text("answer_text"),
     decidedByExternalUserId: text("decided_by_external_user_id"),
     decidedByPrincipalId: text("decided_by_principal_id"),
+    // When the decision landed, and the surface it came from. `updated_at`
+    // answers neither: it moves for delivery-row and followup-state writes
+    // and again when the expiry sweep confirms, so it measures "last write of
+    // any kind", not time-to-decision. Both are stamped by the decision CAS
+    // only, so a row that went terminal any other way leaves them NULL.
+    decidedAt: integer("decided_at"),
+    // Open string set: a channel id (`vellum`, `slack`, `telegram`, ...) for a
+    // decision a person made, `system` for a machine-driven terminal
+    // transition (auto-deny, supersede). NULL when the deciding path did not
+    // name a surface.
+    decidedVia: text("decided_via"),
     followupState: text("followup_state"),
     expiresAt: integer("expires_at"),
     createdAt: integer("created_at").notNull(),

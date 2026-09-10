@@ -135,6 +135,21 @@ export const GuardianRequestSchema = z.object({
   answerText: z.string().nullable(),
   decidedByExternalUserId: z.string().nullable(),
   decidedByPrincipalId: z.string().nullable(),
+  /**
+   * When the decision landed. Distinct from `updatedAt`, which also moves for
+   * delivery and followup writes, so only this one measures time-to-decision
+   * against `createdAt`. NULL until a decision resolves the request.
+   */
+  decidedAt: z.number().nullable(),
+  /**
+   * Surface the decision came from: a channel id (`vellum`, `slack`,
+   * `telegram`, ...) for a person's decision, `system` for a machine-driven
+   * terminal transition. Open string set. Distinct from `sourceChannel`, which
+   * says where the request was RAISED. A request raised in Telegram and
+   * approved from the in-app card has `sourceChannel: telegram` and
+   * `decidedVia: vellum`.
+   */
+  decidedVia: z.string().nullable(),
   followupState: z.string().nullable(),
   expiresAt: z.number().nullable(),
   createdAt: z.number(),
@@ -444,6 +459,11 @@ export const DecideGuardianRequestIpcParamsSchema = z
     status: GuardianRequestDecisionStatusSchema,
     decidedByExternalUserId: z.string().optional(),
     decidedByPrincipalId: z.string().optional(),
+    /**
+     * Surface this decision came from. Omitted by a caller that cannot name
+     * one, which leaves `decidedVia` NULL rather than guessing a surface.
+     */
+    decidedVia: z.string().optional(),
     answerText: z.string().optional(),
     aclOutcome: GuardianRequestAclOutcomeSchema.optional(),
   })

@@ -299,6 +299,7 @@ export async function decideGuardianRequest(
         answerText: params.answerText,
         decidedByExternalUserId: params.decidedByExternalUserId,
         decidedByPrincipalId: params.decidedByPrincipalId,
+        decidedVia: params.decidedVia,
       },
       // The deadline is part of the arbitration: a decision that reaches
       // this transaction past `expiresAt` loses to expiry atomically, so

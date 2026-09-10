@@ -118,6 +118,8 @@ function makeRequest(
     answerText: null,
     decidedByExternalUserId: null,
     decidedByPrincipalId: null,
+    decidedAt: null,
+    decidedVia: null,
     followupState: null,
     expiresAt: 1000,
     createdAt: 1000,

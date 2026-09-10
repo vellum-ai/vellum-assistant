@@ -92,6 +92,8 @@ function makeWireRequest(
     answerText: null,
     decidedByExternalUserId: null,
     decidedByPrincipalId: null,
+    decidedAt: null,
+    decidedVia: null,
     followupState: null,
     expiresAt: 1_700_000_600_000,
     createdAt: 1_700_000_000_000,

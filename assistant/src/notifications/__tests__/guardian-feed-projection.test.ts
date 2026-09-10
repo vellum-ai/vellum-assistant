@@ -326,6 +326,8 @@ describe("reconcileGuardianFeedProjections", () => {
     answerText: null,
     decidedByExternalUserId: null,
     decidedByPrincipalId: null,
+    decidedAt: null,
+    decidedVia: null,
     followupState: null,
     expiresAt: null,
     createdAt: Date.parse("2026-08-31T12:00:00.000Z"),

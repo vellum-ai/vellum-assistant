@@ -54,6 +54,8 @@ export interface SimGuardianRequest {
   answerText: string | null;
   decidedByExternalUserId: string | null;
   decidedByPrincipalId: string | null;
+  decidedAt: number | null;
+  decidedVia: string | null;
   followupState: string | null;
   expiresAt: number | null;
   createdAt: number;
@@ -85,6 +87,7 @@ export interface DecideParams {
   status: "approved" | "denied";
   decidedByExternalUserId?: string;
   decidedByPrincipalId?: string;
+  decidedVia?: string;
   answerText?: string;
   aclOutcome?: Record<string, unknown> & { type: string };
 }
@@ -160,6 +163,8 @@ export function createGuardianGatewaySim() {
       answerText: params.answerText ?? null,
       decidedByExternalUserId: params.decidedByExternalUserId ?? null,
       decidedByPrincipalId: params.decidedByPrincipalId ?? null,
+      decidedAt: params.decidedAt ?? null,
+      decidedVia: params.decidedVia ?? null,
       followupState: params.followupState ?? null,
       expiresAt: params.expiresAt ?? null,
       createdAt: params.createdAt ?? now,
@@ -309,6 +314,12 @@ export function createGuardianGatewaySim() {
     }
     if (params.decidedByPrincipalId !== undefined) {
       row.decidedByPrincipalId = params.decidedByPrincipalId;
+    }
+    // Mirrors the gateway CAS: a decision stamps when it landed and, when
+    // the caller named one, the surface it came from.
+    row.decidedAt = Date.now();
+    if (params.decidedVia !== undefined) {
+      row.decidedVia = params.decidedVia;
     }
     row.updatedAt = Date.now();
     if (params.aclOutcome) {

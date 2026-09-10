@@ -2421,6 +2421,14 @@ export class Conversation {
     decision: UserDecision,
     options?: {
       decisionContext?: string;
+      /**
+       * Surface the caller resolved this confirmation on, stamped onto a
+       * promoted guardian request's `decidedVia`. Distinct from
+       * `emissionContext.source`, which names the MECHANISM (button, inline
+       * text, auto-deny) rather than the surface it arrived from. Omitted by
+       * a caller that cannot name one.
+       */
+      decidedVia?: string;
       emissionContext?: {
         source?: ConfirmationStateChangedEvent["source"];
         causedByRequestId?: string;
@@ -2476,6 +2484,7 @@ export class Conversation {
       requestId,
       status: resolvedState,
       syncContext: "post-confirmation",
+      ...(options?.decidedVia ? { decidedVia: options.decidedVia } : {}),
     });
   }
 

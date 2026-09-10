@@ -354,6 +354,85 @@ describe("resolveGuardianRequest", () => {
     expect(result.request.decidedByPrincipalId).toBe(TEST_PRINCIPAL);
   });
 
+  test("stamps decidedAt and the deciding surface", () => {
+    const req = createRequest({ sourceChannel: "telegram" });
+    expect(req.decidedAt).toBeNull();
+    expect(req.decidedVia).toBeNull();
+
+    const result = resolveGuardianRequest(req.id, "pending", {
+      status: "approved",
+      decidedVia: "vellum",
+    });
+
+    if (!result.applied) {
+      throw new Error("expected resolve to apply");
+    }
+    expect(result.request.decidedAt).toBeGreaterThanOrEqual(req.createdAt);
+    // The two axes stay apart: raised on Telegram, answered in the app.
+    expect(result.request.sourceChannel).toBe("telegram");
+    expect(result.request.decidedVia).toBe("vellum");
+  });
+
+  test("a caller that names no surface leaves decidedVia null", () => {
+    const req = createRequest();
+    const result = resolveGuardianRequest(req.id, "pending", {
+      status: "denied",
+    });
+
+    if (!result.applied) {
+      throw new Error("expected resolve to apply");
+    }
+    expect(result.request.decidedAt).not.toBeNull();
+    expect(result.request.decidedVia).toBeNull();
+  });
+
+  test("decidedAt survives later writes that move updatedAt", () => {
+    // The reason this column exists: updatedAt moves for delivery and
+    // followup writes too, so it measures "last write of any kind" and
+    // updatedAt - createdAt is not a time-to-decision.
+    const req = createRequest();
+    const decided = resolveGuardianRequest(req.id, "pending", {
+      status: "approved",
+      decidedVia: "slack",
+    });
+    if (!decided.applied) {
+      throw new Error("expected resolve to apply");
+    }
+
+    Bun.sleepSync(2);
+    const touched = updateGuardianRequest(req.id, {
+      followupState: "inline_wait_active:123",
+    });
+
+    expect(touched?.decidedAt).toBe(decided.request.decidedAt);
+    expect(touched?.updatedAt).toBeGreaterThan(decided.request.decidedAt!);
+  });
+
+  test("a swap back to pending stamps no decision timestamp", () => {
+    // The CAS is direction-agnostic, so the stamp is gated on the status
+    // meaning a decision. A row that is decidable again must carry no
+    // decision timestamp, or it would report a latency for a decision that
+    // no longer stands.
+    const req = createRequest();
+    resolveGuardianRequest(req.id, "pending", {
+      status: "approved",
+      decidedVia: "telegram",
+    });
+
+    const swapped = resolveGuardianRequest(req.id, "approved", {
+      status: "pending",
+      decidedVia: "discord",
+    });
+
+    if (!swapped.applied) {
+      throw new Error("expected swap to apply");
+    }
+    expect(swapped.request.status).toBe("pending");
+    // The prior decision's stamps are left as they were rather than
+    // overwritten by a transition that decided nothing.
+    expect(swapped.request.decidedVia).toBe("telegram");
+  });
+
   test("first writer wins — the second resolve returns applied:false", () => {
     const req = createRequest();
 

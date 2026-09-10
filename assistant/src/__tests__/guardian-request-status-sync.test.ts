@@ -36,7 +36,10 @@ mock.module(
   () => gatewayGuardianRequestsStoreBridge,
 );
 
-import { syncTerminalGuardianRequestStatus } from "../approvals/guardian-request-status-sync.js";
+import {
+  syncTerminalGuardianRequestStatus,
+  SYSTEM_DECISION_SURFACE,
+} from "../approvals/guardian-request-status-sync.js";
 import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
@@ -104,6 +107,33 @@ describe("syncTerminalGuardianRequestStatus", () => {
     const byId = new Map(deliveriesFor(req.id).map((d) => [d.id, d.status]));
     expect(byId.get(vellum.id)).toBe("withdrawn");
     expect(byId.get(slack.id)).toBe("withdrawn");
+  });
+
+  test("carries the resolving surface onto the row", async () => {
+    const req = makeRequest();
+
+    await syncTerminalGuardianRequestStatus({
+      requestId: req.id,
+      status: "denied",
+      syncContext: "test",
+      decidedVia: SYSTEM_DECISION_SURFACE,
+    });
+
+    // An auto-deny is a terminal transition nobody chose, so it is marked as
+    // such rather than reading as an instant human decision.
+    expect(bridgeState.requests.get(req.id)?.decidedVia).toBe("system");
+  });
+
+  test("a caller that names no surface leaves the row's surface unset", async () => {
+    const req = makeRequest();
+
+    await syncTerminalGuardianRequestStatus({
+      requestId: req.id,
+      status: "approved",
+      syncContext: "test",
+    });
+
+    expect(bridgeState.requests.get(req.id)?.decidedVia).toBeNull();
   });
 
   test("a denial renders Denied on the withdrawn cards", async () => {

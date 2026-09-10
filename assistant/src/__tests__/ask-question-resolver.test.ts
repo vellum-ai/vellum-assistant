@@ -56,6 +56,8 @@ function makeRequest(
     answerText: null,
     decidedByExternalUserId: null,
     decidedByPrincipalId: null,
+    decidedAt: null,
+    decidedVia: null,
     followupState: null,
     expiresAt: null,
     createdAt: 0,

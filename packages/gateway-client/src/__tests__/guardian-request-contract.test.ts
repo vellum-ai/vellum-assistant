@@ -80,6 +80,8 @@ const accessRequest: GuardianRequestWire = {
   answerText: null,
   decidedByExternalUserId: null,
   decidedByPrincipalId: null,
+  decidedAt: null,
+  decidedVia: null,
   followupState: null,
   expiresAt: 1_700_000_600_000,
   createdAt: 1_700_000_000_000,
@@ -104,6 +106,10 @@ const pendingQuestion: GuardianRequestWire = {
   answerText: "Yes, go ahead",
   decidedByExternalUserId: "tg-guardian-1",
   decidedByPrincipalId: "principal-1",
+  // Raised on the phone, answered from the Telegram card: the two axes the
+  // DTO keeps apart.
+  decidedAt: 1_700_000_090_000,
+  decidedVia: "telegram",
   expiresAt: null,
 };
 
@@ -510,10 +516,12 @@ describe("delivery + destination IPC schemas", () => {
       ListPendingGuardianRequestsByScopeIpcParamsSchema.parse(scope),
     ).toEqual(scope);
 
+    // Scope is conversation-only: the request's own source conversation or
+    // any conversation one of its deliveries landed in. No channel narrows
+    // it, so a `channel` key here would be stripped rather than round-tripped.
     const inScope = {
       requestId: "req-1",
       conversationId: "conv-1",
-      channel: "telegram",
     };
     expect(GuardianRequestInScopeIpcParamsSchema.parse(inScope)).toEqual(
       inScope,

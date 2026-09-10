@@ -22,6 +22,7 @@ import {
 import {
   DELIVERY_STATUS,
   type GuardianRequestDeliveryWire,
+  GuardianRequestDecisionStatusSchema,
   type GuardianRequestStatus,
   type GuardianRequestWire,
   isGuardianRequestExpired,
@@ -142,6 +143,8 @@ function rowToRequest(
     answerText: row.answerText,
     decidedByExternalUserId: row.decidedByExternalUserId,
     decidedByPrincipalId: row.decidedByPrincipalId,
+    decidedAt: row.decidedAt,
+    decidedVia: row.decidedVia,
     followupState: row.followupState,
     expiresAt: row.expiresAt,
     createdAt: row.createdAt,
@@ -253,6 +256,10 @@ export function createGuardianRequest(
     answerText: params.answerText ?? null,
     decidedByExternalUserId: params.decidedByExternalUserId ?? null,
     decidedByPrincipalId: params.decidedByPrincipalId ?? null,
+    // Stamped by the decision CAS, never at creation: a row seeded with a
+    // terminal status by a test or a backfill has no decision to time.
+    decidedAt: null,
+    decidedVia: null,
     followupState: params.followupState ?? null,
     expiresAt: params.expiresAt ?? null,
     createdAt: now,
@@ -415,7 +422,18 @@ export interface ResolveGuardianRequestDecision {
   answerText?: string;
   decidedByExternalUserId?: string;
   decidedByPrincipalId?: string;
+  /** Surface the decision came from; stamped onto `decided_via`. */
+  decidedVia?: string;
 }
+
+/**
+ * Statuses that mean a decision was made, as opposed to any other terminal
+ * transition. Derived from the shared decision-status enum so the set cannot
+ * drift from the one the decide IPC accepts.
+ */
+const DECISION_STATUSES: ReadonlySet<string> = new Set(
+  GuardianRequestDecisionStatusSchema.options,
+);
 
 export type ResolveGuardianRequestResult =
   | { applied: true; request: GuardianRequest }
@@ -460,6 +478,17 @@ export function resolveGuardianRequest(
   if (decision.decidedByPrincipalId !== undefined) {
     sets.push("decided_by_principal_id = ?");
     args.push(decision.decidedByPrincipalId);
+  }
+  // Stamped only for a status that means a decision was made. The CAS is
+  // direction-agnostic, so a terminal → pending swap must not leave a
+  // decision timestamp on a row that is decidable again.
+  if (DECISION_STATUSES.has(decision.status)) {
+    sets.push("decided_at = ?");
+    args.push(now);
+    if (decision.decidedVia !== undefined) {
+      sets.push("decided_via = ?");
+      args.push(decision.decidedVia);
+    }
   }
 
   const guards = ["id = ?", "status = ?"];

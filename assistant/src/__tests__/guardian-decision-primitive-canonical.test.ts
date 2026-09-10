@@ -119,6 +119,39 @@ describe("applyGuardianDecision", () => {
     expect(resolved!.decidedByExternalUserId).toBe("guardian-1");
   });
 
+  test("records the surface the guardian decided on, not the one that asked", async () => {
+    // The routing question the row could not answer before: a request raised
+    // in Slack and approved from the in-app card must read `slack` for where
+    // it came from and `vellum` for where it was answered.
+    const req = sim.seedRequest({
+      kind: "tool_approval",
+      sourceChannel: "slack",
+      sourceConversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      toolName: "bash",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    await applyGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(sim.state.decideCalls).toHaveLength(1);
+    expect(sim.state.decideCalls[0].decidedVia).toBe("vellum");
+
+    const resolved = sim.getRequest(req.id)!;
+    expect(resolved.sourceChannel).toBe("slack");
+    expect(resolved.decidedVia).toBe("vellum");
+    expect(resolved.decidedAt).toBeGreaterThanOrEqual(resolved.createdAt);
+  });
+
   test("denies a pending tool_approval request", async () => {
     const req = sim.seedRequest({
       kind: "tool_approval",

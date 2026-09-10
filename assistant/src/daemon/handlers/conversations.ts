@@ -1,6 +1,9 @@
 import { peekAcpSessionManager } from "../../acp/index.js";
 import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
-import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
+import {
+  syncTerminalGuardianRequestStatus,
+  SYSTEM_DECISION_SURFACE,
+} from "../../approvals/guardian-request-status-sync.js";
 import {
   clearAll,
   getConversation,
@@ -44,6 +47,7 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       touchConversation(conversationId);
       conversation.handleConfirmationResponse(msg.requestId, decision, {
+        decidedVia: "vellum",
         emissionContext: { source: "button" },
       });
       return;
@@ -532,6 +536,7 @@ export function supersedePendingInteractionsOnEnqueue(
           requestId: interaction.requestId,
           status: "denied",
           syncContext: "supersede-on-enqueue",
+          decidedVia: SYSTEM_DECISION_SURFACE,
           terminalReason: GUARDIAN_TERMINAL_REASON_SUPERSEDED,
         });
       }

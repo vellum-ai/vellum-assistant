@@ -99,6 +99,9 @@ function handleConfirm({ body }: RouteHandlerArgs) {
       requestId,
       status: effectiveDecision === "allow" ? "approved" : "denied",
       syncContext: "confirm-direct-resolve",
+      // This route is the in-app confirm surface by construction: an ACP
+      // client resolving its own pending prompt.
+      decidedVia: "vellum",
     });
     return { accepted: true };
   }
@@ -114,6 +117,7 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     requestId,
     effectiveDecision as UserDecision,
     {
+      decidedVia: "vellum",
       emissionContext: { source: "button" },
     },
   );

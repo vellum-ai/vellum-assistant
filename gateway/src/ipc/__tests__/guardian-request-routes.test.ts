@@ -167,6 +167,7 @@ describe("guardian_requests_decide", () => {
         status: "approved",
         answerText: "yes",
         decidedByPrincipalId: "principal-1",
+        decidedVia: "telegram",
       }),
     );
     expect(decided.applied).toBe(true);
@@ -179,6 +180,10 @@ describe("guardian_requests_decide", () => {
     const row = getRequestRow(created.id);
     expect(row?.status).toBe("approved");
     expect(row?.decidedByPrincipalId).toBe("principal-1");
+    // The decide route carries the deciding surface and its timestamp all
+    // the way to the row, so time-to-decision is answerable per surface.
+    expect(row?.decidedVia).toBe("telegram");
+    expect(row?.decidedAt).toBeGreaterThanOrEqual(created.createdAt);
   });
 
   test("a second decide loses the CAS: status_conflict, row untouched", async () => {

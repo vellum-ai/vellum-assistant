@@ -428,6 +428,10 @@ export async function applyGuardianDecision(
         ? { decidedByExternalUserId: actorContext.actorExternalUserId }
         : {}),
       decidedByPrincipalId: actorContext.guardianPrincipalId,
+      // The surface this decision was made on, which is the routing question
+      // the request row could not answer before: `sourceChannel` says where
+      // the request was raised, never where the guardian answered it.
+      decidedVia: actorContext.channel,
       ...(plan.aclOutcome ? { aclOutcome: plan.aclOutcome } : {}),
     });
   } catch (err) {
