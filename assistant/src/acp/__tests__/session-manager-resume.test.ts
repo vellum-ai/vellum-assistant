@@ -12,7 +12,10 @@
 import { tmpdir } from "node:os";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import {
+  RequestError,
+  type SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 
 import {
   MODEL_OPTION_MODELS,
@@ -898,10 +901,38 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     ]);
   });
 
+  test("a re-pin the connection cannot carry tears the resume down", async () => {
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOption("default")];
+    setConfigOptionError = new Error("ACP connection closed");
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    insertHistoryRow({
+      id: "resume-pin-transport",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await expect(
+      manager.resumeFromHistory("resume-pin-transport", (msg) =>
+        sent.push(msg),
+      ),
+    ).rejects.toThrow("ACP connection closed");
+
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual(
+      [],
+    );
+    expect(manager.getStatus()).toEqual([]);
+  });
+
   test("a resume the adapter refuses to re-pin runs on the adapter's model", async () => {
     fakeCaps.resume = true;
     resumeConfigOptions = [modelOption("default")];
-    setConfigOptionError = new Error(
+    setConfigOptionError = new RequestError(
+      -32603,
       "Invalid value for config option model: opus",
     );
     resolveImpl = () => ({

@@ -29,6 +29,7 @@ import {
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
+  isAdapterRequestError,
   isClaudeAuthFailureMessage,
 } from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
@@ -375,12 +376,23 @@ export class AcpSessionManager {
       cancellation.signal.throwIfAborted();
     }
 
-    const { warning: modelWarning } = await this.pinSessionModel(
-      entry,
-      configOptions,
-      requestedModel,
-      resolvedModel,
-    );
+    let modelWarning: string | undefined;
+    try {
+      ({ warning: modelWarning } = await this.pinSessionModel(
+        entry,
+        configOptions,
+        requestedModel,
+        resolvedModel,
+      ));
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId, err },
+        "ACP spawn failed while applying the model",
+      );
+      // No prompt has fired yet, so no permissions can be pending.
+      this.teardownSession(acpSessionId, entry);
+      throw err;
+    }
 
     // Recheck: the model pin is an await too, and everything below it either
     // announces the session or hands the agent the task.
@@ -520,6 +532,12 @@ export class AcpSessionManager {
       }
       return { applied: true };
     } catch (err) {
+      // Only the adapter's own answer is a refusal. A closed connection or an
+      // exited process is the caller's failure to tear down, not a model to
+      // fall back from.
+      if (!isAdapterRequestError(err)) {
+        throw err;
+      }
       log.warn(
         { acpSessionId: state.id, agentId: state.agentId, resolvedModel, err },
         "ACP agent refused the requested model; running on its own model",
@@ -973,12 +991,22 @@ export class AcpSessionManager {
     // A fresh adapter process starts on its own default, so the resumed run
     // is pinned through the same ladder a spawn walks.
     const resolvedModel = resolveAcpModel({ agentModel: agentConfig.model });
-    const { applied } = await this.pinSessionModel(
-      entry,
-      configOptions,
-      undefined,
-      resolvedModel,
-    );
+    let applied: boolean;
+    try {
+      ({ applied } = await this.pinSessionModel(
+        entry,
+        configOptions,
+        undefined,
+        resolvedModel,
+      ));
+    } catch (err) {
+      log.error(
+        { acpSessionId, agentId: row.agentId, err },
+        "ACP resume failed while applying the model",
+      );
+      this.teardownSession(acpSessionId, entry);
+      throw err;
+    }
     if (resolvedModel && !applied) {
       // State keeps the adapter's own answer, so the model event, the status
       // projection and the panel all name the model the run is really on.

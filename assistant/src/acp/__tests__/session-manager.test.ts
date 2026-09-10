@@ -9,7 +9,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import {
+  RequestError,
+  type SessionConfigOption,
+} from "@agentclientprotocol/sdk";
 
 import type { AssistantEvent } from "../../api/index.js";
 import { initializeDb } from "../../persistence/db-init.js";
@@ -378,7 +381,8 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("an inherited model the adapter refuses warns nobody", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
-    setConfigOptionResult = new Error(
+    setConfigOptionResult = new RequestError(
+      -32603,
       "Invalid value for config option model: nope",
     );
 
@@ -394,7 +398,8 @@ describe("AcpSessionManager: model selection at spawn", () => {
 
   test("a refused model warns and runs unpinned", async () => {
     scriptedConfigOptions = [[modelOption("opus")]];
-    setConfigOptionResult = new Error(
+    setConfigOptionResult = new RequestError(
+      -32603,
       "Invalid value for config option model: nope",
     );
 
@@ -421,6 +426,33 @@ describe("AcpSessionManager: model selection at spawn", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+  });
+
+  test("a pin the connection cannot carry tears the spawn down", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    // A plain Error is how the SDK rejects a request when the stream closes
+    // or the process exits: not the adapter's answer, so not a refusal.
+    setConfigOptionResult = new Error("ACP connection closed");
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    await expect(
+      manager.spawn(
+        "agent-model",
+        { command: "echo", args: ["hi"] },
+        "task",
+        "/tmp",
+        "conv-pin-transport",
+        (msg) => sent.push(msg),
+        { model: "opus" },
+      ),
+    ).rejects.toThrow("ACP connection closed");
+
+    // The pin was attempted, then nothing was announced or prompted, and
+    // nothing is left registered.
+    expect(setConfigOptionCalls).toHaveLength(1);
+    expect(sent).toEqual([]);
+    expect(manager.getStatus()).toEqual([]);
   });
 
   test("a pin answered without the selector warns and leaves no model", async () => {
