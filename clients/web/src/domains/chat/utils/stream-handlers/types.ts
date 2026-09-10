@@ -21,6 +21,19 @@ export interface Router {
  * to; handlers read store state via `getState()` when needed.
  */
 export interface StreamHandlerContext {
+  // --- Transport ---
+  /**
+   * The conversation the SSE envelope scoped this event to.
+   *
+   * The daemon stamps it from the emitting conversation, so it is present for
+   * every conversation-scoped event including the ones whose payload names no
+   * conversation. Read it rather than the conversation on screen: a handler
+   * runs for events from every conversation the assistant is streaming, not
+   * only the one being viewed. `undefined` for an app-wide broadcast, and for
+   * an assistant old enough not to stamp the event.
+   */
+  eventConversationId: string | undefined;
+
   // --- Navigation ---
   router: Router;
   isNative: boolean;
