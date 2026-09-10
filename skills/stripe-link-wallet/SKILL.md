@@ -284,7 +284,7 @@ Omit `--credential-type` (or use the default). With `--format json`, returns imm
 ```bash
 link-cli spend-request retrieve <id> \
   --include card \
-  --output-file /tmp/link-card.json \
+  --output-file /tmp/link-card-<id>.json \
   --force \
   --format json
 ```
@@ -293,17 +293,17 @@ link-cli spend-request retrieve <id> \
 
 **4. Use the card**
 
-The file at `/tmp/link-card.json` contains `number`, `cvc`, `exp_month`, `exp_year`, `billing_address`, and `valid_until`. Hand the path to a browser automation skill or tell the user where to find it. Do not read the file back into the conversation.
+`<id>` is the spend request's id, so overlapping checkouts never share a file. The file at `/tmp/link-card-<id>.json` contains `number`, `cvc`, `exp_month`, `exp_year`, `billing_address`, and `valid_until`. Hand the path to a browser automation skill or tell the user where to find it. Do not read the file back into the conversation.
 
 **5. Delete the card file**
 
-As soon as the checkout succeeds, fails, or is abandoned, remove the file:
+As soon as the checkout succeeds, fails, or is abandoned, remove that request's file:
 
 ```bash
-rm -f /tmp/link-card.json
+rm -f /tmp/link-card-<id>.json
 ```
 
-The card is one-time-use, but the PAN stays live until `valid_until`. Do not leave it on disk after the purchase, and delete it before starting a new spend request that writes to the same path.
+The card is one-time-use, but the PAN stays live until `valid_until`. Do not leave it on disk after the purchase. Remove only the file for the request that finished; another checkout may still be using its own.
 
 ---
 
