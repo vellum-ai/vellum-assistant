@@ -76,6 +76,19 @@ body {
   100% { width: 0%; margin-left: 100%; }
 }
 
+/* Route pending bar. Held transparent through the delay, so a navigation that
+   resolves inside it never paints anything and only a wait long enough to read
+   as unresponsive shows the bar. */
+.route-pending-indicator {
+  animation: fadeIn 0.2s ease-out 250ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-pending-indicator > * {
+    animation: none;
+  }
+}
+
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
   100% { transform: none; opacity: 1; }
