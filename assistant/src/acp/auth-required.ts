@@ -96,11 +96,12 @@ const GENERIC_RPC_MESSAGES: ReadonlySet<string> = new Set([
 /**
  * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
  * Error reaches the client as a bare "Internal error" whose real text the
- * agent-side SDK moved into `data.details`, so that is read first. An adapter
- * that raises `RequestError.internalError(data, text)` keeps its words in the
- * message and only a kind in `data`, so the message comes next. Behind a
- * generic message such as "Invalid params", `data` is the only reason given,
- * so it is serialized instead. Duck-typed like {@link isAcpAuthRequired}:
+ * agent-side SDK moved into `data.details`. An adapter that raises
+ * `RequestError.internalError(data, text)` keeps its words in the message and
+ * only supplemental context in `data`, so a specific message wins. Behind a
+ * generic message such as "Invalid params", `data.details` or the serialized
+ * payload supplies the reason instead. Duck-typed like
+ * {@link isAcpAuthRequired}:
  * `message` is read as a property, so a rejection that arrives as a plain
  * object off the wire decodes the same as an `Error` instance.
  */
@@ -113,16 +114,16 @@ export function requestErrorReason(err: unknown): string {
   if (data == null) {
     return own;
   }
-  const details = (data as { details?: unknown }).details;
-  if (typeof details === "string" && details.length > 0) {
-    return details;
-  }
   if (
     typeof message === "string" &&
     message.length > 0 &&
     !GENERIC_RPC_MESSAGES.has(message)
   ) {
     return message;
+  }
+  const details = (data as { details?: unknown }).details;
+  if (typeof details === "string" && details.length > 0) {
+    return details;
   }
   // JSON.stringify answers undefined for a value it cannot represent.
   const serialized: string | undefined = JSON.stringify(data);

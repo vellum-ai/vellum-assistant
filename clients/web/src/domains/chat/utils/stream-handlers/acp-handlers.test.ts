@@ -181,6 +181,7 @@ describe("handleAcpSessionModelUpdate", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-1",
+      modelRevision: 1,
       model: "opus",
       availableModels: [
         { value: "opus", label: "Opus" },
@@ -193,6 +194,7 @@ describe("handleAcpSessionModelUpdate", () => {
       { value: "opus", label: "Opus" },
       { value: "haiku", label: "Haiku", group: "Fast" },
     ]);
+    expect(entry?.modelRevision).toBe(1);
   });
 
   it("records an adapter with no model selector", () => {
@@ -200,6 +202,7 @@ describe("handleAcpSessionModelUpdate", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-1",
+      modelRevision: 2,
       availableModels: [],
     });
     const entry = getState().byId["acp-1"];
@@ -211,11 +214,13 @@ describe("handleAcpSessionModelUpdate", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-missing",
+      modelRevision: 3,
       model: "opus",
       availableModels: [{ value: "opus", label: "Opus" }],
     });
     expect(getState().byId).toEqual({});
     expect(getState().pendingModelUpdates.get("acp-missing")).toMatchObject({
+      modelRevision: 3,
       model: "opus",
       availableModels: [{ value: "opus", label: "Opus" }],
     });

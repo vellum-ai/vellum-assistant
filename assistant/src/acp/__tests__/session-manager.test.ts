@@ -610,6 +610,7 @@ describe("AcpSessionManager: model selection at spawn", () => {
     expect(sent[0]).toEqual({
       type: "acp_session_model_update",
       acpSessionId: result.acpSessionId,
+      modelRevision: 1,
       availableModels: [],
     });
   });
@@ -651,12 +652,14 @@ describe("AcpSessionManager: model selection at spawn", () => {
       {
         type: "acp_session_model_update",
         acpSessionId,
+        modelRevision: 1,
         model: "opus",
         availableModels: MODEL_OPTION_MODELS,
       },
       {
         type: "acp_session_model_update",
         acpSessionId,
+        modelRevision: 2,
         availableModels: [],
       },
     ]);
@@ -749,10 +752,14 @@ describe("AcpSessionManager: unsolicited model updates", () => {
     expect((manager.getStatus(acpSessionId) as AcpSessionState).model).toBe(
       "opus",
     );
+    expect(
+      (manager.getStatus(acpSessionId) as AcpSessionState).modelRevision,
+    ).toBe(2);
     expect(sent).toEqual([
       {
         type: "acp_session_model_update",
         acpSessionId,
+        modelRevision: 2,
         model: "opus",
         availableModels: MODEL_OPTION_MODELS,
       },
@@ -774,6 +781,7 @@ describe("AcpSessionManager: unsolicited model updates", () => {
       {
         type: "acp_session_model_update",
         acpSessionId,
+        modelRevision: 2,
         availableModels: [],
       },
     ]);
@@ -831,6 +839,7 @@ describe("AcpSessionManager: unsolicited model updates", () => {
       {
         type: "acp_session_model_update",
         acpSessionId,
+        modelRevision: 1,
         model: "opus",
         availableModels: MODEL_OPTION_MODELS,
       },

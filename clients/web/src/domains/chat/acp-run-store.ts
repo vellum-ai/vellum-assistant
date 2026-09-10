@@ -110,12 +110,11 @@ export interface AcpRunEntry {
   /** Models the session can switch to; absent when the adapter has no selector. */
   availableModels?: AcpModelOption[];
   /**
-   * When `setModel` or a resume last set the live selection, in `Date.now()`
-   * ms. Store local, never on the wire: it orders a live update against a
-   * snapshot whose fetch began earlier, so an in-flight `/acp/sessions` read
-   * cannot replace a selection the adapter has already moved past.
+   * Monotonic server revision shared by model events and session snapshots.
+   * Absent on history rows and responses from assistants predating model
+   * reporting.
    */
-  modelUpdatedAt?: number;
+  modelRevision?: number;
   events: AcpRunRawEvent[];
 }
 
@@ -123,8 +122,7 @@ export interface AcpRunEntry {
 export interface PendingModelUpdate {
   model?: string;
   availableModels: AcpModelOption[];
-  /** When the update landed, in `Date.now()` ms, for the snapshot ordering rule. */
-  updatedAt: number;
+  modelRevision: number;
 }
 
 /** How many sessions can hold a buffered model update at once. */
@@ -257,14 +255,15 @@ export interface AcpRunActions {
    * Record the session's model selection. Unlike `updateUsage`, both fields are
    * replaced wholesale: the adapter reports its full current state, so a
    * cleared selection or a shrunken option set must not be masked by the
-   * previous one. Stamps `modelUpdatedAt` so a snapshot requested before this
-   * update cannot roll it back.
+   * previous one. The server revision prevents an older event or snapshot from
+   * rolling the selection back.
    *
    * A session with no entry yet buffers the update in `pendingModelUpdates`
    * instead, for the spawn or snapshot that creates the entry to apply.
    */
   setModel: (params: {
     acpSessionId: string;
+    modelRevision: number;
     model?: string;
     availableModels: AcpModelOption[];
   }) => void;
@@ -276,16 +275,12 @@ export interface AcpRunActions {
    * metadata from the history entry. Sets `highWaterMark` to the max seq over
    * the merged buffer and indexes `byToolUseId`.
    *
-   * `fetchedAt` is when the caller issued the request these entries answer.
-   * A model update stamped at or after it is newer than the snapshot, so the
-   * live selection is kept. Callers that cannot say omit it and get the plain
-   * snapshot rules. A buffered update from `pendingModelUpdates` is folded in
-   * by the same rule and dropped either way.
+   * A model event and snapshot carry the same server revision, so whichever
+   * path arrives later can be ordered without comparing local receipt times. A
+   * buffered update from `pendingModelUpdates` is folded in by the same rule
+   * and dropped either way.
    */
-  seedFromHistory: (
-    entries: AcpRunEntry[],
-    options?: { fetchedAt?: number },
-  ) => void;
+  seedFromHistory: (entries: AcpRunEntry[]) => void;
 
   reset: () => void;
 }
@@ -357,12 +352,9 @@ function mergeEvents(
 /**
  * Fold a snapshot's model selection into a live entry.
  *
- * A live `acp_session_model_update` that landed at or after `fetchedAt` is
- * newer than anything this response can carry: the fetch and the SSE stream are
- * separate asynchronous paths, so a request that read model A can be answered
- * after the adapter already moved to model B. That live selection is kept. A
- * snapshot that applies stamps its own `fetchedAt`, so an older request that
- * is answered after a newer one is ignored by the same rule.
+ * The higher server `modelRevision` wins. Equal revisions describe the same
+ * authoritative state, so the existing copy stays in place. A revisioned copy
+ * also wins over an unrevisioned history or legacy snapshot.
  *
  * Otherwise the snapshot rules apply: a row carrying `availableModels` is
  * authoritative for both fields, so the supported no-selection state (no
@@ -373,31 +365,30 @@ function mergeEvents(
 function mergeModelSelection(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
-  fetchedAt?: number,
-): Pick<AcpRunEntry, "model" | "availableModels" | "modelUpdatedAt"> {
+): Pick<AcpRunEntry, "model" | "availableModels" | "modelRevision"> {
   if (
-    fetchedAt !== undefined &&
-    existing.modelUpdatedAt !== undefined &&
-    existing.modelUpdatedAt >= fetchedAt
+    existing.modelRevision !== undefined &&
+    (incoming.modelRevision === undefined ||
+      existing.modelRevision >= incoming.modelRevision)
   ) {
     return {
       model: existing.model,
       availableModels: existing.availableModels,
-      modelUpdatedAt: existing.modelUpdatedAt,
+      modelRevision: existing.modelRevision,
     };
   }
-  const modelUpdatedAt = fetchedAt ?? existing.modelUpdatedAt;
+  const modelRevision = incoming.modelRevision ?? existing.modelRevision;
   if (incoming.availableModels !== undefined) {
     return {
       model: incoming.model,
       availableModels: incoming.availableModels,
-      modelUpdatedAt,
+      modelRevision,
     };
   }
   return {
     model: incoming.model ?? existing.model,
     availableModels: existing.availableModels,
-    modelUpdatedAt,
+    modelRevision,
   };
 }
 
@@ -411,6 +402,10 @@ function rememberPendingModelUpdate(
   acpSessionId: string,
   update: PendingModelUpdate,
 ): Map<string, PendingModelUpdate> {
+  const existing = pendingModelUpdates.get(acpSessionId);
+  if (existing && existing.modelRevision >= update.modelRevision) {
+    return pendingModelUpdates;
+  }
   const next = new Map(pendingModelUpdates);
   next.delete(acpSessionId);
   next.set(acpSessionId, update);
@@ -450,7 +445,6 @@ function dropPendingModelUpdates(
 function applyPendingModelUpdate(
   entry: AcpRunEntry,
   pending: PendingModelUpdate,
-  fetchedAt?: number,
 ): AcpRunEntry {
   return {
     ...entry,
@@ -459,19 +453,16 @@ function applyPendingModelUpdate(
         ...entry,
         model: pending.model,
         availableModels: pending.availableModels,
-        modelUpdatedAt: pending.updatedAt,
+        modelRevision: pending.modelRevision,
       },
       entry,
-      fetchedAt,
     ),
   };
 }
 
 /**
  * Fold a buffered model update into an entry a live event just created or
- * resumed. The entry's own `modelUpdatedAt` stands in for the fetch time, so
- * an entry with no selection yet takes the buffered one and a selection
- * recorded later than the buffered update keeps its place.
+ * resumed. The server revision picks between the entry and buffered update.
  */
 function withPendingModelUpdate(
   entry: AcpRunEntry,
@@ -480,7 +471,7 @@ function withPendingModelUpdate(
   if (pending === undefined) {
     return entry;
   }
-  return applyPendingModelUpdate(entry, pending, entry.modelUpdatedAt);
+  return applyPendingModelUpdate(entry, pending);
 }
 
 /**
@@ -493,7 +484,6 @@ function withPendingModelUpdate(
 function mergeHistoryEntry(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
-  fetchedAt?: number,
 ): AcpRunEntry {
   const events = mergeEvents(existing.events, incoming.events);
 
@@ -516,7 +506,7 @@ function mergeHistoryEntry(
     outputTokens: incoming.outputTokens ?? existing.outputTokens,
     costAmount: incoming.costAmount ?? existing.costAmount,
     costCurrency: incoming.costCurrency ?? existing.costCurrency,
-    ...mergeModelSelection(existing, incoming, fetchedAt),
+    ...mergeModelSelection(existing, incoming),
     task: existing.task ?? incoming.task,
     parentToolUseId: existing.parentToolUseId ?? incoming.parentToolUseId,
   };
@@ -603,11 +593,10 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           task: existing.task ?? params.task,
           parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
           // The resumed session reports its own model right after this event
-          // when its adapter has a selector. The stamp keeps a snapshot
-          // requested before the resume from restoring the old pair.
+          // when its adapter has a selector. Keep the previous revision while
+          // clearing the pair so an older snapshot cannot restore it.
           model: undefined,
           availableModels: undefined,
-          modelUpdatedAt: Date.now(),
         },
         pending,
       );
@@ -848,7 +837,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           {
             model: params.model,
             availableModels: params.availableModels,
-            updatedAt: Date.now(),
+            modelRevision: params.modelRevision,
           },
         ),
       });
@@ -860,9 +849,12 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
         ...byId,
         [params.acpSessionId]: {
           ...existing,
-          model: params.model,
-          availableModels: params.availableModels,
-          modelUpdatedAt: Date.now(),
+          ...mergeModelSelection(existing, {
+            ...existing,
+            model: params.model,
+            availableModels: params.availableModels,
+            modelRevision: params.modelRevision,
+          }),
         },
       },
       pendingModelUpdates: dropPendingModelUpdates(pendingModelUpdates, [
@@ -871,7 +863,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     });
   },
 
-  seedFromHistory: (entries, options) => {
+  seedFromHistory: (entries) => {
     const {
       byId,
       orderedIds,
@@ -884,27 +876,19 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     // usage metadata from history so a live entry can't stay stale. The shared
     // helper owns the byId/orderedIds insertion; the seq high-water mark and the
     // tool-use index are acp-specific and folded in from the merged result.
-    // A row inserted fresh carries the fetch time too, so an older overlapping
-    // response cannot roll it back through the merge path afterwards.
-    const fetchedAt = options?.fetchedAt;
-    const stamped = entries.map((entry) => {
-      const base =
-        fetchedAt === undefined
-          ? entry
-          : { ...entry, modelUpdatedAt: fetchedAt };
-      // An update that landed while this snapshot was in flight had no entry to
-      // stamp, so it waited in `pendingModelUpdates` for the row to arrive.
+    const withPendingUpdates = entries.map((entry) => {
+      // An update that landed before this snapshot created the entry waited in
+      // `pendingModelUpdates` for the row to arrive.
       const pending = pendingModelUpdates.get(entry.acpSessionId);
-      return pending ? applyPendingModelUpdate(base, pending, fetchedAt) : base;
+      return pending ? applyPendingModelUpdate(entry, pending) : entry;
     });
     const { byId: nextById, orderedIds: nextOrderedIds } =
       seedEntriesFromHistory({
-        entries: stamped,
+        entries: withPendingUpdates,
         byId,
         orderedIds,
         idOf: (entry) => entry.acpSessionId,
-        merge: (existing, incoming) =>
-          mergeHistoryEntry(existing, incoming, fetchedAt),
+        merge: mergeHistoryEntry,
       });
 
     let nextByToolUseId = byToolUseId;

@@ -76,6 +76,7 @@ interface AcpSessionRow {
   costCurrency?: string;
   model?: string;
   availableModels?: AcpModelOption[];
+  modelRevision?: number;
   eventLog?: AcpSessionEventLogItem[];
 }
 
@@ -157,6 +158,7 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     costCurrency: row.costCurrency,
     model: row.model,
     availableModels: row.availableModels,
+    modelRevision: row.modelRevision,
     events,
   };
 }
@@ -345,10 +347,6 @@ function activeRunIdsFor(conversationId: string): string[] {
  * A full page (>= `ACP_SNAPSHOT_LIMIT`) may have paginated an older
  * still-running run off the snapshot, so absence isn't authoritative there —
  * we seed but skip retirement rather than risk cancelling a live run.
- *
- * `fetchStartedAt` is stamped before the request goes out. A live model update
- * that lands while it is in flight is newer than anything the response can
- * carry, and seeding uses it to keep that selection.
  */
 /**
  * Newest snapshot request issued per conversation.
@@ -395,7 +393,6 @@ function applyAcpSnapshot(
   snapshotConversationId: string | null = null,
   revisionAtFetch: number = useInteractionStore.getState().acpConnectRevision,
   generation?: number,
-  fetchStartedAt?: number,
 ): void {
   if (entries === null) {
     return;
@@ -407,7 +404,7 @@ function applyAcpSnapshot(
     isNewestAcpSnapshot(snapshotConversationId, generation);
   const store = useAcpRunStore.getState();
   if (entries.length > 0) {
-    store.seedFromHistory(entries, { fetchedAt: fetchStartedAt });
+    store.seedFromHistory(entries);
   }
   // Outside the length check: a conversation whose only marked run was cleared
   // can come back empty, and that emptiness is exactly the signal that the
@@ -448,7 +445,6 @@ export function useAcpRunRehydration(
     // response must not speak for.
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     const generation = beginAcpSnapshot(conversationId);
-    const fetchStartedAt = Date.now();
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       if (cancelled) {
         return;
@@ -459,7 +455,6 @@ export function useAcpRunRehydration(
         conversationId ?? null,
         revisionAtFetch,
         generation,
-        fetchStartedAt,
       );
     });
     return () => {
@@ -510,7 +505,6 @@ export function useAcpRunRehydration(
     const priorActiveIds = activeRunIdsFor(conversationId);
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     const generation = beginAcpSnapshot(conversationId);
-    const fetchStartedAt = Date.now();
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       applyAcpSnapshot(
         entries,
@@ -518,7 +512,6 @@ export function useAcpRunRehydration(
         conversationId ?? null,
         revisionAtFetch,
         generation,
-        fetchStartedAt,
       );
     });
   });
@@ -546,7 +539,6 @@ export function useAcpRunRehydration(
     const priorActiveIds = activeRunIdsFor(conversationId);
     const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
     const generation = beginAcpSnapshot(conversationId);
-    const fetchStartedAt = Date.now();
     void fetchAcpSessions(assistantId, conversationId).then((entries) => {
       applyAcpSnapshot(
         entries,
@@ -554,7 +546,6 @@ export function useAcpRunRehydration(
         conversationId,
         revisionAtFetch,
         generation,
-        fetchStartedAt,
       );
     });
   }, [flowActive, assistantId, conversationId]);
@@ -575,7 +566,6 @@ export function useAcpRunRehydration(
       const priorActiveIds = activeRunIdsFor(conversationId);
       const revisionAtFetch = useInteractionStore.getState().acpConnectRevision;
       const generation = beginAcpSnapshot(conversationId);
-      const fetchStartedAt = Date.now();
       void fetchAcpSessions(assistantId, conversationId).then((entries) => {
         applyAcpSnapshot(
           entries,
@@ -583,7 +573,6 @@ export function useAcpRunRehydration(
           conversationId ?? null,
           revisionAtFetch,
           generation,
-          fetchStartedAt,
         );
       });
     },

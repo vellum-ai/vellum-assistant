@@ -7,6 +7,7 @@ describe("AcpSessionModelUpdateEventSchema", () => {
     const event = {
       type: "acp_session_model_update" as const,
       acpSessionId: "acp-session-abc",
+      modelRevision: 7,
       model: "opus",
       availableModels: [
         { value: "opus", label: "Opus", description: "Most capable" },
@@ -24,6 +25,7 @@ describe("AcpSessionModelUpdateEventSchema", () => {
     const event = {
       type: "acp_session_model_update" as const,
       acpSessionId: "acp-session-abc",
+      modelRevision: 8,
       availableModels: [],
     };
 
@@ -37,7 +39,18 @@ describe("AcpSessionModelUpdateEventSchema", () => {
     const result = AcpSessionModelUpdateEventSchema.safeParse({
       type: "acp_session_model_update",
       acpSessionId: "acp-session-abc",
+      modelRevision: 9,
       model: "opus",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  test("rejects a missing model revision", () => {
+    const result = AcpSessionModelUpdateEventSchema.safeParse({
+      type: "acp_session_model_update",
+      acpSessionId: "acp-session-abc",
+      availableModels: [],
     });
 
     expect(result.success).toBe(false);
@@ -47,6 +60,7 @@ describe("AcpSessionModelUpdateEventSchema", () => {
     const result = AcpSessionModelUpdateEventSchema.safeParse({
       type: "acp_session_model_update",
       acpSessionId: "acp-session-abc",
+      modelRevision: 10,
       availableModels: [],
       unexpected: true,
     });

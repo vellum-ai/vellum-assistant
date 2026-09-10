@@ -138,6 +138,16 @@ describe("requestErrorReason", () => {
     );
   });
 
+  test("keeps a specific rejection message ahead of supplemental details", () => {
+    expect(
+      requestErrorReason(
+        new RequestError(-32603, "Model unavailable", {
+          details: "The selected deployment is temporarily unavailable",
+        }),
+      ),
+    ).toBe("Model unavailable");
+  });
+
   test("serializes the payload behind a bare Internal error that names no reason", () => {
     expect(
       requestErrorReason(new RequestError(-32603, "Internal error", { c: 7 })),

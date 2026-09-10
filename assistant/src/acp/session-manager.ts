@@ -185,6 +185,8 @@ export interface AcpCancellationOptions {
 
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
+  /** Orders model snapshots across every live session and resume incarnation. */
+  private modelRevision = 0;
   /**
    * Per-session ring buffer of wire-shaped update events forwarded to
    * clients. Bounded by event count and aggregate JSON byte size; oldest
@@ -725,9 +727,17 @@ export class AcpSessionManager {
     if (!entry.modelConfigId) {
       return;
     }
+    this.sendModelSnapshot(acpSessionId, entry);
+  }
+
+  /** Publishes model state with the same revision exposed by session reads. */
+  private sendModelSnapshot(acpSessionId: string, entry: SessionEntry): void {
+    const modelRevision = ++this.modelRevision;
+    entry.state.modelRevision = modelRevision;
     entry.sendToVellum({
       type: "acp_session_model_update",
       acpSessionId,
+      modelRevision,
       model: entry.state.model,
       availableModels: entry.state.availableModels ?? [],
     });
@@ -766,11 +776,7 @@ export class AcpSessionManager {
     }
     entry.state.model = undefined;
     entry.state.availableModels = [];
-    entry.sendToVellum({
-      type: "acp_session_model_update",
-      acpSessionId,
-      availableModels: [],
-    });
+    this.sendModelSnapshot(acpSessionId, entry);
     return true;
   }
 

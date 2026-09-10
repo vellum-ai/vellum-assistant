@@ -823,6 +823,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-model-2",
+        modelRevision: 1,
         model: "sonnet",
         availableModels: MODEL_OPTION_MODELS,
       },
@@ -893,11 +894,13 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-selector-gone",
+        modelRevision: 1,
         availableModels: MODEL_OPTION_MODELS,
       },
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-selector-gone",
+        modelRevision: 2,
         availableModels: [],
       },
     ]);
@@ -960,6 +963,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-refused-model",
+        modelRevision: 1,
         availableModels: MODEL_OPTION_MODELS,
       },
     ]);

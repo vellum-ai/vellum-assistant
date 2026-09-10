@@ -405,9 +405,8 @@ describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", 
   const flush = () => new Promise((r) => setTimeout(r, 5));
 
   test("keeps a live model update that landed while the fetch was open", async () => {
-    // The request read `opus`; a live `acp_session_model_update` moved the
-    // session to `sonnet` before the response arrived. Seeding stamps the
-    // moment the request went out, so the older snapshot leaves it alone.
+    // The request read `opus` at revision 1; a live model update moved the
+    // session to `sonnet` at revision 2 before the response arrived.
     useAcpRunStore.getState().spawnRun({
       acpSessionId: "run-A",
       agent: "claude",
@@ -432,6 +431,7 @@ describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", 
               status: "running",
               startedAt: 0,
               model: "opus",
+              modelRevision: 1,
               availableModels: [{ value: "opus", label: "Opus" }],
             },
           ],
@@ -445,6 +445,7 @@ describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", 
 
     useAcpRunStore.getState().setModel({
       acpSessionId: "run-A",
+      modelRevision: 2,
       model: "sonnet",
       availableModels: [{ value: "sonnet", label: "Sonnet" }],
     });
