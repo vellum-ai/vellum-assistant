@@ -29,11 +29,12 @@ mock.module("../../../../runtime/routes/oauth-commands-routes.js", () => ({
   },
 }));
 
+import { botProviderForChannel } from "@vellumai/service-contracts/channels";
 import type { Command } from "commander";
 
 import { runCliCommand } from "../../__tests__/cli-test-harness.js";
 import { registerChannelsCommand } from "../index.js";
-import { botProviderForChannel, REQUESTABLE_CHANNELS } from "../request.js";
+import { REQUESTABLE_CHANNELS } from "../request.js";
 
 const { exitCodeFromIpcResult } = actualCliClient;
 

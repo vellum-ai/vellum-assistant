@@ -1,18 +1,21 @@
 /** Declarative help for the `assistant channels` command. */
 
+import {
+  CHANNEL_BOT_PROVIDER,
+  CHANNEL_IDS,
+} from "@vellumai/service-contracts/channels";
+
 import type { CliCommandHelp } from "../../lib/cli-command-help.js";
 
-/** All channel IDs the readiness service knows about. Mirrors channels/types.ts. */
-export const KNOWN_CHANNELS = [
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-] as const;
+/**
+ * The channel ids the readiness route accepts: the canonical vocabulary. A
+ * channel with no built-in probe reports as unsupported rather than being
+ * refused, so the list is the contract's, not a copy kept here.
+ */
+export const KNOWN_CHANNELS: readonly string[] = CHANNEL_IDS;
+
+/** The channels whose bot the assistant can act as. */
+const BOT_CHANNELS = Object.keys(CHANNEL_BOT_PROVIDER).join(", ");
 
 export const CHANNELS_PLUGIN_SEARCH_HINT =
   "If the channel you are looking for is not listed, search the plugin marketplace with 'assistant plugins search <name>'.";
@@ -21,17 +24,17 @@ export const channelsHelp: CliCommandHelp = {
   name: "channels",
   description: "Inspect messaging channels and act as their bots",
   helpText: `
-Channels are the messaging surfaces the assistant talks over. Built-in
-readiness probes cover slack, telegram, whatsapp, email, phone, vellum,
-platform, and a2a.
+Channels are the messaging surfaces the assistant talks over. Channel ids:
+${KNOWN_CHANNELS.join(", ")}. A channel without a built-in readiness probe
+reports as unsupported.
 
 ${CHANNELS_PLUGIN_SEARCH_HINT} Plugins can bundle additional channels
 from other Vellum users.
 
 Two identities can reach a channel's platform. 'request' acts as the
-assistant's own bot on that channel (slack, telegram, discord), resolving
-the bot credential from the channel id so no token is handled. Acting as a
-person through their OAuth integration is 'assistant oauth request'.
+assistant's own bot on that channel (${BOT_CHANNELS}), resolving the bot
+credential from the channel id so no token is handled. Acting as a person
+through their OAuth integration is 'assistant oauth request'.
 
 Examples:
   $ assistant channels list
@@ -61,13 +64,13 @@ their OAuth integration is a different identity and stays on
 This command can do anything the bot's API allows, including sending,
 editing, deleting, uploading, and reacting, so it is classified high risk
 and asks for approval like any action with irreversible effects. Reads are
-not distinguished from writes: the effect is the endpoint's. Sending a
-message has its own door with its own record; use it rather than posting
+not distinguished from writes: the effect is the endpoint's. To send a
+message, use the messaging tool, which records what it sent; do not post
 through this command.
 
 Arguments:
-  <channel>  One of: slack, telegram, discord. A channel with no bot
-             credential of its own (phone, vellum) is refused.
+  <channel>  One of: ${BOT_CHANNELS}. A channel with no bot credential of
+             its own (phone, vellum) is refused.
   <url>      The API method path, relative to the platform's API host
              (for Slack, '/conversations.history'; for Discord, '/users/@me';
              for Telegram, '/getMe'). The provider supplies the host.

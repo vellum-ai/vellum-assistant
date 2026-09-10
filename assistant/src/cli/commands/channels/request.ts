@@ -18,7 +18,10 @@
  * built in, and the command says so rather than guessing a provider.
  */
 
-import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
+import {
+  botProviderForChannel,
+  CHANNEL_BOT_PROVIDER,
+} from "@vellumai/service-contracts/channels";
 import type { Command } from "commander";
 
 import { subcommand } from "../../lib/cli-command-help.js";
@@ -33,16 +36,6 @@ import { CHANNELS_PLUGIN_SEARCH_HINT } from "./index.help.js";
 /** The channels whose bot credential this command can act with. */
 export const REQUESTABLE_CHANNELS: readonly string[] =
   Object.keys(CHANNEL_BOT_PROVIDER);
-
-/**
- * The provider key holding a channel's bot credential, or `undefined` when
- * the channel has none (or is not a built-in channel at all).
- */
-export function botProviderForChannel(channel: string): string | undefined {
-  return Object.entries(CHANNEL_BOT_PROVIDER).find(
-    ([channelId]) => channelId === channel,
-  )?.[1];
-}
 
 export function registerChannelsRequestCommand(channels: Command): void {
   attachRequestOptions(subcommand(channels, "request")).action(
