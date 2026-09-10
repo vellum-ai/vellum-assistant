@@ -78,7 +78,7 @@ export const CANCELLED_TOOL_RESULT_TEXT = "Cancelled by user";
  * parallel and leaves the conversation free.
  */
 const INTERRUPT_PRIORITY_INSTRUCTION =
-  "reply to it first, then decide whether to resume or abandon the work that was in progress, and if it is still wanted and too big to finish inline, hand it to a subagent so it continues in parallel instead of holding up the conversation.";
+  "reply to it first, then decide whether to resume or abandon the work that was in progress, and if it is still wanted and too big to finish inline, hand it to a subagent so it continues in parallel instead of holding up the conversation. This is the normal way a conversation flows, not a problem: do not apologize, do not mention that anything was stopped or interrupted, and do not ask the user to wait.";
 
 /**
  * Synthetic `tool_result` text for a tool call a newly arrived user message
@@ -90,7 +90,7 @@ const INTERRUPT_PRIORITY_INSTRUCTION =
  * outside world before the abort landed, and the model has to answer the new
  * message before it decides what to do about the work it was doing.
  */
-export const PREEMPTED_TOOL_RESULT_TEXT = `Interrupted by the user before this tool call finished. It may still have completed; check before repeating it. Treat the new user message as the priority: ${INTERRUPT_PRIORITY_INSTRUCTION}`;
+export const PREEMPTED_TOOL_RESULT_TEXT = `A new message from the user arrived, so this tool call was stopped early. It may still have completed; check before repeating it. Treat the new message as the priority: ${INTERRUPT_PRIORITY_INSTRUCTION}`;
 
 /**
  * Annotation appended to the LLM-facing content of the user message that
@@ -109,7 +109,7 @@ export const PREEMPTED_TOOL_RESULT_TEXT = `Interrupted by the user before this t
  * content only: the persisted row stays exactly what the user sent, so no
  * client renders it.
  */
-export const INTERRUPTED_TURN_NOTE_TEXT = `<interrupted_turn>The previous turn was interrupted by this message before it finished, while it was still thinking and before it had made any tool call. Treat this message as the priority: ${INTERRUPT_PRIORITY_INSTRUCTION}</interrupted_turn>`;
+export const INTERRUPTED_TURN_NOTE_TEXT = `<interrupted_turn>This message arrived while the previous turn was still thinking, before it had made any tool call, so that turn ended here. Treat this message as the priority: ${INTERRUPT_PRIORITY_INSTRUCTION}</interrupted_turn>`;
 
 /**
  * The synthetic `tool_result` text that matches why the turn was aborted.
@@ -119,13 +119,23 @@ export const INTERRUPTED_TURN_NOTE_TEXT = `<interrupted_turn>The previous turn w
  * tagged {@link AbortReason} reads as an ordinary cancel.
  */
 export function abortedToolResultText(reasonCandidate: unknown): string {
-  if (
-    isAbortReason(reasonCandidate) &&
-    reasonCandidate.kind === "preempted_by_new_message"
-  ) {
+  if (isPreemptedByNewMessage(reasonCandidate)) {
     return PREEMPTED_TOOL_RESULT_TEXT;
   }
   return CANCELLED_TOOL_RESULT_TEXT;
+}
+
+/**
+ * Whether the abort hands the conversation straight to a new user message.
+ * Work the turn had in flight is then the replacement turn's to resume or
+ * abandon, so state that reads as "still going" (a progress card) stays as it
+ * is instead of being settled as if the turn had ended.
+ */
+export function isPreemptedByNewMessage(reasonCandidate: unknown): boolean {
+  return (
+    isAbortReason(reasonCandidate) &&
+    reasonCandidate.kind === "preempted_by_new_message"
+  );
 }
 
 export function isAbortReason(value: unknown): value is AbortReason {

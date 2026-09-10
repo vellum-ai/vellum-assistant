@@ -147,7 +147,8 @@ export async function repairInterruptedToolUseBlocks(
     type: "tool_result" as const,
     tool_use_id: toolUseId,
     content: PREEMPTED_TOOL_RESULT_TEXT,
-    is_error: true,
+    // A handover to the new message, not a failure the model should explain.
+    is_error: false,
   }));
   const repairRow: Message = { role: "user", content: syntheticContent };
   conversation.messages.push(repairRow);

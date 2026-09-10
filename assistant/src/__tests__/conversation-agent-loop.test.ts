@@ -28,6 +28,7 @@ import {
   resolveUsageAttribution,
   type UsageAttributionInput,
 } from "../usage/attribution.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -2187,6 +2188,74 @@ describe("session-agent-loop", () => {
 
       const cancelled = events.find((e) => e.type === "generation_cancelled");
       expect(cancelled).toBeDefined();
+    });
+
+    // A `task_progress` card mid-run. `data` mirrors what `ui_show` stores for
+    // the card template, which is what the end-of-turn settle inspects.
+    function runningCardState(): Map<string, unknown> {
+      return new Map([
+        [
+          "surface-1",
+          {
+            title: "Working",
+            actions: [],
+            surfaceType: "card",
+            data: {
+              template: "task_progress",
+              templateData: {
+                status: "in_progress",
+                steps: [{ label: "Build", status: "in_progress" }],
+              },
+            },
+          },
+        ],
+      ]);
+    }
+
+    function cardStatus(ctx: { surfaceState: Map<string, unknown> }): unknown {
+      const entry = ctx.surfaceState.get("surface-1") as {
+        data: { templateData: { status: unknown } };
+      };
+      return entry.data.templateData.status;
+    }
+
+    test("settles a running progress card when the user stops the turn", async () => {
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort(
+            createAbortReason("user_cancel", "test", "conv-1"),
+          );
+          return textResponse("partial");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+      ctx.surfaceState = runningCardState() as typeof ctx.surfaceState;
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      expect(cardStatus(ctx)).toBe("pending");
+    });
+
+    test("keeps a running progress card live when a new message preempts the turn", async () => {
+      // The replacement turn owns the card: it resumes the work or closes it
+      // out itself, so settling here would show finished work that then
+      // restarts with no visible reason.
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort(
+            createAbortReason("preempted_by_new_message", "test", "conv-1"),
+          );
+          return textResponse("partial");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+      ctx.surfaceState = runningCardState() as typeof ctx.surfaceState;
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      expect(cardStatus(ctx)).toBe("in_progress");
     });
 
     test("handles AbortError thrown from agent loop as user cancellation", async () => {

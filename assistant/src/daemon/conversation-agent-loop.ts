@@ -83,6 +83,7 @@ import {
   startToolProfilingRequest,
 } from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
+import { isPreemptedByNewMessage } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
@@ -1836,8 +1837,13 @@ export async function runAgentLoopImpl(
     // Generation is over for every outcome below (reply, hand-off, or
     // cancellation), so a progress card still spinning would be lying.
     // Settle before the terminal SSE so the client sees the card at rest by
-    // the time it re-enables the composer.
-    settleRunningTaskProgressSurfaces(ctx, rlog);
+    // the time it re-enables the composer. An interrupt is the exception:
+    // the replacement turn picks the work up or drops it, and it owns the
+    // card either way, so a card settled here would read as finished work
+    // the model then resumes without a visible restart.
+    if (!isPreemptedByNewMessage(abortController.signal.reason)) {
+      settleRunningTaskProgressSurfaces(ctx, rlog);
+    }
 
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
@@ -1977,7 +1983,9 @@ export async function runAgentLoopImpl(
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     // A turn that threw out of the loop is over too; see the happy path.
-    settleRunningTaskProgressSurfaces(ctx, rlog);
+    if (!isPreemptedByNewMessage(abortController.signal.reason)) {
+      settleRunningTaskProgressSurfaces(ctx, rlog);
+    }
     const errorCtx = {
       phase: "agent_loop" as const,
       aborted: abortController.signal.aborted,

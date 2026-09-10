@@ -946,13 +946,13 @@ describe("repairInterruptedToolUseBlocks", () => {
           type: "tool_result",
           tool_use_id: "tool-1",
           content: PREEMPTED_TOOL_RESULT_TEXT,
-          is_error: true,
+          is_error: false,
         },
         {
           type: "tool_result",
           tool_use_id: "tool-2",
           content: PREEMPTED_TOOL_RESULT_TEXT,
-          is_error: true,
+          is_error: false,
         },
       ],
     });

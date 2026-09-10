@@ -53,7 +53,10 @@ import {
   applyStreamingSubstitution,
   applySubstitutions,
 } from "../tools/sensitive-output-placeholders.js";
-import { abortedToolResultText } from "../util/abort-reasons.js";
+import {
+  abortedToolResultText,
+  isPreemptedByNewMessage,
+} from "../util/abort-reasons.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
@@ -2255,12 +2258,15 @@ export class AgentLoop {
         // If already cancelled, synthesize cancelled results and stop
         if (signal?.aborted) {
           const cancelledText = abortedToolResultText(signal.reason);
+          // A preemption is a handover, not a failure: flagging it as an
+          // error reads to the model as something the user broke.
+          const cancelledIsError = !isPreemptedByNewMessage(signal.reason);
           const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
             (toolUse) => ({
               type: "tool_result" as const,
               tool_use_id: toolUse.id,
               content: cancelledText,
-              is_error: true,
+              is_error: cancelledIsError,
             }),
           );
           history.push({ role: "user", content: cancelledBlocks });
@@ -2563,12 +2569,13 @@ export class AgentLoop {
         if (signal?.aborted) {
           if (toolUseBlocks.length > 0) {
             const cancelledText = abortedToolResultText(signal.reason);
+            const cancelledIsError = !isPreemptedByNewMessage(signal.reason);
             const cancelledBlocks: ContentBlock[] = toolUseBlocks.map(
               (toolUse) => ({
                 type: "tool_result" as const,
                 tool_use_id: toolUse.id,
                 content: cancelledText,
-                is_error: true,
+                is_error: cancelledIsError,
               }),
             );
             history.push({ role: "user", content: cancelledBlocks });
