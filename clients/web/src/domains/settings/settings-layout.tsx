@@ -209,6 +209,10 @@ export function SettingsLayout() {
         />
       }
       title={pageTitle}
+      // The settings root's index child is the General page, which a narrow
+      // viewport never shows: the nav list occupies the whole screen and
+      // General is reached by tapping through to it.
+      menuReplacesContentOnMobile
     >
       <Outlet />
     </SidebarShell>

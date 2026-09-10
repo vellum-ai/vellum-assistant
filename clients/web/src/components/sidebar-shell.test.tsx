@@ -42,7 +42,7 @@ function ContentProbe() {
   return <div data-testid="content">content</div>;
 }
 
-function renderAt(path: string) {
+function renderAt(path: string, menuReplacesContentOnMobile = true) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
@@ -55,6 +55,7 @@ function renderAt(path: string) {
                 menuRoute="/assistant/settings"
                 sidebar={<nav>menu</nav>}
                 title="Settings"
+                menuReplacesContentOnMobile={menuReplacesContentOnMobile}
               >
                 <ContentProbe />
               </SidebarShell>
@@ -126,8 +127,8 @@ describe("SidebarShell menu route content", () => {
     // not mounted alongside it as a second, permanently invisible copy.
     expect(screen.getAllByRole("navigation")).toHaveLength(1);
 
-    // AND the page behind it never mounted at all, so none of its effects,
-    // chunks or requests were paid for. Asserted on mounts rather than on
+    // AND the page behind it never mounted, so none of its render work, its
+    // effects or its requests were paid for. Asserted on mounts rather than on
     // visibility: a CSS-hidden page is still in the document and still runs.
     expect(contentMounts).toBe(0);
     expect(screen.queryByTestId("content")).toBeNull();
@@ -151,6 +152,18 @@ describe("SidebarShell menu route content", () => {
     // THEN the page is the screen, and it mounted exactly once
     expect(contentMounts).toBe(1);
     expect(screen.getByTestId("content")).not.toBeNull();
+  });
+
+  test("a caller that has not opted in keeps its menu-route child mounted", () => {
+    // GIVEN a shell whose menu-route child does real work, the Logs root being
+    // the case in the tree: its index child is a redirect that has to mount to
+    // carry a bookmarked URL on to its destination
+    // WHEN a narrow viewport lands on that menu route
+    renderAt("/assistant/settings", false);
+
+    // THEN the child still mounts, so the redirect still runs. Substitution is
+    // opt-in precisely because a child can have work that outlives being seen.
+    expect(contentMounts).toBe(1);
   });
 
   test("a roomy viewport mounts the routed page on the menu route too", () => {

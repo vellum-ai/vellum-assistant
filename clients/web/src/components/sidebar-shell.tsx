@@ -19,6 +19,15 @@ interface SidebarShellProps {
   backHref: string;
   title?: string;
   menuRoute?: string;
+  /**
+   * Whether the nav list is the whole screen on a narrow viewport, so the
+   * routed page can be left unmounted while it is shown.
+   *
+   * Opt in only when the menu route's own child renders nothing the user
+   * needs. A child that redirects has to mount to do its work, and leaving it
+   * out strands the visitor on the menu instead.
+   */
+  menuReplacesContentOnMobile?: boolean;
 }
 
 /**
@@ -35,6 +44,7 @@ export function SidebarShell({
   backHref,
   title = "Settings",
   menuRoute = routes.settings.root,
+  menuReplacesContentOnMobile = false,
 }: SidebarShellProps) {
   const { t } = useTranslation();
   const { pathname } = useLocation();
@@ -42,13 +52,14 @@ export function SidebarShell({
   const isMenuRoute = pathname === menuRoute;
   const isMobile = useIsMobile();
 
-  // On a narrow viewport the menu route is the menu: the nav list is the whole
-  // screen and the routed page is not reachable behind it. The two surfaces
-  // substitute for each other, so one signal decides which of them mounts
-  // rather than each hiding itself at its own breakpoint. Mounting the page
-  // anyway costs its lazy chunk, its effects and its requests for a screen
-  // nobody is looking at, which on a phone is the whole Settings landing tree.
-  const menuReplacesContent = isMobile && isMenuRoute;
+  // On a narrow viewport the nav list and the routed page substitute for each
+  // other, so one signal decides which of them mounts rather than each hiding
+  // itself at its own breakpoint. A mounted page runs its render, its effects
+  // and its request fan-out whether or not anything shows it, which on a phone
+  // is the whole Settings landing tree behind a list of links. The route's
+  // chunk is fetched either way: the router resolves it before this renders.
+  const menuReplacesContent =
+    menuReplacesContentOnMobile && isMobile && isMenuRoute;
 
   // Edge-swipe back gesture for the mobile two-page flow. It mirrors the
   // header back arrow: from a sub-page it returns to the menu root, and from
