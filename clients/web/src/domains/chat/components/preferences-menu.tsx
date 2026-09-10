@@ -137,9 +137,16 @@ export function PreferencesMenu({
          so it can't be transparent like `ghost`. */
       <Button
         variant="ghost"
-        leftIcon={<CircleUser />}
-        className="min-h-[var(--side-menu-tile-size,36px)] min-w-0 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] px-3"
+        /* Sized as the drawer's rows and the New Chat pill beside it: large
+           body label, 16px glyph on a phone, and the rows' 8px between glyph
+           and label. The glyph is content rather than `leftIcon`, whose box
+           the button sizes inline at 14px. The leading inset is the rows'
+           8px plus the chip's 4px lead-in to its 16px glyph, less the 1px
+           border, so this label starts where the assistant row's does (40px
+           in, see `SIDEBAR_MOBILE_CHIP_CLASSES`). */
+        className="min-h-[var(--side-menu-tile-size,36px)] min-w-0 gap-2 rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] pr-3 pl-[15px] max-md:text-body-large-default"
       >
+        <CircleUser aria-hidden className="size-3.5 shrink-0 max-md:size-4" />
         {/* `truncate` is belt-and-braces: the label is a fixed short string,
             but the pill shares its row with New Chat and must never grow
             wide enough to overlap it at narrow viewports. */}

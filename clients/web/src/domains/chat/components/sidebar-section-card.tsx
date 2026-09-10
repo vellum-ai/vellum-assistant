@@ -159,8 +159,14 @@ export function SidebarSectionCard({
       className={cn(
         /* The colour the rows inside sit on. A row swiped aside is an opaque
            cell sliding off the action behind it, and the swipe wrapper backs
-           it with this surface; the card owns its surface, so it names it. */
-        "[--swipe-item-surface:var(--surface-lift)]",
+           it with this surface; the card owns its surface, so it names it.
+           Both the card's own paint and the swipe backing read
+           `--sidebar-card-surface`, so a card that tints itself (the
+           assistant section's) declares the tint once and its rows are
+           backed with the same colour rather than the plain lift a white
+           band would show through on a touch swipe. */
+        "bg-[var(--sidebar-card-surface,var(--surface-lift))]",
+        "[--swipe-item-surface:var(--sidebar-card-surface,var(--surface-lift))]",
         /* No padding of its own: the overlay class branch below owns the
            card's inset, and wrapping it in another layer of Card padding
            would inflate the pill past its spec. The row list picks up the

@@ -15,7 +15,9 @@ import {
 import { cn } from "@vellumai/design-library/utils/cn";
 
 import {
-  SIDEBAR_CHIP_GAP,
+  SIDEBAR_CHIP_GAP_CLASSES,
+  SIDEBAR_MOBILE_CHIP_CLASSES,
+  SIDEBAR_MOBILE_GLYPH_CLASSES,
   SIDEBAR_ROW_PADDING_X,
   SIDEBAR_SECTION_INDENT,
   SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
@@ -280,7 +282,14 @@ function CollapsibleNavSectionSection({
   /* One slot for both header branches. The collapsible and non-collapsible
      headers show the same glyph on the same axis, so they read it from here
      rather than each rendering their own copy. */
-  const glyph = iconNode ?? (Icon ? <Icon size={12} aria-hidden /> : null);
+  /* 12px on a pointer viewport; on a phone the 16px every pill's leading icon
+     is drawn at, so a header's glyph carries the same weight as the pinned
+     app's above it. */
+  const glyph =
+    iconNode ??
+    (Icon ? (
+      <Icon size={12} aria-hidden className={SIDEBAR_MOBILE_GLYPH_CLASSES} />
+    ) : null);
   const iconSlot = glyph ? (
     <span
       data-slot="collapsible-nav-section-icon"
@@ -294,8 +303,11 @@ function CollapsibleNavSectionSection({
            Lucide glyph draws in `currentColor` at a known size. A custom node
            carries its own colour and its own geometry (the assistant
            section's accent disc is a full row-height circle), so the slot
-           hugs it instead of boxing it. */
+           hugs it instead of boxing it. On a phone the box is the chip the
+           assistant row keeps its eyes in, so the glyph centres on the axis
+           the eyes do. */
         !iconNode && "h-[14px] w-[14px] text-[var(--content-tertiary)]",
+        !iconNode && SIDEBAR_MOBILE_CHIP_CLASSES,
       )}
     >
       {glyph}
@@ -314,6 +326,7 @@ function CollapsibleNavSectionSection({
      caption beneath them. */
   const titleClasses = cn(
     card ? "py-0" : "py-[6px] max-md:py-3",
+    SIDEBAR_CHIP_GAP_CLASSES,
     SIDEBAR_SECTION_TITLE_TEXT_CLASSES,
     /* `!` twice over: the shared title classes pin their own weight the same
        way, so a plain utility here loses to them rather than replacing them. */
@@ -324,7 +337,6 @@ function CollapsibleNavSectionSection({
   const titleStyle = {
     paddingLeft: card ? 0 : SIDEBAR_ROW_PADDING_X,
     paddingRight: card ? 0 : SIDEBAR_ROW_PADDING_X,
-    gap: SIDEBAR_CHIP_GAP,
   };
 
   const titleContent = (
@@ -398,7 +410,12 @@ function CollapsibleNavSectionSection({
         </SideMenu.SectionHeader>
       )}
       {collapsible || trailing || collapsedIndicator ? (
-        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-2">
+        /* No inset of its own on a phone: the card's 12px right padding plus
+           the 30px chevron box's 6px lead-out puts the chevron glyph's right
+           edge 18px in, which is where the pinned-app pill above sets its
+           unpin glyph (8px padding plus a 36px target's 10px lead-out), so
+           the two right edges are one line down the drawer. */
+        <span className="flex shrink-0 items-center gap-1 pr-[6px] max-md:pr-0">
           {trailing || collapsedIndicator ? (
             <CrossfadeStack>
               {collapsedIndicator ? (
