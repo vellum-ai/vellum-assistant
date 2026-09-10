@@ -31,6 +31,21 @@ function spawn(
   });
 }
 
+/** A run that reported Opus and then completed, ready to be resumed. */
+function spawnCompletedRunOnOpus() {
+  spawn();
+  getState().setModel({
+    acpSessionId: "acp-1",
+    model: "opus",
+    availableModels: [{ value: "opus", label: "Opus" }],
+  });
+  getState().setTerminal({
+    acpSessionId: "acp-1",
+    status: "completed",
+    completedAt: NOW + 1000,
+  });
+}
+
 function event(overrides: Partial<AcpRunRawEvent> = {}): AcpRunRawEvent {
   return {
     seq: 1,
@@ -199,6 +214,72 @@ describe("spawnRun", () => {
 
     expect(getState().byId["acp-1"]!.parentToolUseId).toBe("tool-use-1");
     expect(getState().byToolUseId.get("tool-use-1")).toBe("acp-1");
+  });
+
+  // An adapter without a model selector gets no model event after the spawn,
+  // so the resume itself retires the pair the earlier session reported.
+  it("a resume with no model report drops the pre-resume model", () => {
+    spawnCompletedRunOnOpus();
+
+    spawn();
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.status).toBe("running");
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toBeUndefined();
+  });
+
+  it("a model update after the resume shows the new model", () => {
+    spawnCompletedRunOnOpus();
+    spawn();
+
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+  });
+
+  it("a snapshot after the resume that carries no model keeps it cleared", () => {
+    spawnCompletedRunOnOpus();
+    spawn();
+    const resumedAt = getState().byId["acp-1"]!.modelUpdatedAt!;
+
+    getState().seedFromHistory(
+      [historyEntry({ acpSessionId: "acp-1", status: "running" })],
+      { fetchedAt: resumedAt + 1 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toBeUndefined();
+  });
+
+  it("a snapshot fetched before the resume cannot restore the old model", () => {
+    spawnCompletedRunOnOpus();
+    spawn();
+    const resumedAt = getState().byId["acp-1"]!.modelUpdatedAt!;
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt: resumedAt - 1 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBeUndefined();
+    expect(entry.availableModels).toBeUndefined();
   });
 });
 
