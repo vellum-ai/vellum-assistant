@@ -26,7 +26,10 @@ import {
   hasPendingAssistantResponse,
 } from "@/domains/chat/utils/chat";
 import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
-import { hasRenderedThinking } from "@/domains/chat/transcript/message-content";
+import {
+  hasRenderedStepStack,
+  hasRenderedThinking,
+} from "@/domains/chat/transcript/message-content";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -133,6 +136,17 @@ export function useChatUIState(): ChatUIState {
     return hasRenderedThinking(live, hideThinkingUi);
   }, [transcript, liveAssistantMessageId, hideThinkingUi]);
 
+  // Under `send-user-message` the step stack is the turn's one progress
+  // label, so the standalone row stands down once the live message renders a
+  // step. Flag off, the row keeps its own between-tools label.
+  const hasLiveStepStack = useMemo(() => {
+    if (!hideThinkingUi || liveAssistantMessageId == null) {
+      return false;
+    }
+    const live = transcript.find((m) => m.id === liveAssistantMessageId);
+    return live != null && hasRenderedStepStack(live);
+  }, [transcript, liveAssistantMessageId, hideThinkingUi]);
+
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(transcript),
     [transcript],
@@ -142,6 +156,7 @@ export function useChatUIState(): ChatUIState {
     () => ({
       hasStreamingAssistantMessage,
       hasStreamingAssistantThinking,
+      hasLiveStepStack,
       hasPendingSecret: !!pendingSecret,
       hasPendingConfirmation: !!pendingConfirmation,
       hasPendingQuestion: !!pendingQuestion,
@@ -155,6 +170,7 @@ export function useChatUIState(): ChatUIState {
     [
       hasStreamingAssistantMessage,
       hasStreamingAssistantThinking,
+      hasLiveStepStack,
       pendingSecret,
       pendingConfirmation,
       pendingQuestion,

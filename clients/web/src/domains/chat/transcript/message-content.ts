@@ -152,6 +152,22 @@ export function hasRenderedThinking(
 }
 
 /**
+ * Whether a row already shows a step stack: at least one tool call the
+ * projection renders as a step. Under `send-user-message` the step stack is
+ * the turn's one progress label, so the standalone thinking row reads this to
+ * stand down once a step exists. A bookkeeping call the projection drops does
+ * not count, and the flag-off path never asks.
+ */
+export function hasRenderedStepStack(message: {
+  toolCalls?: { name: string; pendingConfirmation?: unknown }[];
+}): boolean {
+  return !!message.toolCalls?.some(
+    (toolCall) =>
+      !isSendUserMessageCall(toolCall) && !isSilentToolCall(toolCall),
+  );
+}
+
+/**
  * Expand text blocks containing inline `<thinking>`/`<think>` tags into
  * interleaved thinking + text blocks. Returns the input array untouched when
  * no text block carries a tag (the common case).

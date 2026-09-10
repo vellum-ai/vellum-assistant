@@ -10,6 +10,7 @@ import {
   finalResponseStartIndex,
   groupContentBlocks,
   groupOptionsForMessage,
+  hasRenderedStepStack,
   hasRenderedThinking,
   isBackgroundBashCall,
   isRunWorkflowCall,
@@ -734,6 +735,20 @@ describe("a private row's reasoning", () => {
     });
   });
 
+  test("counts only tool calls the projection renders as steps", () => {
+    expect(hasRenderedStepStack({ toolCalls: [] })).toBe(false);
+    expect(
+      hasRenderedStepStack({
+        toolCalls: [{ name: "send_user_message" }, { name: "remember" }],
+      }),
+    ).toBe(false);
+    expect(
+      hasRenderedStepStack({
+        toolCalls: [{ name: "remember" }, { name: "file_write" }],
+      }),
+    ).toBe(true);
+  });
+
   test("leaves the thinking dots owning the wait", () => {
     // The inline link defers the dots row only when it actually renders.
     expect(
@@ -896,7 +911,10 @@ describe("silent tools in the transcript projection", () => {
 
   test("keeps the work the user asked for", () => {
     const blocks: ConversationContentBlock[] = [
-      { type: "tool_use", toolCall: toolCall({ id: "call-bash", name: "bash" }) },
+      {
+        type: "tool_use",
+        toolCall: toolCall({ id: "call-bash", name: "bash" }),
+      },
       {
         type: "tool_use",
         toolCall: toolCall({ id: "call-ask", name: "ask_question" }),
