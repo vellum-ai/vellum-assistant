@@ -471,6 +471,7 @@ describe("header handling", () => {
         "accept-encoding": "gzip",
         cookie: "session=abc",
         "x-forwarded-for": "203.0.113.9",
+        "x-trace-id": "trace-123",
         "x-vellum-subject": "local:self:spoofed",
         "user-agent": "link-cli/1.0",
         accept: "application/json",
@@ -486,6 +487,7 @@ describe("header handling", () => {
       "accept-encoding",
       "cookie",
       "x-forwarded-for",
+      "x-trace-id",
       "x-vellum-subject",
       "x-vellum-principal-type",
     ]) {
@@ -526,7 +528,7 @@ describe("header handling", () => {
   }
 
   for (const method of ["GET", "POST"]) {
-    test(`forwards managed ${method} with Node CLI defaults`, async () => {
+    test(`forwards managed ${method} with Node CLI defaults and the gateway trace stamp`, async () => {
       let attempts = 0;
       const forwardedHeaders = {
         "content-type": "application/json",
@@ -550,6 +552,7 @@ describe("header handling", () => {
           "sec-fetch-mode": "cors",
           "accept-encoding": "gzip, deflate",
           connection: "keep-alive",
+          "x-trace-id": "trace-123",
         },
       });
 

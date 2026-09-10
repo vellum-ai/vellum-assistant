@@ -109,4 +109,62 @@ describe("withSqliteRetry", () => {
     // Initial attempt + 2 retries.
     expect(calls).toBe(3);
   });
+
+  test("an already-cancelled caller never attempts the write", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+
+    await expect(
+      withSqliteRetry(
+        () => {
+          calls += 1;
+          return "ok";
+        },
+        { op: "test-op", signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  test("a cancel during the backoff stops the retry", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+
+    await expect(
+      withSqliteRetry(
+        () => {
+          calls += 1;
+          // The attempt threw, so nothing committed. Stopping here is safe.
+          controller.abort();
+          throw sqliteError("SQLITE_BUSY");
+        },
+        {
+          op: "test-op",
+          maxRetries: 3,
+          baseDelayMs: 1,
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toThrow();
+    expect(calls).toBe(1);
+  });
+
+  test("a caller with a live signal still retries", async () => {
+    const controller = new AbortController();
+    let calls = 0;
+
+    const result = await withSqliteRetry(
+      () => {
+        calls += 1;
+        if (calls === 1) {
+          throw sqliteError("SQLITE_BUSY");
+        }
+        return "ok";
+      },
+      { op: "test-op", baseDelayMs: 1, signal: controller.signal },
+    );
+    expect(result).toBe("ok");
+    expect(calls).toBe(2);
+  });
 });

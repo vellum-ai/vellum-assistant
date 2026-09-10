@@ -1352,6 +1352,31 @@ export async function wakeAgentForOpportunity(
       persistedTailIndex += newMessages.length;
     };
 
+    /**
+     * Rebuild the loop's system prompt under whatever tool scope and per-turn
+     * stamps are in effect right now.
+     *
+     * A wake drives `agentLoop.run` itself, so the loop holds whatever prompt
+     * the conversation last synced. Sections gated on the turn's resolved tool
+     * surface would otherwise be inherited from the last app turn: a wake whose
+     * allowlist omits the subagent dispatch path would still be told to hand
+     * independent work to subagents, and an unrestricted wake following a
+     * restricted turn would be told not to. A conversation carrying a
+     * system-prompt override (a subagent fork) resolves it verbatim, so this is
+     * a no-op there.
+     */
+    const syncWakeLoopSystemPrompt = (): void => {
+      try {
+        conversation.syncLoopSystemPrompt();
+      } catch (err) {
+        // A prompt rebuild is a refinement, never a reason to lose the wake.
+        log.warn(
+          { conversationId, source, err },
+          "agent-wake: failed to sync the loop system prompt; continuing",
+        );
+      }
+    };
+
     let wakeToolScopeRestored = false;
     let restoreWakeToolScope: (() => void) | null = null;
     const restoreWakeAllowedTools = (): void => {
@@ -1359,17 +1384,34 @@ export async function wakeAgentForOpportunity(
         return;
       }
       wakeToolScopeRestored = true;
-      if (!restoreWakeToolScope) {
-        return;
+      if (restoreWakeToolScope) {
+        try {
+          restoreWakeToolScope();
+        } catch (err) {
+          log.warn(
+            { conversationId, source, err },
+            "agent-wake: failed to restore tool allowlist; continuing",
+          );
+        }
       }
-      try {
-        restoreWakeToolScope();
-      } catch (err) {
-        log.warn(
-          { conversationId, source, err },
-          "agent-wake: failed to restore tool allowlist; continuing",
-        );
-      }
+    };
+
+    /**
+     * Undo everything the wake scoped onto the conversation, then rebuild the
+     * prompt once under what is left.
+     *
+     * The order is load-bearing. `wakePersonaOverride` is read by
+     * `buildCurrentSystemPrompt`, so a rebuild that runs before the clear
+     * leaves the loop holding the wake's persona: the next wake's pre-run
+     * compaction gate reads `conversation.systemPrompt` through the window
+     * manager and would size, and summarize, against a prompt belonging to a
+     * turn that already ended. Rebuilding after both restores is also why this
+     * is one function rather than a rebuild bolted onto either half.
+     */
+    const restoreWakeTurnScope = (): void => {
+      restoreWakeAllowedTools();
+      clearWakePersonaOverride();
+      syncWakeLoopSystemPrompt();
     };
     const applyWakeAllowedTools = (): boolean => {
       if (!opts.allowedTools) {
@@ -1531,13 +1573,13 @@ export async function wakeAgentForOpportunity(
         conversation.currentTurnTrustContext = opts.trustContext;
       }
 
-      // Rebuild the loop's prompt under the stamps just set, the way
-      // `runAgentLoopImpl` does for a normal turn. The loop holds whatever
-      // prompt the conversation last synced, so a wake on a conversation that
-      // already ran a tool-gated turn would otherwise carry that turn's
-      // `01-send-user-message` section while the pin above withholds the tool,
-      // telling the wake to reply through a tool it does not have.
-      conversation.syncLoopSystemPrompt();
+      // Rebuild the prompt under the allowlist and the stamps just applied,
+      // the way `runAgentLoopImpl` does for a normal turn. The loop holds
+      // whatever prompt the conversation last synced, so a wake on a
+      // conversation that already ran a tool-gated turn would otherwise carry
+      // that turn's `01-send-user-message` section while the pin above
+      // withholds the tool.
+      syncWakeLoopSystemPrompt();
 
       let updatedHistory: Message[];
       try {
@@ -1741,8 +1783,7 @@ export async function wakeAgentForOpportunity(
       // accepts entries while processing === true, and drain expects
       // processing to already be false). The finally block handles the
       // error/early-return paths where no tail was produced.
-      restoreWakeAllowedTools();
-      clearWakePersonaOverride();
+      restoreWakeTurnScope();
       try {
         conversation.setProcessing(false);
       } catch (err) {
@@ -1767,8 +1808,7 @@ export async function wakeAgentForOpportunity(
       // the try body before reaching the drain block, so `drainedInTry` is
       // still false.
       if (!drainedInTry) {
-        restoreWakeAllowedTools();
-        clearWakePersonaOverride();
+        restoreWakeTurnScope();
         try {
           conversation.setProcessing(false);
         } catch (err) {

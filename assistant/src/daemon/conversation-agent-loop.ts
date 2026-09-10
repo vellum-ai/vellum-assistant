@@ -85,11 +85,15 @@ import {
   startToolProfilingRequest,
 } from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
+import { isPreemptedByNewMessage } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
-import { ABORT_WATCHDOG_MS } from "./abort-watchdog.js";
+import {
+  ABORT_WATCHDOG_MS,
+  DEFAULT_TURN_COMMIT_MAX_WAIT_MS,
+} from "./abort-watchdog.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -149,6 +153,7 @@ import {
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { beginTurnFinalization } from "./turn-finalization.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
 import {
   MEMORY_CONTEXT_PHASE_KEY,
@@ -738,6 +743,16 @@ export async function runAgentLoopImpl(
   );
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
+  if (ctx.diskPressureCleanupModeActive) {
+    // The prompt synced above was built before this turn's disk-pressure
+    // policy was known. Cleanup mode narrows the turn to
+    // `DISK_PRESSURE_CLEANUP_TOOL_NAMES`, so sections gated on the resolved
+    // tool surface (the parallel-delegation guidance, which needs the skill
+    // dispatcher cleanup mode withholds) must be re-derived against it.
+    // Skipped otherwise: the mode is cleared at the end of every turn, so an
+    // ordinary turn already synced under the same answer.
+    ctx.syncLoopSystemPrompt();
+  }
   const toolsDisabledForTurn = ctx.toolsDisabledDepth > 0;
 
   ctx.lastAssistantAttachments = [];
@@ -751,6 +766,15 @@ export async function runAgentLoopImpl(
   // the live seq counter, which runs ahead while the turn streams. Cleared in
   // the `finally`.
   registerInflightTurn(ctx.conversationId, state);
+  // Opened before anything can release the conversation, closed at the very end
+  // of the `finally` below. It is what tells a caller that starts a turn from
+  // outside this loop (the interrupt path) that the turn-boundary commit is
+  // done, since that commit runs after the release and would otherwise sweep
+  // the next turn's first file writes into the finished turn's commit. Nothing
+  // waits on it unless such a caller is present, so the ordinary send, drain
+  // and wake paths are unchanged. Declared here and opened as the first
+  // statement of the `try` below, so the `finally` that closes it always runs.
+  let closeTurnFinalization: () => void = () => {};
   let persistedErrorAssistantMessage = false;
   let deletedReservedAssistantMessage = false;
   // Abnormal turn outcome for telemetry, stamped onto the user-message row in
@@ -863,6 +887,7 @@ export async function runAgentLoopImpl(
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
     ctx.currentRequestId = undefined;
+    ctx.currentTurnClientMessageId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
     ctx.diskPressureCleanupModeActive = false;
@@ -916,6 +941,16 @@ export async function runAgentLoopImpl(
   };
 
   try {
+    closeTurnFinalization = beginTurnFinalization(ctx.conversationId);
+    // An interrupt hands the conversation straight from the turn it stopped to
+    // the message that stopped it, and that turn's `generation_cancelled` has
+    // idled every client. Emitting here rather than at the handover means a
+    // send that failed on the way to this turn left clients idle, which is what
+    // they are, instead of stranded on a cached `thinking` nothing clears.
+    if (ctx.pendingInterruptActivityBridge) {
+      ctx.pendingInterruptActivityBridge = false;
+      ctx.emitActivityState("thinking", "message_interrupted");
+    }
     if (diskPressureDecision.action === "block") {
       const message = formatDiskPressureBlockedMessage();
       // The user message is already persisted, so this turn will be reported
@@ -1833,8 +1868,13 @@ export async function runAgentLoopImpl(
     // Generation is over for every outcome below (reply, hand-off, or
     // cancellation), so a progress card still spinning would be lying.
     // Settle before the terminal SSE so the client sees the card at rest by
-    // the time it re-enables the composer.
-    settleRunningTaskProgressSurfaces(ctx, rlog);
+    // the time it re-enables the composer. An interrupt is the exception:
+    // the replacement turn picks the work up or drops it, and it owns the
+    // card either way, so a card settled here would read as finished work
+    // the model then resumes without a visible restart.
+    if (!isPreemptedByNewMessage(abortController.signal.reason)) {
+      settleRunningTaskProgressSurfaces(ctx, rlog);
+    }
 
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
@@ -1994,7 +2034,9 @@ export async function runAgentLoopImpl(
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     // A turn that threw out of the loop is over too; see the happy path.
-    settleRunningTaskProgressSurfaces(ctx, rlog);
+    if (!isPreemptedByNewMessage(abortController.signal.reason)) {
+      settleRunningTaskProgressSurfaces(ctx, rlog);
+    }
     const errorCtx = {
       phase: "agent_loop" as const,
       aborted: abortController.signal.aborted,
@@ -2054,12 +2096,19 @@ export async function runAgentLoopImpl(
     // turn that started while it was preparing would have its first file
     // writes swept into the wrong commit. The wait is deadline-bounded, and
     // direct sends are already unblocked by the release above.
+    // Set when the turn-boundary commit outran its wait budget and is still
+    // staging the working tree. The turn stops waiting on it, but the
+    // finalization barrier below must not: a replacement turn that started
+    // writing files now would still have them swept into this turn's commit.
+    let outstandingCommit: Promise<void> | undefined;
     try {
       if (turnStarted) {
         ctx.turnCount++;
         const runTurnCommit = async (): Promise<void> => {
           const config = getConfig();
-          const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+          const maxWait =
+            config.workspaceGit?.turnCommitMaxWaitMs ??
+            DEFAULT_TURN_COMMIT_MAX_WAIT_MS;
           const deadlineMs = Date.now() + maxWait;
 
           const commitTurnChangesFn =
@@ -2073,6 +2122,7 @@ export async function runAgentLoopImpl(
           );
           const outcome = await raceWithTimeout(commitPromise, maxWait);
           if (outcome === "timed_out") {
+            outstandingCommit = commitPromise;
             rlog.warn(
               {
                 turnNumber: ctx.turnCount,
@@ -2122,6 +2172,24 @@ export async function runAgentLoopImpl(
       // drained; writing after the turn stops producing rows keeps them out
       // of any tool_use/tool_result pair.
       await drainQueuedReactionRecords(ctx, ownedReactionRecords);
+      // Everything the next turn must not overlap with is done, so a caller
+      // waiting to start one outside this loop may proceed. Closed before the
+      // drain kick rather than after it: the kick is fire-and-forget, and a
+      // drained turn takes the processing lock for itself, which is the same
+      // answer an interrupt gets from any other competing claim.
+      //
+      // A commit that outran its wait budget is still staging the working tree,
+      // so the barrier stays open until it settles even though the turn no
+      // longer waits on it. `waitForTurnFinalization` is deadline-bounded, so a
+      // genuinely wedged commit makes the interrupt queue its message rather
+      // than race the commit for the working tree.
+      if (outstandingCommit) {
+        void outstandingCommit
+          .then(closeTurnFinalization, closeTurnFinalization)
+          .catch(() => {});
+      } else {
+        closeTurnFinalization();
+      }
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.

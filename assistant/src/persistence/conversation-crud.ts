@@ -429,6 +429,13 @@ export const messageMetadataSchema = z
      * reinjected into LLM-facing content on history reload.
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
+     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
+     * `<interrupted_turn>` note from it; the row's own content is exactly what
+     * the user sent, so clients render nothing extra.
+     */
+    interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new section block (unwrapped), the v3
      *  counterpart of `memoryInjectedBlock`. A row carries at most one of the
@@ -1107,6 +1114,34 @@ async function insertMessageCore(
     },
     { op: "insertMessageCore", context: { conversationId } },
   );
+}
+
+/**
+ * Id of the row a previous send with this `(conversation, clientMessageId)`
+ * already persisted, or undefined when this send is new.
+ *
+ * The idempotent insert in `addMessage` settles a duplicate on the unique
+ * constraint, which is the authority. This read exists for callers that must
+ * recognise a retransmission BEFORE taking an action the insert cannot undo:
+ * `interrupt-on-send` aborts the running turn, and a retried POST that reached
+ * the abort first would kill the very turn its original request started and
+ * then dedupe without starting a replacement.
+ */
+export function findMessageIdByClientMessageId(
+  conversationId: string,
+  clientMessageId: string,
+): string | undefined {
+  const existing = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.clientMessageId, clientMessageId),
+      ),
+    )
+    .get();
+  return existing?.id;
 }
 
 export function createConversation(

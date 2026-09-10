@@ -942,6 +942,59 @@ export function isToolActiveForContext(
 }
 
 /**
+ * Every name a turn has to reach before it can spawn a subagent.
+ *
+ * The spawn tool ships inside the bundled `subagent` skill, so it is never
+ * called by name: `skill_load` activates the skill and `skill_execute`
+ * dispatches to `subagent_spawn` inside it, which the executor gates as the
+ * resolved inner tool. All three are therefore required: any one of them
+ * missing leaves no callable path to a subagent.
+ */
+const SUBAGENT_SPAWN_PATH_TOOL_NAMES = [
+  "skill_load",
+  "skill_execute",
+  "subagent_spawn",
+] as const;
+
+/**
+ * Whether this turn could actually spawn a subagent, read off the resolved
+ * tool surface rather than assumed.
+ *
+ * Answers yes only when the whole dispatch path is callable: the skill loader,
+ * the dispatcher, and the spawn tool the dispatcher resolves to. Each name runs
+ * through {@link isToolActiveForContext}, so a turn with tools disabled, a
+ * read-only subagent pass, or a wire-scoped background run whose `allowedTools`
+ * omits one of them all answer no, as does a workspace `tools.exclude` entry.
+ *
+ * The system prompt's delegation guidance gates on this: telling a turn to hand
+ * work to subagents it cannot spawn invites it to defer work it must do inline.
+ */
+export function canSpawnSubagentsForTurn(ctx: Conversation): boolean {
+  let excluded: ReadonlySet<string>;
+  try {
+    excluded = new Set(getConfig().tools.exclude);
+  } catch {
+    excluded = new Set<string>();
+  }
+  // A run carrying an allowlist is checked against it here whatever its gate
+  // mode. `isToolActiveForContext` skips the allowlist under
+  // `subagentToolGateMode === "execution"` by design, because that mode keeps
+  // the full surface on the wire for cache parity and rejects the call in the
+  // executor instead. That is the right answer to "is this tool on the wire"
+  // and the wrong one to "could this turn actually spawn": the memory
+  // retrospective wake runs in execution mode with an allowlist that names
+  // `skill_load` but neither the dispatcher nor the spawn tool, so the spawn
+  // is denied after the prompt has already told the model to delegate.
+  const allowlist = ctx.subagentAllowedTools;
+  return SUBAGENT_SPAWN_PATH_TOOL_NAMES.every(
+    (name) =>
+      !excluded.has(name) &&
+      (allowlist === undefined || allowlist.has(name)) &&
+      isToolActiveForContext(name, ctx),
+  );
+}
+
+/**
  * Build a resolveTools callback that merges base tool definitions with
  * dynamically projected skill tools on each agent turn. Also updates
  * allowedToolNames so newly-activated skill tools aren't blocked by
