@@ -379,8 +379,8 @@ describe("LiveVoiceConfigSchema", () => {
   });
 
   test("persisted configs carrying retired keys keep parsing", () => {
-    // `mode` and `maxSessionDurationSeconds` were read by nothing; Zod strips
-    // the unrecognized keys so a config file that still carries them parses.
+    // Zod strips unrecognized keys, so a persisted config that still carries
+    // `mode` or `maxSessionDurationSeconds` parses.
     const parsed = LiveVoiceConfigSchema.parse({
       mode: "ptt",
       maxSessionDurationSeconds: 600,

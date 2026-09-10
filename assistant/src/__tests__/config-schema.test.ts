@@ -1146,9 +1146,9 @@ describe("AssistantConfigSchema", () => {
   });
 
   test("persisted calls configs carrying retired keys keep parsing", () => {
-    // `calls.safety.denyCategories` and `calls.voice.interruptSensitivity`
-    // were read by nothing; Zod strips the unrecognized keys so a config file
-    // that still carries them parses.
+    // Zod strips unrecognized keys, so a persisted config that still carries
+    // `calls.safety.denyCategories` or `calls.voice.interruptSensitivity`
+    // parses.
     const result = AssistantConfigSchema.parse({
       calls: {
         safety: { denyCategories: ["spam"] },
@@ -1160,8 +1160,8 @@ describe("AssistantConfigSchema", () => {
   });
 
   test("language is no longer part of the voice config schema", () => {
-    // The retired knob was read by nothing; Zod strips the unrecognized key
-    // so persisted configs that still carry it keep parsing.
+    // Zod strips the unrecognized key, so persisted configs that still carry
+    // it parse.
     const result = AssistantConfigSchema.parse({
       calls: { voice: { language: "es-ES" } },
     });

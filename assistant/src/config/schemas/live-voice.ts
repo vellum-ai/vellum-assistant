@@ -298,7 +298,7 @@ export const LiveVoiceConfigSchema = z
       ),
   })
   .describe(
-    "Live voice (in-app duplex audio) configuration — VAD tuning, front-model routing, Flux turn detection, and audio archiving",
+    "Live voice (in-app duplex audio) configuration: VAD tuning, front-model routing, Flux turn detection, and audio archiving",
   );
 
 export type LiveVoiceConfig = z.infer<typeof LiveVoiceConfigSchema>;

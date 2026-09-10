@@ -211,6 +211,4 @@ export const CallsConfigSchema = z
       CallsVerificationConfigSchema.parse({}),
     ),
   })
-  .describe(
-    "Phone call configuration — controls telephony, voice, and call behavior",
-  );
+  .describe("Phone call configuration: telephony, voice, and call behavior");
