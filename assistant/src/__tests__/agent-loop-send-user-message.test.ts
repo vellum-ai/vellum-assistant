@@ -12,8 +12,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import type { PostModelCallContext } from "../plugin-api/types.js";
+import {
+  NUDGE_TEXT,
+  SEND_USER_MESSAGE_NUDGE_TEXT,
+} from "../plugins/defaults/empty-response/hooks/post-model-call.js";
 import { resetEmptyResponseNudgeStoreForTests } from "../plugins/defaults/empty-response/nudge-state-store.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type {
   ContentBlock,
   Message,
@@ -398,5 +404,166 @@ describe("a send_user_message call that delivers nothing", () => {
     });
 
     expect(streamedText(events)).toBe("Two meetings today.");
+  });
+});
+
+/**
+ * The shape live QA hit: a turn answers with one `send_user_message` call and
+ * then returns an empty response because it has nothing more to say.
+ *
+ * That is the turn ending correctly. Before the fix the gated branch was
+ * skipped (the user HAD been told), execution fell through to the legacy
+ * empty-turn nudge, and the model got a system notice telling it to "respond
+ * with text", which the gate makes invisible. It answered the notice in raw
+ * text, costing a model call and leaving a duplicate private row.
+ */
+describe("an empty response after the reply was delivered", () => {
+  const sendOnly = (message: string): ProviderResponse => ({
+    content: [
+      {
+        type: "tool_use",
+        id: "tu_1",
+        name: "send_user_message",
+        input: { message },
+      },
+    ] as ContentBlock[],
+    model: "mock-model",
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason: "tool_use",
+  });
+
+  const emptyResponse = (): ProviderResponse => ({
+    content: [] as ContentBlock[],
+    model: "mock-model",
+    usage: { inputTokens: 10, outputTokens: 0 },
+    stopReason: "end_turn",
+  });
+
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+    resetEmptyResponseNudgeStoreForTests();
+  });
+
+  test("ends the turn without any nudge", async () => {
+    const { provider, calls } = createMockProvider([
+      sendOnly("vizgrid. what's up?"),
+      emptyResponse(),
+    ]);
+    const events: AgentEvent[] = [];
+    const { history } = await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: collect(events),
+      trust,
+      suppressAssistantText: true,
+      callSite: "mainAgent",
+    });
+
+    // Exactly the two scripted calls: no retry was asked for.
+    expect(calls).toHaveLength(2);
+    const historyText = JSON.stringify(history);
+    expect(historyText).not.toContain(SEND_USER_MESSAGE_NUDGE_TEXT);
+    expect(historyText).not.toContain(NUDGE_TEXT);
+    // The delivered message is what reached the user, once.
+    expect(streamedText(events)).toBe("vizgrid. what's up?");
+  });
+
+  test("still nudges when the turn ended without delivering", async () => {
+    // The other side of the same branch: nothing reached the user, so the
+    // gated nudge fires and it is the gated wording, not the flag-off one.
+    const { provider, calls } = createMockProvider([
+      {
+        content: [
+          { type: "tool_use", id: "tu_w", name: "bash", input: {} },
+        ] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "tool_use",
+      },
+      emptyResponse(),
+      emptyResponse(),
+    ]);
+    const { history } = await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust,
+      suppressAssistantText: true,
+      callSite: "mainAgent",
+    });
+
+    expect(calls.length).toBeGreaterThan(2);
+    const historyText = JSON.stringify(history);
+    expect(historyText).toContain(SEND_USER_MESSAGE_NUDGE_TEXT);
+    // The flag-off wording must never reach a gated run.
+    expect(historyText).not.toContain(NUDGE_TEXT);
+  });
+});
+
+/**
+ * The terminal (no-tool) dispatch is the one the gated branch acts on, so the
+ * context it carries has to describe the run.
+ */
+describe("the post-model-call context on a terminal response", () => {
+  beforeEach(() => {
+    resetPluginRegistryAndRegisterDefaults();
+    resetEmptyResponseNudgeStoreForTests();
+  });
+
+  test("carries assistantTextSuppressed and the outcome the loop computed", async () => {
+    const seen: Array<{
+      suppressed: boolean | undefined;
+      told: boolean | undefined;
+      hasTool: boolean;
+    }> = [];
+    registerPlugin({
+      manifest: { name: "test-terminal-ctx", version: "0.0.0" },
+      hooks: {
+        "post-model-call": async (ctx: PostModelCallContext) => {
+          seen.push({
+            suppressed: ctx.assistantTextSuppressed,
+            told: ctx.userToldOutcome,
+            hasTool: ctx.content.some((b) => b.type === "tool_use"),
+          });
+        },
+      },
+    });
+
+    const { provider } = createMockProvider([
+      {
+        content: [
+          {
+            type: "tool_use",
+            id: "tu_1",
+            name: "send_user_message",
+            input: { message: "vizgrid. what's up?" },
+          },
+        ] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "tool_use",
+      },
+      {
+        content: [] as ContentBlock[],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 0 },
+        stopReason: "end_turn",
+      },
+    ]);
+    await loopWith(provider).run({
+      requestId: "test-request",
+      messages: [userMessage],
+      onEvent: () => {},
+      trust,
+      suppressAssistantText: true,
+      callSite: "mainAgent",
+    });
+
+    const terminal = seen.filter((entry) => !entry.hasTool).at(-1);
+    expect(terminal).toBeDefined();
+    expect(terminal?.suppressed).toBe(true);
+    // Computed over the run, not the empty response in hand: the last
+    // tool-bearing response delivered, so the user has the answer.
+    expect(terminal?.told).toBe(true);
   });
 });

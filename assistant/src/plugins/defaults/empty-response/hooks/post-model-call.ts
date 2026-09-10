@@ -161,17 +161,22 @@ const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // reply, and after that let the turn end; the loop then surfaces this
   // response's raw text as the fallback rather than delivering nothing.
   //
-  // Owned entirely here: the legacy empty-turn nudge below asks for plain
-  // text, which is exactly what the gate makes invisible.
-  if (
-    ctx.callSite === "mainAgent" &&
-    ctx.assistantTextSuppressed === true &&
+  // Owned entirely here, and that ownership is total: a suppressed main-agent
+  // run always returns from this branch, nudge or no nudge. The legacy
+  // empty-turn nudge below asks for plain text, which is exactly what the gate
+  // makes invisible, so a gated turn falling through to it gets a system
+  // notice contradicting its own instructions, answers it in raw text, and
+  // burns a model call writing a reply the user never sees.
+  if (ctx.callSite === "mainAgent" && ctx.assistantTextSuppressed === true) {
     // The host decides this, so the nudge here and the raw-text fallback in
     // the loop cannot disagree about whether the user was already answered.
     // Absent reads as "not told", which keeps the fallback available: an extra
     // nudge costs a call, a suppressed fallback costs the reply.
-    ctx.userToldOutcome !== true
-  ) {
+    if (ctx.userToldOutcome === true) {
+      // The reply is already delivered, so an empty terminal response is the
+      // turn ending correctly. Nothing is owed and nothing is asked for.
+      return;
+    }
     if (!isEmptyResponseNudged(ctx.conversationId)) {
       markEmptyResponseNudged(ctx.conversationId);
       ctx.messages.push({
