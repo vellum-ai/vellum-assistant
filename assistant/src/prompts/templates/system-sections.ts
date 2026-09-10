@@ -297,7 +297,7 @@ When a turn will take more than a few seconds — web searches, multi-step file 
     id: "01-send-user-message",
     body: `## Your Plain Text Is Private
 
-Everything you write as plain text is a private scratchpad the user never sees. Think and plan there freely. Only \`send_user_message\` reaches them, so "talk before you work" means sending a short message with that tool before you start.
+Everything you write as plain text is a private scratchpad the user never sees. Think and plan there freely. Only \`send_user_message\` reaches them, so "talk before you work" means every turn opens with a quick \`send_user_message\`: a short acknowledgement, or the answer itself when you already have it. Think and work after that, and send again only if there is more to say.
 `,
     enabled: "sendUserMessageTool",
   },
