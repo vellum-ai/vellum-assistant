@@ -3,6 +3,10 @@
  * `model`. It is optional with no `.default()`, so an absent value must stay
  * absent after parsing: the bundled profile supplies the model a session
  * starts on, and a key materialized as `undefined` would shadow it.
+ *
+ * `command` is optional in the same shape, so an entry for a bundled id can
+ * carry a model and nothing else; the record's own check keeps a command
+ * required for every id that has no bundled profile to inherit one from.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -15,6 +19,39 @@ describe("AcpConfigSchema", () => {
       maxConcurrentSessions: 4,
       agents: {},
     });
+  });
+});
+
+describe("AcpConfigSchema agents", () => {
+  test("a bundled id's entry may omit command and name only a model", () => {
+    const parsed = AcpConfigSchema.parse({
+      agents: { claude: { model: "sonnet" } },
+    });
+
+    expect(parsed.agents).toEqual({ claude: { args: [], model: "sonnet" } });
+    expect("command" in parsed.agents.claude!).toBe(false);
+  });
+
+  test("an id with no bundled profile needs a command", () => {
+    const result = AcpConfigSchema.safeParse({
+      agents: { mine: { model: "sonnet" } },
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+    expect(result.error.issues.map((issue) => issue.path)).toEqual([
+      ["agents", "mine", "command"],
+    ]);
+    expect(result.error.issues[0]?.message).toContain("acp.agents.mine");
+  });
+
+  test("an id naming an Object.prototype member inherits no command", () => {
+    expect(
+      AcpConfigSchema.safeParse({ agents: { constructor: { model: "x" } } })
+        .success,
+    ).toBe(false);
   });
 });
 

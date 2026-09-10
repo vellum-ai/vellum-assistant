@@ -1,17 +1,15 @@
 /**
  * Shared resolver for ACP agent ids → agent config + binary preflight.
  *
- * `resolveAcpAgent(id)` merges user-provided `config.acp.agents[id]` (wins on
- * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
- * `claude` and `codex` Just Work with no per-user config required. `model` is
- * the one leaf that is not inherited across a replaced `command` (see
- * `mergeWithProfile`). Natural
- * names ("claude code", "OpenAI Codex") resolve via `AGENT_ID_ALIASES` when the
- * raw id misses both maps. The result is a discriminated union covering every
- * reason a spawn might fail before we even start the agent process: unknown
- * agent id, or binary missing from PATH. Callers (acp_spawn, acp_list_agents,
- * and the `/v1/acp/spawn` HTTP route) get a single source of truth and
- * matching actionable hints.
+ * `resolveAcpAgent(id)` layers user-provided `config.acp.agents[id]` over the
+ * bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like `claude` and
+ * `codex` Just Work with no per-user config required; `mergeWithProfile` says
+ * what an entry inherits. Natural names ("claude code", "OpenAI Codex")
+ * resolve via `AGENT_ID_ALIASES` when the raw id misses both maps. The result
+ * is a discriminated union covering every reason a spawn might fail before we
+ * even start the agent process: unknown agent id, or binary missing from
+ * PATH. Callers (acp_spawn, acp_list_agents, and the `/v1/acp/spawn` HTTP
+ * route) get a single source of truth and matching actionable hints.
  *
  * The resolver NEVER fetches or runs packages in the (untrusted) task cwd.
  * When the adapter binary is missing, resolution simply fails with
@@ -30,11 +28,13 @@
 import { basename } from "node:path";
 
 import {
+  type AcpAgentProfile,
   DEFAULT_ACP_AGENT_PROFILES,
   DEFAULT_AGENT_NPM_PACKAGES,
 } from "../config/acp-defaults.js";
-import type { AcpAgentConfig } from "../config/acp-schema.js";
+import type { AcpAgentConfig as ConfiguredAcpAgent } from "../config/acp-schema.js";
 import { getConfig } from "../config/loader.js";
+import type { AcpAgentConfig } from "./types.js";
 
 /**
  * Whether this agent's entry came from user config (wins over default) or
@@ -183,7 +183,7 @@ export function lookupAcpAgentConfig(id: string): AcpAgentConfig | undefined {
 }
 
 function lookupAgent(
-  userAgents: Record<string, AcpAgentConfig>,
+  userAgents: Record<string, ConfiguredAcpAgent>,
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource; id: string } | undefined {
   const direct = directLookup(userAgents, id);
@@ -202,7 +202,7 @@ function lookupAgent(
 }
 
 function directLookup(
-  userAgents: Record<string, AcpAgentConfig>,
+  userAgents: Record<string, ConfiguredAcpAgent>,
   id: string,
 ): { agent: AcpAgentConfig; source: AcpAgentSource } | undefined {
   if (PROTOTYPE_SENSITIVE_AGENT_IDS.has(id)) {
@@ -213,10 +213,8 @@ function directLookup(
     ? DEFAULT_ACP_AGENT_PROFILES[id]
     : undefined;
   if (userAgent) {
-    return {
-      agent: mergeWithProfile(userAgent, defaultAgent),
-      source: "config",
-    };
+    const agent = mergeWithProfile(userAgent, defaultAgent);
+    return agent ? { agent, source: "config" } : undefined;
   }
   if (defaultAgent) {
     return { agent: defaultAgent, source: "default" };
@@ -225,42 +223,44 @@ function directLookup(
 }
 
 /**
- * Layer a user config entry over the bundled profile for the same id, field by
- * field, so a leaf the profile ships and the entry omits is inherited rather
- * than dropped: `acp.agents.<id>.model` reads back the profile's model until
- * the user names one of their own. Zod omits absent optional keys, so an
- * omission never spreads as an undefined override.
+ * Fill a user config entry from the bundled profile for the same id. An entry
+ * that runs the profile's adapter (it omits `command`, or names the same
+ * binary, by full path or not) inherits every leaf it leaves out: `command`
+ * itself, the description, and the `model` a session starts on. An entry that
+ * points the id at a different adapter stands alone, like any user-only entry,
+ * so a config that reuses the `claude` id for something else never carries
+ * Claude's description or has Claude's `opus` sent to it. Zod omits absent
+ * optional keys, so an omission never spreads as an undefined override.
  *
- * `model` is the exception, because it is an alias only the profile's own
- * adapter understands. It is inherited only while the profile's `command` is
- * still the one being run; an entry that points the id at a different adapter
- * keeps only the model it names itself, so a config that reuses the `claude`
- * id for something else never has Claude's `opus` sent to it.
+ * `undefined` only for an entry with neither a command nor a profile to take
+ * one from, a shape the config schema rejects before it gets here.
  */
 function mergeWithProfile(
-  userAgent: AcpAgentConfig,
-  profile: AcpAgentConfig | undefined,
-): AcpAgentConfig {
+  userAgent: ConfiguredAcpAgent,
+  profile: AcpAgentProfile | undefined,
+): AcpAgentConfig | undefined {
+  const command = userAgent.command;
   if (!profile) {
-    return userAgent;
+    return command === undefined ? undefined : { ...userAgent, command };
   }
-  const merged: AcpAgentConfig = { ...profile, ...userAgent };
-  const command: string | undefined = userAgent.command;
   // A full path to the bundled binary is still the bundled adapter; the
   // basename is the adapter's identity everywhere else in this module.
-  const runsProfileAdapter =
-    command === undefined || basename(command) === basename(profile.command);
-  if (!runsProfileAdapter && userAgent.model === undefined) {
-    delete merged.model;
+  if (
+    command !== undefined &&
+    basename(command) !== basename(profile.command)
+  ) {
+    return { ...userAgent, command };
   }
-  return merged;
+  return { ...profile, ...userAgent, command: command ?? profile.command };
 }
 
 /**
  * Defaults first (declaration order), then user-only ids. Deduplicated so a
  * user config that overrides a default doesn't list the id twice.
  */
-function mergedAgentIds(userAgents: Record<string, AcpAgentConfig>): string[] {
+function mergedAgentIds(
+  userAgents: Record<string, ConfiguredAcpAgent>,
+): string[] {
   return Array.from(
     new Set([
       ...Object.keys(DEFAULT_ACP_AGENT_PROFILES),
@@ -318,7 +318,8 @@ export function listAcpAgents(): {
   const config = getConfig();
   const userAgents = config.acp.agents;
   const agents: AcpAgentEntry[] = mergedAgentIds(userAgents).map((id) => {
-    // Non-null: ids come from `mergedAgentIds` so the lookup always resolves.
+    // Non-null: ids come from `mergedAgentIds`, and the schema admits a
+    // command-less entry only for a bundled id, so the lookup always resolves.
     const { agent, source } = lookupAgent(userAgents, id)!;
     // Same binary preflight as `resolveAcpAgent`: available iff the command
     // is on PATH. A missing binary is auto-installed at spawn time, but the

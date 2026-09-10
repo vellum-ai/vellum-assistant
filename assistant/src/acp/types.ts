@@ -14,6 +14,11 @@ import type { AcpModelOption } from "./model-config.js";
  */
 export interface AcpAgentConfig extends ConfiguredAcpAgent {
   /**
+   * Always set on a resolved agent: the resolver fills in a bundled profile's
+   * command when the config entry omits it.
+   */
+  command: string;
+  /**
    * Identity of the Claude token `prepareAgentEnv` resolved into `env`,
    * whichever source it came from. Recorded on the history row when Claude
    * refuses it, so the marker can later be compared against the credential a

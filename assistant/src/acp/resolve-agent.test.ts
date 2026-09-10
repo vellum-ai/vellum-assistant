@@ -335,8 +335,8 @@ describe("resolveAcpAgent", () => {
   });
 
   test("a user entry that omits command entirely still inherits the model", () => {
-    // `command` is required by the schema, so this only reaches the resolver
-    // from a hand-edited config that failed validation and was salvaged.
+    // The schema admits a command-less entry for a bundled id; the profile's
+    // command is inherited with the rest.
     config.setConfig({
       agents: {
         claude: JSON.parse('{"args": ["--my-flag"]}'),
@@ -408,6 +408,45 @@ describe("resolveAcpAgent", () => {
     }
     expect(result.agent.command).toBe("my-custom-claude");
     expect(result.agent.model).toBe("my-fork-large");
+  });
+
+  test("a user entry pointing the id at another adapter inherits no description", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "my-custom-claude", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.description).toBeUndefined();
+    const listed = listAcpAgents().agents.find(
+      (entry) => entry.id === "claude",
+    );
+    expect(listed?.command).toBe("my-custom-claude");
+    expect(listed?.description).toBeUndefined();
+  });
+
+  test("a user entry running the profile adapter by full path inherits its description", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "/opt/bin/claude-agent-acp", args: [] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.description).toContain(
+      "@agentclientprotocol/claude-agent-acp",
+    );
   });
 
   test("a bundled profile with no model leaves the resolved agent without one", () => {

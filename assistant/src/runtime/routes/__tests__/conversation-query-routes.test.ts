@@ -1946,7 +1946,7 @@ describe("ingress URL writes through the generic config routes", () => {
   });
 });
 
-describe("PATCH /v1/config clearing a per-agent acp model", () => {
+describe("config writes to a per-agent acp model", () => {
   const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
   const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
 
@@ -1985,5 +1985,19 @@ describe("PATCH /v1/config clearing a per-agent acp model", () => {
     expect("model" in agentEntry(loadRawConfig())).toBe(false);
     expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
     expect(loadConfig().acp.agents.claude?.model).toBeUndefined();
+  });
+
+  test("a model set on a bare bundled entry survives the next load", async () => {
+    rawConfigFixture = {};
+    seedRawConfig();
+
+    await setRoute.handler({
+      body: { path: "acp.agents.claude.model", value: "sonnet" },
+    });
+
+    const entry = agentEntry(loadRawConfig());
+    expect("command" in entry).toBe(false);
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    expect(loadConfig().acp.agents.claude?.model).toBe("sonnet");
   });
 });

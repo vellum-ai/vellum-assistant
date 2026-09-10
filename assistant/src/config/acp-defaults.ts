@@ -1,5 +1,11 @@
 import type { AcpAgentConfig } from "./acp-schema.js";
 
+/**
+ * A bundled profile always names its command; a user entry for the same id
+ * may omit `command` and inherit this one.
+ */
+export type AcpAgentProfile = AcpAgentConfig & { command: string };
+
 // Shared frozen empty args array — these defaults are read by every ACP spawn,
 // so a single accidental `args.push(...)` from one caller would corrupt every
 // subsequent read. Cast through `unknown` because `AcpAgentConfig.args` is
@@ -22,7 +28,7 @@ const FROZEN_EMPTY_ARGS = Object.freeze([] as string[]) as unknown as string[];
  * corrupting the shared defaults.
  */
 export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
-  Record<string, AcpAgentConfig>
+  Record<string, AcpAgentProfile>
 > = Object.freeze({
   claude: Object.freeze({
     command: "claude-agent-acp",
