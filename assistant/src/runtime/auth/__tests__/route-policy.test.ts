@@ -364,21 +364,26 @@ describe("ROUTES policy declarations", () => {
       "HEAD",
       "OPTIONS",
     ];
+    const endpoints = [
+      "x/plugins/:plugin/notices",
+      "x/plugins/:plugin/notices/:path*",
+    ];
     for (const method of methods) {
-      const notice = ROUTES.findIndex(
-        (r) =>
-          r.endpoint === "x/plugins/:plugin/notices/:path*" &&
-          r.method === method,
-      );
       const catchAll = ROUTES.findIndex(
         (r) => r.endpoint === "x/:path*" && r.method === method,
       );
-      expect(notice).toBeGreaterThan(-1);
-      expect(catchAll).toBeGreaterThan(notice);
-      const policy = ROUTES[notice]!.policy;
-      expect(policy).not.toBeNull();
-      expect(policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
-      expect(policy!.requiredScopes).toContain("internal.write");
+      expect(catchAll).toBeGreaterThan(-1);
+      for (const endpoint of endpoints) {
+        const notice = ROUTES.findIndex(
+          (r) => r.endpoint === endpoint && r.method === method,
+        );
+        expect(notice).toBeGreaterThan(-1);
+        expect(catchAll).toBeGreaterThan(notice);
+        const policy = ROUTES[notice]!.policy;
+        expect(policy).not.toBeNull();
+        expect(policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+        expect(policy!.requiredScopes).toContain("internal.write");
+      }
     }
   });
 

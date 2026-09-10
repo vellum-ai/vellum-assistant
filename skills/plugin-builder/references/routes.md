@@ -78,7 +78,7 @@ Authenticated callers (the plugin's own app, local tools) reach the same route o
 
 ## Loading and lifecycle
 
-Route files are loaded lazily on the first matching request and cached by path + mtime. Editing a route file is picked up on the next request — the dispatcher re-reads it when its mtime changes, so there is no restart or reload step. A handler that throws returns 500; a handler that runs longer than the per-request timeout (120s) returns 504.
+Route files are loaded lazily on the first matching request and cached by path + mtime. Editing a route file is picked up on the next request, because the dispatcher re-reads it when its mtime changes, so there is no restart or reload step. A handler that throws returns 500; a handler that runs longer than the per-request timeout (120s) returns 504.
 
 ## Anatomy of a route
 

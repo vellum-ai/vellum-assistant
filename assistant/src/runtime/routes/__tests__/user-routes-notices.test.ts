@@ -41,7 +41,17 @@ import { ROUTES } from "../user-routes.js";
 
 const PLUGIN = "echo-plugin";
 const NOTICE_ENDPOINT = `x/plugins/${PLUGIN}/${PLUGIN_ADMISSION_DENIED_NOTICE_PATH}`;
+const NOTICE_ROOT_ENDPOINT = `x/plugins/${PLUGIN}/notices`;
 const SIBLING_ENDPOINT = `x/plugins/${PLUGIN}/status`;
+const METHODS = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+] as const;
 
 const ECHO_HANDLER = `
 function echo(request) {
@@ -52,6 +62,9 @@ function echo(request) {
 }
 export const GET = echo;
 export const POST = echo;
+export const PUT = echo;
+export const PATCH = echo;
+export const DELETE = echo;
 `;
 
 interface EchoBody {
@@ -99,6 +112,7 @@ beforeEach(() => {
     join(routesDir, "notices", "admission-denied.ts"),
     ECHO_HANDLER,
   );
+  writeFileSync(join(routesDir, "notices", "index.ts"), ECHO_HANDLER);
   writeFileSync(join(routesDir, "status.ts"), ECHO_HANDLER);
 });
 
@@ -115,7 +129,7 @@ async function dispatch(
   const req = new Request(url, {
     method,
     headers: { "content-type": "application/json" },
-    body: method === "GET" ? undefined : "{}",
+    body: method === "GET" || method === "HEAD" ? undefined : "{}",
   });
   const response = await router.dispatch(
     endpoint,
@@ -142,8 +156,55 @@ describe("plugin notice routes", () => {
   });
 
   test("the reservation covers every method under the prefix", async () => {
-    const response = await dispatch("GET", NOTICE_ENDPOINT, ACTOR);
-    expect(response.status).toBe(403);
+    for (const method of METHODS) {
+      const response = await dispatch(method, NOTICE_ENDPOINT, ACTOR);
+      expect(response.status).toBe(403);
+    }
+  });
+
+  test("the namespace root is reserved too", async () => {
+    // `routes/notices/index.ts` is a handler at `notices`, which no catch-all
+    // param can match, so it has its own definition. The trailing-slash
+    // spelling normalizes to the same endpoint.
+    expect((await dispatch("POST", NOTICE_ROOT_ENDPOINT, ACTOR)).status).toBe(
+      403,
+    );
+    expect(
+      (await dispatch("POST", `${NOTICE_ROOT_ENDPOINT}/`, ACTOR)).status,
+    ).toBe(403);
+    const response = await dispatch("POST", NOTICE_ROOT_ENDPOINT, GATEWAY);
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as EchoBody;
+    expect(body.principalType).toBe("svc_gateway");
+  });
+
+  test("a respelled path does not reach the handler through the catch-all", async () => {
+    // The notice definitions match literal segments on the wire spelling;
+    // the catch-all decodes and the filesystem folds, so each of these would
+    // otherwise resolve to `notices/admission-denied.ts` under the actor
+    // policy.
+    const respellings = [
+      `x/plugins/${PLUGIN}/%6eotices/admission-denied`,
+      `x/%70lugins/${PLUGIN}/notices/admission-denied`,
+      `x/plugins/${PLUGIN}//notices/admission-denied`,
+      `x/plugins/${PLUGIN}/./notices/admission-denied`,
+      `x/plugins/${PLUGIN}/Notices/admission-denied`,
+      `x/plugins/${PLUGIN}/%6eotices`,
+    ];
+    for (const endpoint of respellings) {
+      const response = await dispatch("POST", endpoint, ACTOR);
+      expect(response.status).toBe(403);
+    }
+  });
+
+  test("a respelling of an ordinary plugin route still serves", async () => {
+    // The refusal is about the namespace, not about encoding in general.
+    const response = await dispatch(
+      "POST",
+      `x/plugins/${PLUGIN}/%73tatus`,
+      ACTOR,
+    );
+    expect(response.status).toBe(200);
   });
 
   test("the gateway's service principal reaches the plugin's handler", async () => {
