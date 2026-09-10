@@ -30,12 +30,16 @@ export interface DocumentConversationRef {
  * session-cached id from a previous resolution (4h TTL, see
  * `edit-chat-session.ts`), then a freshly minted draft id.
  *
+ * A document still open against a client draft the daemon has since replaced
+ * resolves to the row that replaced it, whether or not the draft mark is still
+ * set and whether or not the document's own relink has landed. A draft id is
+ * one the daemon has never heard of, so sending against it would 404 on an
+ * assistant that strict-looks-up conversation ids.
+ *
  * A document's own id yields to the cache while that id is still a
  * client-minted draft and the cache names a different row. That pairing is a
  * send that minted a row for this document and failed to link it: the minted
- * row is the one to reuse, and the draft id is one the daemon has never heard
- * of, so sending against it would 404 on an assistant that strict-looks-up
- * conversation ids.
+ * row is the one to reuse.
  *
  * Deliberately does not persist the result: a caller that resolves a fresh or
  * reused id but never successfully sends against it must not leave that id
@@ -47,6 +51,12 @@ export function resolveDocumentConversationId(
   doc: DocumentConversationRef,
   assistantId: string,
 ): string {
+  const replacement = useConversationStore
+    .getState()
+    .resolvedDraftConversationIds.get(doc.conversationId);
+  if (replacement) {
+    return replacement;
+  }
   const cached = getEditChatConversationId(assistantId, doc.surfaceId);
   if (
     cached &&

@@ -47,7 +47,10 @@ const OPENED_DOC = {
 beforeEach(() => {
   window.sessionStorage.clear();
   documentsByIdConversationsPostMock.mockClear();
-  useConversationStore.setState({ draftConversationIds: new Set() });
+  useConversationStore.setState({
+    draftConversationIds: new Set(),
+    resolvedDraftConversationIds: new Map(),
+  });
   useViewerStore.setState({ openedDocumentState: null });
 });
 
@@ -84,6 +87,57 @@ describe("resolveDocumentConversationId", () => {
     // link: the draft the document is still open against is an id the daemon
     // has never heard of.
     expect(id).toBe("conv-minted");
+  });
+
+  test("resolves a retired draft to the row that replaced it", () => {
+    useConversationStore
+      .getState()
+      .recordResolvedDraftConversationId("conv-draft", "conv-minted");
+
+    const id = resolveDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
+      ASSISTANT_ID,
+    );
+
+    // The main send clears the draft mark before the document's own relink
+    // runs, so the mapping is all that stands between this document and an id
+    // the daemon has never minted.
+    expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
+    expect(getEditChatConversationId(ASSISTANT_ID, SURFACE_ID)).toBeNull();
+    expect(id).toBe("conv-minted");
+  });
+
+  test("prefers the recorded replacement over a cache naming another row", () => {
+    useConversationStore
+      .getState()
+      .recordResolvedDraftConversationId("conv-draft", "conv-minted");
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-cached",
+    );
+
+    const id = resolveDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
+      ASSISTANT_ID,
+    );
+
+    // The daemon named the replacement; the cache only ever holds a row a
+    // client picked.
+    expect(id).toBe("conv-minted");
+  });
+
+  test("leaves a linked conversation alone when an unrelated draft was replaced", () => {
+    useConversationStore
+      .getState()
+      .recordResolvedDraftConversationId("conv-other-draft", "conv-other");
+
+    const id = resolveDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "conv-linked" },
+      ASSISTANT_ID,
+    );
+
+    expect(id).toBe("conv-linked");
   });
 
   test("keeps the document's own conversation ahead of the cache when it is not a draft", () => {

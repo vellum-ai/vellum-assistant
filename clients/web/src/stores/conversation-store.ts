@@ -27,6 +27,9 @@
  *   yet, so surfaces can tell "this conversation is empty because it is brand
  *   new" apart from "this conversation is empty because history is still
  *   loading" (see the field doc below)
+ * - `resolvedDraftConversationIds`: each client draft id the daemon has
+ *   replaced, mapped to the row that replaced it, so a surface holding the
+ *   retired id can still find the live one (see the field doc below)
  * - `pendingDraftProfiles` — model profiles picked in the composer for
  *   conversations whose row isn't loaded yet (drafts, or URL-opened
  *   conversations mid-load), keyed by conversation id (see field doc below)
@@ -120,6 +123,21 @@ export interface ConversationListState {
    */
   draftConversationIds: Set<string>;
   /**
+   * Client draft conversation ids the daemon has replaced, each mapped to the
+   * server row that replaced it.
+   *
+   * `draftConversationIds` answers "is this id still unresolved", which stops
+   * being true the moment a send lands, and a draft id is a plain UUID that
+   * says nothing about its own origin. A surface still holding the retired id
+   * (a document opened against the draft, whose own relink runs asynchronously
+   * and may fail) reads this to reach the live row instead of sending against
+   * an id the daemon has never minted.
+   *
+   * Session-scoped like the draft marks themselves: a reload starts empty,
+   * where an id surviving in the URL is a real conversation again.
+   */
+  resolvedDraftConversationIds: ReadonlyMap<string, string>;
+  /**
    * Model profiles picked in the composer for conversations that have no server
    * row loaded yet, keyed by conversation id → profile name. Two situations
    * land here, both because the composer's `conversationId` prop is undefined
@@ -194,6 +212,14 @@ export interface ConversationListActions {
   registerDraftConversationId: (conversationId: string) => void;
   /** Drop the draft mark once the key resolves server-side (no-op when absent). */
   clearDraftConversationId: (conversationId: string) => void;
+  /**
+   * Record the server row that replaced a client draft id. No-op when the
+   * daemon kept the client key, since there is no replacement to point at.
+   */
+  recordResolvedDraftConversationId: (
+    draftConversationId: string,
+    conversationId: string,
+  ) => void;
 
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
@@ -229,6 +255,7 @@ const INITIAL_STATE: ConversationListState = {
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
   draftConversationIds: new Set(),
+  resolvedDraftConversationIds: new Map(),
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
 };
@@ -374,6 +401,25 @@ export const useConversationStore = createSelectors(
       });
     },
 
+    recordResolvedDraftConversationId: (
+      draftConversationId,
+      conversationId,
+    ) => {
+      if (draftConversationId === conversationId) {
+        return;
+      }
+      const current = get().resolvedDraftConversationIds;
+      if (current.get(draftConversationId) === conversationId) {
+        return;
+      }
+      set({
+        resolvedDraftConversationIds: new Map(current).set(
+          draftConversationId,
+          conversationId,
+        ),
+      });
+    },
+
     // --- Pending draft profiles ---
 
     setPendingDraftProfile: (conversationId, profile) => {
@@ -463,6 +509,7 @@ export const useConversationStore = createSelectors(
         processingSnapshots: new Map(),
         attentionConversationIds: new Set(),
         draftConversationIds: new Set(),
+        resolvedDraftConversationIds: new Map(),
         pendingDraftProfiles: new Map(),
         pendingDraftPlugins: new Map(),
       });

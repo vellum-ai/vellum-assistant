@@ -1178,6 +1178,14 @@ export function useSendMessage({
             activeConversationId,
             newConversationId,
           );
+          // The draft mark is already off, so a surface still holding the
+          // draft id needs the mapping to find the row that replaced it.
+          useConversationStore
+            .getState()
+            .recordResolvedDraftConversationId(
+              activeConversationId,
+              newConversationId,
+            );
           resolveEditChatDraftConversationId(
             activeConversationId,
             newConversationId,

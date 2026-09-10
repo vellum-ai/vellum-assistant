@@ -151,5 +151,12 @@ describe("useSendMessage: a mint that assigns a different id", () => {
     expect(getEditChatConversationId("assistant-1", SURFACE_ID)).toBe(
       MINTED_ID,
     );
+    // The draft mark is already off by this point, so the mapping is what a
+    // document still holding the draft id resolves through.
+    expect(
+      useConversationStore
+        .getState()
+        .resolvedDraftConversationIds.get(DRAFT_ID),
+    ).toBe(MINTED_ID);
   });
 });

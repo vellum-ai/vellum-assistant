@@ -388,6 +388,7 @@ beforeEach(() => {
     processingConversationIds: new Set(),
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
+    resolvedDraftConversationIds: new Map(),
   });
   useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
   useViewerStore.setState({ openedDocumentState: null });
@@ -513,6 +514,11 @@ describe("conversation id resolution", () => {
     // The local draft mark is gone: nothing is left registered as an
     // unconfirmed client-side draft once the assistant has minted a row.
     expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
+    // The draft the mint replaced maps to the minted row, so a surface still
+    // holding that id resolves to the row instead of the dead draft.
+    expect([
+      ...useConversationStore.getState().resolvedDraftConversationIds.values(),
+    ]).toEqual([MINTED_CONVERSATION_ID]);
     expect(
       useConversationStore
         .getState()
