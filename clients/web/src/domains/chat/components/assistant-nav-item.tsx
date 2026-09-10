@@ -54,6 +54,7 @@ import {
   SIDEBAR_ASSISTANT_DISC_SIZE as DISC_SIZE,
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
+  SIDEBAR_PILL_GAP_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -388,6 +389,9 @@ export function AssistantNavItem({
         label={t("assistantNavItem.newChat")}
         onSelect={onNewConversation}
         style={newConversationTint}
+        /* Its label 28px in, on the line the pinned apps' and the section
+           headers' labels start on. */
+        className={SIDEBAR_PILL_GAP_CLASSES}
         data-tour-id="new-chat"
       />
     </NewChatTooltip>

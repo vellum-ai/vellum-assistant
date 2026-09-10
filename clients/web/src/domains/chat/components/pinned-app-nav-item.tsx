@@ -1,9 +1,10 @@
-import { PinOff, Rocket } from "lucide-react";
+import { PinOff } from "lucide-react";
 import { useMemo } from "react";
 
 import {
   SIDEBAR_CHIP_CLASSES,
   SIDEBAR_MOBILE_GLYPH_CLASSES,
+  SIDEBAR_PILL_GAP_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 
@@ -12,6 +13,11 @@ import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
+import {
+  AppIcon,
+  DEFAULT_APP_ICON,
+  getAppIcon,
+} from "@/utils/app-icon-registry";
 import { cn, ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
@@ -86,9 +92,11 @@ export function PinnedAppNavItem({
      covers both shapes. */
   const tintStyle = pinTintStyle(app.pinColor);
 
-  /* The Lucide fallback for an app whose manifest carries no emoji. */
-  const LeadingIcon =
-    typeof app.icon === "string" ? Rocket : (app.icon ?? Rocket);
+  /* The app's icon as the manifest names it: a Lucide glyph from the app
+     icon registry (an emoji maps to one), or the default glyph for an app
+     the registry cannot place. The tile takes the constructor; the pill
+     renders through `AppIcon`. */
+  const leadingIcon = getAppIcon(app.icon) ?? DEFAULT_APP_ICON;
 
   /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
      array each render would re-mint them each render. */
@@ -108,10 +116,8 @@ export function PinnedAppNavItem({
   const sideMenuItem = (
     <SideMenu.Item
       style={tintStyle}
-      // Apps source their icon as an emoji string on the manifest
-      // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
-      // apps still get a leading icon in the rail.
-      icon={app.icon ?? Rocket}
+      /* The same glyph the expanded pill leads with. */
+      icon={leadingIcon}
       label={app.name}
       /* The collapsed-rail affordance, surface included. */
       shape="tile"
@@ -165,10 +171,9 @@ export function PinnedAppNavItem({
       shape="pill"
       /* The glyph in a chip rather than at its own width, so on a phone the
          pill's label starts where the assistant's name does and the glyph
-         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`). An
-         app's icon is an emoji string on its manifest; the Rocket stands in
-         for an app with no emoji, at the size and in the ink `PanelItem`
-         gives a leading icon. */
+         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`),
+         drawn at the size and in the ink `PanelItem` gives a leading
+         icon. */
       leadingSlot={
         <span
           aria-hidden
@@ -177,28 +182,23 @@ export function PinnedAppNavItem({
             SIDEBAR_CHIP_CLASSES,
           )}
         >
-          {typeof app.icon === "string" ? (
-            <span className="text-[14px] leading-none max-md:text-[16px]">
-              {app.icon}
-            </span>
-          ) : (
-            <LeadingIcon
-              size={14}
-              aria-hidden
-              className={cn(
-                SIDEBAR_MOBILE_GLYPH_CLASSES,
-                "shrink-0 text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
-                "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
-                "group-aria-[current=page]:text-[var(--content-default)]",
-              )}
-            />
-          )}
+          <AppIcon
+            icon={app.icon}
+            size={14}
+            aria-hidden
+            className={cn(
+              SIDEBAR_MOBILE_GLYPH_CLASSES,
+              "shrink-0 text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
+              "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
+              "group-aria-[current=page]:text-[var(--content-default)]",
+            )}
+          />
         </span>
       }
       label={app.name}
       active={active}
       onSelect={onOpen ? () => onOpen(app.id) : undefined}
-      className="max-md:w-full"
+      className={cn("max-md:w-full", SIDEBAR_PILL_GAP_CLASSES)}
       trailingAction={
         <button
           type="button"
