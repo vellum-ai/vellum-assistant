@@ -28,10 +28,12 @@ import { t } from "@/i18n";
  * surface reports, which is the word the assistant was told it had pointed
  * at, so the two agree about which step this is.
  *
- * **Kept if the assistant is mid-reply.** A press usually lands while the
- * assistant is still saying the step, and the assistant refuses a typed turn
- * until its reply has been heard. Nobody is watching a composer for this
- * turn, so a refusal has to be put again rather than shown.
+ * **Cuts in, and is kept.** A press usually lands while the assistant is
+ * still saying the step. A person who saw the step done would stop
+ * explaining it, so the press does the same: it cuts the reply off and takes
+ * the turn. If the assistant still refuses it (its microphone hearing the
+ * speakers holds the floor for a while), nobody is watching a composer for
+ * this turn, so the refusal is put again rather than shown.
  *
  * Nothing to say when no session is up: marks only stand on a share, and a
  * share only exists on a call, so this is the press outliving the call.
@@ -43,6 +45,7 @@ export function reportCoachmarkPressed(label: string): boolean {
   }
   return (
     store.starter?.sendText(t("chat:coachmarkPress.turn", { label }), {
+      bargeIn: true,
       retryWhenBusy: true,
     }) === true
   );

@@ -424,14 +424,16 @@ interface SessionContext {
 
 /**
  * How long a typed turn refused for being mid-reply waits before it is put
- * again, and how many times. The assistant refuses a typed turn while its
- * last reply is still audible, and says nothing about when that ends, so the
- * turn is put again on a short cadence until it is taken. The cap is the
- * longest a reply's tail plausibly runs; past it the turn is dropped, since a
- * click the user made that long ago is one the next frame already shows.
+ * again. The assistant refuses a typed turn while its last reply is still
+ * audible, or while it takes the microphone to be mid-word, and says nothing
+ * about when that ends, so the turn is put again on a short cadence until it
+ * is taken. There is no cap: the floor can stay held for longer than any
+ * reply runs (a microphone hearing the speakers holds it), and a turn dropped
+ * for that is a click the assistant never hears. What ends it instead is a
+ * turn starting, see the `thinking` handler: either this turn was taken, or
+ * the user said something after it and those words are the ones that stand.
  */
 const BUSY_TYPED_TURN_RETRY_MS = 500;
-const BUSY_TYPED_TURN_RETRY_LIMIT = 30;
 
 /** Number of bytes per Int16 PCM sample. */
 const BYTES_PER_SAMPLE = 2;
@@ -1206,6 +1208,11 @@ export function useLiveVoice(
           session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
+          // A turn starting settles a kept typed turn too: it is either this
+          // turn, taken at last, or one the user spoke after it, and words
+          // put after it are the ones that stand. Either way there is
+          // nothing left to put again.
+          clearBusyRetry(session);
           // The previous response's measurement is spent — a `metrics` frame
           // for THIS turn must pair with this turn's own first audio (or
           // null, for a response that produces none).
@@ -1912,9 +1919,16 @@ function releasePushToTalk(session: SessionContext): void {
 function sendTextTurn(
   session: SessionContext,
   text: string,
-  options?: { hidden?: boolean; retryWhenBusy?: boolean },
+  options?: LiveVoiceTypedTurnOptions & { hidden?: boolean },
 ): boolean {
   const hidden = options?.hidden === true;
+  // The cut-in goes first so the daemon reads the two frames in order: the
+  // interrupt cancels the reply, then the text starts the next turn. Only a
+  // hands-free session survives its own interrupt; a manual one ends on it,
+  // so there the turn is sent as is and kept until the reply has been heard.
+  if (options?.bargeIn === true && session.handsFree) {
+    interruptTurnHandsFree(session, { whileThinking: true });
+  }
   const sent = session.client.sendText(text, { hidden });
   if (sent) {
     session.speechEndedAtMs = performance.now();
@@ -1932,8 +1946,7 @@ function sendTextTurn(
 /**
  * The assistant refused the last typed turn. Put it again after a moment if
  * it asked to be kept and the refusal was only that the assistant was still
- * replying; forget it for any other refusal, or once it has been put
- * {@link BUSY_TYPED_TURN_RETRY_LIMIT} times.
+ * replying; forget it for any other refusal.
  *
  * The retry goes through the client alone rather than {@link sendTextTurn}:
  * the latency anchor was stamped when the turn first went out, and the turn
@@ -1947,7 +1960,7 @@ function retryBusyTypedTurn(
   if (retry === null) {
     return;
   }
-  if (reason !== "busy" || retry.attempts >= BUSY_TYPED_TURN_RETRY_LIMIT) {
+  if (reason !== "busy") {
     clearBusyRetry(session);
     return;
   }
@@ -2010,9 +2023,20 @@ function interruptIfSpeaking(
  * Unlike the manual barge-in above this does not require `player.isPlaying`:
  * `speaking` can hold between chunks with more audio still inbound, and the
  * cancel must land regardless.
+ *
+ * `whileThinking` also cuts in on a reply that has not started speaking. The
+ * daemon cancels any turn that is not yet final either way; the default
+ * leaves a thinking turn alone because the stop control is about playback.
  */
-function interruptTurnHandsFree(session: SessionContext): void {
-  if (useLiveVoiceStore.getState().state !== "speaking") {
+function interruptTurnHandsFree(
+  session: SessionContext,
+  options?: { whileThinking?: boolean },
+): void {
+  const state = useLiveVoiceStore.getState().state;
+  const inReply =
+    state === "speaking" ||
+    (options?.whileThinking === true && state === "thinking");
+  if (!inReply) {
     return;
   }
   if (session.interruptSent) {

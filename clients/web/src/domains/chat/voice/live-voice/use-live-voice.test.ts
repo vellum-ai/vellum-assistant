@@ -3678,6 +3678,185 @@ describe("speak first (seed turn)", () => {
       });
       expect(h.client.sentText).toEqual(["I clicked Share"]);
     });
+
+    /**
+     * The floor can stay held for longer than any reply runs, and a turn
+     * dropped for that is a click the assistant never hears.
+     */
+    test("is put again for as long as it is refused", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      h.view.result.current.sendText("I clicked Share", {
+        retryWhenBusy: true,
+      });
+      for (let round = 0; round < 3; round += 1) {
+        act(() => {
+          h.client.emit("textTurnRejected", {
+            reason: "busy",
+            message: "busy",
+          });
+        });
+        await act(async () => {
+          await sleep(RETRY_WAIT_MS);
+        });
+      }
+      expect(h.client.sentText).toHaveLength(4);
+    });
+
+    /** A turn starting is the turn taken, or the user's own words after it. */
+    test("settles once a turn starts", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      h.view.result.current.sendText("I clicked Share", {
+        retryWhenBusy: true,
+      });
+      act(() => {
+        h.client.emit("textTurnRejected", { reason: "busy", message: "busy" });
+        h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      });
+
+      await act(async () => {
+        await sleep(RETRY_WAIT_MS);
+      });
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+    });
+  });
+
+  /**
+   * A press on a pointed-at control lands while the assistant is still
+   * saying the step. It cuts the reply off and takes the turn, the way a
+   * person stops explaining a step once they see it done.
+   */
+  describe("a typed turn that barges in", () => {
+    function driveToSpeaking(h: ReturnType<typeof renderController>) {
+      act(() => {
+        h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+        h.client.emit("ttsAudio", {
+          type: "tts_audio",
+          seq: 3,
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          dataBase64: "AAAA",
+        });
+      });
+      expect(h.view.result.current.state).toBe("speaking");
+    }
+
+    test("cuts off a reply being spoken, then goes out", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+      driveToSpeaking(h);
+
+      let sent = false;
+      act(() => {
+        sent = h.view.result.current.sendText("I clicked Share", {
+          bargeIn: true,
+        });
+      });
+      expect(sent).toBe(true);
+
+      expect(h.client.interruptCount).toBe(1);
+      expect(h.player.stopCount).toBeGreaterThan(0);
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+      // Turn-scoped: the session survives on the same socket.
+      expect(h.view.result.current.state).toBe("listening");
+      expect(h.client.closed).toBe(false);
+    });
+
+    test("cuts off a reply still being thought about", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+      act(() => {
+        h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      });
+      expect(h.view.result.current.state).toBe("thinking");
+
+      act(() => {
+        h.view.result.current.sendText("I clicked Share", { bargeIn: true });
+      });
+
+      expect(h.client.interruptCount).toBe(1);
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+      expect(h.view.result.current.state).toBe("listening");
+    });
+
+    test("has nothing to cut off while listening", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+
+      act(() => {
+        h.view.result.current.sendText("I clicked Share", { bargeIn: true });
+      });
+
+      expect(h.client.interruptCount).toBe(0);
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+    });
+
+    /**
+     * A manual session does not survive its own interrupt, so there the turn
+     * is sent as is and left to the retry.
+     */
+    test("does not interrupt a manual session", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h);
+      driveToSpeaking(h);
+
+      act(() => {
+        h.view.result.current.sendText("I clicked Share", {
+          bargeIn: true,
+          retryWhenBusy: true,
+        });
+      });
+
+      expect(h.client.interruptCount).toBe(0);
+      expect(h.client.sentText).toEqual(["I clicked Share"]);
+      expect(h.view.result.current.state).toBe("speaking");
+    });
+
+    /** The reply the press cut off must not resurface as its own reply. */
+    test("drops audio still in transit from the reply it cut off", async () => {
+      const h = renderController();
+      h.client.textInputSupported = true;
+      await startListening(h, { handsFree: true });
+      driveToSpeaking(h);
+      const enqueuedBefore = h.player.enqueued.length;
+
+      act(() => {
+        h.view.result.current.sendText("I clicked Share", { bargeIn: true });
+      });
+      act(() => {
+        h.client.emit("ttsAudio", {
+          type: "tts_audio",
+          seq: 4,
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          dataBase64: "AAAA",
+        });
+      });
+      expect(h.player.enqueued).toHaveLength(enqueuedBefore);
+
+      // The turn the press started lifts the guard.
+      act(() => {
+        h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
+        h.client.emit("ttsAudio", {
+          type: "tts_audio",
+          seq: 6,
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          dataBase64: "AAAA",
+        });
+      });
+      expect(h.player.enqueued).toHaveLength(enqueuedBefore + 1);
+      expect(h.view.result.current.state).toBe("speaking");
+    });
   });
 
   /**

@@ -1,7 +1,7 @@
 /**
  * A press on a pointed-at control becomes the user's turn on the running
- * call, kept if the assistant is mid-reply, and nothing at all when there is
- * no call to tell.
+ * call, cutting in on and kept past a reply in progress, and nothing at all
+ * when there is no call to tell.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -27,7 +27,7 @@ beforeEach(() => {
 });
 
 describe("reportCoachmarkPressed", () => {
-  test("puts the press to a running session as a turn that is kept if busy", () => {
+  test("puts the press to a running session as a turn that cuts in and is kept", () => {
     registerStarter();
     useLiveVoiceStore.getState().setState("speaking");
 
@@ -36,7 +36,7 @@ describe("reportCoachmarkPressed", () => {
     expect(sendText).toHaveBeenCalledTimes(1);
     const [text, options] = sendText.mock.calls[0]!;
     expect(text).toContain("Share");
-    expect(options).toEqual({ retryWhenBusy: true });
+    expect(options).toEqual({ bargeIn: true, retryWhenBusy: true });
   });
 
   test("resolves real copy, not a key path", () => {
