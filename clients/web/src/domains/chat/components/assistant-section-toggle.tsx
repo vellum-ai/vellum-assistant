@@ -1,15 +1,16 @@
-import { ChevronUp, MessageSquare } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 
 import {
   getGroupIndicatorState,
   GroupIndicatorDot,
 } from "@/domains/chat/components/collapsed-group-icon";
+import { SIDEBAR_ASSISTANT_DISC_SIZE } from "@/components/sidebar-nav-geometry";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useTranslation } from "@/i18n";
-import { contrastForeground } from "@/utils/avatar-tone";
+import { toneForBg } from "@/utils/avatar-tone";
 import { cn } from "@vellumai/design-library";
 
 export interface AssistantSectionToggleProps {
@@ -24,9 +25,11 @@ export interface AssistantSectionToggleProps {
 
 /**
  * The round button beside the assistant pill that opens the assistant's own
- * section beneath it: a disc in the avatar's colour, the pill's own solid
- * surface, carrying a chat glyph while the section is closed and a chevron
- * while it is open, so the control says what pressing it does next.
+ * section beneath it: a disc the size of the one the eyes sit on, in the
+ * avatar's colour, carrying a chat glyph in both states: the glyph names
+ * what the button reaches (her threads), and `aria-expanded` with the
+ * accessible name say which way the next press goes. The glyph is drawn at
+ * the size every other leading icon in the rail is.
  *
  * While the section is closed its header is not on screen, so the activity
  * dot that header would carry (a thread waiting on the user, a reply the
@@ -56,7 +59,6 @@ export function AssistantSectionToggle({
         attentionConversationIds,
         section.unread,
       );
-  const Glyph = open ? ChevronUp : MessageSquare;
 
   return (
     <button
@@ -70,8 +72,7 @@ export function AssistantSectionToggle({
       data-slot="assistant-section-toggle"
       className={cn(
         "relative flex shrink-0 cursor-pointer items-center justify-center rounded-full",
-        "size-[var(--side-menu-tile-size,36px)]",
-        "shadow-[var(--shadow-lg)] transition-[filter,transform] duration-150 active:scale-[0.98]",
+        "transition-[filter,transform] duration-150 active:scale-[0.98]",
         "outline-none keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)]",
         /* No avatar colour to wear (an uploaded image, or a still-loading
            avatar): the plain raised surface every untinted row falls back
@@ -80,13 +81,17 @@ export function AssistantSectionToggle({
           ? "[@media(hover:hover)]:hover:brightness-105"
           : "bg-[var(--surface-active)] text-[var(--content-default)] [@media(hover:hover)]:hover:bg-[var(--surface-hover)]",
       )}
-      style={
-        accentHex
-          ? { backgroundColor: accentHex, color: contrastForeground(accentHex) }
-          : undefined
-      }
+      style={{
+        width: SIDEBAR_ASSISTANT_DISC_SIZE,
+        height: SIDEBAR_ASSISTANT_DISC_SIZE,
+        /* The glyph's ink by the avatar surfaces' own rule: black on the
+           light colour (yellow), white on every other. */
+        ...(accentHex
+          ? { backgroundColor: accentHex, color: toneForBg(accentHex).fg }
+          : undefined),
+      }}
     >
-      <Glyph aria-hidden className="size-4" />
+      <MessageSquare aria-hidden className="size-3.5 max-md:size-4" />
       {indicator ? (
         <GroupIndicatorDot
           state={indicator}

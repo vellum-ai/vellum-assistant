@@ -51,6 +51,7 @@ import {
 } from "@vellumai/design-library";
 
 import {
+  SIDEBAR_ASSISTANT_DISC_SIZE as DISC_SIZE,
   SIDEBAR_CHIP_GAP,
   SIDEBAR_CHIP_SIZE as CHIP_SIZE,
 } from "@/components/sidebar-nav-geometry";
@@ -58,7 +59,7 @@ import { useCommandShortcutHint } from "@/hooks/use-command-shortcut";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
-import { contrastForeground } from "@/utils/avatar-tone";
+import { toneForBg } from "@/utils/avatar-tone";
 
 /**
  * The pill's leading disc (Figma 8300:167392): 32px in the 36px pill, inset
@@ -67,7 +68,6 @@ import { contrastForeground } from "@/utils/avatar-tone";
  * centred, so the eyes sit on the same axis they did in the bare chip and
  * the section glyphs below still centre on them.
  */
-const DISC_SIZE = 32;
 const DISC_GAP = 6;
 
 /**
@@ -83,6 +83,40 @@ const DISC_PILL_CLASSES =
 const DISC_PILL_STYLE: CustomPropertyStyle = {
   "--panel-item-gap": `${DISC_GAP}px`,
 };
+
+/**
+ * The hover flood, the identity page's feature-card takeover in miniature:
+ * a layer of the avatar's colour under the pill's content, clipped to the
+ * disc at rest and growing from the disc's centre to cover the capsule on
+ * hover, so the disc reads as swelling to fill its pill. The same timing
+ * the cards use, 0.5s out on the way in and 0.35s in on the way out, and
+ * only where a pointer can hover: a touch has no rest state to return to.
+ *
+ * The clip's circle is anchored on the disc's centre, 2px of inset plus its
+ * 16px radius from the leading edge and halfway down, and the flooded
+ * radius is 141% (the far corner of a wide capsule sits about its full
+ * width from that point, and the percentage's reference is the box's
+ * diagonal over root two, so 100% falls short of it).
+ *
+ * `-z-10` puts the layer under the label and the disc; `isolate` on the
+ * pill keeps that below-content position from also being below the pill's
+ * own background, which would hide it entirely.
+ */
+const FLOOD_CLASSES = cn(
+  "pointer-events-none absolute inset-0 -z-10",
+  "[clip-path:circle(16px_at_18px_50%)]",
+  "transition-[clip-path] duration-[350ms] ease-in motion-reduce:transition-none",
+  "[@media(hover:hover)]:group-hover/panel-item:[clip-path:circle(141%_at_18px_50%)]",
+  "[@media(hover:hover)]:group-hover/panel-item:duration-500",
+  "[@media(hover:hover)]:group-hover/panel-item:ease-out",
+);
+/* The pill under the flood: a stacking context and a clip for the layer,
+   and the name in the flood's own contrast ink while it is covered. `!` on
+   the hover ink, so it beats the current-page ink at the same specificity. */
+const FLOODED_PILL_CLASSES = cn(
+  "isolate overflow-hidden transition-colors duration-300",
+  "[@media(hover:hover)]:hover:text-[color:var(--pill-flood-fg)]!",
+);
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
@@ -145,7 +179,7 @@ interface AssistantNavItemProps {
    */
   expansion?: ReactNode;
   /**
-   * Stands beside the pill on its own row, against the row's far edge (the
+   * Stands beside the pill on its own row, a step after the name (the
    * toggle for the assistant's own section). Off the collapsed rail, whose
    * tile has no row, and out of the tour's drained nav, like
    * `trailingAction`; and gone while an `expansion` holds the row.
@@ -381,11 +415,12 @@ export function AssistantNavItem({
   const pillGapClass = pillTrailingAction ? "gap-[12px]" : undefined;
   const rowAside = !collapsed && !navTourActive ? aside : undefined;
   const rowBeneath = !collapsed && !navTourActive ? beneath : undefined;
-  /* The pill keeps hugging its label; the aside takes the row's far edge, so
-     it stands on the line the section cards' own controls end on. */
+  /* The pill keeps hugging its label and the aside follows it at the stack's
+     own gap, so the two read as one cluster rather than a pill and a button
+     at opposite ends of the rail. */
   const withAside = (row: ReactNode): ReactNode =>
     rowAside ? (
-      <div className="flex items-center justify-between gap-2">
+      <div className={cn("flex items-center", SIDEBAR_STACK_GAP)}>
         {row}
         {rowAside}
       </div>
@@ -511,9 +546,11 @@ export function AssistantNavItem({
     );
   }
 
-  // The name's tone on the avatar-colored row: white on every avatar color
-  // except the light ones (yellow), where white would wash out.
-  const fg = contrastForeground(hex);
+  // The ink on the avatar colour (the collapsed tile, the flooded pill, the
+  // Brain on the disc): white on every avatar colour except the light one
+  // (yellow), where white would wash out. The avatar surfaces' own rule, so
+  // the cluster agrees with the section toggle beside it.
+  const fg = toneForBg(hex).fg;
 
   const eyesSvg = eye && (
     <svg
@@ -548,7 +585,9 @@ export function AssistantNavItem({
   const tintStyle: CustomPropertyStyle = {
     ...(!navTourActive && hex ? panelItemWashStyle(hex) : undefined),
     ...DISC_PILL_STYLE,
+    "--pill-flood-fg": fg,
   };
+  const floods = !navTourActive && Boolean(hex);
 
   /* The eyes, holding still in the pill's leading disc: centred in the same
      chip-width box the section icons use, and that box centred in the disc,
@@ -602,6 +641,17 @@ export function AssistantNavItem({
         color: fg,
       }}
     >
+      {/* Inside the disc's slot rather than a sibling of the pill's content,
+          which `PanelItem` gives no slot for; `absolute` places it against
+          the pill (the nearest positioned box), not the disc. */}
+      {floods ? (
+        <span
+          aria-hidden="true"
+          data-slot="assistant-pill-flood"
+          className={FLOOD_CLASSES}
+          style={{ backgroundColor: hex }}
+        />
+      ) : null}
       {eyesSlot}
     </span>
   );
@@ -658,7 +708,11 @@ export function AssistantNavItem({
         active={active}
         onSelect={onSelect}
         trailingAction={pillTrailingAction}
-        className={cn(DISC_PILL_CLASSES, pillGapClass)}
+        className={cn(
+          DISC_PILL_CLASSES,
+          floods && FLOODED_PILL_CLASSES,
+          pillGapClass,
+        )}
         data-tour-id="assistant-page"
       />
     </span>

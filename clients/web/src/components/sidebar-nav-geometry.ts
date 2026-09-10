@@ -23,6 +23,13 @@ export const SIDEBAR_CHIP_SIZE = 20;
 export const SIDEBAR_CHIP_GAP = 6;
 
 /**
+ * The assistant pill's leading disc (Figma 8300:167394): the solid circle
+ * the eyes sit on. The section toggle beside the pill is drawn at the same
+ * size, so the row reads as two discs of one family.
+ */
+export const SIDEBAR_ASSISTANT_DISC_SIZE = 32;
+
+/**
  * {@link SIDEBAR_CHIP_GAP} as classes, with the touch-viewport value beside
  * it. A pill (`PanelItem`) sets 8px between its leading slot and its label,
  * and on a phone the section headers stand in the same column as the pills

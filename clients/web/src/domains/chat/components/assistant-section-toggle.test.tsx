@@ -1,8 +1,8 @@
 /**
  * Tests for `AssistantSectionToggle`: the round control beside the assistant
- * pill that opens her section beneath it. What it says (glyph, name,
- * expanded state), what it wears (the avatar colour), and when it carries
- * the section's activity dot.
+ * pill that opens her section beneath it. What it says (name, expanded
+ * state), what it wears (the chat glyph in both states, the avatar colour),
+ * and when it carries the section's activity dot.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -87,25 +87,36 @@ describe("AssistantSectionToggle", () => {
     });
     expect(button.getAttribute("aria-expanded")).toBe("false");
     expect(container.querySelector(".lucide-message-square")).not.toBeNull();
-    expect(container.querySelector(".lucide-chevron-up")).toBeNull();
   });
 
-  test("open: a chevron, named for hiding them", () => {
+  test("open: the same chat glyph, named for hiding them", () => {
     const { container } = renderToggle(true);
     const button = screen.getByRole("button", {
       name: "Hide threads from Haze II",
     });
     expect(button.getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector(".lucide-chevron-up")).not.toBeNull();
-    expect(container.querySelector(".lucide-message-square")).toBeNull();
+    expect(container.querySelector(".lucide-message-square")).not.toBeNull();
+    expect(container.querySelector(".lucide-chevron-up")).toBeNull();
   });
 
   test("wears the avatar colour, and the plain surface without one", () => {
     const { container, unmount } = renderToggle(false);
-    expect(
-      container.querySelector<HTMLElement>("button")!.style.backgroundColor,
-    ).toBe("#0e9b8b");
+    const teal = container.querySelector<HTMLElement>("button")!;
+    expect(teal.style.backgroundColor).toBe("#0e9b8b");
+    // White ink on a dark colour; no shadow, the disc sits flat like the
+    // pill's own.
+    expect(teal.style.color.toLowerCase()).toBe("#ffffff");
+    expect(teal.className).not.toContain("shadow");
     unmount();
+
+    accentHex = "#f5c518";
+    const yellow = renderToggle(false);
+    expect(
+      yellow.container
+        .querySelector<HTMLElement>("button")!
+        .style.color.toLowerCase(),
+    ).toBe("#1a1a1a");
+    yellow.unmount();
 
     accentHex = null;
     const plain = renderToggle(false);
