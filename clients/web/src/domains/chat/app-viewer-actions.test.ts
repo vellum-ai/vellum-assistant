@@ -27,6 +27,7 @@ mock.module(
 
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -63,6 +64,7 @@ afterEach(() => {
     editingConversationId: null,
   });
   useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useAssistantIdentityStore.setState({ version: null });
 });
 
 describe("handleAppViewerAction — relay_prompt", () => {
@@ -126,6 +128,7 @@ describe("handleAppViewerAction — relay_prompt", () => {
 describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
   beforeEach(() => {
     useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
     useConversationStore.setState({ activeConversationId: "conv-1" });
     setUserActivation(true);
   });
@@ -184,6 +187,22 @@ describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
     });
 
     expect(postChatMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("is dropped and reported on an assistant without the conversationId wire field", () => {
+    useAssistantIdentityStore.setState({ version: "0.8.5" });
+
+    handleAppViewerAction(makeCtx(), "relay_prompt", {
+      prompt: "hi",
+      conversationId: "conv-9",
+    });
+
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(captureErrorMock.mock.calls[0]?.[1]).toMatchObject({
+      context: "app_viewer_relay_prompt",
+      level: "warning",
+    });
   });
 
   it("reports a rejected send", async () => {

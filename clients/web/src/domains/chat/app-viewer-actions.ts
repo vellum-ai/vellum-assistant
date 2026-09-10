@@ -36,6 +36,7 @@
 
 import { postChatMessage } from "@/domains/chat/api/messages";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
+import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -98,6 +99,12 @@ function relayPrompt(
  * conversation the user owns, so a frame must not be able to fire it on load
  * or in a loop. An activation says the user clicked somewhere in the frame,
  * nothing more; see the accepted one-click path in `visual-surface.tsx`.
+ *
+ * Exact targeting needs the strict `conversationId` wire field. An assistant
+ * that predates it is sent `conversationKey`, which is a create-or-lookup by
+ * external key, so an internal id that key space does not hold would mint a
+ * stray conversation and run the prompt there. On such an assistant the relay
+ * is dropped and reported rather than misdelivered.
  */
 function relayPromptToConversation(
   conversationId: string,
@@ -108,6 +115,17 @@ function relayPromptToConversation(
   }
   const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
   if (!assistantId) {
+    return;
+  }
+  if (pickConversationIdWireField() !== "conversationId") {
+    captureError(
+      new Error("relay_prompt to an exact conversation needs assistant 0.8.6+"),
+      {
+        context: "app_viewer_relay_prompt",
+        level: "warning",
+        extra: { conversationId },
+      },
+    );
     return;
   }
   void postChatMessage(assistantId, conversationId, prompt)
