@@ -39,6 +39,8 @@ function tailCarriesPreemptedToolResult(messages: Message[]): boolean {
   }
   return tail.content.some(
     (block) =>
+      // Only a synthetic tool_result carries the preemption text; a
+      // server-side web_search_tool_result never does.
       block.type === "tool_result" &&
       block.content === PREEMPTED_TOOL_RESULT_TEXT,
   );
