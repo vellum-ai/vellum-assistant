@@ -142,6 +142,19 @@ function legacySlackConversationHasThreadEvidence(
     return true;
   }
 
+  // A thread rooted at the assistant's own post continues the conversation
+  // the post was recorded in. Every id a delivered post was acknowledged
+  // under is in the outbound index, split posts included, so this lookup
+  // is exact and not bounded by the scan below.
+  const rooted = findMessageByProviderMessageId(
+    "slack",
+    externalChatId,
+    sourceThreadId,
+  );
+  if (rooted?.conversationId === conversationId) {
+    return true;
+  }
+
   let offset = 0;
   while (offset < SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN) {
     const remaining = SLACK_LEGACY_THREAD_EVIDENCE_MAX_SCAN - offset;
@@ -161,12 +174,9 @@ function legacySlackConversationHasThreadEvidence(
     }
     for (const metadata of metadataRows) {
       const meta = readProviderMetadata(metadata, { allowFlatLegacy: true });
-      // A row in the thread, or the row the thread is rooted at: a thread
-      // under the assistant's own flat post continues the conversation the
-      // post was recorded in.
       if (
         meta?.conversationExternalId === externalChatId &&
-        (meta.threadId === sourceThreadId || meta.messageId === sourceThreadId)
+        meta.threadId === sourceThreadId
       ) {
         return true;
       }
