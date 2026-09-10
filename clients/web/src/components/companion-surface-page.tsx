@@ -22,6 +22,7 @@ import {
   answerCompanionWatchRetro,
   advanceCompanionIntro,
   captureCompanionSourceThumbnail,
+  clearCompanionMarks,
   getCompanionState,
   listCompanionCaptureSources,
   moveCompanionBy,
@@ -147,6 +148,10 @@ export function CompanionSurfacePage() {
   // and the only one of these that is: the press asks main to make a window
   // main opened interactive, and this is main's answer about whether it did.
   const [annotating, setAnnotating] = useState(false);
+  // Whether the assistant has marks up on the shared surface. Main's for the
+  // reason the marks are: it holds them, and it is the side that takes them
+  // down.
+  const [pointedAt, setPointedAt] = useState(false);
   // The picker Teach opened, or null while none is open. This window's own,
   // unlike everything above it: the choice is made here and leaves here as a
   // pick, so a reload mid-choice costs only the card.
@@ -243,6 +248,9 @@ export function CompanionSurfacePage() {
       // control drawn held down over a frame that is not doing that is a
       // promise about where the user's next press lands.
       setAnnotating(state.annotating === true);
+      // Main sends the marks only while the frame is around the share, so a
+      // list with anything in it is something on the surface right now.
+      setPointedAt((state.coachmarks?.length ?? 0) > 0);
       setIntro(state.intro);
     };
     const unsubscribe = subscribeCompanionState(apply);
@@ -845,6 +853,14 @@ export function CompanionSurfacePage() {
         annotating={annotating}
         onAnnotate={(next) => {
           setCompanionAnnotating(next);
+        }}
+        // Clear, offered while there is something on the shared surface to
+        // take down: the assistant's marks, or the mode the user's own ink is
+        // drawn under. Main's both ways, like Draw: the press asks, and the
+        // marks going from the pushed state is what happened.
+        marked={pointedAt || annotating}
+        onClearMarks={() => {
+          clearCompanionMarks();
         }}
         shortcuts={shortcuts}
         // Beside the bar while the choice is open, on the canvas main

@@ -160,6 +160,19 @@ export function toggleCompanionAnnotating(): void {
 }
 
 /**
+ * Take down everything on the shared surface without ending the share: the
+ * assistant's marks, and the user's own ink.
+ *
+ * Main's, for the reason the mode is: it holds the assistant's marks, and the
+ * ink is on a window it opened that this renderer cannot reach. What comes
+ * back is the marks gone from the pushed state and `marksCleared` stepped on
+ * it.
+ */
+export function clearCompanionMarks(): void {
+  bridge()?.clearMarks?.();
+}
+
+/**
  * A mark the user is drawing on the shared surface, from the frame's own
  * window: the hand still on it, or off it with the strokes it left.
  *

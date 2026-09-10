@@ -24,7 +24,10 @@
  * The marks fade once they have been sent. They are a gesture rather than an
  * annotation layer: the user pointed at something and the call has the
  * picture, and a circle still sitting on the screen a minute later is a
- * circle they have to clear up.
+ * circle they have to clear up. Clear on the pill takes them down sooner, and
+ * takes the assistant's marks with them: it reaches this window as a step in
+ * a count on the pushed state (`cleared`), the one way a press in another
+ * window can.
  *
  * **The app underneath stays scrollable.** This layer takes the wheel along
  * with the presses, and a window cannot hand on a wheel event it has taken,
@@ -126,7 +129,18 @@ export function pencilCursor(ink: string): string {
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 22, crosshair`;
 }
 
-export function CompanionShareAnnotation({ ink }: { ink: string }) {
+export function CompanionShareAnnotation({
+  ink,
+  cleared = 0,
+}: {
+  ink: string;
+  /**
+   * How many times the pill's Clear has been pressed, off the pushed state.
+   * A step takes every finished mark off the overlay; the value the layer
+   * mounts with is history, not a press. Absent is a shell with no Clear.
+   */
+  cleared?: number;
+}) {
   const [strokes, setStrokes] = useState<readonly LiveStroke[]>([]);
   /**
    * The marks, as the handlers see them.
@@ -187,6 +201,27 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
     live.current = next;
     setStrokes(next);
   }, []);
+
+  /**
+   * The pill's Clear, arriving as a step in a count.
+   *
+   * Compared against the value this layer mounted with rather than against
+   * zero: main replays its state into a window it has just opened, so the
+   * first value here can be any number of clears made before this layer
+   * existed, and none of them was a press on marks it has.
+   *
+   * A mark still under the hand stays. A clear is about what is already on
+   * the surface, and the stroke being drawn is not there yet: it goes to the
+   * call on its release like any other.
+   */
+  const clearsSeen = useRef(cleared);
+  useEffect(() => {
+    if (cleared === clearsSeen.current) {
+      return;
+    }
+    clearsSeen.current = cleared;
+    commit(live.current.filter((stroke) => stroke.id === drawing.current));
+  }, [cleared, commit]);
 
   /**
    * Where a press landed, as a fraction of the surface being shared.
@@ -355,6 +390,7 @@ export function CompanionShareAnnotation({ ink }: { ink: string }) {
         } as React.CSSProperties
       }
       data-testid="companion-share-annotation"
+      data-cleared={cleared}
       role="presentation"
       onPointerDown={handleDown}
       onPointerMove={handleMove}
