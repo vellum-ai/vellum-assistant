@@ -17,7 +17,10 @@ import { useLocation, useNavigate, useParams } from "react-router";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
+import {
+  conversationsPost,
+  documentsByIdGet,
+} from "@/generated/daemon/sdk.gen";
 import { downloadDocumentPdf } from "@/domains/chat/api/surfaces";
 import { DocumentComposerPanel } from "@/domains/chat/components/document-composer-panel";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -26,7 +29,11 @@ import {
   persistDocumentConversationId,
   resolveDocumentConversationId,
 } from "@/domains/chat/utils/document-conversation";
+import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
+import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
+import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
+import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
 import type { DocumentContent } from "@/types/document-types";
 import { routes } from "@/utils/routes";
 import {
@@ -143,11 +150,37 @@ export function DocumentViewerPage() {
     // there, so the injector will surface the comments automatically. Fall
     // back to session-cached conversation id for repeated feedback.
     //
+    // A fresh client draft is an id the daemon has never minted. An assistant
+    // that mints rows itself would mint one for the send this navigates into,
+    // and start that turn before any relink could land, so the first turn
+    // would run without the document. The row is minted and linked here
+    // instead, before anything goes out, as the document composer does.
+    //
     // Persisted immediately, ahead of the send this navigates into: unlike
     // `useDocumentComposerSubmit`, this action's own job ends at navigation,
     // with nothing here to observe whether the eventual send that materializes
-    // a fresh draft actually succeeds.
-    const conversationId = resolveDocumentConversationId(doc, assistantId);
+    // a legacy draft actually succeeds.
+    await whenAssistantVersionKnownFor(assistantId);
+    const resolvedId = resolveDocumentConversationId(doc, assistantId);
+    let conversationId = resolvedId;
+    const isFreshDraft = useConversationStore
+      .getState()
+      .draftConversationIds.has(resolvedId);
+    if (isFreshDraft && supportsServerMintedConversation()) {
+      try {
+        const minted = await conversationsPost({
+          path: { assistant_id: assistantId },
+          body: {},
+          throwOnError: true,
+        });
+        conversationId = minted.data.id;
+      } catch {
+        toast.error(t("documentComposer.sendFailed"));
+        return;
+      }
+      resolveEditChatDraftConversationId(resolvedId, conversationId);
+      useConversationStore.getState().clearDraftConversationId(resolvedId);
+    }
     persistDocumentConversationId(doc, assistantId, conversationId);
     await linkDocumentConversationIfNeeded(doc, assistantId, conversationId);
 
@@ -164,7 +197,7 @@ export function DocumentViewerPage() {
     navigate(
       `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
     );
-  }, [doc, assistantId, surfaceId, navigate]);
+  }, [doc, assistantId, surfaceId, navigate, t]);
 
   const handleExport = useCallback(async () => {
     if (!doc || !assistantId) {

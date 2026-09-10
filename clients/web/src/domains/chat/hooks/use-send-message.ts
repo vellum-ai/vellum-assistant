@@ -1086,7 +1086,10 @@ export function useSendMessage({
           // Captured whatever the scope, since a thrown send is a real fault;
           // only its report to the user is scoped, as above.
           captureError(err, { context: "send_message_queue" });
-          useComposerStore.getState().dropQueuedSend(clientMessageId);
+          // A throw is the transport failing, not the daemon refusing: the
+          // request may have reached the daemon and been queued before the
+          // connection dropped, so the copy stays until the stream says what
+          // became of the message.
           const onScreenAtThrow = sendScopeIsCurrent();
           if (onScreenAtThrow) {
             revertQueuedMessage(userMessage.id);

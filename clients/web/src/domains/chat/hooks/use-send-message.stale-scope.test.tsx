@@ -475,16 +475,34 @@ describe("useSendMessage: a stale send through the queue branch", () => {
   });
 
   test("a POST the daemon refuses leaves no copy behind", async () => {
-    daemonClient.post = mock(async () => {
-      throw new Error("network down");
-    }) as typeof daemonClient.post;
+    daemonClient.post = mock(async () => ({
+      data: null,
+      error: { message: "queue is closed" },
+      response: new Response(null, { status: 503 }),
+    })) as typeof daemonClient.post;
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
       await result.current.sendMessage("never taken");
     });
 
+    // The daemon answered, so it holds nothing to hand back.
     expect(useComposerStore.getState().queuedSends.size).toBe(0);
+  });
+
+  test("a transport failure keeps the copy until the stream says otherwise", async () => {
+    // The request may have reached the daemon and been queued before the
+    // connection dropped, so only the stream can settle what became of it.
+    daemonClient.post = mock(async () => {
+      throw new Error("network down");
+    }) as typeof daemonClient.post;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("maybe taken");
+    });
+
+    expect(useComposerStore.getState().queuedSends.size).toBe(1);
   });
 
   test("a failed queue POST raises no error over the open thread", async () => {
