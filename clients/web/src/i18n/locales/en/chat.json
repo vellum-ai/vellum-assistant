@@ -1717,7 +1717,8 @@
     "stopWorkflow": "Stop workflow"
   },
   "transcriptRow": {
-    "thinking": "Thinking"
+    "thinking": "Thinking",
+    "working": "Working"
   },
   "useConversationLoader": {
     "authFailed": "Failed to authenticate user."

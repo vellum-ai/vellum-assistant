@@ -113,4 +113,9 @@ export interface StreamHandlerContext {
    *  bubble, and by `message_complete` to re-anchor onto the durable server id.
    *  Mirrors macOS `currentAssistantMessageId`. */
   currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
+  /** Name of the tool whose `tool_result` landed most recently. The daemon
+   *  builds its thinking status label out of the same tool ("Processing <tool>
+   *  results"), so this is how `assistant_activity_state` is read for which
+   *  tool the label it carries describes. */
+  lastCompletedToolNameRef: MutableRefObject<string | undefined>;
 }

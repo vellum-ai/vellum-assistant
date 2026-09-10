@@ -153,6 +153,7 @@ export function useStreamEventHandler(
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
+  const lastCompletedToolNameRef = useRef<string | undefined>(undefined);
 
   // --- Main event handler ---
 
@@ -268,6 +269,7 @@ export function useStreamEventHandler(
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
         currentAssistantMessageIdRef,
+        lastCompletedToolNameRef,
       };
 
       switch (event.type) {
