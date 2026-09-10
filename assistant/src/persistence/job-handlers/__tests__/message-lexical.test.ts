@@ -195,11 +195,6 @@ describe("indexMessageLexicalJob", () => {
 
     expect(upsertCalls).toHaveLength(1);
     const projected = JSON.stringify([
-      {
-        type: "thinking",
-        thinking: "zzscratchpadonly reasoning nobody sees",
-        signature: "",
-      },
       { type: "text", text: "You have two meetings today." },
     ]);
     expect(upsertCalls[0].sparse).toEqual(generateSparseEmbedding(projected));
