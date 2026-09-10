@@ -30,6 +30,12 @@ let mockReadCredential = mock(
 mock.module("../credential-reader.js", () => ({
   readCredential: (key: string) => mockReadCredential(key),
 }));
+mock.module("../platform-user-id.js", () => ({
+  readStoredPlatformUserId: async () => {
+    const userId = await mockReadCredential("vellum:platform_user_id");
+    return { userId, unreachable: false };
+  },
+}));
 
 const {
   createWatchStreamWebsocketHandler,
