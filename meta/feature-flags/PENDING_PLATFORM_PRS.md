@@ -13,5 +13,5 @@ key exists in `terraform/gcp/env/prod/vellum-assistant/main.tf`.
 | `mcp-add-server` | not opened; default off |
 | `paired-devices-ui` | not opened; default off |
 | `schedule-result-notify` | not opened; default on |
-| `send-user-message` | not opened; default off |
+| `send-user-message` | vellum-assistant-platform #10475; default off; scope both |
 | `web-presence-suppression` | not opened; default on |
