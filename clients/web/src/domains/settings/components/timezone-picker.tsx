@@ -218,12 +218,13 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
   const { t } = useTranslation("settings");
   const [searchText, setSearchText] = useState("");
   /**
-   * The catalog is built the first time the list is opened rather than on
-   * mount. Settings mounts this row on every visit, and most visits never
-   * touch the timezone field, so building it eagerly spends several hundred
-   * `Intl.DateTimeFormat` constructions of main-thread time on a control the
-   * user did not ask for. Latched rather than cleared on close: a reopen
-   * should not pay for it twice.
+   * Whether the list has been opened, which is what the catalog exists for.
+   *
+   * Settings renders this row on every visit and most visits never touch the
+   * field, so the catalog is built on the first open rather than for everyone
+   * who passes by: it costs several hundred `Intl.DateTimeFormat`
+   * constructions of main-thread time. Latched rather than cleared on close,
+   * so a reopen does not pay for it twice.
    */
   const [catalogRequested, setCatalogRequested] = useState(false);
 
@@ -236,8 +237,8 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
   // A debounce here would let the keyboard walk and commit rows belonging to
   // a query the field no longer shows: Enter is only safe while the options
   // are the ones the typing produced. Filtering a few hundred already-built
-  // strings is cheap; the cost in this file is building them, which
-  // `catalogRequested` keeps off the mount path.
+  // strings is cheap; the expensive step is building them, which
+  // `catalogRequested` scopes to an opened list.
   const query = searchText.trim().toLowerCase();
   const visible = useMemo(() => {
     const offsetQuery = parseOffsetQuery(query);
