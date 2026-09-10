@@ -606,6 +606,17 @@ describe("emitAssistantReplyNotification", () => {
     });
   });
 
+  test("omits requestedTitle for the legacy generating placeholder", async () => {
+    conversationRow = makeConversation({ title: "Generating title..." });
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload).toEqual({
+      requestedMessage: "Sure, here is the plan.",
+    });
+  });
+
   test("omits requestedTitle for the untitled placeholder key", async () => {
     conversationRow = makeConversation({
       title: MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED,

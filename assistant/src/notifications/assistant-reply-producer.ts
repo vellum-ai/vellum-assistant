@@ -11,7 +11,6 @@
 import type pino from "pino";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { isMessageKey } from "../i18n/index.js";
 import { getAttachmentMetadataForMessage } from "../persistence/attachments-store.js";
 import {
   getAttentionStateByConversationIds,
@@ -23,6 +22,7 @@ import {
   getMessageById,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
 import {
   isDesktopOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
@@ -249,12 +249,10 @@ export async function emitAssistantReplyNotification(params: {
     // title from the body, which reads better than an empty or placeholder
     // conversation title.
     //
-    // A title still being generated is persisted as the message key itself, so
-    // it arrives here as a plausible non-empty string and survives sanitizing.
-    // Resolving it would put "Generating title..." on the lock screen, so a
-    // stored key counts as absent and the body supplies the title instead.
+    // Placeholder titles are plausible non-empty strings and survive
+    // sanitizing. They count as absent so the body supplies the title instead.
     const storedTitle = conversation.title?.trim() ?? "";
-    const requestedTitle = isMessageKey(storedTitle)
+    const requestedTitle = isReplaceableTitle(storedTitle)
       ? ""
       : sanitizeNotificationTitle(flattenTitleWhitespace(storedTitle));
 
