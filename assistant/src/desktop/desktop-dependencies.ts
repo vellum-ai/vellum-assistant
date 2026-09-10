@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { writeCombinedCABundle } from "../util/ca-bundle.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getExternalDir } from "../util/platform.js";
@@ -196,12 +197,41 @@ async function run(command: string[]): Promise<void> {
 async function installDesktopDependencies(
   onStage: (stage: NonNullable<DesktopSetupStatus["stage"]>) => void,
 ): Promise<void> {
+  const extraCA = process.env.NODE_EXTRA_CA_CERTS;
+  if (!extraCA) {
+    return installDesktopComponents(onStage);
+  }
+  const caDir = await mkdtemp(join(tmpdir(), "desktop-ca-"));
+  try {
+    const caBundle = join(caDir, "ca.pem");
+    await writeCombinedCABundle(
+      "/etc/ssl/certs/ca-certificates.crt",
+      extraCA,
+      caBundle,
+    );
+    // apt's unprivileged downloader must be able to read the public CAs.
+    await chmod(caBundle, 0o644);
+    await chmod(caDir, 0o755);
+    await installDesktopComponents(onStage, caBundle);
+  } finally {
+    await rm(caDir, { recursive: true, force: true });
+  }
+}
+
+async function installDesktopComponents(
+  onStage: (stage: NonNullable<DesktopSetupStatus["stage"]>) => void,
+  caBundle?: string,
+): Promise<void> {
   const chrome = CHROME_PACKAGES[process.arch as keyof typeof CHROME_PACKAGES];
+  const apt = [
+    "/usr/bin/apt-get",
+    ...(caBundle ? ["-o", `Acquire::https::CaInfo=${caBundle}`] : []),
+  ];
   await rm(desktopChromePath() + ".ready", { force: true });
   // Desktop binaries, X assets and the loader share the image root.
-  await run(["/usr/bin/apt-get", "update"]);
+  await run([...apt, "update"]);
   await run([
-    "/usr/bin/apt-get",
+    ...apt,
     "install",
     "-y",
     "--no-install-recommends",
@@ -221,6 +251,7 @@ async function installDesktopDependencies(
       const deb = join(downloadDir, "chrome.deb");
       await run([
         "curl",
+        ...(caBundle ? ["--cacert", caBundle] : []),
         "--fail",
         "--location",
         "--proto",
