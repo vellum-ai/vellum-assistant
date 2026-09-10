@@ -2,8 +2,11 @@ import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
-import { isWindows } from "../../../../util/platform.js";
+import { isLinux, isWindows } from "../../../../util/platform.js";
 
+// Linux desktops expose no URL scheme for these panes, so the assistant offers
+// a desktop-specific command instead of an open_url push. Speech recognition
+// has no Linux equivalent on either desktop, hence the empty command.
 const PANES = {
   microphone: {
     label: "Microphone privacy",
@@ -12,6 +15,8 @@ const PANES = {
         "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
       windows: "ms-settings:privacy-microphone",
     },
+    linuxCommand:
+      "gnome-control-center sound (GNOME) or systemsettings kcm_pulseaudio (KDE)",
   },
   speech_recognition: {
     label: "Speech Recognition privacy",
@@ -20,14 +25,22 @@ const PANES = {
         "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
       windows: "ms-settings:privacy-speech",
     },
+    linuxCommand: "",
   },
 } as const;
 
 type PaneName = keyof typeof PANES;
-type SettingsPlatform = keyof (typeof PANES)[PaneName]["urls"];
+type SettingsPlatform = keyof (typeof PANES)[PaneName]["urls"] | "linux";
 
-const VALID_PLATFORMS: SettingsPlatform[] = ["macos", "windows"];
+const VALID_PLATFORMS: SettingsPlatform[] = ["macos", "windows", "linux"];
 const VALID_PANES = Object.keys(PANES) as PaneName[];
+
+function hostPlatform(): SettingsPlatform {
+  if (isLinux()) {
+    return "linux";
+  }
+  return isWindows() ? "windows" : "macos";
+}
 
 export async function run(
   input: Record<string, unknown>,
@@ -57,9 +70,17 @@ export async function run(
   }
 
   const platform =
-    (requestedPlatform as SettingsPlatform | undefined) ??
-    (isWindows() ? "windows" : "macos");
+    (requestedPlatform as SettingsPlatform | undefined) ?? hostPlatform();
   const meta = PANES[pane as PaneName];
+
+  if (platform === "linux") {
+    return {
+      content: meta.linuxCommand
+        ? `No settings pane was opened. Linux has no settings URL for ${meta.label}. Offer to run the settings command for the user's desktop: ${meta.linuxCommand}.`
+        : `Linux has no ${meta.label} settings pane to open. Tell the user this is not gated by the desktop on Linux.`,
+      isError: false,
+    };
+  }
 
   if (context.sendToClient) {
     context.sendToClient({
