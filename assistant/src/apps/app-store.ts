@@ -34,6 +34,8 @@ import {
   resolve,
 } from "node:path";
 
+import { bridgeEmojiAppIcon } from "@vellumai/app-icons";
+
 import { resolveConversationLineage } from "../daemon/conversation-lineage.js";
 import { rawAll } from "../persistence/raw-query.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
@@ -41,7 +43,6 @@ import type { EditEngineResult } from "../tools/shared/filesystem/edit-engine.js
 import { applyEdit } from "../tools/shared/filesystem/edit-engine.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir, getWorkspacePluginsDir } from "../util/platform.js";
-import { migrateLegacyAppIcon } from "./app-icons.js";
 
 const log = getLogger("app-store");
 
@@ -626,9 +627,9 @@ export function getApp(id: string): AppDefinition | null {
   }
   const raw = readFileSync(filePath, "utf-8");
   const app = JSON.parse(raw) as AppDefinition;
-  /* An emoji from before the icon registry reads back as its registry name
-     (see app-icons.ts), so every client draws the same glyph set. */
-  app.icon = migrateLegacyAppIcon(app.icon);
+  /* An emoji icon reads back as the registry name it maps to, so every client
+     draws the same glyph set. */
+  app.icon = bridgeEmojiAppIcon(app.icon);
 
   // Read htmlDefinition from {dirName}/index.html on disk
   const indexPath = join(appDir, "index.html");
@@ -680,7 +681,7 @@ export function listApps(): AppDefinition[] {
       const app = JSON.parse(raw) as AppDefinition;
       /* An emoji from before the icon registry reads back as its registry name
      (see app-icons.ts), so every client draws the same glyph set. */
-      app.icon = migrateLegacyAppIcon(app.icon);
+      app.icon = bridgeEmojiAppIcon(app.icon);
 
       apps.push(app);
     } catch {

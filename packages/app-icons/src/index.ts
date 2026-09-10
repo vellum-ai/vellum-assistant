@@ -1,16 +1,16 @@
 /**
- * The icons an app can wear, as the Lucide kebab-case names the web client
- * resolves to glyphs (`clients/web/src/utils/app-icon-registry.ts`). The
- * two lists are kept identical by hand: a name added here without a glyph
- * there renders as the client's default, and a glyph there the model cannot
- * name here is never chosen.
+ * The icons an app can wear, shared by the assistant (which picks and stores
+ * one on an app's manifest) and the web client (which draws it).
  *
- * The assistant picks one at `app_create` (`preview.icon`), the way a user
- * picks a folder icon for a sidebar group, so every app in the sidebar and
- * the library wears a glyph from the product's own icon set rather than an
- * emoji drawn by whichever platform is rendering it.
+ * An app's `icon` is a Lucide kebab-case name from {@link APP_ICON_NAMES}.
+ * The assistant chooses it at `app_create`; the web client keeps the
+ * name-to-glyph map, typed against {@link AppIconName} so a name added here
+ * without a glyph there fails its typecheck. A manifest may also carry an
+ * emoji in place of a name; {@link EMOJI_ICON_NAMES} maps the common ones to
+ * the name each stands for, and both sides apply the map.
  */
-export const APP_ICON_NAMES: readonly string[] = [
+
+export const APP_ICON_NAMES = [
   "calculator",
   "calendar",
   "list-todo",
@@ -145,18 +145,21 @@ export const APP_ICON_NAMES: readonly string[] = [
   "zap",
   "rocket",
   "home",
-];
+] as const;
 
-const APP_ICON_NAME_SET = new Set(APP_ICON_NAMES);
+export type AppIconName = (typeof APP_ICON_NAMES)[number];
+
+const APP_ICON_NAME_SET: ReadonlySet<string> = new Set(APP_ICON_NAMES);
+
+export function isAppIconName(value: string): value is AppIconName {
+  return APP_ICON_NAME_SET.has(value);
+}
 
 /**
- * The emoji apps carried before the registry, each bridged to the registry
- * name it stood for, so an existing library wears the same glyph set as a
- * new one without anyone re-picking icons. Mirrored in the web client's
- * registry for daemons older than this bridge. Keys carry no variation
- * selector; {@link migrateLegacyAppIcon} strips it before the lookup.
+ * Emoji a manifest may carry as its icon, each mapped to the registry name
+ * it stands for. Keys carry no variation selector; the lookup strips it.
  */
-const LEGACY_EMOJI_ICONS: Record<string, string> = {
+export const EMOJI_ICON_NAMES: Readonly<Record<string, AppIconName>> = {
   "🔢": "calculator",
   "🧮": "calculator",
   "📅": "calendar",
@@ -326,39 +329,44 @@ const LEGACY_EMOJI_ICONS: Record<string, string> = {
 
 const VARIATION_SELECTORS = /[\uFE0E\uFE0F]/gu;
 
+/* A value that is nothing but emoji: pictographs, emoji-presentation
+   characters, skin-tone modifiers, the joiner that composes a sequence, the
+   variation selectors, and keycap sequences (a digit, `#` or `*` with the
+   keycap mark). Anchored, so text with an emoji in it is not an emoji. */
+const EMOJI_ONLY =
+  /^(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier}|\u200D|\uFE0E|\uFE0F|[0-9#*]\uFE0F?\u20E3)+$/u;
+/* At least one glyph-bearing character, so a bare joiner or selector is not
+   an emoji either. */
+const EMOJI_GLYPH = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|\u20E3/u;
+
+/** True when `value` is an emoji (or emoji sequence) and nothing else. */
+export function isEmojiAppIcon(value: string): boolean {
+  return EMOJI_ONLY.test(value) && EMOJI_GLYPH.test(value);
+}
+
 /**
- * A stored icon as the client should see it: a legacy emoji the bridge
- * knows becomes its registry name, and anything else passes through
- * untouched, so reading a manifest never loses an icon it cannot improve.
+ * A stored icon as a client should read it: an emoji the map knows becomes
+ * its registry name, and anything else passes through untouched, so reading
+ * a manifest never loses an icon the map cannot place.
  */
-export function migrateLegacyAppIcon(
+export function bridgeEmojiAppIcon(
   icon: string | undefined,
 ): string | undefined {
   if (!icon) {
     return icon;
   }
-  return (
-    LEGACY_EMOJI_ICONS[icon.trim().replace(VARIATION_SELECTORS, "")] ?? icon
-  );
+  const key = icon.trim().replace(VARIATION_SELECTORS, "");
+  /* An own-property check: a bare index would find `constructor` and its
+     kin on the object's prototype. */
+  return Object.hasOwn(EMOJI_ICON_NAMES, key) ? EMOJI_ICON_NAMES[key] : icon;
 }
 
-/* Pictographs, emoji-presentation characters, and the variation selector /
-   keycap marks that turn a digit into an emoji. Apps built before the icon
-   registry carry one of these, and a model that still reaches for one gets
-   it kept rather than dropped. */
-const EMOJI_PATTERN =
-  /\p{Extended_Pictographic}|\p{Emoji_Presentation}|\uFE0F|\u20E3/u;
-
-/** An emoji, at most a short grapheme cluster or two, and nothing else. */
-const EMOJI_MAX_LENGTH = 16;
-
 /**
- * The icon to persist on an app's manifest for what the model passed: a
- * registry name (any case) normalised to its kebab-case key, an emoji
- * bridged to its name (or kept as is when the bridge has none), and
- * `undefined` for anything else. URLs in particular are dropped:
- * they would render as raw strings in the UI and in bundle manifests, and an
- * image icon is `app_generate_icon`'s job.
+ * The icon to persist on an app's manifest for a value the model passed: a
+ * registry name (any case) as its kebab-case key, an emoji as the name it
+ * maps to (or as itself when the map has none), and `undefined` for anything
+ * else. URLs and text around an emoji are dropped: they would render as raw
+ * strings, and an image icon is `app_generate_icon`'s job.
  */
 export function normalizeAppIcon(raw: unknown): string | undefined {
   if (typeof raw !== "string") {
@@ -369,14 +377,11 @@ export function normalizeAppIcon(raw: unknown): string | undefined {
     return undefined;
   }
   const name = trimmed.toLowerCase();
-  if (APP_ICON_NAME_SET.has(name)) {
+  if (isAppIconName(name)) {
     return name;
   }
-  if (trimmed.length <= EMOJI_MAX_LENGTH && EMOJI_PATTERN.test(trimmed)) {
-    /* A model still reaching for an emoji: the bridge's name where it has
-       one, the emoji itself where it does not, so older clients keep a
-       glyph. */
-    return migrateLegacyAppIcon(trimmed);
+  if (isEmojiAppIcon(trimmed)) {
+    return bridgeEmojiAppIcon(trimmed);
   }
   return undefined;
 }

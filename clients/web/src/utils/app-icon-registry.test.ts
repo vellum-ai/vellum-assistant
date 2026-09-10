@@ -1,27 +1,26 @@
 import { describe, expect, test } from "bun:test";
 
+import { APP_ICON_NAMES } from "@vellumai/app-icons";
 import { Calculator, Coffee, House, Rocket } from "lucide-react";
 
-import {
-  APP_ICON_NAMES,
-  DEFAULT_APP_ICON,
-  getAppIcon,
-} from "@/utils/app-icon-registry";
+import { DEFAULT_APP_ICON, getAppIcon } from "@/utils/app-icon-registry";
 
 describe("getAppIcon", () => {
+  test("every name the assistant may choose has a glyph", () => {
+    for (const name of APP_ICON_NAMES) {
+      expect(getAppIcon(name)).toBeDefined();
+    }
+  });
+
   test("a registry name resolves to its Lucide component, any case", () => {
     expect(getAppIcon("calculator")).toBe(Calculator);
     expect(getAppIcon(" Calculator ")).toBe(Calculator);
-  });
-
-  test("the older `home` name still resolves", () => {
     expect(getAppIcon("home")).toBe(House);
   });
 
-  test("a pre-registry emoji the bridge knows resolves to its glyph", () => {
+  test("an emoji the package maps resolves to that glyph", () => {
     expect(getAppIcon("🔢")).toBe(Calculator);
     expect(getAppIcon("☕")).toBe(Coffee);
-    // With the emoji variation selector the platform may append.
     expect(getAppIcon("☕️")).toBe(Coffee);
   });
 
@@ -34,9 +33,7 @@ describe("getAppIcon", () => {
     expect(getAppIcon("constructor")).toBeUndefined();
   });
 
-  test("the default is the rocket, and the name list is non-empty", () => {
+  test("the default is the rocket", () => {
     expect(DEFAULT_APP_ICON).toBe(Rocket);
-    expect(APP_ICON_NAMES.length).toBeGreaterThan(50);
-    expect(APP_ICON_NAMES).toContain("calculator");
   });
 });

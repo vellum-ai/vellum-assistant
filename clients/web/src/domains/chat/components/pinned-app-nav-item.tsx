@@ -93,9 +93,9 @@ export function PinnedAppNavItem({
   const tintStyle = pinTintStyle(app.pinColor);
 
   /* The app's icon as the manifest names it: a Lucide glyph from the app
-     icon registry (a pre-registry emoji bridges to one), or the default
-     glyph for an app the registry cannot place. The tile takes the
-     constructor; the pill renders through `AppIcon`. */
+     icon registry (an emoji maps to one), or the default glyph for an app
+     the registry cannot place. The tile takes the constructor; the pill
+     renders through `AppIcon`. */
   const leadingIcon = getAppIcon(app.icon) ?? DEFAULT_APP_ICON;
 
   /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh

@@ -1,21 +1,26 @@
 /**
- * App icon registry: the icons an app can wear in the sidebar, the library
- * and the chat's app tiles, keyed by the Lucide kebab-case name the daemon
- * stores on the app's manifest (`app.icon`).
+ * App icon registry: the Lucide glyph for each name in `@vellumai/app-icons`,
+ * the list the assistant chooses from when it stores an icon on an app's
+ * manifest. Typed against that list, so a name added to the package without
+ * a glyph here fails the typecheck, and a glyph here the package does not
+ * name is rejected the same way.
  *
  * Mirrors the custom-group registry (`@/domains/chat/utils/group-icon-registry`):
  * map a stored name to a module-level Lucide component once, and every
- * surface resolves through it. The assistant picks the name at `app_create`
- * from the same list, which lives on its side in
- * `assistant/src/apps/app-icons.ts`; the two lists are kept identical by
- * hand, and a name this registry does not know falls back to
- * {@link DEFAULT_APP_ICON} rather than to a broken glyph.
- *
- * Apps built before the switch carry an emoji instead. The common ones are
- * bridged to the registry name they stood for, so an existing library does
- * not turn into a wall of rockets; the rest take the default glyph.
+ * surface resolves through it. A manifest may carry an emoji in place of a
+ * name; the package maps the common ones to the name each stands for (the
+ * daemon applies the same map when it reads a manifest, this side covers a
+ * daemon that does not), and an emoji the map cannot place takes the
+ * caller's fallback. Nothing here draws an emoji: an app wears the product's
+ * glyph set or the fallback.
  */
 
+import {
+  APP_ICON_NAMES,
+  bridgeEmojiAppIcon,
+  isAppIconName,
+  type AppIconName,
+} from "@vellumai/app-icons";
 import { createElement } from "react";
 
 import {
@@ -156,7 +161,7 @@ import {
   type LucideProps,
 } from "lucide-react";
 
-const APP_ICONS: Record<string, LucideIcon> = {
+const APP_ICONS = {
   calculator: Calculator,
   calendar: Calendar,
   "list-todo": ListTodo,
@@ -290,206 +295,22 @@ const APP_ICONS: Record<string, LucideIcon> = {
   sparkles: Sparkles,
   zap: Zap,
   rocket: Rocket,
-  /* Lucide's older name for `house`, in case a model reaches for it. */
+  /* Lucide's other name for `house`, in case a model reaches for it. */
   home: House,
-};
+} satisfies Record<AppIconName, LucideIcon>;
 
 /** The names the assistant may choose from, in registry order. */
-export const APP_ICON_NAMES: readonly string[] = Object.keys(APP_ICONS);
+export { APP_ICON_NAMES };
 
 /** The glyph for an app with no icon, or one whose name is unknown here. */
 export const DEFAULT_APP_ICON: LucideIcon = Rocket;
 
 /**
- * The emoji apps carried before the registry, each bridged to the registry
- * name it stood for. The daemon applies the same bridge when it reads a
- * manifest (`assistant/src/apps/app-icons.ts`); this copy covers a daemon
- * older than that, so an existing library wears the glyph set either way.
- * Keys carry no variation selector; the lookup strips it.
- */
-const LEGACY_EMOJI_ICONS: Record<string, string> = {
-  "🔢": "calculator",
-  "🧮": "calculator",
-  "📅": "calendar",
-  "🗓": "calendar",
-  "✅": "list-todo",
-  "☑": "list-checks",
-  "⏱": "timer",
-  "⏲": "timer",
-  "⏰": "alarm-clock",
-  "🕐": "clock",
-  "🕒": "clock",
-  "📝": "notebook-pen",
-  "🗒": "sticky-note",
-  "✏": "pencil",
-  "📄": "file-text",
-  "📋": "clipboard-list",
-  "🔖": "bookmark",
-  "📚": "book",
-  "📖": "book-open",
-  "📔": "notebook-pen",
-  "📊": "chart-bar",
-  "📈": "chart-line",
-  "📉": "chart-line",
-  "🥧": "chart-pie",
-  "🗄": "database",
-  "🎯": "target",
-  "🚩": "flag",
-  "🏆": "trophy",
-  "🏁": "flag",
-  "💰": "wallet",
-  "💵": "dollar-sign",
-  "💲": "dollar-sign",
-  "🐷": "piggy-bank",
-  "💳": "credit-card",
-  "🧾": "receipt",
-  "🛒": "shopping-cart",
-  "🛍": "shopping-cart",
-  "📦": "package",
-  "🎁": "gift",
-  "🎟": "ticket",
-  "🎫": "ticket",
-  "✉": "mail",
-  "📧": "mail",
-  "📨": "mail",
-  "📥": "inbox",
-  "💬": "message-square",
-  "🗨": "message-square",
-  "📞": "phone",
-  "☎": "phone",
-  "🔔": "bell",
-  "👥": "users",
-  "👤": "contact",
-  "🎵": "music",
-  "🎶": "music",
-  "🎧": "headphones",
-  "🎤": "mic",
-  "🎙": "mic",
-  "📹": "video",
-  "🎬": "film",
-  "🎥": "film",
-  "📺": "tv",
-  "▶": "play",
-  "🖼": "image",
-  "📷": "camera",
-  "📸": "camera",
-  "🎮": "gamepad-2",
-  "🕹": "gamepad-2",
-  "🧩": "puzzle",
-  "🎉": "party-popper",
-  "🎊": "party-popper",
-  "😀": "smile",
-  "🙂": "smile",
-  "🗺": "map",
-  "📍": "map-pin",
-  "🧭": "compass",
-  "🌍": "globe",
-  "🌎": "globe",
-  "🌏": "globe",
-  "✈": "plane",
-  "🚗": "car",
-  "🚌": "bus",
-  "🚲": "bike",
-  "🚢": "ship",
-  "🚚": "truck",
-  "🏠": "house",
-  "🏡": "house",
-  "🛏": "bed",
-  "💼": "briefcase",
-  "🎓": "graduation-cap",
-  "🌐": "languages",
-  "🧠": "brain",
-  "💡": "lightbulb",
-  "❤": "heart",
-  "💗": "heart-pulse",
-  "🏋": "dumbbell",
-  "💪": "dumbbell",
-  "💊": "pill",
-  "🩺": "stethoscope",
-  "👶": "baby",
-  "🐾": "paw-print",
-  "🐶": "paw-print",
-  "🐱": "paw-print",
-  "🍽": "utensils",
-  "🍴": "utensils",
-  "☕": "coffee",
-  "🍷": "wine",
-  "🍺": "beer",
-  "🍰": "cake",
-  "🎂": "cake",
-  "🍎": "apple",
-  "🥕": "carrot",
-  "🥗": "salad",
-  "🥚": "egg",
-  "🐟": "fish",
-  "☁": "cloud",
-  "🌤": "cloud",
-  "☀": "sun",
-  "🌞": "sun",
-  "🌙": "moon",
-  "☂": "umbrella",
-  "🌧": "umbrella",
-  "❄": "snowflake",
-  "🌡": "thermometer",
-  "💧": "droplets",
-  "🔥": "flame",
-  "🌱": "leaf",
-  "🍃": "leaf",
-  "🏔": "mountain",
-  "⛰": "mountain",
-  "💻": "code",
-  "👨‍💻": "code",
-  "🖥": "terminal",
-  "⌨": "terminal",
-  "🤖": "bot",
-  "📡": "wifi",
-  "🔒": "lock",
-  "🔐": "lock",
-  "🔑": "key",
-  "🛡": "shield",
-  "⚙": "settings",
-  "🔧": "wrench",
-  "🛠": "wrench",
-  "🔌": "plug",
-  "🔋": "battery",
-  "🔍": "search",
-  "🔎": "search",
-  "🔗": "link",
-  "#️⃣": "hash",
-  "📁": "folder-open",
-  "📂": "folder-open",
-  "🎨": "palette",
-  "🖌": "pen-tool",
-  "📏": "ruler",
-  "⚖": "scale",
-  "✂": "scissors",
-  "👕": "shirt",
-  "📰": "newspaper",
-  "🔁": "repeat",
-  "🔀": "shuffle",
-  "🔊": "volume-2",
-  "⭐": "star",
-  "🌟": "star",
-  "✨": "sparkles",
-  "⚡": "zap",
-  "🚀": "rocket",
-};
-
-const VARIATION_SELECTORS = /[\uFE0E\uFE0F]/gu;
-
-function iconByName(name: string): LucideIcon | undefined {
-  /* `hasOwn` rather than a bare index: an indexed read of a `Record` is typed
-     as never missing, and it would also find `constructor` on the prototype. */
-  return Object.hasOwn(APP_ICONS, name) ? APP_ICONS[name] : undefined;
-}
-
-/**
- * The Lucide component for an app's stored icon: a registry name (any
- * case), or a pre-registry emoji the bridge knows. `undefined` for nothing
- * usable (absent, an unknown name, an emoji the bridge does not know, a
- * stray URL); callers that must draw something use {@link DEFAULT_APP_ICON}
- * or their own placeholder. Never the emoji itself: an app wears the
- * product's glyph set or the fallback, not a platform's emoji font.
+ * The Lucide component for an app's stored icon: a registry name (any case),
+ * or an emoji the package maps to one. `undefined` for nothing usable
+ * (absent, an unknown name, an emoji the map cannot place, a stray URL);
+ * callers that must draw something use {@link DEFAULT_APP_ICON} or their own
+ * placeholder.
  */
 export function getAppIcon(
   icon: string | null | undefined,
@@ -497,18 +318,10 @@ export function getAppIcon(
   if (!icon) {
     return undefined;
   }
-  const trimmed = icon.trim();
-  const byName = iconByName(trimmed.toLowerCase());
-  if (byName) {
-    return byName;
-  }
-  const bridged = Object.hasOwn(
-    LEGACY_EMOJI_ICONS,
-    trimmed.replace(VARIATION_SELECTORS, ""),
-  )
-    ? LEGACY_EMOJI_ICONS[trimmed.replace(VARIATION_SELECTORS, "")]
+  const name = bridgeEmojiAppIcon(icon.trim())?.toLowerCase();
+  return name !== undefined && isAppIconName(name)
+    ? APP_ICONS[name]
     : undefined;
-  return bridged ? iconByName(bridged) : undefined;
 }
 
 export interface AppIconProps extends LucideProps {

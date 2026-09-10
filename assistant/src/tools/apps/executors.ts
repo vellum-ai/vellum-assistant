@@ -8,7 +8,8 @@
  * ToolDefinition or ToolContext types.
  */
 
-import { normalizeAppIcon } from "../../apps/app-icons.js";
+import { normalizeAppIcon } from "@vellumai/app-icons";
+
 import type { AppDefinition } from "../../apps/app-store.js";
 import { getAppDirPath } from "../../apps/app-store.js";
 import { compileApp } from "../../bundler/app-compiler.js";
@@ -210,9 +211,10 @@ export async function executeAppCreate(
   }
 
   // The app's icon comes from preview.icon: a name from the app icon
-  // registry (see app-icons.ts), or a legacy emoji. URLs are dropped there;
-  // they would render as raw strings in UI and bundle manifests. Lenient
-  // alias: a top-level `icon` is folded in when preview.icon is absent.
+  // registry (`@vellumai/app-icons`), or an emoji the registry maps. URLs are
+  // dropped there; they would render as raw strings in UI and bundle
+  // manifests. Lenient alias: a top-level `icon` is folded in when
+  // preview.icon is absent.
   const icon = normalizeAppIcon(preview?.icon ?? input.icon);
 
   const app = store.createApp({
