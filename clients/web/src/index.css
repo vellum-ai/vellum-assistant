@@ -461,6 +461,35 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   }
 }
 
+/* The strip of drawing tools, hung off the pill's Draw control while drawing
+ * is on. The control names itself as an anchor and the strip is placed
+ * against it, so the strip follows the control wherever the row puts it and
+ * nothing measures anything (`DrawTools` in `companion-surface.tsx`). The
+ * strip's containing block is the row's positioned parent, which is what
+ * lets it stand outside the row's clipping; anchor positioning only says
+ * where in that block it stands.
+ *
+ * Above the control or below it, by which side of the pill the canvas has
+ * room on: the same side the introduction's card and the picker are drawn.
+ * The 14px clears the control's own 8px inside the pill's edge and leaves a
+ * 6px gap past it. */
+.companion-draw-anchor {
+  anchor-name: --companion-draw;
+}
+
+.companion-draw-tools {
+  position-anchor: --companion-draw;
+  left: anchor(center);
+}
+
+.companion-draw-tools-above {
+  bottom: calc(anchor(top) + 14px);
+}
+
+.companion-draw-tools-below {
+  top: calc(anchor(bottom) + 14px);
+}
+
 /* The layer the user draws on inside that frame, while a call is being shown
  * the surface and drawing is on. The only thing on either of the companion's
  * click-through windows that deliberately takes the mouse, and the pencil it

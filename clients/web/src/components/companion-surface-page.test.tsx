@@ -24,6 +24,7 @@ const startVoiceMock = mock(() => undefined);
 const toggleWatchMock = mock((_pick?: unknown) => undefined);
 const setScreenShareMock = mock((_pick?: unknown) => undefined);
 const setAnnotatingMock = mock((_annotating: boolean) => undefined);
+const setAnnotationToolMock = mock((_tool: string) => undefined);
 /**
  * What the shell lists for the picker. Null is a shell with no picker to
  * offer, which is what a bridge that predates it answers.
@@ -137,6 +138,7 @@ mock.module("@/runtime/companion-surface", () => ({
   toggleCompanionWatch: toggleWatchMock,
   setCompanionScreenShare: setScreenShareMock,
   setCompanionAnnotating: setAnnotatingMock,
+  setCompanionAnnotationTool: setAnnotationToolMock,
   listCompanionCaptureSources: listSourcesMock,
   // The picker's tiles ask for these; a desktop with nothing to picture is
   // the shape the page is exercised in.
@@ -166,6 +168,7 @@ afterEach(() => {
   toggleWatchMock.mockClear();
   setScreenShareMock.mockClear();
   setAnnotatingMock.mockClear();
+  setAnnotationToolMock.mockClear();
   listSourcesMock.mockClear();
   captureSources = null;
   answerOfferMock.mockClear();
@@ -1905,6 +1908,162 @@ describe("the picker behind Share", () => {
       expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
       fireEvent.click(drawOf(container));
       expect(setAnnotatingMock.mock.calls).toEqual([[false]]);
+    });
+
+    /**
+     * The tools, main's the same way: a press asks, and what draws a tool
+     * held down is main saying it is the one the frame draws with.
+     */
+    describe("the tools", () => {
+      const stripOf = (container: HTMLElement): HTMLElement | null =>
+        container.querySelector<HTMLElement>(
+          "[data-testid='companion-draw-tools']",
+        );
+      const toolOf = (
+        container: HTMLElement,
+        label: string,
+      ): HTMLButtonElement => {
+        const found = stripOf(container)?.querySelector<HTMLButtonElement>(
+          `button[aria-label="${label}"]`,
+        );
+        if (!found) {
+          throw new Error(`Expected the ${label} tool to render`);
+        }
+        return found;
+      };
+      const drawing = (): void => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        STATE.annotating = true;
+        STATE.annotationTool = "freehand";
+      };
+      afterEach(() => {
+        delete STATE.annotating;
+        delete STATE.annotationTool;
+      });
+
+      test("are offered once main says the frame took the mouse", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        expect(stripOf(container)).toBeNull();
+
+        pushState({ ...STATE, annotating: true, annotationTool: "freehand" });
+        expect(stripOf(container)).not.toBeNull();
+      });
+
+      /**
+       * A shell that predates the shapes names no tool and has no channel to
+       * take one on: a press on Line there would leave the pencil held down.
+       * So it is offered nothing beyond the pencil it already has.
+       */
+      test("are not offered by a shell that names no tool", async () => {
+        STATE.screenShare = { kind: "window", windowId: 9 };
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        pushState({ ...STATE, annotating: true });
+        expect(drawOf(container).getAttribute("aria-pressed")).toBe("true");
+        expect(stripOf(container)).toBeNull();
+      });
+
+      test("a press asks main for the tool, and main's answer is what draws it held down", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+
+        fireEvent.click(toolOf(container, "Box"));
+        expect(setAnnotationToolMock.mock.calls).toEqual([["box"]]);
+        expect(toolOf(container, "Box").getAttribute("aria-pressed")).toBe(
+          "false",
+        );
+
+        pushState({ ...STATE, annotationTool: "box" });
+        expect(toolOf(container, "Box").getAttribute("aria-pressed")).toBe(
+          "true",
+        );
+      });
+
+      /**
+       * The strip stands off the pill, so a window that tested the pill
+       * alone would be click-through over every tool on it.
+       */
+      test("keep the window clickable under the pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 20 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /**
+       * The mode can end from the keyboard or with the share, under a
+       * pointer resting on the strip that nothing then moves: no mouse-move
+       * arrives to say the pointer is now over empty canvas.
+       */
+      test("give the desktop back when the strip goes under a still pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({ ...STATE, annotating: false });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /**
+       * The mode stays on while an approval takes the row, and the strip
+       * goes with the row. What matters is the strip leaving, whatever took
+       * it.
+       */
+      test("give the desktop back when an approval takes the strip under a still pointer", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        const strip = stripOf(container);
+        if (strip === null) {
+          throw new Error("Expected the tools to render");
+        }
+        pin(strip, { left: 250, right: 370, top: 40, bottom: 72 });
+        fireEvent.mouseMove(canvas, { clientX: 300, clientY: 56 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({
+          ...STATE,
+          call: { ...LISTENING_CALL, approvalRequestId: "req-1" },
+        });
+        expect(stripOf(container)).toBeNull();
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([false]);
+      });
+
+      /** A press on Draw leaves the pointer on the pill, which is still there. */
+      test("keep the window clickable when the mode ends under a pointer on the pill", async () => {
+        drawing();
+        const { container } = render(<CompanionSurfacePage />);
+        await pinSurface(container);
+        const canvas = canvasOf(container);
+        fireEvent.mouseMove(canvas, { clientX: 200, clientY: 122 });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+
+        pushState({ ...STATE, annotating: false });
+        expect(setInteractiveMock.mock.calls.at(-1)).toEqual([true]);
+      });
     });
   });
 });

@@ -15,6 +15,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCoachmark,
   CompanionCapturePick,
   CompanionCaptureSources,
@@ -578,6 +579,9 @@ const bridge: VellumBridge = {
     },
     toggleAnnotating: (): void => {
       ipcRenderer.send("vellum:companion:toggleAnnotating");
+    },
+    setAnnotationTool: (tool: CompanionAnnotationTool): void => {
+      ipcRenderer.send("vellum:companion:setAnnotationTool", tool);
     },
     annotateShare: (
       phase: CompanionAnnotationPhase,

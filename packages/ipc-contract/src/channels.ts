@@ -202,6 +202,8 @@ export const COMPANION_LIST_CAPTURE_SOURCES =
 export const COMPANION_SET_SCREEN_SHARE = "vellum:companion:setScreenShare";
 export const COMPANION_SET_ANNOTATING = "vellum:companion:setAnnotating";
 export const COMPANION_TOGGLE_ANNOTATING = "vellum:companion:toggleAnnotating";
+export const COMPANION_SET_ANNOTATION_TOOL =
+  "vellum:companion:setAnnotationTool";
 export const COMPANION_ANNOTATE_SHARE = "vellum:companion:annotateShare";
 export const COMPANION_SET_FRAME_SCROLLING =
   "vellum:companion:setFrameScrolling";
