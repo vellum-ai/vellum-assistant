@@ -1834,6 +1834,32 @@ function ChatApp({
                 break;
               }
 
+              case "generation_cancelled": {
+                // The turn ended without a completion: an abort, or a queued
+                // message the daemon could not persist with nothing running
+                // behind it. Whatever streamed so far stays as the reply, and
+                // the turn is over, so input goes out as a new send rather
+                // than queueing behind a turn that is not there.
+                const text = streamingTextRef.current;
+                const toolCalls = [...streamingToolCallsRef.current];
+                streamingTextRef.current = "";
+                streamingToolCallsRef.current = [];
+                if (text || toolCalls.length > 0) {
+                  const msg: RuntimeMessage = {
+                    id: `sse-${Date.now()}`,
+                    role: "assistant",
+                    content: text,
+                    timestamp: new Date().toISOString(),
+                    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                  };
+                  seenMessageIdsRef.current.add(msg.id);
+                  hRef.addMessage(msg);
+                }
+                hRef.setBusy(false);
+                hRef.hideSpinner();
+                break;
+              }
+
               case "error":
                 if (isMessageScopedError(event)) {
                   // One queued message failed while the turn it was
