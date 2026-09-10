@@ -5,7 +5,6 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { expireInteractionBoundGuardianRequests } from "../channels/gateway-guardian-requests.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
-import { getBalancedModelExperimentArm } from "../config/balanced-model-experiment.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import {
   hasPendingDefaultWorkspaceConfig,
@@ -70,7 +69,6 @@ import { repairAdaptiveThinkingOnManagedProfiles } from "../workspace/adaptive-t
 import { ensureByokDefaultProfiles } from "../workspace/byok-default-profile-ensure.js";
 import { ensureCompleteCustomProfiles } from "../workspace/custom-profile-ensure.js";
 import { ensureDefaultProvider } from "../workspace/default-provider-ensure.js";
-import { startWorkspaceHeartbeatService } from "../workspace/heartbeat-service.js";
 import { WORKSPACE_MIGRATIONS } from "../workspace/migrations/registry.js";
 import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startConfigWatcher } from "./config-watcher.js";
@@ -230,21 +228,12 @@ export async function runDaemon(): Promise<void> {
   // a failed fetch leaves the cache unset and resolves `os-beta` to its
   // registry default `false`, which would remove the user's profile and reset
   // their selection.
-  // A balanced-model experiment arm arriving in this same load gets the same
-  // invalidation. HTTP binds before this resolves, so a client that fetched
-  // profiles in that window holds the shipped model; the arm moves nothing on
-  // disk, so the reconcile above would not report a change and the listener's
-  // own comparison sees the arm on both sides of its refresh.
-  const balancedArmBeforeInit = getBalancedModelExperimentArm();
   void initFeatureFlagOverrides()
     .then((loaded) => {
       if (!loaded) {
         return;
       }
-      const profilesChanged = reconcileFlagGatedProfiles();
-      const balancedArmChanged =
-        getBalancedModelExperimentArm() !== balancedArmBeforeInit;
-      if (profilesChanged || balancedArmChanged) {
+      if (reconcileFlagGatedProfiles()) {
         publishConfigChanged();
       }
     })
@@ -838,8 +827,6 @@ export async function runDaemon(): Promise<void> {
   installAssistantCommand();
 
   void startEmbeddingRuntimeManager();
-
-  startWorkspaceHeartbeatService();
 
   startHeartbeatService();
 

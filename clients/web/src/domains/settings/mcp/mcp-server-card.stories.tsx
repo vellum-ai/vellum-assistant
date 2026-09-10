@@ -4,8 +4,8 @@ import type { McpServerEntry } from "./mcp-api";
 import { McpServerCard } from "./mcp-server-card";
 
 /**
- * One MCP connection in Settings: the switch that turns it on, what it is and
- * how it is doing, and the three things you can do to it.
+ * One MCP connection in Settings: what it is, how it is doing, and the
+ * things you can do to it.
  *
  * The row is the same control set at every width. What changes on a narrow
  * window is the first action's label, which drops to its icon so the cluster
@@ -21,10 +21,8 @@ const meta: Meta<typeof McpServerCard> = {
   },
   args: {
     toolsSummary: undefined,
-    isUpdating: false,
     isAuthenticating: false,
     isRevoking: false,
-    onToggleEnabled: () => {},
     onRemove: () => {},
     onConfigure: () => {},
     onAuthenticate: () => {},
@@ -40,8 +38,6 @@ function server(overrides: Partial<McpServerEntry> = {}): McpServerEntry {
     id: "figma",
     status: "needs-auth",
     transport: { type: "streamable-http", url: "https://mcp.example.com/mcp" },
-    enabled: true,
-    defaultRiskLevel: "medium",
     hasOAuth: false,
     hasStaticAuth: false,
     authType: "none",
@@ -109,11 +105,6 @@ export const StaleGrant: Story = {
   args: {
     server: server({ status: "needs-auth", hasOAuth: true }),
   },
-};
-
-/** Switched off, and reading as neither working nor broken. */
-export const Disabled: Story = {
-  args: { server: server({ status: "disabled", enabled: false }) },
 };
 
 /** Anything the client does not recognise reads as an error. */

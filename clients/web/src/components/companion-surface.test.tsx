@@ -554,6 +554,78 @@ describe("the companion surface's control captions", () => {
     }
   });
 
+  const SHORTCUTS = {
+    share: "⌥S",
+    draw: "⌥D",
+    muteMicrophone: "⌥M",
+    muteAssistant: "⌥A",
+  };
+
+  const shortcutOf = (container: HTMLElement, name: string): string | null =>
+    captionOf(container, name)?.querySelector("[data-shortcut]")?.textContent ??
+    null;
+
+  /**
+   * The key after the name and inside the same caption, so the pointer that
+   * learns what a control is learns in the same glance how to reach it from
+   * another application. The accessible name stays the name alone: the caption
+   * is hidden from a reader, and a key written into `aria-label` would be read
+   * out as part of what the control is.
+   */
+  test("writes each control's key into its caption when the host has one", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharing
+        shortcuts={SHORTCUTS}
+      />,
+    );
+    expect(shortcutOf(container, "Share")).toBe("⌥S");
+    expect(shortcutOf(container, "Draw")).toBe("⌥D");
+    expect(shortcutOf(container, "Mute microphone")).toBe("⌥M");
+    expect(shortcutOf(container, "Mute assistant")).toBe("⌥A");
+    expect(shortcutOf(container, "End session")).toBeNull();
+    expect(buttonOf(container, "Share").getAttribute("aria-label")).toBe(
+      "Share",
+    );
+  });
+
+  /** Off a host that watches no chord, the captions are the names alone. */
+  test("names the controls alone when the host has no keys for them", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled
+        sharing
+      />,
+    );
+    expect(shortcutOf(container, "Share")).toBeNull();
+    expect(shortcutOf(container, "Mute microphone")).toBeNull();
+  });
+
+  /**
+   * A share that outlives the answer that offered it keeps its stop and its
+   * pen, but the keys for both are armed on that answer, so the captions stop
+   * promising them. The mutes are the call's and keep theirs.
+   */
+  test("withholds the share and pen keys once the call cannot be shown the screen", () => {
+    const { container } = render(
+      <CompanionSurface
+        phase="call"
+        call={LISTENING_CALL}
+        shareEnabled={false}
+        sharing
+        shortcuts={SHORTCUTS}
+      />,
+    );
+    expect(shortcutOf(container, "Share")).toBeNull();
+    expect(shortcutOf(container, "Draw")).toBeNull();
+    expect(shortcutOf(container, "Mute microphone")).toBe("⌥M");
+  });
+
   /**
    * The variant and the thing it resolves against, together. `group-hover:` on
    * a button that is not a `group` is a word that never appears, and that is

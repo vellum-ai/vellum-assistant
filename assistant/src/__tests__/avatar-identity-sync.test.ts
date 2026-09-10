@@ -3,6 +3,9 @@ import { describe, expect, mock, test } from "bun:test";
 mock.module("../platform/sync-avatar.js", () => ({
   syncAvatarToPlatform: () => {},
 }));
+mock.module("../telemetry/telemetry-events-outbox.js", () => ({
+  recordTelemetryEvent: () => ({ id: "evt", createdAt: 0 }),
+}));
 
 import type { AssistantEventEnvelope } from "../api/index.js";
 import { clearAvatar } from "../avatar/avatar-store.js";

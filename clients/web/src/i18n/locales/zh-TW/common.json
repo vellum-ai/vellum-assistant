@@ -583,6 +583,7 @@
     "reloadApp": "重新載入應用程式"
   },
   "statusBanner": {
+    "reconnecting": "正在重新連線至你的助理…",
     "dismiss": "關閉",
     "goToDoctor": "前往診斷",
     "resumeAssistant": "恢復助理",

@@ -7,6 +7,7 @@ import {
   filterSkillsByPlatform,
   type SkillPlatform,
 } from "../../skills/platform-compatibility.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import type { OwnerInfo, ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -103,9 +104,14 @@ export async function executeFindSimilarSkills(
       : catalog.filter((skill) => !outOfScope(skill)),
   );
 
+  throwIfCancelled(context);
+
   const hits = await findNearest(goal, {
     limit,
     loadCatalog: () => scopedCatalog,
+    // The shortlist is a paid embedding round-trip with its own retries, so a
+    // stopped turn stops paying rather than finishing a search nobody reads.
+    ...(context.signal ? { signal: context.signal } : {}),
   });
 
   const enriched: EnrichedHit[] = [];

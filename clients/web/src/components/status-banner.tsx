@@ -462,11 +462,10 @@ function localHealthBannerConfig(
     case "unreachable":
       return {
         tone: wakeError ? "error" : "neutral",
-        title: "Your assistant is asleep",
-        icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+        title: t("statusBanner.reconnecting"),
+        icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
         children: wakeError,
         actions: wakeAction,
-        sleepPhase: wakeError ? undefined : "sleeping",
       };
     case "unhealthy":
       return {
@@ -595,18 +594,25 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // Track whether the assistant was recently sleeping so we can suppress
   // the brief "unreachable" flash that occurs during the tail end of a
   // wake (pod ready per k8s but application healthz not yet ok).
-  const [wasRecentlySleeping, setWasRecentlySleeping] = useState(false);
+  const [wasRecentlySleeping, setWasRecentlySleeping] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
-    if (operationalStatus?.state === "sleeping") {
-      setWasRecentlySleeping(true);
+    if (operationalStatus?.detail_state === "failed") {
+      setWasRecentlySleeping(null);
     } else if (
-      operationalStatus?.state === "active" ||
-      operationalStatus?.state === "crash_loop" ||
-      operationalStatus?.state === "not_found"
+      operationalStatus?.state === "sleeping" ||
+      operationalStatus?.state === "waking"
     ) {
-      setWasRecentlySleeping(false);
+      setWasRecentlySleeping(assistantId);
+    } else {
+      setWasRecentlySleeping((previous) =>
+        operationalStatus?.state === "unreachable" && previous === assistantId
+          ? previous
+          : null,
+      );
     }
-  }, [operationalStatus?.state]);
+  }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
 
   // Auto-clear the override after 60s so a genuinely failed wake surfaces
   // the real "unreachable" error with the Doctor action.
@@ -615,7 +621,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       return;
     }
     const timeout = setTimeout(() => {
-      setWasRecentlySleeping(false);
+      setWasRecentlySleeping(null);
     }, 60_000);
     return () => clearTimeout(timeout);
   }, [wasRecentlySleeping, operationalStatus?.state]);
@@ -623,18 +629,22 @@ function useAssistantBannerConfig(): BannerConfig | null {
   // Suppress the brief "unreachable" flash during the active → sleeping
   // transition. When the pod is shutting down, healthz fails before the
   // backend registers the sleep, causing a transient unreachable state.
-  const [wasRecentlyActive, setWasRecentlyActive] = useState(false);
+  const [wasRecentlyActive, setWasRecentlyActive] = useState<string | null>(
+    null,
+  );
   useEffect(() => {
-    if (operationalStatus?.state === "active") {
-      setWasRecentlyActive(true);
-    } else if (
-      operationalStatus?.state === "sleeping" ||
-      operationalStatus?.state === "crash_loop" ||
-      operationalStatus?.state === "not_found"
-    ) {
-      setWasRecentlyActive(false);
+    if (operationalStatus?.detail_state === "failed") {
+      setWasRecentlyActive(null);
+    } else if (operationalStatus?.state === "active") {
+      setWasRecentlyActive(assistantId);
+    } else {
+      setWasRecentlyActive((previous) =>
+        operationalStatus?.state === "unreachable" && previous === assistantId
+          ? previous
+          : null,
+      );
     }
-  }, [operationalStatus?.state]);
+  }, [assistantId, operationalStatus?.state, operationalStatus?.detail_state]);
 
   // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
   useEffect(() => {
@@ -642,7 +652,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
       return;
     }
     const timeout = setTimeout(() => {
-      setWasRecentlyActive(false);
+      setWasRecentlyActive(null);
     }, 15_000);
     return () => clearTimeout(timeout);
   }, [wasRecentlyActive, operationalStatus?.state]);
@@ -857,8 +867,11 @@ function useAssistantBannerConfig(): BannerConfig | null {
   ) {
     return {
       tone: "neutral",
-      title: "Your assistant runs locally",
-      icon: <Moon className="h-4 w-4" aria-hidden="true" />,
+      title:
+        localHealth === "unreachable"
+          ? t("statusBanner.reconnecting")
+          : "Your assistant runs locally",
+      icon: <CloudOff className="h-4 w-4" aria-hidden="true" />,
       children:
         "Open the Vellum desktop app or run vellum wake in your terminal to start it.",
     };
@@ -949,33 +962,34 @@ function useAssistantBannerConfig(): BannerConfig | null {
     };
   }
 
-  // When the status transitions from sleeping directly to unreachable, the
-  // assistant is in the final phase of waking (pod ready per k8s but the
-  // application healthz hasn't responded ok yet). Show "waking" so the user
-  // sees a smooth sleeping → waking → active progression.
-  // Conversely, when the status transitions from active directly to
-  // unreachable, the pod is shutting down for sleep. Show "sleeping" so
-  // the user sees a smooth active → sleeping progression.
-  // Similarly, a restart can briefly read as "crash_loop"; keep showing
-  // "restarting" until the grace window expires.
-  // Finally, within the resume grace window a transient "unreachable" reads
-  // as "waking" so returning to a backgrounded client shows the info/spinner
-  // treatment rather than the "unreachable" error banner.
   const effectiveStatus =
-    operationalStatus?.state === "unreachable" &&
-    (wasRecentlySleeping || isResumeGraceActive)
-      ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus?.state === "unreachable" && wasRecentlyActive
-        ? {
-            ...operationalStatus,
-            state: "sleeping" as AssistantOperationalState,
-          }
-        : operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
-          ? {
-              ...operationalStatus,
-              state: "restarting" as AssistantOperationalState,
-            }
-          : operationalStatus;
+    operationalStatus?.state === "crash_loop" && wasRecentlyRestarting
+      ? {
+          ...operationalStatus,
+          state: "restarting" as AssistantOperationalState,
+        }
+      : operationalStatus;
+
+  if (
+    effectiveStatus?.state === "unreachable" &&
+    effectiveStatus.detail_state !== "failed" &&
+    assistantId &&
+    (isResumeGraceActive ||
+      wasRecentlyActive === assistantId ||
+      wasRecentlySleeping === assistantId)
+  ) {
+    if (wasRecentlySleeping === assistantId) {
+      return operationalStatusBannerConfig(
+        { ...effectiveStatus, state: "waking" },
+        showDoctorAction,
+      );
+    }
+    return {
+      tone: "neutral",
+      title: t("statusBanner.reconnecting"),
+      icon: spinnerIcon(),
+    };
+  }
 
   const isFailedOperationDismissed =
     effectiveStatus?.detail_state === "failed" &&

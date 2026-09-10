@@ -64,7 +64,7 @@ function chatsSection(): SidebarSection {
   };
 }
 
-function renderSection(section: SidebarSection) {
+function renderSection(section: SidebarSection, overlayCards = false) {
   /* The empty state's eyes read the avatar through a query, so the tree needs
      a client even though nothing here asserts on the avatar. */
   const queryClient = new QueryClient({
@@ -74,7 +74,7 @@ function renderSection(section: SidebarSection) {
     <QueryClientProvider client={queryClient}>
       <ConversationListProvider
         value={{
-          overlayCards: false,
+          overlayCards,
           processingConversationIds: new Set<string>(),
           attentionConversationIds: new Set<string>(),
           onSelect: () => {},
@@ -115,6 +115,31 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
 
     expect(screen.getByText("On My Mind")).toBeTruthy();
     expect(screen.queryByText(/^From /)).toBeNull();
+  });
+
+  /* On the rail the header is its own accent pill, inset like the New Chat
+     pill beside it. On the overlay every section is a card that already
+     owns its inset and its header row, and this card is tinted edge to
+     edge, so the pill has nothing to draw; all it did there was push this
+     one header 8px right of every other section's and stand it taller. */
+  test("on the rail, draws its header as an inset pill", () => {
+    const { container } = renderSection(assistantSection());
+
+    const header = container.querySelector(
+      '[data-slot="collapsible-nav-section-header"]',
+    );
+    expect(header?.className).toContain("rounded-full");
+    expect(header?.className).toContain("pl-2!");
+  });
+
+  test("on the overlay, sits its header flush like every other card's", () => {
+    const { container } = renderSection(assistantSection(), true);
+
+    const header = container.querySelector(
+      '[data-slot="collapsible-nav-section-header"]',
+    );
+    expect(header?.className).not.toContain("rounded-full");
+    expect(header?.className).not.toContain("pl-2!");
   });
 
   test("shows the empty state in place of the rows when it has none", () => {

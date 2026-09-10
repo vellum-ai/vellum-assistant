@@ -25,7 +25,7 @@
  */
 
 import { getLogger } from "./logger.js";
-import { computeRetryDelay } from "./retry.js";
+import { abortableSleep, computeRetryDelay } from "./retry.js";
 import { runWithSqliteQueryLabel } from "./sqlite-query-label.js";
 
 const log = getLogger("sqlite-retry");
@@ -50,6 +50,14 @@ export interface SqliteRetryOptions {
   baseDelayMs?: number;
   /** Extra structured fields to include in retry warnings (e.g. an id). */
   context?: Record<string, unknown>;
+  /**
+   * Cancellation for the work this write belongs to. Checked before every
+   * attempt and during the backoff, so a cancelled caller stops instead of
+   * sleeping and then landing its write. Only a retry is stopped this way: an
+   * attempt that already threw a retryable error did not commit, so there is
+   * nothing to undo. A write already in flight is never interrupted.
+   */
+  signal?: AbortSignal;
 }
 
 function sqliteErrorCode(err: unknown): string {
@@ -76,6 +84,7 @@ export async function withSqliteRetry<T>(
   const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
   const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
   for (let attempt = 0; ; attempt++) {
+    options.signal?.throwIfAborted();
     try {
       // The inner await must happen inside the label scope: a lazy thenable
       // (e.g. a Drizzle QueryPromise) executes its statement only when
@@ -93,7 +102,10 @@ export async function withSqliteRetry<T>(
           },
           "withSqliteRetry: transient SQLite error, retrying",
         );
-        await Bun.sleep(computeRetryDelay(attempt, baseDelayMs));
+        await abortableSleep(
+          computeRetryDelay(attempt, baseDelayMs),
+          options.signal,
+        );
         continue;
       }
       throw err;

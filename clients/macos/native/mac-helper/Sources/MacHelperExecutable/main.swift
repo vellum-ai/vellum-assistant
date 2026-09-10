@@ -499,6 +499,14 @@ final class MacHelper: @unchecked Sendable {
         guard let key = chordKey(for: event) else {
             return false
         }
+        // A key held down repeats as further key-downs. The press was answered
+        // on the first of them; the repeats are still this app's (left alone
+        // they would type the key's character into the front app) and are
+        // taken without being reported, so a chord that toggles something
+        // toggles it once per press rather than once per repeat.
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return true
+        }
         writeNotification(
             method: "hotkey.event",
             params: ["kind": "chord", "state": "down", "key": key]

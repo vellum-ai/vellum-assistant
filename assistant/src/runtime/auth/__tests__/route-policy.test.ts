@@ -7,7 +7,8 @@
  * side-registry to look up against.
  *
  * Covers:
- * - `policy: null` is treated as unprotected (always allowed)
+ * - `policy: null` is unprotected for a broad profile, closed to a grant
+ *   minted for a single route
  * - Principal type check denies disallowed types
  * - Scope check denies missing scopes
  * - Allowed requests return null
@@ -28,19 +29,21 @@ mock.module("../../../config/env.js", () => ({
 }));
 
 import { enforcePolicy, type RoutePolicy } from "../route-policy.js";
+import { resolveScopeProfile } from "../scopes.js";
 import type { AuthContext, Scope } from "../types.js";
 
 /** Build a synthetic AuthContext for testing. */
 function buildTestContext(overrides?: {
   principalType?: AuthContext["principalType"];
   scopes?: Scope[];
+  scopeProfile?: AuthContext["scopeProfile"];
 }): AuthContext {
   return {
     subject: "actor:self:test-principal",
     principalType: overrides?.principalType ?? "actor",
     assistantId: "self",
     actorPrincipalId: "test-principal",
-    scopeProfile: "actor_client_v1",
+    scopeProfile: overrides?.scopeProfile ?? "actor_client_v1",
     scopes: new Set(
       overrides?.scopes ?? [
         "chat.read",
@@ -65,8 +68,14 @@ const GATEWAY_INGRESS_POLICY: RoutePolicy = {
   allowedPrincipalTypes: ["svc_gateway"],
 };
 
+/** Policy guarding the OAuth passthrough route. */
+const OAUTH_PROXY_POLICY: RoutePolicy = {
+  requiredScopes: ["oauth.proxy"],
+  allowedPrincipalTypes: ["local"],
+};
+
 describe("enforcePolicy", () => {
-  test("policy: null is treated as unprotected (always allowed)", () => {
+  test("policy: null is unprotected for a broad scope profile", () => {
     authDisabled = false;
     const ctx = buildTestContext({ scopes: [] });
     const result = enforcePolicy("_internal/health", null, ctx);
@@ -145,7 +154,58 @@ describe("enforcePolicy", () => {
     expect(result!.status).toBe(403);
   });
 
-  test("empty requiredScopes admits any principal of allowed type", () => {
+  test("allows a local principal holding oauth.proxy", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "local",
+      scopes: ["oauth.proxy"],
+    });
+    expect(enforcePolicy("oauth/proxy", OAUTH_PROXY_POLICY, ctx)).toBeNull();
+  });
+
+  test("oauth.proxy opens no other route", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "local",
+      scopes: ["oauth.proxy"],
+    });
+    const result = enforcePolicy(
+      "settings",
+      { requiredScopes: ["settings.write"], allowedPrincipalTypes: ["local"] },
+      ctx,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("a fully scoped actor client cannot reach the oauth proxy route", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "actor",
+      scopes: [...resolveScopeProfile("actor_client_v1")],
+    });
+    const result = enforcePolicy("oauth/proxy", OAUTH_PROXY_POLICY, ctx);
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("an unrecognized profile is refused on a route naming no scope", () => {
+    authDisabled = false;
+    // Claims come from JSON, so a profile outside the union reaches this, and
+    // a prototype key resolves to an object rather than the `true` a broad
+    // profile carries.
+    for (const profile of ["bogus_v1", "__proto__", "constructor"]) {
+      const ctx = buildTestContext({
+        scopeProfile: profile as never,
+        scopes: [],
+      });
+      const result = enforcePolicy("_internal/health", null, ctx);
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe(403);
+    }
+  });
+
+  test("empty requiredScopes admits a broad-profile principal of allowed type", () => {
     authDisabled = false;
     const openPolicy: RoutePolicy = {
       requiredScopes: [],
@@ -154,6 +214,118 @@ describe("enforcePolicy", () => {
     const ctx = buildTestContext({ scopes: [] });
     const result = enforcePolicy("open", openPolicy, ctx);
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Single-route grants
+//
+// An oauth_proxy_v1 grant is printed for a user to export into a stock
+// third-party CLI's environment, so it sits outside this install's trust
+// boundary. `policy: null` admits any valid token, which for this grant means
+// mutating routes it was never minted for (integrations/a2a/invite/accept).
+// ---------------------------------------------------------------------------
+
+/** The context an exported OAuth proxy grant produces. */
+function buildProxyGrantContext(): AuthContext {
+  return {
+    ...buildTestContext({
+      principalType: "local",
+      scopes: [...resolveScopeProfile("oauth_proxy_v1")],
+      scopeProfile: "oauth_proxy_v1",
+    }),
+    subject: "local:self:oauth-proxy.stripe_link",
+    actorPrincipalId: undefined,
+    conversationId: "oauth-proxy.stripe_link",
+  };
+}
+
+describe("enforcePolicy with an oauth_proxy_v1 grant", () => {
+  test("denies an unprotected route", () => {
+    authDisabled = false;
+    const result = enforcePolicy(
+      "integrations/a2a/invite/accept",
+      null,
+      buildProxyGrantContext(),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("denies a policy that names no scope", () => {
+    authDisabled = false;
+    const result = enforcePolicy(
+      "open",
+      { requiredScopes: [], allowedPrincipalTypes: ["local"] },
+      buildProxyGrantContext(),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("allows the passthrough policy", () => {
+    authDisabled = false;
+    expect(
+      enforcePolicy(
+        "oauth/proxy",
+        OAUTH_PROXY_POLICY,
+        buildProxyGrantContext(),
+      ),
+    ).toBeNull();
+  });
+
+  test("denies a settings.write policy", () => {
+    authDisabled = false;
+    const result = enforcePolicy(
+      "settings",
+      { requiredScopes: ["settings.write"], allowedPrincipalTypes: ["local"] },
+      buildProxyGrantContext(),
+    );
+    expect(result).not.toBeNull();
+    expect(result!.status).toBe(403);
+  });
+
+  test("the dev bypass still admits it", () => {
+    authDisabled = true;
+    expect(
+      enforcePolicy(
+        "integrations/a2a/invite/accept",
+        null,
+        buildProxyGrantContext(),
+      ),
+    ).toBeNull();
+    authDisabled = false;
+  });
+
+  test("a local CLI token still reaches an unprotected route", () => {
+    authDisabled = false;
+    const ctx = buildTestContext({
+      principalType: "local",
+      scopes: [...resolveScopeProfile("local_v1")],
+      scopeProfile: "local_v1",
+    });
+    expect(
+      enforcePolicy("integrations/a2a/invite/accept", null, ctx),
+    ).toBeNull();
+  });
+
+  test("the passthrough ROUTES entries admit the grant", async () => {
+    authDisabled = false;
+    const { ROUTES } = await import("../../routes/index.js");
+    const proxyRoutes = ROUTES.filter((r) =>
+      r.operationId.startsWith("oauth_proxy_"),
+    );
+    expect(proxyRoutes.length).toBeGreaterThan(1);
+    const ctx = buildProxyGrantContext();
+    for (const route of proxyRoutes) {
+      const result = enforcePolicy(route.endpoint, route.policy, ctx);
+      if (route.operationId === "oauth_proxy_grant") {
+        // Minting takes settings.write, so a grant cannot mint another.
+        expect(result!.status).toBe(403);
+      } else {
+        expect(result).toBeNull();
+      }
+    }
   });
 });
 

@@ -1342,7 +1342,8 @@
     "railAria": "進度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "進度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"
@@ -1707,7 +1708,8 @@
     "stopWorkflow": "停止工作流程"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "處理中"
   },
   "useConversationLoader": {
     "authFailed": "使用者驗證失敗。"

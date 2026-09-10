@@ -922,6 +922,23 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("low");
   });
 
+  // The grant reaches a live provider API, so it must resolve to its own
+  // registry node rather than falling back to the low-risk bare `oauth` node.
+  test("assistant oauth proxy-url → medium", async () => {
+    const bare = await classifier.classify({
+      command: "assistant oauth",
+      toolName: "bash",
+    });
+    expect(bare.riskLevel).toBe("low");
+
+    const result = await classifier.classify({
+      command: "assistant oauth proxy-url stripe_link --export",
+      toolName: "bash",
+    });
+    expect(result.riskLevel).toBe("medium");
+    expect(result.reason).toContain("passthrough proxy");
+  });
+
   test("assistant credentials reveal → high", async () => {
     const result = await classifier.classify({
       command: "assistant credentials reveal",

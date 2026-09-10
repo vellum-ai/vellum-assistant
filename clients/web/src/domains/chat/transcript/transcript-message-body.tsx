@@ -50,6 +50,7 @@ import {
   type ContentBlockActivityItem,
   finalResponseStartIndex,
   groupContentBlocks,
+  groupOptionsForMessage,
   isSubagentSpawnCall,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
@@ -60,6 +61,7 @@ import { AnsweredQuestionCard } from "@/domains/chat/components/answered-questio
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useTranslation } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -174,6 +176,13 @@ export function TranscriptMessageBody({
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
+  // Two reasons this row shows no reasoning: the transcript-wide gate, and the
+  // row's own private marker. `groupOptionsForMessage` drops the settled blocks
+  // for either; this is what keeps the live row from shimmering a "Thinking"
+  // label over the reply while the turn is still running.
+  const hideThinkingUi = useHideThinkingUi();
+  const hidesThinking =
+    hideThinkingUi || message.assistantTextVisibility === "private";
   const hasAttachments = Boolean(message.attachments?.length);
   // Gated on the transcript owner: an older daemon neutralizes nothing, so
   // sentinel-shaped text in its transcripts must never chip-ify, and only the
@@ -181,10 +190,12 @@ export function TranscriptMessageBody({
   const supportsRedactedCredentialChips =
     useSupportsRedactedCredentialChips(assistantId);
 
-  // User-typed thinking tags must render verbatim; only assistant text splits.
-  const groups = groupContentBlocks(message.contentBlocks ?? [], {
-    splitInlineThinking: !isUser,
-  });
+  // User-typed thinking tags must render verbatim, and a row marked private
+  // carries no reasoning the user reads.
+  const groups = groupContentBlocks(
+    message.contentBlocks ?? [],
+    groupOptionsForMessage(message, hideThinkingUi),
+  );
 
   // Only the trailing text group of a streaming assistant message is still
   // growing, so only it gets the typewriter re-pacing; earlier groups (and
@@ -913,7 +924,8 @@ export function TranscriptMessageBody({
     // inline thinking `SingleActivity`, plus any spawn cards. A trailing run
     // reads as still-streaming only while the row is live.
     const combinedThinking = thinkingContents.join("\n");
-    const showThinking = combinedThinking || (isStreaming && isLastGroup);
+    const showThinking =
+      !hidesThinking && (combinedThinking || (isStreaming && isLastGroup));
     return (
       <Fragment key={key}>
         {showThinking && (
@@ -1201,11 +1213,20 @@ export function TranscriptMessageBody({
     groups,
     groupDrawsVisibleOutput,
   );
-  // Per-user opt-out of the "Earlier activity" disclosure: with the flag on,
-  // no group is collapsible, so the whole response renders inline at full
-  // size and none of the collapsed styling applies.
+  // Three reasons no group is collapsible, after which the whole response
+  // renders inline at full size and none of the collapsed styling applies: the
+  // per-user opt-out; the `send-user-message` flag, under which every text
+  // block is a message the assistant chose to send and none is "earlier"
+  // prose to fold away; and a row the daemon marks private, whose prose
+  // arrives projected into thinking blocks with the reply as its own text.
+  // The third reason is the row's own marker, so a row sent under the flag
+  // stays inline after the flag is turned off.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
-    if (inlineAssistantIntermediates) {
+    if (
+      inlineAssistantIntermediates ||
+      hideThinkingUi ||
+      message.assistantTextVisibility === "private"
+    ) {
       return [];
     }
     if (groupIndex >= finalResponseGroupIndex) {

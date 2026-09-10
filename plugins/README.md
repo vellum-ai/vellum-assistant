@@ -706,11 +706,11 @@ Host behaviours worth knowing when authoring one:
   Claude-style `http` alias as MCP's current remote transport. Write
   `stdio` or `sse` explicitly.
 - **Risk defaults to `low`,** so the tools run without prompting under the
-  default auto-approve threshold. `mcp.json` has no risk field — the spec
-  defines none — and the review is the marketplace whitelist plus the user's
-  decision to install. A user who wants a different bar sets `defaultRiskLevel`
-  on a workspace `config.json` entry of the same id, which outranks the
-  plugin's declaration (and replaces it wholesale, transport included).
+  default auto-approve threshold. `mcp.json` has no risk field (the spec
+  defines none) and the review is the marketplace whitelist plus the user's
+  decision to install. A workspace entry of the same id replaces the plugin
+  server wholesale (transport included) and uses the workspace origin risk
+  (`medium`).
 - **A plugin cannot ship a credential.** The spec defines no portable OAuth or
   credential-reference fields, and any `headers` in the file are literal
   package data. A plugin server also never resolves the assistant's stored

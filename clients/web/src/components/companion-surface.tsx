@@ -428,6 +428,18 @@ export const FALLBACK_WIDTHS: Record<
   call: 4 + CALL_LINE_WIDTH + CALL_CONTROLS_WIDTH,
 };
 
+/**
+ * The keys that make the call row's presses from anywhere on the desktop, as
+ * the caption spells them (`⌥S`). One per control that has a key; the row's
+ * other controls have none and are named alone.
+ */
+export interface CompanionCallShortcuts {
+  share: string;
+  draw: string;
+  muteMicrophone: string;
+  muteAssistant: string;
+}
+
 export interface CompanionSurfaceProps {
   phase: CompanionSurfacePhase;
   /**
@@ -624,6 +636,14 @@ export interface CompanionSurfaceProps {
    */
   onAnnotate?: (annotating: boolean) => void;
   /**
+   * The keys the call row's controls also answer to, as the caption spells
+   * them (`⌥S`). Absent where the host watches no chord, so the caption never
+   * names a key that does nothing. The share and the pen are shown their key
+   * only while the row offers Share at all, since that is the answer the
+   * binding is armed on too.
+   */
+  shortcuts?: CompanionCallShortcuts;
+  /**
    * Press the avatar. Idle, that starts a call; on a call, it goes back to
    * Vellum, on the conversation the call is in. The caller decides which,
    * since it is the side holding the session; this side only names the press
@@ -792,6 +812,7 @@ export function CompanionSurface({
   onStopShare,
   annotating = false,
   onAnnotate,
+  shortcuts,
   onAvatarClick,
   working = false,
   watching = false,
@@ -1125,6 +1146,7 @@ export function CompanionSurface({
                 onShare={onShare}
                 onStopShare={onStopShare}
                 onAnnotate={onAnnotate}
+                shortcuts={shortcuts}
               />
             ) : phase === "dictating" && dictating !== undefined ? (
               <DictatingBody
@@ -1351,6 +1373,11 @@ const NAME_CAPTION_GLASS = "backdrop-blur-md backdrop-saturate-150";
  * Dock's own tooltip carries nothing but the name. A small rectangle rather
  * than the pill's stadium shape, so the two never share a silhouette.
  *
+ * `shortcut` is the key that does the same thing, after the name and dimmer
+ * than it, the way a menu writes its accelerator: the name is what the control
+ * is, the key is a second way to it. Glyphs rather than copy, so it is not
+ * translated.
+ *
  * Placed by the caller: `className` carries whether it is shown and any lift
  * off the thing it names, `style` any offsets the layout works out. Absolute
  * with no offsets of its own, so a caller that sets none gets the static
@@ -1363,11 +1390,13 @@ function Caption({
   className,
   style,
   label,
+  shortcut,
   ...data
 }: {
   className: string;
   style?: CSSProperties;
   label: string;
+  shortcut?: string;
 } & Partial<Record<`data-${string}`, string>>) {
   return (
     <span
@@ -1377,6 +1406,11 @@ function Caption({
       {...data}
     >
       {label}
+      {shortcut === undefined ? null : (
+        <span className="ml-1.5 font-normal text-white/60" data-shortcut>
+          {shortcut}
+        </span>
+      )}
       {/* Flush with the rectangle's own bottom edge (`top-full`) rather than
           nudged down to meet it, so the two blurred panes meet at a seam
           rather than compositing on top of each other. Centred under the
@@ -1846,6 +1880,7 @@ function CallBody({
   onShare,
   onStopShare,
   onAnnotate,
+  shortcuts,
 }: {
   call?: VoiceActivityState;
   assistantName: string;
@@ -1862,6 +1897,7 @@ function CallBody({
   onShare?: () => void;
   onStopShare?: () => void;
   onAnnotate?: (annotating: boolean) => void;
+  shortcuts?: CompanionCallShortcuts;
 }) {
   const { t } = useTranslation();
   // The dial: Talk has been pressed and no session has answered. The mutes
@@ -1944,6 +1980,7 @@ function CallBody({
         sharing={sharing}
         shareEnabled={shareEnabled}
         sharePicking={sharePicking}
+        shortcut={shareEnabled ? shortcuts?.share : undefined}
         onShare={onShare}
         onStopShare={onStopShare}
       />
@@ -1952,6 +1989,7 @@ function CallBody({
       <DrawButton
         sharing={sharing}
         annotating={annotating}
+        shortcut={shareEnabled ? shortcuts?.draw : undefined}
         onAnnotate={onAnnotate}
       />
       <PillButton
@@ -1963,6 +2001,7 @@ function CallBody({
             ? t("companionSurface.unmuteMicrophone")
             : t("companionSurface.muteMicrophone")
         }
+        shortcut={shortcuts?.muteMicrophone}
         onClick={() => {
           onControl?.(muted ? "unmuteMicrophone" : "muteMicrophone");
         }}
@@ -1980,6 +2019,7 @@ function CallBody({
             ? t("companionSurface.unmuteAssistant")
             : t("companionSurface.muteAssistant")
         }
+        shortcut={shortcuts?.muteAssistant}
         onClick={() => {
           onControl?.(
             outputMuted ? "unmuteAssistantAudio" : "muteAssistantAudio",
@@ -2009,12 +2049,14 @@ function ShareButton({
   sharing,
   shareEnabled,
   sharePicking,
+  shortcut,
   onShare,
   onStopShare,
 }: {
   sharing: boolean;
   shareEnabled: boolean;
   sharePicking: boolean;
+  shortcut?: string;
   onShare?: () => void;
   onStopShare?: () => void;
 }) {
@@ -2026,6 +2068,7 @@ function ShareButton({
     <PillButton
       icon={<ScreenShare className="size-4" />}
       label={t("companionSurface.share")}
+      shortcut={shortcut}
       pressed={sharing || sharePicking}
       onClick={sharing ? onStopShare : onShare}
     />
@@ -2050,10 +2093,12 @@ function ShareButton({
 function DrawButton({
   sharing,
   annotating,
+  shortcut,
   onAnnotate,
 }: {
   sharing: boolean;
   annotating: boolean;
+  shortcut?: string;
   onAnnotate?: (annotating: boolean) => void;
 }) {
   const { t } = useTranslation();
@@ -2064,6 +2109,7 @@ function DrawButton({
     <PillButton
       icon={<Pencil className="size-4" />}
       label={t("companionSurface.draw")}
+      shortcut={shortcut}
       pressed={annotating}
       onClick={() => {
         onAnnotate?.(!annotating);
@@ -2226,6 +2272,7 @@ const CONTROL_CAPTION_LIFT = "-translate-y-[calc(50%+22px)]";
 function PillButton({
   icon,
   label,
+  shortcut,
   tone,
   showLabel = false,
   pressed,
@@ -2233,6 +2280,8 @@ function PillButton({
 }: {
   icon: ReactNode;
   label: string;
+  /** The key that makes the same press, written into the caption after the name. */
+  shortcut?: string;
   tone?: "positive" | "negative";
   showLabel?: boolean;
   pressed?: boolean;
@@ -2269,6 +2318,7 @@ function PillButton({
         // hold that this word is hidden until the pointer arrives.
         <Caption
           label={label}
+          shortcut={shortcut}
           className={`opacity-0 group-hover:opacity-100 ${CONTROL_CAPTION_LIFT}`}
           data-label="hover"
         />

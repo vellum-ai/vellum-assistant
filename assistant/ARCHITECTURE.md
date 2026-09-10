@@ -70,6 +70,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `svc:gateway:<assistantId>`              | `svc_gateway`  | Gateway service (ingress, webhooks) |
 | `svc:internal:<assistantId>:<sessionId>` | `svc_internal` | Internal service connections        |
 | `svc:daemon:<identifier>`                | `svc_daemon`   | Daemon service token (local)        |
+| `local:<assistantId>:<conversationId>`   | `local`        | Local session or single-route grant |
 
 **Scope profiles:**
 
@@ -79,6 +80,7 @@ All HTTP API requests use a single `Authorization: Bearer <jwt>` header for auth
 | `gateway_ingress_v1` | `ingress.write`, `internal.write`                                                                                                                     | Gateway channel inbound + webhook forwarding |
 | `gateway_service_v1` | `chat.{read,write}`, `settings.{read,write}`, `attachments.{read,write}`, `internal.write`                                                            | Gateway service-to-daemon calls              |
 | `local_v1`           | `local.all`                                                                                                                                           | Local (loopback) conversation sessions       |
+| `oauth_proxy_v1`     | `oauth.proxy`                                                                                                                                         | OAuth passthrough proxy route only           |
 | `speech_relay_v1`    | `speech.relay`                                                                                                                                        | Daemon dial of the gateway speech relay only |
 | `ui_page_v1`         | `settings.read`                                                                                                                                       | Served UI pages                              |
 
