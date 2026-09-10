@@ -60,6 +60,15 @@ and restore the prior value afterwards, each guarding the restore so a turn that
 started in between is not clobbered. They are supplying the acting actor for
 their run, and are covered by this contract.
 
+A queued message commits to a run at its drain, not at its enqueue. The drains
+(`drainSingleMessage` and `drainBatch` in `conversation-process.ts`) stamp the
+queued sender the way `processMessage` stamps its committing actor, and re-scope
+the resident history to them, so a turn drained behind another actor's turn
+runs as its sender everywhere the resting actor is read, not only in the
+per-turn snapshot. A steered drain skips the re-scope: its sender owned the
+turn it cut off, and the resident history may carry the in-memory repair of the
+abandoned `tool_use`.
+
 `call-controller` keeps its own `trustContext` on its own object and never reads
 the conversation's. It is outside this contract.
 
