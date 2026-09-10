@@ -381,16 +381,28 @@ describe("the turn-status slot's own word for the wait", () => {
     expect(getByTestId("transcript-thinking-row").textContent).toBe("Working");
   });
 
-  test("keeps a daemon-supplied label either way", () => {
-    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
-    const { getByTestId } = render(
+  function renderLabelled() {
+    return render(
       <TranscriptRow
         item={{ ...thinkingItem, label: "Processing bash results" }}
         onSurfaceAction={() => {}}
       />,
     );
+  }
+
+  test("keeps a daemon-supplied label by default", () => {
+    const { getByTestId } = renderLabelled();
     expect(getByTestId("transcript-thinking-row").textContent).toBe(
       "Processing bash results",
     );
+  });
+
+  test("drops the daemon's status line once the step stack is the live label", () => {
+    // Two labels stacked under one reply, the step stack's "Writing · 5 steps"
+    // over the daemon's own sentence, read as the assistant narrating itself
+    // twice. "Working" still covers the gap before the first tool starts.
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByTestId } = renderLabelled();
+    expect(getByTestId("transcript-thinking-row").textContent).toBe("Working");
   });
 });
