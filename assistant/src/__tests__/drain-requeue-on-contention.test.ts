@@ -201,7 +201,8 @@ describe("drainQueue under processing-lock contention", () => {
     expect(queue.length).toBe(0);
     expect(
       events.filter(
-        (event) => event.type === "error" && event.message === "disk exploded",
+        (event) =>
+          event.type === "message_failed" && event.message === "disk exploded",
       ).length,
     ).toBe(1);
   });
