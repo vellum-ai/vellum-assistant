@@ -71,14 +71,42 @@ body {
  * collapsible-slide-*) live in the library's tokens.css. */
 
 @keyframes indeterminate {
-  0% { width: 0%; margin-left: 0%; }
-  50% { width: 60%; margin-left: 20%; }
-  100% { width: 0%; margin-left: 100%; }
+  0% {
+    width: 0%;
+    margin-left: 0%;
+  }
+  50% {
+    width: 60%;
+    margin-left: 20%;
+  }
+  100% {
+    width: 0%;
+    margin-left: 100%;
+  }
+}
+
+/* Route pending bar. Held transparent through the delay, so a navigation that
+   resolves inside it never paints anything and only a wait long enough to read
+   as unresponsive shows the bar. */
+.route-pending-indicator {
+  animation: fadeIn 0.2s ease-out 250ms both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-pending-indicator > * {
+    animation: none;
+  }
 }
 
 @keyframes fadeInUp {
-  0% { transform: translateY(16px); opacity: 0; }
-  100% { transform: none; opacity: 1; }
+  0% {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 /* View Plans takeover entrance — the route swaps straight onto a full-dark
@@ -86,8 +114,12 @@ body {
    The canvas fade is opacity-only: translating it would drag the page
    background along and expose whatever sits behind the route. */
 @keyframes fadeIn {
-  0% { opacity: 0; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .plans-takeover-canvas-enter {
@@ -112,16 +144,28 @@ body {
 /* Onboarding edge characters popping into place — a quick scale-up with a soft
    overshoot (paired with a spring-ish cubic-bezier at the call site). */
 @keyframes character-pop-in {
-  0% { transform: scale(0); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
    in from the right. The panel hosts fixed Select/tooltip layers, so the
    fill mode below matters: see the note on the rule. */
 @keyframes drawer-slide-in {
-  0% { transform: translateX(16px); opacity: 0; }
-  100% { transform: none; opacity: 1; }
+  0% {
+    transform: translateX(16px);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 /* `backwards`, not `both`. Forwards-fill would hold the final keyframe after
@@ -143,12 +187,19 @@ body {
    for the same reason as `.home-detail-drawer` above: nothing here should be
    left holding a transform once the entrance ends. */
 @keyframes notifications-panel-detail-in {
-  0% { transform: translateX(8px); opacity: 0; }
-  100% { transform: none; opacity: 1; }
+  0% {
+    transform: translateX(8px);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
 }
 
 .notifications-panel-detail-enter {
-  animation: notifications-panel-detail-in var(--anim-fast) var(--anim-ease-out) backwards;
+  animation: notifications-panel-detail-in var(--anim-fast) var(--anim-ease-out)
+    backwards;
 }
 
 .notifications-panel-list-enter {
@@ -205,10 +256,26 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   animation: page-arrive-leading var(--page-transition-duration) ease-out both;
 }
 
-@keyframes page-arrive-trailing { from { transform: translateX(100%); } }
-@keyframes page-depart-leading { to { transform: translateX(-25%); } }
-@keyframes page-arrive-leading { from { transform: translateX(-25%); } }
-@keyframes page-depart-trailing { to { transform: translateX(100%); } }
+@keyframes page-arrive-trailing {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes page-depart-leading {
+  to {
+    transform: translateX(-25%);
+  }
+}
+@keyframes page-arrive-leading {
+  from {
+    transform: translateX(-25%);
+  }
+}
+@keyframes page-depart-trailing {
+  to {
+    transform: translateX(100%);
+  }
+}
 
 /* Snap to the destination. The transition still runs, so React Router's
    snapshot still covers the router's own latency; only the travel is dropped. */
@@ -221,29 +288,59 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 @keyframes typing-dot-pulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.6); }
-  50% { opacity: 1; transform: scale(1); }
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* Avatar breathing — gentle scale pulse matching macOS
    AnimatedAvatarView.swift startBreathing() (2s in, 2s out). */
 @keyframes avatar-breathe-kf {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
 }
 
 @keyframes avatar-morph-scale {
-  0%, 100% { transform: scale(1, 1); }
-  25% { transform: scale(1.02, 0.99); }
-  50% { transform: scale(0.99, 1.02); }
-  75% { transform: scale(1.01, 0.99); }
+  0%,
+  100% {
+    transform: scale(1, 1);
+  }
+  25% {
+    transform: scale(1.02, 0.99);
+  }
+  50% {
+    transform: scale(0.99, 1.02);
+  }
+  75% {
+    transform: scale(1.01, 0.99);
+  }
 }
 
 @keyframes avatar-morph-rotate {
-  0%, 100% { transform: rotate(0deg); }
-  25% { transform: rotate(0.86deg); }
-  50% { transform: rotate(0deg); }
-  75% { transform: rotate(-0.86deg); }
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(0.86deg);
+  }
+  50% {
+    transform: rotate(0deg);
+  }
+  75% {
+    transform: rotate(-0.86deg);
+  }
 }
 
 /* Companion avatar bob: the creature lifting off its baseline and settling
@@ -259,8 +356,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
    short of the top, so the raised creature is still somewhere the host's
    hit-test finds the pointer. */
 @keyframes companion-avatar-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-3px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
 }
 
 .companion-avatar-bob {
@@ -280,8 +382,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * opacity (1→0.3) and scale (1→0.85) over 1s easeInOut. Used in
  * ActivityRunCard for active/thinking phases. */
 @keyframes busy-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.3; transform: scale(0.85); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.85);
+  }
 }
 
 .busy-indicator {
@@ -307,7 +416,9 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 @keyframes companion-orbit {
-  to { --companion-orbit: 360deg; }
+  to {
+    --companion-orbit: 360deg;
+  }
 }
 
 .companion-working-ring {
@@ -329,7 +440,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
    * A 2px line over an arbitrary desktop needs it: the surface has no backdrop
    * of its own to hold the edge against. */
   filter: drop-shadow(
-    0 0 3px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 55%, transparent)
+    0 0 3px
+      color-mix(in srgb, var(--companion-ring-accent, #5eead4) 55%, transparent)
   );
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
@@ -356,13 +468,20 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * screen displaced, so there is no reduced-motion fallback: holding it still
  * would delete the only signal that the surface was read at that moment. */
 @keyframes companion-watch-frame-flash {
-  0% { opacity: 0; }
-  15% { opacity: 1; }
-  100% { opacity: 0; }
+  0% {
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }
 
 .companion-watch-frame-flash {
-  box-shadow: inset 0 0 0 4px color-mix(in srgb, white 70%, var(--companion-ring-accent, #5eead4));
+  box-shadow: inset 0 0 0 4px
+    color-mix(in srgb, white 70%, var(--companion-ring-accent, #5eead4));
   opacity: 0;
   animation: companion-watch-frame-flash 700ms ease-out 1;
 }
@@ -381,17 +500,25 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * hairline holds it off a dark background and the rim holds it off a light
  * one, so the edge stays found on every background the surface can have. */
 @keyframes companion-watch-frame-in {
-  from { opacity: 0; }
+  from {
+    opacity: 0;
+  }
 }
 
 @keyframes companion-call-breathe {
-  0%, 100% { opacity: 0.72; }
-  50% { opacity: 1; }
+  0%,
+  100% {
+    opacity: 0.72;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .companion-watch-frame {
   box-shadow:
-    inset 0 0 0 4px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 92%, transparent),
+    inset 0 0 0 4px
+      color-mix(in srgb, var(--companion-ring-accent, #5eead4) 92%, transparent),
     inset 0 0 0 5px color-mix(in srgb, white 75%, transparent),
     inset 0 0 0 7px color-mix(in srgb, black 35%, transparent);
   animation:
@@ -435,7 +562,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   color: #fff;
   background: color-mix(in srgb, black 78%, transparent);
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
+    inset 0 0 0 1px
+      color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent),
     0 1px 6px color-mix(in srgb, black 35%, transparent);
   animation: companion-watch-frame-in 300ms ease-out 1;
 }
@@ -447,7 +575,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   height: 8px;
   border-radius: 50%;
   background: var(--companion-ring-accent, #5eead4);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 30%, transparent);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--companion-ring-accent, #5eead4) 30%, transparent);
   animation: companion-call-breathe 3s ease-in-out infinite;
 }
 
@@ -507,7 +636,9 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * `COMPANION_INK_FADE_MS` in `companion-share-annotation.tsx`), which drops
  * the element on the same numbers. */
 @keyframes companion-share-ink-out {
-  to { opacity: 0; }
+  to {
+    opacity: 0;
+  }
 }
 
 .companion-share-ink-spent {
@@ -574,7 +705,11 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 .companion-coachmark-ink,
 .companion-coachmark-pointer-ink {
-  stroke: color-mix(in srgb, var(--companion-ring-accent, #5eead4) 90%, transparent);
+  stroke: color-mix(
+    in srgb,
+    var(--companion-ring-accent, #5eead4) 90%,
+    transparent
+  );
   stroke-width: 5;
 }
 
@@ -608,7 +743,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   line-height: 1.35;
   color: #fff;
   background: color-mix(in srgb, black 78%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--companion-ring-accent, #5eead4) 70%, transparent);
   animation: companion-coachmark-in 260ms ease-out 1;
 }
 
@@ -627,8 +763,14 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * component also holds it static via useReducedMotion; the media query is
  * defense-in-depth for callers that don't. */
 @keyframes voice-caret-blink {
-  0%, 50% { opacity: 1; }
-  50.01%, 100% { opacity: 0; }
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .voice-caret-blink {
@@ -650,9 +792,16 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * media query is defense-in-depth for callers that don't, and pins the dot lit
  * rather than mid-dip. */
 @keyframes camera-status-blink {
-  0%, 55% { opacity: 1; }
-  75% { opacity: 0.25; }
-  100% { opacity: 1; }
+  0%,
+  55% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 0.25;
+  }
+  100% {
+    opacity: 1;
+  }
 }
 
 .camera-status-blink {
@@ -795,14 +944,20 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 @keyframes camera-shutter-pulse {
   0% {
     box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--camera-accent) 75%, transparent);
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--camera-accent) 75%, transparent);
   }
-  70% { box-shadow: 0 0 0 12px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
+  70% {
+    box-shadow: 0 0 0 12px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
 .camera-shutter-pulse {
-  animation: camera-shutter-pulse var(--camera-shutter-pulse-duration) ease-out 1;
+  animation: camera-shutter-pulse var(--camera-shutter-pulse-duration) ease-out
+    1;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -821,10 +976,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 @keyframes sight-frame-kept {
   0% {
     box-shadow: 0 0 0 0 rgba(207, 67, 112, 0.75);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--camera-accent) 75%, transparent);
+    box-shadow: 0 0 0 0
+      color-mix(in srgb, var(--camera-accent) 75%, transparent);
   }
-  70% { box-shadow: 0 0 0 8px transparent; }
-  100% { box-shadow: 0 0 0 0 transparent; }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
 }
 
 .sight-frame-kept {
@@ -832,15 +992,21 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sight-frame-kept { animation: none; }
+  .sight-frame-kept {
+    animation: none;
+  }
 }
 
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */
 @keyframes message-highlight-flash {
-  0% { background-color: var(--surface-active); }
-  100% { background-color: transparent; }
+  0% {
+    background-color: var(--surface-active);
+  }
+  100% {
+    background-color: transparent;
+  }
 }
 
 .message-highlighted {
@@ -884,8 +1050,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * useReducedMotion; the media query is defense-in-depth for callers that
  * don't. */
 @keyframes unseen-dot-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.35); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.35);
+  }
 }
 
 .unseen-dot-pulse {
@@ -919,8 +1090,12 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * creature reads as "asleep" during hatching. When the assistant becomes
  * active, swap the class for `.onboarding-avatar-awake`. */
 @keyframes morphPulse {
-  0% { transform: scale(0.9); }
-  100% { transform: scale(1.0); }
+  0% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .onboarding-avatar-pulse {
@@ -948,8 +1123,14 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* Billing onboarding modal — step content entrance */
 @keyframes onboarding-step-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Provisioning takeover — the assistant grows into a larger form when the
@@ -994,8 +1175,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 @keyframes provision-placeholder-breathe {
-  0%, 100% { transform: scale(0.94); opacity: 0.65; }
-  50% { transform: scale(1.05); opacity: 1; }
+  0%,
+  100% {
+    transform: scale(0.94);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
 }
 
 /* Fades out on the same beat the creature reveals on, then costs nothing. */
@@ -1033,20 +1221,44 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 /* The crouch is what makes this read as the creature pushing itself up rather
  * than as something being scaled. */
 @keyframes provision-grow {
-  0% { transform: scale(1); }
-  11% { transform: scale(1.03) scaleY(0.9); }
-  38% { transform: scale(1.3); }
-  50% { transform: scale(1.24); }
-  82% { transform: scale(1.49); }
-  100% { transform: scale(var(--provision-avatar-growth)); }
+  0% {
+    transform: scale(1);
+  }
+  11% {
+    transform: scale(1.03) scaleY(0.9);
+  }
+  38% {
+    transform: scale(1.3);
+  }
+  50% {
+    transform: scale(1.24);
+  }
+  82% {
+    transform: scale(1.49);
+  }
+  100% {
+    transform: scale(var(--provision-avatar-growth));
+  }
 }
 
 /* The shadow tightens as it leaves the ground and spreads as it lands. */
 @keyframes provision-grow-shadow {
-  0% { transform: scaleX(1); opacity: 0.85; }
-  18% { transform: scaleX(1.08); opacity: 1; }
-  45% { transform: scaleX(0.95); opacity: 0.6; }
-  100% { transform: scaleX(1.16); opacity: 1; }
+  0% {
+    transform: scaleX(1);
+    opacity: 0.85;
+  }
+  18% {
+    transform: scaleX(1.08);
+    opacity: 1;
+  }
+  45% {
+    transform: scaleX(0.95);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scaleX(1.16);
+    opacity: 1;
+  }
 }
 
 .provision-avatar-evolve.is-evolved .provision-avatar-current {
@@ -1089,7 +1301,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
     animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
   }
   28% {
-    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62)) scaleY(0.985);
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.62))
+      scaleY(0.985);
     animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
   }
   40% {
@@ -1097,7 +1310,8 @@ html[data-page-transition="pop"]::view-transition-new(root) {
     animation-timing-function: cubic-bezier(0.5, 0, 0.75, 0);
   }
   58% {
-    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28)) scaleY(0.985);
+    transform: scale(calc(1 + (var(--provision-avatar-growth) - 1) * 0.28))
+      scaleY(0.985);
     animation-timing-function: cubic-bezier(0.2, 1.5, 0.4, 1);
   }
   70% {
@@ -1108,18 +1322,41 @@ html[data-page-transition="pop"]::view-transition-new(root) {
     transform: scale(0.975) scaleY(0.955);
     animation-timing-function: cubic-bezier(0.2, 1.6, 0.4, 1);
   }
-  100% { transform: scale(1); }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* The shadow tightens a notch behind each drop and spreads as it is caught. */
 @keyframes provision-shrink-shadow {
-  0% { transform: scaleX(1.16); opacity: 1; }
-  28% { transform: scaleX(1.12); opacity: 0.9; }
-  40% { transform: scaleX(1.13); opacity: 0.92; }
-  58% { transform: scaleX(1.06); opacity: 0.82; }
-  70% { transform: scaleX(1.07); opacity: 0.84; }
-  86% { transform: scaleX(0.98); opacity: 0.94; }
-  100% { transform: scaleX(1); opacity: 0.85; }
+  0% {
+    transform: scaleX(1.16);
+    opacity: 1;
+  }
+  28% {
+    transform: scaleX(1.12);
+    opacity: 0.9;
+  }
+  40% {
+    transform: scaleX(1.13);
+    opacity: 0.92;
+  }
+  58% {
+    transform: scaleX(1.06);
+    opacity: 0.82;
+  }
+  70% {
+    transform: scaleX(1.07);
+    opacity: 0.84;
+  }
+  86% {
+    transform: scaleX(0.98);
+    opacity: 0.94;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0.85;
+  }
 }
 
 .provision-avatar-evolve.is-downsizing.is-evolved .provision-avatar-current {
@@ -1135,8 +1372,12 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * stage has already reserved its height, so this fades in place with nothing
  * moving around it. */
 @keyframes provision-avatar-reveal {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* The takeover's arrival beat: the avatar, the surface color, and the blurred
@@ -1184,13 +1425,20 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 @keyframes provision-strain {
-  0% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
   18% {
     transform: scaleX(calc(1 + var(--provision-strain) * 0.35))
       scaleY(calc(1 - var(--provision-strain) * 0.75));
   }
-  44% { transform: scale(calc(1 + var(--provision-strain))); }
-  66%, 100% { transform: scale(1); }
+  44% {
+    transform: scale(calc(1 + var(--provision-strain)));
+  }
+  66%,
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* A third of every cycle is rest — that pause is what keeps it reading as
@@ -1454,16 +1702,29 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 
 /* Idle — gentle 4.5s breathing scale, mirroring macOS startBreathing(). */
 @keyframes voice-avatar-idle-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.03); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
 }
 
 /* Idle — faint invitation ring that swells and fades, inviting the user to
  * speak without the urgency of the listening sonar. */
 @keyframes voice-avatar-invite-ring {
-  0% { opacity: 0; transform: scale(0.96); }
-  50% { opacity: 0.35; }
-  100% { opacity: 0; transform: scale(1.12); }
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.12);
+  }
 }
 
 .voice-avatar--idle {
@@ -1480,8 +1741,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
  * carried by the top-edge waves coming in (see voice-listening-waves.tsx), not by
  * the avatar reacting to mic amplitude. */
 @keyframes voice-avatar-soft-pulse {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.02); }
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
 }
 
 .voice-avatar--listening {
@@ -1491,8 +1757,13 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 /* Thinking — "stillness with intent": a slow brightness/saturation cycle on
  * the avatar itself. Deliberately NOT a spinner. */
 @keyframes voice-avatar-think-glow {
-  0%, 100% { filter: brightness(1) saturate(1); }
-  50% { filter: brightness(1.12) saturate(1.35); }
+  0%,
+  100% {
+    filter: brightness(1) saturate(1);
+  }
+  50% {
+    filter: brightness(1.12) saturate(1.35);
+  }
 }
 
 .voice-avatar--thinking {
@@ -1505,8 +1776,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 /* Reconnecting — dimmed, slow pulse, distinct from idle-breathe (full opacity)
  * and think-glow (brightens rather than dims). */
 @keyframes voice-avatar-reconnect-pulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.98); }
-  50% { opacity: 0.7; transform: scale(1.01); }
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.01);
+  }
 }
 
 .voice-avatar--reconnecting {
@@ -1740,22 +2018,34 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 }
 
 /* Palette: aurora = fixed cyan→indigo (matches the listening sonar). */
-.voice-listening-waves--aurora.voice-listening-waves--fill .voice-wave--back path {
+.voice-listening-waves--aurora.voice-listening-waves--fill
+  .voice-wave--back
+  path {
   fill: rgba(99, 102, 241, 0.16);
 }
-.voice-listening-waves--aurora.voice-listening-waves--fill .voice-wave--mid path {
+.voice-listening-waves--aurora.voice-listening-waves--fill
+  .voice-wave--mid
+  path {
   fill: rgba(79, 140, 255, 0.2);
 }
-.voice-listening-waves--aurora.voice-listening-waves--fill .voice-wave--front path {
+.voice-listening-waves--aurora.voice-listening-waves--fill
+  .voice-wave--front
+  path {
   fill: rgba(34, 211, 238, 0.26);
 }
-.voice-listening-waves--aurora.voice-listening-waves--line .voice-wave--back path {
+.voice-listening-waves--aurora.voice-listening-waves--line
+  .voice-wave--back
+  path {
   stroke: rgba(99, 102, 241, 0.5);
 }
-.voice-listening-waves--aurora.voice-listening-waves--line .voice-wave--mid path {
+.voice-listening-waves--aurora.voice-listening-waves--line
+  .voice-wave--mid
+  path {
   stroke: rgba(79, 140, 255, 0.62);
 }
-.voice-listening-waves--aurora.voice-listening-waves--line .voice-wave--front path {
+.voice-listening-waves--aurora.voice-listening-waves--line
+  .voice-wave--front
+  path {
   stroke: rgba(34, 211, 238, 0.78);
 }
 
@@ -1770,27 +2060,39 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 .voice-listening-waves--accent {
   --wave-accent: var(--avatar-accent, #6366f1);
 }
-.voice-listening-waves--accent.voice-listening-waves--fill .voice-wave--back path {
+.voice-listening-waves--accent.voice-listening-waves--fill
+  .voice-wave--back
+  path {
   fill: rgba(99, 102, 241, 0.16);
   fill: color-mix(in srgb, var(--wave-accent) 16%, transparent);
 }
-.voice-listening-waves--accent.voice-listening-waves--fill .voice-wave--mid path {
+.voice-listening-waves--accent.voice-listening-waves--fill
+  .voice-wave--mid
+  path {
   fill: rgba(79, 140, 255, 0.2);
   fill: color-mix(in srgb, var(--wave-accent) 24%, transparent);
 }
-.voice-listening-waves--accent.voice-listening-waves--fill .voice-wave--front path {
+.voice-listening-waves--accent.voice-listening-waves--fill
+  .voice-wave--front
+  path {
   fill: rgba(34, 211, 238, 0.26);
   fill: color-mix(in srgb, var(--wave-accent) 34%, transparent);
 }
-.voice-listening-waves--accent.voice-listening-waves--line .voice-wave--back path {
+.voice-listening-waves--accent.voice-listening-waves--line
+  .voice-wave--back
+  path {
   stroke: rgba(99, 102, 241, 0.5);
   stroke: color-mix(in srgb, var(--wave-accent) 50%, transparent);
 }
-.voice-listening-waves--accent.voice-listening-waves--line .voice-wave--mid path {
+.voice-listening-waves--accent.voice-listening-waves--line
+  .voice-wave--mid
+  path {
   stroke: rgba(79, 140, 255, 0.62);
   stroke: color-mix(in srgb, var(--wave-accent) 66%, transparent);
 }
-.voice-listening-waves--accent.voice-listening-waves--line .voice-wave--front path {
+.voice-listening-waves--accent.voice-listening-waves--line
+  .voice-wave--front
+  path {
   stroke: rgba(34, 211, 238, 0.78);
   stroke: color-mix(in srgb, var(--wave-accent) 82%, transparent);
 }
@@ -1801,7 +2103,9 @@ html[data-page-transition="pop"]::view-transition-new(root) {
 .voice-listening-waves--tone {
   --wave-tone: var(--room-fg, #ffffff);
 }
-.voice-listening-waves--tone.voice-listening-waves--fill .voice-wave--back path {
+.voice-listening-waves--tone.voice-listening-waves--fill
+  .voice-wave--back
+  path {
   fill: rgba(255, 255, 255, 0.1);
   fill: color-mix(in srgb, var(--wave-tone) 12%, transparent);
 }
@@ -1809,11 +2113,15 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   fill: rgba(255, 255, 255, 0.14);
   fill: color-mix(in srgb, var(--wave-tone) 17%, transparent);
 }
-.voice-listening-waves--tone.voice-listening-waves--fill .voice-wave--front path {
+.voice-listening-waves--tone.voice-listening-waves--fill
+  .voice-wave--front
+  path {
   fill: rgba(255, 255, 255, 0.2);
   fill: color-mix(in srgb, var(--wave-tone) 24%, transparent);
 }
-.voice-listening-waves--tone.voice-listening-waves--line .voice-wave--back path {
+.voice-listening-waves--tone.voice-listening-waves--line
+  .voice-wave--back
+  path {
   stroke: rgba(255, 255, 255, 0.42);
   stroke: color-mix(in srgb, var(--wave-tone) 45%, transparent);
 }
@@ -1821,7 +2129,9 @@ html[data-page-transition="pop"]::view-transition-new(root) {
   stroke: rgba(255, 255, 255, 0.55);
   stroke: color-mix(in srgb, var(--wave-tone) 58%, transparent);
 }
-.voice-listening-waves--tone.voice-listening-waves--line .voice-wave--front path {
+.voice-listening-waves--tone.voice-listening-waves--line
+  .voice-wave--front
+  path {
   stroke: rgba(255, 255, 255, 0.72);
   stroke: color-mix(in srgb, var(--wave-tone) 75%, transparent);
 }
