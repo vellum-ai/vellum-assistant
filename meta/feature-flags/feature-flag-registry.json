@@ -502,6 +502,14 @@
       "label": "Velay Webhooks",
       "description": "Platform pods resolve webhook callback URLs from the Velay-published ingress URL instead of registering platform callback routes. Falls back to platform callback registration while no tunnel URL is published.",
       "defaultEnabled": false
+    },
+    {
+      "id": "send-user-message",
+      "scope": "both",
+      "key": "send-user-message",
+      "label": "Send User Message Tool",
+      "description": "Route all user-facing assistant text through the send_user_message tool instead of streamed assistant text",
+      "defaultEnabled": false
     }
   ]
 }

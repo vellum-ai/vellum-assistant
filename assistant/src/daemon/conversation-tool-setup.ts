@@ -16,6 +16,10 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryEnabled } from "../config/memory-v3-gate.js";
+import {
+  resolveSendUserMessageActive,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "../config/send-user-message-gate.js";
 import { supportsChannelReaction } from "../messaging/providers/index.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
@@ -41,6 +45,7 @@ import {
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
+  stripActivityField,
 } from "../tools/schema-transforms.js";
 import {
   augmentSkillExecuteError,
@@ -53,8 +58,8 @@ import type {
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
 import {
-  isDiskPressureCleanupToolName,
   type OwnerKind,
+  survivesDiskPressureCleanup,
   type ToolContext,
   type ToolExecutionResult,
 } from "../tools/types.js";
@@ -432,6 +437,9 @@ export function createToolExecutor(
       subagentAllowedTools: ctx.subagentAllowedTools,
       forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
+      // The approval handler's cleanup gate reads this, so a tool the wire
+      // offered on a gated cleanup turn is not refused at execution.
+      sendUserMessageActive: resolveSendUserMessageActive(ctx),
       toolUseId,
       isPlatformHosted: getIsPlatform(),
       transportInterface: ctx.transportInterface,
@@ -813,7 +821,9 @@ export function isToolActiveForContext(
   }
   if (
     ctx.diskPressureCleanupModeActive === true &&
-    !isDiskPressureCleanupToolName(name)
+    !survivesDiskPressureCleanup(name, {
+      sendUserMessageActive: resolveSendUserMessageActive(ctx),
+    })
   ) {
     return false;
   }
@@ -823,6 +833,13 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
+  }
+  // The tool-gated reply surface is main-agent only: the flag must be on, and
+  // the turn must not be a subagent, worker, live-voice, or call leg. Those
+  // keep streamed assistant text, so offering them a delivery tool nothing
+  // reads would silently swallow their replies.
+  if (name === SEND_USER_MESSAGE_TOOL_NAME) {
+    return resolveSendUserMessageActive(ctx);
   }
   // The react capability follows the transport's declaration: the tool is on
   // the wire exactly when the turn's channel transport implements `react`,
@@ -1174,19 +1191,29 @@ export function createResolveToolsCallback(
           input_schema: tool?.input_schema ?? {},
         };
       });
+    const sendUserMessageActive = resolveSendUserMessageActive(ctx);
+    // The gated surface renders no tool activity text, so the field is dead
+    // weight on every definition and reads to the model as a second channel
+    // to the user. A call that sends it anyway (a habit, or history replayed
+    // from an ungated turn) still validates: the tools that own the field
+    // keep it optional, and the rest tolerate unknown keys.
+    const applyActivityField = (defs: ToolDefinition[]): ToolDefinition[] =>
+      sendUserMessageActive
+        ? stripActivityField(defs)
+        : injectActivityField(defs, ACTIVITY_SKIP_SET);
+
     if (ctx.diskPressureCleanupModeActive === true) {
-      const cleanupDefs = allBaseDefs.filter((d) =>
-        isDiskPressureCleanupToolName(d.name),
-      );
+      const survivesCleanup = (name: string): boolean =>
+        survivesDiskPressureCleanup(name, { sendUserMessageActive });
+      const cleanupDefs = allBaseDefs.filter((d) => survivesCleanup(d.name));
       ctx.allowedToolNames = new Set(
-        Array.from(turnAllowed).filter(isDiskPressureCleanupToolName),
+        Array.from(turnAllowed).filter(survivesCleanup),
       );
-      return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
+      return applyActivityField(cleanupDefs);
     }
 
     ctx.allowedToolNames = turnAllowed;
-    const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
 
-    return baseDefs;
+    return applyActivityField(allBaseDefs);
   };
 }

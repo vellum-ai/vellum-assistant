@@ -2367,6 +2367,114 @@ describe("session-agent-loop", () => {
       });
     });
 
+    test("drops the private marker when an error row replaces the failed call", async () => {
+      // GIVEN a gated turn whose first call delivered through the tool (so the
+      // state carries `"private"`) and whose next call is rejected.
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        providerResponses: [
+          toolUseResponse("tu_1", "send_user_message", {
+            message: "Looking now.",
+          }),
+          new Error("provider exploded"),
+        ],
+        loopTools: [
+          {
+            name: "send_user_message",
+            description: "deliver",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+      });
+
+      try {
+        await runAgentLoopImpl(ctx, "hi", "msg-1", (event) =>
+          events.push(event),
+        );
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      // THEN the terminal event describes the row it actually ends on. The
+      // error row carries no visibility marker, so labelling it private would
+      // disagree with persisted history and read to clients as working
+      // activity that produced no reply.
+      const complete = events.filter(
+        (event) => event.type === "message_complete",
+      );
+      expect(complete.length).toBeGreaterThan(0);
+      expect(complete.at(-1)).not.toHaveProperty("assistantTextVisibility");
+    });
+
+    test("never narrates the delivery tool as work in progress", async () => {
+      // The call IS the reply the user just read and its result is a bare
+      // receipt, so "Processing send user message results" would narrate
+      // plumbing at the moment the answer appears.
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        providerResponses: [
+          toolUseResponse("tu_1", "send_user_message", {
+            message: "Two meetings today.",
+          }),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "send_user_message",
+            description: "deliver",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(JSON.stringify(activityStates)).not.toContain(
+        "Processing send user message results",
+      );
+    });
+
+    test("still narrates an ordinary tool's results", async () => {
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        providerResponses: [
+          toolUseResponse("tu_1", "bash", { command: "ls" }),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "bash",
+            description: "run",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // `bash` reads as "command" in the client-facing name map.
+      expect(JSON.stringify(activityStates)).toContain(
+        "Processing command results",
+      );
+    });
+
     test("drains queue after completion", async () => {
       // GIVEN a real loop that answers in a single text turn
       let drainReason: QueueDrainReason | undefined;

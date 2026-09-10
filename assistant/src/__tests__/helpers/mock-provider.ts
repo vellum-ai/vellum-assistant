@@ -69,11 +69,17 @@ export function createMockProvider(
         throw scripted;
       }
 
-      // Replay streaming deltas for text blocks, mirroring a live provider.
+      // Replay streaming deltas for text and thinking blocks, mirroring a
+      // live provider, so a test can observe what the loop forwards.
       if (options?.onEvent) {
         for (const block of scripted.content) {
           if (block.type === "text") {
             options.onEvent({ type: "text_delta", text: block.text });
+          } else if (block.type === "thinking") {
+            options.onEvent({
+              type: "thinking_delta",
+              thinking: block.thinking,
+            });
           }
         }
       }

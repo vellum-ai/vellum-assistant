@@ -213,6 +213,8 @@ function makeForkConversationDouble(forkId: string): Conversation {
       persistentTrust = ctx ?? undefined;
     },
     maybeCompact: async () => null,
+    // The wake rebuilds the loop prompt under its per-turn stamps.
+    syncLoopSystemPrompt: () => {},
     contextWindowManager: {
       estimateInputTokens: () => 1_000,
     },
