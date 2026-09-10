@@ -81,10 +81,18 @@ export function MetricCard({
   icon,
   value,
   label,
+  valueTitle,
 }: {
   icon: ReactNode;
   value: string;
   label: string;
+  /**
+   * Native tooltip for the value row, the way the design library's own Select
+   * titles its trigger: a truncated value is unreadable without it. Opt-in,
+   * because a title repeating a value that is fully visible is noise a screen
+   * reader reads twice.
+   */
+  valueTitle?: string;
 }) {
   return (
     <div className="flex items-center gap-3 rounded-lg border border-[var(--border-base)] bg-[var(--surface-overlay)] px-3 py-3">
@@ -94,9 +102,7 @@ export function MetricCard({
       <div className="min-w-0">
         <Typography
           variant="title-small"
-          // Truncated values are unreadable without it, the way the design
-          // library's own Select titles its trigger.
-          title={value || undefined}
+          title={valueTitle || undefined}
           className="block truncate text-[var(--content-default)]"
         >
           {value}

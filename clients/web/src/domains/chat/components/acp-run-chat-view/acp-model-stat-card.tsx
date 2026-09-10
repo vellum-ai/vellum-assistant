@@ -25,6 +25,7 @@ export function AcpModelStatCard({
   // "Best available" rather than the `best` it is keyed by. An adapter that
   // advertises no list, or a model absent from one, keeps the wire value.
   const named = options?.find((option) => option.value === model)?.label;
+  const value = named ?? model;
   return (
     <MetricCard
       icon={
@@ -33,7 +34,9 @@ export function AcpModelStatCard({
           style={{ color: "var(--content-secondary)" }}
         />
       }
-      value={named ?? model}
+      value={value}
+      // A model id is longer than the tile, so the row ellipses it.
+      valueTitle={value}
       label={t("acpRunChatView.modelLabel")}
     />
   );

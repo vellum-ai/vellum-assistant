@@ -128,7 +128,7 @@ export interface PendingModelUpdate {
 }
 
 /** How many sessions can hold a buffered model update at once. */
-const MAX_PENDING_MODEL_UPDATES = 32;
+export const MAX_PENDING_MODEL_UPDATES = 32;
 
 export interface AcpRunState {
   byId: Record<string, AcpRunEntry>;
@@ -145,12 +145,13 @@ export interface AcpRunState {
    */
   highWaterMark: Map<string, number>;
   /**
-   * Model updates that landed for a session with no entry yet: the daemon
-   * reports the opening selection (and an empty-picker withdrawal) before
-   * `acp_session_spawned`, and an `/acp/sessions` read can be answered after an
-   * update it predates. Whichever path creates the entry, a spawn or a
-   * snapshot, folds the buffered update in under the same ordering rule a live
-   * entry gets, so the selection is not lost. Bounded by
+   * Model updates that landed for a session with no entry yet: an adapter can
+   * report an unsolicited `config_option_update` while the spawn is still
+   * pinning the model, which the daemon publishes before it announces the
+   * session, and an `/acp/sessions` read can be answered after an update it
+   * predates. Whichever path creates the entry, a spawn or a snapshot, folds
+   * the buffered update in under the same ordering rule a live entry gets, so
+   * the selection is not lost. Bounded by
    * {@link MAX_PENDING_MODEL_UPDATES}, least recently updated id dropped first.
    */
   pendingModelUpdates: Map<string, PendingModelUpdate>;

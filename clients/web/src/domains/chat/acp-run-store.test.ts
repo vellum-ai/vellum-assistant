@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
+  MAX_PENDING_MODEL_UPDATES,
   useAcpRunStore,
   type AcpRunEntry,
   type AcpRunRawEvent,
@@ -88,8 +89,8 @@ describe("spawnRun", () => {
   });
 
   it("applies a model update buffered before the spawn event", () => {
-    // The adapter reports the opening selection before `acp_session_spawned`,
-    // so the update arrives with no entry to hold it.
+    // An update the daemon publishes while the spawn is still pinning the
+    // model arrives with no entry to hold it.
     getState().setModel({
       acpSessionId: "acp-1",
       model: "sonnet",
@@ -816,7 +817,8 @@ describe("setModel", () => {
   });
 
   it("caps the buffer and drops the least recently updated session", () => {
-    for (let i = 0; i < 64; i += 1) {
+    const overflow = MAX_PENDING_MODEL_UPDATES * 2;
+    for (let i = 0; i < overflow; i += 1) {
       getState().setModel({
         acpSessionId: `acp-pending-${i}`,
         model: "opus",
@@ -825,9 +827,9 @@ describe("setModel", () => {
     }
 
     const pending = getState().pendingModelUpdates;
-    expect(pending.size).toBeLessThan(64);
+    expect(pending.size).toBe(MAX_PENDING_MODEL_UPDATES);
     expect(pending.has("acp-pending-0")).toBe(false);
-    expect(pending.has("acp-pending-63")).toBe(true);
+    expect(pending.has(`acp-pending-${overflow - 1}`)).toBe(true);
   });
 });
 
