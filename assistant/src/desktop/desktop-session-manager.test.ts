@@ -48,7 +48,6 @@ describe("DesktopSessionManager process tree", () => {
         PATH: "/usr/bin",
         HOME: "/data",
         LANG: "C.UTF-8",
-        PLAYWRIGHT_BROWSERS_PATH: "/opt/ms-playwright",
         // Neither the kata chroot overlay nor secrets reach the desktop.
         LD_LIBRARY_PATH: "/data/system/usr/lib",
         VELLUM_SANDBOX_RUNTIME: "kata",
@@ -89,7 +88,6 @@ describe("DesktopSessionManager process tree", () => {
         PATH: "/usr/bin",
         HOME: "/data",
         LANG: "C.UTF-8",
-        PLAYWRIGHT_BROWSERS_PATH: "/opt/ms-playwright",
         DISPLAY: ":99",
       });
     }
@@ -140,12 +138,12 @@ describe("DesktopSessionManager process tree", () => {
       ],
     });
     await expect(h.manager.ensureDesktopRunning()).rejects.toThrow(
-      "Desktop binaries missing from PATH: Xtigervnc, xcompmgr, tint2, tigervncconfig, xterm",
+      "Desktop component is missing: Xtigervnc",
     );
     expect(h.spawned).toEqual([]);
   });
 
-  test("the dock is generated with the resolved Chromium and terminal", async () => {
+  test("the dock is generated with the resolved Chrome and terminal", async () => {
     const h = newManager();
     await h.manager.ensureDesktopRunning();
     await settle();
@@ -397,7 +395,7 @@ describe("DesktopSessionManager process tree", () => {
     ]);
   });
 
-  test("a browser that cannot be installed takes the desktop down", async () => {
+  test("a browser that cannot be resolved takes the desktop down", async () => {
     const h = newManager();
     h.setChromiumPath(async () => {
       throw new Error("playwright install failed");

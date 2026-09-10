@@ -11215,6 +11215,67 @@ paths:
                 required:
                   - defers
                 additionalProperties: false
+  /v1/desktop/setup:
+    get:
+      operationId: desktop_setup_get
+      summary: Get desktop setup status
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - required
+                      - installing
+                      - ready
+                      - failed
+                      - unsupported
+                  stage:
+                    type: string
+                    enum:
+                      - packages
+                      - chrome
+                      - checking
+                required:
+                  - state
+                additionalProperties: false
+    post:
+      operationId: desktop_setup_post
+      summary: Install desktop components
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - required
+                      - installing
+                      - ready
+                      - failed
+                      - unsupported
+                  stage:
+                    type: string
+                    enum:
+                      - packages
+                      - chrome
+                      - checking
+                required:
+                  - state
+                additionalProperties: false
   /v1/diagnostics/env-vars:
     get:
       operationId: diagnostics_envvars_get

@@ -141,6 +141,7 @@ import {
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
+import { createDesktopSetupProxyHandler } from "./http/routes/desktop-setup-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import { createLogTailHandler } from "./http/routes/log-tail.js";
@@ -646,6 +647,7 @@ async function main() {
   const migrationJobStatusProxy = createMigrationJobStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
+  const desktopSetupProxy = createDesktopSetupProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
@@ -1913,6 +1915,18 @@ async function main() {
     auth: "custom",
     handler: (req) => handleCreateToken(req, server, config.trustProxy),
   });
+
+  for (const method of ["GET", "POST"] as const) {
+    const setupRoute = {
+      method,
+      auth: "edge-guardian" as const,
+      handler: desktopSetupProxy,
+    };
+    routes.push(
+      { path: /^\/v1\/desktop\/setup\/?$/, ...setupRoute },
+      { path: /^\/v1\/assistants\/[^/]+\/desktop\/setup\/?$/, ...setupRoute },
+    );
+  }
 
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({

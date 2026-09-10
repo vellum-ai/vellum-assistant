@@ -6,8 +6,7 @@ const ASSISTANT_DESKTOP_FLAG = "assistant-desktop" as const;
 
 /**
  * Whether this daemon serves `/v1/desktop/stream`: the `assistant-desktop` flag
- * plus a containerized runtime, since only the assistant image ships the X
- * server, window manager and VNC bridge.
+ * plus a containerized runtime where desktop components can be installed.
  */
 export function isAssistantDesktopEnabled(
   config: AssistantConfig,

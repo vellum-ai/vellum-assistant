@@ -2,21 +2,21 @@
  * On-demand assistant desktop: Xtigervnc (VNC on loopback only, so the
  * authenticated `/v1/desktop/stream` upgrade is the sole way in), openbox, the
  * xcompmgr compositor, the tint2 dock, the tigervncconfig clipboard bridge and
- * Playwright's Chromium, started by the first viewer and lingering after the
+ * Google Chrome, started by the first viewer and lingering after the
  * last one leaves so a reconnect is instant.
  */
 
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-import {
-  ensureChromium,
-  importPlaywright,
-} from "../tools/browser/runtime-check.js";
 import { terminateProcessTree } from "../util/host-process.js";
 import { getLogger } from "../util/logger.js";
 import { getDataDir } from "../util/platform.js";
 import { sleep } from "../util/retry.js";
+import {
+  desktopChromePath,
+  resolveDesktopBinaries,
+} from "./desktop-dependencies.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 
 const log = getLogger("desktop-session");
@@ -35,7 +35,7 @@ const BROWSER_CRASH_LIMIT = 3;
 
 /**
  * What the desktop children see. Deliberately not `buildSanitizedEnv()`: its
- * kata chroot PATH and LD_LIBRARY_PATH overlay would give this Chromium
+ * kata chroot PATH and LD_LIBRARY_PATH overlay would give this Chrome
  * different libraries than the browser tool's, which launches with the plain
  * process env.
  */
@@ -46,7 +46,6 @@ const DESKTOP_ENV_KEYS = [
   "LC_ALL",
   "XDG_RUNTIME_DIR",
   "TMPDIR",
-  "PLAYWRIGHT_BROWSERS_PATH",
 ] as const;
 
 /**
@@ -152,8 +151,8 @@ interface DesktopSessionManagerOptions {
   readonly which?: (binary: string) => string | null;
   /** Whether the VNC server accepts connections on `port`. */
   readonly probeVncPort?: (port: number) => Promise<boolean>;
-  /** Path of the Chromium binary to launch, installing it when needed. */
-  readonly resolveChromiumPath?: () => Promise<string>;
+  /** Path of the installed Google Chrome binary. */
+  readonly resolveChromePath?: () => Promise<string>;
   readonly killProcessGroup?: (
     child: DesktopChild,
     signal: DesktopSignal,
@@ -168,15 +167,7 @@ interface DesktopSessionManagerOptions {
   readonly sourceEnv?: NodeJS.ProcessEnv;
 }
 
-/** The desktop's binaries, resolved once per start. */
-interface DesktopBinaries {
-  readonly xServer: string;
-  readonly windowManager: string;
-  readonly compositor: string;
-  readonly panel: string;
-  readonly clipboard: string;
-  readonly terminal: string;
-}
+type DesktopBinaries = ReturnType<typeof resolveDesktopBinaries>;
 
 export class DesktopSessionManager {
   private readonly children = new Map<DesktopChildRole, DesktopChild>();
@@ -200,8 +191,8 @@ export class DesktopSessionManager {
   private readonly probeVncPort: NonNullable<
     DesktopSessionManagerOptions["probeVncPort"]
   >;
-  private readonly resolveChromiumPath: NonNullable<
-    DesktopSessionManagerOptions["resolveChromiumPath"]
+  private readonly resolveChromePath: NonNullable<
+    DesktopSessionManagerOptions["resolveChromePath"]
   >;
   private readonly killProcessGroup: NonNullable<
     DesktopSessionManagerOptions["killProcessGroup"]
@@ -217,8 +208,8 @@ export class DesktopSessionManager {
     this.spawn = options.spawn ?? spawnDetached;
     this.which = options.which ?? Bun.which;
     this.probeVncPort = options.probeVncPort ?? probeLoopbackPort;
-    this.resolveChromiumPath =
-      options.resolveChromiumPath ?? resolvePlaywrightChromium;
+    this.resolveChromePath =
+      options.resolveChromePath ?? (async () => desktopChromePath());
     this.killProcessGroup = options.killProcessGroup ?? killProcessGroup;
     this.lingerMs = options.lingerMs ?? DESKTOP_LINGER_MS;
     this.readyDeadlineMs = options.readyDeadlineMs ?? VNC_READY_DEADLINE_MS;
@@ -297,7 +288,7 @@ export class DesktopSessionManager {
     const generation = this.generation;
     let env: Record<string, string>;
     try {
-      this.binaries = this.resolveBinaries();
+      this.binaries = resolveDesktopBinaries(this.which);
       env = this.childEnv();
       this.launch("x-server", xServerCommand(this.binaries.xServer), env);
       const ready = await this.waitForVnc(generation);
@@ -325,44 +316,6 @@ export class DesktopSessionManager {
     void this.ensureBrowser(env, generation);
   }
 
-  /** Preflight every binary the tree needs before anything is spawned. */
-  private resolveBinaries(): DesktopBinaries {
-    const xServer = this.which("Xtigervnc");
-    const windowManager = this.which("openbox");
-    const compositor = this.which("xcompmgr");
-    const panel = this.which("tint2");
-    const clipboard = this.which("tigervncconfig") ?? this.which("vncconfig");
-    const terminal = this.which("xterm");
-    if (
-      !xServer ||
-      !windowManager ||
-      !compositor ||
-      !panel ||
-      !clipboard ||
-      !terminal
-    ) {
-      const missing = [
-        xServer ? null : "Xtigervnc",
-        windowManager ? null : "openbox",
-        compositor ? null : "xcompmgr",
-        panel ? null : "tint2",
-        clipboard ? null : "tigervncconfig",
-        terminal ? null : "xterm",
-      ].filter(Boolean);
-      throw new Error(
-        `Desktop binaries missing from PATH: ${missing.join(", ")}`,
-      );
-    }
-    return {
-      xServer,
-      windowManager,
-      compositor,
-      panel,
-      clipboard,
-      terminal,
-    };
-  }
-
   private async waitForVnc(generation: number): Promise<boolean> {
     const deadline = Date.now() + this.readyDeadlineMs;
     while (this.generation === generation) {
@@ -377,12 +330,7 @@ export class DesktopSessionManager {
     return false;
   }
 
-  /**
-   * Launch Chromium unless it is already up, and the dock along with the first
-   * one. Runs after the X server is serving so the viewer sees a desktop while
-   * a first-time install completes; an install failure takes the desktop down
-   * so the viewer is not left staring at an empty one.
-   */
+  /** Launch Chrome and its dock once the X server is ready. */
   private async ensureBrowser(
     env: Record<string, string>,
     generation: number,
@@ -391,7 +339,7 @@ export class DesktopSessionManager {
       return;
     }
     try {
-      const executable = await this.resolveChromiumPath();
+      const executable = await this.resolveChromePath();
       if (this.generation !== generation || this.children.has("browser")) {
         return;
       }
@@ -410,7 +358,7 @@ export class DesktopSessionManager {
   }
 
   /**
-   * Bring the dock up once per tree. It waits on Chromium because its launcher
+   * Bring the dock up once per tree. It waits on Chrome because its launcher
    * points at that executable, and its window manager and compositor are long
    * up by then.
    */
@@ -551,7 +499,7 @@ export class DesktopSessionManager {
   }
 
   /**
-   * SIGTERM so X and Chromium exit cleanly, then SIGKILL whatever is left and
+   * SIGTERM so X and Chrome exit cleanly, then SIGKILL whatever is left and
    * wait for it too: a killed X server holds the display and port until it is
    * reaped. Both waits are bounded by the grace so shutdown cannot hang.
    */
@@ -655,9 +603,7 @@ function xServerCommand(executable: string): string[] {
 }
 
 function browserCommand(executable: string, profileDir: string): string[] {
-  // The daemon runs as root in the pod, where Chromium refuses its own
-  // sandbox; Playwright launches with the same flag. The explicit geometry
-  // covers a window mapped before openbox is up to maximize it.
+  // Root containers require --no-sandbox; set geometry before openbox maps it.
   return [
     executable,
     "--no-sandbox",
@@ -679,7 +625,7 @@ function spawnDetached(
   request: DesktopSpawnRequest,
 ): DesktopChild {
   // Each child leads its own process group so teardown can kill everything
-  // it forked (Chromium's renderers, openbox's autostart) in one signal.
+  // it forked (Chrome's renderers, openbox's autostart) in one signal.
   return Bun.spawn([...request.cmd], {
     env: request.env,
     detached: true,
@@ -737,12 +683,6 @@ async function probeLoopbackPort(port: number): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function resolvePlaywrightChromium(): Promise<string> {
-  const pw = await importPlaywright();
-  await ensureChromium(pw);
-  return pw.chromium.executablePath();
 }
 
 // ---------------------------------------------------------------------------

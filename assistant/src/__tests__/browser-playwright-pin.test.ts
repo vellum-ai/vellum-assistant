@@ -1,10 +1,4 @@
-/**
- * The runtime's playwright install has to ask for the same version the image
- * builds against, because the image bakes Chromium with it
- * (`assistant/Dockerfile`). A floating install resolves a playwright that
- * looks for a different browser build id, so the first `browser` call or PDF
- * export in a pod re-downloads Chromium instead of using the baked copy.
- */
+/** Runtime Playwright installation preserves the bundled API version. */
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, mock, test } from "bun:test";
@@ -49,10 +43,6 @@ describe("runtime playwright install", () => {
     ]);
   });
 
-  /**
-   * A copy left behind by an earlier floating install disagrees with the baked
-   * browser, so it is replaced rather than reused.
-   */
   test("replaces a runtime copy pinned to a different version", async () => {
     const pwPkg = join(getExternalDir(), "node_modules", "playwright");
     mkdirSync(pwPkg, { recursive: true });

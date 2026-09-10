@@ -111,7 +111,7 @@ mock.module("./desktop-connection", () => ({
   }),
 }));
 
-const { DesktopPanel } = await import("./desktop-panel");
+const { DesktopViewer } = await import("./desktop-viewer");
 
 // bun:test has no fake timers, so the session's connect timeout is captured
 // from a patched `setTimeout` and fired by hand.
@@ -161,7 +161,7 @@ const flush = () =>
 
 /** Mount the panel and let the URL resolve, which is when noVNC attaches. */
 const mountPanel = async () => {
-  render(<DesktopPanel assistantId="asst-1" />);
+  render(<DesktopViewer assistantId="asst-1" />);
   await flush();
 };
 
@@ -188,7 +188,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("DesktopPanel", () => {
+describe("DesktopViewer", () => {
   test("hands noVNC the open socket, scaled and driving the remote size", async () => {
     await mountPanel();
 

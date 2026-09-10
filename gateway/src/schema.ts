@@ -1159,6 +1159,29 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/desktop/setup": {
+        get: {
+          summary: "Get desktop setup status",
+          operationId: "desktopSetupStatus",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Desktop setup status for the bound guardian",
+            },
+          },
+        },
+        post: {
+          summary: "Install desktop components",
+          operationId: "desktopSetupInstall",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description:
+                "Current status of the shared background installation",
+            },
+          },
+        },
+      },
       "/v1/desktop/stream": {
         get: {
           summary: "Assistant desktop stream WebSocket",

@@ -4,6 +4,7 @@
  * are signaled with close codes only (see `DESKTOP_CLOSE`).
  */
 
+import { desktopDependencyInstaller } from "./desktop-dependencies.js";
 import {
   connectLoopback,
   DESKTOP_CLOSE,
@@ -29,6 +30,7 @@ interface DesktopStreamClientSocket {
 
 interface DesktopStreamBridgeOptions {
   readonly manager?: DesktopSessionManager;
+  readonly ensureInstalled?: () => Promise<void>;
   readonly connect?: (
     port: number,
     handlers: DesktopTcpHandlers,
@@ -38,6 +40,7 @@ interface DesktopStreamBridgeOptions {
 export class DesktopStreamBridge {
   private readonly ws: DesktopStreamClientSocket;
   private readonly manager: DesktopSessionManager;
+  private readonly ensureInstalled: () => Promise<void>;
   private readonly connect: NonNullable<DesktopStreamBridgeOptions["connect"]>;
   private readonly viewer: DesktopViewer;
 
@@ -54,12 +57,18 @@ export class DesktopStreamBridge {
   ) {
     this.ws = ws;
     this.manager = options.manager ?? getDesktopSessionManager();
+    this.ensureInstalled =
+      options.ensureInstalled ??
+      (() => desktopDependencyInstaller.ensureReady());
     this.connect = options.connect ?? connectLoopback;
     this.viewer = { onDesktopLost: (loss) => this.lose(loss) };
   }
 
   /** Claim the viewer slot, start the desktop, and dial its VNC port. */
   async start(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
     const slot = this.manager.acquireViewerSlot(this.viewer);
     if (!slot.ok) {
       this.lose(slot.loss);
@@ -68,6 +77,11 @@ export class DesktopStreamBridge {
     this.ownsSlot = true;
 
     try {
+      // Direct viewers share setup with the modal, including across reconnects.
+      await this.ensureInstalled();
+      if (this.closed) {
+        return;
+      }
       await this.manager.ensureDesktopRunning();
     } catch (err) {
       // Usually already closed through onDesktopLost; the error covers a

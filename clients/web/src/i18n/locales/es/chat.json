@@ -95,7 +95,17 @@
     "openAria": "Abrir escritorio",
     "reconnectButton": "Reconectar",
     "title": "Escritorio",
-    "unavailable": "El escritorio no está disponible en este asistente."
+    "unavailable": "El escritorio no está disponible en este asistente.",
+    "installButton": "Instalar escritorio",
+    "installDescription": "Instala Google Chrome y los componentes necesarios para el escritorio de tu asistente. Esto puede tardar unos minutos.",
+    "checkingSetup": "Comprobando el escritorio…",
+    "installingPackages": "Instalando componentes del escritorio…",
+    "installingChrome": "Instalando Google Chrome…",
+    "checkingInstall": "Comprobando la instalación…",
+    "installBackground": "La instalación continúa si cierras esta ventana.",
+    "installFailed": "La instalación falló. Inténtalo de nuevo para terminar.",
+    "setupRequestFailed": "No se pudo comprobar la instalación. Vuelve a conectar para intentarlo de nuevo.",
+    "setupUnsupported": "La instalación requiere un contenedor Linux x64 o ARM64 con acceso de administrador."
   },
   "assistantNavItem": {
     "newChat": "Chat nuevo"

@@ -61,6 +61,7 @@ import { ROUTES as DEBUG_BASH_ROUTES } from "./debug-bash-routes.js";
 import { ROUTES as DEBUG_ROUTES } from "./debug-routes.js";
 import { ROUTES as DEFAULT_PROVIDER_ROUTES } from "./default-provider-routes.js";
 import { ROUTES as DEFER_ROUTES } from "./defer-routes.js";
+import { ROUTES as DESKTOP_SETUP_ROUTES } from "./desktop-setup-routes.js";
 import { ROUTES as DIAGNOSTICS_ROUTES } from "./diagnostics-routes.js";
 import { ROUTES as DISK_PRESSURE_ROUTES } from "./disk-pressure-routes.js";
 import { ROUTES as DOCUMENT_COMMENT_ROUTES } from "./document-comments-routes.js";
@@ -215,6 +216,7 @@ export const ROUTES: RouteDefinition[] = [
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
   ...DEFAULT_PROVIDER_ROUTES,
+  ...DESKTOP_SETUP_ROUTES,
   ...DIAGNOSTICS_ROUTES,
   ...DISK_PRESSURE_ROUTES,
   ...RESOURCE_PRESSURE_ROUTES,

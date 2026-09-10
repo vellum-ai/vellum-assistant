@@ -95,7 +95,17 @@
     "openAria": "打开桌面",
     "reconnectButton": "重新连接",
     "title": "桌面",
-    "unavailable": "此助理不支持桌面。"
+    "unavailable": "此助理不支持桌面。",
+    "installButton": "安装桌面",
+    "installDescription": "安装 Google Chrome 和助手桌面所需的组件。这可能需要几分钟。",
+    "checkingSetup": "正在检查桌面设置…",
+    "installingPackages": "正在安装桌面组件…",
+    "installingChrome": "正在安装 Google Chrome…",
+    "checkingInstall": "正在检查安装…",
+    "installBackground": "关闭此窗口后，安装仍会继续。",
+    "installFailed": "安装失败。请重试以完成设置。",
+    "setupRequestFailed": "无法检查桌面设置。请重新连接后重试。",
+    "setupUnsupported": "桌面安装需要具有管理员权限的 Linux x64 或 ARM64 容器。"
   },
   "assistantNavItem": {
     "newChat": "新建聊天"

@@ -67,7 +67,7 @@ export function newFakeDesktop(options: FakeDesktopOptions) {
     which: (binary) =>
       options.missingBinaries?.includes(binary) ? null : `/usr/bin/${binary}`,
     probeVncPort: async () => vncReady,
-    resolveChromiumPath: () => chromiumPath(),
+    resolveChromePath: () => chromiumPath(),
     killProcessGroup: (child, signal) => {
       killed.push({ child: child as FakeChild, signal });
       const exits =

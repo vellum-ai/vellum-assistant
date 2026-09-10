@@ -8,6 +8,7 @@ import {
   getCAPath,
   issueLeafCert,
 } from "../outbound-proxy/index.js";
+import { writeCombinedCABundle } from "../util/ca-bundle.js";
 
 let dataDir: string;
 
@@ -17,6 +18,40 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await rm(dataDir, { recursive: true, force: true });
+});
+
+test("combined trust verifies certificates from both CA sources", async () => {
+  const roots = [join(dataDir, "system"), join(dataDir, "extra")];
+  const leaves: string[] = [];
+  for (const root of roots) {
+    await ensureLocalCA(root);
+    const caDir = join(root, "proxy-ca");
+    await issueLeafCert(caDir, "example.com");
+    leaves.push(join(caDir, "issued", "example.com.pem"));
+  }
+  const bundle = join(dataDir, "combined.pem");
+  await writeCombinedCABundle(
+    getCAPath(roots[0]!),
+    getCAPath(roots[1]!),
+    bundle,
+  );
+  const verify = Bun.spawn(
+    ["openssl", "verify", "-CAfile", bundle, ...leaves],
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      windowsHide: true,
+    },
+  );
+  const [code, output, error] = await Promise.all([
+    verify.exited,
+    new Response(verify.stdout).text(),
+    new Response(verify.stderr).text(),
+  ]);
+  expect({ code, error }).toEqual({ code: 0, error: "" });
+  for (const leaf of leaves) {
+    expect(output).toContain(`${leaf}: OK`);
+  }
 });
 
 describe("ensureLocalCA", () => {
