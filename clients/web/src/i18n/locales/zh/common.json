@@ -167,6 +167,11 @@
     "captureWindows": "窗口",
     "deny": "拒绝",
     "draw": "绘制",
+    "drawTools": "绘图工具",
+    "drawFreehand": "自由绘制",
+    "drawLine": "直线",
+    "drawBox": "方框",
+    "drawCircle": "圆形",
     "endSession": "结束会话",
     "muteAssistant": "静音助手",
     "muteMicrophone": "静音麦克风",
@@ -190,6 +195,14 @@
     "unmuteMicrophone": "取消麦克风静音",
     "dictating": "正在聆听",
     "dictatingTranscribing": "正在思考"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的屏幕",
+    "sharingScreenNamed": "正在与 {name} 分享你的屏幕",
+    "sharingWindow": "正在分享一个窗口",
+    "sharingWindowNamed": "正在与 {name} 分享一个窗口",
+    "teaching": "正在教学",
+    "teachingNamed": "正在教 {name}"
   },
   "contentActionBar": {
     "copiedAria": "已复制",
@@ -575,6 +588,7 @@
     "reloadApp": "重新加载应用"
   },
   "statusBanner": {
+    "reconnecting": "正在重新连接到你的助手…",
     "dismiss": "忽略",
     "goToDoctor": "前往诊断",
     "resumeAssistant": "恢复助手",

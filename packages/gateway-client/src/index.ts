@@ -17,7 +17,12 @@ export {
 
 export * from "./gateway-ipc-contracts.js";
 
-export { ipcCall, IpcCallError, PersistentIpcClient } from "./ipc-client.js";
+export {
+  ipcCall,
+  IpcCallError,
+  IpcConnectError,
+  PersistentIpcClient,
+} from "./ipc-client.js";
 
 // Outbound delivery contract (daemon → gateway) — Zod schemas + derived types
 export {
@@ -88,7 +93,6 @@ export {
   inboundEventRefersToAnotherMessage,
   isInboundEventKind,
   resolveInboundEventKind,
-  parseDiscordEmojiMention,
   resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";
 export type {

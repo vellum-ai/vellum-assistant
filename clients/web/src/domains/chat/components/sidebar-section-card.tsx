@@ -157,12 +157,16 @@ export function SidebarSectionCard({
       bordered={false}
       noPadding
       className={cn(
-        /* A swipeable row inside this card paints an opaque layer of its own
-           so its actions stay hidden until swiped, so the card names the
-           surface that layer has to match. Declared here rather than on the
-           row: the card is what owns the fill, and every swipeable thing it
-           holds inherits the one value. */
-        "[--swipe-reveal-bg:var(--surface-lift)]",
+        /* The colour the rows inside sit on. A row swiped aside is an opaque
+           cell sliding off the action behind it, and the swipe wrapper backs
+           it with this surface; the card owns its surface, so it names it.
+           Both the card's own paint and the swipe backing read
+           `--sidebar-card-surface`, so a card that tints itself (the
+           assistant section's) declares the tint once and its rows are
+           backed with the same colour rather than the plain lift a white
+           band would show through on a touch swipe. */
+        "bg-[var(--sidebar-card-surface,var(--surface-lift))]",
+        "[--swipe-item-surface:var(--sidebar-card-surface,var(--surface-lift))]",
         /* No padding of its own: the overlay class branch below owns the
            card's inset, and wrapping it in another layer of Card padding
            would inflate the pill past its spec. The row list picks up the
@@ -186,7 +190,6 @@ export function SidebarSectionCard({
            `rounded-full` and a smaller radius. Same value means nothing
            needs to transition or interpolate for it at all: it can never
            lag behind the width/height change since it never moves. */
-        "w-[var(--section-collapsed-width,fit-content)]",
         /* The overlay's card is squarer than the rail's pill and carries the
            inset its header and row list sit flush inside (Figma 7842-83305).
            The 12px vertical inset plus the 20px header row makes the
@@ -194,11 +197,16 @@ export function SidebarSectionCard({
            level with the assistant pill above it. `border-0` drops the
            Card's default transparent 1px border, which would otherwise grow
            the border-box to 46px. The rail keeps that border and the radius
-           that makes its header read as fully round. */
+           that makes its header read as fully round.
+
+           The overlay's card spans the drawer in both states: on a touch
+           screen a collapsed section that hugged its header left a ragged
+           column of pill widths down the drawer, and its "…" and chevron
+           landed wherever the label ended rather than on a shared right
+           edge. Only the rail collapses to the measured hug width. */
         overlayCards
-          ? "rounded-[16px] border-0 pt-3 pr-3 pb-3 pl-2"
-          : "rounded-[18px]",
-        "has-[>[data-state=open]]:w-full",
+          ? "w-full rounded-[16px] border-0 pt-3 pr-3 pb-3 pl-2"
+          : "w-[var(--section-collapsed-width,fit-content)] rounded-[18px] has-[>[data-state=open]]:w-full",
         /* `width` toggles between the measured `--section-collapsed-width`
            (a real length - see the layout effect above) and a percentage,
            not a length and a sizing keyword, so an ordinary transition

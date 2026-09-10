@@ -1,11 +1,11 @@
 /**
- * The keyboard's version of the two in-call controls: show the assistant a
- * screen, and draw on what it is being shown.
+ * The keyboard's version of the call row's controls: show the assistant a
+ * screen, draw on what it is being shown, and mute either side of the call.
  *
- * Both are on the companion's call row, and the call row is on a surface the
- * user is looking away from while a call runs: the screen worth showing is the
- * one in front of them, and reaching for the pill means leaving it. So both
- * are reachable from wherever they are working.
+ * All four are on the companion's call row, and the call row is on a surface
+ * the user is looking away from while a call runs: the screen worth showing is
+ * the one in front of them, and reaching for the pill means leaving it. So all
+ * four are reachable from wherever they are working.
  *
  * **Option, not the voice key.** The voice key is call control (tap, hold,
  * double tap) and these are things a call does, so they are a family of their
@@ -18,19 +18,22 @@
 import type { ChordBinding } from "@vellumai/ipc-contract";
 
 import {
+  CALL_DRAW_KEY,
+  CALL_MUTE_ASSISTANT_KEY,
+  CALL_MUTE_MIC_KEY,
+  CALL_SHARE_KEY,
+} from "@/domains/chat/voice/live-voice/call-chord-keys";
+import {
   isLiveVoiceSessionActive,
+  setLiveVoiceMuted,
+  setLiveVoiceOutputMuted,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { liveVoiceCanBeShownTheScreen } from "@/domains/chat/voice/live-voice/screen-share-availability";
 import {
   setCompanionScreenShare,
   toggleCompanionAnnotating,
 } from "@/runtime/companion-surface";
-
-/** Share the screen the pointer is on, or stop the share that is running. */
-export const CALL_SHARE_KEY = "s";
-
-/** Draw on the shared surface, or give the mouse back to the desktop. */
-export const CALL_DRAW_KEY = "d";
 
 /**
  * What a call listens for.
@@ -39,12 +42,25 @@ export const CALL_DRAW_KEY = "d";
  * by accident and short enough to make while talking. Exactly Option: the host
  * lets Option+Shift+S past, so the shortcuts the user already has under those
  * combinations keep working.
+ *
+ * The mutes for any call, the share and the pen only for a call that can be
+ * shown the screen: a key taken for a control the row does not offer is a key
+ * taken for nothing, and the pill offers Share on exactly this answer.
  */
-export const CALL_CHORDS: ChordBinding = {
-  kind: "chord",
-  modifiers: ["option"],
-  keys: [CALL_SHARE_KEY, CALL_DRAW_KEY],
-};
+export function callChords(canBeShownTheScreen: boolean): ChordBinding {
+  return {
+    kind: "chord",
+    modifiers: ["option"],
+    keys: canBeShownTheScreen
+      ? [
+          CALL_SHARE_KEY,
+          CALL_DRAW_KEY,
+          CALL_MUTE_MIC_KEY,
+          CALL_MUTE_ASSISTANT_KEY,
+        ]
+      : [CALL_MUTE_MIC_KEY, CALL_MUTE_ASSISTANT_KEY],
+  };
+}
 
 /**
  * Show the assistant the screen the pointer is on, or stop showing it.
@@ -70,14 +86,28 @@ function toggleShare(): void {
  *
  * Refused with no session running. The binding is armed only while there is
  * one, so this is the gap between a call ending and the host hearing about it,
- * and a press landing in it belongs to whatever the user has moved on to.
+ * and a press landing in it belongs to whatever the user has moved on to. The
+ * share and the pen are refused the same way once the call can no longer be
+ * shown the screen, for the same gap.
  *
- * A key that is neither of ours does nothing rather than throwing: the host
- * was asked for two, and a third arriving means the two sides disagree about
- * which, which is a reason to leave the press alone.
+ * A key that is none of ours does nothing rather than throwing: the host was
+ * asked for a fixed set, and another arriving means the two sides disagree
+ * about which, which is a reason to leave the press alone.
  */
 export function handleCallChord(key: string): void {
-  if (!isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) {
+  const session = useLiveVoiceStore.getState();
+  if (!isLiveVoiceSessionActive(session.state)) {
+    return;
+  }
+  if (key === CALL_MUTE_MIC_KEY) {
+    setLiveVoiceMuted(!session.muted);
+    return;
+  }
+  if (key === CALL_MUTE_ASSISTANT_KEY) {
+    setLiveVoiceOutputMuted(!session.outputMuted);
+    return;
+  }
+  if (!liveVoiceCanBeShownTheScreen()) {
     return;
   }
   if (key === CALL_SHARE_KEY) {

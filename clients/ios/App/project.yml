@@ -160,6 +160,30 @@ targetTemplates:
     # targets, so the three app schemes are the only ones worth having.
     preBuildScripts: *projectSpecFreshnessGuard
 
+  # Notification Service Extension. iOS runs it for every push carrying
+  # `mutable-content: 1`. One per environment for the same prefix rule as
+  # VoiceActivity. From `App/Shared` it compiles only `AppGroupID.swift`, so it
+  # can resolve the container it shares with its host app; the App Intents and
+  # ActivityKit files there belong to VoiceActivity.
+  NotificationServiceEnvironment:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: NotificationService
+        excludes:
+          - "Info.plist"
+      - path: App/Shared
+        includes:
+          - AppGroupID.swift
+    settings:
+      configs:
+        Debug:
+          OTHER_SWIFT_FLAGS: '$(inherited) "-DDEBUG"'
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ""
+    preBuildScripts: *projectSpecFreshnessGuard
+
   # Share Sheet extension. One per environment for the same prefix rule as
   # VoiceActivity. Compiles only the Shared files it needs: App Intents and
   # ActivityKit in that folder belong to VoiceActivity, and compiling them
@@ -200,6 +224,8 @@ targets:
         embed: true
       - target: Share
         embed: true
+      - target: NotificationService
+        embed: true
 
   "App Staging":
     templates: [AppEnvironment]
@@ -213,6 +239,8 @@ targets:
         embed: true
       - target: "Share Staging"
         embed: true
+      - target: "NotificationService Staging"
+        embed: true
 
   "App Dev":
     templates: [AppEnvironment]
@@ -225,6 +253,8 @@ targets:
       - target: "VoiceActivity Dev"
         embed: true
       - target: "Share Dev"
+        embed: true
+      - target: "NotificationService Dev"
         embed: true
 
   VoiceActivity:
@@ -263,6 +293,24 @@ targets:
       Debug: App/Config/Share-Dev.xcconfig
       Release: App/Config/Share-Dev.xcconfig
 
+  NotificationService:
+    templates: [NotificationServiceEnvironment]
+    configFiles:
+      Debug: App/Config/NotificationService.xcconfig
+      Release: App/Config/NotificationService.xcconfig
+
+  "NotificationService Staging":
+    templates: [NotificationServiceEnvironment]
+    configFiles:
+      Debug: App/Config/NotificationService-Staging.xcconfig
+      Release: App/Config/NotificationService-Staging.xcconfig
+
+  "NotificationService Dev":
+    templates: [NotificationServiceEnvironment]
+    configFiles:
+      Debug: App/Config/NotificationService-Dev.xcconfig
+      Release: App/Config/NotificationService-Dev.xcconfig
+
   # Logic-only unit tests for the framework-free helpers under `App/`.
   # Sources are listed file by file rather than as the whole `App`
   # directory, which is full of Capacitor plugins this host-less bundle
@@ -274,6 +322,11 @@ targets:
       - path: AppTests
       - path: App/Attribution.swift
       - path: App/NotificationCategories.swift
+      # The Foundation-only halves of the Notification Service Extension. The
+      # Intents rewrite next to them stays out: donating an interaction needs a
+      # real notification, which a host-less bundle has no way to produce.
+      - path: NotificationService/AvatarCache.swift
+      - path: NotificationService/SenderPayload.swift
       - path: App/Shared
         includes:
           - AppGroupID.swift

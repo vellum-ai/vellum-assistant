@@ -22,7 +22,12 @@ const editCalls: Array<{
 /** When set, editTelegramMessage rejects with this message. */
 let editFailure: string | undefined;
 
+const { acknowledgedSend } =
+  await import("../messaging/providers/send-result.js");
+const actualTelegramSend =
+  await import("../messaging/providers/telegram-bot/send.js");
 mock.module("../messaging/providers/telegram-bot/send.js", () => ({
+  ...actualTelegramSend,
   sendTelegramReply: async (
     chatId: string,
     text: string,
@@ -36,9 +41,9 @@ mock.module("../messaging/providers/telegram-bot/send.js", () => ({
       text,
       approval: approval as (typeof sendCalls)[0]["approval"],
     });
-    // Mirror the real send result: the id of the sent message, which the
-    // adapter surfaces so the delivery row can address the card later.
-    return { lastMessageId: String(1000 + sendCalls.length) };
+    // The real send result: the id of the sent message, which the adapter
+    // surfaces so the delivery row can address the card later.
+    return acknowledgedSend([String(1000 + sendCalls.length)]);
   },
   sendTelegramAttachments: async () => ({
     allFailed: false,

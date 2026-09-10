@@ -58,18 +58,9 @@ export class BYOOAuthConnection implements OAuthConnection {
           : req.path;
         let fullUrl = `${effectiveBaseUrl}${requestPath}`;
 
-        if (req.query && Object.keys(req.query).length > 0) {
-          const params = new URLSearchParams();
-          for (const [key, value] of Object.entries(req.query)) {
-            if (Array.isArray(value)) {
-              for (const v of value) {
-                params.append(key, v);
-              }
-            } else {
-              params.append(key, value);
-            }
-          }
-          fullUrl += `?${params.toString()}`;
+        const search = resolveQueryString(req);
+        if (search) {
+          fullUrl += `?${search}`;
         }
 
         const logUrl = isTelegram
@@ -113,6 +104,9 @@ export class BYOOAuthConnection implements OAuthConnection {
                 ? Buffer.from(binaryBody)
                 : (rawBody ?? JSON.stringify(req.body)))
             : undefined,
+          // Following a redirect would replay a POST as a GET against a URL
+          // the caller never asked for, and hide the 3xx from them.
+          redirect: req.manualRedirect === true ? "manual" : "follow",
           signal: req.signal
             ? AbortSignal.any([
                 req.signal,
@@ -129,7 +123,7 @@ export class BYOOAuthConnection implements OAuthConnection {
           throw err;
         }
 
-        return buildResponse(resp);
+        return buildResponse(resp, req.rawResponseBody === true);
       },
       { connectionId: this.id },
     );
@@ -140,6 +134,34 @@ export class BYOOAuthConnection implements OAuthConnection {
       connectionId: this.id,
     });
   }
+}
+
+/**
+ * Query string to append, without its `?`.
+ *
+ * `rawQuery` is the caller's own bytes and is returned untouched, so a query a
+ * provider signs keeps its key order, its `%20`, and its valueless flags. An
+ * empty one falls through to `query`, which `URLSearchParams` rebuilds.
+ */
+function resolveQueryString(req: OAuthConnectionRequest): string {
+  const raw = req.rawQuery?.replace(/^\?/, "") ?? "";
+  if (raw) {
+    return raw;
+  }
+  if (!req.query) {
+    return "";
+  }
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(req.query)) {
+    if (Array.isArray(value)) {
+      for (const v of value) {
+        params.append(key, v);
+      }
+    } else {
+      params.append(key, value);
+    }
+  }
+  return params.toString();
 }
 
 function buildTelegramBotApiPath(path: string, token: string): string {
@@ -158,7 +180,10 @@ function redactTelegramBotTokenFromUrl(url: string, token: string): string {
   );
 }
 
-async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {
+async function buildResponse(
+  resp: Response,
+  rawResponseBody: boolean,
+): Promise<OAuthConnectionResponse> {
   const headers: Record<string, string> = {};
   resp.headers.forEach((value, key) => {
     headers[key] = value;
@@ -168,6 +193,10 @@ async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {
   return {
     status: resp.status,
     headers,
-    body: decodeOAuthResponseBytes(raw, headers["content-type"] ?? ""),
+    // Raw bytes skip the decode: parsing and re-serializing JSON would rewrite
+    // whitespace, drop duplicate keys, and round integers past 2^53.
+    body: rawResponseBody
+      ? raw
+      : decodeOAuthResponseBytes(raw, headers["content-type"] ?? ""),
   };
 }

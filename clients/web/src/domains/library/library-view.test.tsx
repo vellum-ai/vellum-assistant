@@ -71,6 +71,15 @@ mock.module("@/components/delete-app-dialog", () => ({
 }));
 
 const { LibraryView } = await import("./library-view");
+const { useIntelligenceLayoutSlotsStore } =
+  await import("@/components/layout/intelligence-layout-slots-store");
+
+/* The Import button lives on the layout's heading row, which the view
+   reaches through the slot store; this stands in for the layout so the
+   button lands in the same tree as the view's file input. */
+function HeaderTrailing() {
+  return <>{useIntelligenceLayoutSlotsStore.use.headerTrailing()}</>;
+}
 
 const APP: AppSummary = {
   id: "app-123",
@@ -88,6 +97,7 @@ function renderView() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
+      <HeaderTrailing />
       <LibraryView assistantId="assistant-123" onOpenApp={() => {}} />
     </QueryClientProvider>,
   );
@@ -100,6 +110,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
 });
 
 describe("LibraryView import affordance", () => {
@@ -126,6 +137,28 @@ describe("LibraryView import affordance", () => {
     expect(
       container.querySelector('input[type="file"]')?.getAttribute("accept"),
     ).toBe(".vellum");
+  });
+
+  test("the import button opens the view's own file input", () => {
+    const { container } = renderView();
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const click = mock(() => {});
+    input.click = click;
+
+    screen.getByRole("button", { name: /Import/ }).click();
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  test("clears the header slot on unmount", () => {
+    const { unmount } = renderView();
+    expect(
+      useIntelligenceLayoutSlotsStore.getState().headerTrailing,
+    ).not.toBeNull();
+    unmount();
+    expect(
+      useIntelligenceLayoutSlotsStore.getState().headerTrailing,
+    ).toBeNull();
   });
 
   test("leaves the picker unrestricted on a touch device", () => {

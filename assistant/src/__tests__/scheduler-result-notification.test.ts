@@ -16,6 +16,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Stub the shared runner so the execute path is observable without an LLM.
 let runBackgroundJobShouldFail = false;
+/**
+ * Set by a test to model a turn that delegated: called with the run's
+ * conversation id just before the runner resolves, exactly where a real turn
+ * would already have spawned its child.
+ */
+let delegateOnRun: ((conversationId: string) => void) | undefined;
 mock.module("../runtime/background-job-runner.js", () => ({
   runBackgroundJob: async (opts: {
     prompt: string;
@@ -42,6 +48,7 @@ mock.module("../runtime/background-job-runner.js", () => ({
         errorKind: "exception" as const,
       };
     }
+    delegateOnRun?.(conv.id);
     return { conversationId: conv.id, ok: true };
   },
 }));
@@ -54,9 +61,16 @@ interface CapturedCall {
   runStartedAt: number;
 }
 const producerCalls: CapturedCall[] = [];
+/**
+ * The conversation's latest assistant text at the moment the producer ran. The
+ * real producer reads exactly this row, so capturing it here is what makes
+ * "did the scheduler wait for the delegated reply?" observable.
+ */
+const producerSawText: (string | undefined)[] = [];
 mock.module("../notifications/schedule-result-producer.js", () => ({
   emitScheduleResultNotification: async (params: CapturedCall) => {
     producerCalls.push(params);
+    producerSawText.push(latestAssistantText(params.conversationId));
   },
 }));
 
@@ -72,16 +86,87 @@ mock.module("../notifications/emit-signal.js", () => ({
   }),
 }));
 
+import type { AssistantEvent } from "../api/index.js";
+import type { Conversation } from "../daemon/conversation.js";
+import {
+  clearConversations,
+  setConversation,
+} from "../daemon/conversation-registry.js";
+import { addMessage } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { runDueSchedulesOnce } from "../schedule/scheduler.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 
 await initializeDb();
 
 function getRawDb(): import("bun:sqlite").Database {
   return (getDb() as unknown as { $client: import("bun:sqlite").Database })
     .$client;
+}
+
+function latestAssistantText(conversationId: string): string | undefined {
+  const rows = getRawDb()
+    .query(
+      `SELECT content FROM messages
+         WHERE conversation_id = ? AND role = 'assistant'
+         ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    )
+    .all(conversationId) as { content: string }[];
+  return rows[0]?.content;
+}
+
+/**
+ * Put a live child under `parentConversationId` so the scheduler sees that this
+ * run delegated. Returns a handle that settles it, mirroring what a real
+ * child's teardown does.
+ */
+function attachRunningChild(parentConversationId: string): {
+  settle: () => void;
+} {
+  const manager = getSubagentManager();
+  const internals = manager as unknown as {
+    subagents: Map<
+      string,
+      {
+        conversation: unknown;
+        state: SubagentState;
+        parentSendToClient: (msg: AssistantEvent) => void;
+        runInFlight?: boolean;
+      }
+    >;
+    parentToChildren: Map<string, Set<string>>;
+  };
+  const subagentId = `sub-${parentConversationId}`;
+  const entry = {
+    conversation: null,
+    state: {
+      config: {
+        id: subagentId,
+        parentConversationId,
+        label: "advisor",
+        objective: "Advise on the briefing",
+        role: "advisor",
+      },
+      status: "running" as const,
+      conversationId: `conv-${subagentId}`,
+      isFork: false,
+      createdAt: Date.now(),
+      usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    } as unknown as SubagentState,
+    parentSendToClient: () => {},
+    runInFlight: true,
+  };
+  internals.subagents.set(subagentId, entry);
+  internals.parentToChildren.set(parentConversationId, new Set([subagentId]));
+  return {
+    settle: () => {
+      entry.state.status = "completed";
+      entry.runInFlight = false;
+    },
+  };
 }
 
 function forceScheduleDue(scheduleId: string): void {
@@ -99,7 +184,10 @@ describe("schedule result notification wiring", () => {
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     producerCalls.length = 0;
+    producerSawText.length = 0;
     runBackgroundJobShouldFail = false;
+    clearConversations();
+    delegateOnRun = undefined;
   });
 
   test("a successful execute-mode run reaches the producer", async () => {
@@ -124,6 +212,80 @@ describe("schedule result notification wiring", () => {
     const runs = getScheduleRuns(schedule.id);
     expect(producerCalls[0].runId).toBe(runs[0].id);
     expect(runs[0].conversationId).toBe(producerCalls[0].conversationId);
+  });
+
+  test("waits for a delegated advisor so the result is the informed reply", async () => {
+    // A scheduled turn that consults an advisor resolves as soon as its own
+    // reply is written. The advisor's guidance arrives later, through a
+    // continuation turn, and the producer fires once and reads the latest row.
+    // Without the wait the schedule ships the pre-consult reply and the
+    // guidance never reaches the user at all.
+    const schedule = await createSchedule({
+      name: "Morning briefing",
+      cronExpression: "0 9 * * *",
+      message: "Summarize my inbox",
+      syntax: "cron",
+      expression: "0 9 * * *",
+    });
+    forceScheduleDue(schedule.id);
+
+    delegateOnRun = (conversationId) => {
+      // The turn's own reply, written before the guidance exists.
+      addMessage(conversationId, "assistant", "Here is a first pass.");
+
+      const child = attachRunningChild(conversationId);
+      let continuationRunning = false;
+      setConversation(conversationId, {
+        hasInFlightWork: () =>
+          getSubagentManager().hasActiveChildren(conversationId) ||
+          continuationRunning,
+      } as unknown as Conversation);
+
+      // The advisor settles, then its notification starts the continuation
+      // that writes the reply its guidance informed.
+      setTimeout(() => {
+        child.settle();
+        continuationRunning = true;
+        setTimeout(() => {
+          addMessage(
+            conversationId,
+            "assistant",
+            "Revised with the advisor's guidance.",
+          );
+          continuationRunning = false;
+        }, 120);
+      }, 120);
+    };
+
+    await runDueSchedulesOnce();
+
+    expect(producerCalls).toHaveLength(1);
+    // The row the real producer would have read.
+    expect(producerSawText[0]).toContain("advisor's guidance");
+  });
+
+  test("a run that delegated nothing reaches the producer without waiting", async () => {
+    // The wait must cost an ordinary schedule nothing: no children means
+    // there is nothing to settle.
+    const schedule = await createSchedule({
+      name: "Morning briefing",
+      cronExpression: "0 9 * * *",
+      message: "Summarize my inbox",
+      syntax: "cron",
+      expression: "0 9 * * *",
+    });
+    forceScheduleDue(schedule.id);
+
+    delegateOnRun = (conversationId) => {
+      addMessage(conversationId, "assistant", "Done.");
+    };
+
+    const before = Date.now();
+    await runDueSchedulesOnce();
+
+    expect(producerCalls).toHaveLength(1);
+    expect(producerSawText[0]).toContain("Done.");
+    expect(Date.now() - before).toBeLessThan(200);
   });
 
   test("captures runStartedAt before the run, not after", async () => {

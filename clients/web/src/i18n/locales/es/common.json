@@ -167,6 +167,11 @@
     "captureWindows": "Ventanas",
     "deny": "Denegar",
     "draw": "Dibujar",
+    "drawTools": "Herramienta de dibujo",
+    "drawFreehand": "Mano alzada",
+    "drawLine": "Línea",
+    "drawBox": "Recuadro",
+    "drawCircle": "Círculo",
     "endSession": "Finalizar sesión",
     "muteAssistant": "Silenciar asistente",
     "muteMicrophone": "Silenciar micrófono",
@@ -188,6 +193,14 @@
     "teach": "Enseñar",
     "unmuteAssistant": "Activar sonido del asistente",
     "unmuteMicrophone": "Activar micrófono"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "Compartiendo tu pantalla",
+    "sharingScreenNamed": "Compartiendo tu pantalla con {name}",
+    "sharingWindow": "Compartiendo una ventana",
+    "sharingWindowNamed": "Compartiendo una ventana con {name}",
+    "teaching": "Enseñando",
+    "teachingNamed": "Enseñando a {name}"
   },
   "contentActionBar": {
     "copiedAria": "Copiado",
@@ -573,6 +586,7 @@
     "reloadApp": "Recargar app"
   },
   "statusBanner": {
+    "reconnecting": "Reconectando con tu asistente…",
     "dismiss": "Descartar",
     "goToDoctor": "Ir a Doctor",
     "resumeAssistant": "Reanudar asistente",

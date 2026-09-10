@@ -656,6 +656,53 @@ describe("POST oauth/request", () => {
     expect(result.body).toEqual({ hello: "world" });
   });
 
+  // The recovery hint on a 401/403 follows the credential's kind. A channel
+  // bot's token is stored by the channel's setup, so the OAuth status and
+  // connect commands cannot repair it; the hint must name the channel's own
+  // diagnostics, through whichever door the request came.
+  test("401 as a channel bot points at the channel's diagnostics, never the OAuth commands", async () => {
+    mockProviders.slack_channel = {
+      ...baseProvider,
+      provider: "slack_channel",
+      authorizeUrl: "urn:manual-token",
+      managedServiceConfigKey: null,
+      baseUrl: "https://slack.com/api",
+    };
+    mockResolveResponse = {
+      status: 401,
+      headers: { "content-type": "application/json" },
+      body: { ok: false, error: "invalid_auth" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "slack_channel", url: "/conversations.history" },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(401);
+    expect(result.hint).toContain("slack bot credential");
+    expect(result.hint).toContain("assistant channels get slack");
+    expect(result.hint).not.toContain("oauth status");
+    expect(result.hint).not.toContain("oauth connect");
+  });
+
+  test("403 as a person's OAuth integration keeps the OAuth recovery steps", async () => {
+    mockResolveResponse = {
+      status: 403,
+      headers: { "content-type": "application/json" },
+      body: { error: "forbidden" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "google", url: "https://api.google.com/v1/me" },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.status).toBe(403);
+    expect(result.hint).toContain("assistant oauth status google");
+    expect(result.hint).toContain("oauth connect");
+    expect(result.hint).not.toContain("channels get");
+  });
+
   test("passes a pre-parsed string body through to the connection unchanged", async () => {
     const multipart =
       "--boundary\r\nContent-Type: application/json\r\n\r\n{}\r\n--boundary--\r\n";

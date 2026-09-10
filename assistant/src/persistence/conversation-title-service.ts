@@ -7,28 +7,24 @@
  * overwritten, never user-provided custom titles.
  */
 
+import { SEND_USER_MESSAGE_DELIVERED_ACK } from "../config/send-user-message-constants.js";
 import {
-  createTimeout,
-  extractAllText,
-  extractToolUse,
-  getConfiguredProvider,
-  userMessage as buildUserMessage,
-} from "../providers/provider-send-message.js";
-import type { Provider, ToolDefinition } from "../providers/types.js";
+  requestShortLabel,
+  type ShortLabelTool,
+} from "../providers/forced-tool-label.js";
+import { getConfiguredProvider } from "../providers/provider-send-message.js";
+import type { Provider } from "../providers/types.js";
 import { publishConversationTitleChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
-import {
-  normalizeTitle,
-  stripThinkingTags,
-  truncateTitle,
-} from "../util/short-title.js";
+import { stripThinkingTags, truncateTitle } from "../util/short-title.js";
 import {
   getConversation,
   getMessages,
   type MessageRow,
   updateConversationTitle,
 } from "./conversation-crud.js";
+import { projectPersistedAssistantContent } from "./user-facing-content.js";
 
 const log = getLogger("conversation-title-service");
 
@@ -442,33 +438,19 @@ const TITLE_TOOL_NAME = "record_conversation_title";
  * failure modes that otherwise get captured verbatim as the title
  * (e.g. "I need to generate a…", "I'll work through these files…").
  */
-function buildTitleTool(): ToolDefinition {
-  return {
-    name: TITLE_TOOL_NAME,
-    description:
-      "Record the conversation's title. Call this exactly once with a short noun phrase naming the TOPIC — never a sentence, a reply, or any preamble.",
-    input_schema: {
-      type: "object",
-      properties: {
-        title: {
-          type: "string",
-          description:
-            "2–5 words, 40 characters max. A scannable sidebar label naming the topic (e.g. 'Auth Middleware Rewrite', 'Docker Volume Mounts'). No quotes, markdown, or trailing punctuation.",
-        },
-      },
-      required: ["title"],
-    },
-  };
-}
+const TITLE_TOOL: ShortLabelTool = {
+  name: TITLE_TOOL_NAME,
+  description:
+    "Record the conversation's title. Call this exactly once with a short noun phrase naming the TOPIC — never a sentence, a reply, or any preamble.",
+  argument: "title",
+  argumentDescription:
+    "2–5 words, 40 characters max. A scannable sidebar label naming the topic (e.g. 'Auth Middleware Rewrite', 'Docker Volume Mounts'). No quotes, markdown, or trailing punctuation.",
+};
 
 /**
- * Run the title LLM call with a forced tool so the model returns a structured
- * `{ title }` rather than free text. Returns a normalized title, or "" when the
- * model declines or misbehaves — callers fall back to a deterministic title.
- *
- * Forcing the tool is the primary guard against prose leakage; `normalizeTitle`
- * is the backstop for the text-fallback path and for any provider that ignores
- * forced `tool_choice`.
+ * Run the title LLM call through the shared forced-tool label helper. Returns
+ * a normalized title, or "" when the model declines or misbehaves — callers
+ * fall back to a deterministic title.
  */
 async function generateTitleViaLLM(
   provider: Provider,
@@ -476,38 +458,17 @@ async function generateTitleViaLLM(
   conversationId: string,
   signal?: AbortSignal,
 ): Promise<string> {
-  const { signal: timeoutSignal, cleanup } = createTimeout(15_000);
-  const combinedSignal = signal
-    ? AbortSignal.any([signal, timeoutSignal])
-    : timeoutSignal;
-  try {
-    const response = await provider.sendMessage([buildUserMessage(prompt)], {
-      tools: [buildTitleTool()],
-      systemPrompt: buildTitleSystemPrompt(),
-      config: {
-        max_tokens: 256,
-        callSite: "conversationTitle",
-        conversationId,
-        tool_choice: { type: "tool", name: TITLE_TOOL_NAME },
-        disableCache: true,
-      },
-      signal: combinedSignal,
-    });
-    const toolBlock = extractToolUse(response);
-    const titleInput = toolBlock?.input as { title?: unknown } | undefined;
-    if (
-      toolBlock?.name === TITLE_TOOL_NAME &&
-      typeof titleInput?.title === "string"
-    ) {
-      return normalizeTitle(titleInput.title);
-    }
-    // Provider ignored the forced tool (or the model emitted prose instead of
-    // calling it). Fall back to the response text — `normalizeTitle`'s prose
-    // guard rejects a ramble while keeping a compliant plain-text title.
-    return normalizeTitle(extractAllText(response));
-  } finally {
-    cleanup();
-  }
+  return requestShortLabel({
+    provider,
+    callSite: "conversationTitle",
+    conversationId,
+    systemPrompt: buildTitleSystemPrompt(),
+    prompt,
+    tool: TITLE_TOOL,
+    timeoutMs: 15_000,
+    maxTokens: 256,
+    signal,
+  });
 }
 
 function buildTitlePrompt(
@@ -641,7 +602,12 @@ function extractTextForTitle(raw: string | Array<{ type: string }>): string {
         // tool_result string content carries topical signal.
       } else if (block.type === "tool_result") {
         if (typeof block.content === "string") {
-          texts.push(block.content);
+          // The delivery tool answers a bare receipt, never anything topical.
+          // Titling from it names a gated conversation "Delivery Confirmation"
+          // instead of what the user actually asked about.
+          if (block.content.trim() !== SEND_USER_MESSAGE_DELIVERED_ACK) {
+            texts.push(block.content);
+          }
         } else if (Array.isArray(block.content)) {
           for (const nested of block.content) {
             if (
@@ -666,7 +632,13 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = ["Recent messages:"];
 
   for (const msg of recentMessages) {
-    const text = extractTextForTitle(msg.content);
+    // Read each row the way a user reads it. On a turn that routed its reply
+    // through `send_user_message`, the row's plain text is a private
+    // scratchpad and the reply is inside the tool call, so titling from the
+    // raw row names the conversation after the model's notes.
+    const text = extractTextForTitle(
+      projectPersistedAssistantContent(msg.content, msg.metadata),
+    );
     if (!text) {
       continue;
     }

@@ -15,6 +15,7 @@ import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../persistence/db-connection.js";
 import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { isAbortLikeError } from "../tools/shared/abort.js";
 import { getLogger } from "../util/logger.js";
 import {
   acpAuthMarkerStillCurrent,
@@ -135,6 +136,17 @@ type ResumableHistoryRow = typeof acpSessionHistory.$inferSelect & {
   cwd: string;
 };
 
+/**
+ * Cancellation for a call that puts an agent to work. Starting a child
+ * process, cancelling an in-flight prompt and restoring a session from history
+ * are all awaits, and what follows each of them hands a long-lived agent an
+ * instruction that outlives the turn, so the signal is rechecked at every one
+ * of those seams.
+ */
+export interface AcpCancellationOptions {
+  signal?: AbortSignal;
+}
+
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
   /**
@@ -240,8 +252,10 @@ export class AcpSessionManager {
     parentConversationId: string,
     sendToVellum: (msg: AssistantEvent) => void,
     parentToolUseId?: string,
+    opts?: AcpCancellationOptions,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     this.assertCapacity();
+    opts?.signal?.throwIfAborted();
 
     const acpSessionId = randomUUID();
     log.info(
@@ -299,9 +313,22 @@ export class AcpSessionManager {
       throw err;
     }
 
+    // Recheck: the protocol handshake and session creation above are both
+    // awaits, and the child process is already running. A turn stopped in that
+    // window must not be told a session started, nor have the agent handed the
+    // task, so the process is torn down and the abort let out instead.
+    if (opts?.signal?.aborted) {
+      log.info(
+        { acpSessionId, agentId },
+        "ACP spawn cancelled during setup; tearing the session down",
+      );
+      this.teardownSession(acpSessionId, entry);
+      opts.signal.throwIfAborted();
+    }
+
     this.sendSpawnedEvent(acpSessionId, entry);
 
-    // Fire prompt in the background — don't await
+    // Fire prompt in the background, do not await
     entry.currentPrompt = this.firePromptInBackground(
       acpSessionId,
       entry,
@@ -650,7 +677,11 @@ export class AcpSessionManager {
    * Cancels any in-flight prompt first, then fires the new prompt in the
    * background with completion/error event handlers (matching spawn's pattern).
    */
-  async steer(acpSessionId: string, instruction: string): Promise<void> {
+  async steer(
+    acpSessionId: string,
+    instruction: string,
+    opts?: AcpCancellationOptions,
+  ): Promise<void> {
     const entry = this.sessions.get(acpSessionId);
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
@@ -676,6 +707,10 @@ export class AcpSessionManager {
         );
       }
     }
+
+    // Recheck: cancelling the in-flight prompt above is an await, and the
+    // call below hands a paid agent a new instruction that outlives this turn.
+    opts?.signal?.throwIfAborted();
 
     // Fire new prompt in the background with event handlers
     entry.currentPrompt = this.firePromptInBackground(
@@ -711,11 +746,17 @@ export class AcpSessionManager {
     acpSessionId: string,
     instruction: string,
     sendToVellum: (msg: AssistantEvent) => void,
+    opts?: AcpCancellationOptions,
   ): Promise<{ resumed: boolean }> {
     try {
-      await this.steer(acpSessionId, instruction);
+      await this.steer(acpSessionId, instruction, opts);
       return { resumed: false };
     } catch (err) {
+      // A cancelled turn is not a missing session: it must never fall through
+      // to the resume path and start an agent the user has stopped.
+      if (isAbortLikeError(err)) {
+        throw err;
+      }
       // Fall through to the in-flight-resume handling both when the session
       // is entirely unknown and when a concurrent resume has already
       // registered its entry but is still initializing: steer rejects with a
@@ -744,13 +785,22 @@ export class AcpSessionManager {
       // The resumed session is owned by the concurrent caller (its own
       // post-resume steer handles teardown on failure), so a failure here
       // propagates as a plain steer error without closing the session.
-      await this.steer(acpSessionId, instruction);
+      await this.steer(acpSessionId, instruction, opts);
       return { resumed: true };
     }
+
+    // Recheck: restoring a session from history spawns the agent process, so
+    // a turn stopped while getting here must not start one.
+    opts?.signal?.throwIfAborted();
 
     try {
       await this.resumeFromHistory(acpSessionId, sendToVellum);
     } catch (err) {
+      // An abort is not a resume failure; it must reach the caller intact
+      // rather than wrapped in AcpResumeError, which hides its abort shape.
+      if (isAbortLikeError(err)) {
+        throw err;
+      }
       // A missing history row keeps its not-found shape; everything else
       // (legacy row without cwd, resolver failure, capability missing)
       // is a resume failure with an actionable message.
@@ -761,10 +811,11 @@ export class AcpSessionManager {
     }
 
     try {
-      await this.steer(acpSessionId, instruction);
+      await this.steer(acpSessionId, instruction, opts);
     } catch (err) {
       // Tear down the just-resumed session rather than leaving it
-      // running-idle with no prompt handler to own its cleanup.
+      // running-idle with no prompt handler to own its cleanup. A cancelled
+      // turn needs the same teardown, and then its abort back unwrapped.
       try {
         this.close(acpSessionId);
       } catch (closeErr) {
@@ -772,6 +823,9 @@ export class AcpSessionManager {
           { acpSessionId, err: closeErr },
           "Failed to close ACP session after post-resume steer failure",
         );
+      }
+      if (isAbortLikeError(err)) {
+        throw err;
       }
       throw new AcpResumeError(err);
     }

@@ -15,6 +15,10 @@ import {
 } from "../../../../media/image-service.js";
 import { getFilePathBySourcePath } from "../../../../persistence/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
@@ -107,6 +111,7 @@ export async function run(
   input: Record<string, unknown>,
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
+  throwIfCancelled(context);
   const config = getConfig();
   const svc = config.services["image-generation"];
   let modelOverride = input.model;
@@ -201,6 +206,12 @@ export async function run(
     sourceImages = validPathImages;
   }
 
+  // Recheck: credential resolution and the source-image reads above are all
+  // awaits, so a cancel landing during them must not still start a paid
+  // generation. Past this line the request is in flight and carries the turn's
+  // signal, so a cancel aborts it rather than being checked for.
+  throwIfCancelled(context);
+
   try {
     const result = await generateImage(provider, credentials, {
       prompt,
@@ -208,8 +219,11 @@ export async function run(
       sourceImages,
       model,
       variants,
+      ...(context.signal ? { signal: context.signal } : {}),
     });
 
+    // No cancellation check here on purpose. The generation resolved, so it was
+    // paid for; discarding it would charge the user and hand the model nothing.
     const imageCount = result.images.length;
     const { savedPaths, saveError } = saveGeneratedImages(
       result.images,
@@ -254,6 +268,11 @@ export async function run(
       contentBlocks,
     };
   } catch (error) {
+    // A cancelled turn is not a generation failure: let it reach the
+    // executor's abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(error)) {
+      throw error;
+    }
     // Echo the model that failed so callers (including the skill's retry
     // branch) can key off the error text instead of remembering their input.
     return {

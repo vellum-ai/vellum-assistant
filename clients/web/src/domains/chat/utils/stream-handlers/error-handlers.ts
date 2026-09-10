@@ -6,6 +6,8 @@ import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
+import { removeQueuedMessage } from "@/domains/chat/utils/stream-updaters/shared";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import type {
   ConversationErrorEvent,
   ConversationNoticeEvent,
@@ -37,6 +39,38 @@ export function handleStreamError(
     return;
   }
   const convId = ctx.streamContext?.conversationId;
+
+  // A full queue refusing a send the daemon had already accepted. It is a
+  // delivery failure for one message, not a turn ending: the conversation may
+  // still be running the turn this send tried to interrupt, so this must not
+  // clear `isProcessing` or end the turn the way a generation error does.
+  // Recovery matches the request-path failure in `use-send-message`: drop the
+  // optimistic row and put its text back in the composer, so the user has what
+  // they typed and can send it again.
+  if (event.code === "QUEUE_FULL" && event.requestId) {
+    const messageId = ctx.popRequestIdMapping(event.requestId);
+    if (messageId) {
+      ctx.setOptimisticSends((prev) => {
+        const failed = prev.find((message) =>
+          messageMatchesKey(message, messageId),
+        );
+        const text = failed?.textSegments?.join("");
+        if (text && ctx.assistantId && convId) {
+          useComposerStore
+            .getState()
+            .restoreFailedDraft(ctx.assistantId, convId, text);
+        }
+        return removeQueuedMessage(prev, messageId);
+      });
+    }
+    ctx.setError({
+      message: event.message || "Something went wrong.",
+      code: event.code,
+      ...(event.errorCategory ? { errorCategory: event.errorCategory } : {}),
+    });
+    return;
+  }
+
   if (convId) {
     // Mirrors the cache patch in `handleMessageComplete`: terminal
     // errors must also clear the cached `isProcessing: true` snapshot

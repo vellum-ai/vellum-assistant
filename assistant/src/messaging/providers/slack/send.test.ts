@@ -36,6 +36,7 @@ mock.module("./api.js", () => ({
 const { SlackApiError } = await import("./web-api-transport.js");
 const {
   sendSlackAgentSessionStatus,
+  describeSlackReactionEmoji,
   sendSlackReaction,
   sendSlackReply,
   sendSlackStreamOp,
@@ -146,6 +147,29 @@ describe("sendSlackAgentSessionStatus", () => {
     await sendSlackAgentSessionStatus({ channel: "D123", phase: "thinking" });
 
     expect(callSlackApiMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("describeSlackReactionEmoji", () => {
+  test("a standard name means its character, colons or not", () => {
+    expect(describeSlackReactionEmoji(":tada:").emojiKind).toBe("unicode");
+    expect(describeSlackReactionEmoji("tada").emojiName.replace(/️/g, "")).toBe(
+      "🎉",
+    );
+  });
+
+  test("a character spelling is the character, never a name", () => {
+    expect(describeSlackReactionEmoji("🎉")).toEqual({
+      emojiKind: "unicode",
+      emojiName: "🎉",
+    });
+  });
+
+  test("a name Slack's list lacks is the workspace's own", () => {
+    expect(describeSlackReactionEmoji("blob_wave")).toEqual({
+      emojiKind: "shortcode",
+      emojiName: "blob_wave",
+    });
   });
 });
 

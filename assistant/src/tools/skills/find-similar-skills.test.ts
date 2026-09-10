@@ -31,6 +31,7 @@ mock.module("../../skills/install-meta.js", () => ({
   },
 }));
 
+import { createAbortReason } from "../../util/abort-reasons.js";
 import type { ToolContext } from "../types.js";
 import { executeFindSimilarSkills } from "./find-similar-skills.js";
 
@@ -420,5 +421,61 @@ describe("find_similar_skills — input validation", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("limit must be a positive integer");
     }
+  });
+});
+
+describe("find_similar_skills cancellation", () => {
+  test("the shortlist search is handed the turn signal", async () => {
+    const controller = new AbortController();
+    let seen: AbortSignal | undefined;
+
+    await executeFindSimilarSkills(
+      { goal: "ship the web app" },
+      { ...makeContext(), signal: controller.signal },
+      {
+        nearestExistingSkills: async (
+          _goal: string,
+          opts?: { signal?: AbortSignal },
+        ) => {
+          seen = opts?.signal;
+          return [];
+        },
+        loadCatalog: () =>
+          catalog({
+            id: "deploy-web",
+            name: "Deploy Web",
+            description: "Ship the web app",
+            source: "managed",
+          }),
+      },
+    );
+
+    expect(seen).toBe(controller.signal);
+  });
+
+  test("a cancelled turn never reaches the paid shortlist", async () => {
+    const controller = new AbortController();
+    controller.abort(
+      createAbortReason("user_cancel", "find-similar-skills.test"),
+    );
+    const search = mock(async () => []);
+
+    await expect(
+      executeFindSimilarSkills(
+        { goal: "ship the web app" },
+        { ...makeContext(), signal: controller.signal },
+        {
+          nearestExistingSkills: search,
+          loadCatalog: () =>
+            catalog({
+              id: "deploy-web",
+              name: "Deploy Web",
+              description: "Ship the web app",
+              source: "managed",
+            }),
+        },
+      ),
+    ).rejects.toThrow();
+    expect(search).not.toHaveBeenCalled();
   });
 });

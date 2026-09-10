@@ -12,6 +12,7 @@
     "clients/web",
     "credential-executor",
     "gateway",
+    "packages/app-icons",
     "packages/assistant-client",
     "packages/avatar-catalog",
     "packages/avatar-manifest",

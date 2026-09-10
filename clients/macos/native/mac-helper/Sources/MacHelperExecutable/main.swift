@@ -78,6 +78,30 @@ final class MacHelper: @unchecked Sendable {
     /// key.
     private var activityWatch = false
     private var lastActivityReport = Date.distantPast
+    /// The global scroll-wheel monitor, up only while main is waiting to hear
+    /// a scroll end, and the debounce that decides when one has. A scroll is
+    /// many events, from a trackpad's phases through its momentum to a mouse
+    /// wheel's plain ticks, and the one thing they share is that they stop:
+    /// the end is a quiet gap after the last of them.
+    ///
+    /// An `NSEvent` monitor rather than a second event tap because it reads
+    /// mouse and scroll events without Input Monitoring, which only the
+    /// keyboard side of a global monitor needs, so the frame's scroll
+    /// stepping does not depend on the grant the voice key needs.
+    private var scrollMonitor: Any?
+    private var scrollEndReport: DispatchWorkItem?
+    private static let scrollEndGap: TimeInterval = 0.12
+    /// The global mouse-down monitor, up only while main is waiting for a
+    /// press on something the assistant is pointing at, and the rectangles
+    /// that press would have to land in. The monitor comes down on the first
+    /// hit: a mark is one step, and the step is done once.
+    ///
+    /// Where a press landed is read here and nowhere else, and only against
+    /// these rectangles: what leaves the process is which of them was hit,
+    /// never the point. An `NSEvent` monitor for the reason the scroll one
+    /// is, so pointing does not depend on Input Monitoring.
+    private var pressMonitor: Any?
+    private var pressRects: [CGRect] = []
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -231,6 +255,54 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setActivityWatch(enable: enable)
+        }
+        // Whether a scroll is still going anywhere on the desktop, reported
+        // as the moment it stops and nothing else, for a window that stepped
+        // aside for one and has to know when to take the mouse back.
+        router.register("input.setScrollWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let enable = object["enable"] as? Bool
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setScrollWatch requires enable"
+                )
+            }
+            return try self.setScrollWatch(enable: enable)
+        }
+        // Whether the next press lands on something the assistant is pointing
+        // at. `rects` are where those things are, in screen points with the
+        // origin at the top-left of the primary display; none is the watch
+        // coming down. Reported once, as the index of the rectangle hit.
+        router.register("input.setPressWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let rects = object["rects"] as? [[String: Any]]
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setPressWatch requires rects"
+                )
+            }
+            let parsed = try rects.map { rect -> CGRect in
+                guard
+                    let x = rect["x"] as? Double,
+                    let y = rect["y"] as? Double,
+                    let width = rect["width"] as? Double,
+                    let height = rect["height"] as? Double
+                else {
+                    throw JsonRpcDispatchError.invalidParams(
+                        "input.setPressWatch rects need x, y, width and height"
+                    )
+                }
+                return CGRect(x: x, y: y, width: width, height: height)
+            }
+            return try self.setPressWatch(rects: parsed)
         }
         // Where a paste would land, asked when there are words to paste rather
         // than when a hold opens. No hold guard: the hold is over by then, and
@@ -469,6 +541,14 @@ final class MacHelper: @unchecked Sendable {
         guard let key = chordKey(for: event) else {
             return false
         }
+        // A key held down repeats as further key-downs. The press was answered
+        // on the first of them; the repeats are still this app's (left alone
+        // they would type the key's character into the front app) and are
+        // taken without being reported, so a chord that toggles something
+        // toggles it once per press rather than once per repeat.
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return true
+        }
         writeNotification(
             method: "hotkey.event",
             params: ["kind": "chord", "state": "down", "key": key]
@@ -528,6 +608,102 @@ final class MacHelper: @unchecked Sendable {
             releaseMonitorIfUnused()
         }
         return ["enabled": enable]
+    }
+
+    /// Watch every scroll on the desktop for the moment it stops, or stop
+    /// watching. Idempotent: a second enable keeps the monitor it has, and
+    /// a disable with none up is nothing to take down.
+    ///
+    /// The watch is asked for by a scroll already under way: the caller saw
+    /// the first wheel event itself, and that one is over before the monitor
+    /// is up. A single tick is a whole scroll, so the end is scheduled on
+    /// enable and only pushed out by whatever the monitor sees after.
+    private func setScrollWatch(enable: Bool) throws -> [String: Any] {
+        if !enable {
+            removeScrollMonitor()
+            return ["enabled": false]
+        }
+        if scrollMonitor == nil {
+            guard
+                let monitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel, handler: { [weak self] _ in
+                    self?.pushScrollEnd()
+                })
+            else {
+                throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.scrollWheel)")
+            }
+            scrollMonitor = monitor
+        }
+        pushScrollEnd()
+        return ["enabled": true]
+    }
+
+    /// The scroll is not over yet: the watch just went up for one, or a
+    /// wheel event went by. Where it went, and how far, is never read. The
+    /// report of its end is pushed out by the gap again.
+    private func pushScrollEnd() {
+        scrollEndReport?.cancel()
+        let report = DispatchWorkItem { [weak self] in
+            guard let self, self.scrollMonitor != nil else { return }
+            self.scrollEndReport = nil
+            self.writeNotification(method: "input.scrollEnded")
+        }
+        scrollEndReport = report
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.scrollEndGap, execute: report)
+    }
+
+    private func removeScrollMonitor() {
+        scrollEndReport?.cancel()
+        scrollEndReport = nil
+        if let scrollMonitor {
+            NSEvent.removeMonitor(scrollMonitor)
+        }
+        scrollMonitor = nil
+    }
+
+    /// Watch for the next press inside one of `rects`, or stop watching when
+    /// there are none. A new list replaces the old one under a monitor that
+    /// is already up, so pointing at the next step does not take the monitor
+    /// down and put it back.
+    private func setPressWatch(rects: [CGRect]) throws -> [String: Any] {
+        pressRects = rects
+        if rects.isEmpty {
+            removePressMonitor()
+            return ["enabled": false]
+        }
+        if pressMonitor == nil {
+            guard
+                let monitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in
+                    self?.handlePress()
+                })
+            else {
+                throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.leftMouseDown)")
+            }
+            pressMonitor = monitor
+        }
+        return ["enabled": true]
+    }
+
+    /// A press went down somewhere on the desktop while main is waiting for
+    /// one. Only whether it landed in a watched rectangle is read, and which;
+    /// a press anywhere else is nothing, and keeps the watch up.
+    private func handlePress() {
+        guard let primaryHeight = NSScreen.screens.first?.frame.maxY else {
+            return
+        }
+        let point = PressWatch.flipped(NSEvent.mouseLocation, primaryHeight: primaryHeight)
+        guard let index = PressWatch.hit(point, in: pressRects) else {
+            return
+        }
+        removePressMonitor()
+        writeNotification(method: "input.pressed", params: ["index": index])
+    }
+
+    private func removePressMonitor() {
+        pressRects = []
+        if let pressMonitor {
+            NSEvent.removeMonitor(pressMonitor)
+        }
+        pressMonitor = nil
     }
 
     private func readCommands() {
@@ -1472,6 +1648,8 @@ final class MacHelper: @unchecked Sendable {
         chordKeys = ChordKeySet()
         activityWatch = false
         releaseMonitorIfUnused()
+        removeScrollMonitor()
+        removePressMonitor()
     }
 
     private func writeNotification(method: String, params: Any? = nil) {
@@ -1499,6 +1677,7 @@ final class MacHelper: @unchecked Sendable {
 private enum HelperError: LocalizedError {
     case carbon(String, OSStatus)
     case eventTap(String)
+    case eventMonitor(String)
 
     var errorDescription: String? {
         switch self {
@@ -1506,6 +1685,8 @@ private enum HelperError: LocalizedError {
             return "\(operation) failed with status \(status)"
         case let .eventTap(operation):
             return "\(operation) failed; Input Monitoring may not be granted"
+        case let .eventMonitor(operation):
+            return "\(operation) returned no monitor"
         }
     }
 }

@@ -626,6 +626,12 @@ export type AuthFallbackTelemetryEvent = EventMap["auth_fallback"];
  */
 export type ConfigSettingTelemetryEvent = EventMap["config_setting"];
 
+/**
+ * Avatar-changed event: one per avatar mutation that changed the avatar. 1:1
+ * with the wire contract (`AvatarChangedTelemetryEventSerializer`).
+ */
+export type AvatarChangedTelemetryEvent = EventMap["avatar_changed"];
+
 // ---- Compile-time drift guards ----
 // Each `Overrides` entry is pinned to its wire type in BOTH directions, so a
 // wire sync PR that moves the platform contract turns red here instead of

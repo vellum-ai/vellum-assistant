@@ -55,6 +55,19 @@ export interface InflightContentWriter {
   lastSeq: number;
   /** Per-index serialized form of the last flushed snapshot (diff base). */
   lastSerialized: string[];
+  /**
+   * Metadata the last finalize attempt was meant to stamp, kept only while
+   * that attempt is unresolved.
+   *
+   * A finalize that exhausts its SQLite retries leaves the row `finalized = 0`
+   * and its writer in place so the turn tail's stranded fold can try again.
+   * That retry re-sends the content it reads back off the row, but the
+   * metadata lives only in the caller's arguments, so without this the second
+   * write would drop it: a fallback row reserved `"private"` and finalized
+   * `"visible"` would keep the stale marker and its reply would project to
+   * working notes. Cleared on the write that succeeds.
+   */
+  pendingMetadataUpdates?: Record<string, unknown>;
 }
 
 /**
@@ -169,6 +182,11 @@ export async function finalizeInflightContent(
   rlog: pino.Logger,
   metadataUpdates?: Record<string, unknown>,
 ): Promise<boolean> {
+  // Park the updates on the writer before attempting, so a failure leaves the
+  // stranded retry able to stamp what this attempt was carrying.
+  if (writer && metadataUpdates) {
+    writer.pendingMetadataUpdates = metadataUpdates;
+  }
   try {
     await withSqliteRetry(
       () => finalizeMessageContent(messageId, contentJson, metadataUpdates),
@@ -182,6 +200,7 @@ export async function finalizeInflightContent(
     return false;
   }
   if (writer) {
+    writer.pendingMetadataUpdates = undefined;
     try {
       rmSync(writer.absPath, { force: true });
     } catch (err) {
@@ -215,6 +234,7 @@ export async function finalizeStrandedInflightContent(
           writer.messageId,
           JSON.stringify(row.content),
           rlog,
+          writer.pendingMetadataUpdates,
         );
       }
     } catch (err) {

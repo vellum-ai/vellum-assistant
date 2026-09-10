@@ -21,6 +21,7 @@ import {
   companionAnnotationInkSchema,
   companionAnnotationPhaseSchema,
   companionAnnotationStrokeSchema,
+  companionAnnotationToolSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
@@ -40,6 +41,7 @@ import {
   type CoachmarkUnresolved,
   namesATarget,
   type PlacedCoachmark,
+  type CompanionAnnotationTool,
   type CompanionCardGrowth,
   type CompanionCoachmark,
   type CompanionGrowth,
@@ -89,7 +91,13 @@ import {
   resolveCapturePick,
   windowBoundsFor,
 } from "./companion-capture-sources";
+import {
+  unwatchCoachmarkPress,
+  watchCoachmarkPress,
+  type CoachmarkPressRect,
+} from "./coachmark-press-watch";
 import { setPointerOnCompanion } from "./companion-pointer";
+import { unwatchFrameScroll, watchFrameScroll } from "./frame-scroll-watch";
 import { handle, on } from "./ipc";
 import log from "./logger";
 import {
@@ -614,12 +622,16 @@ const currentState = (): CompanionSurfaceState => {
     // starts capturing the user's screen, so not knowing reads as not offering.
     screenShareEnabled: context.screenShareEnabled === true,
     // Main's own, along with the marks below. Every line above passes on what
-    // the app's window said; these two are what main did with its frame.
+    // the app's window said; these are what main did with its frame.
     annotating,
+    annotationTool,
     // Absent rather than empty, so a surface reads one shape for nothing
     // being pointed at whether the shell holds marks or has never heard of
     // them.
     coachmarks: coachmarks.length === 0 ? undefined : coachmarks,
+    // Main's as well: where the frame window sits is main's, and this is the
+    // part of that window the menu bar is drawn over.
+    frameInsetTop: publishFrameInsetTop(),
     // Passed through as it arrived, for the reason `watchRetro` is: every value
     // it can hold claims a microphone is doing something.
     dictating: context.dictating,
@@ -901,14 +913,25 @@ const refreshGrowth = (): void => {
   // across displays need not change either growth, and a session outlives
   // the surface being hidden, so its frame has to follow the display with
   // no surface on screen at all.
+  //
+  // The same events move the menu bar over that frame, and the frame's
+  // renderer holds the inset it was last pushed. So a push is due when the
+  // inset moved, on its own account: the growth below can be unchanged, or
+  // there can be no surface to measure it for, while the label sits under a
+  // bar that just got taller.
+  let frameInsetMoved = false;
   if (
     getFloatingWindow(WATCH_FRAME_KIND) !== null &&
     context.captureTarget?.kind !== "window"
   ) {
     syncWatchFrame();
+    frameInsetMoved = frameInsetTop() !== publishedFrameInsetTop;
   }
   const win = getFloatingWindow(COMPANION_KIND);
   if (!win) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   const centre = avatarCentre(win);
@@ -920,6 +943,9 @@ const refreshGrowth = (): void => {
   const nextGrowth = growthFor(centre.x, workArea, geometry);
   const nextCardGrowth = cardGrowthFor(centre.y, workArea, geometry);
   if (nextGrowth === growth && nextCardGrowth === cardGrowth) {
+    if (frameInsetMoved) {
+      pushState();
+    }
     return;
   }
   growth = nextGrowth;
@@ -1061,6 +1087,18 @@ const glideAvatarTo = (
 let annotating = false;
 
 /**
+ * What a press on the frame draws while {@link annotating}: the pointer's
+ * path, or a shape between press and release.
+ *
+ * Main's for the reason the mode is: the pill is where it is chosen and the
+ * frame is where it is drawn with, and both read it back off the pushed state.
+ * Not lowered with the mode or the share. It decides nothing about where a
+ * click goes, so there is nothing for a stale value to take, and a user who
+ * reached for the box last time expects it under their hand again.
+ */
+let annotationTool: CompanionAnnotationTool = "freehand";
+
+/**
  * Whether the frame is drawn around the shared surface: something is shared,
  * and the frame is around *that*.
  *
@@ -1077,9 +1115,67 @@ let annotating = false;
 const framesTheShare = (): boolean =>
   context.watching !== true && context.screenShare !== undefined;
 
-/** Give the frame the mouse, or give it back to the desktop. */
+/**
+ * Whether the frame has handed the mouse back to the desktop for a scroll,
+ * while the mode stays on.
+ *
+ * A frame taking presses takes the wheel with them, and a transparent window
+ * the size of the shared surface that eats every wheel event is a shared
+ * app the user cannot scroll or move through. Nothing on the desktop forwards
+ * a wheel event through a window that is taking the mouse, so the frame
+ * steps aside instead: the renderer reports the first wheel event it
+ * receives, the frame goes click-through with mouse-move forwarded so the
+ * rest of that scroll reaches the app underneath, and the frame takes the
+ * mouse back when the scroll ends. Two things say it has. The renderer
+ * reports the first move it is forwarded, since a hand that has moved the
+ * pointer is pointing at something again. The mac helper reports the scroll
+ * stopping, since a hand that scrolls and then presses without moving the
+ * pointer is one the renderer would never hear from, and the press would
+ * land on the app.
+ *
+ * Main's for the reason {@link annotating} is: it decides what a window main
+ * opened does with the mouse.
+ */
+let frameScrolling = false;
+
+/**
+ * Give the frame the mouse, or give it back to the desktop.
+ *
+ * Forwarded mouse-move only while the frame has stepped aside for a scroll:
+ * that is the one state in which the renderer has to see the pointer without
+ * holding it, so it can ask for the mouse back. Off the mode, nothing is
+ * forwarded, since there is nothing on the frame to point at and a forwarded
+ * move over a display-sized window is a move on every pixel of the screen.
+ *
+ * Key status goes with the mouse. Chromium on macOS puts a page's cursor on
+ * the pointer only while the page's window is the key window, and a window
+ * opened `focusable: false` can never be one, so the pencil the layer hangs
+ * on the pointer would never show and the user would have nothing to say the
+ * mode took. Lent with `setFocusable` and then `focus`, which on a panel
+ * makes it key without bringing Vellum forward, and released with
+ * `setFocusable` alone: `blur` would flash the frame and drop it to the back
+ * of its level, and `setFocusable(false)` does not resign key on macOS, so
+ * the keyboard returns to the user's app on their next press in it rather
+ * than the moment the mode ends. Left key across a scroll the frame stepped
+ * aside for, since the mode is still on and the mouse is coming back.
+ */
 const applyFrameMouse = (): void => {
-  getFloatingWindow(WATCH_FRAME_KIND)?.setIgnoreMouseEvents(!annotating);
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame === null) {
+    return;
+  }
+  if (!annotating) {
+    frame.setIgnoreMouseEvents(true);
+    frame.setFocusable(false);
+    return;
+  }
+  if (frameScrolling) {
+    frame.setIgnoreMouseEvents(true, { forward: true });
+    return;
+  }
+  frame.setIgnoreMouseEvents(false);
+  frame.setFocusable(true);
+  frame.focus();
 };
 
 /**
@@ -1089,6 +1185,11 @@ const applyFrameMouse = (): void => {
  * Idempotent, and run after every change to the context as well as on the
  * press: a mode left on over a share that ended is a transparent window
  * eating every click on that display.
+ *
+ * Either edge forgets a scroll the frame stepped aside for. The mode going
+ * on is the user asking for the mouse, whatever the pointer was doing before
+ * the press; the mode going off leaves nothing for the scroll to have stepped
+ * aside from.
  */
 const setAnnotating = (next: boolean): void => {
   const resolved = next && framesTheShare();
@@ -1096,8 +1197,40 @@ const setAnnotating = (next: boolean): void => {
     return;
   }
   annotating = resolved;
+  frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
   pushState();
+};
+
+/** Choose what the frame draws with. Settles: choosing the current tool pushes nothing. */
+const setAnnotationTool = (next: CompanionAnnotationTool): void => {
+  if (next === annotationTool) {
+    return;
+  }
+  annotationTool = next;
+  pushState();
+};
+
+/**
+ * Step aside for a scroll on the frame, or take the mouse back after one.
+ *
+ * Refused off the mode rather than remembered: a frame that is not taking
+ * presses has no mouse to hand back, and a scroll recorded against the next
+ * time the mode goes on would open it click-through.
+ */
+const setFrameScrolling = (next: boolean): void => {
+  const resolved = next && annotating;
+  if (resolved === frameScrolling) {
+    return;
+  }
+  frameScrolling = resolved;
+  if (resolved) {
+    watchFrameScroll(() => setFrameScrolling(false));
+  } else {
+    unwatchFrameScroll();
+  }
+  applyFrameMouse();
 };
 
 /**
@@ -1174,8 +1307,93 @@ const sameCaptureTarget = (
   return b.kind === "window" && a.windowId === b.windowId;
 };
 
-/** Point at things on the shared surface, or take down what is pointed at. */
-const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
+/**
+ * A pointed-at control the user can press, and what to call it when they do.
+ *
+ * Only a control found by name has one. Its rectangle is the frame the tree
+ * reported for it, in screen points, which is the one description of where
+ * a press would land that does not go through the picture. A ring drawn from
+ * bounds the model gave is an extent someone means, not a button, and a
+ * press inside it says nothing about a step.
+ */
+interface CoachmarkPress {
+  /**
+   * The control's hit area as fractions of the surface it was found on, the
+   * way the mark's centre is. A window share moves, and the frame follows
+   * it; a rectangle kept in screen points would stay where the control was,
+   * so it is kept the way the mark is and measured out again wherever the
+   * frame is now.
+   */
+  rect: CoachmarkPressRect;
+  /** The control's own name, for the turn the press becomes. */
+  label: string;
+}
+
+const NO_PRESSES: readonly CoachmarkPress[] = [];
+
+/** The presses the marks on screen can be heard as, if any. */
+let coachmarkPresses: readonly CoachmarkPress[] = NO_PRESSES;
+
+/**
+ * Ask the helper to watch the presses where they are now. The rectangles it
+ * is given are in screen points, which is the one thing it tests a press
+ * against, and they are measured out on the frame's bounds each time rather
+ * than kept: the frame is the surface the marks are drawn on, and asking it
+ * is what keeps a press and its mark the same rectangle wherever the frame
+ * has followed the window to. Run again whenever the frame moves.
+ */
+const armCoachmarkPressWatch = (): void => {
+  const presses = coachmarkPresses;
+  const surface = getFloatingWindow(WATCH_FRAME_KIND)?.getBounds() ?? null;
+  if (surface === null || presses.length === 0) {
+    unwatchCoachmarkPress();
+    return;
+  }
+  watchCoachmarkPress(
+    presses.map((press) => ({
+      x: surface.x + press.rect.x * surface.width,
+      y: surface.y + press.rect.y * surface.height,
+      width: press.rect.width * surface.width,
+      height: press.rect.height * surface.height,
+    })),
+    (index) => {
+      const press = presses[index];
+      if (press !== undefined) {
+        onCoachmarkPressed(press);
+      }
+    },
+  );
+};
+
+/**
+ * The user pressed the control a mark was pointing at.
+ *
+ * The marks come down first: the step they described is done, and a mark
+ * left on a button that has just been pressed is one the user has to work
+ * out is stale. Then the press goes to the window holding the call, which
+ * puts it to the assistant as the user's turn. Main cannot say it itself,
+ * since the call lives in the renderer; the command is how the surface has
+ * always reached it.
+ */
+const onCoachmarkPressed = (press: CoachmarkPress): void => {
+  setCoachmarks(NO_COACHMARKS);
+  dispatchToMain({ kind: "coachmarkPressed", label: press.label });
+};
+
+/**
+ * Point at things on the shared surface, or take down what is pointed at.
+ *
+ * `presses` are the marks among `next` the user can press, which is how the
+ * step a mark describes is heard to be done. Asked for beside the marks
+ * rather than kept with them, because the
+ * renderer draws the marks and has no use for a hit area, and because they
+ * are one-shot where the marks are not: a press consumes the watch and
+ * leaves the marks to whoever asked for them.
+ */
+const setCoachmarks = (
+  next: readonly CompanionCoachmark[],
+  presses: readonly CoachmarkPress[] = NO_PRESSES,
+): void => {
   const resolved = framesTheShare() ? next : NO_COACHMARKS;
   if (resolved.length > 0) {
     // A mark says go and press that, so the press has to reach the app under
@@ -1186,6 +1404,13 @@ const setCoachmarks = (next: readonly CompanionCoachmark[]): void => {
     // pressing Draw again gets it back.
     setAnnotating(false);
   }
+  // Before the settle below, because the watch is armed by a request and
+  // not by the marks changing: pointing at the same control twice is two
+  // steps, and the second one's press has to be heard too. Marks coming
+  // down for any reason take the watch with them, since a press on a
+  // control nothing points at is not a step being done.
+  coachmarkPresses = resolved === NO_COACHMARKS ? NO_PRESSES : presses;
+  armCoachmarkPressWatch();
   const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
   if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
     return;
@@ -1299,42 +1524,51 @@ export const showCompanionCoachmarks = async (
   const sequence = coachmarkRequests;
 
   const marks: PlacedCoachmark[] = [];
+  const presses: CoachmarkPress[] = [];
   for (const request of requests) {
     if (!namesATarget(request)) {
-      marks.push(request);
+      // Bounds given outright are an extent someone means, so they keep the
+      // ring. The kind is added here rather than asked for: what the caller
+      // sends is a rectangle, and how a rectangle is drawn is this side's.
+      marks.push({ kind: "region", ...request });
       continue;
     }
-    const placed = await placeOnNamedTarget(share, request);
+    const located = await placeOnNamedTarget(share, request);
     // Both asked after every await, because both answers can change across
     // one. Something else asking to point in the meantime owns the screen
     // now, and this request touching it at all would undo that.
     if (sequence !== coachmarkRequests) {
       return { kind: "refused", refusal: "superseded" };
     }
-    // Asked against the share these marks are being
-    // resolved on rather than against whatever is shared now. Resolving a
-    // name is a round trip to the helper and the user is still working the
-    // whole time: a share that moved and had a frame of its own served in
-    // that window answers every check the current state can make, and these
-    // marks would land on it measured against the surface it replaced.
+    // Asked against the share these marks are being resolved on rather than
+    // against whatever is shared now. Resolving a name is a round trip to the
+    // helper and the user is still working the whole time: a share that moved
+    // and had a frame of its own served in that window answers every check
+    // the current state can make, and these marks would land on it measured
+    // against the surface it replaced.
     const moved = whyNotToDraw(conversationId, share);
     if (moved !== null) {
       return { kind: "refused", refusal: moved };
     }
-    if ("reason" in placed) {
+    if ("reason" in located) {
       // A request replaces everything on screen, and it has replaced it with
       // nothing it can draw. Leaving the last step's mark up would point the
       // user at a control this turn is about to say it could not find.
       setCoachmarks(NO_COACHMARKS);
-      return { kind: "unresolved", unresolved: placed };
+      return { kind: "unresolved", unresolved: located };
     }
+    const { hit, ...placed } = located;
     marks.push(placed);
+    presses.push({ rect: hit, label: placed.matched });
   }
 
   // The name a mark resolved from is for the caller to read back, not for the
   // frame to draw: what goes on screen is a rectangle, and the renderer has
   // no use for the label it came from.
-  setCoachmarks(marks.map(({ matched: _matched, ...mark }) => mark));
+  setCoachmarks(
+    marks.map(({ matched: _matched, ...mark }) => mark),
+    presses,
+  );
   return { kind: "placed", marks };
 };
 
@@ -1375,6 +1609,19 @@ const whyNotToDraw = (
 };
 
 /**
+ * A mark that was found by name, with the frame it was found at.
+ *
+ * `hit` is where a press on the control would land, as fractions of the
+ * surface the way the centre is. It stays on this side: the mark the
+ * renderer draws is the centre alone, for the reason
+ * {@link placeOnNamedTarget} gives.
+ */
+type LocatedCoachmark = PlacedCoachmark & {
+  matched: string;
+  hit: CoachmarkPressRect;
+};
+
+/**
  * One named control as a mark, or why it could not be one.
  *
  * The conversion is the whole point of resolving through the tree: the helper
@@ -1384,7 +1631,7 @@ const whyNotToDraw = (
 const placeOnNamedTarget = async (
   share: WatchCaptureTarget,
   request: { target: string; caption?: string },
-): Promise<PlacedCoachmark | CoachmarkUnresolved> => {
+): Promise<LocatedCoachmark | CoachmarkUnresolved> => {
   const located = await locateOnTarget(share, request.target);
   if (!located.found) {
     return {
@@ -1400,13 +1647,26 @@ const placeOnNamedTarget = async (
   if (bounds === null) {
     return { target: request.target, reason: "no-tree", candidates: [] };
   }
+  // The centre, not the frame. An element's frame is its hit area, which is
+  // routinely a good deal larger than the thing drawn inside it, and it can
+  // belong to the small triangle that discloses a row rather than the row.
+  // Its position is trustworthy where its extent is not, so the arrow is
+  // aimed at the middle of it and nothing claims a size. The extent is still
+  // the right answer to a different question, which is whether a press
+  // landed on the control: a hit area is exactly what a press is tested
+  // against.
   return {
-    x: (located.x - bounds.x) / bounds.width,
-    y: (located.y - bounds.y) / bounds.height,
-    width: located.width / bounds.width,
-    height: located.height / bounds.height,
+    kind: "point",
+    x: (located.x + located.width / 2 - bounds.x) / bounds.width,
+    y: (located.y + located.height / 2 - bounds.y) / bounds.height,
     ...(request.caption === undefined ? {} : { caption: request.caption }),
     matched: located.label,
+    hit: {
+      x: (located.x - bounds.x) / bounds.width,
+      y: (located.y - bounds.y) / bounds.height,
+      width: located.width / bounds.width,
+      height: located.height / bounds.height,
+    },
   };
 };
 
@@ -1419,6 +1679,18 @@ const placeOnNamedTarget = async (
 const surfaceBounds = async (
   share: WatchCaptureTarget,
 ): Promise<Rectangle | null> => {
+  // The frame's own rectangle, because that is the one the marks are drawn
+  // on. It is placed on the share's bounds, and `placeWatchFrame` asks for
+  // the whole display rather than its work area, so the two should agree;
+  // asking the frame rather than deriving the surface a second time is what
+  // keeps them the same rectangle by construction, whatever the window
+  // system did with the request.
+  const frame = getFloatingWindow(WATCH_FRAME_KIND);
+  if (frame !== null) {
+    return frame.getBounds();
+  }
+  // No frame yet, which a mark cannot be drawn on anyway. Answered from the
+  // share so the caller's own guards decide what to say about it.
   if (share.kind === "display") {
     return (
       screen.getAllDisplays().find((d) => d.id === share.displayId)?.bounds ??
@@ -1451,6 +1723,9 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       current.height !== bounds.height
     ) {
       existing.setBounds(bounds);
+      // The controls the marks point at moved with the window under the
+      // frame, so the presses are measured out again on the new bounds.
+      armCoachmarkPressWatch();
     }
     if (!existing.isVisible()) {
       existing.showInactive();
@@ -1471,13 +1746,29 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       minimizable: false,
       maximizable: false,
       backgroundColor: "#00000000",
+      // **The frame must be the surface, to the pixel.** Without this macOS
+      // holds a window to the display's work area: asked for the whole
+      // display it comes back a menu bar lower and a menu bar shorter, and
+      // says nothing. The assistant measures its marks against a picture of
+      // the whole display, and a fraction of that drawn into the shorter
+      // window lands low by the menu bar's height at the top, shrinking to
+      // nothing at the foot. The menu bar draws over the top of the window
+      // either way; `frameInsetTop` is what keeps the rim clear of it.
+      enableLargerThanScreen: true,
     },
   });
   win.setAlwaysOnTop(true, "floating", -1);
   // A frame opened while the mode is already on is one the user is expecting
   // to draw on: the mode outlives the window, which is replaced whenever the
-  // share moves to another target.
+  // share moves to another target. A scroll the old window stepped aside for
+  // does not: this window's renderer has seen no scroll and would never ask
+  // for a mouse it does not know it gave up.
+  frameScrolling = false;
+  unwatchFrameScroll();
   applyFrameMouse();
+  // Marks still up are drawn on this window from here on, so the presses
+  // they can be heard as are measured out on it.
+  armCoachmarkPressWatch();
 };
 
 /**
@@ -1585,6 +1876,67 @@ const framedTarget = (): WatchCaptureTarget | "screen" | null => {
   return context.screenShare ?? null;
 };
 
+/**
+ * The display a whole-screen frame goes on: the picked one by its id, else
+ * the one under the surface, or under the cursor when the surface is hidden.
+ * See {@link syncWatchFrame} for why each.
+ *
+ * For a target that is not a window. A window frame is placed by following
+ * the window, and the display it happens to be on is not a fact the frame
+ * is about.
+ */
+const framedDisplay = (
+  target: Extract<WatchCaptureTarget, { kind: "display" }> | undefined,
+): Display => {
+  if (target !== undefined) {
+    const display = screen
+      .getAllDisplays()
+      .find((candidate) => candidate.id === target.displayId);
+    if (display !== undefined) {
+      return display;
+    }
+  }
+  const win = getFloatingWindow(COMPANION_KIND);
+  return displayUnder(
+    win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
+  );
+};
+
+/**
+ * How much of the top of the frame window the menu bar draws over, when a
+ * whole display is framed. See `CompanionSurfaceState.frameInsetTop`.
+ *
+ * Read from the same display {@link syncWatchFrame} places the frame on, so
+ * the inset and the window it describes cannot come from different screens.
+ * Nothing for a window frame, whose top edge is the window's own.
+ */
+const frameInsetTop = (): number | undefined => {
+  const framed = framedTarget();
+  if (framed === null) {
+    return undefined;
+  }
+  const target = framed === "screen" ? undefined : framed;
+  if (target?.kind === "window") {
+    return undefined;
+  }
+  const display = framedDisplay(target);
+  return Math.max(display.workArea.y - display.bounds.y, 0);
+};
+
+/**
+ * The inset the renderers were last handed, so {@link refreshGrowth} can
+ * tell a display event that moved the menu bar from one that did not.
+ *
+ * Every state a renderer receives is built by `currentState`, whether pushed
+ * or pulled on mount, so recording it there is what keeps this honest.
+ */
+let publishedFrameInsetTop: number | undefined;
+
+const publishFrameInsetTop = (): number | undefined => {
+  publishedFrameInsetTop = frameInsetTop();
+  return publishedFrameInsetTop;
+};
+
 const syncWatchFrame = (): void => {
   // Before the frame is placed or taken down, so a mode that has lost its
   // share is off by the time a window could be left holding the mouse for it,
@@ -1606,21 +1958,7 @@ const syncWatchFrame = (): void => {
     return;
   }
   stopFollowingWindow();
-  if (target?.kind === "display") {
-    const display = screen
-      .getAllDisplays()
-      .find((candidate) => candidate.id === target.displayId);
-    if (display !== undefined) {
-      placeWatchFrame(display.bounds);
-      return;
-    }
-  }
-  const win = getFloatingWindow(COMPANION_KIND);
-  placeWatchFrame(
-    displayUnder(
-      win === null ? screen.getCursorScreenPoint() : avatarCentre(win),
-    ).bounds,
-  );
+  placeWatchFrame(framedDisplay(target).bounds);
 };
 
 /**
@@ -2048,6 +2386,33 @@ export const installCompanionWindow = (): void => {
    */
   on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
     setAnnotating(!annotating);
+  });
+
+  /**
+   * The drawing tool, from the pill. Taken whether or not the mode is on:
+   * the strip it is chosen from is drawn only while the mode is, but a choice
+   * that crossed a share ending is still the user's choice for the next one.
+   */
+  on(
+    "vellum:companion:setAnnotationTool",
+    z.tuple([companionAnnotationToolSchema]),
+    ([tool]) => {
+      setAnnotationTool(tool);
+    },
+  );
+
+  /**
+   * A scroll on the frame, or the pointer moving after one, from the frame's
+   * own window.
+   *
+   * The frame is what decides where a wheel event lands, and it cannot
+   * forward one it has taken. What it can do is stop taking them: on the
+   * first the renderer sees, the frame steps aside so the rest of the scroll
+   * reaches the app underneath, and on the first forwarded move it takes the
+   * mouse back. See {@link frameScrolling}.
+   */
+  on("vellum:companion:setFrameScrolling", z.tuple([z.boolean()]), ([next]) => {
+    setFrameScrolling(next);
   });
 
   /**

@@ -421,6 +421,106 @@ describe("system-card boundaries", () => {
   });
 });
 
+describe("assistant-text-visibility boundaries", () => {
+  const privateMeta = JSON.stringify({ assistantTextVisibility: "private" });
+  const visibleMeta = JSON.stringify({ assistantTextVisibility: "visible" });
+
+  const privateRow = () =>
+    makeMsg(
+      "assistant",
+      JSON.stringify([
+        { type: "text", text: "The user wants their calendar." },
+        {
+          type: "tool_use",
+          id: "tu_1",
+          name: "send_user_message",
+          input: { message: "You have two meetings today." },
+        },
+      ]),
+      { id: "private", metadata: privateMeta },
+    );
+
+  const fallbackRow = () =>
+    makeMsg(
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Two meetings today." }]),
+      { id: "fallback", metadata: visibleMeta },
+    );
+
+  test("a visible fallback row never folds into a private row", () => {
+    const { messages, mergedIdMap } = mergeConsecutiveAssistantMessages([
+      makeMsg("user", "what's on today?"),
+      privateRow(),
+      fallbackRow(),
+    ]);
+    expect(messages.map((m) => m.id)).toEqual([
+      messages[0].id,
+      "private",
+      "fallback",
+    ]);
+    expect(messages[1].metadata).toBe(privateMeta);
+    expect(messages[2].metadata).toBe(visibleMeta);
+    expect(mergedIdMap.size).toBe(0);
+  });
+
+  test("a private row never folds into a visible row", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      fallbackRow(),
+      privateRow(),
+    ]);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].metadata).toBe(visibleMeta);
+    expect(messages[1].metadata).toBe(privateMeta);
+  });
+
+  test("an unmarked row never folds into a private row", () => {
+    const { messages } = mergeConsecutiveAssistantMessages([
+      privateRow(),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "plain" }]), {
+        id: "unmarked",
+      }),
+    ]);
+    expect(messages.map((m) => m.id)).toEqual(["private", "unmarked"]);
+  });
+
+  test("two private rows still collapse onto the anchor", () => {
+    const { messages, mergedIdMap } = mergeConsecutiveAssistantMessages([
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "A" }]), {
+        id: "anchor",
+        metadata: privateMeta,
+      }),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "B" }]), {
+        id: "tail",
+        metadata: privateMeta,
+      }),
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].id).toBe("anchor");
+    expect(mergedIdMap.get("anchor")).toEqual(["tail"]);
+  });
+
+  test("findDisplayTurnEndIndex stops at a visibility change", () => {
+    const rows = [privateRow(), fallbackRow()];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(0);
+  });
+
+  test("findDisplayTurnEndIndex spans rows that share a visibility", () => {
+    const rows = [
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "A" }]), {
+        metadata: privateMeta,
+      }),
+      makeMsg(
+        "user",
+        JSON.stringify([{ type: "tool_result", tool_use_id: "t1" }]),
+      ),
+      makeMsg("assistant", JSON.stringify([{ type: "text", text: "B" }]), {
+        metadata: privateMeta,
+      }),
+    ];
+    expect(findDisplayTurnEndIndex(rows, 0)).toBe(2);
+  });
+});
+
 describe("provider-error boundaries", () => {
   const errorMeta = JSON.stringify({
     messageKind: "provider_error",

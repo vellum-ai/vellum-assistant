@@ -25,6 +25,10 @@
  * drawer, its identity, and its source link.
  */
 
+import {
+  pickReactionEmojiFields,
+  type ReactionEmojiFields,
+} from "@vellumai/service-contracts/reactions";
 import { isExternalChannelOrigin } from "@/domains/chat/utils/conversation-channel";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type {
@@ -76,7 +80,7 @@ export interface ChannelMessageProvenance {
    */
   threadSourceLink?: ExternalSourceLink;
   /** Present only when `kind` is `"reaction"`. */
-  reaction?: {
+  reaction?: ReactionEmojiFields & {
     emoji: string;
     op: "added" | "removed";
     actorName?: string;
@@ -144,6 +148,7 @@ const readSlackProvenance: ChannelMessageProvenanceReader = (
   if (envelope.reaction) {
     provenance.reaction = {
       emoji: envelope.reaction.emoji,
+      ...pickReactionEmojiFields(envelope.reaction),
       op: envelope.reaction.op,
       actorName: firstNonEmpty(envelope.reaction.actorDisplayName),
     };

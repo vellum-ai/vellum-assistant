@@ -26,6 +26,8 @@ const OUTPUT_PATH = resolve(WEB_ROOT, "openapi-schemas/daemon.json");
 /**
  * Paths to exclude from the web-facing SDK. These are internal, CLI-only,
  * admin, or debug endpoints not proxied through the platform gateway.
+ * `/v1/debug` (exact) and `/v1/debug/bash` stay excluded; `/v1/debug/database`
+ * is generated so the Debug tab can fetch failed-migration telemetry.
  */
 const EXCLUDED_PREFIXES = [
   "/healthz",
@@ -36,7 +38,6 @@ const EXCLUDED_PREFIXES = [
   "/v1/btw",
   "/v1/clients",
   "/v1/conversations/cli/",
-  "/v1/debug",
   "/v1/diagnostics/",
   "/v1/host-",
   "/v1/internal/",
@@ -45,9 +46,14 @@ const EXCLUDED_PREFIXES = [
   "/v1/sanity/",
 ];
 
+const EXCLUDED_EXACT = new Set(["/v1/debug", "/v1/debug/bash"]);
+
 const EXCLUDED_SEGMENTS = ["/playground/"];
 
 function shouldExclude(path: string): boolean {
+  if (EXCLUDED_EXACT.has(path)) {
+    return true;
+  }
   if (EXCLUDED_PREFIXES.some((prefix) => path.startsWith(prefix))) {
     return true;
   }

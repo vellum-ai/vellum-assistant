@@ -7,7 +7,9 @@
  * intent arrived (the APNs banner covers that case).
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { ShowNotificationPayload } from "@vellumai/ipc-contract";
 
 // ── host platform guards ─────────────────────────────────────────────────────
 //
@@ -15,8 +17,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // under happy-dom, and the Electron branch would return before reaching
 // the code under test.
 
+let electronHost = false;
 mock.module("@/runtime/is-electron", () => ({
-  isElectron: () => false,
+  isElectron: () => electronHost,
 }));
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => true,
@@ -103,6 +106,12 @@ const {
   postLocalNotification,
   __resetNotificationsStateForTests,
 } = await import("@/runtime/notifications");
+const { clearNotificationAvatar, setNotificationAvatar } =
+  await import("@/runtime/notification-avatar");
+const { useAssistantIdentityStore } =
+  await import("@/stores/assistant-identity-store");
+const { useClientFeatureFlagStore } =
+  await import("@/stores/client-feature-flag-store");
 
 const setVisibility = (state: "visible" | "hidden") => {
   Object.defineProperty(document, "visibilityState", {
@@ -120,6 +129,7 @@ const baseArgs = {
 };
 
 beforeEach(() => {
+  electronHost = false;
   nativeAndroid = false;
   sessionConfirmedAssistantId = null;
   scheduleMock.mockClear();
@@ -290,6 +300,47 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     );
   });
 
+  test("a foreground data-only push reads its title and body from data", async () => {
+    nativeAndroid = true;
+    postForegroundRemotePush({
+      id: "message-2",
+      data: {
+        title: "Ada",
+        body: "Standup notes are up",
+        delivery_id: "delivery-data-only",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    const scheduled = scheduleMock.mock.calls[0]?.[0].notifications[0];
+    expect(scheduled?.title).toBe("Ada");
+    expect(scheduled?.body).toBe("Standup notes are up");
+  });
+
+  /**
+   * The Android shell trims every field it hashes into a notification id, so
+   * padded copy must not seed a second id and show the delivery twice. The
+   * expected id is the one PushDataMessageTest pins for the same push.
+   */
+  test("a padded data-only push hashes to the id the Android shell derives", async () => {
+    nativeAndroid = true;
+    postForegroundRemotePush({
+      id: "   ",
+      data: {
+        title: "  Weekly review  ",
+        body: "\tReady when you are.\n",
+        source_event_name: " remote_push ",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const scheduled = scheduleMock.mock.calls[0]?.[0].notifications[0];
+    expect(scheduled?.title).toBe("Weekly review");
+    expect(scheduled?.body).toBe("Ready when you are.");
+    expect(scheduled?.id).toBe(126856326);
+  });
+
   test("a concurrent waiter retries after scheduling fails", async () => {
     nativeAndroid = true;
     let rejectFirst!: (error: Error) => void;
@@ -341,5 +392,106 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(
       scheduleMock.mock.calls[0]?.[0].notifications[0]?.actionTypeId,
     ).toBeUndefined();
+  });
+});
+
+// ── Electron branch: the assistant as the notification's sender ─────────────
+
+describe("postLocalNotification sender (Electron branch)", () => {
+  const AVATAR = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+  const AVATAR_HASH = "b".repeat(64);
+  const showMock = mock(async (_payload: ShowNotificationPayload) => ({
+    success: true,
+  }));
+
+  beforeEach(() => {
+    electronHost = true;
+    showMock.mockClear();
+    clearNotificationAvatar();
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Aria", "1.0.0", "assistant-1");
+    useClientFeatureFlagStore.setState({ pushAvatarSender: true });
+    (window as unknown as { vellum?: unknown }).vellum = {
+      notifications: { show: showMock },
+    };
+  });
+
+  afterEach(() => {
+    clearNotificationAvatar();
+    useAssistantIdentityStore.getState().clearIdentity();
+    useClientFeatureFlagStore.setState({ pushAvatarSender: false });
+    delete (window as unknown as { vellum?: unknown }).vellum;
+  });
+
+  test("attaches the held avatar, the assistant's name and its id", async () => {
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock).toHaveBeenCalledTimes(1);
+    expect(showMock.mock.calls[0]?.[0].sender).toEqual({
+      id: "assistant-1",
+      name: "Aria",
+      avatarBase64: "iVBORw==",
+      avatarHash: AVATAR_HASH,
+    });
+  });
+
+  test("sends no sender key at all when no avatar is held", async () => {
+    await postLocalNotification(baseArgs);
+
+    const payload = showMock.mock.calls[0]?.[0] ?? {};
+    expect("sender" in payload).toBe(false);
+  });
+
+  test("sends no sender when the assistant has no name yet", async () => {
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+    useAssistantIdentityStore.getState().clearIdentity();
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender when the held avatar belongs to another assistant", async () => {
+    setNotificationAvatar("assistant-2", AVATAR, AVATAR_HASH);
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender when the hydrated identity belongs to another assistant", async () => {
+    // The name and the face come from stores written at different moments in
+    // an assistant switch, so a name that is not this assistant's is refused
+    // rather than paired with a face that is.
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+    useAssistantIdentityStore
+      .getState()
+      .setIdentity("Nova", "1.0.0", "assistant-2");
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender when the notification is for a different assistant", async () => {
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+
+    await postLocalNotification({ ...baseArgs, assistantId: "assistant-9" });
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
+  });
+
+  test("sends no sender while push-avatar-sender is off", async () => {
+    // The holder outlives the flag, so the send path checks it again rather
+    // than trusting that the hook has emptied it.
+    setNotificationAvatar("assistant-1", AVATAR, AVATAR_HASH);
+    useClientFeatureFlagStore.setState({ pushAvatarSender: false });
+
+    await postLocalNotification(baseArgs);
+
+    expect(showMock.mock.calls[0]?.[0].sender).toBeUndefined();
   });
 });

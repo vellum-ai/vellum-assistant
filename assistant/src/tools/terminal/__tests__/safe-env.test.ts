@@ -50,6 +50,23 @@ describe("safe-env Qdrant forwarding", () => {
   });
 });
 
+describe("safe-env CES vault isolation", () => {
+  test("strips the CES HTTP bearer and credential URL from child shells", () => {
+    expect(SAFE_ENV_VARS).not.toContain("CES_SERVICE_TOKEN");
+    expect(SAFE_ENV_VARS).not.toContain("CES_CREDENTIAL_URL");
+    expect(SAFE_ENV_VARS).toContain("CES_LOCAL_SOCKET");
+
+    const env = buildSanitizedEnv("linux", {
+      CES_SERVICE_TOKEN: "vault-bearer",
+      CES_CREDENTIAL_URL: "http://127.0.0.1:8090",
+      CES_LOCAL_SOCKET: "/tmp/ces.sock",
+    });
+    expect(env.CES_SERVICE_TOKEN).toBeUndefined();
+    expect(env.CES_CREDENTIAL_URL).toBeUndefined();
+    expect(env.CES_LOCAL_SOCKET).toBe("/tmp/ces.sock");
+  });
+});
+
 describe("safe-env Windows forwarding", () => {
   test("forwards runtime paths only to Windows children", () => {
     const keys = [

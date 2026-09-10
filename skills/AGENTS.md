@@ -262,3 +262,26 @@
   - If you must do something Vellum-system specific, use the `metadata` field to connect the skill in a structured way
   - **`metadata.vellum.category`** (required): every skill must declare a category slug matching an entry in `skills/skill-categories-catalog.yaml`. The linter validates this in both directions — skills must reference a valid category, and every category must be used by at least one skill. Pass `--skip-category` to the linter to skip this check for external/third-party skills.
   - **`metadata.vellum.platforms`** (optional): restrict a skill to the host operating systems it supports. Allowed values are `macos`, `windows`, and `linux`. Omit the field for portable skills.
+
+- **Checking how a skill gets retrieved**
+
+  A skill is surfaced to a turn through its capability card, built from `description` plus `metadata.vellum.activation-hints` and `avoid-when`. The SKILL.md body is never a retrieval signal, and the card is hard-truncated to 500 characters (900 for `always-candidate`), so a long description silently costs a skill its hints.
+
+  Rank the cards against a query offline, with no assistant running:
+
+  ```bash
+  cd assistant
+  bun run probe:skill-retrieval -q "help me connect stripe link" --only stripe
+  bun run probe:skill-retrieval --queries queries.json --truncation-report
+  ```
+
+  To check that a wording change did what you intended, save a baseline first, edit SKILL.md, then re-run against it:
+
+  ```bash
+  bun run probe:skill-retrieval --queries queries.json --save before.json
+  bun run probe:skill-retrieval --queries queries.json --baseline before.json
+  ```
+
+  Two things to watch for. `avoid-when` text is embedded along with everything else, so phrasing it in the vocabulary you want to repel ("avoid when the user wants to spend money") pulls the skill *toward* those queries. Name the other skill or the other domain instead. And two skills in one product area need hints that separate them, since a shared product name puts both near every query that mentions it.
+
+  The probe covers the dense retrieval lane only. Its pool still goes to an LLM selector, so ranking well here is necessary for a skill to be surfaced, not sufficient.

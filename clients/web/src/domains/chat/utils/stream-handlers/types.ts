@@ -92,6 +92,13 @@ export interface StreamHandlerContext {
   // --- Queue management ---
   shiftPendingQueuedMessageId: () => string | undefined;
   takePendingQueuedMessageId: (messageId: string) => string | undefined;
+  /**
+   * Read the unconfirmed optimistic sends, so a queue ack can still be bound to
+   * the row it belongs to when no pending queued id was registered for it.
+   * Under `interrupt-on-send` a send never expects to queue, so it registers
+   * none, yet the daemon can still fall back to the queue and ack it.
+   */
+  getOptimisticSends?: () => DisplayMessage[];
   setRequestIdMapping: (requestId: string, messageId: string) => void;
   popRequestIdMapping: (requestId: string) => string | undefined;
   consumePendingLocalDeletion: (messageId: string) => boolean;
@@ -106,4 +113,9 @@ export interface StreamHandlerContext {
    *  bubble, and by `message_complete` to re-anchor onto the durable server id.
    *  Mirrors macOS `currentAssistantMessageId`. */
   currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
+  /** Name of the tool whose `tool_result` landed most recently. The daemon
+   *  builds its thinking status label out of the same tool ("Processing <tool>
+   *  results"), so this is how `assistant_activity_state` is read for which
+   *  tool the label it carries describes. */
+  lastCompletedToolNameRef: MutableRefObject<string | undefined>;
 }

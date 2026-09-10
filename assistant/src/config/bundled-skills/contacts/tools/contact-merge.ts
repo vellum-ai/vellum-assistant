@@ -2,6 +2,7 @@ import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts
 
 import { cliIpcCall } from "../../../../ipc/cli-client.js";
 import { resolveGuardianName } from "../../../../prompts/user-reference.js";
+import { throwIfCancelled } from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -15,7 +16,7 @@ function guardianAwareName(contact: Pick<ContactRead, "role" | "displayName">) {
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const keepId = input.keep_id as string | undefined;
   const mergeId = input.merge_id as string | undefined;
@@ -26,15 +27,20 @@ export async function executeContactMerge(
   if (!mergeId || typeof mergeId !== "string") {
     return { content: "Error: merge_id is required", isError: true };
   }
+  throwIfCancelled(context);
 
   // Validate both contacts exist before merging
   const [keepRes, mergeRes] = await Promise.all([
-    cliIpcCall<{ contact: ContactRead }>("getContact", {
-      pathParams: { id: keepId },
-    }),
-    cliIpcCall<{ contact: ContactRead }>("getContact", {
-      pathParams: { id: mergeId },
-    }),
+    cliIpcCall<{ contact: ContactRead }>(
+      "getContact",
+      { pathParams: { id: keepId } },
+      { signal: context.signal },
+    ),
+    cliIpcCall<{ contact: ContactRead }>(
+      "getContact",
+      { pathParams: { id: mergeId } },
+      { signal: context.signal },
+    ),
   ]);
 
   if (!keepRes.ok) {
@@ -47,12 +53,21 @@ export async function executeContactMerge(
   const keepContact = keepRes.result!.contact;
   const mergeContact = mergeRes.result!.contact;
 
+  // Recheck: the two existence lookups above are awaits, so a cancel landing
+  // in either must not reach the merge.
+  throwIfCancelled(context);
+
+  // Deliberately detached from the turn signal. `cliIpcCall` cancels only the
+  // client socket, so an abort after the request is on the wire resolves
+  // "Request aborted" here while the route and the gateway finish the merge
+  // regardless. That quick resolution would settle inside the loop's abort
+  // grace and hand the model an ordinary failure for a merge that destroyed a
+  // contact. Staying attached leaves the call unsettled instead, which is what
+  // makes the loop say the work may still have completed.
   const mergeResult = await cliIpcCall<{
     ok: boolean;
     contact?: ContactRead;
-  }>("merge_contacts", {
-    body: { keepId, mergeId },
-  });
+  }>("merge_contacts", { body: { keepId, mergeId } });
 
   if (!mergeResult.ok) {
     return { content: `Error: ${mergeResult.error}`, isError: true };
@@ -63,7 +78,10 @@ export async function executeContactMerge(
   const mergedId = mergeResult.result?.contact?.id ?? keepId;
 
   // Re-read the surviving contact through the gateway-relayed read so role and
-  // interactionCount come from the gateway ContactRead.
+  // interactionCount come from the gateway ContactRead. Detached from the turn
+  // signal for the same reason as the merge above: the destructive step has
+  // already run, so aborting the read here would report a failure for work that
+  // succeeded.
   const mergedRes = await cliIpcCall<{ contact: ContactRead }>("getContact", {
     pathParams: { id: mergedId },
   });
