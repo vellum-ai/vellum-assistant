@@ -1465,12 +1465,14 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("keeps what a queued send carried under its nonce", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "parked behind the running turn",
       attachments: [attachment],
     });
 
     expect(getStore().queuedSends.get("nonce-1")).toEqual({
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "parked behind the running turn",
       attachments: [attachment],
@@ -1479,12 +1481,14 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("take returns the held send and removes it", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "parked behind the running turn",
       attachments: [attachment],
     });
 
     expect(getStore().takeQueuedSend("nonce-1")).toEqual({
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "parked behind the running turn",
       attachments: [attachment],
@@ -1499,6 +1503,7 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("drop forgets the send without handing it back", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "persisted after all",
       attachments: [attachment],
@@ -1511,6 +1516,7 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("dropping a nonce nothing is held under leaves the rest alone", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "still waiting",
       attachments: [],
@@ -1525,11 +1531,13 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("one send's take leaves another's alone", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "mine",
       attachments: [],
     });
     getStore().recordQueuedSend("nonce-2", {
+      assistantId: "assistant-1",
       conversationId: "conv-2",
       content: "theirs",
       attachments: [attachment],
@@ -1538,6 +1546,7 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
     getStore().takeQueuedSend("nonce-1");
 
     expect(getStore().queuedSends.get("nonce-2")).toEqual({
+      assistantId: "assistant-1",
       conversationId: "conv-2",
       content: "theirs",
       attachments: [attachment],
@@ -1546,6 +1555,7 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("the assistant switch's full reset drops every held send", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "mine",
       attachments: [attachment],
@@ -1558,6 +1568,7 @@ describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
 
   test("resetting the document slot leaves the held sends alone", () => {
     getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "mine",
       attachments: [],

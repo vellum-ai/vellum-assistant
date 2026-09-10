@@ -291,6 +291,7 @@ describe("handleStreamError", () => {
       optimisticSends: [optimisticSendWithAttachment],
     });
     useComposerStore.getState().recordQueuedSend("client-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-1",
       content: "the batched send",
       attachments: [failedAttachment],
@@ -323,6 +324,7 @@ describe("handleStreamError", () => {
     // The row this tab painted is gone (a resync, or a switch that cleared the
     // transcript), so the copy `useSendMessage` kept is the message.
     useComposerStore.getState().recordQueuedSend("client-1", {
+      assistantId: "assistant-1",
       conversationId: "conv-queued",
       content: "parked behind the running turn",
       attachments: [failedAttachment],
