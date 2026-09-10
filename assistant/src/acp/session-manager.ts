@@ -63,8 +63,7 @@ function claudeAuthRequiredCode(
   failureMessage: string,
   entry: { command: string },
 ): string | undefined {
-  // A full path to the bundled binary is still the Claude adapter.
-  if (basename(entry.command) !== CLAUDE_ACP_COMMAND) {
+  if (entry.command !== CLAUDE_ACP_COMMAND) {
     return undefined;
   }
   const rawMessage = err instanceof Error ? err.message : String(err);
@@ -498,7 +497,9 @@ export class AcpSessionManager {
     agentConfig: { command: string; credentialDigest?: string },
   ): unknown {
     const message = err instanceof Error ? err.message : String(err);
-    const authCode = claudeAuthRequiredCode(err, message, agentConfig);
+    const authCode = claudeAuthRequiredCode(err, message, {
+      command: basename(agentConfig.command),
+    });
     if (authCode === undefined && !isAcpAuthRequired(err)) {
       return err;
     }
