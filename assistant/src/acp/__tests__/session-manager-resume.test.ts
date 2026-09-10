@@ -17,6 +17,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
+  modelOptionWithoutCurrent,
   nonModelOption,
 } from "./helpers/acp-model-option.js";
 
@@ -828,11 +829,11 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     ]);
   });
 
-  test("a session/load answering with no config options keeps the replayed selector", async () => {
+  test("a model named only by the load replay keeps the session off the re-pin", async () => {
     fakeCaps.loadSession = true;
     // The selector reaches the manager only through the replayed
     // notification: the load itself answers with no config options at all.
-    replayConfigOptionUpdates = [[modelOption("default")]];
+    replayConfigOptionUpdates = [[modelOption("sonnet")]];
     resumeConfigOptions = [];
     resolveImpl = () => ({
       ok: true,
@@ -846,19 +847,16 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       sent.push(msg),
     );
 
-    // The re-pin still reaches the adapter, so the run comes back on the
-    // model its agent config names.
-    expect(setConfigOptionCalls).toEqual([
-      { sessionId: "proto-old", configId: "model", value: "opus" },
-    ]);
+    // The replay is the adapter reporting what the session came back on, so
+    // the per-agent default has nothing to put right.
+    expect(setConfigOptionCalls).toEqual([]);
     expect(
       (manager.getStatus("resume-replay-only") as AcpSessionState).model,
-    ).toBe("opus");
-    // The announced default, then the model the run was put back on.
+    ).toBe("sonnet");
     const modelEvents = sent.filter(
       (m) => m.type === "acp_session_model_update",
     );
-    expect(modelEvents.map((m) => m.model)).toEqual(["default", "opus"]);
+    expect(modelEvents.map((m) => m.model)).toEqual(["sonnet", "sonnet"]);
     expect(modelEvents[1]).toMatchObject({
       acpSessionId: "resume-replay-only",
       availableModels: MODEL_OPTION_MODELS,
@@ -868,8 +866,9 @@ describe("AcpSessionManager.resumeFromHistory", () => {
   test("a re-pin answered without the selector withdraws the picker the replay announced", async () => {
     fakeCaps.loadSession = true;
     // The replay puts the selector in front of clients before the re-pin
-    // runs, so the answer that drops it has something to correct.
-    replayConfigOptionUpdates = [[modelOption("default")]];
+    // runs, so the answer that drops it has something to correct. It names no
+    // model, which is what leaves the ladder something to apply.
+    replayConfigOptionUpdates = [[modelOptionWithoutCurrent()]];
     resumeConfigOptions = [];
     setConfigOptionResult = [nonModelOption()];
     resolveImpl = () => ({
@@ -894,7 +893,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-selector-gone",
-        model: "default",
         availableModels: MODEL_OPTION_MODELS,
       },
       {
@@ -906,9 +904,8 @@ describe("AcpSessionManager.resumeFromHistory", () => {
   });
 
   test("a re-pin the connection cannot carry tears the resume down", async () => {
-    fakeCaps.loadSession = true;
-    replayConfigOptionUpdates = [[modelOption("default")]];
-    resumeConfigOptions = [];
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOptionWithoutCurrent()];
     setConfigOptionError = new Error("ACP connection closed");
     resolveImpl = () => ({
       ok: true,
@@ -927,23 +924,15 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       ),
     ).rejects.toThrow("ACP connection closed");
 
-    // Only the selector the replay announced; the pin that failed adds none.
-    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
-      {
-        type: "acp_session_model_update",
-        acpSessionId: "resume-pin-transport",
-        model: "default",
-        availableModels: MODEL_OPTION_MODELS,
-      },
-    ]);
-    expect(sent.filter((m) => m.type === "acp_session_spawned")).toEqual([]);
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual(
+      [],
+    );
     expect(manager.getStatus()).toEqual([]);
   });
 
   test("a resume the adapter refuses to re-pin runs on the adapter's model", async () => {
-    fakeCaps.loadSession = true;
-    replayConfigOptionUpdates = [[modelOption("default")]];
-    resumeConfigOptions = [];
+    fakeCaps.resume = true;
+    resumeConfigOptions = [modelOptionWithoutCurrent()];
     setConfigOptionError = new AcpConfigOptionRefusedError(
       "Invalid value for config option model: opus",
     );
@@ -962,23 +951,18 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       sent.push(msg),
     );
 
-    // State and the published events name the model the run is really on, not
-    // the one it could not be put back on: the selector the replay announced,
-    // then the same model again once the refused pin settles.
+    // State and the published event name the model the run is really on, which
+    // is whatever the adapter reported, never the one it refused.
     expect(
       (manager.getStatus("resume-refused-model") as AcpSessionState).model,
-    ).toBe("default");
-    const refusedModelEvents = sent.filter(
-      (m) => m.type === "acp_session_model_update",
-    );
-    expect(refusedModelEvents.map((m) => m.model)).toEqual([
-      "default",
-      "default",
+    ).toBeUndefined();
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-refused-model",
+        availableModels: MODEL_OPTION_MODELS,
+      },
     ]);
-    expect(refusedModelEvents[1]).toMatchObject({
-      acpSessionId: "resume-refused-model",
-      availableModels: MODEL_OPTION_MODELS,
-    });
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {
