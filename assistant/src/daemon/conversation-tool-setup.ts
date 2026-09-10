@@ -45,6 +45,7 @@ import {
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
+  stripActivityField,
 } from "../tools/schema-transforms.js";
 import {
   augmentSkillExecuteError,
@@ -1190,20 +1191,29 @@ export function createResolveToolsCallback(
           input_schema: tool?.input_schema ?? {},
         };
       });
+    const sendUserMessageActive = resolveSendUserMessageActive(ctx);
+    // The gated surface renders no tool activity text, so the field is dead
+    // weight on every definition and reads to the model as a second channel
+    // to the user. A call that sends it anyway (a habit, or history replayed
+    // from an ungated turn) still validates: the tools that own the field
+    // keep it optional, and the rest tolerate unknown keys.
+    const applyActivityField = (defs: ToolDefinition[]): ToolDefinition[] =>
+      sendUserMessageActive
+        ? stripActivityField(defs)
+        : injectActivityField(defs, ACTIVITY_SKIP_SET);
+
     if (ctx.diskPressureCleanupModeActive === true) {
-      const sendUserMessageActive = resolveSendUserMessageActive(ctx);
       const survivesCleanup = (name: string): boolean =>
         survivesDiskPressureCleanup(name, { sendUserMessageActive });
       const cleanupDefs = allBaseDefs.filter((d) => survivesCleanup(d.name));
       ctx.allowedToolNames = new Set(
         Array.from(turnAllowed).filter(survivesCleanup),
       );
-      return injectActivityField(cleanupDefs, ACTIVITY_SKIP_SET);
+      return applyActivityField(cleanupDefs);
     }
 
     ctx.allowedToolNames = turnAllowed;
-    const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
 
-    return baseDefs;
+    return applyActivityField(allBaseDefs);
   };
 }

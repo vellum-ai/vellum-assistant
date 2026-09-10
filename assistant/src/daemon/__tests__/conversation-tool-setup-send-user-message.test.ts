@@ -5,12 +5,23 @@
  * tool never appears for them.
  */
 
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import * as featureFlags from "../../config/assistant-feature-flags.js";
+import * as configLoader from "../../config/loader.js";
+import type { AssistantConfig } from "../../config/schema.js";
 import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
+import type { ToolDefinition } from "../../providers/types.js";
+import { __clearRegistryForTesting } from "../../tools/registry.js";
+import { declareDaemonActivityField } from "../../tools/schema-transforms.js";
 import type { Conversation } from "../conversation.js";
-import { isToolActiveForContext } from "../conversation-tool-setup.js";
+import {
+  createResolveToolsCallback,
+  isToolActiveForContext,
+} from "../conversation-tool-setup.js";
+
+type SkillProjectionCache =
+  import("../conversation-skill-tools.js").SkillProjectionCache;
 
 let flagSpy: ReturnType<typeof spyOn> | undefined;
 
@@ -208,5 +219,90 @@ describe("send_user_message excluded by workspace config", () => {
     } finally {
       configSpy.mockRestore();
     }
+  });
+});
+
+describe("the advertised activity field", () => {
+  /** A tool whose schema the daemon owns, alongside one it does not. */
+  function activityDefs(): ToolDefinition[] {
+    return [
+      {
+        name: "plain_tool",
+        description: "plain",
+        input_schema: {
+          type: "object",
+          properties: { foo: { type: "string" } },
+        },
+      },
+      {
+        name: "file_read",
+        description: "daemon-owned",
+        input_schema: declareDaemonActivityField({
+          type: "object",
+          properties: {
+            path: { type: "string" },
+            activity: { type: "string", description: "status" },
+          },
+          required: ["path", "activity"],
+        }),
+      },
+    ];
+  }
+
+  function resolveAdvertised(): ToolDefinition[] {
+    const resolver = createResolveToolsCallback(
+      activityDefs(),
+      ctx({
+        currentCallSite: "mainAgent",
+        skillProjectionState: new Map(),
+        skillProjectionCache: {
+          fingerprints: new Map(),
+        } as SkillProjectionCache,
+      } as Partial<Conversation>),
+    );
+    expect(resolver).toBeDefined();
+    return resolver?.([]) ?? [];
+  }
+
+  function hasActivity(def: ToolDefinition): boolean {
+    const schema = def.input_schema as Record<string, unknown>;
+    const properties = schema.properties as Record<string, unknown> | undefined;
+    return properties !== undefined && "activity" in properties;
+  }
+
+  let configSpy: ReturnType<typeof spyOn> | undefined;
+
+  beforeEach(() => {
+    __clearRegistryForTesting();
+    const stub: Partial<AssistantConfig> = { tools: { exclude: [] } };
+    configSpy = spyOn(configLoader, "getConfig").mockReturnValue(
+      stub as AssistantConfig,
+    );
+  });
+
+  afterEach(() => {
+    configSpy?.mockRestore();
+    configSpy = undefined;
+    __clearRegistryForTesting();
+  });
+
+  test("is absent from every definition when the flag is on", () => {
+    // The gated client renders no tool activity text, so the field is dead
+    // weight that also reads as a second channel to the user.
+    setFlag(true);
+    const defs = resolveAdvertised();
+    expect(defs.length).toBe(2);
+    expect(defs.some(hasActivity)).toBe(false);
+    const owned = defs.find((d) => d.name === "file_read");
+    expect((owned?.input_schema as Record<string, unknown>).required).toEqual([
+      "path",
+    ]);
+  });
+
+  test("is on every definition when the flag is off", () => {
+    setFlag(false);
+    const defs = resolveAdvertised();
+    expect(defs.length).toBe(2);
+    expect(defs.every(hasActivity)).toBe(true);
   });
 });
