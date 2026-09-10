@@ -50,6 +50,25 @@ function normalizeConfigOptions(
   return configOptions ?? [];
 }
 
+/**
+ * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
+ * Error reaches the client as a generic "Internal error" whose real text the
+ * agent-side SDK moved into the payload, so `data` is read before `message`.
+ */
+function requestErrorReason(err: acp.RequestError): string {
+  const { data } = err;
+  if (data == null) {
+    return err.message;
+  }
+  const details = (data as { details?: unknown }).details;
+  if (typeof details === "string" && details.length > 0) {
+    return details;
+  }
+  // JSON.stringify answers undefined for a value it cannot represent.
+  const serialized: string | undefined = JSON.stringify(data);
+  return serialized ?? err.message;
+}
+
 function isEnvVarMethod(
   method: AuthMethod,
 ): method is AuthMethodEnvVar & { type: "env_var" } {
@@ -465,14 +484,13 @@ export class AcpAgentProcess {
         // Wrapped here, at the request itself, so `withAuthRetry` still sees
         // an auth_required answer and a caller cannot confuse the adapter's
         // refusal with a transport or authentication failure. Claude's
-        // expired-token failure travels as a generic error whose message is
+        // expired-token failure travels as a generic error whose reason is
         // the only signal, so it is left for the caller to classify.
-        if (
-          err instanceof acp.RequestError &&
-          !isAcpAuthRequired(err) &&
-          !isClaudeAuthFailureMessage(err.message)
-        ) {
-          throw new AcpConfigOptionRefusedError(err.message);
+        if (err instanceof acp.RequestError && !isAcpAuthRequired(err)) {
+          const reason = requestErrorReason(err);
+          if (!isClaudeAuthFailureMessage(reason)) {
+            throw new AcpConfigOptionRefusedError(reason);
+          }
         }
         throw err;
       }

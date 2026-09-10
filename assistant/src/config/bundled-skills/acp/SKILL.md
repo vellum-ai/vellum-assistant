@@ -96,7 +96,7 @@ Do NOT put API keys (or any secret) in the workspace config file - secrets never
 
 - Two agents are supported out-of-box: `claude` (via the `claude-agent-acp` adapter) and `codex` (via the `codex-acp` adapter).
 - NEVER use `claude`, `claude -p`, `claude --acp`, or the bare `codex` CLI as the ACP `command`. Claude and Codex only speak the protocol through their dedicated `*-acp` adapters.
-- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An entry that still runs the bundled adapter, whether it omits `command` or names the same binary by name or full path, inherits every field it leaves out, so a single-field change such as `acp.agents.claude.model` is all it takes. An entry that points the id at a different binary stands on its own, so it must spell out everything it needs, `command` included.
+- Default profiles for both ship out-of-box. Users only need an `agents.<id>` entry in config if they want to override the defaults (e.g. point to a custom binary path or pass extra args/env). An entry that still runs the bundled adapter, whether it omits `command` or names the same binary by name or full path, inherits the `command`, `description` and `model` it leaves out, so a single-field change such as `acp.agents.claude.model` is all it takes. An entry that points the id at a different binary stands on its own, so it must spell out everything it needs, `command` included.
 - NEVER change an existing ACP config to use a different command. If the config already has `claude-agent-acp` or `codex-acp`, leave it alone.
 
 ## Updating an adapter

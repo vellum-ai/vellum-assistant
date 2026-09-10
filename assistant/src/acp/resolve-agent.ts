@@ -225,9 +225,11 @@ function directLookup(
 /**
  * Fill a user config entry from the bundled profile for the same id. An entry
  * that runs the profile's adapter (it omits `command`, or names the same
- * binary, by full path or not) inherits every leaf it leaves out: `command`
- * itself, the description, and the `model` a session starts on. An entry that
- * points the id at a different adapter stands alone, like any user-only entry,
+ * binary, by full path or not) inherits the leaves it leaves out: `command`
+ * itself, the description, and the `model` a session starts on. `args` is the
+ * exception, because the schema defaults it to `[]`: a parsed entry always
+ * carries its own, so the profile's never reaches it. An entry that points
+ * the id at a different adapter stands alone, like any user-only entry,
  * so a config that reuses the `claude` id for something else never carries
  * Claude's description or has Claude's `opus` sent to it. Zod omits absent
  * optional keys, so an omission never spreads as an undefined override.

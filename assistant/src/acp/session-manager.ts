@@ -435,19 +435,21 @@ export class AcpSessionManager {
 
   /**
    * Records the model state a `session/new`, `session/load`, or
-   * `session/resume` response reports. The response is authoritative when it
-   * names a selector, or when nothing has announced one yet; otherwise the
-   * selector a `config_option_update` announced while the call was open
-   * stands, because an omitted optional field is not a removal.
+   * `session/resume` response reports, and returns what it reported. The
+   * response is authoritative when it names a selector, or when nothing has
+   * announced one yet; otherwise the selector a `config_option_update`
+   * announced while the call was open stands, because an omitted optional
+   * field is not a removal.
    */
   private applyOpeningModelInfo(
     entry: SessionEntry,
     configOptions: SessionConfigOption[],
-  ): void {
+  ): AcpModelInfo {
     const info = deriveModelInfo(configOptions);
     if (info.modelConfigId || entry.modelConfigId === undefined) {
       this.recordModelInfo(entry, info);
     }
+    return info;
   }
 
   /**
@@ -514,9 +516,25 @@ export class AcpSessionManager {
     configOptions: SessionConfigOption[],
     requestedModel: string | undefined,
     resolvedModel: string | undefined,
+    options?: { keepReportedModel?: boolean },
   ): Promise<ModelPinResult> {
     const { state } = entry;
-    this.applyOpeningModelInfo(entry, configOptions);
+    const opening = this.applyOpeningModelInfo(entry, configOptions);
+
+    // A resume reattaches a session the adapter restored from its own
+    // transcript, so a reply that names the model it came back on is the
+    // model the run stays on.
+    if (options?.keepReportedModel && opening.model) {
+      log.info(
+        {
+          acpSessionId: state.id,
+          agentId: state.agentId,
+          model: opening.model,
+        },
+        "ACP agent reported the resumed session's model; leaving it there",
+      );
+      return { applied: true };
+    }
 
     if (!resolvedModel || resolvedModel === state.model) {
       return { applied: true };
@@ -1015,8 +1033,8 @@ export class AcpSessionManager {
       throw err;
     }
 
-    // A fresh adapter process starts on its own default, so the resumed run
-    // is pinned through the same ladder a spawn walks.
+    // The ladder a spawn walks, for the case the adapter reports no model of
+    // its own; a reattached session that comes back naming one keeps it.
     const resolvedModel = resolveAcpModel({ agentModel: agentConfig.model });
     let applied: boolean;
     try {
@@ -1025,6 +1043,7 @@ export class AcpSessionManager {
         configOptions,
         undefined,
         resolvedModel,
+        { keepReportedModel: true },
       ));
     } catch (err) {
       log.error(
