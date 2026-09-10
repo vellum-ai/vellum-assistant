@@ -161,6 +161,24 @@ What the plugin does not get to decide:
 - **Channel.** The gateway stamps `plugin`. A reply that claims `slack` is ignored, so a plugin cannot inherit Slack's admission floor or contact records.
 - **External ids.** Every id is prefixed with the plugin's directory name (`courier:+12025550142`). Two plugins whose vendors both address by phone number do not share conversations or contacts.
 
+### When a sender is refused
+
+A delivery that verifies but fails the ranked admission floor never reaches the route, because that path is free to run a turn. The sender still has to hear that they were not admitted, and only the plugin can send on its vendor, so the gateway posts a notice to `routes/notices/admission-denied.ts` instead. The plugin sends `replyText` to `conversationExternalId` and answers `200`; there is no turn. The notice is JSON:
+
+| Field                    | Value                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `reason`                 | `"admission_floor"`                                                                       |
+| `plugin`                 | The plugin's directory name.                                                              |
+| `ingressRoute`           | The declared `path` the delivery arrived on.                                              |
+| `admissionPolicy`        | The floor that refused the sender.                                                        |
+| `trustClass`             | The sender's trust class as the gateway read it.                                          |
+| `conversationExternalId` | The vendor's chat id, without the plugin prefix.                                          |
+| `actorExternalId`        | The vendor's sender id, without the plugin prefix.                                        |
+| `externalMessageId`      | The vendor's message id, without the plugin prefix. Use it as the send's idempotency key. |
+| `replyText`              | The exact line to send. Do not reword it: built-in channels send the same one.            |
+
+A plugin without that handler leaves the sender unanswered; the gateway logs the failed notice and still acknowledges the vendor. The `notices/` prefix is [reserved for the gateway](routes.md#reserved-for-the-gateway-notices), so an authenticated client cannot post a notice of its own.
+
 ## Presentation
 
 The channels list reads the plugin's `package.json`, not the ingress file:

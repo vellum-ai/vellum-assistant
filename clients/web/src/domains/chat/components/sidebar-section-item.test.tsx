@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type * as SectionConversations from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
+import { ASSISTANT_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
 import type { Conversation } from "@/types/conversation-types";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -51,7 +52,12 @@ function conv(conversationId: string, title: string): Conversation {
 }
 
 function assistantSection(): SidebarSection {
-  return { type: "assistant", key: "assistant", label: "On My Mind", all: [] };
+  return {
+    type: "assistant",
+    key: "assistant",
+    label: ASSISTANT_SECTION_LABEL,
+    all: [],
+  };
 }
 
 function chatsSection(): SidebarSection {
@@ -102,19 +108,25 @@ afterEach(() => {
 });
 
 describe("SidebarSectionItem — the assistant-initiated section", () => {
-  test("names the header after the assistant once it has a name", () => {
+  /* The section opens directly under the assistant's own pill, so a header
+     that repeated her name said it twice; it speaks in her voice instead. */
+  test("titles the header in the assistant's voice, named or not", () => {
     useAssistantIdentityStore.getState().setIdentity("Ada", "0.12.0", "asst-1");
-    renderSection(assistantSection());
+    const named = renderSection(assistantSection());
+    expect(screen.getByText("From me")).toBeTruthy();
+    expect(screen.queryByText(/Ada/)).toBeNull();
+    named.unmount();
 
-    expect(screen.getByText("From Ada")).toBeTruthy();
+    useAssistantIdentityStore.getState().clearIdentity();
+    renderSection(assistantSection());
+    expect(screen.getByText("From me")).toBeTruthy();
   });
 
-  test("falls back to the neutral header while the assistant is unnamed", () => {
-    // "From Your Assistant" reads as a settings row rather than a byline.
-    renderSection(assistantSection());
-
-    expect(screen.getByText("On My Mind")).toBeTruthy();
-    expect(screen.queryByText(/^From /)).toBeNull();
+  test("draws no glyph on its header", () => {
+    const { container } = renderSection(assistantSection());
+    expect(
+      container.querySelector('[data-slot="collapsible-nav-section-icon"]'),
+    ).toBeNull();
   });
 
   /* On the rail the header is its own accent pill, inset like the New Chat
@@ -140,6 +152,40 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
     );
     expect(header?.className).not.toContain("rounded-full");
     expect(header?.className).not.toContain("pl-2!");
+  });
+
+  /* On a touch screen every row is backed by the card's surface for the
+     swipe, and the assistant card is the one that tints itself: its tint has
+     to be the surface the rows are backed with, or each row sits in a white
+     cell on the wash. */
+  test("on the overlay, backs its rows with its own tint", () => {
+    const { container } = renderSection(assistantSection(), true);
+
+    const card = container.querySelector<HTMLElement>(
+      "[data-slot='sidebar-section-card'], [class*='--sidebar-card-surface:']",
+    );
+    expect(card).not.toBeNull();
+    expect(card!.className).toContain(
+      "[--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]",
+    );
+    expect(card!.className).toContain(
+      "[--swipe-item-surface:var(--sidebar-card-surface,var(--surface-lift))]",
+    );
+    expect(card!.className).not.toContain(
+      "[--swipe-item-surface:var(--surface-lift)]",
+    );
+  });
+
+  /* Its rows hover in the accent's raised wash, the New Chat pill's own
+     hover, rather than the neutral gray the other cards' rows hover in. */
+  test("raises a hovered row to the New Chat pill's wash", () => {
+    const { container } = renderSection(assistantSection());
+    const card = container.querySelector<HTMLElement>(
+      "[class*='--sidebar-card-surface:']",
+    );
+    expect(card!.className).toContain(
+      "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+    );
   });
 
   test("shows the empty state in place of the rows when it has none", () => {

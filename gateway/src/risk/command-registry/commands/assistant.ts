@@ -1,3 +1,5 @@
+import { CHANNEL_BOT_PROVIDER } from "@vellumai/service-contracts/channels";
+
 import type {
   ArgRule,
   CommandRiskSpec,
@@ -77,6 +79,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channels",
   "channels list",
   "channels get",
+  "channels request",
   "clients",
   "clients disconnect",
   "clients list",
@@ -831,6 +834,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     reason: "Makes authenticated OAuth request",
   },
   {
+    path: "channels request",
+    risk: "high",
+    reason:
+      "Acts as the channel's bot with any effect the bot's API allows (sends, edits, deletes, uploads, reactions, as well as reads); the effect is the endpoint's, which the command cannot tell apart",
+  },
+  {
     path: "oauth connect",
     risk: "low",
     reason: "Creates OAuth connection",
@@ -985,6 +994,34 @@ const oauthModeArgRules: ArgRule[] = [
   },
 ];
 getExistingPath(spec, "oauth mode").argRules = oauthModeArgRules;
+
+// `oauth request` is medium-risk as an authenticated request through a
+// person's OAuth integration, but the same door reaches a channel's bot when
+// `--provider` names a bot credential, and acting as the bot carries every
+// effect the bot's API allows. That form is high, like `channels request`.
+// The bot provider keys come from the channel contract, never a list kept
+// here, so a channel that gains a bot credential is covered by joining the
+// contract's map.
+const botProviderKeyPattern = Object.values(CHANNEL_BOT_PROVIDER)
+  .map((key) => key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+  .join("|");
+const oauthRequestArgRules: ArgRule[] = [
+  {
+    id: "assistant-oauth-request:bot-provider",
+    flags: ["--provider"],
+    valuePattern: `^(${botProviderKeyPattern})$`,
+    risk: "high",
+    reason:
+      "Acts as a channel's bot through the OAuth request door, with every effect the bot's API allows",
+  },
+];
+const oauthRequestNode = getExistingPath(spec, "oauth request");
+oauthRequestNode.argRules = oauthRequestArgRules;
+// `--provider` consumes the next token as a value; so do the account
+// selectors, so the arg parser pairs every value flag correctly.
+oauthRequestNode.argSchema = {
+  valueFlags: ["--provider", "--account", "--client-id"],
+};
 
 const assistantBashArgRules: ArgRule[] = [
   {

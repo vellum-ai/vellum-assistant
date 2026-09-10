@@ -23,7 +23,7 @@ import { ConversationStarterGrid } from "@/domains/chat/components/conversation-
 import {
   CONVERSATION_STARTER_CHIP_BOX,
   CONVERSATION_STARTER_CHIP_LINE,
-} from "@/domains/chat/components/conversation-starter-chip";
+} from "@/components/conversation-starter-chip";
 import type { ConversationStarter } from "@/domains/chat/utils/conversation-starters";
 import { MAX_CONVERSATION_STARTER_CHIPS } from "@/domains/chat/utils/empty-state-constants";
 import { useTranslation } from "@/i18n";

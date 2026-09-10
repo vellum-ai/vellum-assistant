@@ -1,4 +1,5 @@
 import {
+  afterAll,
   afterEach,
   beforeEach,
   describe,
@@ -9,6 +10,7 @@ import {
 } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 import type { ReactNode } from "react";
+import type { NavigateOptions, To } from "react-router";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -33,7 +35,12 @@ import { useViewerStore } from "@/stores/viewer-store";
 import type { ShareInboxItem } from "@/runtime/share-inbox-parse";
 import { routes } from "@/utils/routes";
 import * as toastModule from "@vellumai/design-library/components/toast";
+import type * as SentryReact from "@sentry/react";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
+import {
+  restoreStubbedModules,
+  stubModule,
+} from "@/utils/module-mock.test-helper";
 
 /**
  * Location the app is "on", advanced by the consumer's own `navigate` calls.
@@ -43,66 +50,77 @@ import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
  */
 let mockPathname: string = routes.assistant;
 let mockSearch = "";
-const navigateMock = mock(
-  (
-    to: string | { pathname: string; search?: string; hash?: string },
-    _options?: { replace?: boolean },
-  ) => {
-    const path = typeof to === "string" ? to : to.pathname;
-    mockPathname = path.split("?")[0] ?? path;
-    return undefined;
-  },
-);
-mock.module("react-router", () => ({
+const navigateMock = mock((to: To | number, _options?: NavigateOptions) => {
+  // A history delta names no path, so the location stays where it is.
+  const path =
+    typeof to === "number"
+      ? mockPathname
+      : typeof to === "string"
+        ? to
+        : (to.pathname ?? mockPathname);
+  mockPathname = path.split("?")[0] ?? path;
+  return undefined;
+});
+stubModule("react-router", await import("react-router"), {
   useNavigate: () => navigateMock,
-  // Empty `search` is the main window — the room's pop-out gate
+  // Empty `search` is the main window: the room's pop-out gate
   // (`isPopoutWindow`) looks for `popout=1`.
-  useLocation: () => ({ pathname: mockPathname, search: mockSearch, hash: "" }),
-}));
+  useLocation: () => ({
+    pathname: mockPathname,
+    search: mockSearch,
+    hash: "",
+    state: null,
+    key: "default",
+  }),
+});
 
 const ensureMainWindowVisibleMock = mock(async () => undefined);
-mock.module("@/runtime/main-window", () => ({
+stubModule("@/runtime/main-window", await import("@/runtime/main-window"), {
   ensureMainWindowVisible: ensureMainWindowVisibleMock,
-}));
+});
 
 // Stub the toaster: the top-up success branch toasts, and no <Toaster /> is
-// mounted here. Full toast surface: `mock.module` is process-global in bun,
-// so a partial shape would shadow the other methods for later test files.
-const toastSuccessMock = mock((..._args: unknown[]) => undefined);
-mock.module("@vellumai/design-library/components/toast", () => ({
-  ...toastModule,
-  toast: Object.assign((..._args: unknown[]) => {}, {
-    success: toastSuccessMock,
-    error: () => {},
-    info: () => {},
-    warning: () => {},
-  }),
-}));
+// mounted here.
+const toastSuccessMock = mock<typeof toastModule.toast.success>(
+  (_message, _options) => "",
+);
+// The real toast carries its other kinds and `dismiss`; only the success
+// branch this suite asserts on is replaced.
+stubModule("@vellumai/design-library/components/toast", toastModule, {
+  toast: Object.assign(
+    (..._args: Parameters<typeof toastModule.toast>): string | number => "",
+    toastModule.toast,
+    { success: toastSuccessMock },
+  ),
+});
 
-const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
-// Full Sentry surface — `mock.module` is process-global in bun, so a
-// partial mock would shadow `captureException` (used by `runtime/event-sources/*`
-// and `sse-service`) for every later test file in the run.
-mock.module("@sentry/react", () => ({
+const sentryBreadcrumbMock = mock<typeof SentryReact.addBreadcrumb>(
+  (_breadcrumb) => undefined,
+);
+stubModule("@sentry/react", await import("@sentry/react"), {
   addBreadcrumb: sentryBreadcrumbMock,
-  captureException: () => {},
-}));
+  captureException: () => "",
+});
 
 // Voice entry runs a readiness preflight before a session opens; stub it ready
 // so these tests stay about link handling. See `voice-entry-guards`.
-mock.module("@/domains/chat/voice/live-voice/live-voice-preflight-api", () => ({
-  preflightLiveVoice: async () => ({ status: "ready" }),
-}));
+stubModule(
+  "@/domains/chat/voice/live-voice/live-voice-preflight-api",
+  await import("@/domains/chat/voice/live-voice/live-voice-preflight-api"),
+  { preflightLiveVoice: async () => ({ status: "ready" }) },
+);
 
 const consumeShareInboxMock = mock(
   async (_id?: string | null): Promise<ShareInboxItem | null> => null,
 );
 const readShareInboxFilesMock = mock(async () => [] as File[]);
-mock.module("@/runtime/share-inbox", () => ({
+stubModule("@/runtime/share-inbox", await import("@/runtime/share-inbox"), {
   consumeShareInbox: consumeShareInboxMock,
   readShareInboxFiles: readShareInboxFilesMock,
   publishShareInboxSource: () => () => undefined,
-}));
+});
+
+afterAll(restoreStubbedModules);
 
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");

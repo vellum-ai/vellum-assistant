@@ -79,7 +79,11 @@ const makeDeps = (
   override: {
     activeConversationId?: string | null;
     reconcileActive?: () => Promise<unknown>;
-    handleStreamEvent?: (event: AssistantEvent, epoch: number) => void;
+    handleStreamEvent?: (
+      event: AssistantEvent,
+      epoch: number,
+      envelopeConversationId: string | undefined,
+    ) => void;
     now?: () => number;
   } = {},
 ) => {
@@ -199,7 +203,38 @@ describe("sse-event-consumer — cross-conversation filter", () => {
       }),
     );
 
-    expect(handleStreamEvent).toHaveBeenCalledWith(expect.anything(), 42);
+    expect(handleStreamEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      42,
+      "conv-1",
+    );
+  });
+
+  test("a global event carries the conversation the envelope scoped it to", () => {
+    // The whole point of routing these globally: they belong to a
+    // conversation that is not the one on screen, and the envelope is the
+    // only thing that says which.
+    const { deps, handleStreamEvent } = makeDeps({
+      activeConversationId: "conv-on-screen",
+    });
+    const consumer = createSseEventConsumer(deps);
+
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-elsewhere",
+        message: {
+          type: "subagent_status_changed",
+          subagentId: "sa-1",
+          status: "running",
+        } as unknown as AssistantEvent,
+      }),
+    );
+
+    expect(handleStreamEvent).toHaveBeenCalledWith(
+      expect.anything(),
+      7,
+      "conv-elsewhere",
+    );
   });
 });
 

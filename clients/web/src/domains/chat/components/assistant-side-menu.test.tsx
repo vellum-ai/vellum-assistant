@@ -134,19 +134,16 @@ mock.module(
    own QueryClient per render, so a test has nothing to seed. */
 let pinnedAppsFixture: AppSummary[] = [];
 
-mock.module(
-  "@/hooks/use-pinned-apps",
-  (): Partial<typeof UsePinnedApps> => ({
-    usePinnedApps: () => ({
-      pinnedApps: pinnedAppsFixture,
-      pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
-      source: "daemon" as const,
-      togglePin: () => {},
-      unpin: () => {},
-      setColor: () => {},
-    }),
+mock.module("@/hooks/use-pinned-apps", (): Partial<typeof UsePinnedApps> => ({
+  usePinnedApps: () => ({
+    pinnedApps: pinnedAppsFixture,
+    pinnedAppIds: new Set(pinnedAppsFixture.map((app) => app.id)),
+    source: "daemon" as const,
+    togglePin: () => {},
+    unpin: () => {},
+    setColor: () => {},
   }),
-);
+}));
 
 // The assistant nav item reads the avatar through React Query; stub it so
 // static SSR rendering resolves without a QueryClient.
@@ -1472,8 +1469,14 @@ describe("AssistantSideMenu · section card surface", () => {
     const cards = sectionCards(container);
     expect(cards).toHaveLength(4);
     for (const card of cards) {
+      /* The same variable the card paints itself with, so a card that
+         tints itself (the assistant section's) backs its rows with the
+         tint and not the plain lift. */
       expect(card.className).toContain(
-        "[--swipe-item-surface:var(--surface-lift)]",
+        "[--swipe-item-surface:var(--sidebar-card-surface,var(--surface-lift))]",
+      );
+      expect(card.className).toContain(
+        "bg-[var(--sidebar-card-surface,var(--surface-lift))]",
       );
       expect(card.className).not.toContain("--swipe-reveal-bg");
     }

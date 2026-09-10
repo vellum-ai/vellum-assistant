@@ -119,7 +119,11 @@ export interface UseStreamEventHandlerParams {
 }
 
 interface UseStreamEventHandlerReturn {
-  handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
+  handleStreamEvent: (
+    event: AssistantEvent,
+    epoch: number,
+    envelopeConversationId: string | undefined,
+  ) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +139,8 @@ interface UseStreamEventHandlerReturn {
  * mutable state). Delegates to the appropriate handler based on event type
  * via an exhaustive switch.
  *
- * @returns `handleStreamEvent(event, epoch)` — call this for each SSE event.
+ * @returns `handleStreamEvent(event, epoch, envelopeConversationId)`, called
+ * for each SSE event.
  */
 export function useStreamEventHandler(
   params: UseStreamEventHandlerParams,
@@ -158,7 +163,11 @@ export function useStreamEventHandler(
   // --- Main event handler ---
 
   const handleStreamEvent = useCallback(
-    (event: AssistantEvent, epoch: number) => {
+    (
+      event: AssistantEvent,
+      epoch: number,
+      envelopeConversationId: string | undefined,
+    ) => {
       // Discard events from stale/previous streams
       const eventSummary = summarizeAssistantEvent(event);
       const streamState = useStreamStore.getState();
@@ -237,6 +246,7 @@ export function useStreamEventHandler(
 
       // Build context object for domain handlers
       const ctx: StreamHandlerContext = {
+        eventConversationId: envelopeConversationId,
         router: { push },
         isNative,
         streamContext: streamState.streamContext,

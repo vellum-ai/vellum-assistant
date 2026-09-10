@@ -21,6 +21,7 @@ import {
   companionAnnotationInkSchema,
   companionAnnotationPhaseSchema,
   companionAnnotationStrokeSchema,
+  companionAnnotationToolSchema,
   COMPANION_ANNOTATION_MAX_STROKES,
   COMPANION_BASE_MAX_PILL_WIDTH,
   VOICE_START_REQUEST_TTL_MS,
@@ -40,6 +41,7 @@ import {
   type CoachmarkUnresolved,
   namesATarget,
   type PlacedCoachmark,
+  type CompanionAnnotationTool,
   type CompanionCardGrowth,
   type CompanionCoachmark,
   type CompanionGrowth,
@@ -615,8 +617,9 @@ const currentState = (): CompanionSurfaceState => {
     // starts capturing the user's screen, so not knowing reads as not offering.
     screenShareEnabled: context.screenShareEnabled === true,
     // Main's own, along with the marks below. Every line above passes on what
-    // the app's window said; these two are what main did with its frame.
+    // the app's window said; these are what main did with its frame.
     annotating,
+    annotationTool,
     // Absent rather than empty, so a surface reads one shape for nothing
     // being pointed at whether the shell holds marks or has never heard of
     // them.
@@ -1079,6 +1082,18 @@ const glideAvatarTo = (
 let annotating = false;
 
 /**
+ * What a press on the frame draws while {@link annotating}: the pointer's
+ * path, or a shape between press and release.
+ *
+ * Main's for the reason the mode is: the pill is where it is chosen and the
+ * frame is where it is drawn with, and both read it back off the pushed state.
+ * Not lowered with the mode or the share. It decides nothing about where a
+ * click goes, so there is nothing for a stale value to take, and a user who
+ * reached for the box last time expects it under their hand again.
+ */
+let annotationTool: CompanionAnnotationTool = "freehand";
+
+/**
  * Whether the frame is drawn around the shared surface: something is shared,
  * and the frame is around *that*.
  *
@@ -1180,6 +1195,15 @@ const setAnnotating = (next: boolean): void => {
   frameScrolling = false;
   unwatchFrameScroll();
   applyFrameMouse();
+  pushState();
+};
+
+/** Choose what the frame draws with. Settles: choosing the current tool pushes nothing. */
+const setAnnotationTool = (next: CompanionAnnotationTool): void => {
+  if (next === annotationTool) {
+    return;
+  }
+  annotationTool = next;
   pushState();
 };
 
@@ -2232,6 +2256,19 @@ export const installCompanionWindow = (): void => {
   on("vellum:companion:toggleAnnotating", z.tuple([]), () => {
     setAnnotating(!annotating);
   });
+
+  /**
+   * The drawing tool, from the pill. Taken whether or not the mode is on:
+   * the strip it is chosen from is drawn only while the mode is, but a choice
+   * that crossed a share ending is still the user's choice for the next one.
+   */
+  on(
+    "vellum:companion:setAnnotationTool",
+    z.tuple([companionAnnotationToolSchema]),
+    ([tool]) => {
+      setAnnotationTool(tool);
+    },
+  );
 
   /**
    * A scroll on the frame, or the pointer moving after one, from the frame's

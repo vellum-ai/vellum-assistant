@@ -58,6 +58,7 @@ import type {
 import { RouteResponse } from "../runtime/routes/types.js";
 import { getLogger } from "../util/logger.js";
 import { mapGatewayIpcConnectError } from "./gateway-ipc-errors.js";
+import { ACTIVATION_SYNC_IPC_METHODS } from "./routes/activation-sync-ipc-routes.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { CONVERSATION_SYNC_IPC_METHODS } from "./routes/conversation-sync-ipc-routes.js";
@@ -219,6 +220,7 @@ export class AssistantIpcServer {
       GUARDIAN_LABEL_IPC_METHODS,
       CONVERSATION_SYNC_IPC_METHODS,
       DOCUMENTS_SYNC_IPC_METHODS,
+      ACTIVATION_SYNC_IPC_METHODS,
       EVENTS_IPC_METHODS,
     ]) {
       for (const [operationId, handler] of Object.entries(methodMap)) {
