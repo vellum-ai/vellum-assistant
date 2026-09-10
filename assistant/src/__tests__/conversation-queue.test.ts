@@ -831,6 +831,117 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("a drained turn keeps its sender when the slot moves during the history reload", async () => {
+    // The commit captures the sender before the reload awaits. A writer that
+    // moves the slot inside that await (a wake's stamp, a pointer elevation)
+    // must not become the turn's actor: the history was reloaded for the
+    // sender, and running someone else's trust over it is the escalation.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.setTrustContext({
+      trustClass: "trusted_contact",
+      sourceChannel: "slack",
+      requesterExternalUserId: "U-contact",
+    });
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    const intruder = {
+      trustClass: "unknown" as const,
+      sourceChannel: "telegram" as const,
+      requesterExternalUserId: "T-stranger",
+    };
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+
+    // The drain's reload is the await the writer lands inside.
+    const originalLoad = conversation.loadFromDb.bind(conversation);
+    let movedDuringReload = false;
+    conversation.loadFromDb = async () => {
+      const result = await originalLoad();
+      conversation.setTrustContext(intruder);
+      movedDuringReload = true;
+      return result;
+    };
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(movedDuringReload).toBe(true);
+    expect(conversation.getTrustContext()).toBe(intruder);
+    expect(conversation.currentTurnTrustContext).toBe(guardian);
+    expect(conversation.currentTurnInboundActorContext).toBeNull();
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drain whose history reload fails puts the resting actor back", async () => {
+    // A reload that fails starts no turn: the message is requeued for the
+    // next drain, so the slot must not keep naming a sender whose turn never
+    // began, or conversation-level readers report an owner that is not there.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const contact = {
+      trustClass: "trusted_contact" as const,
+      sourceChannel: "slack" as const,
+      requesterExternalUserId: "U-contact",
+    };
+    conversation.setTrustContext(contact);
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    const guardian = {
+      trustClass: "guardian" as const,
+      sourceChannel: "vellum" as const,
+      requesterExternalUserId: "guardian-principal",
+    };
+    conversation.enqueueMessage({
+      content: "msg-2",
+      requestId: "req-2",
+      trustContext: guardian,
+    });
+
+    let reloadAttempts = 0;
+    conversation.loadFromDb = async () => {
+      reloadAttempts++;
+      throw new Error("history store exploded");
+    };
+
+    // Finish the first turn; the drain (and its one retry) fail on the reload.
+    await resolveRun(0);
+    await p1;
+    await waitForCondition(() => reloadAttempts >= 2);
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(pendingRuns.length).toBe(1);
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(conversation.getTrustContext()).toBe(contact);
+  });
+
   test("the turn-context actor section follows the turn's actor when the slot moves before the loop opens", async () => {
     // The actor section is frozen at turn start from the turn's own actor,
     // not from the resting slot. The drain stamps the slot and then awaits

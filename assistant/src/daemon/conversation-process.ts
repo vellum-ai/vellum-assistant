@@ -660,20 +660,35 @@ export async function kickQueueDrain(
  * history: a steer comes from the actor whose turn it cut off, and that
  * history may hold the in-memory repair of the abandoned `tool_use`, which a
  * reload would discard.
+ *
+ * The committed actor is captured and snapshotted before the reload awaits:
+ * the slot is writable out-of-band across that await (a wake's stamp, a
+ * pointer elevation), and a read after it would hand the turn that writer's
+ * actor. A reload that fails starts no turn, so the slot is put back to what
+ * it held before, guarded so a writer that legitimately moved it in between
+ * is left alone.
  */
 async function commitTurnActor(
   conversation: Conversation,
   actor: TrustContext | undefined,
   options: { reloadHistory: boolean },
 ): Promise<TrustContext | undefined> {
+  const prior = restingTrust(conversation);
   if (actor) {
     conversation.setTrustContext(actor);
   }
-  if (options.reloadHistory) {
-    await conversation.ensureActorScopedHistory();
-  }
   const turnTrustContext = restingTrust(conversation);
   conversation.currentTurnTrustContext = turnTrustContext;
+  if (options.reloadHistory) {
+    try {
+      await conversation.ensureActorScopedHistory();
+    } catch (err) {
+      if (actor && restingTrust(conversation) === actor) {
+        conversation.setTrustContext(prior ?? null);
+      }
+      throw err;
+    }
+  }
   return turnTrustContext;
 }
 
