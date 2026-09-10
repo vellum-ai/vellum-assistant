@@ -17,7 +17,7 @@ import {
   mock,
   test,
 } from "bun:test";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 
 import type { getAssistant } from "@/assistant/api";
@@ -38,9 +38,14 @@ const HEALTHZ: HealthzGetResponse = {
 
 let healthzCalls = 0;
 let healthzFails = false;
+/** Set to hold the next response open, so an in-flight window is observable. */
+let holdHealthz: Promise<void> | null = null;
 
 const healthzGetMock = mock(async () => {
   healthzCalls += 1;
+  if (holdHealthz !== null) {
+    await holdHealthz;
+  }
   if (healthzFails) {
     throw new Error("healthz unreachable");
   }
@@ -124,6 +129,7 @@ beforeEach(() => {
   healthzCalls = 0;
   assistantCalls = 0;
   healthzFails = false;
+  holdHealthz = null;
   orgReadiness = "ready";
   releaseAssistant = null;
   captureErrorMock.mockClear();
@@ -229,5 +235,44 @@ describe("useAssistantWithHealthz", () => {
     // Stand the poll down rather than leaving it running behind the suite.
     unmount();
     await polling;
+
+    // AND the swallowed failure does not outlive the poll. A later visit reads
+    // the same cache entry, so a poll failure left on it as the query's error
+    // would surface as a toast for a failure nobody was meant to see.
+    healthzFails = false;
+    renderHook(() => useAssistantWithHealthz(), { wrapper });
+    await waitFor(() => expect(healthzCalls).toBeGreaterThan(0));
+    expect(captureErrorMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
   }, 30_000);
+
+  test("the refresh affordance reflects a refresh over existing values", async () => {
+    // GIVEN a card that already has its values
+    const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
+    await waitFor(() => expect(result.current.healthz).not.toBeNull());
+    expect(result.current.healthzFetching).toBe(false);
+
+    // WHEN the user asks for a refresh, held open so the window is observable
+    let releaseRefresh = (): void => {};
+    holdHealthz = new Promise<void>((resolve) => {
+      releaseRefresh = () => resolve();
+    });
+    let refreshing: Promise<void> = Promise.resolve();
+    act(() => {
+      refreshing = result.current.refetch();
+    });
+
+    // THEN the in-flight signal is raised even though there is nothing to
+    // load: `healthzLoading` stays false because the values are still on
+    // screen, so the button needs its own signal to spin on
+    await waitFor(() => expect(result.current.healthzFetching).toBe(true));
+    expect(result.current.healthzLoading).toBe(false);
+    expect(result.current.healthz).toEqual(HEALTHZ);
+
+    await act(async () => {
+      releaseRefresh();
+      await refreshing;
+    });
+    await waitFor(() => expect(result.current.healthzFetching).toBe(false));
+  });
 });

@@ -15,6 +15,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { healthzGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import { healthzGet } from "@/generated/daemon/sdk.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { t, useTranslation } from "@/i18n";
@@ -52,6 +53,8 @@ export interface AssistantWithHealthz {
   assistantLoading: boolean;
   healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
+  /** True while a request is in flight, including a refresh over existing values. */
+  healthzFetching: boolean;
   /** True while a post-resize poll is waiting for the new allocation to appear. */
   healthzPolling: boolean;
   refetch: () => Promise<void>;
@@ -93,7 +96,9 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   const {
     data: healthz = null,
     isLoading: healthzQueryLoading,
+    isFetching: healthzFetching,
     error: healthzError,
+    refetch: refetchHealthz,
   } = useQuery({
     ...healthzQueryOptions,
     enabled: orgReadiness === "ready",
@@ -109,19 +114,14 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   const [healthzPolling, setHealthzPolling] = useState(false);
   // Bumped to supersede any in-flight resize poll (a new poll, or unmount).
   const pollIdRef = useRef(0);
-  /* Read inside the reporting effect rather than listed as a dependency: a
-     failure that lands mid-poll must stay silent, and re-running the effect
-     when the poll ends would surface it late. */
-  const pollingRef = useRef(false);
 
-  /* A resize restart makes the endpoint briefly unreachable, and the transcript
-     of that is a transient network error, so those stay unreported. Anything
-     else is a real failure of a card the user is looking at. */
+  /* Transient unreachability is not worth a report: it is what a connection
+     blip looks like from here, and the query retries on its own terms.
+     Anything else is a real failure of a card the user is looking at. Only
+     failures the query publishes reach this, which is why the resize poll
+     reads outside it. */
   useEffect(() => {
-    if (!healthzError || pollingRef.current) {
-      return;
-    }
-    if (isTransientNetworkError(healthzError)) {
+    if (!healthzError || isTransientNetworkError(healthzError)) {
       return;
     }
     captureError(healthzError, { context: "fetch_assistant_healthz" });
@@ -136,41 +136,52 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   useEffect(() => {
     return () => {
       pollIdRef.current += 1;
-      pollingRef.current = false;
       setHealthzPolling(false);
     };
   }, [activeAssistantId]);
 
-  /* `staleTime: 0` because this is an imperative re-check: the caller is asking
-     whether the allocation has changed since it last looked, which a cached
-     answer cannot report. */
-  const fetchFreshHealthz =
+  /**
+   * One reading for the resize poll, taken outside the query on purpose.
+   *
+   * A resize rolls the pod, so the endpoint is expected to fail for part of
+   * the window. Routing those failures through the query would publish them
+   * as its error, where they outlive the poll: the error stays on the cache
+   * entry, and the next mount of this hook reports a failure the poll had
+   * deliberately swallowed. Reading directly keeps a poll failure local to the
+   * poll, and a success is written into the cache so the cards follow the
+   * resize live.
+   */
+  const readHealthzOutsideQuery =
     useCallback(async (): Promise<HealthzGetResponse | null> => {
       try {
-        return await queryClient.fetchQuery({
-          ...healthzQueryOptions,
-          retry: false,
-          staleTime: 0,
+        const { data, response } = await healthzGet({
+          path: { assistant_id: activeAssistantId },
+          throwOnError: false,
         });
+        if (!response?.ok || !data) {
+          return null;
+        }
+        queryClient.setQueryData(healthzQueryOptions.queryKey, data);
+        return data;
       } catch {
-        // The pod is rolling and the endpoint is briefly unreachable. The last
-        // good reading stays in the cache, so the cards keep their values
-        // instead of blanking, and the caller decides whether to keep polling.
+        // Unreachable mid-restart. The last good reading stays in the cache,
+        // so the cards keep their values instead of blanking.
         return null;
       }
-    }, [queryClient, healthzQueryOptions]);
+    }, [activeAssistantId, queryClient, healthzQueryOptions]);
 
+  /* The user asked for this one, so it goes through the query: a failure here
+     is theirs to see, and the reporting effect above surfaces it. */
   const refetch = useCallback(async () => {
     await refetchAssistant();
-    await fetchFreshHealthz();
-  }, [refetchAssistant, fetchFreshHealthz]);
+    await refetchHealthz();
+  }, [refetchAssistant, refetchHealthz]);
 
   const refetchUntilResized = useCallback(
     async (baseline: HealthzGetResponse | null) => {
       const pollId = ++pollIdRef.current;
       const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
       setHealthzPolling(true);
-      pollingRef.current = true;
       // `baseline` is null when metrics weren't loaded yet at resize time. In
       // that case the first reading could still be pre-resize values, so we
       // can't treat it as the resized allocation — adopt it as the baseline and
@@ -187,7 +198,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
           if (pollId !== pollIdRef.current) {
             return;
           }
-          const data = await fetchFreshHealthz();
+          const data = await readHealthzOutsideQuery();
           if (pollId !== pollIdRef.current) {
             return;
           }
@@ -204,12 +215,11 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
         }
       } finally {
         if (pollId === pollIdRef.current) {
-          pollingRef.current = false;
           setHealthzPolling(false);
         }
       }
     },
-    [fetchFreshHealthz, refetchAssistant],
+    [readHealthzOutsideQuery, refetchAssistant],
   );
 
   return {
@@ -217,6 +227,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     assistantLoading,
     healthz,
     healthzLoading,
+    healthzFetching,
     healthzPolling,
     refetch,
     refetchUntilResized,
