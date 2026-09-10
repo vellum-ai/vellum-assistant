@@ -180,6 +180,35 @@ describe("dropUnacknowledgedReply", () => {
     expect(noncesFor("conv-1")).toEqual(["cm-1"]);
   });
 
+  test("a queue event carrying no nonce is the acked queued send's own, not a newer send's", () => {
+    // On a daemon whose events carry no nonce, the first send's response
+    // acknowledged it as queued before its queue event landed, and a second
+    // send was listed in between.
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().acknowledgeReply("conv-1", "cm-1", true);
+    getState().startAwaitingReply("conv-1", "cm-2");
+
+    getState().markReplyQueued("conv-1");
+
+    expect(getState().pendingReplies.get("conv-1")).toEqual([
+      { clientMessageId: "cm-1", acknowledged: true, queued: true },
+      { clientMessageId: "cm-2", acknowledged: false, queued: false },
+    ]);
+  });
+
+  test("a queue event carrying no nonce parks the newest send when none is acked as queued", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyRunning("conv-1", "cm-1");
+    getState().startAwaitingReply("conv-1", "cm-2");
+
+    getState().markReplyQueued("conv-1");
+
+    expect(getState().pendingReplies.get("conv-1")).toEqual([
+      { clientMessageId: "cm-1", acknowledged: true, queued: false },
+      { clientMessageId: "cm-2", acknowledged: true, queued: true },
+    ]);
+  });
+
   test("keeps a send the daemon acked as queued", () => {
     getState().startAwaitingReply("conv-1", "cm-1");
     getState().markReplyQueued("conv-1", "cm-1");

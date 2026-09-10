@@ -131,8 +131,12 @@ export interface DocumentComposerReplyActions {
    * The daemon parked the send carrying `clientMessageId` in
    * `conversationId`'s queue, so it is acknowledged but not the one running.
    * When the event or every pending send lacks a nonce, the newest pending
-   * send is the one that was queued; a nonce that names none of them is
-   * another client's message.
+   * send is the one that was queued, unless a send already acknowledged as
+   * queued can account for the event: on a daemon whose events carry no
+   * nonce, that send's queue event can land after the response that
+   * acknowledged it, and handing it to a newer send would park one the
+   * daemon never queued. A nonce that names none of them is another
+   * client's message.
    */
   markReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /**
@@ -395,6 +399,12 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       set((s) => {
         const pending = s.pendingReplies.get(conversationId);
         if (!pending || pending.length === 0) {
+          return s;
+        }
+        if (
+          clientMessageId === undefined &&
+          pending.some((p) => p.acknowledged && p.queued)
+        ) {
           return s;
         }
         const index = indexOfAwaitedSend(
