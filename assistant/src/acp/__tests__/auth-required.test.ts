@@ -108,6 +108,22 @@ describe("requestErrorReason", () => {
     );
   });
 
+  test("reads the message off a rejection that carries no payload", () => {
+    // Straight off the wire: a plain object, not an instance of any class we
+    // control, and with the auth text where the SDK leaves a framed one.
+    const rejection = {
+      code: -32603,
+      message: "Failed to authenticate. Please run /login",
+    };
+
+    expect(requestErrorReason(rejection)).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+    expect(isClaudeAuthFailureMessage(requestErrorReason(rejection))).toBe(
+      true,
+    );
+  });
+
   test("serializes a payload naming no reason, and falls back to the message", () => {
     expect(requestErrorReason(new RequestError(-32603, "boom", { c: 7 }))).toBe(
       '{"c":7}',
@@ -115,7 +131,12 @@ describe("requestErrorReason", () => {
     expect(requestErrorReason(new Error("Not logged in"))).toBe(
       "Not logged in",
     );
+  });
+
+  test("stringifies a rejection that is not an object at all", () => {
     expect(requestErrorReason("plain string")).toBe("plain string");
+    expect(requestErrorReason(-32603)).toBe("-32603");
+    expect(requestErrorReason(null)).toBe("null");
   });
 });
 

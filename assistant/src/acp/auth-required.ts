@@ -86,18 +86,18 @@ export function isClaudeAuthFailureMessage(
  * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
  * Error reaches the client as a generic "Internal error" whose real text the
  * agent-side SDK moved into the `data` payload, so `data` is read before
- * `message`. Duck-typed like {@link isAcpAuthRequired}, so a plain JSON-RPC
- * error object decodes too, and an error carrying no payload answers with its
- * own message.
+ * `message`. Duck-typed like {@link isAcpAuthRequired}: `message` is read as a
+ * property, so a rejection that arrives as a plain object off the wire decodes
+ * the same as an `Error` instance.
  */
 export function requestErrorReason(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
   if (typeof err !== "object" || err === null) {
-    return message;
+    return String(err);
   }
-  const { data } = err as { data?: unknown };
+  const { data, message } = err as { data?: unknown; message?: unknown };
+  const own = typeof message === "string" ? message : String(err);
   if (data == null) {
-    return message;
+    return own;
   }
   const details = (data as { details?: unknown }).details;
   if (typeof details === "string" && details.length > 0) {
@@ -105,7 +105,7 @@ export function requestErrorReason(err: unknown): string {
   }
   // JSON.stringify answers undefined for a value it cannot represent.
   const serialized: string | undefined = JSON.stringify(data);
-  return serialized ?? message;
+  return serialized ?? own;
 }
 
 /** The adapter whose auth failures the Connect Claude flow can repair. */
