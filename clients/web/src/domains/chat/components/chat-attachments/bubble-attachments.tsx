@@ -4,7 +4,7 @@ import type { DisplayAttachment } from "@/domains/chat/types/types";
 
 import { useAttachmentSquares } from "@/domains/chat/components/chat-attachments/use-attachment-squares";
 import { previewEntryKey } from "@/domains/chat/components/chat-attachments/use-failed-preview-ids";
-import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
+import { classifyAttachment } from "@/utils/attachment-utils";
 
 interface BubbleAttachmentsProps {
   attachments: DisplayAttachment[];
