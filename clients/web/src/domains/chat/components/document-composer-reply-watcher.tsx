@@ -3,7 +3,10 @@ import { useNavigate } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
+import {
+  keepsProcessingMarker,
+  useDocumentComposerReplyStore,
+} from "@/domains/chat/document-composer-reply-store";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -19,10 +22,11 @@ import { useTranslation } from "@/i18n";
  * terminal is what takes the marker down.
  */
 function clearProcessingWhenSettled(conversationId: string): void {
-  const replyStore = useDocumentComposerReplyStore.getState();
   if (
-    replyStore.pendingReplies.has(conversationId) ||
-    replyStore.handedOffConversationIds.has(conversationId)
+    keepsProcessingMarker(
+      useDocumentComposerReplyStore.getState(),
+      conversationId,
+    )
   ) {
     return;
   }

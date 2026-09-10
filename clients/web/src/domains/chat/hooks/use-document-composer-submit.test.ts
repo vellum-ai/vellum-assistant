@@ -3236,4 +3236,29 @@ describe("an attempt nothing can retry", () => {
     ]);
     expect(isProcessing("conv-a")).toBe(true);
   });
+
+  test("an abandoned attempt leaves a handed-off conversation marked", async () => {
+    // GIVEN a document send that handed off to queued work still running
+    // under the marker it left standing, and a later send that threw.
+    useDocumentComposerReplyStore.getState().markHandedOff("conv-a");
+    throwFirstPostChatMessage("conv-a");
+    useComposerStore.getState().setInput("about the first doc", "document");
+    const { result, rerender } = renderSubmitFor({
+      surfaceId: SURFACE_ID,
+      conversationId: "conv-a",
+    });
+
+    await act(async () => {
+      await result.current.submit();
+    });
+    expect(isProcessing("conv-a")).toBe(true);
+
+    // WHEN the composer moves on, so nothing can retry the thrown send.
+    rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
+
+    // THEN the thrown send's entry goes, and the mark stands for the queued
+    // work the handoff announced.
+    expect(awaitingSends("conv-a")).toEqual([]);
+    expect(isProcessing("conv-a")).toBe(true);
+  });
 });

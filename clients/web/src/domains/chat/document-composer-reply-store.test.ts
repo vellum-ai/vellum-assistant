@@ -14,7 +14,10 @@ import type {
   PendingDocumentReply,
   PendingDocumentReplyPayload,
 } from "@/domains/chat/document-composer-reply-store";
-import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
+import {
+  keepsProcessingMarker,
+  useDocumentComposerReplyStore,
+} from "@/domains/chat/document-composer-reply-store";
 
 /** A draft and its one uploaded attachment, as a send hands them over. */
 const SENT_PAYLOAD: PendingDocumentReplyPayload = {
@@ -754,6 +757,24 @@ describe("clearHandedOff", () => {
 
     expect(getState().clearHandedOff("conv-1")).toBe(false);
     expect(getState().handedOffConversationIds).toBe(before);
+  });
+});
+
+describe("keepsProcessingMarker", () => {
+  test("a conversation with a send pending keeps its marker", () => {
+    getState().startAwaitingReply("conv-1", "cm-1");
+    expect(keepsProcessingMarker(getState(), "conv-1")).toBe(true);
+  });
+
+  test("a conversation a handoff named keeps its marker with nothing pending", () => {
+    getState().markHandedOff("conv-1");
+    expect(keepsProcessingMarker(getState(), "conv-1")).toBe(true);
+  });
+
+  test("a conversation with neither lets its marker go", () => {
+    getState().startAwaitingReply("conv-2", "cm-2");
+    getState().markHandedOff("conv-3");
+    expect(keepsProcessingMarker(getState(), "conv-1")).toBe(false);
   });
 });
 

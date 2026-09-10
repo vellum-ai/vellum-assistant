@@ -200,6 +200,27 @@ export interface DocumentComposerReplyActions {
   clearAwaitingReplies: () => void;
 }
 
+/**
+ * Whether `conversationId` still has document work that keeps its processing
+ * marker up: a send waiting on a reply, or queued work a handoff announced,
+ * which runs on under the marker the handoff left standing until its own
+ * terminal takes it down. Every path that considers taking the marker down
+ * asks this, so none of them reports the conversation idle while the other
+ * kind of work is still owed.
+ */
+export function keepsProcessingMarker(
+  state: Pick<
+    DocumentComposerReplyState,
+    "pendingReplies" | "handedOffConversationIds"
+  >,
+  conversationId: string,
+): boolean {
+  return (
+    state.pendingReplies.has(conversationId) ||
+    state.handedOffConversationIds.has(conversationId)
+  );
+}
+
 export type DocumentComposerReplyStore = DocumentComposerReplyState &
   DocumentComposerReplyActions;
 

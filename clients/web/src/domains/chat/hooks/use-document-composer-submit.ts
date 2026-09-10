@@ -39,7 +39,10 @@ import {
   type UploadedAttachment,
   useComposerStore,
 } from "@/domains/chat/composer-store";
-import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
+import {
+  keepsProcessingMarker,
+  useDocumentComposerReplyStore,
+} from "@/domains/chat/document-composer-reply-store";
 import {
   linkDocumentConversationIfNeeded,
   markOpenedDocumentLinked,
@@ -94,7 +97,7 @@ interface DocumentComposerAttempt {
 
 /**
  * Take `attempt`'s entry off the pending list, and the conversation's
- * processing mark with it when nothing else is pending there. Nothing can
+ * processing mark with it when no other document work keeps it up. Nothing can
  * settle an entry the daemon never spoke for once no attempt can retry it,
  * and its mark would stand until an assistant switch. An acknowledged entry
  * stays, because its reply is still coming.
@@ -113,9 +116,10 @@ function abandonAttempt(
     );
   if (
     dropped &&
-    !useDocumentComposerReplyStore
-      .getState()
-      .pendingReplies.has(attempt.targetConversationId)
+    !keepsProcessingMarker(
+      useDocumentComposerReplyStore.getState(),
+      attempt.targetConversationId,
+    )
   ) {
     useConversationStore
       .getState()
@@ -527,9 +531,10 @@ export function useDocumentComposerSubmit({
         // The mark stands for every send still running in the conversation, so
         // it comes down only once this one was the last pending there.
         if (
-          !useDocumentComposerReplyStore
-            .getState()
-            .pendingReplies.has(targetConversationId)
+          !keepsProcessingMarker(
+            useDocumentComposerReplyStore.getState(),
+            targetConversationId,
+          )
         ) {
           useConversationStore
             .getState()

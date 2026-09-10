@@ -67,8 +67,15 @@ export function DocumentViewerPage() {
   const viewerRef = useRef<DocumentViewerContainerHandle>(null);
   // Submit Feedback mints and links a row before it navigates, and a second
   // tap during that work would mint a second row and race the first for the
-  // link and the navigation, so the action runs one at a time.
-  const feedbackInFlightRef = useRef(false);
+  // link and the navigation, so the action runs one at a time per document:
+  // the ref names the surface whose action is out. This page instance is
+  // reused across route parameter changes, so the route's current surface is
+  // mirrored into a ref for the in-flight action to check against.
+  const feedbackInFlightRef = useRef<string | null>(null);
+  const routeSurfaceIdRef = useRef(surfaceId);
+  useEffect(() => {
+    routeSurfaceIdRef.current = surfaceId;
+  }, [surfaceId]);
 
   useEffect(() => {
     if (!surfaceId) {
@@ -149,18 +156,26 @@ export function DocumentViewerPage() {
   });
 
   const handleSubmitFeedback = useCallback(async () => {
-    if (!doc || !assistantId || !surfaceId || feedbackInFlightRef.current) {
+    if (
+      !doc ||
+      !assistantId ||
+      !surfaceId ||
+      feedbackInFlightRef.current === surfaceId
+    ) {
       return;
     }
-    feedbackInFlightRef.current = true;
+    feedbackInFlightRef.current = surfaceId;
     try {
-      // Every await below is a window the user can switch assistants inside.
-      // The row this mints and links belongs to the assistant the tap was
-      // made under, so once the active assistant is another one nothing here
-      // may write the viewer or navigate: that would point the incoming
-      // assistant at the outgoing one's conversation.
+      // Every await below is a window the user can switch assistants or move
+      // the route to another document inside. The row this mints and links
+      // belongs to the assistant and the document the tap was made under, so
+      // once either has changed nothing here may write the viewer or
+      // navigate: that would point the incoming assistant at the outgoing
+      // one's conversation, or pull the newer document's route back to this
+      // one's.
       const assistantChanged = () =>
-        useResolvedAssistantsStore.getState().activeAssistantId !== assistantId;
+        useResolvedAssistantsStore.getState().activeAssistantId !==
+          assistantId || routeSurfaceIdRef.current !== surfaceId;
 
       // Prefer the document's original conversation: it is already linked
       // there, so the injector will surface the comments automatically. Fall
@@ -241,7 +256,9 @@ export function DocumentViewerPage() {
         `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
       );
     } finally {
-      feedbackInFlightRef.current = false;
+      if (feedbackInFlightRef.current === surfaceId) {
+        feedbackInFlightRef.current = null;
+      }
     }
   }, [doc, assistantId, surfaceId, navigate, t]);
 
