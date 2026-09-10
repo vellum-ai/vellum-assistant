@@ -24,7 +24,11 @@ import type {
 import * as acp from "@agentclientprotocol/sdk";
 
 import { getLogger } from "../util/logger.js";
-import { AcpAuthRequiredError, isAcpAuthRequired } from "./auth-required.js";
+import {
+  AcpAuthRequiredError,
+  isAcpAuthRequired,
+  isClaudeAuthFailureMessage,
+} from "./auth-required.js";
 import { type AcpAgentConfig, AcpConfigOptionRefusedError } from "./types.js";
 
 const log = getLogger("acp");
@@ -460,8 +464,14 @@ export class AcpAgentProcess {
       } catch (err) {
         // Wrapped here, at the request itself, so `withAuthRetry` still sees
         // an auth_required answer and a caller cannot confuse the adapter's
-        // refusal with a transport or authentication failure.
-        if (err instanceof acp.RequestError && !isAcpAuthRequired(err)) {
+        // refusal with a transport or authentication failure. Claude's
+        // expired-token failure travels as a generic error whose message is
+        // the only signal, so it is left for the caller to classify.
+        if (
+          err instanceof acp.RequestError &&
+          !isAcpAuthRequired(err) &&
+          !isClaudeAuthFailureMessage(err.message)
+        ) {
           throw new AcpConfigOptionRefusedError(err.message);
         }
         throw err;

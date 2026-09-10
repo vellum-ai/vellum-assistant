@@ -63,7 +63,8 @@ function claudeAuthRequiredCode(
   failureMessage: string,
   entry: { command: string },
 ): string | undefined {
-  if (entry.command !== CLAUDE_ACP_COMMAND) {
+  // A full path to the bundled binary is still the Claude adapter.
+  if (basename(entry.command) !== CLAUDE_ACP_COMMAND) {
     return undefined;
   }
   const rawMessage = err instanceof Error ? err.message : String(err);

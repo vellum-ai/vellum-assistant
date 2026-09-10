@@ -432,6 +432,20 @@ describe("AcpAgentProcess auth_required retry", () => {
     ).rejects.toBeInstanceOf(AcpConfigOptionRefusedError);
   });
 
+  test("setConfigOption leaves Claude's message-shaped auth failure untyped", async () => {
+    const expired = new acp.RequestError(
+      -32603,
+      "Failed to authenticate. Please run /login",
+    );
+    const { proc } = await setupAuthProcess({
+      setConfigOptionRejections: [expired],
+    });
+
+    await expect(
+      proc.setConfigOption("session-1", "model", "opus"),
+    ).rejects.toBe(expired);
+  });
+
   test("setConfigOption leaves a transport failure untyped", async () => {
     const closed = new Error("ACP connection closed");
     const { proc } = await setupAuthProcess({

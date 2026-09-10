@@ -485,6 +485,30 @@ describe("AcpSessionManager: model selection at spawn", () => {
     expect(manager.getStatus()).toEqual([]);
   });
 
+  test("the message-shaped 401 is still recognised when the adapter runs by full path", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    setConfigOptionResult = new Error("Not logged in");
+
+    const manager = new AcpSessionManager(5);
+    const failure = await manager
+      .spawn(
+        "claude",
+        { command: "/opt/bin/claude-agent-acp", args: [] },
+        "task",
+        "/tmp",
+        "conv-pin-auth-path",
+        () => {},
+        { model: "opus" },
+      )
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(isAcpAuthRequired(failure)).toBe(true);
+    expect(manager.getStatus()).toEqual([]);
+  });
+
   test("a pin the connection cannot carry tears the spawn down", async () => {
     scriptedConfigOptions = [[modelOption("default")]];
     // A plain Error is how the SDK rejects a request when the stream closes
