@@ -864,8 +864,9 @@ function isSafeIdSegment(segment: string): boolean {
  * Resolve an app id to its on-disk source, for both workspace apps (opaque
  * UUID, looked up via {@link getApp}) and plugin-bundled apps
  * (`plugins~<name>~<app>`, resolved by direct path build). Returns null when
- * the app does not exist, or when a plugin id fails the same installed-plugin
- * gates as discovery (directory, `package.json` manifest, not disabled).
+ * the app does not exist, when the id is not a safe path segment, or when a
+ * plugin id fails the same installed-plugin gates as discovery (directory,
+ * `package.json` manifest, not disabled).
  */
 export function resolveAppSource(id: string): ResolvedAppSource | null {
   if (id.startsWith(PLUGIN_APP_ID_PREFIX)) {
@@ -912,6 +913,12 @@ export function resolveAppSource(id: string): ResolvedAppSource | null {
       sourceDir,
       origin: { kind: "plugin", pluginName },
     };
+  }
+
+  // Screened the way the plugin segments above are, so an id off the wire is
+  // unresolved rather than a throw out of `getApp`.
+  if (!isSafeIdSegment(id)) {
+    return null;
   }
 
   const app = getApp(id);

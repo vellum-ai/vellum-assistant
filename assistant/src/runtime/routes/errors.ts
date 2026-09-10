@@ -55,6 +55,13 @@ export class TooManyRequestsError extends RouteError {
   }
 }
 
+export class PaymentRequiredError extends RouteError {
+  constructor(message: string, details?: unknown) {
+    super(message, "PAYMENT_REQUIRED", 402, details);
+    this.name = "PaymentRequiredError";
+  }
+}
+
 export class ForbiddenError extends RouteError {
   constructor(message: string) {
     super(message, "FORBIDDEN", 403);
@@ -66,6 +73,13 @@ export class NotFoundError extends RouteError {
   constructor(message: string) {
     super(message, "NOT_FOUND", 404);
     this.name = "NotFoundError";
+  }
+}
+
+export class MethodNotAllowedError extends RouteError {
+  constructor(message: string, details?: unknown) {
+    super(message, "METHOD_NOT_ALLOWED", 405, details);
+    this.name = "MethodNotAllowedError";
   }
 }
 
@@ -101,6 +115,19 @@ export class RangeNotSatisfiableError extends RouteError {
   constructor(message: string) {
     super(message, "RANGE_NOT_SATISFIABLE", 416);
     this.name = "RangeNotSatisfiableError";
+  }
+}
+
+/**
+ * This route can only be served over HTTP. Carries the daemon's existing
+ * `BINARY_UNSUPPORTED_OVER_IPC` signal so the gateway's IPC proxy retries over
+ * HTTP instead of failing the caller (see `sendResult` in
+ * `assistant/src/ipc/assistant-server.ts`).
+ */
+export class HttpTransportRequiredError extends RouteError {
+  constructor(message: string) {
+    super(message, "BINARY_UNSUPPORTED_OVER_IPC", 421);
+    this.name = "HttpTransportRequiredError";
   }
 }
 

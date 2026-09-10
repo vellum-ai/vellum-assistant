@@ -1,5 +1,5 @@
 import "./env-seed";
-import { app, net, protocol, session, shell } from "electron";
+import { app, net, Notification, protocol, session, shell } from "electron";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
@@ -106,6 +106,15 @@ import {
 } from "./move-to-applications";
 import { markRelocationSkipped } from "./install-location";
 import { installNativeAuth } from "./native-auth.client";
+import {
+  createNativeNotificationFactory,
+  registerNativeNotificationCategories,
+} from "./native-notifications";
+import {
+  ensureNotifierDelegate,
+  isNotifierSupported,
+  restoreNotifierDelegate,
+} from "./notifier";
 import { installPermissionsService } from "./permissions-service";
 import {
   installCompanionWindow,
@@ -457,11 +466,34 @@ app
     // panel. Distinct from `installShare`, which is the "send elsewhere" intent.
     installDownloads({ handle });
     installPowerEvents();
+    // The addon takes the notifications the assistant avatar can ride on only
+    // when it says it can have them: an unbundled run loads it fine and then
+    // reports unsupported, because UNUserNotificationCenter raises there.
+    // `isSupported` ships with `create` rather than being left to the shared
+    // module's default; see the delegate rule in README.md.
+    const nativeNotifications = isNotifierSupported()
+      ? createNativeNotificationFactory()
+      : null;
     configureNotifications({
       ipc: { handle },
       ensureVisible: ensureMainWindowVisible,
       logger: log,
+      ...(nativeNotifications ?? {}),
     });
+    if (nativeNotifications) {
+      // Electron builds its notification presenter lazily, on the first
+      // `Notification.isSupported()` or `new Notification()`, and the presenter
+      // claims the notification center's delegate and discards responses for
+      // identifiers it does not own. Building it here, with nothing on screen,
+      // and re-asserting the addon's delegate straight after leaves the addon
+      // in front of it for the life of the process, forwarding what it does not
+      // own. The categories are then written after the presenter exists, so
+      // Electron's own category read-modify-write cannot land on top of them.
+      Notification.isSupported();
+      ensureNotifierDelegate();
+      registerNativeNotificationCategories();
+      app.on("before-quit", restoreNotifierDelegate);
+    }
     installNotifications();
     installWindowAttentionFeature();
     // Register the status channel before the tray installs so the tray's

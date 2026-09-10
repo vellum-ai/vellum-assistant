@@ -799,6 +799,11 @@ export async function handleChannelInbound({
 
   // ── Edit path: update existing message content, no new agent loop ──
   if (isEdit && sourceMessageId) {
+    const slackEditedTs =
+      sourceChannel === "slack" &&
+      typeof sourceMetadata?.slackEditedTs === "string"
+        ? sourceMetadata.slackEditedTs
+        : undefined;
     return handleEditIntercept({
       sourceChannel,
       conversationExternalId,
@@ -808,6 +813,7 @@ export async function handleChannelInbound({
       assistantId,
       content,
       channelId: resolvedMember?.channelId,
+      slackEditedTs,
     });
   }
 

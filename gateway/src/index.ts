@@ -694,6 +694,10 @@ async function main() {
     config,
     resolve: resolveCachedPluginIngress,
     credentials: credentialCache,
+    // HMAC payloads can sign the public request URL. Read through the cache
+    // so a tunnel registering a public base is picked up without a restart.
+    ingressPublicBaseUrl: () =>
+      configFileCache.getString("ingress", "publicBaseUrl"),
   });
   const handleChannelPermissionOverridesList =
     createChannelPermissionOverridesListHandler();

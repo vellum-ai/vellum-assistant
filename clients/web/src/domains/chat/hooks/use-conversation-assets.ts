@@ -4,13 +4,13 @@
  * frames), and camera frames. Frames stay empty while attachments come from
  * the transcript, which cannot see the camera-frame tag.
  *
- * The two daemon queries wait for the org header and retry both the statuses a
+ * The daemon queries wait for the org header and retry both the statuses a
  * restarting assistant answers with and a refused connection, so anything that
  * settles failed here is a failure the panel can name, and it is named only
  * once every source has settled.
  */
 
-import { onlineManager, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
 
 import {
@@ -19,6 +19,7 @@ import {
   documentsGetOptions,
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
+import { daemonSourceState } from "@/domains/chat/hooks/daemon-source-state";
 import {
   type ConversationAttachmentEntry,
   useConversationAttachments,
@@ -28,7 +29,6 @@ import type { AppSummary } from "@/types/app-types";
 import type { DisplayAttachment } from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
 import { shouldRetryDaemonOrNetworkError } from "@/utils/daemon-errors";
-import { isTransientNetworkError } from "@/utils/is-transient-network-error";
 
 export type ConversationFileAsset =
   | { kind: "document"; id: string; title: string; doc: DocumentSummary }
@@ -47,9 +47,9 @@ export type ConversationFileAsset =
     };
 
 /**
- * How far the panel's three sources have got: the two daemon queries and the
- * conversation's own transcript, which is loaded rather than fetched and is
- * unsettled until the chat session's history load for this conversation ends.
+ * How far the panel's three sources have got: the apps query, the documents
+ * query, and the conversation's attachments, which are read from the daemon's
+ * lists or, below the gate, from the transcript that carries them.
  */
 export type ConversationAssetsStatus = "pending" | "error" | "ready";
 
@@ -82,38 +82,6 @@ interface ConversationAssetsTarget {
 /** Stable empties, so an unresolved query does not thrash the memos below. */
 const NO_APPS: AppSummary[] = [];
 const NO_DOCUMENTS: DocumentSummary[] = [];
-
-/** How far one daemon query has got, in the terms the panel's status is built from. */
-type DaemonSourceState = "ready" | "unresolved" | "failed";
-
-/**
- * A network error thrown while the browser is offline is the one failure still
- * on its way: TanStack refetches every query on reconnect. The same error while
- * the browser is online is a refused connection that has already spent its
- * retries, and it settles like any other answer.
- */
-function waitsForReconnect(error: Error | null): boolean {
-  return isTransientNetworkError(error) && !onlineManager.isOnline();
-}
-
-/**
- * A failed background refetch keeps the last data, so a source is failed or
- * unresolved only while it has nothing to show. Of the errors that leave it
- * with nothing, only the one {@link waitsForReconnect} names is still coming.
- */
-function daemonSourceState(query: {
-  data: unknown;
-  isError: boolean;
-  error: Error | null;
-}): DaemonSourceState {
-  if (query.data !== undefined) {
-    return "ready";
-  }
-  if (query.isError && !waitsForReconnect(query.error)) {
-    return "failed";
-  }
-  return "unresolved";
-}
 
 /**
  * Ids are prefixed per kind so a document, an attachment, and a frame that
@@ -203,9 +171,13 @@ export function useConversationAssets({
     });
   }, [refreshKey, queryClient, assistantId, conversationId]);
 
+  // The attachment lists are this hook's third daemon source, and the one that
+  // owns their invalidation, so `refreshKey` reaches them there rather than
+  // being re-implemented against their keys here.
   const attachments = useConversationAttachments({
     assistantId,
     conversationId,
+    refreshKey,
   });
 
   const apps = appsQuery.data ?? NO_APPS;
@@ -213,16 +185,19 @@ export function useConversationAssets({
 
   const appsState = daemonSourceState(appsQuery);
   const documentsState = daemonSourceState(documentsQuery);
-  // The transcript counts as a source too: without it a conversation whose only
-  // assets are attachments would read ready and empty until the snapshot lands.
-  // Every source settles before one of them speaks for the panel, since a
-  // failure named while another source is still coming would be taken back the
-  // moment it lands.
+  // The attachments count as a source too: without them a conversation whose
+  // only assets are attachments would read ready and empty until the lists or
+  // the snapshot land. Every source settles before one of them speaks for the
+  // panel, since a failure named while another source is still coming would be
+  // taken back the moment it lands.
   const unresolved =
     appsState === "unresolved" ||
     documentsState === "unresolved" ||
-    !attachments.transcriptSettled;
-  const failed = appsState === "failed" || documentsState === "failed";
+    attachments.sourceState === "unresolved";
+  const failed =
+    appsState === "failed" ||
+    documentsState === "failed" ||
+    attachments.sourceState === "failed";
   let status: ConversationAssetsStatus = "ready";
   if (unresolved) {
     status = "pending";

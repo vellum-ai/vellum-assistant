@@ -105,7 +105,7 @@ export function QuickStartContent() {
             </li>
             <li>
               <strong>Mac</strong>: install the{" "}
-              <Link href="https://www.vellum.ai/download" className={linkClass}>
+              <Link href="https://www.vellum.ai/downloads" className={linkClass}>
                 desktop app
               </Link>
               . Same assistant, with the added ability to read your

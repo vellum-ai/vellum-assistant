@@ -11,8 +11,10 @@
  * level renders, what it says while the sources are unresolved, and the
  * sequence each tile runs when it is opened.
  *
- * Camera frames and paged categories are not exercised here: the transcript is
- * the hook's only source today and it can produce neither.
+ * Camera frames and paged categories are not exercised here: these tests seed
+ * the transcript rather than the daemon's attachment listing, and the
+ * transcript can produce neither. The listing itself is covered by
+ * `use-conversation-attachments.test.tsx`.
  */
 
 import {

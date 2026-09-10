@@ -30,7 +30,7 @@ DB migrations run asynchronously during startup: the HTTP server binds (so `/hea
 
 Existing enforcement, which new code must not bypass:
 
-- **HTTP** requests are gated per-route in `runtime/http-server.ts`; **IPC** methods in `ipc/assistant-server.ts`; both derive their exempt set from `DB_MIGRATION_READINESS_EXEMPT_OPERATIONS` in `daemon-readiness.ts` (health/liveness probes only — anything exempted must never touch the DB).
+- **HTTP** requests are gated per-route in `runtime/http-server.ts`; **IPC** methods in `ipc/assistant-server.ts`; both derive their exempt set from `DB_MIGRATION_READINESS_EXEMPT_OPERATIONS` in `daemon-readiness.ts` (health/liveness probes plus in-memory diagnostics such as `debug/database` — anything exempted must never touch the DB).
 - **Message sinks** (`processMessage`, `processMessageInBackground`) guard via `assertDbMigrationsReadyForTurn()`.
 - **Background sweeps** are started by lifecycle only after migrations settle (`startRuntimeHttpServerBackgroundSweeps`).
 - The **migration-repair surface** (`admin/rollback-migrations` plus all `migrations/import*` / preflight transports and their job-status route) is additionally allowed in the terminal `failed` state only — see `DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS`. Never widen this to the `running` state: a rollback or import would race the in-flight migration runner. A successful repair does not clear the failed latch — the daemon must be restarted to re-run migrations and become ready.

@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useTurnStore } from "@/domains/chat/turn-store";
 
 import {
@@ -47,10 +48,13 @@ export function useToolCallCardData(
   toolCalls: ChatMessageToolCall[],
 ): ToolCallCardData {
   const liveWebActivity = useTurnStore.use.liveWebActivity();
+  const hideThinkingUi = useHideThinkingUi();
   const now = useNow(
     hasRunningItem(toolCalls.map((tc) => ({ kind: "toolCall", toolCall: tc }))),
   );
-  return computeToolCallCardData(toolCalls, liveWebActivity, now);
+  return computeToolCallCardData(toolCalls, liveWebActivity, now, {
+    hideThinkingUi,
+  });
 }
 
 /**
@@ -62,6 +66,9 @@ export function useToolCallCardDataFromItems(
   items: ToolCallCardItem[],
 ): ToolCallCardData {
   const liveWebActivity = useTurnStore.use.liveWebActivity();
+  const hideThinkingUi = useHideThinkingUi();
   const now = useNow(hasRunningItem(items));
-  return computeToolCallCardDataFromItems(items, liveWebActivity, now);
+  return computeToolCallCardDataFromItems(items, liveWebActivity, now, {
+    hideThinkingUi,
+  });
 }

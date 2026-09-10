@@ -66,7 +66,12 @@ function verify(
   verification: IngressVerification,
   headers: Record<string, string>,
   body: string,
-  opts: { secret?: string; nowMs?: number } = {},
+  opts: {
+    secret?: string;
+    nowMs?: number;
+    requestUrl?: string;
+    publicBaseUrl?: string;
+  } = {},
 ) {
   return verifyDeclaredSignature({
     verification,
@@ -74,7 +79,41 @@ function verify(
     body: bytes(body),
     secret: opts.secret ?? SECRET,
     nowMs: opts.nowMs ?? NOW_MS,
+    ...(opts.requestUrl !== undefined
+      ? { requestUrl: opts.requestUrl }
+      : {}),
+    ...(opts.publicBaseUrl !== undefined
+      ? { publicBaseUrl: opts.publicBaseUrl }
+      : {}),
   });
+}
+
+/** An HMAC descriptor that signs a public URL and canonical form params. */
+const URL_AND_FORM_HMAC: IngressVerification = {
+  kind: "hmac",
+  algorithm: "sha1",
+  secret: { field: "auth_token" },
+  signature: { header: "X-Provider-Signature", encoding: "base64" },
+  payload: ["request-url", "form-params"],
+};
+
+/** Sign a form body as a public URL plus sorted key/value pairs. */
+function urlAndFormSignature(
+  url: string,
+  params: Record<string, string>,
+  secret = SECRET,
+): string {
+  const sorted = Object.keys(params)
+    .sort()
+    .map((key) => `${key}${params[key]}`)
+    .join("");
+  return createHmac("sha1", secret)
+    .update(`${url}${sorted}`)
+    .digest("base64");
+}
+
+function formBody(params: Record<string, string>): string {
+  return new URLSearchParams(params).toString();
 }
 
 describe("the descriptor schema", () => {
@@ -84,6 +123,7 @@ describe("the descriptor schema", () => {
     expect(IngressVerificationSchema.safeParse(STANDARD_WEBHOOKS).success).toBe(
       true,
     );
+    expect(IngressVerificationSchema.safeParse(URL_AND_FORM_HMAC).success).toBe(true);
   });
 
   it("rejects an unknown kind rather than falling back to a default", () => {
@@ -146,6 +186,15 @@ describe("the descriptor schema", () => {
     expect(
       IngressVerificationSchema.safeParse({ ...BODY_ONLY, payload: [] })
         .success,
+    ).toBe(false);
+  });
+
+  it("rejects an unknown HMAC payload part", () => {
+    expect(
+      IngressVerificationSchema.safeParse({
+        ...BODY_ONLY,
+        payload: ["canonical-query"],
+      }).success,
     ).toBe(false);
   });
 
@@ -516,5 +565,133 @@ describe("standard-webhooks verification", () => {
         secret: { field: "other_secret" },
       }),
     ).not.toBe(canonicalVerification(STANDARD_WEBHOOKS));
+  });
+});
+
+describe("HMAC URL and form payloads", () => {
+  const MESSAGE_URL =
+    "https://assistant.example.test/webhooks/plugins/sms/events-twilio/";
+  const PARAMS = {
+    MessageSid: "SM01",
+    AccountSid: "AC01",
+    From: "+15555550101",
+    To: "+15555550102",
+    Body: "hello there",
+  };
+
+  it("verifies a delivery signed over the raw request URL", () => {
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      { "X-Provider-Signature": urlAndFormSignature(MESSAGE_URL, PARAMS) },
+      formBody(PARAMS),
+      { requestUrl: MESSAGE_URL },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("verifies against a forwarded-header URL when the raw URL differs", () => {
+    // The gateway sits behind a reverse proxy: the vendor signed the public
+    // spelling, while the gateway sees localhost.
+    const publicSignature = urlAndFormSignature(MESSAGE_URL, PARAMS);
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      {
+        "X-Provider-Signature": publicSignature,
+        "X-Forwarded-Proto": "https",
+        "X-Forwarded-Host": "assistant.example.test",
+      },
+      formBody(PARAMS),
+      { requestUrl: "http://127.0.0.1:8080/webhooks/plugins/sms/events-twilio/" },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("verifies against the platform-injected URL first", () => {
+    const injected =
+      "https://platform.example.test/v1/gateway/callbacks/abc123";
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      {
+        "X-Provider-Signature": urlAndFormSignature(injected, PARAMS),
+        "X-Vellum-Ingress-Url": injected,
+      },
+      formBody(PARAMS),
+      { requestUrl: "http://127.0.0.1:8080/webhooks/plugins/sms/events-twilio/" },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("verifies against the configured public base when set", () => {
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      {
+        "X-Provider-Signature": urlAndFormSignature(MESSAGE_URL, PARAMS),
+      },
+      formBody(PARAMS),
+      {
+        requestUrl:
+          "http://127.0.0.1:8080/webhooks/plugins/sms/events-twilio/",
+        publicBaseUrl: "https://assistant.example.test",
+      },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("rejects a signature computed with the wrong secret", () => {
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      {
+        "X-Provider-Signature": urlAndFormSignature(
+          MESSAGE_URL,
+          PARAMS,
+          "someone-elses-token",
+        ),
+      },
+      formBody(PARAMS),
+      { requestUrl: MESSAGE_URL },
+    );
+    expect(result).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("rejects a signature over different params", () => {
+    const tampered = { ...PARAMS, Body: "wire fraud" };
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      { "X-Provider-Signature": urlAndFormSignature(MESSAGE_URL, PARAMS) },
+      formBody(tampered),
+      { requestUrl: MESSAGE_URL },
+    );
+    expect(result).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("rejects a missing signature header", () => {
+    const result = verify(URL_AND_FORM_HMAC, {}, formBody(PARAMS), {
+      requestUrl: MESSAGE_URL,
+    });
+    expect(result).toEqual({ ok: false, reason: "missing_signature" });
+  });
+
+  it("fails closed when the caller cannot say what URL it serves", () => {
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      { "X-Provider-Signature": urlAndFormSignature(MESSAGE_URL, PARAMS) },
+      formBody(PARAMS),
+    );
+    expect(result).toEqual({ ok: false, reason: "bad_signature" });
+  });
+
+  it("sorts params by key regardless of wire order", () => {
+    // The signing scheme sorts parameter names. URLSearchParams preserves
+    // insertion order, so the verifier must sort rather than concatenate as-is.
+    const ordered = new URLSearchParams(
+      "To=%2B15555550102&Body=hello+there&MessageSid=SM01&From=%2B15555550101&AccountSid=AC01",
+    );
+    const result = verify(
+      URL_AND_FORM_HMAC,
+      { "X-Provider-Signature": urlAndFormSignature(MESSAGE_URL, PARAMS) },
+      ordered.toString(),
+      { requestUrl: MESSAGE_URL },
+    );
+    expect(result).toEqual({ ok: true });
   });
 });

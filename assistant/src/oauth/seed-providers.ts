@@ -1328,7 +1328,6 @@ export const PROVIDER_SEED_DATA: Record<
     // backstops a wallet that has one but no email on file.
     identityUrl: "https://api.link.com/userinfo",
     identityResponsePaths: ["email", "phone"],
-    featureFlag: "stripe-link-oauth",
   },
 };
 

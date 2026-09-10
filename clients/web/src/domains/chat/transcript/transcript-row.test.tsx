@@ -18,9 +18,11 @@ import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import type { CreditsUpsellItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 afterEach(() => {
   cleanup();
+  useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
 });
 
 function makeErrorRow(id: string): DisplayMessage {
@@ -96,10 +98,32 @@ describe("TranscriptRow reaction dispatch", () => {
     // A Discord custom emoji named like a catalog shortcode is a distinct
     // guild emoji; the display must stay ":name:" and never swap into the
     // unrelated standard emoji once the catalog loads.
-    expect(displayReactionEmoji("<:heart:99>", () => "❤️")).toBe(":heart:");
-    expect(displayReactionEmoji("heart", () => "❤️")).toBe("❤️");
-    expect(displayReactionEmoji("heart", () => undefined)).toBe(":heart:");
-    expect(displayReactionEmoji("🎉", () => undefined)).toBe("🎉");
+    // What the adapter said wins.
+    expect(
+      displayReactionEmoji({
+        emoji: "tada",
+        emojiKind: "unicode",
+        emojiName: "🎉",
+      }),
+    ).toBe("🎉");
+    expect(
+      displayReactionEmoji({
+        emoji: "<:heart:99>",
+        emojiKind: "custom",
+        emojiName: "heart",
+      }),
+    ).toBe(":heart:");
+    expect(
+      displayReactionEmoji({
+        emoji: "blob_wave",
+        emojiKind: "shortcode",
+        emojiName: "blob_wave",
+      }),
+    ).toBe(":blob_wave:");
+    // A spelling-only row classifies through the contract's grammar.
+    expect(displayReactionEmoji({ emoji: "<:heart:99>" })).toBe(":heart:");
+    expect(displayReactionEmoji({ emoji: "tada" })).toBe(":tada:");
+    expect(displayReactionEmoji({ emoji: "🎉" })).toBe("🎉");
   });
 });
 
@@ -330,5 +354,55 @@ describe("TranscriptRow creditsUpsell dispatch", () => {
 
     fireEvent.click(getByTestId("credits-upsell-card-stub"));
     expect(wrapper.getAttribute("data-revealed")).toBe("false");
+  });
+});
+
+describe("the turn-status slot's own word for the wait", () => {
+  const thinkingItem = {
+    kind: "thinking" as const,
+    key: "thinking",
+    active: true,
+  };
+
+  function renderSlot() {
+    return render(
+      <TranscriptRow item={thinkingItem} onSurfaceAction={() => {}} />,
+    );
+  }
+
+  test("says Thinking by default", () => {
+    const { getByTestId } = renderSlot();
+    expect(getByTestId("transcript-thinking-row").textContent).toBe("Thinking");
+  });
+
+  test("says Working once the transcript hides its reasoning", () => {
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByTestId } = renderSlot();
+    expect(getByTestId("transcript-thinking-row").textContent).toBe("Working");
+  });
+
+  function renderLabelled() {
+    return render(
+      <TranscriptRow
+        item={{ ...thinkingItem, label: "Processing bash results" }}
+        onSurfaceAction={() => {}}
+      />,
+    );
+  }
+
+  test("keeps a daemon-supplied label by default", () => {
+    const { getByTestId } = renderLabelled();
+    expect(getByTestId("transcript-thinking-row").textContent).toBe(
+      "Processing bash results",
+    );
+  });
+
+  test("drops the daemon's status line once the step stack is the live label", () => {
+    // Two labels stacked under one reply, the step stack's "Writing · 5 steps"
+    // over the daemon's own sentence, read as the assistant narrating itself
+    // twice. "Working" still covers the gap before the first tool starts.
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByTestId } = renderLabelled();
+    expect(getByTestId("transcript-thinking-row").textContent).toBe("Working");
   });
 });

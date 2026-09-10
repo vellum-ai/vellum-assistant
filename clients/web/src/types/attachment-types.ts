@@ -1,4 +1,7 @@
-import type { AttachmentsByIdGetResponse } from "@/generated/daemon/types.gen";
+import type {
+  AttachmentsByIdGetResponse,
+  AttachmentsGetResponse,
+} from "@/generated/daemon/types.gen";
 
 /**
  * Server-canonical attachment metadata, sourced from the daemon's generated
@@ -10,6 +13,14 @@ export type AttachmentMetadata = Pick<
   AttachmentsByIdGetResponse,
   "id" | "filename" | "mimeType" | "sizeBytes"
 >;
+
+/**
+ * One row of the daemon's conversation attachment listing: the metadata every
+ * attachment linked to a conversation carries, camera-frame tag included.
+ * Bytes are never in it; a reader fetches those from the content endpoint.
+ */
+export type ConversationAttachmentSummary =
+  AttachmentsGetResponse["attachments"][number];
 
 /** Display metadata for a file attachment (user-uploaded or assistant-generated),
  *  used to render the chip inside a message bubble. For live sessions, populated

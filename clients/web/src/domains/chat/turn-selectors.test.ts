@@ -67,6 +67,30 @@ describe("shouldShowThinkingIndicator — authoritative processing close-gate", 
   });
 });
 
+describe("shouldShowThinkingIndicator — step stack handoff", () => {
+  test("stands down once the live message renders a step stack", () => {
+    // Under send-user-message the step stack is the turn's one progress
+    // label; the standalone row would read as a second status under it.
+    expect(
+      shouldShowThinkingIndicator(
+        "thinking",
+        0,
+        ctx({ hasLiveStepStack: true }),
+      ),
+    ).toBe(false);
+  });
+
+  test("keeps the gap before the first step", () => {
+    expect(
+      shouldShowThinkingIndicator(
+        "thinking",
+        0,
+        ctx({ hasLiveStepStack: false }),
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("isAssistantBusy — authoritative processing close-gate", () => {
   test("cannot stop once the server reports the turn idle", () => {
     expect(

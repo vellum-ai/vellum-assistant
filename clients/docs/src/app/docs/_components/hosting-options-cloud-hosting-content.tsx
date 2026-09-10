@@ -352,7 +352,7 @@ export function HostingOptionsCloudHostingContent() {
             <li>
               Optional: install the{" "}
               <Link
-                href="https://www.vellum.ai/download"
+                href="https://www.vellum.ai/downloads"
                 className="font-semibold text-emerald-700 underline hover:text-emerald-800"
               >
                 desktop app

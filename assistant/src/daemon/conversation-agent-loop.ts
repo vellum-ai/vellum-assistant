@@ -36,6 +36,7 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { isSendUserMessageActiveForTurn } from "../config/send-user-message-gate.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
@@ -75,6 +76,7 @@ import {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
+import { resolveTurnReplyMessageId } from "../runtime/channel-reply-delivery.js";
 import { isNoResponseOnlyText } from "../runtime/no-response.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { stampTurnOutcome } from "../telemetry/turn-outcome.js";
@@ -83,11 +85,15 @@ import {
   startToolProfilingRequest,
 } from "../tools/tool-profiler.js";
 import type { UsageActor } from "../usage/actors.js";
+import { isPreemptedByNewMessage } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
-import { ABORT_WATCHDOG_MS } from "./abort-watchdog.js";
+import {
+  ABORT_WATCHDOG_MS,
+  DEFAULT_TURN_COMMIT_MAX_WAIT_MS,
+} from "./abort-watchdog.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -123,7 +129,10 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import type { CurrentTurnSurface } from "./conversation-surfaces.js";
-import { markSurfaceCompleted } from "./conversation-surfaces.js";
+import {
+  markSurfaceCompleted,
+  settleRunningTaskProgressSurfaces,
+} from "./conversation-surfaces.js";
 import {
   runDeferredTurnTail,
   settleTurnContent,
@@ -144,6 +153,7 @@ import {
 import type { TrustContext } from "./trust-context-types.js";
 import { turnOrRestingTrust } from "./trust-context-types.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { beginTurnFinalization } from "./turn-finalization.js";
 import { runWithLatencySubSpans } from "./turn-latency-sub-spans.js";
 import {
   MEMORY_CONTEXT_PHASE_KEY,
@@ -426,6 +436,28 @@ export async function runAgentLoopImpl(
   const isNonInteractive = !isInteractiveResolved;
   ctx.currentTurnIsNonInteractive = isNonInteractive;
 
+  // Default user-initiated turns to the `mainAgent` call site; other invocation
+  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
+  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
+  // picking up any user overrides under `llm.callSites.<id>` (falling back to
+  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
+  // conversations on `subagentSpawn` when no call site is supplied.
+  const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
+  // Expose the turn's call site on the live conversation so the runtime
+  // injection assembly self-resolves it for the turn's plugin contexts. Set
+  // before the prompt sync below: the tool-gated reply section and the tool
+  // surface both scope on the turn's call site.
+  ctx.currentCallSite = turnCallSite;
+
+  // Whether this turn routes its user-facing text through `send_user_message`:
+  // the flag is on and the turn is a main-agent turn. Resolved once and pinned
+  // on the conversation, because the loop's suppression is fixed for the whole
+  // run: the tool surface, the reserved row's visibility marker, and the
+  // prompt section all read this snapshot instead of the live flag, so a
+  // remote flag change mid-turn cannot contradict what the run is doing.
+  const sendUserMessageActive = isSendUserMessageActiveForTurn(ctx);
+  ctx.currentTurnSendUserMessageActive = sendUserMessageActive;
+
   // Re-resolve the system prompt under the snapshots just set and push it into
   // the loop when the persona changed. The loop reuses the prompt frozen at
   // construction otherwise, so a flow that binds trust after construction (a
@@ -466,17 +498,6 @@ export async function runAgentLoopImpl(
   let emitTerminalExit:
     | ((reason: AgentLoopExitReason) => Promise<void>)
     | null = null;
-
-  // Default user-initiated turns to the `mainAgent` call site; other invocation
-  // contexts (heartbeat, filing, analyze, etc.) pass their own `callSite`. The
-  // provider layer resolves provider/model/maxTokens via `resolveCallSiteConfig`,
-  // picking up any user overrides under `llm.callSites.<id>` (falling back to
-  // the shipped call-site defaults when absent). `resolveTurnCallSite` keeps subagent
-  // conversations on `subagentSpawn` when no call site is supplied.
-  const turnCallSite = resolveTurnCallSite(options?.callSite, ctx);
-  // Expose the turn's call site on the live conversation so the runtime
-  // injection assembly self-resolves it for the turn's plugin contexts.
-  ctx.currentCallSite = turnCallSite;
 
   // Expose the turn's request origin (e.g. "memory_consolidation") on the live
   // conversation so the tool context — and through it `buildPolicyContext` —
@@ -722,6 +743,16 @@ export async function runAgentLoopImpl(
   );
   ctx.diskPressureCleanupModeActive =
     diskPressureDecision.action === "allow-cleanup-mode";
+  if (ctx.diskPressureCleanupModeActive) {
+    // The prompt synced above was built before this turn's disk-pressure
+    // policy was known. Cleanup mode narrows the turn to
+    // `DISK_PRESSURE_CLEANUP_TOOL_NAMES`, so sections gated on the resolved
+    // tool surface (the parallel-delegation guidance, which needs the skill
+    // dispatcher cleanup mode withholds) must be re-derived against it.
+    // Skipped otherwise: the mode is cleared at the end of every turn, so an
+    // ordinary turn already synced under the same answer.
+    ctx.syncLoopSystemPrompt();
+  }
   const toolsDisabledForTurn = ctx.toolsDisabledDepth > 0;
 
   ctx.lastAssistantAttachments = [];
@@ -735,6 +766,15 @@ export async function runAgentLoopImpl(
   // the live seq counter, which runs ahead while the turn streams. Cleared in
   // the `finally`.
   registerInflightTurn(ctx.conversationId, state);
+  // Opened before anything can release the conversation, closed at the very end
+  // of the `finally` below. It is what tells a caller that starts a turn from
+  // outside this loop (the interrupt path) that the turn-boundary commit is
+  // done, since that commit runs after the release and would otherwise sweep
+  // the next turn's first file writes into the finished turn's commit. Nothing
+  // waits on it unless such a caller is present, so the ordinary send, drain
+  // and wake paths are unchanged. Declared here and opened as the first
+  // statement of the `try` below, so the `finally` that closes it always runs.
+  let closeTurnFinalization: () => void = () => {};
   let persistedErrorAssistantMessage = false;
   let deletedReservedAssistantMessage = false;
   // Abnormal turn outcome for telemetry, stamped onto the user-message row in
@@ -847,6 +887,7 @@ export async function runAgentLoopImpl(
     ctx.surfaceActionRequestIds.delete(ctx.currentRequestId ?? "");
     ctx.approvedViaPromptThisTurn = false;
     ctx.currentRequestId = undefined;
+    ctx.currentTurnClientMessageId = undefined;
     ctx.currentActiveSurfaceId = undefined;
     ctx.allowedToolNames = undefined;
     ctx.diskPressureCleanupModeActive = false;
@@ -900,6 +941,16 @@ export async function runAgentLoopImpl(
   };
 
   try {
+    closeTurnFinalization = beginTurnFinalization(ctx.conversationId);
+    // An interrupt hands the conversation straight from the turn it stopped to
+    // the message that stopped it, and that turn's `generation_cancelled` has
+    // idled every client. Emitting here rather than at the handover means a
+    // send that failed on the way to this turn left clients idle, which is what
+    // they are, instead of stranded on a cached `thinking` nothing clears.
+    if (ctx.pendingInterruptActivityBridge) {
+      ctx.pendingInterruptActivityBridge = false;
+      ctx.emitActivityState("thinking", "message_interrupted");
+    }
     if (diskPressureDecision.action === "block") {
       const message = formatDiskPressureBlockedMessage();
       // The user message is already persisted, so this turn will be reported
@@ -1385,6 +1436,7 @@ export async function runAgentLoopImpl(
           requestId: reqId,
           onCheckpoint,
           callSite: turnCallSite,
+          suppressAssistantText: sendUserMessageActive,
           supportsDynamicUi: conversationSupportsDynamicUi(ctx),
           trust: loopTrust,
           overrideProfile: turnOverrideProfile,
@@ -1673,6 +1725,13 @@ export async function runAgentLoopImpl(
           );
         }
       }
+      // The row this turn ends on is no longer the one the last successful
+      // call wrote: it is either nothing, or the synthetic error row built
+      // below, and neither carries an assistant-text visibility marker. Drop
+      // the marker along with the id, so the terminal event cannot label a
+      // visible provider error as private working notes and leave clients
+      // rendering it as activity that never produced a reply.
+      state.lastAssistantTextVisibility = undefined;
       if (!state.persistProviderErrorAsAssistantMessage) {
         state.assistantRowAwaitingFinalization = false;
         state.lastAssistantMessageId = undefined;
@@ -1806,6 +1865,17 @@ export async function runAgentLoopImpl(
       turnCronRunId,
     );
 
+    // Generation is over for every outcome below (reply, hand-off, or
+    // cancellation), so a progress card still spinning would be lying.
+    // Settle before the terminal SSE so the client sees the card at rest by
+    // the time it re-enables the composer. An interrupt is the exception:
+    // the replacement turn picks the work up or drops it, and it owns the
+    // card either way, so a card settled here would read as finished work
+    // the model then resumes without a visible restart.
+    if (!isPreemptedByNewMessage(abortController.signal.reason)) {
+      settleRunningTaskProgressSurfaces(ctx, rlog);
+    }
+
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay. Disk sync and the rest
@@ -1822,7 +1892,22 @@ export async function runAgentLoopImpl(
       });
       publishLoopMessagesChanged();
     } else {
-      // Resolve attachments (only when not cancelled — this is expensive async I/O)
+      // An attachment belongs on the row whose text asked for it. On a turn
+      // that routed its reply through `send_user_message`, the link the model
+      // wrote is inside that tool's message, while the turn's last row is
+      // private wrap-up text: linking there would leave channel delivery
+      // sending the file from a row with no words on it. Resolve the row the
+      // reply actually lives on, the same one the push preview quotes.
+      const attachmentTargetMessageId =
+        state.lastAssistantTextVisibility === "private" &&
+        state.lastAssistantMessageId
+          ? resolveTurnReplyMessageId(
+              ctx.conversationId,
+              userMessageId,
+              state.lastAssistantMessageId,
+            )
+          : state.lastAssistantMessageId;
+      // Resolve attachments (only when not cancelled, this is expensive async I/O)
       const attachmentResult = await resolveAssistantAttachments(
         state.accumulatedDirectives,
         state.accumulatedToolContentBlocks,
@@ -1836,7 +1921,7 @@ export async function runAgentLoopImpl(
             ctx.conversationId,
             ctx.hasNoClient,
           ),
-        state.lastAssistantMessageId,
+        attachmentTargetMessageId,
         state.toolContentBlockToolNames,
       );
       const { assistantAttachments, emittedAttachments } = attachmentResult;
@@ -1893,6 +1978,11 @@ export async function runAgentLoopImpl(
           ...(state.lastAssistantMessageId
             ? { messageId: state.lastAssistantMessageId }
             : {}),
+          // The marker the row was stamped with, so the live row gets the same
+          // per-row treatment the history projection will hand it.
+          ...(state.lastAssistantTextVisibility
+            ? { assistantTextVisibility: state.lastAssistantTextVisibility }
+            : {}),
         });
         if (shouldEmitQueuedConversationNotices) {
           for (const notice of drainConversationNotices(ctx.conversationId)) {
@@ -1943,6 +2033,10 @@ export async function runAgentLoopImpl(
     );
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
+    // A turn that threw out of the loop is over too; see the happy path.
+    if (!isPreemptedByNewMessage(abortController.signal.reason)) {
+      settleRunningTaskProgressSurfaces(ctx, rlog);
+    }
     const errorCtx = {
       phase: "agent_loop" as const,
       aborted: abortController.signal.aborted,
@@ -2002,12 +2096,19 @@ export async function runAgentLoopImpl(
     // turn that started while it was preparing would have its first file
     // writes swept into the wrong commit. The wait is deadline-bounded, and
     // direct sends are already unblocked by the release above.
+    // Set when the turn-boundary commit outran its wait budget and is still
+    // staging the working tree. The turn stops waiting on it, but the
+    // finalization barrier below must not: a replacement turn that started
+    // writing files now would still have them swept into this turn's commit.
+    let outstandingCommit: Promise<void> | undefined;
     try {
       if (turnStarted) {
         ctx.turnCount++;
         const runTurnCommit = async (): Promise<void> => {
           const config = getConfig();
-          const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
+          const maxWait =
+            config.workspaceGit?.turnCommitMaxWaitMs ??
+            DEFAULT_TURN_COMMIT_MAX_WAIT_MS;
           const deadlineMs = Date.now() + maxWait;
 
           const commitTurnChangesFn =
@@ -2021,6 +2122,7 @@ export async function runAgentLoopImpl(
           );
           const outcome = await raceWithTimeout(commitPromise, maxWait);
           if (outcome === "timed_out") {
+            outstandingCommit = commitPromise;
             rlog.warn(
               {
                 turnNumber: ctx.turnCount,
@@ -2070,6 +2172,24 @@ export async function runAgentLoopImpl(
       // drained; writing after the turn stops producing rows keeps them out
       // of any tool_use/tool_result pair.
       await drainQueuedReactionRecords(ctx, ownedReactionRecords);
+      // Everything the next turn must not overlap with is done, so a caller
+      // waiting to start one outside this loop may proceed. Closed before the
+      // drain kick rather than after it: the kick is fire-and-forget, and a
+      // drained turn takes the processing lock for itself, which is the same
+      // answer an interrupt gets from any other competing claim.
+      //
+      // A commit that outran its wait budget is still staging the working tree,
+      // so the barrier stays open until it settles even though the turn no
+      // longer waits on it. `waitForTurnFinalization` is deadline-bounded, so a
+      // genuinely wedged commit makes the interrupt queue its message rather
+      // than race the commit for the working tree.
+      if (outstandingCommit) {
+        void outstandingCommit
+          .then(closeTurnFinalization, closeTurnFinalization)
+          .catch(() => {});
+      } else {
+        closeTurnFinalization();
+      }
       // kickDrainQueue never rejects: a drain failure here would otherwise be
       // an unhandled rejection that strands the queue with nothing left to
       // re-trigger it.

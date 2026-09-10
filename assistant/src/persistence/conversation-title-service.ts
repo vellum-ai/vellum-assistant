@@ -7,7 +7,8 @@
  * overwritten, never user-provided custom titles.
  */
 
-import { isMessageKey,MESSAGE_KEYS } from "../i18n/index.js";
+import { SEND_USER_MESSAGE_DELIVERED_ACK } from "../config/send-user-message-constants.js";
+import { isMessageKey, MESSAGE_KEYS } from "../i18n/index.js";
 import {
   requestShortLabel,
   type ShortLabelTool,
@@ -24,6 +25,7 @@ import {
   type MessageRow,
   updateConversationTitle,
 } from "./conversation-crud.js";
+import { projectPersistedAssistantContent } from "./user-facing-content.js";
 
 const log = getLogger("conversation-title-service");
 
@@ -605,7 +607,12 @@ function extractTextForTitle(raw: string | Array<{ type: string }>): string {
         // tool_result string content carries topical signal.
       } else if (block.type === "tool_result") {
         if (typeof block.content === "string") {
-          texts.push(block.content);
+          // The delivery tool answers a bare receipt, never anything topical.
+          // Titling from it names a gated conversation "Delivery Confirmation"
+          // instead of what the user actually asked about.
+          if (block.content.trim() !== SEND_USER_MESSAGE_DELIVERED_ACK) {
+            texts.push(block.content);
+          }
         } else if (Array.isArray(block.content)) {
           for (const nested of block.content) {
             if (
@@ -630,7 +637,13 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = ["Recent messages:"];
 
   for (const msg of recentMessages) {
-    const text = extractTextForTitle(msg.content);
+    // Read each row the way a user reads it. On a turn that routed its reply
+    // through `send_user_message`, the row's plain text is a private
+    // scratchpad and the reply is inside the tool call, so titling from the
+    // raw row names the conversation after the model's notes.
+    const text = extractTextForTitle(
+      projectPersistedAssistantContent(msg.content, msg.metadata),
+    );
     if (!text) {
       continue;
     }

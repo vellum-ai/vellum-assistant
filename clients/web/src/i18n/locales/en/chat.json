@@ -1346,7 +1346,8 @@
     "railAria": "Progress",
     "stepCounter": "{current} of {total}",
     "title": "Progress",
-    "titleFinished": "Finished"
+    "titleFinished": "Finished",
+    "titleStopped": "Stopped"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
@@ -1711,7 +1712,8 @@
     "stopWorkflow": "Stop workflow"
   },
   "transcriptRow": {
-    "thinking": "Thinking"
+    "thinking": "Thinking",
+    "working": "Working"
   },
   "useConversationLoader": {
     "authFailed": "Failed to authenticate user."

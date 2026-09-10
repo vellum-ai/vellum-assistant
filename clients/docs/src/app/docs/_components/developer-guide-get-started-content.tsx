@@ -155,7 +155,7 @@ export function DeveloperGuideGetStartedContent() {
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
               Install the{" "}
-              <Link href="https://www.vellum.ai/download" className={linkClass}>
+              <Link href="https://www.vellum.ai/downloads" className={linkClass}>
                 desktop app
               </Link>{" "}
               and walk through onboarding. Your workspace will live at{" "}

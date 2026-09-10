@@ -549,6 +549,31 @@ describe("Conversation message queue", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("enqueueMessage drops an idle send unless the caller asks it to queue", () => {
+    // The idle fast path stores nothing and reports `queued: false`, so a
+    // caller that treats "not rejected" as success loses the message. Callers
+    // that have already decided the send cannot run now pass `queueWhenIdle`
+    // and own the drain kick.
+    const conversation = makeConversation();
+    expect(conversation.isProcessing()).toBe(false);
+
+    const dropped = conversation.enqueueMessage({
+      content: "idle-1",
+      requestId: "idle-req-1",
+    });
+    expect(dropped.queued).toBe(false);
+    expect(dropped.rejected).toBeUndefined();
+    expect(conversation.getQueueDepth()).toBe(0);
+
+    const queued = conversation.enqueueMessage({
+      content: "idle-2",
+      requestId: "idle-req-2",
+      queueWhenIdle: true,
+    });
+    expect(queued.queued).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(1);
+  });
+
   test("enqueueMessage captures the sender's trust, immune to a later slot change", async () => {
     // Trust must ride with the queued message. The conversation-level slot is
     // rewritten by whoever sends next, so a message that reads it at drain time
@@ -884,6 +909,121 @@ describe("Conversation message queue", () => {
 
     // Three runs total (msg-1, msg-2, msg-3) — msg-3 was not batched with msg-2.
     expect(pendingRuns.length).toBe(3);
+  });
+
+  test("[experimental] batched siblings run under their firing's cron run id", async () => {
+    // A batched drain runs after the enqueuing turn has ended, so the firing's
+    // attribution has to travel on the queued messages. Without it the batch's
+    // LLM spend is recorded with a null `cron_run_id` and the schedule's cost
+    // is undercounted.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-9",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      cronRunId: "cron-run-9",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // One batched run carrying the firing both members belong to.
+    expect(pendingRuns.length).toBe(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-9");
+  });
+
+  test("[experimental] queued siblings from different firings do NOT batch", async () => {
+    // The batch runs as one turn under one `cron_run_id`, so coalescing across
+    // firings would bill the tail's spend to the head's schedule.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-a",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      cronRunId: "cron-run-b",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-a");
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Three runs, not two: each firing keeps its own attribution.
+    expect(pendingRuns.length).toBe(3);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-b");
+  });
+
+  test("[experimental] a firing's message does NOT batch with an unscheduled one", async () => {
+    // Same head-wins hazard in the other direction: an ordinary user message
+    // coalesced into a firing's batch would be billed to that schedule.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      cronRunId: "cron-run-c",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    expect(conversation.currentTurnCronRunId).toBe("cron-run-c");
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    expect(pendingRuns.length).toBe(3);
+    // Not merely a different value: the unscheduled turn claims no firing.
+    expect(conversation.currentTurnCronRunId ?? null).toBeNull();
   });
 
   // `Conversation.clientOs` is a live field that only a transport-carrying
@@ -1369,6 +1509,55 @@ describe("Conversation message queue", () => {
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("a drain the interrupt armed keeps its message queued until the repair is durable", async () => {
+    // `pendingInterruptRepair` is armed by an interrupt whose own durable
+    // repair failed, and the message it queued behind it is the interrupting
+    // prompt. Persisting that prompt while the abandoned `tool_use` still has
+    // no durable result writes a sequence every provider rejects on the next
+    // load, however well the in-memory history reads to the turn running now.
+    // So a drain that cannot make the repair durable leaves both where they
+    // are rather than settling for the memory copy.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    conversation.messages.push({
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu-durable-repair",
+          name: "bash",
+          input: {},
+        },
+      ],
+    });
+    conversation.pendingInterruptRepair = true;
+    conversation.enqueueMessage({
+      content: "the interrupting prompt",
+      requestId: "req-interrupting",
+      queueWhenIdle: true,
+    });
+
+    // The repair row is the only write naming the abandoned call.
+    addMessageShouldThrowForContent.add("toolu-durable-repair");
+
+    await expect(conversation.drainQueue()).rejects.toThrow(
+      "Simulated addMessage failure",
+    );
+
+    // Armed for the drain that follows, the prompt still queued behind it, and
+    // neither the prompt nor a half-repair in what a reload would read.
+    expect(conversation.pendingInterruptRepair).toBe(true);
+    expect(conversation.getQueueDepth()).toBe(1);
+    expect(conversation.messages).toHaveLength(1);
+    expect(
+      capturedAddMessages.some((m) =>
+        m.content.includes("the interrupting prompt"),
+      ),
+    ).toBe(false);
+    expect(pendingRuns).toHaveLength(0);
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
