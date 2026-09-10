@@ -342,6 +342,66 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     }
   });
 
+  test("repairs explicit openai call-site pins that inherit a subscription binding", () => {
+    seedRows([API_KEY_ROW, SUBSCRIPTION_ROW]);
+    const callSites = {
+      recall: { provider: "openai", model: STALE },
+      heartbeatAgent: { provider: "openai", model: STALE_MINI },
+      // A pin with its own binding is judged by that binding alone.
+      filingAgent: {
+        provider: "openai",
+        provider_connection: "openai-key",
+        model: STALE,
+      },
+      // Another vendor never inherits an openai binding.
+      commitMessage: { provider: "anthropic", model: STALE },
+    };
+    const inheriting: Array<Record<string, unknown>> = [
+      // Materialized default profiles carry the pinned subscription row.
+      {
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "chatgpt-subscription",
+        },
+      },
+      // A user-owned openai profile bound to the subscription row.
+      {
+        defaultProvider: { provider: "vellum" },
+        profiles: {
+          legacyBound: {
+            provider: "openai",
+            provider_connection: "chatgpt-subscription",
+            model: "gpt-5.5",
+          },
+        },
+      },
+    ];
+    for (const llmCase of inheriting) {
+      writeConfig({ llm: { ...llmCase, callSites } });
+      repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+      const llm = readLlm();
+      expect(llm.callSites.recall.model).toBe(REPLACEMENT);
+      expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
+      expect(llm.callSites.filingAgent.model).toBe(STALE);
+      expect(llm.callSites.commitMessage.model).toBe(STALE);
+    }
+
+    // A chatgpt-identity winner carries no binding: the explicit openai
+    // pin auto-resolves past the subscription, so it keeps its model.
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "chatgpt" },
+        profiles: { codex: { provider: "chatgpt", model: "gpt-5.5" } },
+        callSites,
+      },
+    });
+    const before = readFileSync(join(workspaceDir, "config.json"), "utf-8");
+    repairRetiredCodexGpt54ModelIdsMigration.run(workspaceDir);
+    expect(readFileSync(join(workspaceDir, "config.json"), "utf-8")).toBe(
+      before,
+    );
+  });
+
   test("leaves providerless call-site pins alone when no selectable profile is subscription-routed", () => {
     seedRows([API_KEY_ROW, SUBSCRIPTION_ROW]);
     const config = {

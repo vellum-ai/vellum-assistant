@@ -45,6 +45,16 @@ import type { WorkspaceMigration } from "./types.js";
  * it can select, and a call site this snapshot does not know (written by a
  * newer assistant) is left alone.
  *
+ * A call-site pin that declares `provider: "openai"` with no binding of its
+ * own is composed over the winner too, and keeps the winner's
+ * `provider_connection`. When that binding is the subscription row (an
+ * `openai` default provider pinning it, or a user-owned `openai` profile
+ * bound to it) dispatch hard-routes the retired model to Codex, so such a
+ * pin is repaired when any selectable profile carries a subscription
+ * binding. A winner on the `chatgpt` identity carries no binding, and the
+ * explicit `openai` then auto-resolves past the subscription, so it does
+ * not count.
+ *
  * Replacements: `gpt-5.4` becomes `gpt-5.5` (its successor) and
  * `gpt-5.4-mini` becomes `gpt-5.6-luna` (the subscription's Balanced model;
  * on the subscription every model bills the same).
@@ -117,13 +127,25 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
     const isBound = (fragment: Record<string, unknown>): boolean =>
       fragmentIsSubscriptionBound(fragment, lookup);
 
-    // Memoized: the answer is per workspace, and computing it may read rows.
+    // Memoized: the answers are per workspace, and computing them may read
+    // rows.
     let selectable: boolean | undefined;
     const anySelectableSubscriptionProfile = (): boolean => {
       if (selectable === undefined) {
-        selectable = hasSelectableSubscriptionProfile(llm, lookup);
+        selectable = hasSelectableSubscriptionProfile(llm, lookup, "route");
       }
       return selectable;
+    };
+    let selectableBinding: boolean | undefined;
+    const anySelectableSubscriptionBinding = (): boolean => {
+      if (selectableBinding === undefined) {
+        selectableBinding = hasSelectableSubscriptionProfile(
+          llm,
+          lookup,
+          "binding",
+        );
+      }
+      return selectableBinding;
     };
 
     let changed = false;
@@ -135,9 +157,12 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
       for (const [site, rawConfig] of Object.entries(callSites)) {
         const isRouted = (fragment: Record<string, unknown>): boolean =>
           isBound(fragment) ||
-          (fragment.provider === undefined &&
-            KNOWN_CALL_SITES.has(site) &&
-            anySelectableSubscriptionProfile());
+          (KNOWN_CALL_SITES.has(site) &&
+            ((fragment.provider === undefined &&
+              anySelectableSubscriptionProfile()) ||
+              (fragment.provider === "openai" &&
+                fragment.provider_connection === undefined &&
+                anySelectableSubscriptionBinding())));
         changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
     }
@@ -334,14 +359,18 @@ const KNOWN_CALL_SITES = new Set([
 ]);
 
 /**
- * Whether any profile a turn can select routes through the subscription:
- * a default key whose effective body is the `chatgpt` column, or a usable
- * user-owned profile bound to the subscription. Mix profiles add nothing
- * of their own: their arms are selectable profiles in their own right.
+ * Whether any profile a turn can select reaches the subscription in the
+ * given way. `"route"`: its effective body dispatches to the subscription
+ * (a default key whose body is the `chatgpt` column, or a usable
+ * user-owned profile bound to it). `"binding"`: its effective body carries
+ * the subscription row as a `provider_connection`, which an explicit
+ * `openai` call-site pin inherits. Mix profiles add nothing of their own:
+ * their arms are selectable profiles in their own right.
  */
 function hasSelectableSubscriptionProfile(
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
+  via: "route" | "binding",
 ): boolean {
   const profiles = readObject(llm.profiles);
   const names = new Set([
@@ -349,7 +378,7 @@ function hasSelectableSubscriptionProfile(
     ...(profiles === null ? [] : Object.keys(profiles)),
   ]);
   for (const name of names) {
-    if (profileIsSubscriptionRouted(name, llm, lookup)) {
+    if (profileReachesSubscription(name, llm, lookup, via)) {
       return true;
     }
   }
@@ -357,17 +386,19 @@ function hasSelectableSubscriptionProfile(
 }
 
 /**
- * Whether the effective body of `name` routes through the subscription.
- * Code-owned names and managed stubs resolve to code-owned bodies: a
- * default key to the default provider's column, everything else to a
- * vellum body. A user-owned shadow wins only when usable (enabled,
- * complete, provider resolvable); an unusable shadow of a default key
- * reverts to the column, and any other unusable profile cannot win.
+ * Whether the effective body of `name` reaches the subscription (see
+ * `hasSelectableSubscriptionProfile` for `via`). Code-owned names and
+ * managed stubs resolve to code-owned bodies: a default key to the default
+ * provider's column, everything else to a vellum body. A user-owned shadow
+ * wins only when usable (enabled, complete, provider resolvable); an
+ * unusable shadow of a default key reverts to the column, and any other
+ * unusable profile cannot win.
  */
-function profileIsSubscriptionRouted(
+function profileReachesSubscription(
   name: string,
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
+  via: "route" | "binding",
 ): boolean {
   const shadow = userShadow(name, llm);
   const usable =
@@ -378,11 +409,22 @@ function profileIsSubscriptionRouted(
     typeof shadow.model === "string" &&
     lookup.isResolvable(shadow.provider);
   if (usable) {
-    return fragmentIsSubscriptionBound(shadow, lookup);
+    if (via === "route") {
+      return fragmentIsSubscriptionBound(shadow, lookup);
+    }
+    const binding = shadow.provider_connection;
+    return (
+      typeof binding === "string" &&
+      binding.length > 0 &&
+      lookup.isSubscriptionRow(binding)
+    );
   }
-  return (
-    DEFAULT_PROFILE_KEYS.has(name) && defaultProviderIsSubscription(llm, lookup)
-  );
+  if (!DEFAULT_PROFILE_KEYS.has(name)) {
+    return false;
+  }
+  return via === "route"
+    ? defaultProviderIsSubscription(llm, lookup)
+    : defaultProviderBindsSubscription(llm, lookup);
 }
 
 /**
@@ -404,22 +446,31 @@ function userShadow(
 /**
  * Whether `llm.defaultProvider` routes its default column through the
  * subscription: the `chatgpt` identity, or `openai` pinning a subscription
- * row by `connectionName`, which is only ever a row name.
+ * row by `connectionName`.
  */
 function defaultProviderIsSubscription(
   llm: Record<string, unknown>,
   lookup: ProviderLookup,
 ): boolean {
-  const defaultProvider = readObject(llm.defaultProvider);
-  if (defaultProvider === null) {
-    return false;
-  }
-  if (defaultProvider.provider === CHATGPT_IDENTITY) {
-    return true;
-  }
-  const name = defaultProvider.connectionName;
   return (
-    defaultProvider.provider === "openai" &&
+    readObject(llm.defaultProvider)?.provider === CHATGPT_IDENTITY ||
+    defaultProviderBindsSubscription(llm, lookup)
+  );
+}
+
+/**
+ * Whether `llm.defaultProvider` is `openai` pinning a subscription row by
+ * `connectionName` (only ever a row name), so its materialized default
+ * profiles carry that row as their `provider_connection`.
+ */
+function defaultProviderBindsSubscription(
+  llm: Record<string, unknown>,
+  lookup: ProviderLookup,
+): boolean {
+  const defaultProvider = readObject(llm.defaultProvider);
+  const name = defaultProvider?.connectionName;
+  return (
+    defaultProvider?.provider === "openai" &&
     typeof name === "string" &&
     name.length > 0 &&
     lookup.isSubscriptionRow(name)
