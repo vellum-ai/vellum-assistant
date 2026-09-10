@@ -600,7 +600,7 @@ export async function platformEnsureProvisioned(
   platformUrl?: string,
 ): Promise<UnifiedJobStatus> {
   const response = await loopbackSafeFetch(
-    `${platformUrl || getPlatformUrl()}/v1/billing/subscription/onboarding/ensure-provisioned/`,
+    `${platformUrl || getPlatformUrl()}/v1/organizations/billing/subscription/onboarding/ensure-provisioned/`,
     {
       method: "POST",
       headers: await authHeaders(token, platformUrl),
@@ -611,8 +611,15 @@ export async function platformEnsureProvisioned(
   if (!response.ok) {
     throw new Error(`Plan storage provisioning failed: ${response.status}`);
   }
-  const body = (await response.json()) as { state?: string };
+  const body = (await response.json()) as { state?: string; reason?: string };
   const job = { jobId: "plan-storage", type: "import" as const };
+  if (
+    body.state === "not_applicable" &&
+    body.reason === "no_provisionable_assistants"
+  ) {
+    return { ...job, status: "processing" };
+  }
+  // Base plans legitimately return no_active_pro and need no paid resize.
   if (body.state === "already_done" || body.state === "not_applicable") {
     return { ...job, status: "complete", result: {} };
   }

@@ -707,6 +707,7 @@ async function importToAssistant(
       let importPlatformToken = platformToken;
       const terminal = await pollJobUntilDone({
         label: "platform import",
+        timeoutMs: 2 * 60 * 60 * 1000,
         poll: () =>
           platformPollJobStatus(jobId, importPlatformToken, entry.runtimeUrl),
         refreshOn401: async () => {

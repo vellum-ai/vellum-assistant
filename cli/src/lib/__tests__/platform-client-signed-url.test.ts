@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { pollJobUntilDone } from "../job-polling.js";
 import {
   platformPollJobStatus,
   platformEnsureProvisioned,
@@ -653,11 +654,46 @@ describe("plan provisioning", () => {
           : "processing",
       );
       expect(calls[0]?.url).toBe(
-        `${PLATFORM_URL}/v1/billing/subscription/onboarding/ensure-provisioned/`,
+        `${PLATFORM_URL}/v1/organizations/billing/subscription/onboarding/ensure-provisioned/`,
       );
       expect(calls[0]?.method).toBe("POST");
     },
   );
+
+  test.each([
+    ["no_provisionable_assistants", "processing"],
+    ["no_active_pro", "complete"],
+    ["no_targets", "complete"],
+  ] as const)("handles not_applicable reason %s", async (reason, expected) => {
+    const { fetchMock } = captureFetch(() =>
+      Response.json({ state: "not_applicable", reason }),
+    );
+    globalThis.fetch = fetchMock;
+    expect(
+      (await platformEnsureProvisioned(VAK_TOKEN, PLATFORM_URL)).status,
+    ).toBe(expected);
+  });
+
+  test("waits for a post-hatch race and resize to settle before completing", async () => {
+    const responses = [
+      { state: "not_applicable", reason: "no_provisionable_assistants" },
+      { state: "started" },
+      { state: "in_progress" },
+      { state: "already_done" },
+    ];
+    const { calls, fetchMock } = captureFetch(() =>
+      Response.json(responses.shift()),
+    );
+    globalThis.fetch = fetchMock;
+    const result = await pollJobUntilDone({
+      label: "plan storage provisioning",
+      intervalMs: 1,
+      timeoutMs: 1_000,
+      poll: () => platformEnsureProvisioned(VAK_TOKEN, PLATFORM_URL),
+    });
+    expect(result.status).toBe("complete");
+    expect(calls).toHaveLength(4);
+  });
 
   test("unknown state cannot silently permit an import", async () => {
     const { fetchMock } = captureFetch(() =>
