@@ -1375,6 +1375,9 @@ export function saveRawConfig(config: Record<string, unknown>): void {
 
   // Strip legacy apiKeys — provider keys belong in secure storage, not plaintext config
   delete config.apiKeys;
+  // Workspace MCP servers live in mcp.json. A raw-config save must not
+  // write them back under config.json.
+  delete config.mcp;
 
   writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 

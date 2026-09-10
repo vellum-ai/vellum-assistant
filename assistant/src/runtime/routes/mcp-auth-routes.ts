@@ -14,8 +14,11 @@
 
 import { z } from "zod";
 
-import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
-import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
+import type { McpServerConfig } from "../../config/schemas/mcp.js";
+import {
+  loadWorkspaceMcpConfig,
+  saveWorkspaceMcpConfig,
+} from "../../mcp/workspace-mcp-config.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
@@ -65,6 +68,18 @@ const McpAddParams = z.object({
 
 const McpRemoveParams = z.object({ name: z.string() });
 
+function persistWorkspaceMcpConfig(config: {
+  servers: Record<string, McpServerConfig>;
+}): void {
+  try {
+    saveWorkspaceMcpConfig(config);
+  } catch (err) {
+    throw new InternalError(
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
 async function handleMcpAuthStart({
   body,
 }: {
@@ -76,8 +91,7 @@ async function handleMcpAuthStart({
 }> {
   const { serverId } = parseBody(McpServerIdParams, body);
 
-  const raw = loadRawConfig();
-  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+  const servers = loadWorkspaceMcpConfig().servers;
   const serverConfig = servers[serverId];
 
   if (!serverConfig) {
@@ -253,9 +267,7 @@ function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
 async function handleMcpList(_args: {
   body?: Record<string, unknown>;
 }): Promise<{ servers: McpServerEntry[] }> {
-  const raw = loadRawConfig();
-  const mcpConfig = raw.mcp as Partial<McpConfig> | undefined;
-  const servers = mcpConfig?.servers ?? {};
+  const servers = loadWorkspaceMcpConfig().servers;
   const configEntries = (
     Object.entries(servers) as [string, McpServerConfig][]
   ).filter(([, config]) => config && typeof config === "object");
@@ -434,17 +446,12 @@ async function handleMcpUpdate({
 }): Promise<{ updated: true }> {
   const { name, headers } = parseBody(McpUpdateParams, body);
 
-  const raw = loadRawConfig();
-  const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
-  const serverMap = mcpConfig?.servers as
-    | Record<string, Record<string, unknown>>
-    | undefined;
+  const servers = loadWorkspaceMcpConfig().servers;
+  const server = servers[name];
 
-  if (!serverMap || !serverMap[name]) {
+  if (!server) {
     throw new NotFoundError(`MCP server "${name}" not found.`);
   }
-
-  const server = serverMap[name];
 
   if (headers !== undefined) {
     const transport = server.transport as Record<string, unknown> | undefined;
@@ -474,7 +481,7 @@ async function handleMcpUpdate({
     }
   }
 
-  saveRawConfig(raw);
+  persistWorkspaceMcpConfig({ servers });
   triggerReload("internal_mcp_update");
 
   return { updated: true };
@@ -494,7 +501,7 @@ async function handleMcpAdd({
     body,
   );
 
-  let transport: Record<string, unknown>;
+  let transport: McpServerConfig["transport"];
   switch (transportType) {
     case "stdio":
       if (!command) {
@@ -517,27 +524,16 @@ async function handleMcpAdd({
       );
   }
 
-  const raw = loadRawConfig();
-  if (!raw.mcp) {
-    raw.mcp = { servers: {} };
-  }
-  const mcpConfig = raw.mcp as Record<string, unknown>;
-  if (!mcpConfig.servers) {
-    mcpConfig.servers = {};
-  }
-  const serverMap = mcpConfig.servers as Record<string, unknown>;
+  const servers = { ...loadWorkspaceMcpConfig().servers };
 
-  if (serverMap[name]) {
+  if (servers[name]) {
     throw new BadRequestError(
       `MCP server "${name}" already exists. Remove it first with: assistant mcp remove ${name}`,
     );
   }
 
-  serverMap[name] = {
-    transport,
-  };
+  servers[name] = { transport };
 
-  // Store auth headers in credential store, not config
   if (headers && Object.keys(headers).length > 0) {
     const ok = await setMcpHeaders(name, headers);
     if (!ok) {
@@ -547,7 +543,7 @@ async function handleMcpAdd({
     }
   }
 
-  saveRawConfig(raw);
+  persistWorkspaceMcpConfig({ servers });
   triggerReload("internal_mcp_add");
 
   return { added: true };
@@ -564,8 +560,7 @@ async function handleMcpAuthRevoke({
 }): Promise<{ revoked: true }> {
   const { serverId } = parseBody(McpServerIdParams, body);
 
-  const raw = loadRawConfig();
-  const servers = (raw.mcp as Partial<McpConfig> | undefined)?.servers ?? {};
+  const servers = loadWorkspaceMcpConfig().servers;
   const serverConfig = servers[serverId];
 
   if (!serverConfig) {
@@ -602,32 +597,29 @@ async function handleMcpRemove({
 }): Promise<{ removed: true }> {
   const { name } = parseBody(McpRemoveParams, body);
 
-  const raw = loadRawConfig();
-  const mcpConfig = raw.mcp as Record<string, unknown> | undefined;
-  const serverMap = mcpConfig?.servers as Record<string, unknown> | undefined;
+  const servers = { ...loadWorkspaceMcpConfig().servers };
+  const serverConfig = servers[name];
 
-  if (!serverMap || !serverMap[name]) {
+  if (!serverConfig) {
     throw new NotFoundError(`MCP server "${name}" not found.`);
   }
 
-  // Best-effort cleanup of credentials stored for this server
-  const serverConfig = serverMap[name] as Record<string, unknown>;
-  const transport = serverConfig?.transport as
-    | Record<string, unknown>
-    | undefined;
-  if (transport?.type === "sse" || transport?.type === "streamable-http") {
+  if (
+    serverConfig.transport.type === "sse" ||
+    serverConfig.transport.type === "streamable-http"
+  ) {
     try {
       await Promise.all([
         deleteMcpOAuthCredentials(name),
         deleteMcpHeaders(name),
       ]);
     } catch {
-      // Ignore — credentials may not exist
+      // Credentials may not exist.
     }
   }
 
-  delete serverMap[name];
-  saveRawConfig(raw);
+  delete servers[name];
+  persistWorkspaceMcpConfig({ servers });
   triggerReload("internal_mcp_remove");
 
   return { removed: true };

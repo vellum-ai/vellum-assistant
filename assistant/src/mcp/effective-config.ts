@@ -1,11 +1,11 @@
 /**
  * The MCP configuration the daemon actually runs.
  *
- * Two sources contribute servers: the workspace `config.json`, which the
+ * Two sources contribute servers: the workspace `mcp.json`, which the
  * user owns, and each installed plugin's `mcp.json`, which its author
  * owns. Both must reach the MCP manager, so every consumer that starts
- * servers builds its config through here rather than reading
- * `config.mcp` directly — a path that only reads the workspace half
+ * servers builds its config through here rather than reading the
+ * workspace file directly — a path that only reads the workspace half
  * leaves a plugin's tools silently missing.
  *
  * Every server comes out attributed with its {@link McpServerSource}, so

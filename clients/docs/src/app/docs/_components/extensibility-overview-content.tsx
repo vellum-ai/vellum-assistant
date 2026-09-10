@@ -221,9 +221,9 @@ export function ExtensibilityOverviewContent() {
             a tool, <code>/workspace/skills/&lt;name&gt;/</code> for a skill,{" "}
             <code>/workspace/hooks/&lt;event&gt;.ts</code> for a lifecycle hook)
             and the assistant picks it up automatically. No manifest, no install
-            step, no peer dependency. MCP servers can also be added in
-            settings without a plugin; <code>mcp.json</code> is the way to ship
-            them with one.
+            step, no peer dependency. Workspace MCP servers live in{" "}
+            <code>/workspace/mcp.json</code>. A plugin is the way to ship those
+            same servers with a versioned, installable unit.
           </p>
           <p className="mb-0 text-zinc-600 dark:text-zinc-400">
             Several surfaces that plugins contribute run in the same process as

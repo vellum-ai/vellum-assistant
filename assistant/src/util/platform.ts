@@ -470,6 +470,14 @@ export function getWorkspaceConfigPath(): string {
   return join(getWorkspaceDir(), "config.json");
 }
 
+/** Filename for the user-owned Agent Plugins MCP document. */
+export const WORKSPACE_MCP_FILENAME = "mcp.json";
+
+/** Returns $VELLUM_WORKSPACE_DIR/mcp.json */
+export function getWorkspaceMcpConfigPath(): string {
+  return join(getWorkspaceDir(), WORKSPACE_MCP_FILENAME);
+}
+
 /** Returns $VELLUM_WORKSPACE_DIR/skills */
 export function getWorkspaceSkillsDir(): string {
   return join(getWorkspaceDir(), "skills");

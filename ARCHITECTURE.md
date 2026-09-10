@@ -155,6 +155,7 @@ Each named instance gets its own directory tree. The exact location depends on e
 │       ├── protected/                                    # keys.enc, trust.json, credentials/, ...
 │       └── workspace/
 │           ├── config.json
+│           ├── mcp.json
 │           ├── data/
 │           │   ├── db/assistant.db
 │           │   ├── qdrant/

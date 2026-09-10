@@ -64,6 +64,7 @@ import {
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
+import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import {
   describeShadowedConfigSet,
   findSubstrateShadowing,
@@ -687,6 +688,38 @@ function rejectMcpTransportHeaderWrite(patch: unknown): void {
   );
 }
 
+const MCP_CONFIG_WRITE_MESSAGE =
+  "MCP servers are stored in mcp.json. Use assistant mcp add or assistant mcp remove.";
+
+function stripMcpFromConfigWrite(patch: Record<string, unknown>): void {
+  if (Object.hasOwn(patch, "mcp")) {
+    delete patch.mcp;
+  }
+}
+
+function rejectMcpConfigSetPath(path: string, value: unknown): void {
+  if (path !== "mcp" && !path.startsWith("mcp.")) {
+    return;
+  }
+  const relative =
+    path === "mcp" ? value : nestPath(path.slice("mcp.".length), value);
+  if (patchContainsMcpTransportHeaders({ mcp: relative })) {
+    throw new BadRequestError(
+      "MCP authentication headers must be managed through MCP server add/update APIs, not generic config writes.",
+    );
+  }
+  throw new BadRequestError(MCP_CONFIG_WRITE_MESSAGE);
+}
+
+function nestPath(path: string, value: unknown): unknown {
+  const segments = path.split(".");
+  let current: unknown = value;
+  for (let i = segments.length - 1; i >= 0; i--) {
+    current = { [segments[i]!]: current };
+  }
+  return current;
+}
+
 const WireProfileEntry = ProfileEntry.extend({
   supportsVision: z.boolean().optional(),
   invariant: z.boolean().optional(),
@@ -893,6 +926,7 @@ const ConfigPatchRequestSchema = z
 function handleGetConfig() {
   try {
     const config = applyContextDefaultsToRawConfig(loadRawConfig());
+    overlayWorkspaceMcpForConfigRead(config);
     sanitizeMcpTransportHeadersForSettingsRead(config);
     overlayEffectiveProfilesForWire(config);
     enrichProfilesForWire(config);
@@ -1594,6 +1628,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   normalizeManagedProfileWrites(body);
   rejectManagedProfileDeletion(body as Record<string, unknown>);
   rejectMcpTransportHeaderWrite(body);
+  stripMcpFromConfigWrite(body as Record<string, unknown>);
 
   const raw = loadRawConfig();
   const patch = body as Record<string, unknown>;
@@ -1608,6 +1643,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   await commitConfigWrite(raw, "patch");
 
   const merged = applyContextDefaultsToRawConfig(loadRawConfig());
+  overlayWorkspaceMcpForConfigRead(merged);
   sanitizeMcpTransportHeadersForSettingsRead(merged);
   overlayEffectiveProfilesForWire(merged);
   enrichProfilesForWire(merged);
@@ -1670,6 +1706,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   stripWireOnlyProfileKeys(patchShape);
   normalizeManagedProfileWrites(patchShape);
   rejectManagedProfileDeletion(patchShape);
+  rejectMcpConfigSetPath(path, value);
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();

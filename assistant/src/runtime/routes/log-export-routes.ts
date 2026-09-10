@@ -29,6 +29,7 @@ import {
   messages,
   toolInvocations,
 } from "../../persistence/schema/index.js";
+import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import { getLogger, LOG_FILE_PATTERN } from "../../util/logger.js";
 import {
   getDaemonStderrLogPath,
@@ -568,6 +569,7 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
       }
     }
 
+    overlayWorkspaceMcpForConfigRead(config);
     const mcpServers = asRecord(asRecord(config.mcp)?.servers);
     for (const server of Object.values(mcpServers ?? {})) {
       const transport = asRecord(asRecord(server)?.transport);

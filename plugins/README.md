@@ -695,9 +695,9 @@ The assistant connects these servers on start and registers their tools as
 is `<pluginName>__<serverKey>`, collapsed to just the name when the two match
 (the `example` plugin above yields `mcp__example__<tool>`, not
 `mcp__example__example__<tool>`). Installing, removing, upgrading, enabling, or
-disabling a plugin reconnects the set as part of that operation — its servers
-come up and go down with the plugin, no restart involved — exactly like editing
-`config.json` does.
+disabling a plugin reconnects the set as part of that operation: its servers
+come up and go down with the plugin, no restart involved, exactly like editing
+`mcp.json` does.
 
 Host behaviours worth knowing when authoring one:
 

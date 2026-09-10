@@ -1,19 +1,24 @@
 /**
- * `internal_mcp_add` writes only the transport. Policy fields (enabled,
- * risk, tool caps, allow/block lists) are not persisted.
+ * `internal_mcp_add` writes only the transport into workspace mcp.json.
+ * Policy fields (enabled, risk, tool caps, allow/block lists) are not
+ * persisted.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-let raw: Record<string, unknown> = {};
-let saved: Record<string, unknown> | undefined;
+let stored: { servers: Record<string, { transport: Record<string, unknown> }> } =
+  { servers: {} };
+let saved:
+  | { servers: Record<string, { transport: Record<string, unknown> }> }
+  | undefined;
 
-const actualLoader = await import("../../../config/loader.js");
-mock.module("../../../config/loader.js", () => ({
-  ...actualLoader,
-  loadRawConfig: () => raw,
-  saveRawConfig: (next: Record<string, unknown>) => {
+mock.module("../../../mcp/workspace-mcp-config.js", () => ({
+  loadWorkspaceMcpConfig: () => stored,
+  saveWorkspaceMcpConfig: (next: {
+    servers: Record<string, { transport: Record<string, unknown> }>;
+  }) => {
     saved = next;
+    stored = next;
   },
 }));
 
@@ -26,13 +31,12 @@ const { ROUTES } = await import("../mcp-auth-routes.js");
 const addRoute = ROUTES.find((r) => r.operationId === "internal_mcp_add")!;
 
 function addedEntry(): Record<string, unknown> {
-  const mcp = saved?.mcp as { servers: Record<string, unknown> };
-  return mcp.servers["srv"] as Record<string, unknown>;
+  return saved!.servers["srv"] as Record<string, unknown>;
 }
 
 describe("internal_mcp_add persisted shape", () => {
   beforeEach(() => {
-    raw = {};
+    stored = { servers: {} };
     saved = undefined;
   });
 
