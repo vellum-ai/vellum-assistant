@@ -14,7 +14,14 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  createReadStream,
+  existsSync,
+  openSync,
+  readSync,
+  statSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 
 import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
@@ -229,8 +236,21 @@ export class DefaultPathResolver implements PathResolver {
 // Hash helper
 // ---------------------------------------------------------------------------
 
-function sha256Hex(data: Uint8Array): string {
-  return createHash("sha256").update(data).digest("hex");
+function hashExistingFile(path: string): string {
+  const fd = openSync(path, "r");
+  try {
+    const hash = createHash("sha256");
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    for (;;) {
+      const size = readSync(fd, chunk, 0, chunk.length, null);
+      if (size === 0) {
+        return hash.digest("hex");
+      }
+      hash.update(chunk.subarray(0, size));
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +271,41 @@ interface AnalyzeImportOptions {
 export function analyzeImport(
   options: AnalyzeImportOptions,
 ): ImportDryRunReport {
+  const steps = analyzeImportSteps(options);
+  let step = steps.next();
+  while (!step.done) {
+    try {
+      step = steps.next(hashExistingFile(step.value));
+    } catch (err) {
+      step = steps.throw(err);
+    }
+  }
+  return step.value;
+}
+
+/** Compare destination files incrementally without blocking runtime request handling. */
+export async function analyzeImportAsync(
+  options: AnalyzeImportOptions,
+): Promise<ImportDryRunReport> {
+  const steps = analyzeImportSteps(options);
+  let step = steps.next();
+  while (!step.done) {
+    try {
+      const hash = createHash("sha256");
+      for await (const chunk of createReadStream(step.value)) {
+        hash.update(chunk);
+      }
+      step = steps.next(hash.digest("hex"));
+    } catch (err) {
+      step = steps.throw(err);
+    }
+  }
+  return step.value;
+}
+
+function* analyzeImportSteps(
+  options: AnalyzeImportOptions,
+): Generator<string, ImportDryRunReport, string> {
   const { manifest, pathResolver } = options;
   const files: ImportFileReport[] = [];
   const conflicts: ImportConflict[] = [];
@@ -338,8 +393,7 @@ export function analyzeImport(
       try {
         const stat = statSync(diskPath);
         currentSize = stat.size;
-        const diskData = new Uint8Array(readFileSync(diskPath));
-        currentSha256 = sha256Hex(diskData);
+        currentSha256 = yield diskPath;
       } catch {
         // If we cannot read the file, treat it as a conflict
         conflicts.push({

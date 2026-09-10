@@ -123,4 +123,60 @@ describe("Teleport capacity", () => {
       }),
     ).rejects.toThrow("destination allows 1 bytes");
   });
+
+  test("preflight hashes existing destination files without reading them into a buffer", async () => {
+    reportFreeBytes(100 * 1024 ** 3);
+    const data = new Uint8Array(128 * 1024).fill(1);
+    fs.writeFileSync(join(workspaceDir, "capacity-existing.bin"), data);
+    const bundle = buildVBundle({
+      ...defaultV1Options(),
+      files: [
+        { path: "workspace/data/db/assistant.db", data: new Uint8Array() },
+        { path: "workspace/capacity-existing.bin", data },
+      ],
+    });
+    const bufferedRead = spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw new Error("Preflight must stream existing files");
+    });
+    try {
+      const result = await preflightBundleStream(
+        Readable.from([bundle.archive]),
+        new DefaultPathResolver(workspaceDir, join(workspaceDir, "hooks")),
+        workspaceDir,
+      );
+      expect(result.can_import).toBe(true);
+      expect(
+        "files" in result &&
+          result.files.find((file) =>
+            file.path.endsWith("capacity-existing.bin"),
+          )?.action,
+      ).toBe("unchanged");
+      expect(bufferedRead).not.toHaveBeenCalled();
+    } finally {
+      bufferedRead.mockRestore();
+    }
+  });
+
+  test("preflight blocks incompatible transfer receipts before import", async () => {
+    reportFreeBytes(100 * 1024 ** 3);
+    const bundle = buildVBundle({
+      ...defaultV1Options(),
+      compatibility: {
+        min_runtime_version: "999.0.0",
+        max_runtime_version: null,
+      },
+      files: [
+        { path: "workspace/data/db/assistant.db", data: new Uint8Array() },
+      ],
+    });
+    const result = await preflightBundleStream(
+      Readable.from([bundle.archive]),
+      new DefaultPathResolver(workspaceDir, join(workspaceDir, "hooks")),
+      workspaceDir,
+    );
+    expect(result.can_import).toBe(false);
+    expect("validation" in result && result.validation.errors[0]?.code).toBe(
+      "version_incompatible",
+    );
+  });
 });

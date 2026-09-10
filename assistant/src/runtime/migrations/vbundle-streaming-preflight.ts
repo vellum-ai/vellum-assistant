@@ -1,12 +1,20 @@
 import { type Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
+import { APP_VERSION } from "../../version.js";
 import {
   assertBundleFits,
   getImportByteBudget,
   MAX_BUNDLE_ENTRIES,
 } from "./bundle-capacity.js";
-import { analyzeImport, type PathResolver } from "./vbundle-import-analyzer.js";
+import {
+  analyzeImportAsync,
+  type PathResolver,
+} from "./vbundle-import-analyzer.js";
+import {
+  evaluateRuntimeCompatibility,
+  formatRuntimeCompatibilityMessage,
+} from "./vbundle-import-policy.js";
 import {
   createHashVerifier,
   readAndValidateManifest,
@@ -35,6 +43,19 @@ export async function preflightBundleStream(
       );
     }
     const { manifest, expected } = await readAndValidateManifest(first.value);
+    const compatibility = evaluateRuntimeCompatibility(
+      manifest.compatibility,
+      APP_VERSION,
+    );
+    if (!compatibility.ok) {
+      throw new StreamingValidationError(
+        "version_incompatible",
+        formatRuntimeCompatibilityMessage(
+          compatibility.bundle_compat,
+          compatibility.runtime_version,
+        ),
+      );
+    }
     assertBundleFits(
       manifest.contents.reduce((n, file) => n + file.size_bytes, 0),
       budget,
@@ -92,7 +113,7 @@ export async function preflightBundleStream(
         "Bundle is missing declared files",
       );
     }
-    return analyzeImport({ manifest, pathResolver });
+    return await analyzeImportAsync({ manifest, pathResolver });
   } catch (err) {
     if (err instanceof StreamingValidationError) {
       return {
