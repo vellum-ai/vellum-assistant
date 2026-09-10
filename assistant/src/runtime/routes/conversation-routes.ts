@@ -3,6 +3,7 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
+import { SYSTEM_DECISION_SURFACE } from "@vellumai/gateway-client";
 import {
   CLIENT_METADATA_HEADERS,
   type ClientMetadataField,
@@ -25,10 +26,7 @@ import {
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
-import {
-  syncTerminalGuardianRequestStatus,
-  SYSTEM_DECISION_SURFACE,
-} from "../../approvals/guardian-request-status-sync.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
   expireGuardianRequest,
   listGuardianRequestsOrEmpty,

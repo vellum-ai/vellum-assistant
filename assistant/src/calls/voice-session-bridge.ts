@@ -6,6 +6,7 @@
  * simple callbacks suitable for real-time TTS streaming.
  */
 
+import { SYSTEM_DECISION_SURFACE } from "@vellumai/gateway-client";
 import { v7 as uuidv7 } from "uuid";
 
 import type {
@@ -15,7 +16,6 @@ import type {
   MessageCompleteEvent,
 } from "../api/index.js";
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
-import { SYSTEM_DECISION_SURFACE } from "../approvals/guardian-request-status-sync.js";
 import type {
   ChannelId,
   ClientOs,

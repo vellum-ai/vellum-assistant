@@ -1,9 +1,8 @@
+import { SYSTEM_DECISION_SURFACE } from "@vellumai/gateway-client";
+
 import { peekAcpSessionManager } from "../../acp/index.js";
 import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
-import {
-  syncTerminalGuardianRequestStatus,
-  SYSTEM_DECISION_SURFACE,
-} from "../../approvals/guardian-request-status-sync.js";
+import { syncTerminalGuardianRequestStatus } from "../../approvals/guardian-request-status-sync.js";
 import {
   clearAll,
   getConversation,

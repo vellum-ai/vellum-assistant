@@ -275,6 +275,7 @@ export {
   ListPendingGuardianRequestsByDestinationIpcParamsSchema,
   ListPendingGuardianRequestsByScopeIpcParamsSchema,
   DELIVERY_STATUS,
+  SYSTEM_DECISION_SURFACE,
   ListExpiredPendingGuardianRequestsIpcParamsSchema,
   UpdateGuardianRequestDeliveryIpcParamsSchema,
   UpdateGuardianRequestIpcParamsSchema,

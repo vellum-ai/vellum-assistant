@@ -373,6 +373,32 @@ describe("resolveGuardianRequest", () => {
     expect(result.request.decidedVia).toBe("vellum");
   });
 
+  test("every decision field lands on the right column at once", () => {
+    // The CAS builds its SET clause and its argument list in two separate
+    // pushes, so a clause added without its argument (or in the wrong order)
+    // silently writes each value into its neighbour's column. Only a call
+    // that sets every optional field at once can catch that.
+    const req = createRequest();
+
+    const result = resolveGuardianRequest(req.id, "pending", {
+      status: "approved",
+      answerText: "Go ahead",
+      decidedByExternalUserId: "tg-guardian-1",
+      decidedByPrincipalId: TEST_PRINCIPAL,
+      decidedVia: "telegram",
+    });
+
+    if (!result.applied) {
+      throw new Error("expected resolve to apply");
+    }
+    expect(result.request.status).toBe("approved");
+    expect(result.request.answerText).toBe("Go ahead");
+    expect(result.request.decidedByExternalUserId).toBe("tg-guardian-1");
+    expect(result.request.decidedByPrincipalId).toBe(TEST_PRINCIPAL);
+    expect(result.request.decidedVia).toBe("telegram");
+    expect(result.request.decidedAt).toBeGreaterThanOrEqual(req.createdAt);
+  });
+
   test("a caller that names no surface leaves decidedVia null", () => {
     const req = createRequest();
     const result = resolveGuardianRequest(req.id, "pending", {

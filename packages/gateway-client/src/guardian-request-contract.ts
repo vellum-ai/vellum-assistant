@@ -101,6 +101,16 @@ export function isGuardianRequestExpired(
  * store's row type aliases this DTO (minus the computed `sourceType`), so
  * store reads serialize onto the wire unchanged.
  */
+/**
+ * The one reserved `decidedVia` value. Every other value is a channel id, so
+ * the field stays an open string set: a new channel needs no coordinated
+ * release. `system` marks a terminal transition no person chose (an auto-deny
+ * or a supersede sweep), which is distinct from NULL. NULL means the deciding
+ * surface could not be identified, and conflating the two would make "nobody
+ * decided" indistinguishable from "we do not know" in any latency analysis.
+ */
+export const SYSTEM_DECISION_SURFACE = "system";
+
 export const GuardianRequestSchema = z.object({
   id: z.string(),
   /**
@@ -158,6 +168,7 @@ export const GuardianRequestSchema = z.object({
    * `decidedAt`.
    */
   decidedVia: z.string().nullable().default(null),
+
   followupState: z.string().nullable(),
   expiresAt: z.number().nullable(),
   createdAt: z.number(),

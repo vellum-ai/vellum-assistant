@@ -40,13 +40,6 @@ import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
 
 const log = getLogger("guardian-request-status-sync");
 
-/**
- * `decidedVia` for a terminal transition no person chose: the auto-deny and
- * supersede sweeps. Recording it keeps those rows out of the human
- * time-to-decision series instead of reading as instant decisions.
- */
-export const SYSTEM_DECISION_SURFACE = "system";
-
 export interface SyncTerminalGuardianRequestStatusParams {
   requestId: string;
   status: "approved" | "denied";
@@ -56,8 +49,8 @@ export interface SyncTerminalGuardianRequestStatusParams {
    * Surface that resolved the confirmation, stamped onto the request's
    * `decidedVia`. Omitted by a caller that cannot name one: the legacy rail
    * routes many surfaces through one method, and a guessed default would be
-   * indistinguishable from a real reading. `SYSTEM_DECISION_SURFACE` for a
-   * machine-driven transition.
+   * indistinguishable from a real reading. `SYSTEM_DECISION_SURFACE` (from
+   * the shared contract) for a machine-driven transition.
    */
   decidedVia?: string;
   /**

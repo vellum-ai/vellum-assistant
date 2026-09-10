@@ -36,10 +36,9 @@ mock.module(
   () => gatewayGuardianRequestsStoreBridge,
 );
 
-import {
-  syncTerminalGuardianRequestStatus,
-  SYSTEM_DECISION_SURFACE,
-} from "../approvals/guardian-request-status-sync.js";
+import { SYSTEM_DECISION_SURFACE } from "@vellumai/gateway-client";
+
+import { syncTerminalGuardianRequestStatus } from "../approvals/guardian-request-status-sync.js";
 import { initializeDb } from "../persistence/db-init.js";
 
 await initializeDb();
