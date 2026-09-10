@@ -1672,7 +1672,8 @@
     "stopWorkflow": "Detener flujo de trabajo"
   },
   "transcriptRow": {
-    "thinking": "Pensando"
+    "thinking": "Pensando",
+    "working": "Trabajando"
   },
   "useConversationLoader": {
     "authFailed": "No se pudo autenticar al usuario."

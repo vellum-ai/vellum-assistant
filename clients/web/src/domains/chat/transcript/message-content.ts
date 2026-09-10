@@ -91,14 +91,22 @@ export interface GroupContentBlocksOptions {
  * The grouping options a message row implies. One place decides both, so the
  * render body, the live activity group, and the thinking drawer project the
  * same row the same way.
+ *
+ * `hideThinkingUi` is the transcript-wide gate (see `useHideThinkingUi`); the
+ * row's own `private` marker says the same thing about this row alone. Either
+ * is enough to drop the reasoning.
  */
-export function groupOptionsForMessage(message: {
-  role?: string;
-  assistantTextVisibility?: AssistantTextVisibility;
-}): GroupContentBlocksOptions {
+export function groupOptionsForMessage(
+  message: {
+    role?: string;
+    assistantTextVisibility?: AssistantTextVisibility;
+  },
+  hideThinkingUi = false,
+): GroupContentBlocksOptions {
   return {
     splitInlineThinking: message.role !== "user",
-    dropThinking: message.assistantTextVisibility === "private",
+    dropThinking:
+      hideThinkingUi || message.assistantTextVisibility === "private",
   };
 }
 
@@ -108,13 +116,16 @@ export function groupOptionsForMessage(message: {
  * thinking-dots row reads this to know when to defer to it; a row whose
  * reasoning the projection drops has no such link, and the dots keep the wait.
  */
-export function hasRenderedThinking(message: {
-  role?: string;
-  assistantTextVisibility?: AssistantTextVisibility;
-  thinkingSegments?: string[];
-  contentBlocks?: ConversationContentBlock[];
-}): boolean {
-  if (groupOptionsForMessage(message).dropThinking) {
+export function hasRenderedThinking(
+  message: {
+    role?: string;
+    assistantTextVisibility?: AssistantTextVisibility;
+    thinkingSegments?: string[];
+    contentBlocks?: ConversationContentBlock[];
+  },
+  hideThinkingUi = false,
+): boolean {
+  if (groupOptionsForMessage(message, hideThinkingUi).dropThinking) {
     return false;
   }
   return (

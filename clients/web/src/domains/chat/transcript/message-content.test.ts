@@ -758,6 +758,30 @@ describe("a private row's reasoning", () => {
     ).toBe(false);
   });
 
+  test("goes the same way for an unmarked row under the transcript-wide gate", () => {
+    expect(
+      groupOptionsForMessage({ role: "assistant" }, true).dropThinking,
+    ).toBe(true);
+    expect(hasRenderedThinking({ role: "assistant" }, true)).toBe(false);
+    expect(
+      groupContentBlocks(
+        blocks,
+        groupOptionsForMessage({ role: "assistant" }, true),
+      ),
+    ).toEqual([
+      {
+        type: "activity",
+        items: [
+          {
+            type: "tool_use",
+            toolCall: toolCall({ id: "call-a", name: "bash" }),
+          },
+        ],
+      },
+      { type: "text", text: "Here you go." },
+    ]);
+  });
+
   test("a user row never splits its own inline tags", () => {
     expect(groupOptionsForMessage({ role: "user" }).splitInlineThinking).toBe(
       false,

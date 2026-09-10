@@ -61,6 +61,7 @@ import { AnsweredQuestionCard } from "@/domains/chat/components/answered-questio
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { AssistantContentDisclosure } from "@/domains/chat/transcript/assistant-content-disclosure";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useSmoothStreamText } from "@/domains/chat/hooks/use-smooth-stream-text";
 import { useTranslation } from "@/i18n";
 import { useSupportsRedactedCredentialChips } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
@@ -175,11 +176,13 @@ export function TranscriptMessageBody({
   const isSlackMessage = Boolean(message.slackMessage);
   const isSlackReaction = message.slackMessage?.eventKind === "reaction";
   const isUser = message.role === "user";
-  // A row the daemon marks private speaks through the reply tool, so its
-  // reasoning is a scratchpad. `groupOptionsForMessage` drops the settled
-  // blocks; this is what keeps the live row from shimmering a "Thinking" label
-  // over the reply while the turn is still running.
-  const hidesThinking = message.assistantTextVisibility === "private";
+  // Two reasons this row shows no reasoning: the transcript-wide gate, and the
+  // row's own private marker. `groupOptionsForMessage` drops the settled blocks
+  // for either; this is what keeps the live row from shimmering a "Thinking"
+  // label over the reply while the turn is still running.
+  const hideThinkingUi = useHideThinkingUi();
+  const hidesThinking =
+    hideThinkingUi || message.assistantTextVisibility === "private";
   const hasAttachments = Boolean(message.attachments?.length);
   // Gated on the transcript owner: an older daemon neutralizes nothing, so
   // sentinel-shaped text in its transcripts must never chip-ify, and only the
@@ -191,7 +194,7 @@ export function TranscriptMessageBody({
   // carries no reasoning the user reads.
   const groups = groupContentBlocks(
     message.contentBlocks ?? [],
-    groupOptionsForMessage(message),
+    groupOptionsForMessage(message, hideThinkingUi),
   );
 
   // Only the trailing text group of a streaming assistant message is still

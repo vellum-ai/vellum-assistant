@@ -25,6 +25,7 @@ import {
   hasAnyInteractiveSurface,
   hasPendingAssistantResponse,
 } from "@/domains/chat/utils/chat";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { hasRenderedThinking } from "@/domains/chat/transcript/message-content";
 import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared";
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
@@ -101,6 +102,7 @@ export function useChatUIState(): ChatUIState {
   // source of truth on 0.8.8+; older daemons fall back to the client
   // optimistic mirror. See `lib/backwards-compat/conversation-processing-state`.
   const activeConversationIsProcessing = useActiveConversationIsProcessing();
+  const hideThinkingUi = useHideThinkingUi();
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(transcript),
@@ -128,8 +130,8 @@ export function useChatUIState(): ChatUIState {
     if (!live) {
       return false;
     }
-    return hasRenderedThinking(live);
-  }, [transcript, liveAssistantMessageId]);
+    return hasRenderedThinking(live, hideThinkingUi);
+  }, [transcript, liveAssistantMessageId, hideThinkingUi]);
 
   const hasUncompletedVisibleSurface = useMemo(
     () => hasAnyInteractiveSurface(transcript),

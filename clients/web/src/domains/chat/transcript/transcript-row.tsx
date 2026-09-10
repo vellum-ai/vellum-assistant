@@ -22,6 +22,7 @@ import { ReactionLineRow } from "@/domains/chat/transcript/reaction-line-row";
 import { SystemCardRow } from "@/domains/chat/transcript/system-card-row";
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { isInteractiveClickTarget } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useCoarsePointerReveal } from "@/domains/chat/transcript/use-coarse-pointer-reveal";
 import { isChannelDeleted } from "@/domains/chat/utils/is-channel-deleted";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -225,6 +226,7 @@ export const TranscriptRow = memo(function TranscriptRow({
   isLatestMessage,
 }: TranscriptRowProps) {
   const { t } = useTranslation("chat");
+  const hideThinkingUi = useHideThinkingUi();
   switch (item.kind) {
     case "message": {
       // A row deleted on its channel renders as a tombstone whatever else it
@@ -341,7 +343,12 @@ export const TranscriptRow = memo(function TranscriptRow({
           }`}
         >
           <StreamingShimmerText>
-            {item.label ?? t("transcriptRow.thinking")}
+            {item.label ??
+              t(
+                hideThinkingUi
+                  ? "transcriptRow.working"
+                  : "transcriptRow.thinking",
+              )}
           </StreamingShimmerText>
         </div>
       );

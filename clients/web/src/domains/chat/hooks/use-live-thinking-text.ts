@@ -4,6 +4,7 @@ import {
   groupContentBlocks,
   groupOptionsForMessage,
 } from "@/domains/chat/transcript/message-content";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useTranscriptMessageById } from "@/domains/chat/hooks/use-transcript-message-by-id";
 
 /**
@@ -37,13 +38,14 @@ export function useLiveThinkingText(
   thinkingItemIndex?: number,
 ): string | null {
   const message = useTranscriptMessageById(messageId);
+  const hideThinkingUi = useHideThinkingUi();
   return useMemo(() => {
     if (!message || groupIndex == null) {
       return null;
     }
     const groups = groupContentBlocks(
       message.contentBlocks ?? [],
-      groupOptionsForMessage(message),
+      groupOptionsForMessage(message, hideThinkingUi),
     );
     const group = groups[groupIndex];
     if (!group || group.type !== "activity") {
@@ -56,5 +58,5 @@ export function useLiveThinkingText(
       return segments.join("\n");
     }
     return segments[thinkingItemIndex] ?? null;
-  }, [message, groupIndex, thinkingItemIndex]);
+  }, [message, groupIndex, thinkingItemIndex, hideThinkingUi]);
 }

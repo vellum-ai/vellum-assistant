@@ -15,6 +15,7 @@ import {
   workflowRunIdForCall,
   type WorkflowCardBackingState,
 } from "@/domains/chat/transcript/transcript-message-body-shared";
+import { useHideThinkingUi } from "@/domains/chat/hooks/use-hide-thinking-ui";
 import { useTranscriptMessageById } from "@/domains/chat/hooks/use-transcript-message-by-id";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolCallCardItem } from "@/domains/chat/utils/tool-call-card-utils";
@@ -92,6 +93,7 @@ export function useLiveActivityGroup(
   groupIndex: number | undefined,
 ): { items: ToolCallCardItem[]; toolCalls: ChatMessageToolCall[] } | null {
   const message = useTranscriptMessageById(messageId);
+  const hideThinkingUi = useHideThinkingUi();
   // Card-backed process suppression reads the same store slices the
   // transcript subscribes to, so a card's backing flipping (an entry
   // appearing) drops the raw step from an open panel in the same render.
@@ -110,7 +112,7 @@ export function useLiveActivityGroup(
     }
     const groups = groupContentBlocks(
       message.contentBlocks ?? [],
-      groupOptionsForMessage(message),
+      groupOptionsForMessage(message, hideThinkingUi),
     );
     const group = groups[groupIndex];
     if (!group || group.type !== "activity") {
@@ -131,6 +133,7 @@ export function useLiveActivityGroup(
   }, [
     message,
     groupIndex,
+    hideThinkingUi,
     workflowById,
     workflowByToolUseId,
     workflowNotFoundRunIds,

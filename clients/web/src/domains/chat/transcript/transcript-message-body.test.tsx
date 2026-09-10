@@ -332,6 +332,7 @@ import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifa
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
@@ -390,6 +391,7 @@ afterAll(() => {
 });
 afterEach(() => {
   cleanup();
+  useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
 });
 
 function renderMessage(
@@ -1005,6 +1007,63 @@ describe("TranscriptMessageBody", () => {
     );
 
     expect(container.textContent).not.toContain("Thinking");
+  });
+
+  test("hides every thinking affordance when the transcript-wide gate is on", () => {
+    // A mixed history row: reasoning, a tool run, then the answer.
+    const mixedRow: DisplayMessage = {
+      id: "mixed-history",
+      role: "assistant",
+      contentBlocks: [
+        thinkingBlock("weighing the options"),
+        toolUseBlock({
+          id: "tc-bash",
+          name: "bash",
+          input: { command: "ls" },
+          completedAt: 1,
+        }),
+        textBlock("Here you go."),
+      ],
+    };
+
+    // The per-user opt-out renders every group inline, so the assertions read
+    // the thinking affordances themselves rather than the collapse around them.
+    useClientFeatureFlagStore.setState({ inlineAssistantIntermediates: true });
+    try {
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+      const gated = render(
+        <TranscriptMessageBody message={mixedRow} onSurfaceAction={noop} />,
+      );
+      // The reasoning reaches neither the rendered text nor the steps the
+      // activity card would draw, and the tool run it sat beside is untouched.
+      expect(gated.container.textContent).not.toContain("Thinking");
+      expect(gated.container.textContent).not.toContain("weighing the options");
+      // The run is down to its one tool, so it renders as a lone tool row
+      // rather than the combined activity card.
+      expect(
+        gated.container.querySelector("[data-testid='inline-tool-link']"),
+      ).not.toBeNull();
+      expect(gated.queryByText("Here you go.")).not.toBeNull();
+      cleanup();
+
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+      const ungated = render(
+        <TranscriptMessageBody message={mixedRow} onSurfaceAction={noop} />,
+      );
+      const ungatedCard = ungated.container.querySelector(
+        "[data-testid='tool-progress-card']",
+      );
+      expect(ungatedCard?.getAttribute("data-item-kinds")).toBe(
+        "thinking,toolCall",
+      );
+      expect(ungatedCard?.getAttribute("data-item-thinking")).toBe(
+        "weighing the options",
+      );
+    } finally {
+      useClientFeatureFlagStore.setState({
+        inlineAssistantIntermediates: false,
+      });
+    }
   });
 
   test("renders the answered question card for a settled ask_question", () => {
