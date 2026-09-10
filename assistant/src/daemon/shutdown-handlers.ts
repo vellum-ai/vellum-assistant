@@ -4,10 +4,7 @@ import { stopHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
-import {
-  stopMonitoring,
-  stopMonitoringAndWait,
-} from "../monitoring/control.js";
+import { stopMonitoring } from "../monitoring/control.js";
 import {
   runAsyncSqlite,
   spawnDetachedWalCheckpoint,
@@ -98,11 +95,6 @@ async function shutdown(): Promise<void> {
   }, 30_000);
   forceTimer.unref();
 
-  // Stop the resource monitor before workspace git flushes. Heartbeat
-  // auto-commits run there; SIGTERM waits for in-flight git so this
-  // process does not race a live add/commit. The later stopMonitoring()
-  // is then a no-op.
-  await stopMonitoringAndWait();
   await stopHeartbeatService();
 
   // Stop the periodic consent-cache refresh (a daemon-owned interval).

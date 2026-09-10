@@ -21,11 +21,6 @@ import {
   collectDirtyPathsFromPorcelain,
   parsePorcelainZ,
 } from "./git-porcelain.js";
-import {
-  acquireWorkspaceGitRepoLock,
-  getWorkspaceGitRepoLockPath,
-  WorkspaceGitRepoLockTimeout,
-} from "./git-repo-lock.js";
 
 const execFileAsync = promisify(execFile);
 const log = getLogger("workspace-git");
@@ -86,7 +81,6 @@ const WORKSPACE_GITIGNORE_RULES = [
   "*.sock",
   "*.pid",
   "daemon-startup.lock",
-  "workspace-git.lock",
   "session-token",
   // Databases (covers sidecar -journal/-wal/-shm files)
   "*.sqlite*",
@@ -267,8 +261,7 @@ interface GitStatus {
  *
  * Key features:
  * - Lazy initialization: git repo created only when needed
- * - Repo-lock-protected operations: in-process mutex plus a cross-process
- *   lock file so daemon and monitor git transactions cannot overlap
+ * - Mutex-protected operations: prevents concurrent git command conflicts
  * - Handles both new and existing workspaces transparently
  * - Synchronous initial commit within mutex to prevent races
  * - Size guard: files over workspaceGit.maxFileSizeBytes never enter commits
@@ -290,28 +283,6 @@ export class WorkspaceGitService {
   constructor(workspaceDir: string) {
     this.workspaceDir = workspaceDir;
     this.mutex = new Mutex();
-  }
-
-  /**
-   * Run `fn` with the in-process mutex and the cross-process repo lock held.
-   * `deadlineMs` is honored while waiting for the file lock so turn-boundary
-   * commits skip instead of blocking behind a long heartbeat batch.
-   */
-  private async withRepoLock<T>(
-    fn: () => Promise<T>,
-    options?: { deadlineMs?: number },
-  ): Promise<T> {
-    return this.mutex.withLock(async () => {
-      const release = await acquireWorkspaceGitRepoLock(
-        getWorkspaceGitRepoLockPath(this.workspaceDir),
-        options,
-      );
-      try {
-        return await fn();
-      } finally {
-        await release();
-      }
-    });
   }
 
   /**
@@ -411,8 +382,8 @@ export class WorkspaceGitService {
   /**
    * Remove `.git/index.lock` if it exists and no external process holds it.
    *
-   * This method is always called with the repo lock held, so no git operation
-   * from our code can be concurrently holding the lock. However, an external
+   * This method is always called inside the mutex, so no git operation from
+   * our code can be concurrently holding the lock. However, an external git
    * git process (user running `git add`, IDE tooling, etc.) could legitimately
    * hold the lock. We use `lsof` to check — if any process has the file
    * open, we leave it alone. If no process holds it, it's stale (crashed
@@ -475,7 +446,7 @@ export class WorkspaceGitService {
 
     return this.initGuard.run(
       () =>
-        this.withRepoLock(async () => {
+        this.mutex.withLock(async () => {
           // Double-check after acquiring lock
           if (this.initialized) {
             return;
@@ -647,7 +618,7 @@ export class WorkspaceGitService {
   ): Promise<void> {
     await this.ensureInitialized();
 
-    await this.withRepoLock(async () => {
+    await this.mutex.withLock(async () => {
       await this.cleanStaleLockFile();
 
       let fullMessage = message;
@@ -666,9 +637,9 @@ export class WorkspaceGitService {
   /**
    * Atomically check for uncommitted changes and commit if the caller decides to.
    *
-   * The status check, staging, and commit all happen within a single repo lock
-   * (in-process mutex plus a cross-process lock file), eliminating the TOCTOU
-   * race that exists when calling getStatus() and commitChanges() separately.
+   * The status check, staging, and commit all happen within a single mutex lock,
+   * eliminating the TOCTOU race that exists when calling getStatus() and
+   * commitChanges() separately.
    *
    * @param decide - Called with the current status. Return an object with `message`
    *   (and optional `metadata`) to commit, or `null` to skip.
@@ -717,7 +688,7 @@ export class WorkspaceGitService {
     await this.ensureInitialized();
 
     try {
-      const result = await this.withRepoLock(async () => {
+      const result = await this.mutex.withLock(async () => {
         await this.cleanStaleLockFile();
 
         // Re-check breaker under lock: a queued call that started before the
@@ -802,21 +773,12 @@ export class WorkspaceGitService {
           deadlineMs: options?.deadlineMs,
         });
         return { committed, status, didRunGit: true as const };
-      },
-      { deadlineMs: options?.deadlineMs },
-    );
+      });
       if (result.didRunGit) {
         this.recordSuccess();
       }
       return { committed: result.committed, status: result.status };
     } catch (err) {
-      if (err instanceof WorkspaceGitRepoLockTimeout) {
-        log.debug(
-          { workspaceDir: this.workspaceDir },
-          "Deadline expired waiting for workspace git repo lock, skipping commit",
-        );
-        return { committed: false, status: emptyStatus };
-      }
       this.recordFailure();
       throw err;
     }
@@ -829,7 +791,7 @@ export class WorkspaceGitService {
    */
   async getStatus(): Promise<GitStatus> {
     await this.ensureInitialized();
-    return this.withRepoLock(() => this.getStatusInternal());
+    return this.mutex.withLock(() => this.getStatusInternal());
   }
 
   /**
@@ -945,7 +907,7 @@ export class WorkspaceGitService {
    * decrease. Blobs referenced by older commits remain in .git. Like
    * {@link untrackIgnoredFilesLocked}, the staged deletions ride along with
    * the next commit and failures are logged, never blocking init. Must be
-   * called with the repo lock held.
+   * called with the mutex lock held.
    */
   private async untrackOversizedFilesLocked(): Promise<void> {
     try {
@@ -1087,7 +1049,7 @@ export class WorkspaceGitService {
     retryAfterMs?: number;
   }> {
     await this.ensureInitialized();
-    return this.withRepoLock(() => this.compactHistoryLocked(options));
+    return this.mutex.withLock(() => this.compactHistoryLocked(options));
   }
 
   /**
@@ -1095,7 +1057,7 @@ export class WorkspaceGitService {
    * physically deleted from .git. Hooks are disabled for the same reason as
    * in {@link buildSafeCommitArgs} — workspace hooks are model-writable and
    * untrusted, and gc's pack-refs would otherwise run the branch guard
-   * against legacy refs. Must be called with the repo lock held.
+   * against legacy refs. Must be called with the mutex lock held.
    */
   private async expireReflogsAndPruneLocked(): Promise<void> {
     await this.execGit(
@@ -1712,7 +1674,7 @@ export class WorkspaceGitService {
   /**
    * Ensure .gitignore contains all required workspace exclusion rules.
    * Idempotent: checks for missing rules and only appends what's needed.
-   * Must be called with the repo lock held.
+   * Must be called with the mutex lock held.
    */
   private ensureGitignoreRulesLocked(): void {
     const gitignorePath = join(this.workspaceDir, ".gitignore");
@@ -1781,7 +1743,7 @@ export class WorkspaceGitService {
    * paths, so committed runtime state (e.g. embedding-models/) stays in the
    * index — and churns every commit — until explicitly removed here. The
    * staged deletions ride along with the next commit. Best-effort: failures
-   * are logged, never block init. Must be called with the repo lock held.
+   * are logged, never block init. Must be called with the mutex lock held.
    *
    * Deliberately matches against the Vellum-managed rules only — not the
    * workspace .gitignore (which may carry user-authored rules whose matches
@@ -1839,7 +1801,7 @@ export class WorkspaceGitService {
   /**
    * Ensure local git identity is configured for automated commits.
    * Idempotent: git config set is a no-op if the value is already correct.
-   * Must be called with the repo lock held.
+   * Must be called with the mutex lock held.
    */
   private async ensureCommitIdentityLocked(): Promise<void> {
     const gitName = process.env.ASSISTANT_GIT_USER_NAME || DEFAULT_GIT_NAME;
@@ -1850,7 +1812,7 @@ export class WorkspaceGitService {
 
   /**
    * Ensure workspace branch guard hook is present.
-   * Must be called with the repo lock held.
+   * Must be called with the mutex lock held.
    */
   private ensureBranchGuardHookLocked(): void {
     const hooksDir = join(this.workspaceDir, ".githooks");
@@ -1862,7 +1824,7 @@ export class WorkspaceGitService {
 
   /**
    * Ensure workspace git uses the branch guard hook path.
-   * Must be called with the repo lock held.
+   * Must be called with the mutex lock held.
    */
   private async ensureBranchGuardConfigLocked(): Promise<void> {
     await this.execGit(["config", "core.hooksPath", ".githooks"]);
@@ -1872,7 +1834,7 @@ export class WorkspaceGitService {
    * Ensure the workspace repo is on the `main` branch.
    * If on a different branch or in detached HEAD state, switches to main
    * (creating it if it doesn't exist).
-   * Must be called with the repo lock held.
+   * Must be called with the mutex lock held.
    */
   private async ensureOnMainLocked(): Promise<void> {
     let currentBranch: string | null = null;
@@ -2147,7 +2109,7 @@ export class WorkspaceGitService {
   }
 
   /**
-   * Run a sequence of git commands atomically under the workspace repo lock.
+   * Run a sequence of git commands atomically under the workspace mutex.
    * Use this for write operations that need serialization with other
    * git mutations (e.g. checkout + commit).
    */
@@ -2157,7 +2119,7 @@ export class WorkspaceGitService {
     ) => Promise<void>,
   ): Promise<void> {
     await this.ensureInitialized();
-    await this.withRepoLock(async () => {
+    await this.mutex.withLock(async () => {
       await this.cleanStaleLockFile();
       await fn((args) => {
         // Intercept commit commands to enforce hook hardening.
@@ -2191,7 +2153,7 @@ export class WorkspaceGitService {
     noteContent: string,
     signal?: AbortSignal,
   ): Promise<void> {
-    await this.withRepoLock(async () => {
+    await this.mutex.withLock(async () => {
       const args = [
         "notes",
         "--ref=vellum",

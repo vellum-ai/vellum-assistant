@@ -325,10 +325,7 @@ const ORPHAN_STOP_POLL_INTERVAL_MS = 100;
 const ORPHAN_KILL_CONFIRM_MS = 1_000;
 
 /** Poll until `pid` is gone or `timeoutMs` elapses. */
-export async function waitForWorkerExit(
-  pid: number,
-  timeoutMs: number,
-): Promise<void> {
+async function waitForExit(pid: number, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && isProcessAlive(pid)) {
     await Bun.sleep(ORPHAN_STOP_POLL_INTERVAL_MS);
@@ -360,7 +357,7 @@ async function stopOrphanedWorker(
     // Exited between the probe and the signal.
   }
 
-  await waitForWorkerExit(pid, ORPHAN_STOP_TIMEOUT_MS);
+  await waitForExit(pid, ORPHAN_STOP_TIMEOUT_MS);
   // Identity is re-proven after every awaited gap, not carried by the PID:
   // the orphan may have exited during the wait and the OS may have handed its
   // PID to a stranger. Only a positive re-match escalates, and only a proven
@@ -372,7 +369,7 @@ async function stopOrphanedWorker(
     } catch {
       // Best-effort.
     }
-    await waitForWorkerExit(pid, ORPHAN_KILL_CONFIRM_MS);
+    await waitForExit(pid, ORPHAN_KILL_CONFIRM_MS);
     fate = orphanFate(pid, signature);
   }
 
@@ -648,28 +645,6 @@ export function stopWorkerProcess(pidPath: string): WorkerProcessStatus {
     process.kill(current.pid, "SIGTERM");
   }
   return current;
-}
-
-/**
- * SIGTERM the worker behind `pidPath` and wait until it exits or
- * `timeoutMs` elapses. Does not escalate to SIGKILL: a workspace git
- * heartbeat in the monitor must be allowed to finish in-flight
- * add/commit work rather than be killed with `index.lock` held.
- */
-export async function stopWorkerProcessAndWait(
-  pidPath: string,
-  timeoutMs: number,
-): Promise<{ signalled: boolean; exited: boolean; pid?: number }> {
-  const current = stopWorkerProcess(pidPath);
-  if (current.status !== "running" || current.pid == null) {
-    return { signalled: false, exited: true };
-  }
-  await waitForWorkerExit(current.pid, timeoutMs);
-  return {
-    signalled: true,
-    exited: !isProcessAlive(current.pid),
-    pid: current.pid,
-  };
 }
 
 // ---------------------------------------------------------------------------
