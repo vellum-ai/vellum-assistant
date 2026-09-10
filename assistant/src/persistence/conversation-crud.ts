@@ -31,7 +31,10 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import type {
+  ConversationDeletedInputContext,
+  MessageDeletedInputContext,
+} from "../hooks/types.js";
 import { readProviderMetadata } from "../messaging/read-provider-metadata.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
@@ -4535,9 +4538,13 @@ export function deleteMessageById(
     .map((r) => r.attachmentId)
     .filter((id): id is string => id !== undefined);
 
-  // Look up the conversation before the transaction so we can recalculate lastMessageAt.
+  // Look up the conversation before the transaction so we can recalculate
+  // lastMessageAt, and the row's createdAt for the `message-deleted` hook.
   const msgRow = db
-    .select({ conversationId: messages.conversationId })
+    .select({
+      conversationId: messages.conversationId,
+      createdAt: messages.createdAt,
+    })
     .from(messages)
     .where(eq(messages.id, messageId))
     .get();
@@ -4593,6 +4600,16 @@ export function deleteMessageById(
   // not go through the conversation-level purge.
   if (msgRow) {
     enqueueDeleteMessageLexical(messageId);
+
+    // Notify `message-deleted` hooks (e.g. the memory plugin stamping a
+    // retrospective cursor that sat on this row). Fire-and-forget from this
+    // synchronous primitive, like `conversation-deleted`; the context carries
+    // the row's position because the row itself is gone.
+    void runHook(HOOKS.MESSAGE_DELETED, {
+      conversationId: msgRow.conversationId,
+      messageId,
+      createdAt: msgRow.createdAt,
+    } satisfies MessageDeletedInputContext);
   }
 
   return result;

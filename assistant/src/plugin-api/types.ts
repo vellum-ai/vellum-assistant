@@ -16,6 +16,7 @@ export type {
   ConversationDeletedContext,
   ConversationsClearedContext,
   HookBroadcast,
+  MessageDeletedContext,
   PluginLogger,
   PostCompactContext,
   PostModelCallContext,
@@ -60,6 +61,7 @@ export type {
  *   - `post-model-call` — {@link PostModelCallContext}
  *   - `conversation-deleted` — {@link ConversationDeletedContext}
  *   - `conversations-cleared` — {@link ConversationsClearedContext}
+ *   - `message-deleted`: {@link MessageDeletedContext}
  */
 export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,

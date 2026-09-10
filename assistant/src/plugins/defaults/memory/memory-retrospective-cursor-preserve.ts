@@ -5,11 +5,11 @@
 // The cursor normally sits on the latest assistant reply, and the retry route
 // deletes exactly that row when the user regenerates it. A cursor written
 // before the timestamp column existed carries only the id, so once the row is
-// gone nothing can place it. Deletion paths that hold the rows they are about
-// to remove call this first: when the conversation's cursor is among them and
-// has no timestamp yet, the row's `createdAt` is recorded before it is lost.
-// The rows' timestamps travel in the call, so the write does not need the
-// rows to still exist and the caller need not wait for it.
+// gone nothing can place it. The `message-deleted` hook delivers each deleted
+// row's `(createdAt, id)` here: when the conversation's cursor is among the
+// rows and has no timestamp yet, the row's `createdAt` is recorded. The
+// timestamps travel in the call, so the write does not need the rows to
+// still exist.
 
 import { and, eq, isNull } from "drizzle-orm";
 

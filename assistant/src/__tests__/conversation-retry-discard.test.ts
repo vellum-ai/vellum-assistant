@@ -10,16 +10,25 @@ import {
   discardLastAssistantDisplayTurn,
   extractUserPromptText,
 } from "../daemon/conversation-history.js";
+import { registerPluginHooks } from "../hooks/registry.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb, getMemorySqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { conversations, messages } from "../persistence/schema/index.js";
+import memoryMessageDeleted from "../plugins/defaults/memory/hooks/message-deleted.js";
 import {
   ensureRetrospectiveCursorColumn,
   getRetrospectiveState,
 } from "../plugins/defaults/memory/memory-retrospective-state.js";
+import type { PluginHooks } from "../plugins/types.js";
 
 await initializeDb();
+
+// Register the memory plugin's `message-deleted` hook the way boot does, so
+// the delete primitive's dispatch reaches the cursor bookkeeping.
+registerPluginHooks("default-memory", {
+  "message-deleted": memoryMessageDeleted,
+} as PluginHooks);
 
 const CONV_ID = "conv-retry-discard-test";
 
@@ -241,12 +250,17 @@ describe("discardLastAssistantDisplayTurn keeps the memory-retrospective cursor 
       .run(CONV_ID, assistantId);
 
     discardLastAssistantDisplayTurn(CONV_ID);
-    // The preservation write is detached from the discard; give it a beat.
-    await Bun.sleep(25);
 
     expect(getMessages(CONV_ID).some((m) => m.id === assistantId)).toBe(false);
-    expect(getRetrospectiveState(CONV_ID)?.lastProcessedCreatedAt).toBe(
-      replyCreatedAt,
-    );
+    // The hook chain is fire-and-forget from the delete primitive, so the
+    // stamp lands shortly after the discard returns.
+    const deadline = Date.now() + 2_000;
+    let stamped =
+      getRetrospectiveState(CONV_ID)?.lastProcessedCreatedAt ?? null;
+    while (stamped === null && Date.now() < deadline) {
+      await Bun.sleep(10);
+      stamped = getRetrospectiveState(CONV_ID)?.lastProcessedCreatedAt ?? null;
+    }
+    expect(stamped).toBe(replyCreatedAt);
   });
 });
