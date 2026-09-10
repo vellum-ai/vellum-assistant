@@ -168,6 +168,50 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/whoami": {
+        get: {
+          summary: "Bound platform identity",
+          description:
+            "Authenticated gateway endpoint that returns this assistant's platform assistant, user, and organization ids. Values come from the gateway-local identity store, not a live credential-vault round trip on every request.",
+          operationId: "whoami",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Bound platform identity returned",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      assistantId: { type: ["string", "null"] },
+                      userId: { type: ["string", "null"] },
+                      organizationId: { type: ["string", "null"] },
+                    },
+                    required: ["assistantId", "userId", "organizationId"],
+                  },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized: missing or invalid bearer token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description:
+                "Credential store unreachable and no identity cached",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/ps": {
         get: {
           summary: "Process status",

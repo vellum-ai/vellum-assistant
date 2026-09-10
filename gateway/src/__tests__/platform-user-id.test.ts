@@ -2,30 +2,61 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import "./test-preload.js";
 
-let mockResult: { value: string | undefined; unreachable: boolean } = {
-  value: undefined,
-  unreachable: false,
-};
+import { credentialKey } from "../credential-key.js";
+
+type CredResult = { value: string | undefined; unreachable: boolean };
+
+const results = new Map<string, CredResult>();
 
 const actualCredentialReader = await import("../credential-reader.js");
 mock.module("../credential-reader.js", () => ({
   ...actualCredentialReader,
-  readCredentialResult: async () => mockResult,
+  readCredentialResult: async (account: string) =>
+    results.get(account) ?? { value: undefined, unreachable: false },
 }));
 
-const { readStoredPlatformUserId, _resetLastKnownPlatformUserIdForTest } =
-  await import("../platform-user-id.js");
+const {
+  readPlatformIdentity,
+  readStoredPlatformUserId,
+  _resetLastKnownPlatformUserIdForTest,
+  _dropPlatformIdentityMemoryForTest,
+} = await import("../platform-user-id.js");
+
+const { handleWhoami } = await import("../http/routes/whoami.js");
 
 const OWNER_ID = "user-123";
+const ASSISTANT_ID = "asst-123";
+const ORG_ID = "org-abc";
+
+function setLiveIdentity(identity: {
+  assistantId?: string;
+  userId?: string;
+  organizationId?: string;
+  unreachable?: boolean;
+}): void {
+  const unreachable = identity.unreachable ?? false;
+  results.set(credentialKey("vellum", "platform_assistant_id"), {
+    value: identity.assistantId,
+    unreachable,
+  });
+  results.set(credentialKey("vellum", "platform_user_id"), {
+    value: identity.userId,
+    unreachable,
+  });
+  results.set(credentialKey("vellum", "platform_organization_id"), {
+    value: identity.organizationId,
+    unreachable,
+  });
+}
 
 beforeEach(() => {
   _resetLastKnownPlatformUserIdForTest();
-  mockResult = { value: undefined, unreachable: false };
+  results.clear();
 });
 
 describe("readStoredPlatformUserId", () => {
   test("returns a live owner id and caches it", async () => {
-    mockResult = { value: OWNER_ID, unreachable: false };
+    setLiveIdentity({ userId: OWNER_ID });
     await expect(readStoredPlatformUserId()).resolves.toEqual({
       userId: OWNER_ID,
       unreachable: false,
@@ -33,10 +64,10 @@ describe("readStoredPlatformUserId", () => {
   });
 
   test("uses last known owner when the vault is unreachable", async () => {
-    mockResult = { value: OWNER_ID, unreachable: false };
+    setLiveIdentity({ userId: OWNER_ID });
     await readStoredPlatformUserId();
 
-    mockResult = { value: undefined, unreachable: true };
+    setLiveIdentity({ unreachable: true });
     await expect(readStoredPlatformUserId()).resolves.toEqual({
       userId: OWNER_ID,
       unreachable: false,
@@ -44,27 +75,94 @@ describe("readStoredPlatformUserId", () => {
   });
 
   test("reports unreachable when the vault is down and nothing is cached", async () => {
-    mockResult = { value: undefined, unreachable: true };
+    setLiveIdentity({ unreachable: true });
     await expect(readStoredPlatformUserId()).resolves.toEqual({
       userId: undefined,
       unreachable: true,
     });
   });
 
-  test("a genuine miss clears the last known owner", async () => {
-    mockResult = { value: OWNER_ID, unreachable: false };
+  test("keeps durable identity when the vault answers empty", async () => {
+    setLiveIdentity({ userId: OWNER_ID });
     await readStoredPlatformUserId();
 
-    mockResult = { value: undefined, unreachable: false };
+    setLiveIdentity({});
     await expect(readStoredPlatformUserId()).resolves.toEqual({
-      userId: undefined,
+      userId: OWNER_ID,
       unreachable: false,
     });
+  });
 
-    mockResult = { value: undefined, unreachable: true };
+  test("rereads the identity file after a process-local cache drop", async () => {
+    setLiveIdentity({ userId: OWNER_ID });
+    await readStoredPlatformUserId();
+    _dropPlatformIdentityMemoryForTest();
+
+    setLiveIdentity({ unreachable: true });
     await expect(readStoredPlatformUserId()).resolves.toEqual({
-      userId: undefined,
-      unreachable: true,
+      userId: OWNER_ID,
+      unreachable: false,
+    });
+  });
+});
+
+describe("readPlatformIdentity", () => {
+  test("returns all three ids from a live vault read", async () => {
+    setLiveIdentity({
+      assistantId: ASSISTANT_ID,
+      userId: OWNER_ID,
+      organizationId: ORG_ID,
+    });
+    await expect(readPlatformIdentity()).resolves.toEqual({
+      identity: {
+        assistantId: ASSISTANT_ID,
+        userId: OWNER_ID,
+        organizationId: ORG_ID,
+      },
+      unreachable: false,
+    });
+  });
+});
+
+describe("GET /v1/whoami", () => {
+  test("returns bound identity", async () => {
+    setLiveIdentity({
+      assistantId: ASSISTANT_ID,
+      userId: OWNER_ID,
+      organizationId: ORG_ID,
+    });
+    const res = await handleWhoami();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      assistantId: ASSISTANT_ID,
+      userId: OWNER_ID,
+      organizationId: ORG_ID,
+    });
+  });
+
+  test("returns 503 when the vault is down and nothing is cached", async () => {
+    setLiveIdentity({ unreachable: true });
+    const res = await handleWhoami();
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain("unreachable");
+  });
+
+  test("keeps serving identity when the vault answers empty", async () => {
+    setLiveIdentity({
+      assistantId: ASSISTANT_ID,
+      userId: OWNER_ID,
+      organizationId: ORG_ID,
+    });
+    await handleWhoami();
+
+    setLiveIdentity({});
+    const res = await handleWhoami();
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      assistantId: ASSISTANT_ID,
+      userId: OWNER_ID,
+      organizationId: ORG_ID,
     });
   });
 });

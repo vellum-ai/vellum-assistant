@@ -125,6 +125,7 @@ import { createPlatformPushProxyHandler } from "./http/routes/platform-push-prox
 import { createPsHandler } from "./http/routes/ps.js";
 import { createVelayStatusHandler } from "./http/routes/velay-status.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
+import { handleWhoami } from "./http/routes/whoami.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
 import {
   createMigrationExportProxyHandler,
@@ -863,6 +864,12 @@ async function main() {
       method: "GET",
       auth: "edge",
       handler: (req) => runtimeHealthProxy.handleRuntimeHealth(req),
+    },
+    {
+      path: "/v1/whoami",
+      method: "GET",
+      auth: "edge",
+      handler: () => handleWhoami(),
     },
 
     // ── Process status ──
