@@ -191,8 +191,45 @@ describe("dropUnacknowledgedReply", () => {
     getState().markReplyQueued("conv-1");
 
     expect(getState().pendingReplies.get("conv-1")).toEqual([
-      { clientMessageId: "cm-1", acknowledged: true, queued: true },
-      { clientMessageId: "cm-2", acknowledged: false, queued: false },
+      {
+        clientMessageId: "cm-1",
+        acknowledged: true,
+        queued: true,
+        queuedOnStream: true,
+      },
+      {
+        clientMessageId: "cm-2",
+        acknowledged: false,
+        queued: false,
+        queuedOnStream: false,
+      },
+    ]);
+  });
+
+  test("a queue event carrying no nonce parks the newest send once the acked send's own has landed", () => {
+    // On a daemon whose events carry no nonce, the first send's queue event
+    // landed before the response that acknowledged it, and a second send was
+    // listed after that response.
+    getState().startAwaitingReply("conv-1", "cm-1");
+    getState().markReplyQueued("conv-1");
+    getState().acknowledgeReply("conv-1", "cm-1", true);
+    getState().startAwaitingReply("conv-1", "cm-2");
+
+    getState().markReplyQueued("conv-1");
+
+    expect(getState().pendingReplies.get("conv-1")).toEqual([
+      {
+        clientMessageId: "cm-1",
+        acknowledged: true,
+        queued: true,
+        queuedOnStream: true,
+      },
+      {
+        clientMessageId: "cm-2",
+        acknowledged: true,
+        queued: true,
+        queuedOnStream: true,
+      },
     ]);
   });
 
@@ -204,8 +241,18 @@ describe("dropUnacknowledgedReply", () => {
     getState().markReplyQueued("conv-1");
 
     expect(getState().pendingReplies.get("conv-1")).toEqual([
-      { clientMessageId: "cm-1", acknowledged: true, queued: false },
-      { clientMessageId: "cm-2", acknowledged: true, queued: true },
+      {
+        clientMessageId: "cm-1",
+        acknowledged: true,
+        queued: false,
+        queuedOnStream: false,
+      },
+      {
+        clientMessageId: "cm-2",
+        acknowledged: true,
+        queued: true,
+        queuedOnStream: true,
+      },
     ]);
   });
 

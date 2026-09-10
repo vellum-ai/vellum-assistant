@@ -3044,6 +3044,7 @@ describe("an attempt nothing can retry", () => {
         clientMessageId: secondNonce,
         acknowledged: false,
         queued: false,
+        queuedOnStream: false,
         payload: {
           surfaceId: SURFACE_ID,
           content: "hello, edited",

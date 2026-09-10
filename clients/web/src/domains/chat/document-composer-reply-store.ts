@@ -57,6 +57,13 @@ export interface PendingDocumentReply {
    */
   queued: boolean;
   /**
+   * The stream's own `message_queued` for this send has arrived. A response
+   * can acknowledge a send as queued before its queue event lands, and until
+   * that event does, a queue event carrying no nonce is this send's rather
+   * than a newer send's.
+   */
+  queuedOnStream: boolean;
+  /**
    * What the send carried, when it was listed with one. The daemon can report
    * a message-scoped failure after the send's own response has already
    * cleared the composer, so the message it took is kept here to hand back.
@@ -130,13 +137,14 @@ export interface DocumentComposerReplyActions {
   /**
    * The daemon parked the send carrying `clientMessageId` in
    * `conversationId`'s queue, so it is acknowledged but not the one running.
-   * When the event or every pending send lacks a nonce, the newest pending
-   * send is the one that was queued, unless a send already acknowledged as
-   * queued can account for the event: on a daemon whose events carry no
-   * nonce, that send's queue event can land after the response that
-   * acknowledged it, and handing it to a newer send would park one the
-   * daemon never queued. A nonce that names none of them is another
-   * client's message.
+   * When the event or every pending send lacks a nonce, the event is the
+   * oldest send's whose response acknowledged it as queued while its own
+   * queue event is still to land, else the newest pending send's: on a daemon
+   * whose events carry no nonce, a send's queue event can land after the
+   * response that acknowledged it, and handing it to a newer send would park
+   * one the daemon never queued, while a send whose queue event has landed
+   * cannot account for a later one. A nonce that names none of them is
+   * another client's message.
    */
   markReplyQueued: (conversationId: string, clientMessageId?: string) => void;
   /**
@@ -306,7 +314,13 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, [
             ...pending,
-            { clientMessageId, acknowledged: false, queued: false, payload },
+            {
+              clientMessageId,
+              acknowledged: false,
+              queued: false,
+              queuedOnStream: false,
+              payload,
+            },
           ]),
         };
       });
@@ -401,22 +415,28 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         if (!pending || pending.length === 0) {
           return s;
         }
-        if (
-          clientMessageId === undefined &&
-          pending.some((p) => p.acknowledged && p.queued)
-        ) {
-          return s;
-        }
+        const owedQueueEvent = pending.findIndex(
+          (p) => p.acknowledged && p.queued && !p.queuedOnStream,
+        );
         const index = indexOfAwaitedSend(
           pending,
           clientMessageId,
-          pending.length - 1,
+          owedQueueEvent === -1 ? pending.length - 1 : owedQueueEvent,
         );
-        if (index === -1 || pending[index].queued) {
+        if (index === -1) {
+          return s;
+        }
+        const current = pending[index];
+        if (current.queued && current.queuedOnStream) {
           return s;
         }
         const next = [...pending];
-        next[index] = { ...pending[index], acknowledged: true, queued: true };
+        next[index] = {
+          ...current,
+          acknowledged: true,
+          queued: true,
+          queuedOnStream: true,
+        };
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
