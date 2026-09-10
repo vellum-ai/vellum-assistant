@@ -237,3 +237,18 @@ test("a failed handoff remains retryable until viewer input is restored", async 
   expect(f.control.getStatus().state).toBe("human");
   expect(f.released).toHaveBeenCalledTimes(1);
 });
+
+test("rejects clicks and drag destinations outside the observed image before sending input", async () => {
+  for (const action of [
+    { action: "click", x: 1440, y: 50 },
+    { action: "drag", x: 100, y: 50, to_x: 1600, to_y: 50 },
+  ]) {
+    const f = fixture();
+    const id = await observe(f.control);
+    await expect(
+      f.control.execute({ ...action, observation_id: id }, context()),
+    ).rejects.toThrow("inside the observed screenshot");
+    expect(f.input.perform).not.toHaveBeenCalled();
+    expect(f.released).toHaveBeenCalledTimes(1);
+  }
+});

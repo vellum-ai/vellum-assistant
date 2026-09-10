@@ -253,7 +253,10 @@ export class DesktopControl {
           if (
             "x" in action &&
             (action.x >= owner.observation.width ||
-              action.y >= owner.observation.height)
+              action.y >= owner.observation.height ||
+              (action.action === "drag" &&
+                (action.to_x >= owner.observation.width ||
+                  action.to_y >= owner.observation.height)))
           ) {
             throw new Error(
               "Coordinates must be inside the observed screenshot",
