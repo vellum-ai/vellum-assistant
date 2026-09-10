@@ -3285,21 +3285,22 @@ describe("Subagent advisor-role consult", () => {
 
   test("a spawn whose turn was stopped never reaches the manager", async () => {
     // The stop can land while the advisor's context pack is being assembled, so
-    // the tool checks before paying for that as well as after.
+    // the tool checks before paying for that as well as after. Like every
+    // side-effecting tool it hands the abort to the executor, which writes the
+    // cancelled result, rather than answering with a result of its own.
     const controller = new AbortController();
     controller.abort();
     const { captured, restore } = stubSpawn();
     try {
-      const result = await executeSubagentSpawn(
-        { label: "Consult", objective: "x", role: "advisor" },
-        makeContext("advisor-sess-cancelled", {
-          sendToClient: () => {},
-          signal: controller.signal,
-        }),
-      );
-      // Not an error: the user cancelled, and no child was started.
-      expect(result.isError).toBe(false);
-      expect(result.content).toContain("this turn was stopped");
+      await expect(
+        executeSubagentSpawn(
+          { label: "Consult", objective: "x", role: "advisor" },
+          makeContext("advisor-sess-cancelled", {
+            sendToClient: () => {},
+            signal: controller.signal,
+          }),
+        ),
+      ).rejects.toThrow();
       expect(captured.current).toBeUndefined();
     } finally {
       restore();

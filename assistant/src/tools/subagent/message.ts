@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getSubagentManager } from "../../subagent/index.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -37,6 +38,7 @@ export async function executeSubagentMessage(
       isError: true,
     };
   }
+  throwIfCancelled(context);
 
   const manager = getSubagentManager();
 

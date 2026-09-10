@@ -22,8 +22,12 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { isAbortLikeError } from "../tools/shared/abort.js";
 import { getLogger } from "../util/logger.js";
-import { upsertActiveCallLease } from "./active-call-lease.js";
+import {
+  syncActiveCallLeaseFromSession,
+  upsertActiveCallLease,
+} from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
 import { postPointerMessageSafe } from "./call-pointer-messages.js";
 import { getCallController, unregisterCallController } from "./call-state.js";
@@ -71,6 +75,12 @@ type StartCallInput = {
   assistantId?: string;
   callerIdentityMode?: "assistant_number" | "user_number";
   skipDisclosure?: boolean;
+  /**
+   * Cancellation for the turn that asked for the call. Setup is asynchronous
+   * (caller-identity resolution, ingress preflight, callback-URL lookups), so
+   * this is what stops a stopped turn from still dialling a real number.
+   */
+  signal?: AbortSignal;
 };
 
 type CancelCallInput = {
@@ -352,6 +362,7 @@ export async function startCall(
     callerIdentityMode,
     skipDisclosure,
     assistantId = DAEMON_INTERNAL_ASSISTANT_ID,
+    signal,
   } = input;
 
   if (!phoneNumber || typeof phoneNumber !== "string") {
@@ -420,6 +431,11 @@ export async function startCall(
 
     const ingressConfig = preflightResult.ingressConfig;
     const provider = new TwilioVoiceProvider();
+
+    // Caller-identity resolution and the ingress preflight above are both
+    // awaits. Checking here means a turn stopped during them leaves nothing
+    // behind: no call session, no voice conversation, no lease.
+    signal?.throwIfAborted();
 
     const session = createCallSession({
       conversationId,
@@ -502,6 +518,24 @@ export async function startCall(
 
     upsertActiveCallLease({ callSessionId: session.id });
 
+    // The callback-URL lookups above are awaits too, and by now the session,
+    // its voice conversation and its lease exist. A cancel landing here must
+    // not still place a real outbound call, so the session is marked cancelled
+    // and its lease released before the abort is let out.
+    if (signal?.aborted) {
+      updateCallSession(session.id, {
+        status: "cancelled",
+        endedAt: Date.now(),
+        lastError: "Cancelled before the call was placed",
+      });
+      syncActiveCallLeaseFromSession({
+        id: session.id,
+        providerCallSid: null,
+        status: "cancelled",
+      });
+      signal.throwIfAborted();
+    }
+
     const { callSid } = await provider.initiateCall({
       from: fromNumber,
       to: phoneNumber,
@@ -526,6 +560,12 @@ export async function startCall(
       callerIdentityMode: identityResult.mode,
     };
   } catch (err) {
+    // A cancelled turn is not a call failure: the session and lease are already
+    // released above, so let the abort out rather than reporting a failure and
+    // posting a failure notice to the conversation.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     log.error({ err, phoneNumber }, "Failed to initiate call");
 

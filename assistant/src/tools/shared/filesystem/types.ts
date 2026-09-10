@@ -28,6 +28,12 @@ export type ReadResult =
 export interface WriteInput {
   path: string;
   content: string;
+  /**
+   * Turn cancellation, checked immediately before the write. The lock wait and
+   * the previous-content read both yield, so a caller's entry guard cannot
+   * cover the moment the bytes land.
+   */
+  signal?: AbortSignal;
 }
 
 export interface WriteOutput {
@@ -54,6 +60,12 @@ export interface EditInput {
   oldString: string;
   newString: string;
   replaceAll: boolean;
+  /**
+   * Turn cancellation, checked immediately before the write. The lock wait,
+   * the size check and the content read all yield, so a caller's entry guard
+   * cannot cover the moment the bytes land.
+   */
+  signal?: AbortSignal;
 }
 
 export interface EditOutput {

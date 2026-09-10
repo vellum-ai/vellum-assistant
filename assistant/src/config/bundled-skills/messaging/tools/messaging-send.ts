@@ -21,6 +21,10 @@ import { recordDeliveredChannelPost } from "../../../../notifications/delivered-
 import { getConversation } from "../../../../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../../../../persistence/conversation-disk-view.js";
 import { normalizeExternalThreadId } from "../../../../persistence/external-conversation-store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -186,6 +190,8 @@ export async function run(
     return err("text is required.");
   }
 
+  throwIfCancelled(context);
+
   try {
     const provider = await resolveProvider(platform);
 
@@ -276,6 +282,9 @@ export async function run(
             cc: ccList.length > 0 ? ccList.join(", ") : undefined,
             attachments,
           });
+          // Recheck: the thread lookups and the attachment reads above are
+          // awaits, and this creates a real mailbox draft.
+          throwIfCancelled(context);
           const draft = await createDraftRaw(gmailConn, raw, threadId);
 
           const filenames = attachments.map((a) => a.filename).join(", ");
@@ -288,6 +297,9 @@ export async function run(
           );
         }
 
+        // Recheck: the thread and profile lookups above are awaits, and this
+        // creates a real mailbox draft.
+        throwIfCancelled(context);
         const draft = await createDraft(
           gmailConn,
           toList.join(", "),
@@ -319,6 +331,9 @@ export async function run(
           inReplyTo,
           attachments,
         });
+        // Recheck: the attachment reads above are awaits, and this creates a
+        // real mailbox draft.
+        throwIfCancelled(context);
         const draft = await createDraftRaw(gmailConn, raw, threadId);
 
         const filenames = attachments.map((a) => a.filename).join(", ");
@@ -328,6 +343,9 @@ export async function run(
       }
 
       // Without attachments: use standard createDraft
+      // Recheck: provider and connection resolution above are awaits, and
+      // this creates a real mailbox draft.
+      throwIfCancelled(context);
       const draft = await createDraft(
         gmailConn,
         conversationId,
@@ -364,11 +382,10 @@ export async function run(
         : undefined;
 
       if (inReplyTo) {
-        const draft = await createOutlookReplyDraft(
-          conn,
-          inReplyTo,
-          text,
-        );
+        // Recheck: the attachment reads above are awaits, and this creates a
+        // real mailbox draft.
+        throwIfCancelled(context);
+        const draft = await createOutlookReplyDraft(conn, inReplyTo, text);
         const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
         return ok(
           formatOutlookDraftCreated({
@@ -389,6 +406,9 @@ export async function run(
           : {}),
         ...(graphAttachments ? { attachments: graphAttachments } : {}),
       };
+      // Recheck: the attachment reads above are awaits, and this creates a
+      // real mailbox draft.
+      throwIfCancelled(context);
       const draft = await createOutlookDraft(conn, draftBody);
       const recipientSummary = toAddress ? `To: ${toAddress}` : undefined;
       return ok(
@@ -406,6 +426,7 @@ export async function run(
     const attachments = attachmentPaths?.length
       ? await readAttachments(attachmentPaths)
       : undefined;
+    throwIfCancelled(context);
     const result = await provider.sendMessage(conn, conversationId, text, {
       subject,
       inReplyTo,
@@ -429,6 +450,11 @@ export async function run(
 
     return ok(`Message sent (ID: ${result.id}${threadSuffix}).`);
   } catch (e) {
+    // A cancelled turn is not a send failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }
