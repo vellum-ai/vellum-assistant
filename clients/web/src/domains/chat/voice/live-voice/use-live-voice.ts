@@ -410,14 +410,13 @@ interface SessionContext {
   heldPlaybackTimeoutMs: number;
   /**
    * A typed turn that asked to be kept if the assistant refuses it for being
-   * mid-reply, and how many times it has been put again. Set when such a turn
-   * goes out and cleared by any other typed turn, since a turn the user put
-   * after it is the one that stands. See {@link retryBusyTypedTurn}.
+   * mid-reply. Set when such a turn goes out and cleared by any other typed
+   * turn or by a turn starting, since a turn the user put after it is the
+   * one that stands. See {@link retryBusyTypedTurn}.
    */
   busyRetry: {
     text: string;
     hidden: boolean;
-    attempts: number;
     timer: ReturnType<typeof setTimeout> | null;
   } | null;
 }
@@ -1937,7 +1936,7 @@ function sendTextTurn(
     // one, since the user put words after it and those are what stand.
     clearBusyRetry(session);
     if (options?.retryWhenBusy === true) {
-      session.busyRetry = { text, hidden, attempts: 0, timer: null };
+      session.busyRetry = { text, hidden, timer: null };
     }
   }
   return sent;
@@ -1964,7 +1963,6 @@ function retryBusyTypedTurn(
     clearBusyRetry(session);
     return;
   }
-  retry.attempts += 1;
   const generation = session.generation;
   retry.timer = setTimeout(() => {
     retry.timer = null;
