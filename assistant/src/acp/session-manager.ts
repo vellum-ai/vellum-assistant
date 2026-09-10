@@ -419,6 +419,17 @@ export class AcpSessionManager {
       resolvedModel,
     );
 
+    // Recheck: the model pin is an await too, and everything below it either
+    // announces the session or hands the agent the task.
+    if (cancellation?.signal?.aborted) {
+      log.info(
+        { acpSessionId, agentId },
+        "ACP spawn cancelled during the model pin; tearing the session down",
+      );
+      this.teardownSession(acpSessionId, entry);
+      cancellation.signal.throwIfAborted();
+    }
+
     this.sendSpawnedEvent(acpSessionId, entry);
     this.sendModelEvent(acpSessionId, entry);
 

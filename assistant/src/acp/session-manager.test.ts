@@ -39,6 +39,7 @@ mock.module("./prepare-agent-env.js", () => ({
 }));
 
 import { createAbortReason } from "../util/abort-reasons.js";
+import { modelOption } from "./__tests__/helpers/acp-model-option.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
 import { AcpSessionManager } from "./session-manager.js";
 
@@ -128,6 +129,7 @@ function injectSession(
     parentConversationId,
     cwd: "/tmp",
     command: "noop",
+    modelSwitchQueue: Promise.resolve(),
   };
   (manager as any).sessions.set(acpSessionId, entry);
   return entry;
@@ -712,6 +714,68 @@ describe("AcpSessionManager.spawn: a stopped turn leaves no agent running", () =
       ),
     ).rejects.toThrow();
 
+    expect(prompt).not.toHaveBeenCalled();
+    expect(proc.kill).toHaveBeenCalled();
+    expect(internals.sessions.size).toBe(0);
+  });
+
+  /**
+   * The model pin is an await of its own, and it sits after the setup
+   * recheck. A stop landing inside it gets the same treatment: no spawned
+   * event, no model event, no prompt, and no session left behind.
+   */
+  test("a cancel during the model pin tears the process down and fires nothing", async () => {
+    const manager = new AcpSessionManager(1);
+    const controller = new AbortController();
+    const prompt = mock(() => Promise.resolve({}));
+    const setConfigOption = mock(async () => {
+      // The user stops the turn while the pin's round trip is open.
+      controller.abort(REASON);
+      return [modelOption("opus")];
+    });
+    const proc = {
+      ...fakeProcess(prompt),
+      spawn: () => {},
+      initialize: async () => {},
+      createSession: async () => ({
+        sessionId: "proto-1",
+        configOptions: [modelOption("sonnet")],
+      }),
+      setConfigOption,
+    };
+    let injected: ReturnType<typeof injectSession> | undefined;
+    const internals = manager as unknown as {
+      registerSession: (opts: {
+        acpSessionId: string;
+        parentConversationId: string;
+      }) => unknown;
+      sessions: Map<string, unknown>;
+    };
+    internals.registerSession = (opts) => {
+      injected = injectSession(
+        manager,
+        opts.acpSessionId,
+        opts.parentConversationId,
+        proc as unknown as ReturnType<typeof fakeProcess>,
+      );
+      return injected;
+    };
+
+    await expect(
+      manager.spawn(
+        "claude",
+        { command: "noop", args: [] } as never,
+        "do the task",
+        "/tmp",
+        "conv-1",
+        () => {},
+        { model: "opus" },
+        { signal: controller.signal },
+      ),
+    ).rejects.toThrow();
+
+    expect(setConfigOption).toHaveBeenCalled();
+    expect(injected?.sendToVellum).not.toHaveBeenCalled();
     expect(prompt).not.toHaveBeenCalled();
     expect(proc.kill).toHaveBeenCalled();
     expect(internals.sessions.size).toBe(0);
