@@ -1386,6 +1386,9 @@
     "queueHeading": "Cola · {count}",
     "showActionsAria": "Mostrar acciones del mensaje en cola"
   },
+  "queuedSendRecovery": {
+    "heldForConversation": "No se pudo enviar un mensaje. Ha vuelto al redactor de esa conversación."
+  },
   "quoteReplyBubble": {
     "addToChat": "Añadir al chat",
     "ariaLabel": "Citar y responder",

@@ -93,6 +93,12 @@ export function handleStreamError(
  * cancel, because the turn the batch is running is still generating a reply.
  * The rollback needs the nonce to know which optimistic row failed; without one
  * the failure is still the message's, it just has no local row to name.
+ *
+ * This is the whole answer for the conversation on screen, whether or not a
+ * row survives to name the message: the nonce also names the copy
+ * `useSendMessage` kept when the daemon took the send onto its queue, and
+ * `QueuedSendRecoveryWatcher` leaves that copy here rather than answer for a
+ * conversation this handler is already looking at.
  */
 function handleMessageScopedError(
   event: ErrorEvent,
@@ -106,12 +112,36 @@ function handleMessageScopedError(
         .optimisticSends.find((m) => messageMatchesKey(m, clientMessageId))
     : undefined;
 
+  // No row names the message, but the nonce still can: a send the daemon took
+  // onto its queue is kept by `useSendMessage` until the daemon speaks for it,
+  // and that copy outlives the row, which goes with the transcript on a
+  // switch and can be cleared by a resync. It carries the conversation it was
+  // composed for, so the message goes back to that thread whatever this stream
+  // is showing now.
+  if (clientMessageId && !failedSend) {
+    const held = useComposerStore.getState().takeQueuedSend(clientMessageId);
+    if (held) {
+      useComposerStore.getState().stashFailedSend(held.conversationId, {
+        content: held.content,
+        attachments: held.attachments,
+      });
+      ctx.setError({
+        message: detail,
+        code: event.code,
+        errorCategory: event.errorCategory,
+        displayAs: "modal",
+        conversationId: held.conversationId,
+      });
+      return;
+    }
+  }
+
   if (!clientMessageId || !failedSend) {
     // A send that carries no nonce, another client's send, or one this tab
-    // holds no row for. There is nothing local to roll back, so the failure
-    // goes to the non-terminal channel `handleConversationNoticeEvent` uses: a
-    // warning banner in the composer area that leaves the turn and the stream
-    // alone.
+    // holds neither a row nor a queued copy for. There is nothing local to
+    // roll back, so the failure goes to the non-terminal channel
+    // `handleConversationNoticeEvent` uses: a warning banner in the composer
+    // area that leaves the turn and the stream alone.
     ctx.setNotice({
       message: detail,
       code: event.code,
@@ -120,28 +150,40 @@ function handleMessageScopedError(
     return;
   }
 
-  // The daemon never persisted this message, so the optimistic row is the only
-  // place it exists and it comes back out. `setError` with `displayAs: "modal"`
-  // and `restoreContent` is the rejected-POST affordance from
-  // `use-send-message`: the user is told the send failed and gets the text back
-  // in the composer when they acknowledge. The row is also the only client-side
-  // copy of the attachments it was sent with, so they ride along. The
-  // conversation the send belonged to rides along too, so the message goes
-  // back into that thread's composer rather than whichever one is on screen.
-  // It sets state only, so the reply streaming behind it is untouched.
-  const failedAttachments = failedSend.attachments;
+  // The daemon never persisted this message, so the row that stands for it
+  // comes out as soon as the failure is known, and the row is what the message
+  // is read from: it is the fuller copy, carrying every edit the composer made
+  // to the text on its way out. The message is handed to the store here, at
+  // the moment the row is taken off screen,
+  // rather than when the modal is acknowledged: one dequeued batch can fail
+  // two of its members, and both errors arrive before the user has answered
+  // the first modal. The store holds one message per conversation and joins a
+  // second onto it, so each failure keeps its text and attachments whatever
+  // the modal is showing. The conversation names where the message goes back
+  // to, so it reaches that thread's composer rather than whichever one is on
+  // screen.
+  //
+  // What is left for the modal is the telling: `displayAs: "modal"` is the
+  // rejected-POST affordance from `use-send-message`, and this one carries no
+  // message of its own to give back. It sets state only, so the reply
+  // streaming behind it is untouched.
   ctx.setOptimisticSends((prev) =>
     prev.filter((m) => !messageMatchesKey(m, clientMessageId)),
   );
+  if (event.conversationId) {
+    useComposerStore.getState().stashFailedSend(event.conversationId, {
+      content: messagePlainText(failedSend),
+      attachments: failedSend.attachments ?? [],
+    });
+  }
+  // The row said everything the queued copy of this send would have, so the
+  // copy is spent.
+  useComposerStore.getState().dropQueuedSend(clientMessageId);
   ctx.setError({
     message: detail,
     code: event.code,
     errorCategory: event.errorCategory,
     displayAs: "modal",
-    restoreContent: messagePlainText(failedSend),
-    ...(failedAttachments && failedAttachments.length > 0
-      ? { restoreAttachments: failedAttachments }
-      : {}),
     ...(event.conversationId ? { conversationId: event.conversationId } : {}),
   });
 }

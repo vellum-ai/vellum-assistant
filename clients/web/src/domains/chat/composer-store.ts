@@ -103,6 +103,13 @@ export interface FailedSendPayload {
   attachments: DisplayAttachment[];
 }
 
+/** What a send the daemon accepted onto its queue carried, plus the
+ *  conversation it went to, so the message can be handed back to that thread
+ *  from anywhere if the daemon later refuses to persist it. */
+export interface QueuedSendPayload extends FailedSendPayload {
+  conversationId: string;
+}
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -253,6 +260,15 @@ export interface ComposerState {
    * conversation holding nothing has no entry.
    */
   failedSendsByConversation: ReadonlyMap<string, FailedSendPayload>;
+
+  /**
+   * The sends the daemon has taken onto its queue and not yet spoken for,
+   * keyed by the nonce each went out with. The composer is cleared the moment
+   * a send is handed off, so until the daemon persists the message or refuses
+   * it this is the only copy of it the client holds, and the transcript it was
+   * typed into is not: leaving that conversation clears the optimistic row.
+   */
+  queuedSends: ReadonlyMap<string, QueuedSendPayload>;
 }
 
 export interface ComposerActions {
@@ -380,6 +396,23 @@ export interface ComposerActions {
    * conversation holds none.
    */
   takeFailedSend: (conversationId: string) => FailedSendPayload | null;
+
+  // --- Sends the daemon holds on its queue ---
+  /**
+   * Keep what a queued send carried, under the nonce it went out with, for as
+   * long as the daemon owes an answer for it.
+   */
+  recordQueuedSend: (
+    clientMessageId: string,
+    payload: QueuedSendPayload,
+  ) => void;
+  /**
+   * Take the queued send `clientMessageId` names, removing it. Null when no
+   * send is held under that nonce, which is every send this tab did not make.
+   */
+  takeQueuedSend: (clientMessageId: string) => QueuedSendPayload | null;
+  /** Forget the queued send `clientMessageId` names, its message with it. */
+  dropQueuedSend: (clientMessageId: string) => void;
 }
 
 type ComposerStore = ComposerState & ComposerActions;
@@ -415,6 +448,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   documentAttachments: [],
   documentAttachmentLastError: null,
   failedSendsByConversation: new Map(),
+  queuedSends: new Map(),
 
   // --- Draft input actions ---
   setInput: (value, slot = "main") => {
@@ -793,11 +827,14 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       // A held message belongs to a conversation of the assistant this reset
       // is leaving, and its attachments were uploaded against that assistant,
       // so they die with the previews revoked below rather than waiting for a
-      // composer under the next one.
+      // composer under the next one. A send still on the outgoing assistant's
+      // queue goes the same way: its answer rides that assistant's stream,
+      // which is detached from here on.
       return {
         attachments: [],
         attachmentLastError: null,
         failedSendsByConversation: new Map(),
+        queuedSends: new Map(),
       };
     });
     revokeSlotPreviews(slot);
@@ -850,6 +887,38 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       return { failedSendsByConversation: next };
     });
     return held;
+  },
+
+  recordQueuedSend: (clientMessageId, payload) => {
+    set((s) => {
+      const next = new Map(s.queuedSends);
+      next.set(clientMessageId, payload);
+      return { queuedSends: next };
+    });
+  },
+
+  takeQueuedSend: (clientMessageId) => {
+    const held = get().queuedSends.get(clientMessageId);
+    if (held === undefined) {
+      return null;
+    }
+    set((s) => {
+      const next = new Map(s.queuedSends);
+      next.delete(clientMessageId);
+      return { queuedSends: next };
+    });
+    return held;
+  },
+
+  dropQueuedSend: (clientMessageId) => {
+    if (!get().queuedSends.has(clientMessageId)) {
+      return;
+    }
+    set((s) => {
+      const next = new Map(s.queuedSends);
+      next.delete(clientMessageId);
+      return { queuedSends: next };
+    });
   },
 }));
 

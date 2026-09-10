@@ -994,15 +994,15 @@ export function ChatMainPanel({
         open
         message={error.message}
         onClose={() => {
-          // The message is held for its own conversation and goes back into
-          // the composer once that conversation is on screen with an empty
-          // composer, so a draft typed or staged since is never replaced and
-          // never receives half of the failed message. Acknowledging the
-          // modal is the last moment the error carries the message, and it
-          // can be acknowledged long after the send it reports (a queued
-          // message can fail while its batch runs on) and from a different
-          // thread, so the hand-off happens here rather than in the composer
-          // that happens to be on screen.
+          // A modal that still carries the message it reports is the
+          // rejected-POST one from `use-send-message`, whose text never
+          // reached the store. Holding it for its own conversation is what
+          // puts it back into that thread's composer, once that conversation
+          // is on screen with an empty composer, so a draft typed or staged
+          // since is never replaced and never receives half of the failed
+          // message. A message-scoped failure carries none of this: its
+          // handler hands the message over at failure time, and this modal
+          // only tells the user about it.
           if (
             error.conversationId &&
             (typeof error.restoreContent === "string" ||

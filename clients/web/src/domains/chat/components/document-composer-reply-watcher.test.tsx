@@ -628,6 +628,77 @@ describe("DocumentComposerReplyWatcher", () => {
     expect(processing("conv-1")).toBe(false);
   });
 
+  test("a deleted queued send leaves up the marker a handoff left standing", () => {
+    // GIVEN a running send and a second one parked behind it, with an
+    // ordinary message queued behind them both
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-1", "cm-1");
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-1", "cm-2");
+    acknowledgeRunning("conv-1", "cm-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishMessageQueued("conv-1", "cm-2");
+    publishGenerationHandoff("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(handedOff("conv-1")).toBe(true);
+    expect(processing("conv-1")).toBe(true);
+
+    // WHEN the queued document send is discarded before it ever runs, so no
+    // send of this composer's is left listed
+    publishMessageQueuedDeleted("conv-1", "cm-2");
+
+    // THEN the ordinary message the handoff announced is still running under
+    // the marker it was left
+    expect(awaiting("conv-1")).toBe(false);
+    expect(processing("conv-1")).toBe(true);
+
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(processing("conv-1")).toBe(false);
+    expect(handedOffCount()).toBe(0);
+  });
+
+  test("a queued send the daemon could not persist leaves that marker up too", () => {
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-1", "cm-1");
+    useDocumentComposerReplyStore
+      .getState()
+      .startAwaitingReply("conv-1", "cm-2", FAILED_SEND_PAYLOAD);
+    acknowledgeRunning("conv-1", "cm-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishMessageQueued("conv-1", "cm-2");
+    publishGenerationHandoff("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(handedOff("conv-1")).toBe(true);
+
+    // WHEN the daemon reports it could not persist the queued send
+    publishStreamError("conv-1", "cm-2", "message");
+
+    // THEN that send's failure is reported and its message held for the
+    // document it was composed for, while the ordinary message the handoff
+    // announced keeps the marker up
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+    expect(awaiting("conv-1")).toBe(false);
+    expect(processing("conv-1")).toBe(true);
+
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(processing("conv-1")).toBe(false);
+    expect(handedOffCount()).toBe(0);
+  });
+
   test("a handoff keeps a queued send waiting for the queue's own turn", () => {
     useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
     useDocumentComposerReplyStore.getState().markReplyQueued("conv-1");

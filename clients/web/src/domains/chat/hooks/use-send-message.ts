@@ -113,6 +113,11 @@ type SendStreamResult =
   | {
       status: "ok";
       resolvedConversationId?: string;
+      /** Whether the daemon parked the message on its queue rather than
+       *  running it. The caller holds what the send carried, which this path
+       *  cannot see, so recovering a queued send that the daemon later refuses
+       *  is the caller's to arrange. */
+      queued?: boolean;
       /** Server-assigned user message id from the active POST resolve.
        *  Absent for the queued path (POST returns only `requestId`) and
        *  for scope-changed-mid-flight results. The optimistic send is no
@@ -520,6 +525,9 @@ export function useSendMessage({
         return {
           status: "ok",
           resolvedConversationId: postResult.conversationId,
+          // The daemon may have queued the send, and the message is still
+          // owed a client copy while the daemon decides on it.
+          queued: postResult.queued,
         };
       }
 
@@ -574,6 +582,7 @@ export function useSendMessage({
         }
         return {
           status: "ok",
+          queued: true,
           resolvedConversationId: postResult.conversationId,
         };
       }
@@ -1014,6 +1023,21 @@ export function useSendMessage({
             }
             return;
           }
+          // The daemon holds the message on its queue and owes an answer for
+          // it that can be a refusal, arriving long after this response and
+          // from a conversation the user has since left. The composer was
+          // cleared the moment this send started and the optimistic row goes
+          // with the transcript on a switch, so this is the only copy of the
+          // message the client keeps until the daemon persists it or refuses
+          // it (`QueuedSendRecoveryWatcher`). A hidden send has no user text
+          // to hand back.
+          if (!isHidden) {
+            useComposerStore.getState().recordQueuedSend(clientMessageId, {
+              conversationId: postResult.conversationId,
+              content,
+              attachments,
+            });
+          }
           const requestId = postResult.requestId;
           // The mapping exists to bind the daemon's `message_queued_deleted`
           // broadcast to a rendered row, and the deletion it would confirm can
@@ -1139,6 +1163,10 @@ export function useSendMessage({
               ...(result.error.code ? { code: result.error.code } : {}),
               displayAs: "modal",
               restoreContent: content,
+              // The conversation the POST went to, so acknowledging the modal
+              // hands the text back to that thread's composer even if the user
+              // has moved on by then.
+              conversationId: activeConversationId,
             });
           } else {
             useComposerStore.getState().setInput(content);
@@ -1153,6 +1181,22 @@ export function useSendMessage({
         }
 
         resolvedId = result.resolvedConversationId;
+
+        // The client took this send down the active path believing the thread
+        // was idle, and the daemon queued it instead: the same debt as the
+        // queue branch above, so the same copy is kept. The daemon owes an
+        // answer that can be a refusal, arriving long after this response and
+        // from a conversation the user has since left, with the composer
+        // cleared and the optimistic row gone with the transcript
+        // (`QueuedSendRecoveryWatcher`). A hidden send has no user text to
+        // hand back.
+        if (result.queued && !isHidden && resolvedId) {
+          useComposerStore.getState().recordQueuedSend(clientMessageId, {
+            conversationId: resolvedId,
+            content,
+            attachments,
+          });
+        }
 
         // The send materialized the conversation, so the key is no longer a
         // draft: history is real from here and must show the normal loading

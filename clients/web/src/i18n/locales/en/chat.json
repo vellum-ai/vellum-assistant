@@ -1435,6 +1435,9 @@
     "queueHeading": "Queue · {count}",
     "showActionsAria": "Show queued message actions"
   },
+  "queuedSendRecovery": {
+    "heldForConversation": "A message couldn't be sent. It's back in that conversation's composer."
+  },
   "quoteReplyBubble": {
     "addToChat": "Add to Chat",
     "ariaLabel": "Quote and reply",

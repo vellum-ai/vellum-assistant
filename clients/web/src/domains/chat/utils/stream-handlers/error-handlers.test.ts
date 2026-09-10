@@ -9,6 +9,7 @@ import {
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import type { ChatError } from "@/domains/chat/types";
 import type {
   DisplayAttachment,
@@ -44,12 +45,21 @@ describe("handleStreamError", () => {
   };
 
   // The message-scoped branch reads the real chat-session store to find the
-  // row the failing nonce belongs to. Reset it around each case.
+  // row the failing nonce belongs to, and hands its message to the real
+  // composer store. Reset both around each case.
   beforeEach(() => {
     useChatSessionStore.setState({ optimisticSends: [] });
+    useComposerStore.setState({
+      failedSendsByConversation: new Map(),
+      queuedSends: new Map(),
+    });
   });
   afterEach(() => {
     useChatSessionStore.setState({ optimisticSends: [] });
+    useComposerStore.setState({
+      failedSendsByConversation: new Map(),
+      queuedSends: new Map(),
+    });
   });
 
   it("ends the turn with reason=error, sets error, cancels stream", () => {
@@ -119,24 +129,31 @@ describe("handleStreamError", () => {
         message: "Failed to persist message.",
         scope: "message",
         clientMessageId: "client-1",
+        conversationId: "conv-1",
       },
       ctx,
     );
 
-    // THEN the row comes out of the transcript with its text and attachments
-    // offered back
+    // THEN the row comes out of the transcript, its text and attachments held
+    // for the conversation it was composed for, and the modal only tells the
+    // user
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
     const updater = (
       ctx.setOptimisticSends as unknown as ReturnType<typeof Object>
     ).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
     expect(updater([optimisticSendWithAttachment])).toEqual([]);
+    expect(
+      useComposerStore.getState().failedSendsByConversation.get("conv-1"),
+    ).toEqual({
+      content: "the batched send",
+      attachments: [failedAttachment],
+    });
     expect(ctx.setError).toHaveBeenCalledWith({
       message: "Failed to persist message.",
       code: undefined,
       errorCategory: undefined,
       displayAs: "modal",
-      restoreContent: "the batched send",
-      restoreAttachments: [failedAttachment],
+      conversationId: "conv-1",
     });
 
     // AND the reply the batch is still generating keeps streaming
@@ -147,10 +164,10 @@ describe("handleStreamError", () => {
     ).toBe(true);
   });
 
-  it("names the conversation the failed send belonged to", () => {
-    // The composer on screen when the modal is acknowledged can belong to
-    // another thread, so the message needs its own conversation named to go
-    // back to.
+  it("holds the message for the conversation the failed send belonged to", () => {
+    // The composer on screen when the failure lands can belong to another
+    // thread, so the message goes to its own conversation rather than to
+    // whichever composer is up.
     useChatSessionStore.setState({
       optimisticSends: [optimisticSendWithAttachment],
     });
@@ -167,14 +184,64 @@ describe("handleStreamError", () => {
       ctx,
     );
 
+    expect(
+      useComposerStore.getState().failedSendsByConversation.get("conv-batched"),
+    ).toEqual({
+      content: "the batched send",
+      attachments: [failedAttachment],
+    });
     expect(ctx.setError).toHaveBeenCalledWith({
       message: "Failed to persist message.",
       code: undefined,
       errorCategory: undefined,
       displayAs: "modal",
-      restoreContent: "the batched send",
-      restoreAttachments: [failedAttachment],
       conversationId: "conv-batched",
+    });
+  });
+
+  it("keeps both messages when one dequeued batch fails two of its members", () => {
+    // Both failures arrive before the user can answer the first modal, so
+    // neither can be waiting on that answer to be handed over.
+    useChatSessionStore.setState({
+      optimisticSends: [
+        optimisticSendWithAttachment,
+        {
+          id: "client-2",
+          clientMessageId: "client-2",
+          isOptimistic: true,
+          role: "user",
+          contentBlocks: [{ type: "text", text: "the second send" }],
+        },
+      ],
+    });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+        conversationId: "conv-batched",
+      },
+      ctx,
+    );
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-2",
+        conversationId: "conv-batched",
+      },
+      ctx,
+    );
+
+    expect(
+      useComposerStore.getState().failedSendsByConversation.get("conv-batched"),
+    ).toEqual({
+      content: "the batched send\n\nthe second send",
+      attachments: [failedAttachment],
     });
   });
 
@@ -196,9 +263,10 @@ describe("handleStreamError", () => {
       ctx.setError as unknown as Mock<(error: ChatError) => void>
     ).mock.calls[0][0];
     expect(setErrorArg).not.toHaveProperty("conversationId");
+    expect(useComposerStore.getState().failedSendsByConversation.size).toBe(0);
   });
 
-  it("offers no attachments back for a send that carried none", () => {
+  it("holds an empty attachment list for a send that carried none", () => {
     useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
     const ctx = makeCtx();
 
@@ -208,6 +276,104 @@ describe("handleStreamError", () => {
         message: "Failed to persist message.",
         scope: "message",
         clientMessageId: "client-1",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+
+    expect(
+      useComposerStore.getState().failedSendsByConversation.get("conv-1"),
+    ).toEqual({ content: "the batched send", attachments: [] });
+  });
+
+  it("spends the queued copy of a send its row answered for", () => {
+    useChatSessionStore.setState({
+      optimisticSends: [optimisticSendWithAttachment],
+    });
+    useComposerStore.getState().recordQueuedSend("client-1", {
+      conversationId: "conv-1",
+      content: "the batched send",
+      attachments: [failedAttachment],
+    });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+        conversationId: "conv-1",
+      },
+      ctx,
+    );
+
+    // Held once, from the row, and the copy that would have held it a second
+    // time is gone.
+    expect(
+      useComposerStore.getState().failedSendsByConversation.get("conv-1"),
+    ).toEqual({
+      content: "the batched send",
+      attachments: [failedAttachment],
+    });
+    expect(useComposerStore.getState().queuedSends.has("client-1")).toBe(false);
+  });
+
+  it("falls back to the queued copy when no row is left to name the message", () => {
+    // The row this tab painted is gone (a resync, or a switch that cleared the
+    // transcript), so the copy `useSendMessage` kept is the message.
+    useComposerStore.getState().recordQueuedSend("client-1", {
+      conversationId: "conv-queued",
+      content: "parked behind the running turn",
+      attachments: [failedAttachment],
+    });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+        conversationId: "conv-queued",
+      },
+      ctx,
+    );
+
+    expect(
+      useComposerStore.getState().failedSendsByConversation.get("conv-queued"),
+    ).toEqual({
+      content: "parked behind the running turn",
+      attachments: [failedAttachment],
+    });
+    expect(useComposerStore.getState().queuedSends.has("client-1")).toBe(false);
+    // The user is told, as they are for a failure with a row, rather than left
+    // with the banner a send this tab knows nothing about gets.
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+      displayAs: "modal",
+      conversationId: "conv-queued",
+    });
+    expect(ctx.setNotice).not.toHaveBeenCalled();
+    // No row means nothing to take out of the transcript.
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
+  it("puts no message back on the modal itself", () => {
+    useChatSessionStore.setState({
+      optimisticSends: [optimisticSendWithAttachment],
+    });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+        conversationId: "conv-1",
       },
       ctx,
     );
@@ -215,7 +381,7 @@ describe("handleStreamError", () => {
     const setErrorArg = (
       ctx.setError as unknown as Mock<(error: ChatError) => void>
     ).mock.calls[0][0];
-    expect(setErrorArg.restoreContent).toBe("the batched send");
+    expect(setErrorArg).not.toHaveProperty("restoreContent");
     expect(setErrorArg).not.toHaveProperty("restoreAttachments");
   });
 
@@ -240,7 +406,6 @@ describe("handleStreamError", () => {
       code: undefined,
       errorCategory: undefined,
       displayAs: "modal",
-      restoreContent: "the batched send",
     });
     expect(ctx.endTurn).not.toHaveBeenCalled();
     expect(ctx.cancelAndClearStream).not.toHaveBeenCalled();
@@ -279,9 +444,9 @@ describe("handleStreamError", () => {
     ).toBe(true);
   });
 
-  it("surfaces a notice and nothing else for a message this tab has no row for", () => {
-    // Another client's queued send failed to persist: nothing local to roll
-    // back, and the turn on screen is not this message's.
+  it("surfaces a notice and nothing else for a message this tab holds nothing for", () => {
+    // Another client's queued send failed to persist: no row and no copy of
+    // this tab's to roll back, and the turn on screen is not this message's.
     const ctx = makeCtx();
     ctx.queryClient.setQueryData(
       conversationListQueryKey("ast-1"),

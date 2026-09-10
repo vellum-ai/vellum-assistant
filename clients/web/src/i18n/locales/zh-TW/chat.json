@@ -1419,6 +1419,9 @@
     "queueHeading": "佇列 · {count}",
     "showActionsAria": "顯示佇列訊息動作"
   },
+  "queuedSendRecovery": {
+    "heldForConversation": "有一則訊息傳送失敗，已放回該對話的輸入框。"
+  },
   "quoteReplyBubble": {
     "addToChat": "新增至聊天",
     "ariaLabel": "引用並回覆",

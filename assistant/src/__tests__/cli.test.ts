@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "bun:test";
 
-import { sanitizeUrlForDisplay } from "../cli.js";
+import { isMessageScopedError, sanitizeUrlForDisplay } from "../cli.js";
 
 describe("sanitizeUrlForDisplay", () => {
   test("removes userinfo from absolute URLs", () => {
@@ -50,5 +50,27 @@ describe("new-session conversationKey format", () => {
     const key2 = `builtin-cli:${randomUUID()}`;
 
     expect(key1).not.toBe(key2);
+  });
+});
+
+describe("isMessageScopedError", () => {
+  test("an explicit message scope belongs to one message", () => {
+    expect(
+      isMessageScopedError({ scope: "message", clientMessageId: "n1" }),
+    ).toBe(true);
+  });
+
+  test("an explicit turn scope ends the turn even with a nonce", () => {
+    expect(isMessageScopedError({ scope: "turn", clientMessageId: "n1" })).toBe(
+      false,
+    );
+  });
+
+  test("a scopeless event with a nonce belongs to that message", () => {
+    expect(isMessageScopedError({ clientMessageId: "n1" })).toBe(true);
+  });
+
+  test("a scopeless event without a nonce ends the turn", () => {
+    expect(isMessageScopedError({})).toBe(false);
   });
 });

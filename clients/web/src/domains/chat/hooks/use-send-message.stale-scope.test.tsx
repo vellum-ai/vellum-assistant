@@ -202,13 +202,18 @@ beforeEach(() => {
     pendingQueuedMessageIds: [],
     ephemeralMetaResults: [],
     contextWindowUsage: null,
+    requestIdToMessageId: new Map(),
   });
   useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
   // The draft map is module state shared across tests; reloading it for the
   // assistant from an empty localStorage is how the store itself resets it.
   localStorage.clear();
   useComposerStore.getState().loadAssistantDrafts("assistant-1");
-  useComposerStore.setState({ input: "" });
+  useComposerStore.setState({
+    input: "",
+    queuedSends: new Map(),
+    failedSendsByConversation: new Map(),
+  });
 
   postResponse = ACCEPTED_DIRECTLY;
 
@@ -360,6 +365,64 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     // The mapping binds a deletion broadcast to a rendered row, and this send
     // has none on screen to bind to.
     expect(useChatSessionStore.getState().requestIdToMessageId.size).toBe(0);
+  });
+
+  test("a queued response keeps the message for the thread it was written in", async () => {
+    // The composer was cleared when the send started and no row of this send's
+    // is on screen, so until the daemon persists the message or refuses it
+    // this is the only copy of it the client holds.
+    postResponse = ACCEPTED_QUEUED;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("queue this one", [
+        {
+          id: "srv-1",
+          filename: "spec.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          previewUrl: null,
+        },
+      ]);
+    });
+
+    expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
+      {
+        conversationId: SEND_CONVERSATION,
+        content: "queue this one",
+        attachments: [
+          {
+            id: "srv-1",
+            filename: "spec.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 2048,
+            previewUrl: null,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("the active path keeps the message too when the daemon queues it anyway", async () => {
+    // The client believed the thread was idle and took the active path; the
+    // daemon parked the send regardless, so it owes the same answer and the
+    // same copy is kept for it.
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    postResponse = ACCEPTED_QUEUED;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("queued after all");
+    });
+
+    expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
+      {
+        conversationId: SEND_CONVERSATION,
+        content: "queued after all",
+        attachments: [],
+      },
+    ]);
   });
 
   test("a failed queue POST raises no error over the open thread", async () => {

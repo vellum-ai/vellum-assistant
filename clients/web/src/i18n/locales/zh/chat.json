@@ -1419,6 +1419,9 @@
     "queueHeading": "队列 · {count}",
     "showActionsAria": "显示排队消息操作"
   },
+  "queuedSendRecovery": {
+    "heldForConversation": "有一条消息发送失败，已放回该对话的输入框。"
+  },
   "quoteReplyBubble": {
     "addToChat": "添加到聊天",
     "ariaLabel": "引用并回复",

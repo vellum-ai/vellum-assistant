@@ -807,6 +807,9 @@
     "responsePayload": "Тело ответа",
     "retry": "Повторить"
   },
+  "queuedSendRecovery": {
+    "heldForConversation": "Не удалось отправить сообщение. Оно вернулось в поле ввода того разговора."
+  },
   "redactedCredentialChip": {
     "revealFailed": "Не удалось показать {name}."
   },

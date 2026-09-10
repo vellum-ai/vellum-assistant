@@ -1398,3 +1398,122 @@ describe("stashFailedSend and takeFailedSend", () => {
     expect(getStore().failedSendsByConversation.has("conv-1")).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Sends the daemon holds on its queue
+// ---------------------------------------------------------------------------
+
+describe("recordQueuedSend, takeQueuedSend and dropQueuedSend", () => {
+  const attachment: DisplayAttachment = {
+    id: "srv-queued",
+    filename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+    previewUrl: null,
+  };
+
+  test("keeps what a queued send carried under its nonce", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+
+    expect(getStore().queuedSends.get("nonce-1")).toEqual({
+      conversationId: "conv-1",
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+  });
+
+  test("take returns the held send and removes it", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+
+    expect(getStore().takeQueuedSend("nonce-1")).toEqual({
+      conversationId: "conv-1",
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+    expect(getStore().queuedSends.has("nonce-1")).toBe(false);
+    expect(getStore().takeQueuedSend("nonce-1")).toBeNull();
+  });
+
+  test("take is null for a nonce nothing is held under", () => {
+    expect(getStore().takeQueuedSend("nonce-nothing")).toBeNull();
+  });
+
+  test("drop forgets the send without handing it back", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "persisted after all",
+      attachments: [attachment],
+    });
+
+    getStore().dropQueuedSend("nonce-1");
+
+    expect(getStore().queuedSends.has("nonce-1")).toBe(false);
+  });
+
+  test("dropping a nonce nothing is held under leaves the rest alone", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "still waiting",
+      attachments: [],
+    });
+
+    getStore().dropQueuedSend("nonce-other");
+
+    expect(getStore().queuedSends.get("nonce-1")?.content).toBe(
+      "still waiting",
+    );
+  });
+
+  test("one send's take leaves another's alone", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "mine",
+      attachments: [],
+    });
+    getStore().recordQueuedSend("nonce-2", {
+      conversationId: "conv-2",
+      content: "theirs",
+      attachments: [attachment],
+    });
+
+    getStore().takeQueuedSend("nonce-1");
+
+    expect(getStore().queuedSends.get("nonce-2")).toEqual({
+      conversationId: "conv-2",
+      content: "theirs",
+      attachments: [attachment],
+    });
+  });
+
+  test("the assistant switch's full reset drops every held send", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "mine",
+      attachments: [attachment],
+    });
+
+    getStore().fullReset();
+
+    expect(getStore().queuedSends.size).toBe(0);
+  });
+
+  test("resetting the document slot leaves the held sends alone", () => {
+    getStore().recordQueuedSend("nonce-1", {
+      conversationId: "conv-1",
+      content: "mine",
+      attachments: [],
+    });
+
+    getStore().fullReset("document");
+
+    expect(getStore().queuedSends.has("nonce-1")).toBe(true);
+  });
+});

@@ -19,6 +19,7 @@ import {
 } from "../lib/guardian-token";
 import { trustedRefreshUrl } from "../lib/runtime-url";
 import { appendHistory, loadHistory } from "../lib/input-history";
+import { isMessageScopedError } from "../lib/message-scoped-error";
 import { tuiLog } from "../lib/tui-log";
 import { segmentsToPlainText } from "../lib/segments-to-plain-text";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";
@@ -385,6 +386,9 @@ interface SseEvent {
   conversationId?: string;
   messageId?: string;
   requestId?: string;
+  // error fields
+  scope?: "turn" | "message";
+  clientMessageId?: string;
   // confirmation_request fields
   riskLevel?: string;
   riskReason?: string;
@@ -1831,6 +1835,13 @@ function ChatApp({
               }
 
               case "error":
+                if (isMessageScopedError(event)) {
+                  // One queued message failed while the turn it was
+                  // batched into keeps generating, so the notice stands
+                  // alone and the turn stays busy.
+                  hRef.showError(event.message ?? "Unknown error");
+                  break;
+                }
                 hRef.hideSpinner();
                 hRef.showError(event.message ?? "Unknown error");
                 hRef.setBusy(false);

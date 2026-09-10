@@ -93,6 +93,7 @@ import {
 import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { DocumentComposerReplyWatcher } from "@/domains/chat/components/document-composer-reply-watcher";
+import { QueuedSendRecoveryWatcher } from "@/domains/chat/components/queued-send-recovery-watcher";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { StatusBanner } from "@/components/status-banner";
 import { UpdateToast } from "@/components/update-toast";
@@ -600,6 +601,7 @@ export function RootLayout() {
       <TimezoneSync />
       <GlobalPushToTalkBridge assistantId={assistantId} />
       <DocumentComposerReplyWatcher />
+      <QueuedSendRecoveryWatcher />
 
       {feedbackOpen ? (
         <ShareFeedbackModalLazy

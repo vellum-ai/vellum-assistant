@@ -14,11 +14,15 @@ import { useTranslation } from "@/i18n";
 /**
  * Take down the processing marker the composer's sends raised in
  * `conversationId`, once none of them is left waiting on a reply. Sends still
- * pending keep the activity up.
+ * pending keep the activity up, and so does queued work a handoff announced:
+ * that work runs on under the marker the handoff left standing, and its own
+ * terminal is what takes the marker down.
  */
 function clearProcessingWhenSettled(conversationId: string): void {
+  const replyStore = useDocumentComposerReplyStore.getState();
   if (
-    useDocumentComposerReplyStore.getState().pendingReplies.has(conversationId)
+    replyStore.pendingReplies.has(conversationId) ||
+    replyStore.handedOffConversationIds.has(conversationId)
   ) {
     return;
   }

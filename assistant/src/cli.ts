@@ -42,6 +42,26 @@ import { truncate } from "./util/truncate.js";
 /** Stable conversation key used by the built-in CLI. */
 const CLI_CONVERSATION_KEY = "builtin-cli:default";
 
+/**
+ * Whether an `error` stream event belongs to one message rather than to the
+ * turn. An explicit `scope` decides: the daemon sets `"message"` on the error
+ * for a queued message it could not persist while the batch that message was
+ * dequeued with runs on, and `"turn"` on the turn's own terminal error. An
+ * event from a daemon that predates the field falls back to its
+ * `clientMessageId`, which such a daemon sets on nothing but a message's own
+ * error. A message-scoped error leaves the turn generating, so the CLI reports
+ * it without ending the turn.
+ */
+export function isMessageScopedError(event: {
+  scope?: "turn" | "message";
+  clientMessageId?: string;
+}): boolean {
+  if (event.scope !== undefined) {
+    return event.scope === "message";
+  }
+  return event.clientMessageId !== undefined;
+}
+
 export function sanitizeUrlForDisplay(rawUrl: unknown): string {
   const value = typeof rawUrl === "string" ? rawUrl : String(rawUrl ?? "");
   if (!value) {
@@ -448,6 +468,14 @@ export async function startCli(): Promise<void> {
         break;
 
       case "error":
+        if (isMessageScopedError(msg)) {
+          // One queued message failed while the turn it was batched into keeps
+          // generating, so the line prints under the running spinner and no
+          // prompt comes back.
+          lastDisplayedError = msg.message;
+          process.stdout.write(`\n[Error: ${msg.message}]\n`);
+          break;
+        }
         spinner.stop();
         generating = false;
         if (pendingSessionPick) {
