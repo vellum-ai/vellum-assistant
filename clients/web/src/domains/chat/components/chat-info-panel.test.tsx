@@ -11,8 +11,10 @@
  * level renders, what it says while the sources are unresolved, and the
  * sequence each tile runs when it is opened.
  *
- * Camera frames and paged categories are not exercised here: the transcript is
- * the hook's only source today and it can produce neither.
+ * Camera frames and paged categories are not exercised here: these tests seed
+ * the transcript rather than the daemon's attachment listing, and the
+ * transcript can produce neither. The listing itself is covered by
+ * `use-conversation-attachments.test.tsx`.
  */
 
 import {
@@ -35,7 +37,7 @@ import {
 
 import {
   attachmentRows,
-  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_BODY_WIDTH_PX,
   CHAT_INFO_T0,
   chatInfoAppHtmlCacheMock,
   clearTranscriptMessages,
@@ -64,7 +66,7 @@ const OTHER_CONVERSATION_ID = "conv-2";
 const restoreDomStubs = installChatInfoDomStubs();
 
 mock.module("@/hooks/use-element-size", () =>
-  makeElementSizeMock(() => CHAT_INFO_DRAWER_WIDTH_PX),
+  makeElementSizeMock(() => CHAT_INFO_BODY_WIDTH_PX),
 );
 
 // The app tile's live preview would otherwise call the daemon's open endpoint.

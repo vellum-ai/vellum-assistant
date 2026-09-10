@@ -167,6 +167,12 @@
     "captureWindows": "窗口",
     "deny": "拒绝",
     "draw": "绘制",
+    "clearMarks": "清除标记",
+    "drawTools": "绘图工具",
+    "drawFreehand": "自由绘制",
+    "drawLine": "直线",
+    "drawBox": "方框",
+    "drawCircle": "圆形",
     "endSession": "结束会话",
     "muteAssistant": "静音助手",
     "muteMicrophone": "静音麦克风",
@@ -205,6 +211,9 @@
     "copyFileContentsAria": "复制文件内容",
     "downloadFileAria": "下载文件",
     "editFileAria": "编辑文件"
+  },
+  "conversationTitle": {
+    "untitled": "无标题"
   },
   "createAssistantDialog": {
     "cancel": "取消",
@@ -583,6 +592,7 @@
     "reloadApp": "重新加载应用"
   },
   "statusBanner": {
+    "reconnecting": "正在重新连接到你的助手…",
     "dismiss": "忽略",
     "goToDoctor": "前往诊断",
     "resumeAssistant": "恢复助手",

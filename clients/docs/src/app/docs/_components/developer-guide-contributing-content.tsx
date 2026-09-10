@@ -44,7 +44,7 @@ export function DeveloperGuideContributingContent() {
               only hard requirement. The setup script handles everything else.
             </li>
             <li>
-              <strong>macOS or Linux</strong> — the assistant runtime supports both. macOS uses{" "}
+              <strong>macOS or Linux for the shell-based setup below.</strong> macOS uses{" "}
               <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">sandbox-exec</code> for sandboxing,
               Linux uses <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-sm dark:bg-zinc-800">bwrap</code> (bubblewrap).
             </li>
@@ -52,6 +52,14 @@ export function DeveloperGuideContributingContent() {
               <strong>Git</strong> — the setup script configures custom git hooks automatically.
             </li>
           </ul>
+          <p className="mb-4 text-zinc-600">
+            For Windows desktop development, start with the{" "}
+            <a href="https://github.com/vellum-ai/vellum-assistant/blob/main/clients/windows/README.md">
+              Windows client README
+            </a>. It covers Git Bash or WSL for POSIX scripts, a PowerShell development
+            flow, and native packaging. The packaged Windows app includes its runtime
+            and does not require this contributor setup.
+          </p>
           <p className="text-sm text-zinc-500">
             Docker Desktop is optional but needed if you want full sandbox isolation on Linux. On macOS, the native{" "}
             <code className="text-sm">sandbox-exec</code> is used and requires no extra setup.
@@ -86,7 +94,7 @@ cd vellum-assistant
             <pre className="mb-4 overflow-x-auto rounded-lg bg-zinc-900 p-4 text-sm text-zinc-100">
 {`├── assistant/            # Bun-based assistant runtime (core logic, HTTP API)
 ├── cli/                  # Vellum CLI (multi-assistant management)
-├── clients/              # Native macOS client (menu bar app)
+├── clients/              # Web, desktop (macOS, Windows, Linux), and mobile clients
 ├── gateway/              # Channel gateway (Telegram, Twilio, OAuth, reverse proxy)
 ├── credential-executor/  # Credential Execution Service (isolated RPC)
 ├── packages/             # Shared private packages

@@ -33,6 +33,15 @@ export interface AssistantAttachmentDraft {
   dataBase64: string;
   sizeBytes: number;
   kind: "image" | "video" | "document";
+  /**
+   * Absolute path the file was read from, after the directive's path was
+   * resolved against its boundary. Absent for drafts derived from tool
+   * content blocks, which have no file of their own. Callers that need to
+   * point a user back at the produced file (the activation checklist's
+   * artifact cards) read it, paired with `sourceType` so a host path is
+   * never mistaken for a workspace one.
+   */
+  sourcePath?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -600,6 +609,7 @@ export function resolveSandboxDirective(
       dataBase64,
       sizeBytes: data.length,
       kind: classifyKind(mimeType),
+      sourcePath: resolved,
     },
     warning: null,
   };
@@ -716,6 +726,7 @@ export async function resolveHostDirective(
       dataBase64,
       sizeBytes: data.length,
       kind: classifyKind(mimeType),
+      sourcePath: resolved,
     },
     warning: null,
   };

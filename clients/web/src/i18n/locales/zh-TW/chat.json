@@ -375,8 +375,7 @@
   },
   "chatConversationHeader": {
     "archived": "[已封存]",
-    "newChat": "新增聊天",
-    "untitled": "未命名"
+    "newChat": "新增聊天"
   },
   "chatInfoPanel": {
     "appsTitle": "應用程式",
@@ -640,9 +639,6 @@
     "label": "{count, plural, one {# 個資產} other {# 個資產}}",
     "labelUnavailable": "無法載入資產"
   },
-  "conversationRow": {
-    "untitled": "未命名"
-  },
   "conversationStarterDock": {
     "caption": "試試這些建議："
   },
@@ -688,8 +684,7 @@
     "cancel": "取消",
     "confirm": "刪除",
     "message": "刪除「{title}」？這將永久移除對話及其訊息。相關資產和記憶可能仍會保留。此動作無法復原。",
-    "title": "刪除對話",
-    "untitled": "未命名"
+    "title": "刪除對話"
   },
   "deletedMessageRow": {
     "label": "此訊息已被刪除"
@@ -1342,7 +1337,8 @@
     "railAria": "進度",
     "stepCounter": "第 {current} 步，共 {total} 步",
     "title": "進度",
-    "titleFinished": "已完成"
+    "titleFinished": "已完成",
+    "titleStopped": "已停止"
   },
   "promptSubmission": {
     "noActiveSession": "無作用中工作階段。請再試一次。"
@@ -1685,11 +1681,14 @@
     "settings": "設定"
   },
   "toolDetailPanel": {
+    "changes": "變更",
     "closeAria": "關閉工具詳細資料",
+    "command": "指令",
     "denied": "此工具呼叫未獲核准，因此沒有執行。",
     "emptyOutput": "該工具沒有回傳任何輸出。",
+    "input": "輸入",
     "output": "輸出",
-    "riskLevel": "風險等級",
+    "requestedChanges": "要求的變更",
     "running": "正在執行…"
   },
   "toolStepPill": {
@@ -1704,7 +1703,8 @@
     "stopWorkflow": "停止工作流程"
   },
   "transcriptRow": {
-    "thinking": "思考中"
+    "thinking": "思考中",
+    "working": "處理中"
   },
   "useConversationLoader": {
     "authFailed": "使用者驗證失敗。"
@@ -1713,9 +1713,6 @@
     "assistantBusy": "您的助理正忙。請在回覆完成後再試一次。",
     "retryFailed": "無法重試回應",
     "summarizeFailed": "無法摘要對話"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "未命名"
   },
   "useSendMessage": {
     "commandFailed": "無法執行該指令。請再試一次。",

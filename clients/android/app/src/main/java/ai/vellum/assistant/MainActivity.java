@@ -45,6 +45,7 @@ public class MainActivity extends BridgeActivity {
 
     private static ConnectDeepLink recreationConnect;
     private static String recreationRoutePath;
+    private static volatile boolean activityResumed;
 
     private final Handler launchScreenHandler = new Handler(Looper.getMainLooper());
     private AlertDialog unreachableDialog;
@@ -191,6 +192,28 @@ public class MainActivity extends BridgeActivity {
         }
         launchScreenHandler.removeCallbacksAndMessages(null);
         launchScreenHandler.postDelayed(this::hideLaunchScreen, delayMs);
+    }
+
+    /**
+     * True while an activity of ours is in front of the user, which is what the
+     * push renderer asks before leaving a notification to the web layer.
+     * Process importance cannot answer that: it also reads as visible while the
+     * Quick Settings tile service is bound and no window is shown.
+     */
+    public static boolean isResumed() {
+        return activityResumed;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        activityResumed = true;
+    }
+
+    @Override
+    public void onPause() {
+        activityResumed = false;
+        super.onPause();
     }
 
     @Override
@@ -542,6 +565,7 @@ public class MainActivity extends BridgeActivity {
         @Override
         public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
             VoiceAudioSessionPlugin.releaseForPageLoad(activity);
+            AndroidPushRegistrationPlugin.clearForegroundHandler();
             activity.scheduleLaunchScreenFallback(LAUNCH_SCREEN_TIMEOUT_MS);
             mainFrameUrl = url;
             mainFrameFailed = false;

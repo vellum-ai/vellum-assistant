@@ -12,6 +12,8 @@ mock.module("../memory-retrospective-enqueue.js", () => ({
   },
 }));
 
+import { eq } from "drizzle-orm";
+
 import type { AssistantConfig } from "../../../../config/types.js";
 import { createConversation } from "../../../../persistence/conversation-crud.js";
 import {
@@ -305,5 +307,66 @@ describe("maybeEnqueueRetrospective — kind-aware accounting", () => {
     expect(enqueueCalls).toEqual([
       { conversationId: conv.id, trigger: "interval" },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// maybeEnqueueRetrospective: the cursor survives a regenerated reply.
+//
+// The cursor normally lands on the latest assistant reply, and a regenerate
+// deletes exactly that row. With its `createdAt` persisted the cursor still
+// bounds the count, so the conversation keeps getting retrospectives.
+// ---------------------------------------------------------------------------
+
+describe("maybeEnqueueRetrospective: cursor survives a regenerated reply", () => {
+  beforeEach(() => {
+    resetTables();
+    enqueueCalls = [];
+  });
+
+  test("a regenerate that deletes the cursor's row does not stall the conversation", async () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 1_000 });
+    const reply = insertMessage(conv.id, {
+      role: "assistant",
+      createdAt: 2_000,
+    });
+    await upsertRetrospectiveState({
+      conversationId: conv.id,
+      lastProcessedMessageId: reply,
+      lastProcessedCreatedAt: 2_000,
+      lastRunAt: Date.now() - 24 * 60 * 60_000,
+    });
+    // Regenerate: the retry route discards the latest assistant turn, then
+    // a fresh reply and the next user message land.
+    getDb().delete(messages).where(eq(messages.id, reply)).run();
+    insertMessage(conv.id, { role: "assistant", createdAt: 3_000 });
+    insertMessage(conv.id, { createdAt: 4_000 });
+
+    maybeEnqueueRetrospective(conv.id, makeConfig());
+
+    expect(enqueueCalls).toEqual([
+      { conversationId: conv.id, trigger: "interval" },
+    ]);
+  });
+
+  test("a cursor written without a timestamp still goes quiet once its row is gone", async () => {
+    const conv = createConversation("conv");
+    insertMessage(conv.id, { createdAt: 1_000 });
+    const reply = insertMessage(conv.id, {
+      role: "assistant",
+      createdAt: 2_000,
+    });
+    await upsertRetrospectiveState({
+      conversationId: conv.id,
+      lastProcessedMessageId: reply,
+      lastRunAt: Date.now() - 24 * 60 * 60_000,
+    });
+    getDb().delete(messages).where(eq(messages.id, reply)).run();
+    insertMessage(conv.id, { createdAt: 4_000 });
+
+    maybeEnqueueRetrospective(conv.id, makeConfig());
+
+    expect(enqueueCalls).toEqual([]);
   });
 });

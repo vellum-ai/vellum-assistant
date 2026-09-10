@@ -67,6 +67,62 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.threadTs).toBe("1234567890.123456");
   });
 
+  test("resolves a standard name to its character in the adapter, keeping the spelling everywhere it is load-bearing", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C123", assistantId: "ast-1" },
+      ],
+    });
+    const result = normalizeSlackReactionAdded(
+      makeReactionEvent(),
+      "ev-9",
+      config,
+    );
+    const reaction = result!.event.message.reaction!;
+    expect(reaction.emojiKind).toBe("unicode");
+    expect(reaction.emojiName?.replace(/️/g, "")).toBe("👍");
+    // The spelling Slack sent still names the dedup id and the sentinel.
+    expect(reaction.emoji).toBe("+1");
+    expect(result!.event.message.callbackData).toBe("reaction:+1");
+    expect(result!.event.message.externalMessageId).toContain(":+1:");
+  });
+
+  test("resolves a skin tone suffix to the toned character", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C123", assistantId: "ast-1" },
+      ],
+    });
+    const result = normalizeSlackReactionAdded(
+      makeReactionEvent({ reaction: "thumbsup::skin-tone-3" }),
+      "ev-10",
+      config,
+    );
+    expect(result!.event.message.reaction?.emojiKind).toBe("unicode");
+    expect(result!.event.message.reaction?.emojiName?.replace(/️/g, "")).toBe(
+      "👍🏼",
+    );
+    expect(result!.event.message.reaction?.emoji).toBe("thumbsup::skin-tone-3");
+  });
+
+  test("a name outside Slack's standard list stays a shortcode in Slack's namespace", () => {
+    const config = makeConfig({
+      routingEntries: [
+        { type: "conversation_id", key: "C123", assistantId: "ast-1" },
+      ],
+    });
+    const result = normalizeSlackReactionAdded(
+      makeReactionEvent({ reaction: "blob_wave" }),
+      "ev-11",
+      config,
+    );
+    expect(result!.event.message.reaction).toMatchObject({
+      emoji: "blob_wave",
+      emojiKind: "shortcode",
+      emojiName: "blob_wave",
+    });
+  });
+
   test("encodes emoji name in callbackData", () => {
     const config = makeConfig({
       routingEntries: [

@@ -1,24 +1,27 @@
 /**
- * The Chat Info panel: a conversation's apps, its documents and images, and
- * the See All grid each category drills into.
+ * The Chat Info panel: a conversation's apps, its documents and images, its
+ * camera frames, and the See All grid each category drills into.
  *
- * Nothing here is a stand-in. Every story seeds the two sources the panel's
- * real hooks read (the query cache for apps and documents, the chat-session
- * store for the transcript the attachments come from), so the rows are built
- * by the shipped code path and the app tiles render live previews. One
- * decorator does that seeding for every story; a story that wants a different
- * conversation names it in `parameters.chatInfo`.
+ * Nothing here is a stand-in. Every story seeds the sources the panel's real
+ * hooks read, so the rows are built by the shipped code path and the app tiles
+ * render live previews. One decorator does that seeding for every story; a
+ * story that wants a different conversation names it in `parameters.chatInfo`.
  *
- * There is no Camera Frames story. The seeded transcript carries no frame tag,
- * so that row has nothing to build from until frames come from the daemon's
- * attachment list.
+ * The four frame stories (`WithCameraFrames`, `FramesSeeAll`,
+ * `FramesLoadMore`, `WithCameraFramesMobile`) run the daemon path: they report
+ * a version the attachment-listing gate opens on and seed the daemon's two
+ * lists, so the counts are exact, the Camera Frames row is populated with
+ * capture-time labels, and the tiles fetch their pictures under the shared
+ * attachment-content key. Every other story runs the transcript path, where
+ * the attachments come from the loaded rows and no frame can be told apart.
  *
  * The last three stories are the states the sources put the panel in: still
  * loading, loaded and empty, and one source down.
  *
- * The frame is the shipped drawer, so a story opens at its 400px default and
- * the rows fit what that width holds. Drag the drawer's left edge to walk the
- * fit rule out to the mock's wider column.
+ * The frame is the shipped drawer, opened at the width the app gives Chat
+ * Info: a 569px body, which is four file tiles or three app tiles. Drag the
+ * drawer's left edge to walk the fit rule down to what a narrower column
+ * holds.
  *
  * Read the phone stories at the Mobile viewports: there the rows become
  * horizontal strips that run past the panel's body inset to the screen edge.
@@ -32,6 +35,7 @@ import {
   makeMixedAttachments,
   makePreviewableImages,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
+import { CHAT_INFO_DRAWER_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 import {
   CHAT_INFO_ASSISTANT_ID,
   CHAT_INFO_CONVERSATION_ID,
@@ -40,6 +44,7 @@ import {
   inChatInfoConversation,
 } from "@/domains/chat/components/chat-info-story-fixtures";
 import { DetailPanelStoryFrame } from "@/domains/chat/components/detail-panel-story-frame";
+import { ATTACHMENT_PAGE_SIZE } from "@/domains/chat/hooks/use-conversation-attachments";
 import type { ChatInfoCategory } from "@/stores/viewer-store";
 
 import { ChatInfoPanel } from "./chat-info-panel";
@@ -59,8 +64,13 @@ const FILE_HEAVY: Partial<ChatInfoStoryConversation> = {
   ],
 };
 
+/** One Live session listed by the daemon, alongside the default conversation. */
+const WITH_FRAMES: Partial<ChatInfoStoryConversation> = {
+  daemonListing: { frameCount: 12, frameTotal: 12 },
+};
+
 const inDrawer: Decorator = (Story) => (
-  <DetailPanelStoryFrame>
+  <DetailPanelStoryFrame defaultWidth={CHAT_INFO_DRAWER_WIDTH_PX}>
     <Story />
   </DetailPanelStoryFrame>
 );
@@ -89,15 +99,15 @@ export default meta;
 type Story = StoryObj<typeof ChatInfoPanel>;
 
 /**
- * The panel as a working conversation leaves it: twelve apps and four files,
- * both more than one line of the default-width drawer holds, so each row is
- * truncated to what fits and offers See All.
+ * The panel as a working conversation leaves it: twelve apps and four files.
+ * One line holds three app tiles and four file tiles here, so Apps is
+ * truncated to what fits and offers See All while every file is on show.
  */
 export const Default: Story = {};
 
 /**
- * A young conversation, sized to the default drawer: one app and one document,
- * so every tile is on show and neither header carries a See All.
+ * A young conversation: one app and one document, so every tile is on show and
+ * neither header carries a See All.
  */
 export const FewAssets: Story = {
   parameters: {
@@ -131,6 +141,49 @@ export const FilesSeeAll: Story = {
   },
 };
 
+/**
+ * The daemon's listing, so Camera Frames is the third row: a Live session's
+ * captures, newest first, labelled with the time each was taken. The counts on
+ * every row are the conversation's exact totals rather than what is loaded.
+ */
+export const WithCameraFrames: Story = {
+  parameters: { chatInfo: WITH_FRAMES },
+};
+
+/** Drilled into Camera Frames, where the tiles wrap rather than grid. */
+export const FramesSeeAll: Story = {
+  parameters: { chatInfo: WITH_FRAMES },
+  args: {
+    payload: {
+      assistantId: CHAT_INFO_ASSISTANT_ID,
+      conversationId: CHAT_INFO_CONVERSATION_ID,
+      category: "frames",
+    },
+  },
+};
+
+/**
+ * A long session: the daemon holds 260 frames and has answered with the first
+ * page, so the grid ends on the control that fetches the next one.
+ */
+export const FramesLoadMore: Story = {
+  parameters: {
+    chatInfo: {
+      daemonListing: {
+        frameCount: ATTACHMENT_PAGE_SIZE,
+        frameTotal: 260,
+      },
+    },
+  },
+  args: {
+    payload: {
+      assistantId: CHAT_INFO_ASSISTANT_ID,
+      conversationId: CHAT_INFO_CONVERSATION_ID,
+      category: "frames",
+    },
+  },
+};
+
 /** The phone treatment: each row scrolls horizontally past the screen edge. */
 export const Mobile: Story = {
   globals: { viewport: { value: "sbMobile", isRotated: false } },
@@ -139,6 +192,12 @@ export const Mobile: Story = {
 /** The same strips on the narrowest phone the app runs on. */
 export const NarrowPhone: Story = {
   globals: { viewport: { value: "sbNarrowPhone", isRotated: false } },
+};
+
+/** The camera frames as a phone strip, running past the screen edge. */
+export const WithCameraFramesMobile: Story = {
+  parameters: { chatInfo: WITH_FRAMES },
+  globals: { viewport: { value: "sbMobile", isRotated: false } },
 };
 
 /**

@@ -1,17 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 
-const CONFIG_DIR = join(import.meta.dir, "../../App/App/Config");
-
-function readSetting(xcconfig: string, key: string): string {
-  const contents = readFileSync(join(CONFIG_DIR, xcconfig), "utf8");
-  const line = contents
-    .split("\n")
-    .find((entry) => entry.startsWith(`${key} =`));
-  expect(line).toBeDefined();
-  return line!.slice(key.length + 3).trim();
-}
+import { readSetting } from "./xcconfig-fixtures";
 
 const PAIRS = [
   { app: "App.xcconfig", share: "Share.xcconfig" },

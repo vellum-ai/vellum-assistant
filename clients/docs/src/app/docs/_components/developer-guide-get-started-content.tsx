@@ -46,7 +46,7 @@ export function DeveloperGuideGetStartedContent() {
           <ul className="mb-0 list-disc space-y-2 pl-6 text-zinc-600">
             <li>
               <strong>Contributors</strong> working on the assistant
-              runtime, the macOS or iOS clients, the gateway, the CLI,
+              runtime, the macOS, Windows, or iOS clients, the gateway, the CLI,
               or the platform web app.
             </li>
             <li>
@@ -129,6 +129,9 @@ export function DeveloperGuideGetStartedContent() {
             <li>
               <code>clients/macos/</code>: the macOS desktop app
             </li>
+            <li>
+              <code>clients/windows/</code>: the Windows desktop app
+            </li>
           </ul>
           <p className="mb-0 text-zinc-600">
             See{" "}
@@ -155,7 +158,7 @@ export function DeveloperGuideGetStartedContent() {
           <ol className="mb-4 list-decimal space-y-2 pl-6 text-zinc-600">
             <li>
               Install the{" "}
-              <Link href="https://www.vellum.ai/download" className={linkClass}>
+              <Link href="https://www.vellum.ai/downloads" className={linkClass}>
                 desktop app
               </Link>{" "}
               and walk through onboarding. Your workspace will live at{" "}

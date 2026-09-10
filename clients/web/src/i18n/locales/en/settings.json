@@ -56,8 +56,7 @@
     "searchPlaceholder": "Search conversations",
     "unarchive": "Unarchive",
     "unarchiveFailed": "Failed to unarchive conversation.",
-    "unarchiving": "Unarchiving",
-    "untitled": "Untitled conversation"
+    "unarchiving": "Unarchiving"
   },
   "androidNotificationSettingsCard": {
     "checkingDescription": "Checking notification access for this device.",
@@ -382,8 +381,7 @@
     "errorTitle": "Failed to load bookmarks",
     "open": "Open",
     "removeBookmark": "Remove bookmark",
-    "retry": "Retry",
-    "untitledConversation": "Untitled conversation"
+    "retry": "Retry"
   },
   "bulkOverrideSwapModal": {
     "affectedSummary": "{count, plural, one {# action currently uses {profile}} other {# actions currently use {profile}}}",
@@ -1058,8 +1056,6 @@
     "toastAuthStartFailed": "Failed to start authentication for {serverId}",
     "toastAuthTimedOut": "Authentication timed out for {serverId}",
     "toastAuthenticatedSuccess": "{serverId} authenticated successfully",
-    "toastDisableFailed": "Failed to disable {serverId}",
-    "toastEnableFailed": "Failed to enable {serverId}",
     "toastOAuthRevokeFailed": "Failed to revoke OAuth for {serverId}",
     "toastOAuthRevoked": "OAuth credentials revoked for {serverId}",
     "toastReloadFailed": "Failed to reload MCP servers",
@@ -1085,11 +1081,8 @@
     "revoke": "Revoke",
     "revokeOAuthTooltip": "Revoke OAuth credentials",
     "statusConnected": "Connected",
-    "statusDisabled": "Disabled",
     "statusError": "Error",
     "statusNeedsAuth": "Needs Auth",
-    "toggleDisableAriaLabel": "Disable {serverId}",
-    "toggleEnableAriaLabel": "Enable {serverId}",
     "toolCount": "{count, plural, one {# tool} other {# tools}}",
     "toolTokensAbbrev": "~{count} tok"
   },
@@ -1105,7 +1098,6 @@
     "bearerTokenPlaceholder": "tok_...",
     "bearerTokenPlaceholderKeep": "••••••••  (leave blank to keep current)",
     "cancel": "Cancel",
-    "defaultRiskLevel": "Default risk level",
     "description": "{transport} transport · {status}",
     "emptyDescription": "-",
     "headerName": "Header name",
@@ -1113,9 +1105,6 @@
     "oauthBadge": "OAuth",
     "oauthManagedHint": "managed via OAuth flow",
     "registeredToolsHeading": "Registered tools ({count})",
-    "riskHigh": "High",
-    "riskLow": "Low",
-    "riskMedium": "Medium",
     "save": "Save",
     "saving": "Saving...",
     "tableDescription": "Description",
@@ -2403,7 +2392,26 @@
       "general": "General",
       "terminal": "Terminal",
       "doctor": "Doctor",
+      "database": "Database",
       "conversations": "Conversations"
     }
+  },
+  "debugDatabasePanel": {
+    "title": "Database",
+    "subtitle": "Migration status for this assistant, including failed and deferred steps.",
+    "refresh": "Refresh",
+    "loading": "Loading database status…",
+    "unsupported": "This assistant version does not report database diagnostics yet.",
+    "loadError": "Could not load database diagnostics.",
+    "statusReady": "Ready",
+    "statusRunning": "Migrating",
+    "statusFailed": "Failed",
+    "statusNotStarted": "Not started",
+    "migratingHint": "Migrations are still running. Failed steps will appear here if a step throws.",
+    "noFailures": "No failed migrations.",
+    "failedHeading": "Failed migrations",
+    "deferredHeading": "Deferred migrations",
+    "validationHeading": "Validation error",
+    "missingDeps": "Waiting on: {deps}"
   }
 }

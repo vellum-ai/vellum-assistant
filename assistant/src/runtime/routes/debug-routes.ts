@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
+import { getDbMigrationReadiness } from "../../daemon/daemon-readiness.js";
 import { countConversations } from "../../persistence/conversation-queries.js";
 import { getMemoryJobCounts } from "../../persistence/jobs-store.js";
 import { rawMemoryAll } from "../../persistence/raw-query.js";
@@ -95,6 +96,54 @@ function getDebugInfo() {
   };
 }
 
+const failedMigrationDetailSchema = z.object({
+  name: z.string(),
+  error: z.string().optional(),
+});
+
+const deferredMigrationDetailSchema = z.object({
+  name: z.string(),
+  missing: z.array(z.string()),
+});
+
+const databaseDebugSchema = z.object({
+  ready: z.boolean(),
+  state: z.enum(["not_started", "running", "failed", "ready"]),
+  reason: z.string().optional(),
+  error: z.string().optional(),
+  failed: z.array(failedMigrationDetailSchema),
+  deferred: z.array(deferredMigrationDetailSchema),
+  validationError: z.string().optional(),
+});
+
+/**
+ * In-memory migration latch only. Must not call getDb() or any ORM helper:
+ * this route is exempt from the migration gate so it can answer while
+ * migrations are running or have failed.
+ */
+function getDatabaseDebugInfo() {
+  const readiness = getDbMigrationReadiness();
+  if (readiness.ready) {
+    return {
+      ready: true as const,
+      state: "ready" as const,
+      failed: [],
+      deferred: [],
+    };
+  }
+  return {
+    ready: false as const,
+    state: readiness.state,
+    reason: readiness.reason,
+    ...(readiness.error ? { error: readiness.error } : {}),
+    failed: readiness.failedMigrations ?? [],
+    deferred: readiness.deferredMigrations ?? [],
+    ...(readiness.validationError
+      ? { validationError: readiness.validationError }
+      : {}),
+  };
+}
+
 export const ROUTES: RouteDefinition[] = [
   {
     operationId: "debug",
@@ -126,5 +175,20 @@ export const ROUTES: RouteDefinition[] = [
         .describe("Schedule counts (total, enabled)"),
       timestamp: z.string().describe("Current server timestamp (ISO 8601)"),
     }),
+  },
+  {
+    operationId: "debug_database",
+    endpoint: "debug/database",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: getDatabaseDebugInfo,
+    summary: "Database migration diagnostics",
+    description:
+      "Return the in-memory DB migration latch, including failed and deferred steps. Does not query SQLite, so it stays answerable while migrations are running or have failed.",
+    tags: ["debug"],
+    responseBody: databaseDebugSchema,
   },
 ];

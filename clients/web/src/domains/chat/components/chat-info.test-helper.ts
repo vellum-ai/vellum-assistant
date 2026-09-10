@@ -1,8 +1,10 @@
 /**
  * Fixtures and the shared harness for the Chat Info suites: the two daemon
  * summaries the panel lists, the assets it renders as tiles, the transcript
- * rows those assets come from, the query client its hooks read, the modules a
- * suite hands `mock.module`, and the browser APIs happy-dom leaves out.
+ * rows and the daemon attachment listing those assets come from, the query
+ * client its hooks read, the assistant version its listing gate reads, the
+ * modules a suite hands `mock.module`, and the browser APIs happy-dom leaves
+ * out.
  *
  * Every asset goes through `toConversationFileAssets`, the mapping the hook
  * itself runs, so a fixture cannot drift from the ids and shapes the panel
@@ -17,30 +19,40 @@
 import { QueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-attachment-list";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
   type ConversationFileAsset,
   toConversationFileAssets,
 } from "@/domains/chat/hooks/use-conversation-assets";
-import type { ConversationAttachmentEntry } from "@/domains/chat/hooks/use-conversation-attachments";
+import {
+  type ConversationAttachmentEntry,
+  conversationAttachmentListArgs,
+  type SightFrameFilter,
+} from "@/domains/chat/hooks/use-conversation-attachments";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import {
   appsGetQueryKey,
+  attachmentsGetInfiniteQueryKey,
   documentsGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import type * as ElementSizeModule from "@/hooks/use-element-size";
 import { makeAppSummary as makeSharedAppSummary } from "@/types/app-summary.test-helper";
 import type { AppSummary } from "@/types/app-types";
-import type { DisplayAttachment } from "@/types/attachment-types";
+import type {
+  ConversationAttachmentSummary,
+  DisplayAttachment,
+} from "@/types/attachment-types";
 import type { DocumentSummary } from "@/types/document-types";
 import * as appHtmlCache from "@/utils/app-html-cache";
 
 /** Fixed epoch ms, so nothing built here depends on the clock. */
 export const CHAT_INFO_T0 = 1_760_000_000_000;
 
-/** The drawer body's column on the desktop mock: 3 app tiles, 4 file tiles. */
-export const CHAT_INFO_DRAWER_WIDTH_PX = 569;
+/** Re-exported so a fixture, a test, and the panel cannot drift on the width. */
+export { CHAT_INFO_BODY_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 
 /**
  * The narrowest phone the app's designs are drawn for, screen width and all.
@@ -341,6 +353,73 @@ export function seedChatInfoConversation(
   client.setQueryData(
     documentsGetQueryKey({ path, query: { conversationId } }),
     { documents },
+  );
+}
+
+/**
+ * Reports `version` as the connected assistant's, which is the gate the daemon
+ * attachment listing is read behind. Defaults to the version that opens it.
+ * Returns the restore fn, so one test or story cannot leak a version into the
+ * next.
+ */
+export function reportAssistantVersion(version = MIN_VERSION): () => void {
+  const previous = useAssistantIdentityStore.getState();
+  const { setIdentity } = previous;
+  setIdentity(previous.name, version, previous.assistantId);
+  return () => {
+    setIdentity(previous.name, previous.version, previous.assistantId);
+  };
+}
+
+/** One row of the daemon's attachment listing, defaults under `overrides`. */
+export function makeAttachmentSummary(
+  overrides: Partial<ConversationAttachmentSummary> = {},
+): ConversationAttachmentSummary {
+  const id = overrides.id ?? "att-1";
+  return {
+    id,
+    filename: `${id}.png`,
+    mimeType: "image/png",
+    sizeBytes: 1_024,
+    kind: "image",
+    messageId: "msg-1",
+    createdAt: CHAT_INFO_T0,
+    sightFrame: false,
+    ambientKeep: false,
+    ...overrides,
+  };
+}
+
+/**
+ * One answered page of the daemon's attachment listing, under the key the hook
+ * reads it back from, so a seed and the hook cannot land on different keys.
+ * `total` defaults to the rows given, which is a listing with nothing beyond
+ * them; a larger one is what the second level's Load more control appears for.
+ */
+export function seedAttachmentList(
+  client: QueryClient,
+  {
+    assistantId,
+    conversationId,
+    sightFrames,
+    attachments,
+    total = attachments.length,
+  }: {
+    assistantId: string;
+    conversationId: string;
+    sightFrames: SightFrameFilter;
+    attachments: ConversationAttachmentSummary[];
+    total?: number;
+  },
+): void {
+  client.setQueryData(
+    attachmentsGetInfiniteQueryKey(
+      conversationAttachmentListArgs(assistantId, conversationId, sightFrames),
+    ),
+    {
+      pages: [{ attachments, total, hasMore: total > attachments.length }],
+      pageParams: [0],
+    },
   );
 }
 

@@ -506,7 +506,10 @@ describe("useConversationSync", () => {
     queryClient.setQueryData<ConversationListPage>(
       conversationListQueryKey("asst-1"),
       listPage([
-        { conversationId: "conv-1", title: "Old Title" } as Conversation,
+        {
+          conversationId: "conv-1",
+          title: "Generating title...",
+        } as Conversation,
       ]),
     );
     renderHook(() => useConversationSync("asst-1", true), {

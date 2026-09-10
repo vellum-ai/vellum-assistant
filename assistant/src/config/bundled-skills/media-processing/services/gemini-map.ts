@@ -30,6 +30,11 @@ export interface GeminiMapOptions {
   model?: string;
   concurrency?: number;
   maxRetries?: number;
+  /**
+   * Turn cancellation. Stops the fan-out between segments and aborts the paid
+   * generation calls instead of letting them run to completion.
+   */
+  signal?: AbortSignal;
 }
 
 export interface SegmentMapResult {
@@ -144,6 +149,7 @@ async function processSegment(
     model,
     contents: [{ role: "user" as const, parts: parts as never }],
     config: {
+      ...(options.signal ? { abortSignal: options.signal } : {}),
       systemInstruction: options.systemPrompt,
       responseMimeType: "application/json",
       responseSchema: options.outputSchema as never,
@@ -174,6 +180,7 @@ async function processSegmentWithRetry(
   onProgress?: (msg: string) => void,
 ): Promise<SegmentProcessingResult> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    options.signal?.throwIfAborted();
     try {
       const { result, model, inputTokens, outputTokens } = await processSegment(
         client,

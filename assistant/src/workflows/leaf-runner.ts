@@ -107,6 +107,9 @@ async function resolveLeafContext(
     // A persona leaf is not an onboarding turn, and it must not emit the
     // first-run bootstrap block: keep it to the assistant's stable identity.
     excludeBootstrap: true,
+    // A leaf runs the caller's restricted tool set, which carries no spawn
+    // surface, so the parallel-delegation guidance would misdirect it.
+    canSpawnSubagents: false,
   });
 
   const messages = await injectPersonaMemory(opts, userMessages);

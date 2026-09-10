@@ -4,6 +4,10 @@ import {
   getKeyframesForAsset,
   getMediaAssetById,
 } from "../../../../persistence/media-store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -39,11 +43,16 @@ export async function run(
     includeAudio,
   };
 
+  throwIfCancelled(context);
+
   try {
     const manifest = await preprocessForAsset(
       assetId,
       options,
       context.onOutput,
+      // Segmentation spawns ffmpeg per segment and can transcribe each one, so
+      // the run is long enough that a stopped turn must not carry it on.
+      context.signal ? { signal: context.signal } : undefined,
     );
 
     const asset = getMediaAssetById(assetId);
@@ -68,6 +77,11 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a preprocess failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = (err as Error).message;
     if (
       msg.startsWith("Media asset not found:") ||

@@ -1,4 +1,7 @@
 {
+  "statusBanner": {
+    "reconnecting": "Восстанавливаем соединение с вашим ассистентом…"
+  },
   "addCreditsModal": {
     "configureAutoReload": "Настроить автопополнение"
   },
@@ -42,6 +45,9 @@
     "sharingWindowNamed": "Показываем окно {name}",
     "teaching": "Обучаем",
     "teachingNamed": "Обучаем {name}"
+  },
+  "conversationTitle": {
+    "untitled": "Без названия"
   },
   "deployStore": {
     "appExported": "Приложение экспортировано",

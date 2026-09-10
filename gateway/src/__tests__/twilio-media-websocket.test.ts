@@ -15,12 +15,29 @@ import {
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
 
-/** Mint a valid edge JWT (aud=vellum-gateway) for test requests. */
+/**
+ * Mint the relay token the gateway injects into `<Stream>` TwiML, which is
+ * what Twilio presents on the upgrade. Mirrors `mintRelayToken`.
+ */
 function mintEdgeToken(): string {
   return mintToken({
     aud: "vellum-gateway",
     sub: "svc:gateway:self",
     scope_profile: "gateway_service_v1",
+    policy_epoch: CURRENT_POLICY_EPOCH,
+    ttlSeconds: 300,
+  });
+}
+
+/** Mint some other valid edge JWT (aud=vellum-gateway) for test requests. */
+function mintNonRelayToken(
+  sub: string,
+  scopeProfile: "oauth_proxy_v1" | "actor_client_v1" | "ui_page_v1",
+): string {
+  return mintToken({
+    aud: "vellum-gateway",
+    sub,
+    scope_profile: scopeProfile,
     policy_epoch: CURRENT_POLICY_EPOCH,
     ttlSeconds: 300,
   });
@@ -316,6 +333,67 @@ describe("createTwilioMediaWebsocketHandler", () => {
     const handler = createTwilioMediaWebsocketHandler(config);
     const req = new Request(
       "http://localhost:7830/webhooks/twilio/media-stream?callSessionId=sess-1",
+    );
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  // The siblings on runtime-audio-stream.ts and live-voice-websocket.ts
+  // require an actor principal. Twilio never presents one: the credential it
+  // dials back with is the gateway's own relay token, so the equivalent
+  // containment here is the relay identity, not an actor one. Every other
+  // valid edge token is refused, an OAuth passthrough grant included.
+
+  test("returns 401 for an oauth proxy grant that knows a callSessionId", () => {
+    const grant = mintNonRelayToken(
+      "local:self:oauth-proxy.stripe_link",
+      "oauth_proxy_v1",
+    );
+    const handler = createTwilioMediaWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/webhooks/twilio/media-stream/sess-1/${grant}`,
+    );
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("returns 401 for an actor token", () => {
+    const actorToken = mintNonRelayToken(
+      "actor:asst_1:user_1",
+      "actor_client_v1",
+    );
+    const handler = createTwilioMediaWebsocketHandler(makeConfig());
+    const req = new Request(
+      "http://localhost:7830/webhooks/twilio/media-stream/sess-1",
+      { headers: { authorization: `Bearer ${actorToken}` } },
+    );
+    const fakeServer = {
+      upgrade: mock(() => true),
+    } as unknown as import("bun").Server<any>;
+    const res = handler(req, fakeServer);
+
+    expect(res).toBeInstanceOf(Response);
+    expect(res!.status).toBe(401);
+    expect(fakeServer.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("returns 401 for a gateway-minted token on another profile", () => {
+    const uiPageToken = mintNonRelayToken("svc:gateway:self", "ui_page_v1");
+    const handler = createTwilioMediaWebsocketHandler(makeConfig());
+    const req = new Request(
+      `http://localhost:7830/webhooks/twilio/media-stream/sess-1/${uiPageToken}`,
     );
     const fakeServer = {
       upgrade: mock(() => true),

@@ -24,6 +24,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import {
+  ACTIVITY_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 import { useTranslation } from "@/i18n";
 
 import { Button } from "@vellumai/design-library";
@@ -165,9 +169,9 @@ export function InlineConfirmationCard({
   // Meta-line context: what the agent was doing when it hit the gate. The
   // live activity label wins; a custom confirmation title and the friendly
   // tool label are fallbacks.
-  const activity = toolCall.input?.activity ?? toolCall.input?.reason;
+  const activity = readToolInputString(toolCall.input ?? {}, ...ACTIVITY_KEYS);
   const contextLabel =
-    (typeof activity === "string" && activity.trim()) ||
+    activity ||
     confirmation.title ||
     friendlyToolLabel(
       toolCall.name,
@@ -338,9 +342,8 @@ export function ToolCallChip({
   );
 
   const inputSummary = extractInputSummary(toolCall.name, toolCall.input);
-  const activity = toolCall.input?.activity ?? toolCall.input?.reason;
   const activityLabel =
-    typeof activity === "string" && activity.trim() ? activity.trim() : null;
+    readToolInputString(toolCall.input ?? {}, ...ACTIVITY_KEYS) || null;
   const label =
     activityLabel ??
     (isRunning

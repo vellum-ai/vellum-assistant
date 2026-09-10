@@ -17,6 +17,7 @@ import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/src/me
 import { ROUTES as MEMORY_WORKER_ROUTES } from "../../plugins/defaults/memory/src/memory-worker-routes.js";
 import { ROUTES as ACP_CLAUDE_AUTH_ROUTES } from "./acp-claude-auth-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
+import { ROUTES as ACTIVATION_ROUTES } from "./activation-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
 import { ROUTES as APPROVAL_ROUTES } from "./approval-routes.js";
@@ -120,6 +121,8 @@ import { ROUTES as OAUTH_COMMANDS_ROUTES } from "./oauth-commands-routes.js";
 import { ROUTES as OAUTH_CONNECT_ROUTES } from "./oauth-connect-routes.js";
 import { ROUTES as OAUTH_LIFECYCLE_ROUTES } from "./oauth-lifecycle-routes.js";
 import { ROUTES as OAUTH_PROVIDERS_ROUTES } from "./oauth-providers.js";
+import { ROUTES as OAUTH_PROXY_GRANT_ROUTES } from "./oauth-proxy-grant-routes.js";
+import { ROUTES as OAUTH_PROXY_ROUTES } from "./oauth-proxy-routes.js";
 import { ROUTES as ONBOARDING_CHECKIN_ROUTES } from "./onboarding-checkin-routes.js";
 import { ROUTES as PLATFORM_ROUTES } from "./platform-routes.js";
 import { ROUTES as PLAYGROUND_ROUTES } from "./playground/index.js";
@@ -211,6 +214,7 @@ export const ROUTES: RouteDefinition[] = [
   ...CONVERSATION_COMPACTION_ROUTES,
   ...CONVERSATION_QUERY_ROUTES,
   ...CONVERSATION_STARTER_ROUTES,
+  ...ACTIVATION_ROUTES,
   ...DEBUG_BASH_ROUTES,
   ...DEBUG_ROUTES,
   ...DEFAULT_PROVIDER_ROUTES,
@@ -269,6 +273,8 @@ export const ROUTES: RouteDefinition[] = [
   ...OAUTH_APPS_ROUTES,
   ...OAUTH_LIFECYCLE_ROUTES,
   ...OAUTH_COMMANDS_ROUTES,
+  ...OAUTH_PROXY_ROUTES,
+  ...OAUTH_PROXY_GRANT_ROUTES,
   ...OAUTH_PROVIDERS_ROUTES,
   ...ONBOARDING_CHECKIN_ROUTES,
   ...PLATFORM_ROUTES,

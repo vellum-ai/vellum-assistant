@@ -86,22 +86,23 @@ export const telegramTransport: ChannelTransport = {
     const { chatId, text, attachments, approval } = payload;
     const opts = threadOptions(ctx);
 
+    let messageIds: string[] = [];
     if (text) {
       // Telegram answers a rich render by forwarding markdown to
       // `sendRichMessage`, degrading to plain text otherwise and on any
       // rich-send rejection.
-      if (payload.renderRichly) {
-        await sendTelegramRichReply(chatId, text, approval, opts);
-      } else {
-        await sendTelegramReply(chatId, text, approval, opts);
-      }
+      const sent = payload.renderRichly
+        ? await sendTelegramRichReply(chatId, text, approval, opts)
+        : await sendTelegramReply(chatId, text, approval, opts);
+      messageIds = sent.messageIds;
     } else if (approval) {
-      await sendTelegramReply(
+      const sent = await sendTelegramReply(
         chatId,
         approval.plainTextFallback || "Approval required",
         approval,
         opts,
       );
+      messageIds = sent.messageIds;
     }
 
     if (attachments && attachments.length > 0) {
@@ -118,7 +119,8 @@ export const telegramTransport: ChannelTransport = {
       { chatId, hasText: !!text, messageThreadId: opts?.messageThreadId },
       "Telegram reply delivered (direct)",
     );
-    return { ok: true };
+    // Every chunk the text became is acknowledged; attachment posts are not.
+    return { ok: true, messageIds };
   },
 
   async edit(_ctx, target) {

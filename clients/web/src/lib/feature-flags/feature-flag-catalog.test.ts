@@ -29,6 +29,11 @@ describe("feature flag catalog", () => {
     expect("vellumHostedInference" in CLIENT_FLAG_DEFAULTS).toBe(false);
   });
 
+  test("exposes the send-user-message tool gate to both flag stores", () => {
+    expect(CLIENT_FLAG_DEFAULTS.sendUserMessage).toBe(false);
+    expect(ASSISTANT_FLAG_DEFAULTS.sendUserMessage).toBe(false);
+  });
+
   test("does not expose GA collapsed assistant intermediates as a feature flag", () => {
     expect("collapseAssistantIntermediates" in CLIENT_FLAG_DEFAULTS).toBe(
       false,
@@ -48,6 +53,13 @@ describe("feature flag catalog", () => {
     expect("experimentActivationFlow20260603" in ASSISTANT_FLAG_DEFAULTS).toBe(
       false,
     );
+  });
+
+  test("exposes the activation checklist as a client string flag defaulted off", () => {
+    expect(CLIENT_STRING_FLAG_DEFAULTS.experimentActivationChecklist20260910).toBe("off");
+    expect("experimentActivationChecklist20260910" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("experimentActivationChecklist20260910" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("experimentActivationChecklist20260910" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 
   test("does not expose the GA billing CTA experiment as a feature flag", () => {
@@ -103,6 +115,21 @@ describe("feature flag catalog", () => {
     expect("summarizeUpToHere" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
   });
 
+  test("does not expose the retired balanced-model experiment as a feature flag", () => {
+    expect("experimentBalancedModel20260831" in CLIENT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect("experimentBalancedModel20260831" in ASSISTANT_FLAG_DEFAULTS).toBe(
+      false,
+    );
+    expect(
+      "experimentBalancedModel20260831" in CLIENT_STRING_FLAG_DEFAULTS,
+    ).toBe(false);
+    expect(
+      "experimentBalancedModel20260831" in ASSISTANT_STRING_FLAG_DEFAULTS,
+    ).toBe(false);
+  });
+
   test("does not expose GA desktop presence suppression as a feature flag", () => {
     expect("desktopPresenceSuppression" in CLIENT_FLAG_DEFAULTS).toBe(false);
     expect("desktopPresenceSuppression" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
@@ -112,6 +139,13 @@ describe("feature flag catalog", () => {
     expect("desktopPresenceSuppression" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(
       false,
     );
+  });
+
+  test("does not expose GA Link by Stripe as a feature flag", () => {
+    expect("stripeLinkOauth" in CLIENT_FLAG_DEFAULTS).toBe(false);
+    expect("stripeLinkOauth" in ASSISTANT_FLAG_DEFAULTS).toBe(false);
+    expect("stripeLinkOauth" in CLIENT_STRING_FLAG_DEFAULTS).toBe(false);
+    expect("stripeLinkOauth" in ASSISTANT_STRING_FLAG_DEFAULTS).toBe(false);
   });
 });
 

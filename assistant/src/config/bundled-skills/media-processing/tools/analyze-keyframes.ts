@@ -3,6 +3,10 @@ import { dirname, join } from "node:path";
 
 import { getMediaAssetById } from "../../../../persistence/media-store.js";
 import { getProviderKeyAsync } from "../../../../security/secure-keys.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -22,6 +26,8 @@ export interface MapSegmentsOptions {
   model?: string;
   concurrency?: number;
   maxRetries?: number;
+  /** Turn cancellation, forwarded into the paid segment calls. */
+  signal?: AbortSignal;
 }
 
 export async function mapSegmentsForAsset(
@@ -36,6 +42,10 @@ export async function mapSegmentsForAsset(
       "No Gemini API key configured. Please set your Gemini API key to use keyframe analysis.",
     );
   }
+
+  // Credential and manifest loading are awaits, so recheck before committing
+  // to the fan-out of paid calls below.
+  options.signal?.throwIfAborted();
 
   const asset = getMediaAssetById(assetId);
   if (!asset) {
@@ -74,6 +84,7 @@ export async function mapSegmentsForAsset(
       model: options.model,
       concurrency: options.concurrency,
       maxRetries: options.maxRetries,
+      signal: options.signal,
     },
     onProgress,
   );
@@ -117,11 +128,16 @@ export async function run(
     return { content: "max_retries must be non-negative.", isError: true };
   }
 
+  throwIfCancelled(context);
+
   try {
     let output: MapOutput;
 
     if (mode === "direct_video") {
       const apiKey = await getProviderKeyAsync("gemini");
+      // The credential lookup is an await, so recheck before the upload,
+      // polling and paid generation this branch starts.
+      throwIfCancelled(context);
       if (!apiKey) {
         return {
           content:
@@ -153,6 +169,7 @@ export async function run(
           context: contextObj,
           model,
           maxRetries,
+          ...(context.signal ? { signal: context.signal } : {}),
         },
         asset.filePath,
         asset.durationSeconds ?? 0,
@@ -169,6 +186,7 @@ export async function run(
           model,
           concurrency,
           maxRetries,
+          ...(context.signal ? { signal: context.signal } : {}),
         },
         context.onOutput,
       );
@@ -195,6 +213,11 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not an analysis failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     const msg = (err as Error).message;
     return { content: msg, isError: true };
   }

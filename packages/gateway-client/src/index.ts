@@ -93,7 +93,6 @@ export {
   inboundEventRefersToAnotherMessage,
   isInboundEventKind,
   resolveInboundEventKind,
-  parseDiscordEmojiMention,
   resolveInboundReactionPayload,
 } from "./inbound-event-kind.js";
 export type {
@@ -105,6 +104,7 @@ export type {
 export {
   ACCESS_DENIED_NOT_APPROVED_REPLY,
   PLUGIN_ADMISSION_DENIED_NOTICE_PATH,
+  PLUGIN_NOTICES_ROUTE_PREFIX,
   PluginAdmissionDeniedNoticeSchema,
 } from "./plugin-admission-denied-contract.js";
 

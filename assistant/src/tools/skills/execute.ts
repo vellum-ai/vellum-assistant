@@ -1,5 +1,6 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { isUnparseableToolArgs } from "../../providers/unparseable-tool-args.js";
+import { declareDaemonActivityField } from "../schema-transforms.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -182,7 +183,7 @@ export const skillExecuteTool = {
   executionTarget: "sandbox",
   defaultRiskLevel: RiskLevel.Low,
 
-  input_schema: {
+  input_schema: declareDaemonActivityField({
     type: "object",
     properties: {
       tool: {
@@ -202,7 +203,7 @@ export const skillExecuteTool = {
       },
     },
     required: ["tool", "input", "activity"],
-  },
+  }),
 
   async execute(
     _input: Record<string, unknown>,

@@ -2,7 +2,10 @@ import type { Server } from "bun";
 
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
-import { resolveScopeProfile } from "../../auth/scopes.js";
+import {
+  isNarrowScopeProfile,
+  resolveScopeProfile,
+} from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { Scope, TokenClaims } from "../../auth/types.js";
@@ -102,6 +105,10 @@ export function logAuthBypassState(): void {
  *     vembda; the gateway only verifies the cross-checked user id.
  *   - `requireEdgeGuardianAuth` — same pattern, additionally requires the
  *     authenticated principal to match the bound guardian.
+ *
+ * All three refuse a single-route grant (see `isSingleRouteGrant`) outright,
+ * with no loopback fallback: such a grant is handed to code outside this
+ * install's trust boundary, which usually runs on the loopback host itself.
  */
 export function createAuthMiddleware(
   authRateLimiter: AuthRateLimiter,
@@ -259,6 +266,8 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const contained = rejectSingleRouteGrant(req, result.claims, "Edge auth");
+    if (contained) return contained;
     return rejectIfActorTokenRevoked(req, token, result.claims);
   }
 
@@ -286,6 +295,13 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const contained = rejectSingleRouteGrant(
+      req,
+      result.claims,
+      "Scoped edge auth",
+      { scope },
+    );
+    if (contained) return contained;
     const revoked = rejectIfActorTokenRevoked(req, token, result.claims);
     if (revoked) return revoked;
     const scopes = resolveScopeProfile(result.claims.scope_profile);
@@ -345,6 +361,30 @@ export function createAuthMiddleware(
     log.warn(
       { path: new URL(req.url).pathname, ...extra },
       `${label} rejected: malformed Authorization header`,
+    );
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  /**
+   * Refuse a grant minted for one route. Edge auth speaks for its caller on
+   * every route it guards, which such a grant may not do, so the refusal is
+   * unconditional: the loopback fallback would hand back what it withholds.
+   */
+  function rejectSingleRouteGrant(
+    req: Request,
+    claims: TokenClaims,
+    label: string,
+    extra?: Record<string, unknown>,
+  ): Response | null {
+    if (!isSingleRouteGrant(claims)) return null;
+    authRateLimiter.recordFailure(getClientIp());
+    log.warn(
+      {
+        path: new URL(req.url).pathname,
+        scopeProfile: claims.scope_profile,
+        ...extra,
+      },
+      `${label} rejected: grant is scoped to a single route`,
     );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -465,6 +505,12 @@ export function createAuthMiddleware(
       );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const contained = rejectSingleRouteGrant(
+      req,
+      result.claims,
+      "Guardian edge auth",
+    );
+    if (contained) return contained;
     const revoked = rejectIfActorTokenRevoked(req, token, result.claims);
     if (revoked) return revoked;
     const parsed = parseSub(result.claims.sub);
@@ -544,6 +590,25 @@ export function wrapWithAuthFailureTracking(
 // ---------------------------------------------------------------------------
 // Internals
 // ---------------------------------------------------------------------------
+
+/** Conversation component of an OAuth passthrough grant's subject. */
+const OAUTH_PROXY_SUBJECT_PREFIX = "oauth-proxy.";
+
+/**
+ * True when the claims name a grant minted for a single route rather than an
+ * edge credential. A narrow scope profile is the gate, since edge auth speaks
+ * for its caller on every route it guards; the subject shape is a second
+ * signal, catching a proxy grant that carries some other profile.
+ */
+function isSingleRouteGrant(claims: TokenClaims): boolean {
+  if (isNarrowScopeProfile(claims.scope_profile)) return true;
+  const parsed = parseSub(claims.sub);
+  return (
+    parsed.ok &&
+    parsed.principalType === "local" &&
+    (parsed.conversationId ?? "").startsWith(OAUTH_PROXY_SUBJECT_PREFIX)
+  );
+}
 
 /** Extract the raw token from a Bearer Authorization header, or null. */
 function extractBearerToken(req: Request): string | null {

@@ -5,6 +5,9 @@ import {
   searchEmoji,
 } from "@/domains/chat/components/chat-composer/emoji-catalog-data";
 
+/** Presentation selectors do not change what a person sees. */
+const glyph = (s: string | undefined) => s?.replace(/️/g, "");
+
 describe("EMOJI_CATALOG", () => {
   test("contains a substantial number of entries", () => {
     expect(EMOJI_CATALOG.length).toBeGreaterThan(1000);
@@ -12,9 +15,9 @@ describe("EMOJI_CATALOG", () => {
 
   test("is sorted by shortcode", () => {
     for (let i = 1; i < EMOJI_CATALOG.length; i++) {
-      const prev = EMOJI_CATALOG[i - 1]!.shortcode;
-      const curr = EMOJI_CATALOG[i]!.shortcode;
-      expect(prev <= curr).toBe(true);
+      expect(
+        EMOJI_CATALOG[i - 1]!.shortcode <= EMOJI_CATALOG[i]!.shortcode,
+      ).toBe(true);
     }
   });
 
@@ -23,58 +26,43 @@ describe("EMOJI_CATALOG", () => {
     expect(new Set(shortcodes).size).toBe(shortcodes.length);
   });
 
-  test("entry never lists its own shortcode in aliases", () => {
+  test("entry never lists its own shortcode in aliases, and aliases are unique", () => {
     for (const entry of EMOJI_CATALOG) {
       expect(entry.aliases).not.toContain(entry.shortcode);
-    }
-  });
-
-  test("aliases are unique per entry", () => {
-    for (const entry of EMOJI_CATALOG) {
       expect(new Set(entry.aliases).size).toBe(entry.aliases.length);
     }
   });
 
-  test("contains the triumph emoji with huff-related aliases", () => {
-    const triumph = EMOJI_CATALOG.find((e) => e.shortcode === "triumph");
-    expect(triumph).toBeDefined();
-    expect(triumph!.emoji).toBe("😤");
-    expect(triumph!.aliases).toContain("huff");
-    expect(triumph!.aliases).toContain("frustrated");
+  test("uses Slack's names: every short name of an emoji is its own row", () => {
+    const plusOne = EMOJI_CATALOG.find((e) => e.shortcode === "+1");
+    const thumbsup = EMOJI_CATALOG.find((e) => e.shortcode === "thumbsup");
+    expect(glyph(plusOne?.emoji)).toBe("👍");
+    expect(thumbsup?.emoji).toBe(plusOne?.emoji);
   });
 
   test.each([
-    ["left_facing_fist", "🤛"],
-    ["right_facing_fist", "🤜"],
-    ["red_flag", "🚩"],
-  ])(
-    "preserves legacy web shortcode :%s as a catalog row",
-    (shortcode, emoji) => {
-      const entry = EMOJI_CATALOG.find((e) => e.shortcode === shortcode);
-      expect(entry).toBeDefined();
-      expect(entry!.emoji).toBe(emoji);
-    },
-  );
+    ["flag-nz", "🇳🇿"],
+    ["umbrella", "☂"],
+    ["tada", "🎉"],
+  ])("carries Slack's :%s", (shortcode, emoji) => {
+    expect(
+      glyph(EMOJI_CATALOG.find((e) => e.shortcode === shortcode)?.emoji),
+    ).toBe(emoji);
+  });
 });
 
 describe("searchEmoji", () => {
-  test("surfaces 😤 when searching :huff (alias match)", () => {
-    const results = searchEmoji("huff");
-    expect(results.some((e) => e.emoji === "😤")).toBe(true);
+  test("surfaces 😤 by a tag from the dataset", () => {
+    expect(searchEmoji("fuming").some((e) => glyph(e.emoji) === "😤")).toBe(
+      true,
+    );
   });
 
-  test("surfaces 😤 when searching :frustrated (alias match)", () => {
-    const results = searchEmoji("frustrated");
-    expect(results.some((e) => e.emoji === "😤")).toBe(true);
-  });
-
-  test("still returns 😤 for the canonical :triumph shortcode", () => {
-    const results = searchEmoji("triumph");
-    expect(results[0]?.emoji).toBe("😤");
+  test("returns 😤 first for its own :triumph shortcode", () => {
+    expect(glyph(searchEmoji("triumph")[0]?.emoji)).toBe("😤");
   });
 
   test("ranks shortcode prefix matches above alias matches", () => {
-    // :steam → steam_locomotive (shortcode prefix) ranks above triumph (alias only).
     const results = searchEmoji("steam", 20);
     const locoIdx = results.findIndex(
       (e) => e.shortcode === "steam_locomotive",
@@ -86,7 +74,7 @@ describe("searchEmoji", () => {
   });
 
   test("is case insensitive", () => {
-    expect(searchEmoji("HUFF")).toEqual(searchEmoji("huff"));
+    expect(searchEmoji("FUMING")).toEqual(searchEmoji("fuming"));
   });
 
   test("respects the limit parameter", () => {
@@ -94,19 +82,17 @@ describe("searchEmoji", () => {
   });
 
   test("returns results without duplicate shortcodes", () => {
-    const results = searchEmoji("heart", 50);
-    const shortcodes = results.map((e) => e.shortcode);
+    const shortcodes = searchEmoji("heart", 50).map((e) => e.shortcode);
     expect(new Set(shortcodes).size).toBe(shortcodes.length);
   });
 
   test("empty query returns catalog prefix", () => {
-    const results = searchEmoji("", 5);
-    expect(results).toEqual(EMOJI_CATALOG.slice(0, 5));
+    expect(searchEmoji("", 5)).toEqual(EMOJI_CATALOG.slice(0, 5));
   });
 
-  test(":lol surfaces both joy and rofl via aliases", () => {
-    const results = searchEmoji("lol", 10);
-    expect(results.some((e) => e.shortcode === "joy")).toBe(true);
-    expect(results.some((e) => e.shortcode === "rofl")).toBe(true);
+  test(":lol surfaces 😂 via its tags", () => {
+    expect(searchEmoji("lol", 10).some((e) => e.shortcode === "joy")).toBe(
+      true,
+    );
   });
 });

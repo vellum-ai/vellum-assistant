@@ -47,6 +47,7 @@ import { resolveCapabilities } from "../../../runtime/capabilities.js";
 import { getLogger } from "./logging.js";
 import { hasQualifyingUserMessageAfter } from "./memory-retrospective-accounting.js";
 import { isMemoryRetrospectiveSource } from "./memory-retrospective-constants.js";
+import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
 const log = getLogger("memory-retrospective-enqueue");
@@ -139,7 +140,7 @@ function isRetrospectiveEnabled(): boolean {
 /**
  * The `memory.retrospective.requireUserActivity` gate: pass when the config
  * is off or the unprocessed tail (everything after the conversation's
- * `lastProcessedMessageId`) contains at least one user message carrying
+ * retrospective cursor) contains at least one user message carrying
  * non-tool_result content. A gate that cannot be evaluated (config or DB
  * unavailable) passes — an unevaluable gate must not silence retrospectives.
  */
@@ -153,10 +154,7 @@ function passesUserActivityGate(
     }
     const state = getRetrospectiveState(conversationId);
     if (
-      hasQualifyingUserMessageAfter(
-        conversationId,
-        state?.lastProcessedMessageId ?? null,
-      )
+      hasQualifyingUserMessageAfter(conversationId, retrospectiveCursor(state))
     ) {
       return true;
     }

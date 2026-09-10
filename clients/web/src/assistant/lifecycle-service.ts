@@ -37,6 +37,13 @@ import {
   resolveAssistantLifecycleState,
   TRANSPORT_ERROR_MESSAGE,
 } from "@/assistant/lifecycle";
+import {
+  beginAssistantRequest,
+  recordAssistantResponse,
+  hasAssistantRespondedSince,
+  resetAssistantRequestActivity,
+  useAssistantRequestActivity,
+} from "@/assistant/request-activity";
 import { subscribe } from "@/lib/event-bus";
 import { ASSISTANT_QUERY_KEY, assistantQueryKey } from "@/assistant/queries";
 import { deriveLocalAssistantHealth } from "@/assistant/local-health";
@@ -162,6 +169,38 @@ class AssistantLifecycleService {
   private errorRetryAttempt = 0;
 
   constructor() {
+    resetAssistantRequestActivity(
+      useResolvedAssistantsStore.getState().activeAssistantId,
+    );
+    useAssistantRequestActivity.subscribe((activity, previous) => {
+      if (activity.sequence === previous.sequence || !activity.responded) {
+        return;
+      }
+      if (
+        activity.assistantId !==
+        useResolvedAssistantsStore.getState().activeAssistantId
+      ) {
+        return;
+      }
+      if (this.state.kind !== "active" && this.state.kind !== "self_hosted") {
+        return;
+      }
+      const { health } = this.state;
+      if (
+        health &&
+        !["healthy", "sleeping", "starting", "unreachable"].includes(health)
+      ) {
+        return;
+      }
+      this.probeFailureStreak = 0;
+      if (this.state.kind === "self_hosted") {
+        if (health !== "healthy") {
+          this.transition({ ...this.state, health: "healthy" });
+        }
+      } else if (health !== "healthy" || this.state.reachable !== true) {
+        this.transition({ ...this.state, health: "healthy", reachable: true });
+      }
+    });
     subscribe("assistant.unreachable", () => this.onUnreachable());
     // Network-back signal: retry a transient error immediately (no
     // point waiting out the backoff once the browser says we're
@@ -179,6 +218,12 @@ class AssistantLifecycleService {
     // deliberately not handled here: its resolver-fed effect path already
     // re-checks, and acting on it would double-fetch with stale inputs.
     useResolvedAssistantsStore.subscribe((state, prevState) => {
+      if (
+        state.activeAssistantId !== prevState.activeAssistantId ||
+        state.selectedAssistantId !== prevState.selectedAssistantId
+      ) {
+        resetAssistantRequestActivity(state.activeAssistantId);
+      }
       if (state.selectedAssistantId === prevState.selectedAssistantId) {
         return;
       }
@@ -672,6 +717,7 @@ class AssistantLifecycleService {
     this.reachabilityProbeInFlightIds.add(assistantId);
     try {
       const generation = this.generation;
+      const observation = beginAssistantRequest(assistantId);
       const isLocalLifecycleState =
         this.state.kind === "self_hosted" ||
         (this.state.kind === "active" && this.state.isLocal);
@@ -684,6 +730,7 @@ class AssistantLifecycleService {
               () => null,
             )
           : null;
+      let daemonResponded = false;
       let health: LocalAssistantHealth =
         localStatus?.ok && localStatus.state === "upgrading"
           ? "upgrading"
@@ -708,6 +755,7 @@ class AssistantLifecycleService {
             return;
           }
           health = deriveLocalAssistantHealth(healthz);
+          daemonResponded = health === "healthy";
         } catch {
           health = "unreachable";
         }
@@ -738,6 +786,15 @@ class AssistantLifecycleService {
       }
       if (
         useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
+      ) {
+        return;
+      }
+      recordAssistantResponse(observation, daemonResponded);
+      if (
+        hasAssistantRespondedSince(observation) &&
+        (health === "unreachable" ||
+          health === "sleeping" ||
+          health === "starting")
       ) {
         return;
       }

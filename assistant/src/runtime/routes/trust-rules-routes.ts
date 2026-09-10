@@ -11,7 +11,6 @@ import {
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
-import { throwIfGatewayIpcConnectFailed } from "../../ipc/gateway-ipc-errors.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -24,13 +23,7 @@ async function handleList({
   // HTTP GET delivers filters via queryParams; CLI IPC puts them in body.
   const source = Object.keys(queryParams).length > 0 ? queryParams : body;
   const p = TrustRulesListIpcParamsSchema.parse(source);
-  let result: unknown;
-  try {
-    result = await ipcCallPersistent("trust_rules_list", p);
-  } catch (err) {
-    throwIfGatewayIpcConnectFailed(err);
-    throw err;
-  }
+  const result = await ipcCallPersistent("trust_rules_list", p);
   return TrustRulesListIpcResponseSchema.parse(result);
 }
 

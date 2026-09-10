@@ -6,11 +6,13 @@
  * `error` message (typically present when transitioning into
  * `failed`), and an optional rolling `usage` snapshot.
  *
- * NOTE: no `conversationId` field. Like `subagent_spawned`, status
- * transitions route to the parent conversation's SSE stream via
- * `parentSendToClient` closure, not via conversation-scoped seq
- * stamping. The subagent is identified by `subagentId`; clients
- * already know the parent association from the prior `spawned` event.
+ * No `conversationId` field: the parent conversation is the envelope's,
+ * stamped by that conversation's sink (`conversationEventSink` in
+ * `daemon/conversation-event-sink.ts`), which is what the hub filters
+ * and seq-stamps on. Clients read the parent from the envelope. Adding
+ * it to this payload instead would be a breaking wire change, since
+ * this schema is `.strict()` and already-deployed clients reject an
+ * unknown key by dropping the whole event.
  *
  * Canonical wire-contract source. Daemon code imports the type
  * directly from this file; external consumers import via

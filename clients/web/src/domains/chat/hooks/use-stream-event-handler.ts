@@ -119,7 +119,11 @@ export interface UseStreamEventHandlerParams {
 }
 
 interface UseStreamEventHandlerReturn {
-  handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
+  handleStreamEvent: (
+    event: AssistantEvent,
+    epoch: number,
+    envelopeConversationId: string | undefined,
+  ) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,7 +139,8 @@ interface UseStreamEventHandlerReturn {
  * mutable state). Delegates to the appropriate handler based on event type
  * via an exhaustive switch.
  *
- * @returns `handleStreamEvent(event, epoch)` — call this for each SSE event.
+ * @returns `handleStreamEvent(event, epoch, envelopeConversationId)`, called
+ * for each SSE event.
  */
 export function useStreamEventHandler(
   params: UseStreamEventHandlerParams,
@@ -153,11 +158,16 @@ export function useStreamEventHandler(
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
+  const lastCompletedToolNameRef = useRef<string | undefined>(undefined);
 
   // --- Main event handler ---
 
   const handleStreamEvent = useCallback(
-    (event: AssistantEvent, epoch: number) => {
+    (
+      event: AssistantEvent,
+      epoch: number,
+      envelopeConversationId: string | undefined,
+    ) => {
       // Discard events from stale/previous streams
       const eventSummary = summarizeAssistantEvent(event);
       const streamState = useStreamStore.getState();
@@ -236,11 +246,16 @@ export function useStreamEventHandler(
 
       // Build context object for domain handlers
       const ctx: StreamHandlerContext = {
+        eventConversationId: envelopeConversationId,
         router: { push },
         isNative,
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setOptimisticSends: store.setOptimisticSends,
+        // Read live rather than closing over `store`: a queue ack can arrive
+        // after later sends have already changed the list.
+        getOptimisticSends: () =>
+          useChatSessionStore.getState().optimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -264,6 +279,7 @@ export function useStreamEventHandler(
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
         currentAssistantMessageIdRef,
+        lastCompletedToolNameRef,
       };
 
       switch (event.type) {

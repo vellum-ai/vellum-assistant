@@ -4,7 +4,7 @@ import { createMetadata } from "@/lib/metadata";
 export const metadata = createMetadata({
   title: "Installation - Vellum Docs",
   description:
-    "Get started with Vellum: sign up for Vellum Cloud, install the desktop app on macOS, or self-host. System requirements, setup, and permissions.",
+    "Get started with Vellum: sign up for Vellum Cloud, install the desktop app on macOS or Windows, or self-host. System requirements, setup, and permissions.",
   path: "/docs/getting-started/installation",
 });
 

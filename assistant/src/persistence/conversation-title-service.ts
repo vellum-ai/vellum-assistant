@@ -7,6 +7,8 @@
  * overwritten, never user-provided custom titles.
  */
 
+import { SEND_USER_MESSAGE_DELIVERED_ACK } from "../config/send-user-message-constants.js";
+import { isMessageKey, MESSAGE_KEYS } from "../i18n/index.js";
 import {
   requestShortLabel,
   type ShortLabelTool,
@@ -23,6 +25,7 @@ import {
   type MessageRow,
   updateConversationTitle,
 } from "./conversation-crud.js";
+import { projectPersistedAssistantContent } from "./user-facing-content.js";
 
 const log = getLogger("conversation-title-service");
 
@@ -63,8 +66,8 @@ export interface TitleContext {
 
 // ── Placeholder / loading state ──────────────────────────────────────
 
-export const GENERATING_TITLE = "Generating title...";
-const UNTITLED_FALLBACK = "Untitled Conversation";
+export const GENERATING_TITLE = MESSAGE_KEYS.CONVERSATION_TITLE_GENERATING;
+const UNTITLED_FALLBACK = MESSAGE_KEYS.CONVERSATION_TITLE_UNTITLED;
 
 // ── `conversations.isAutoTitle` values ───────────────────────────────
 //
@@ -98,6 +101,9 @@ const REPLACEABLE_PATTERNS = [
  */
 export function isReplaceableTitle(title: string | null): boolean {
   if (title == null || title.trim() === "") {
+    return true;
+  }
+  if (isMessageKey(title.trim())) {
     return true;
   }
   return REPLACEABLE_PATTERNS.some((pattern) => pattern.test(title));
@@ -253,7 +259,7 @@ function settleForDeterministicTitle(
  * conversation creation (e.g. 5 new chats in quick succession) fires N
  * concurrent requests that can hit provider rate limits or contend for
  * API capacity, causing later calls to time out and fall back to
- * "Untitled Conversation".
+ * the untitled catalog key.
  *
  * A serial queue ensures at most one title-generation LLM call is
  * in-flight at a time. Each call is lightweight (~1–3 s for a ≤5-word
@@ -287,7 +293,7 @@ export function queueGenerateConversationTitle(
       // Replace loading placeholder with a retryable fallback.
       try {
         const conversation = getConversation(params.conversationId);
-        if (conversation && conversation.title === GENERATING_TITLE) {
+        if (conversation && isReplaceableTitle(conversation.title)) {
           const fallback =
             deriveFallbackTitle(params.context) ?? UNTITLED_FALLBACK;
           updateConversationTitle(
@@ -422,6 +428,7 @@ function buildTitleSystemPrompt(): string {
     "- Think: what would make a scannable sidebar label?",
     "- Do NOT echo back what the user asked you to do",
     "- Do NOT respond to the conversation content",
+    "- Write the title in the same language as the conversation content",
     "- Do NOT assess feasibility or comment on capabilities",
     "- If input is sparse or references external context, extract a topic from the words that ARE present (e.g. 'so about that t-shirt...' → 'T-Shirt Discussion'). Never describe the absence, emptiness, or insufficiency of context — titles like 'Missing Context', 'Unclear Request', 'No Topic' are forbidden",
   ].join("\n");
@@ -600,7 +607,12 @@ function extractTextForTitle(raw: string | Array<{ type: string }>): string {
         // tool_result string content carries topical signal.
       } else if (block.type === "tool_result") {
         if (typeof block.content === "string") {
-          texts.push(block.content);
+          // The delivery tool answers a bare receipt, never anything topical.
+          // Titling from it names a gated conversation "Delivery Confirmation"
+          // instead of what the user actually asked about.
+          if (block.content.trim() !== SEND_USER_MESSAGE_DELIVERED_ACK) {
+            texts.push(block.content);
+          }
         } else if (Array.isArray(block.content)) {
           for (const nested of block.content) {
             if (
@@ -625,7 +637,13 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
   const parts: string[] = ["Recent messages:"];
 
   for (const msg of recentMessages) {
-    const text = extractTextForTitle(msg.content);
+    // Read each row the way a user reads it. On a turn that routed its reply
+    // through `send_user_message`, the row's plain text is a private
+    // scratchpad and the reply is inside the tool call, so titling from the
+    // raw row names the conversation after the model's notes.
+    const text = extractTextForTitle(
+      projectPersistedAssistantContent(msg.content, msg.metadata),
+    );
     if (!text) {
       continue;
     }

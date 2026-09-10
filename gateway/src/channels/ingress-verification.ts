@@ -9,10 +9,10 @@
  *
  * So a route may declare *how* to verify it, as data. Most vendors fit the
  * HMAC engine: algorithm, which header carries the digest, how it is
- * encoded, and exactly which bytes it covers, all read from the manifest.
- * Standard Webhooks is a second kind because its secret encoding and
- * multi-signature header cannot be expressed as that list. A third HMAC
- * vendor is still a manifest edit rather than gateway code. A fourth
+ * encoded, and the canonical request values it covers, all read from the
+ * manifest. Standard Webhooks is a second kind because its secret encoding
+ * and multi-signature header cannot be expressed as that list. A vendor that
+ * uses HMAC remains a manifest edit rather than gateway code. A distinct
  * complete scheme is an added union member.
  *
  * What stays gateway-side, and must:
@@ -25,9 +25,9 @@
  *   algorithm, encoding, or an extra key — fails the manifest rather than
  *   falling back to the platform scheme. A route the plugin believes is
  *   verified one way and the gateway verifies another is worse than no route.
- * - **Raw bytes.** `body` is the bytes as received. Every vendor here signs
- *   pre-parse, and a re-serialized JSON body does not match — a failure that
- *   looks exactly like a wrong secret.
+ * - **Canonical payload parts.** `body` is the bytes as received. Other
+ *   payload parts declare their own canonicalization, so a manifest cannot
+ *   imply one representation while the gateway verifies another.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -59,16 +59,18 @@ export const CredentialFieldSchema = z
 /**
  * One piece of the byte string a signature covers, in order.
  *
- * `"body"` is the raw request body. `{ header }` is a request header's value —
- * a header named here but absent from the request fails verification rather
- * than contributing an empty string, or a caller could omit a timestamp to
- * change what was signed. `{ literal }` is a fixed separator or version tag.
- *
- * Together these cover the shapes vendors actually use: `body` alone (Comms,
- * GitHub), and `<tag>:<timestamp>:<body>` (Photon, Slack).
+ * `"body"` is the raw request body. `{ header }` is a request header's value:
+ * an absent header fails verification rather than contributing an empty value.
+ * `{ literal }` is a fixed separator or version tag. `"request-url"` is the
+ * public URL that received the request. The gateway tries its trusted
+ * reconstruction candidates because proxying can change the raw local URL.
+ * `"form-params"` parses the urlencoded body, sorts entries by key, and
+ * concatenates each key and value.
  */
 export const PayloadPartSchema = z.union([
   z.literal("body"),
+  z.literal("request-url"),
+  z.literal("form-params"),
   z.object({ literal: z.string().min(1) }).strict(),
   z.object({ header: z.string().min(1) }).strict(),
 ]);
@@ -169,31 +171,117 @@ export type VerificationResult =
   | { ok: true }
   | { ok: false; reason: VerificationRejection };
 
-/** Assemble the exact bytes a signature covers, or the header that is missing. */
+/**
+ * The public URLs a caller might have signed.
+ *
+ * The platform callback proxy can preserve the original URL explicitly, while
+ * a reverse proxy can expose it through forwarding headers. A configured
+ * public base and the raw request URL cover direct deployments. Each distinct
+ * candidate is tried because only the caller knows which public spelling it
+ * received.
+ */
+function requestUrlCandidates(opts: {
+  headers: Headers;
+  requestUrl?: string;
+  publicBaseUrl?: string;
+}): string[] {
+  const { requestUrl } = opts;
+  if (!requestUrl) {
+    return [];
+  }
+
+  const candidates: string[] = [];
+  const add = (url: string | null | undefined): void => {
+    if (url && !candidates.includes(url)) {
+      candidates.push(url);
+    }
+  };
+
+  add(opts.headers.get("x-vellum-ingress-url"));
+
+  let raw: URL | undefined;
+  try {
+    raw = new URL(requestUrl);
+  } catch {
+    // The raw request URL remains a candidate below. It is valid for real
+    // Request objects, but keeping this helper total makes direct callers
+    // fail closed rather than throw on malformed input.
+  }
+
+  const proto =
+    opts.headers.get("x-forwarded-proto") ?? opts.headers.get("x-original-proto");
+  const host =
+    opts.headers.get("x-forwarded-host") ?? opts.headers.get("x-original-host");
+  if (raw && proto && host) {
+    add(`${proto}://${host}${raw.pathname}${raw.search}`);
+  }
+
+  if (raw && opts.publicBaseUrl) {
+    const base = opts.publicBaseUrl.replace(/\/+$/, "");
+    if (base) {
+      add(`${base}${raw.pathname}${raw.search}`);
+    }
+  }
+
+  add(requestUrl);
+  return candidates;
+}
+
+/** Canonicalize a urlencoded body as sorted key and value strings. */
+function formParamsPayload(body: Uint8Array): Buffer {
+  const params = new URLSearchParams(Buffer.from(body).toString("utf8"));
+  const canonical = [...params.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, value]) => `${key}${value}`)
+    .join("");
+  return Buffer.from(canonical, "utf8");
+}
+
+type PayloadBuildFailure =
+  | { missingHeader: string }
+  | { missingRequestUrl: true };
+
+/** Assemble every candidate byte string a signature can cover. */
 function buildPayload(
   parts: readonly PayloadPart[],
   headers: Headers,
   body: Uint8Array,
-): Buffer | { missingHeader: string } {
-  const chunks: Buffer[] = [];
+  context: { requestUrl?: string; publicBaseUrl?: string },
+): Buffer[] | PayloadBuildFailure {
+  let payloads: Buffer[][] = [[]];
 
   for (const part of parts) {
+    let values: Buffer[];
     if (part === "body") {
-      chunks.push(Buffer.from(body));
-      continue;
+      values = [Buffer.from(body)];
+    } else if (part === "request-url") {
+      const candidates = requestUrlCandidates({
+        headers,
+        requestUrl: context.requestUrl,
+        publicBaseUrl: context.publicBaseUrl,
+      });
+      if (candidates.length === 0) {
+        return { missingRequestUrl: true };
+      }
+      values = candidates.map((candidate) => Buffer.from(candidate, "utf8"));
+    } else if (part === "form-params") {
+      values = [formParamsPayload(body)];
+    } else if ("literal" in part) {
+      values = [Buffer.from(part.literal, "utf8")];
+    } else {
+      const value = headers.get(part.header);
+      if (value === null) {
+        return { missingHeader: part.header };
+      }
+      values = [Buffer.from(value, "utf8")];
     }
-    if ("literal" in part) {
-      chunks.push(Buffer.from(part.literal, "utf8"));
-      continue;
-    }
-    const value = headers.get(part.header);
-    if (value === null) {
-      return { missingHeader: part.header };
-    }
-    chunks.push(Buffer.from(value, "utf8"));
+
+    payloads = payloads.flatMap((payload) =>
+      values.map((value) => [...payload, value]),
+    );
   }
 
-  return Buffer.concat(chunks);
+  return payloads.map((payload) => Buffer.concat(payload));
 }
 
 /**
@@ -336,6 +424,10 @@ export function verifyDeclaredSignature(opts: {
   body: Uint8Array;
   secret: string;
   nowMs?: number;
+  /** The raw request URL, used by an HMAC payload containing `request-url`. */
+  requestUrl?: string;
+  /** The assistant's configured public base URL for URL reconstruction. */
+  publicBaseUrl?: string;
 }): VerificationResult {
   const { verification, headers, body, secret } = opts;
   const nowMs = opts.nowMs ?? Date.now();
@@ -376,23 +468,30 @@ export function verifyDeclaredSignature(opts: {
     }
   }
 
-  const payload = buildPayload(verification.payload, headers, body);
-  if ("missingHeader" in payload) {
+  const payloads = buildPayload(verification.payload, headers, body, {
+    requestUrl: opts.requestUrl,
+    publicBaseUrl: opts.publicBaseUrl,
+  });
+  if ("missingHeader" in payloads) {
     return { ok: false, reason: "missing_payload_header" };
   }
-
-  const expected = createHmac(verification.algorithm, secret)
-    .update(payload)
-    .digest();
-
-  // Length is compared first because timingSafeEqual throws on a mismatch, and
-  // digest length is a function of the declared algorithm — public either way.
-  if (digest.length !== expected.length) {
+  if ("missingRequestUrl" in payloads) {
     return { ok: false, reason: "bad_signature" };
   }
-  return timingSafeEqual(digest, expected)
-    ? { ok: true }
-    : { ok: false, reason: "bad_signature" };
+
+  for (const payload of payloads) {
+    const expected = createHmac(verification.algorithm, secret)
+      .update(payload)
+      .digest();
+
+    // Length is compared first because timingSafeEqual throws on a mismatch,
+    // and digest length is a function of the declared algorithm.
+    if (digest.length === expected.length && timingSafeEqual(digest, expected)) {
+      return { ok: true };
+    }
+  }
+
+  return { ok: false, reason: "bad_signature" };
 }
 
 /**

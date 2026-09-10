@@ -12,6 +12,7 @@ import {
   mintServiceToken,
 } from "../../auth/token-exchange.js";
 import { admitActorToken } from "../../auth/actor-token-revocation.js";
+import type { TokenClaims } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import { fetchImpl } from "../../fetch.js";
 import { getLogger } from "../../logger.js";
@@ -27,6 +28,52 @@ const log = getLogger("runtime-proxy");
  * limiting, etc.).
  */
 const WEBHOOK_PATH_RE = /^\/webhooks\//;
+
+/**
+ * The daemon-audience token a request the gateway did not have to authenticate
+ * carries upstream.
+ *
+ * An OAuth passthrough grant stands for itself: the daemon's passthrough route
+ * authorizes on the grant's own subject and `oauth.proxy` scope, and a service
+ * token names neither, so a minted proxy URL would answer 403 wherever the
+ * gateway runs without client-facing auth. Every other caller, including one
+ * presenting no bearer at all, gets the service token.
+ */
+function mintUnauthenticatedExchangeToken(authHeader: string | null): string {
+  const grant = presentedProxyGrant(authHeader);
+  if (!grant) {
+    return mintServiceToken();
+  }
+  return mintExchangeToken(grant, grant.scope_profile);
+}
+
+/**
+ * Claims of an OAuth passthrough grant presented as a bearer, or null.
+ *
+ * The token faces the same validation as one on the authenticated branch:
+ * signature, audience, expiry, and policy epoch through
+ * {@link validateEdgeToken}, then revocation admission. Turning client-facing
+ * auth off is what makes a bearer optional, never what makes an invalid one
+ * trusted.
+ *
+ * The `oauth_proxy_v1` profile is the gate. It carries the single
+ * `oauth.proxy` scope, so a grant that stands for its caller here opens one
+ * daemon route and holds strictly less than the service token it displaces.
+ */
+function presentedProxyGrant(authHeader: string | null): TokenClaims | null {
+  if (!authHeader?.toLowerCase().startsWith("bearer ")) {
+    return null;
+  }
+  const token = authHeader.slice(7);
+  const result = validateEdgeToken(token);
+  if (!result.ok || result.claims.scope_profile !== "oauth_proxy_v1") {
+    return null;
+  }
+  if (!admitActorToken(token, result.claims)) {
+    return null;
+  }
+  return result.claims;
+}
 
 export function createRuntimeProxyHandler(config: GatewayConfig) {
   return async (req: Request, clientIp?: string): Promise<Response> => {
@@ -90,7 +137,7 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
         result.claims.scope_profile,
       );
     } else {
-      exchangeToken = mintServiceToken();
+      exchangeToken = mintUnauthenticatedExchangeToken(authHeader);
     }
 
     // The daemon uses flat /v1/... paths. Rewrite any legacy
@@ -176,21 +223,34 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     const duration = Math.round(performance.now() - start);
 
     if (response.status >= 400) {
-      const body = await response.text();
+      // Buffer the bytes rather than decoding to text: an error body that is
+      // not valid UTF-8, such as one the OAuth passthrough carries verbatim
+      // from a provider, has to reach the client unchanged. Only the byte
+      // count is logged: bodies here are written by the daemon or by a third
+      // party, carry other people's data, and the log serializers redact only
+      // `err`/`req`/`res`.
+      const bodyBytes = new Uint8Array(await response.arrayBuffer());
+      // Both headers describe a framing this hop redoes around the buffer,
+      // except on a HEAD: there they describe the entity upstream is
+      // reporting on, which is the whole of what a HEAD answers, and the
+      // empty buffer is not that entity.
+      const head = req.method === "HEAD";
+      if (!head) {
+        resHeaders.set("content-length", String(bodyBytes.byteLength));
+        resHeaders.delete("content-encoding");
+      }
       const level = response.status >= 500 ? "error" : "warn";
-      const bodySnippet =
-        body.length > 256 ? body.slice(0, 256) + "\u2026[truncated]" : body;
       log[level](
         {
           method: req.method,
           path: url.pathname,
           status: response.status,
           duration,
-          body: bodySnippet,
+          bodyBytes: bodyBytes.byteLength,
         },
         "Upstream returned error",
       );
-      return new Response(body, {
+      return new Response(head ? null : bodyBytes, {
         status: response.status,
         headers: resHeaders,
       });

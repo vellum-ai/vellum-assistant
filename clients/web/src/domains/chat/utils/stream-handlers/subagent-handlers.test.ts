@@ -55,18 +55,21 @@ const {
 } = await import("@/domains/chat/utils/stream-handlers/subagent-handlers");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
-const { makeCtx } = await import(
-  "@/domains/chat/utils/stream-handlers/test-helpers"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { makeCtx } =
+  await import("@/domains/chat/utils/stream-handlers/test-helpers");
 
 const PARENT = "conv-parent";
 const CHILD = "conv-child";
 const BACKGROUND = "conv-background";
 
 const ctx = {} as StreamHandlerContext;
+
+/** Handler context for an event the transport scoped to `conversationId`. */
+function scopedCtx(conversationId?: string): StreamHandlerContext {
+  return { eventConversationId: conversationId } as StreamHandlerContext;
+}
 
 beforeEach(() => {
   // Also clears the reconcile-kick debounce window.
@@ -244,29 +247,31 @@ describe("handleSubagentStatusChanged: unknown subagent id", () => {
         status: "completed",
         usage: { inputTokens: 10, outputTokens: 5, estimatedCost: 0.02 },
       },
-      ctx,
+      scopedCtx(),
     );
 
     const entry = useSubagentStore.getState().byId["sa-9"];
     expect(entry).toBeDefined();
     expect(entry?.status).toBe("completed");
     expect(entry?.inputTokens).toBe(10);
-    // The event carries no conversation ids, and with no conversation on
-    // screen there is nothing to fall back to either.
+    // No id on the event and no conversation on screen: nothing to scope by.
     expect(entry?.conversationId).toBeUndefined();
     expect(entry?.parentConversationId).toBeUndefined();
     expect(entry?.hydrationPending).toBeUndefined();
   });
 
-  it("scopes the stub to the conversation on screen", () => {
-    // A status event names no conversation, and an entry with no parent id is
-    // shown by the Active-Subagents overlay in EVERY conversation while
-    // reconcile's per-parent orphan pass settles it in none.
-    useConversationStore.getState().setActiveConversationId(PARENT);
+  it("scopes the stub to the conversation the transport named, not the one on screen", () => {
+    // The subagent runs in a conversation the user has left; its status must
+    // not surface in the one they opened.
+    useConversationStore.getState().setActiveConversationId(BACKGROUND);
 
     handleSubagentStatusChanged(
-      { type: "subagent_status_changed", subagentId: "sa-9", status: "running" },
-      ctx,
+      {
+        type: "subagent_status_changed",
+        subagentId: "sa-9",
+        status: "running",
+      },
+      scopedCtx(PARENT),
     );
 
     const entry = useSubagentStore.getState().byId["sa-9"];
@@ -275,6 +280,27 @@ describe("handleSubagentStatusChanged: unknown subagent id", () => {
     // stub now defers its live events until the fetch lands.
     expect(entry?.conversationId).toBeUndefined();
     expect(entry?.hydrationPending).toBe(true);
+  });
+
+  it("falls back to the conversation on screen when the transport scoped nothing", () => {
+    // Assistants that predate envelope scoping leave these events unscoped; an
+    // entry with no parent id is shown by the Active-Subagents overlay in
+    // EVERY conversation while reconcile's per-parent orphan pass settles it
+    // in none, so the guess is the lesser wrong there.
+    useConversationStore.getState().setActiveConversationId(PARENT);
+
+    handleSubagentStatusChanged(
+      {
+        type: "subagent_status_changed",
+        subagentId: "sa-9",
+        status: "running",
+      },
+      scopedCtx(),
+    );
+
+    expect(useSubagentStore.getState().byId["sa-9"]?.parentConversationId).toBe(
+      PARENT,
+    );
   });
 });
 
@@ -295,7 +321,7 @@ describe("unknown-id reconcile kick", () => {
   it("kicks a reconcile for an unknown status-change id", async () => {
     activate();
 
-    handleSubagentStatusChanged(statusEvent("sa-1"), ctx);
+    handleSubagentStatusChanged(statusEvent("sa-1"), scopedCtx(PARENT));
     await Promise.resolve();
 
     expect(reconcileCalls).toBe(1);
@@ -341,8 +367,8 @@ describe("unknown-id reconcile kick", () => {
     expect(reconcileCalls).toBe(0);
   });
 
-  it("does not kick without an active assistant and conversation", async () => {
-    handleSubagentStatusChanged(statusEvent("sa-1"), ctx);
+  it("does not kick without an active assistant", async () => {
+    handleSubagentStatusChanged(statusEvent("sa-1"), scopedCtx(PARENT));
     await Promise.resolve();
 
     expect(reconcileCalls).toBe(0);
@@ -381,7 +407,7 @@ describe("unknown-id reconcile kick", () => {
     );
     // Inside the background parent's 5s window, but the active parent has a
     // window of its own.
-    handleSubagentStatusChanged(statusEvent("sa-active"), ctx);
+    handleSubagentStatusChanged(statusEvent("sa-active"), scopedCtx(PARENT));
     // A second background kick is still throttled.
     handleSubagentEvent(
       {
@@ -397,10 +423,19 @@ describe("unknown-id reconcile kick", () => {
     expect(reconciledParents).toEqual([BACKGROUND, PARENT]);
   });
 
-  it("targets the active conversation for a status change, which carries no ids", async () => {
+  it("reconciles the conversation the transport named, not the one on screen", async () => {
     activate();
 
-    handleSubagentStatusChanged(statusEvent("sa-1"), ctx);
+    handleSubagentStatusChanged(statusEvent("sa-1"), scopedCtx(BACKGROUND));
+    await Promise.resolve();
+
+    expect(reconciledParents).toEqual([BACKGROUND]);
+  });
+
+  it("reconciles the conversation on screen when the transport scoped nothing", async () => {
+    activate();
+
+    handleSubagentStatusChanged(statusEvent("sa-1"), scopedCtx());
     await Promise.resolve();
 
     expect(reconciledParents).toEqual([PARENT]);

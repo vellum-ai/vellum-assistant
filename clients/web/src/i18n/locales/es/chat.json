@@ -375,8 +375,7 @@
   },
   "chatConversationHeader": {
     "archived": "[Archivado]",
-    "newChat": "Chat nuevo",
-    "untitled": "Sin título"
+    "newChat": "Chat nuevo"
   },
   "chatInfoPanel": {
     "appsTitle": "Apps",
@@ -459,6 +458,9 @@
     "timeoutTitle": "La limpieza está tardando más de lo esperado",
     "title": "Limpiando tu asistente…",
     "warningAria": "advertencia"
+  },
+  "coachmarkPress": {
+    "turn": "Hice clic en {label}. ¿Y ahora qué?"
   },
   "collapsedGroupIcon": {
     "noConversations": "No hay conversaciones"
@@ -640,9 +642,6 @@
     "label": "{count, plural, one {# recurso} other {# recursos}}",
     "labelUnavailable": "No se pudieron cargar los recursos"
   },
-  "conversationRow": {
-    "untitled": "Sin título"
-  },
   "conversationStarterDock": {
     "caption": "Prueba algunas sugerencias:"
   },
@@ -688,8 +687,7 @@
     "cancel": "Cancelar",
     "confirm": "Eliminar",
     "message": "¿Eliminar “{title}”? Esto borra la conversación y sus mensajes de forma permanente. Los recursos y recuerdos relacionados pueden seguir existiendo. Esta acción no se puede deshacer.",
-    "title": "Eliminar conversación",
-    "untitled": "Sin título"
+    "title": "Eliminar conversación"
   },
   "deletedMessageRow": {
     "label": "Este mensaje fue eliminado"
@@ -1306,7 +1304,8 @@
     "railAria": "Progreso",
     "stepCounter": "{current} de {total}",
     "title": "Progreso",
-    "titleFinished": "Terminado"
+    "titleFinished": "Terminado",
+    "titleStopped": "Detenido"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."
@@ -1649,11 +1648,14 @@
     "settings": "Configuración"
   },
   "toolDetailPanel": {
+    "changes": "Cambios",
     "closeAria": "Cerrar detalles de la herramienta",
+    "command": "Comando",
     "denied": "Esta llamada a la herramienta no se aprobó, así que no se ejecutó.",
     "emptyOutput": "La herramienta no devolvió ninguna salida.",
+    "input": "Entrada",
     "output": "Salida",
-    "riskLevel": "Nivel de riesgo",
+    "requestedChanges": "Cambios solicitados",
     "running": "Ejecutando…"
   },
   "toolStepPill": {
@@ -1668,7 +1670,8 @@
     "stopWorkflow": "Detener flujo de trabajo"
   },
   "transcriptRow": {
-    "thinking": "Pensando"
+    "thinking": "Pensando",
+    "working": "Trabajando"
   },
   "useConversationLoader": {
     "authFailed": "No se pudo autenticar al usuario."
@@ -1677,9 +1680,6 @@
     "assistantBusy": "Tu asistente está ocupado. Inténtalo de nuevo cuando termine de responder.",
     "retryFailed": "No se pudo reintentar la respuesta",
     "summarizeFailed": "No se pudo resumir la conversación"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Sin título"
   },
   "useSendMessage": {
     "commandFailed": "No se pudo ejecutar ese comando. Inténtalo de nuevo.",

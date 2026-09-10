@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-export const VALID_LIVE_VOICE_MODES = ["ptt", "open-mic"] as const;
-
 export const LiveVoiceVadConfigSchema = z
   .object({
     speechEnergyThreshold: z
@@ -285,14 +283,6 @@ export const LiveVoiceFluxConfigSchema = z
 
 export const LiveVoiceConfigSchema = z
   .object({
-    mode: z
-      .enum(VALID_LIVE_VOICE_MODES, {
-        error: `liveVoice.mode must be one of: ${VALID_LIVE_VOICE_MODES.join(", ")}`,
-      })
-      .default("open-mic")
-      .describe(
-        "Default microphone mode for live voice sessions — hands-free (open-mic) or push-to-talk (ptt)",
-      ),
     vad: LiveVoiceVadConfigSchema.default(LiveVoiceVadConfigSchema.parse({})),
     frontModel: LiveVoiceFrontModelConfigSchema.default(
       LiveVoiceFrontModelConfigSchema.parse({}),
@@ -300,16 +290,6 @@ export const LiveVoiceConfigSchema = z
     flux: LiveVoiceFluxConfigSchema.default(
       LiveVoiceFluxConfigSchema.parse({}),
     ),
-    maxSessionDurationSeconds: z
-      .number({
-        error: "liveVoice.maxSessionDurationSeconds must be a number",
-      })
-      .int("liveVoice.maxSessionDurationSeconds must be an integer")
-      .positive(
-        "liveVoice.maxSessionDurationSeconds must be a positive integer",
-      )
-      .default(1800)
-      .describe("Maximum duration of a single live voice session in seconds"),
     archiveAudio: z
       .boolean({ error: "liveVoice.archiveAudio must be a boolean" })
       .default(false)
@@ -318,7 +298,7 @@ export const LiveVoiceConfigSchema = z
       ),
   })
   .describe(
-    "Live voice (in-app duplex audio) configuration — mic mode, VAD tuning, and session limits",
+    "Live voice (in-app duplex audio) configuration: VAD tuning, front-model routing, Flux turn detection, and audio archiving",
   );
 
 export type LiveVoiceConfig = z.infer<typeof LiveVoiceConfigSchema>;
