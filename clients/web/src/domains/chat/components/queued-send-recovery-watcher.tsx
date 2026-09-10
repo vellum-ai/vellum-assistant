@@ -75,11 +75,14 @@ export function QueuedSendRecoveryWatcher() {
     if (held === undefined) {
       return;
     }
-    // The chat view is looking at this failure too and owns everything about
-    // it, the copy included, so the entry is left exactly where that handler
-    // expects to find it.
+    // A chat view mounted for this conversation is looking at the failure too
+    // and owns everything about it, the copy included, so the entry is left
+    // exactly where that view's handler expects to find it. With no chat view
+    // handling the conversation's stream, on the standalone document route or
+    // any other, nothing else will answer, and the active conversation id
+    // alone says nothing about that: it persists across those routes.
     if (
-      useConversationStore.getState().activeConversationId ===
+      useConversationStore.getState().streamHandledConversationId ===
       held.conversationId
     ) {
       return;

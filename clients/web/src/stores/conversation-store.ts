@@ -23,6 +23,9 @@
  *   action that removes from `processingConversationIds`, so the two
  *   collections stay in sync.
  * - `attentionConversationIds` — conversations with pending interactions
+ * - `streamHandledConversationId`: the conversation a mounted chat view is
+ *   handling stream events for, null while none is mounted (see the field
+ *   doc below)
  * - `draftConversationIds`: ids minted client-side that have no server row
  *   yet, so surfaces can tell "this conversation is empty because it is brand
  *   new" apart from "this conversation is empty because history is still
@@ -120,6 +123,14 @@ export interface ConversationListState {
    */
   draftConversationIds: Set<string>;
   /**
+   * The conversation a mounted chat view is handling stream events for, or
+   * null while no chat view is mounted. `activeConversationId` outlives the
+   * chat view (it persists across the standalone document route), so a
+   * watcher deciding whether that view will answer a stream event for a
+   * conversation reads this instead. Published by `useMessageLifecycle`.
+   */
+  streamHandledConversationId: string | null;
+  /**
    * Model profiles picked in the composer for conversations that have no server
    * row loaded yet, keyed by conversation id → profile name. Two situations
    * land here, both because the composer's `conversationId` prop is undefined
@@ -195,6 +206,10 @@ export interface ConversationListActions {
   /** Drop the draft mark once the key resolves server-side (no-op when absent). */
   clearDraftConversationId: (conversationId: string) => void;
 
+  // --- Stream handling ---
+  /** Name the conversation a mounted chat view handles stream events for, or null when none does. */
+  setStreamHandledConversationId: (conversationId: string | null) => void;
+
   // --- Pending draft profiles ---
   setPendingDraftProfile: (conversationId: string, profile: string) => void;
   /** Remove the stash for a single conversation id (no-op when absent). */
@@ -229,6 +244,7 @@ const INITIAL_STATE: ConversationListState = {
   processingSnapshots: new Map(),
   attentionConversationIds: new Set(),
   draftConversationIds: new Set(),
+  streamHandledConversationId: null,
   pendingDraftProfiles: new Map(),
   pendingDraftPlugins: new Map(),
 };
@@ -372,6 +388,15 @@ export const useConversationStore = createSelectors(
           conversationId,
         ),
       });
+    },
+
+    // --- Stream handling ---
+
+    setStreamHandledConversationId: (conversationId) => {
+      if (get().streamHandledConversationId === conversationId) {
+        return;
+      }
+      set({ streamHandledConversationId: conversationId });
     },
 
     // --- Pending draft profiles ---

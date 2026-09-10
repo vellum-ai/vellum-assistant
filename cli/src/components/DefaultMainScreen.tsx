@@ -19,7 +19,7 @@ import {
 } from "../lib/guardian-token";
 import { trustedRefreshUrl } from "../lib/runtime-url";
 import { appendHistory, loadHistory } from "../lib/input-history";
-import { isMessageScopedError } from "../lib/message-scoped-error";
+import { isMessageScopedError } from "@vellumai/service-contracts/message-scoped-error";
 import { tuiLog } from "../lib/tui-log";
 import { segmentsToPlainText } from "../lib/segments-to-plain-text";
 import { statusEmoji, withStatusEmoji } from "../lib/status-emoji";

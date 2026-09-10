@@ -8,7 +8,12 @@
  * needed by external consumers are exposed.
  */
 
-import { type Dispatch, type SetStateAction, useCallback } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+} from "react";
 
 import { useNavigate } from "react-router";
 
@@ -112,6 +117,23 @@ export function useMessageLifecycle({
     reachabilityPhase: reachability.state.phase,
     reachabilityReset: reachability.reset,
   });
+
+  // While this view is mounted it is the one answering stream events for the
+  // active conversation, including a failure of one of its queued sends. The
+  // queued send recovery watcher reads this to leave such a failure to this
+  // view, and to answer it itself on any route with no chat view mounted,
+  // where `activeConversationId` persists all the same.
+  useEffect(() => {
+    useConversationStore
+      .getState()
+      .setStreamHandledConversationId(activeConversationId);
+    return () => {
+      const store = useConversationStore.getState();
+      if (store.streamHandledConversationId === activeConversationId) {
+        store.setStreamHandledConversationId(null);
+      }
+    };
+  }, [activeConversationId]);
 
   // 4. Active-conversation `:messages` sync — when another client writes
   //    to the active conversation, a `sync_changed` event carries a

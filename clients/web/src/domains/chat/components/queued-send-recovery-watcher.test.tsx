@@ -158,10 +158,11 @@ describe("QueuedSendRecoveryWatcher", () => {
     );
   });
 
-  test("the conversation on screen keeps its held send for its own view", () => {
+  test("the conversation a mounted chat view handles keeps its held send for that view", () => {
     // That view's error handler owns this failure whether or not an optimistic
     // row survived to name it, and reads the copy itself, so taking it here
     // would leave that handler with nothing.
+    useConversationStore.getState().setStreamHandledConversationId("conv-open");
     recordQueuedSend("nonce-1", "conv-open");
     render(<QueuedSendRecoveryWatcher />);
 
@@ -170,6 +171,36 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(stillQueued("nonce-1")).toBe(true);
     expect(heldFor("conv-open")).toBeUndefined();
     expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
+  test("the active conversation with no chat view mounted gets its message back here", () => {
+    // The standalone document route keeps the active conversation id but
+    // mounts no chat view for it, so no handler but this one sees the failure.
+    useConversationStore.getState().setStreamHandledConversationId(null);
+    recordQueuedSend("nonce-1", "conv-open");
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishStreamError("conv-open", "nonce-1");
+
+    expect(heldFor("conv-open")).toEqual({
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+    expect(stillQueued("nonce-1")).toBe(false);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("a chat view mounted for another conversation leaves this one to the watcher", () => {
+    useConversationStore
+      .getState()
+      .setStreamHandledConversationId("conv-other");
+    recordQueuedSend("nonce-1", "conv-open");
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishStreamError("conv-open", "nonce-1");
+
+    expect(heldFor("conv-open")).toBeDefined();
+    expect(stillQueued("nonce-1")).toBe(false);
   });
 
   test("a deleted queued message lets the client copy go", () => {

@@ -1478,6 +1478,47 @@ describe("when the reply wait goes up", () => {
     );
   });
 
+  test("a legacy daemon answering the key with its own row records the replacement", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-key");
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> =>
+        sentResult("conv-minted"),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    // The key went out as a client draft and the daemon materialized a row
+    // under another id, so the key is retired and any surface still holding
+    // it resolves to that row.
+    expect(getEditChatDraftReplacement("conv-key")).toBe("conv-minted");
+    expect(
+      useConversationStore.getState().draftConversationIds.has("conv-key"),
+    ).toBe(false);
+  });
+
+  test("a legacy daemon keeping the key records no replacement", async () => {
+    useConversationStore.getState().registerDraftConversationId("conv-key");
+    postChatMessageMock = mock(
+      async (..._args: unknown[]): Promise<PostMessageResult> =>
+        sentResult("conv-key"),
+    );
+    useComposerStore.getState().setInput("hello", "document");
+    const { result } = renderSubmit("conv-key");
+
+    await act(async () => {
+      await result.current.submit();
+    });
+
+    expect(getEditChatDraftReplacement("conv-key")).toBeNull();
+    expect(
+      useConversationStore.getState().draftConversationIds.has("conv-key"),
+    ).toBe(false);
+  });
+
   test("a response naming another row lists nothing once the watcher settled the send", async () => {
     const settle = deferPostChatMessage();
     useComposerStore.getState().setInput("hello", "document");

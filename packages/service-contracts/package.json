@@ -24,6 +24,7 @@
     "./secret-detection": "./src/secret-detection.ts",
     "./stripe-currency": "./src/stripe-currency.ts",
     "./error": "./src/error.ts",
+    "./message-scoped-error": "./src/message-scoped-error.ts",
     "./reactions": "./src/reactions.ts",
     "./guardian-requests": "./src/guardian-requests.ts",
     "./platform-credential": "./src/platform-credential.ts",

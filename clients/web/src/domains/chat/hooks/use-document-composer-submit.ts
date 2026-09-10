@@ -614,7 +614,12 @@ export function useDocumentComposerSubmit({
 
       if (isFreshDraft && !useServerMint) {
         // The legacy conversationKey create-or-lookup materialized the row, so
-        // the client-side draft mark no longer applies.
+        // the client-side draft mark no longer applies. A daemon that answers
+        // the key with a row of its own has retired the key, so the row that
+        // replaced it is recorded for any surface still holding the key.
+        if (conversationId !== resolvedId) {
+          resolveEditChatDraftConversationId(resolvedId, conversationId);
+        }
         useConversationStore.getState().clearDraftConversationId(resolvedId);
       }
       persistDocumentConversationId(doc, assistantId, conversationId);

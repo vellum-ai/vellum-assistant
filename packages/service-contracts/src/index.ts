@@ -23,6 +23,7 @@ export * from "./client-metadata.js";
 export * from "./conversation-handle.js";
 export * from "./transport.js";
 export * from "./error.js";
+export * from "./message-scoped-error.js";
 export * from "./handles.js";
 export * from "./rpc.js";
 export * from "./trust-rules.js";

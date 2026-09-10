@@ -29,6 +29,25 @@ describe("useConversationStore", () => {
     });
   });
 
+  describe("setStreamHandledConversationId", () => {
+    it("names the conversation a mounted chat view handles", () => {
+      getState().setStreamHandledConversationId("conv-1");
+      expect(getState().streamHandledConversationId).toBe("conv-1");
+    });
+
+    it("clears to null when no chat view is mounted", () => {
+      getState().setStreamHandledConversationId("conv-1");
+      getState().setStreamHandledConversationId(null);
+      expect(getState().streamHandledConversationId).toBeNull();
+    });
+
+    it("is cleared by reset", () => {
+      getState().setStreamHandledConversationId("conv-1");
+      getState().reset();
+      expect(getState().streamHandledConversationId).toBeNull();
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // Processing keys
   // ---------------------------------------------------------------------------
