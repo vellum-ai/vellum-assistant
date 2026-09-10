@@ -33,6 +33,8 @@ export interface DeliveredChannelPost {
   channel: ChannelId;
   /** Channel-native id of the chat the post landed in. */
   externalChatId: string;
+  /** The thread or topic the post landed in, absent when it is not in one. */
+  threadId?: string;
   /** The text the adapter sent, as the channel received it. */
   text: string;
   /** The message id the channel assigned when it acknowledged the post. */
@@ -56,6 +58,7 @@ export async function recordDeliveredChannelPost(
   const envelope: ProviderMessageMetadata = {
     source: post.channel,
     conversationExternalId: post.externalChatId,
+    ...(post.threadId ? { threadId: post.threadId } : {}),
     eventKind: "message",
   };
   const row = await addMessage(post.conversationId, "assistant", post.text, {

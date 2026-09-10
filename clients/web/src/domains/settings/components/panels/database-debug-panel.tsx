@@ -152,21 +152,16 @@ function DatabaseDebugBody({ data }: { data: DebugDatabaseGetResponse }) {
 
       {hasFailures ? (
         <section className="space-y-2">
-          <Typography variant="title-small">
+          <Typography as="h3" variant="title-small">
             {t("debugDatabasePanel.failedHeading", "Failed migrations")}
           </Typography>
           {data.failed.map((step) => (
-            <Card key={step.name}>
-              <Typography variant="body-medium-default">{step.name}</Typography>
-              {step.error ? (
-                <Typography
-                  variant="body-small-lighter"
-                  className="mt-1 font-mono"
-                >
-                  {step.error}
-                </Typography>
-              ) : null}
-            </Card>
+            <MigrationStepCard
+              key={step.name}
+              name={step.name}
+              detail={step.error}
+              detailMono
+            />
           ))}
         </section>
       ) : data.state !== "running" ? (
@@ -177,21 +172,51 @@ function DatabaseDebugBody({ data }: { data: DebugDatabaseGetResponse }) {
 
       {hasDeferred ? (
         <section className="space-y-2">
-          <Typography variant="title-small">
+          <Typography as="h3" variant="title-small">
             {t("debugDatabasePanel.deferredHeading", "Deferred migrations")}
           </Typography>
           {data.deferred.map((step) => (
-            <Card key={step.name}>
-              <Typography variant="body-medium-default">{step.name}</Typography>
-              <Typography variant="body-small-lighter" className="mt-1">
-                {t("debugDatabasePanel.missingDeps", {
-                  deps: step.missing.join(", "),
-                })}
-              </Typography>
-            </Card>
+            <MigrationStepCard
+              key={step.name}
+              name={step.name}
+              detail={t("debugDatabasePanel.missingDeps", {
+                deps: step.missing.join(", "),
+              })}
+            />
           ))}
         </section>
       ) : null}
     </div>
+  );
+}
+
+function MigrationStepCard({
+  name,
+  detail,
+  detailMono = false,
+}: {
+  name: string;
+  detail?: string;
+  detailMono?: boolean;
+}) {
+  return (
+    <Card.Root>
+      <Card.Header className="font-mono break-all">{name}</Card.Header>
+      {detail ? (
+        <Card.Body>
+          <Typography
+            as="p"
+            variant="body-small-lighter"
+            className={
+              detailMono
+                ? "font-mono break-words whitespace-pre-wrap"
+                : "break-words"
+            }
+          >
+            {detail}
+          </Typography>
+        </Card.Body>
+      ) : null}
+    </Card.Root>
   );
 }

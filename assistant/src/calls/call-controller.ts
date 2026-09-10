@@ -32,11 +32,14 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import type { CallAudioFormat } from "./audio-store.js";
 import {
+  BARGE_IN_TEARDOWN_WAIT_MS,
+  DURATION_WARNING_LEAD_MS,
   getEndCallDrainMaxWaitMs,
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
   getUserConsultationTimeoutMs,
+  POST_GOODBYE_HANGUP_DELAY_MS,
 } from "./call-constants.js";
 import {
   formatDuration,
@@ -65,7 +68,6 @@ import {
   resolveCallTtsProvider,
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
-import type { PromptSpeakerContext } from "./speaker-identification.js";
 import {
   resolveTelephonyLanguageVoice,
   resolveTelephonySynthesisLanguage,
@@ -76,7 +78,7 @@ import {
   CALL_OPENING_ACK_MARKER,
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
-  couldBeControlMarker,
+  createControlMarkerHoldback,
   END_CALL_MARKER,
   extractBalancedJson,
   stripInternalSpeechMarkers,
@@ -313,10 +315,7 @@ export class CallController {
    * Caller utterances always trigger normal turns, even when a guardian
    * consultation is pending — the consultation is tracked separately.
    */
-  async handleCallerUtterance(
-    transcript: string,
-    speaker?: PromptSpeakerContext,
-  ): Promise<void> {
+  async handleCallerUtterance(transcript: string): Promise<void> {
     // If the caller speaks while an END_CALL teardown is pending (during the
     // drain wait or the listen window), this is a deferral — the caller is
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
@@ -343,13 +342,15 @@ export class CallController {
       this.currentTurnPromise = null;
       await Promise.race([
         teardownPromise.catch(() => {}),
-        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+        new Promise<void>((resolve) =>
+          setTimeout(resolve, BARGE_IN_TEARDOWN_WAIT_MS),
+        ),
       ]);
     }
 
     this.state = "processing";
     this.resetSilenceTimer();
-    const callerContent = this.formatCallerUtterance(transcript, speaker);
+    const callerContent = transcript;
     const shouldMarkOpeningAck = this.awaitingOpeningAck;
     if (shouldMarkOpeningAck) {
       this.awaitingOpeningAck = false;
@@ -585,22 +586,6 @@ export class CallController {
     }
   }
 
-  private formatCallerUtterance(
-    transcript: string,
-    speaker?: PromptSpeakerContext,
-  ): string {
-    if (!speaker) {
-      return transcript;
-    }
-    const safeId = speaker.speakerId.replaceAll('"', "'");
-    const safeLabel = speaker.speakerLabel.replaceAll('"', "'");
-    const confidencePart =
-      speaker.speakerConfidence != null
-        ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"`
-        : "";
-    return `[SPEAKER id="${safeId}" label="${safeLabel}" source="${speaker.source}"${confidencePart}] ${transcript}`;
-  }
-
   /**
    * Execute a single voice turn through the conversation pipeline and stream
    * the response back through the relay.
@@ -727,7 +712,6 @@ export class CallController {
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
     // could be the start of a control marker.
-    let ttsBuffer = "";
     let fullResponseText = "";
     // Reasoning models can inline <think> spans in the content stream when a
     // profile has not opted into parseThinkTags. Neither the spoken path nor
@@ -891,45 +875,17 @@ export class CallController {
       }
     };
 
-    const flushSafeText = (): void => {
+    // Speech goes out through the shared control-marker holdback: text up to
+    // a possibly-streaming marker flushes, the marker itself is stripped, and
+    // ordinary bracketed text ("[A]", "[note]") never stalls TTS. Marker
+    // detection for actions (END_CALL, ASK_GUARDIAN) reads fullResponseText
+    // separately, after the turn.
+    const flushSafeText = createControlMarkerHoldback((chunk) => {
       if (!this.isCurrentRun(runVersion)) {
         return;
       }
-      if (ttsBuffer.length === 0) {
-        return;
-      }
-      const bracketIdx = ttsBuffer.indexOf("[");
-      if (bracketIdx === -1) {
-        // No bracket at all — safe to flush everything
-        emitSafeChunk(ttsBuffer);
-        ttsBuffer = "";
-      } else {
-        // Flush everything before the bracket
-        if (bracketIdx > 0) {
-          emitSafeChunk(ttsBuffer.slice(0, bracketIdx));
-          ttsBuffer = ttsBuffer.slice(bracketIdx);
-        }
-
-        // Only hold the buffer if the bracket text could be the start of a
-        // known control marker. Otherwise flush immediately so ordinary
-        // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
-        const afterBracket = ttsBuffer;
-        const couldBeControl = couldBeControlMarker(afterBracket);
-
-        if (!couldBeControl) {
-          // Not a control marker prefix — flush up to the next '[' (if any)
-          const nextBracket = ttsBuffer.indexOf("[", 1);
-          if (nextBracket === -1) {
-            emitSafeChunk(ttsBuffer);
-            ttsBuffer = "";
-          } else {
-            emitSafeChunk(ttsBuffer.slice(0, nextBracket));
-            ttsBuffer = ttsBuffer.slice(nextBracket);
-          }
-        }
-        // Otherwise hold it — might be a control marker still being streamed
-      }
-    };
+      emitSafeChunk(chunk);
+    });
 
     // Use a promise to track completion of the voice turn
     const turnComplete = new Promise<void>((resolve, reject) => {
@@ -943,9 +899,7 @@ export class CallController {
         // never trigger a real action the caller did not hear.
         const speakable = reasoningFilter.push(text);
         fullResponseText += speakable;
-        ttsBuffer += speakable;
-        ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-        flushSafeText();
+        flushSafeText(fullResponseText);
       };
 
       const onComplete = (): void => {
@@ -1022,15 +976,12 @@ export class CallController {
       return fullResponseText;
     }
 
-    // Final sweep: release any held-back partial tag to both consumers,
-    // then strip any remaining control markers from the buffer.
+    // Final sweep: release any held-back partial tag to both consumers. A
+    // held "[..." tail that never completed a marker is real text, so the
+    // forced flush speaks it instead of dropping it.
     const filterTail = reasoningFilter.flush();
     fullResponseText += filterTail;
-    ttsBuffer += filterTail;
-    ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-    if (ttsBuffer.length > 0) {
-      emitSafeChunk(ttsBuffer);
-    }
+    flushSafeText(fullResponseText, { force: true });
 
     // Synthesized path: force-extract whatever never reached a speakable
     // boundary, then drain the chain so every segment's audio (or its
@@ -1833,7 +1784,7 @@ export class CallController {
 
   private startDurationTimer(): void {
     const maxDurationMs = getMaxCallDurationMs();
-    const warningMs = maxDurationMs - 2 * 60 * 1000; // 2 minutes before max
+    const warningMs = maxDurationMs - DURATION_WARNING_LEAD_MS;
 
     if (warningMs > 0) {
       this.durationWarningTimer = setTimeout(() => {
@@ -1894,7 +1845,7 @@ export class CallController {
             },
           );
         }
-      }, 3000);
+      }, POST_GOODBYE_HANGUP_DELAY_MS);
     }, maxDurationMs);
   }
 

@@ -54,4 +54,12 @@ describe("workspace git heartbeat on the monitoring worker", () => {
     expect(worker).toContain("await workspaceGitHeartbeat?.stop()");
     expect(lifecycle).not.toContain("startWorkspaceHeartbeatService");
   });
+
+  test("daemon lifecycle does not stop the in-process heartbeat singleton", () => {
+    const shutdown = readFileSync(
+      join(SRC_ROOT, "daemon/shutdown-handlers.ts"),
+      "utf8",
+    );
+    expect(shutdown).not.toContain("stopWorkspaceHeartbeatService");
+  });
 });

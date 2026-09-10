@@ -3,7 +3,7 @@ import { type ReactNode } from "react";
 
 import { Typography } from "@vellumai/design-library";
 
-import { ChatPill } from "@/domains/chat/components/chat-pill";
+import { ChatPill } from "@/components/chat-pill";
 
 export interface StackedChipsPillProps {
   /** Ids backing each stacked chip. */

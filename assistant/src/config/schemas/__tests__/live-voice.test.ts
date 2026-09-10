@@ -5,7 +5,6 @@ import {
   LiveVoiceFluxConfigSchema,
   LiveVoiceFrontModelConfigSchema,
   LiveVoiceVadConfigSchema,
-  VALID_LIVE_VOICE_MODES,
 } from "../live-voice.js";
 
 const PROGRESS_DEFAULTS = {
@@ -326,7 +325,6 @@ describe("LiveVoiceConfigSchema", () => {
   test("empty object parses to defaults", () => {
     const parsed = LiveVoiceConfigSchema.parse({});
     expect(parsed).toEqual({
-      mode: "open-mic",
       vad: {
         speechEnergyThreshold: 800,
         noiseFloorMargin: 3,
@@ -341,7 +339,6 @@ describe("LiveVoiceConfigSchema", () => {
       // Off by default: Flux turn detection is opt-in, so the front-door hold
       // verdict keeps committing turns until it is enabled.
       flux: FLUX_DEFAULTS,
-      maxSessionDurationSeconds: 1800,
       // Off by default: voice turns carry only their transcript, no audio
       // artifacts on the conversation messages (JARVIS-1283).
       archiveAudio: false,
@@ -365,13 +362,10 @@ describe("LiveVoiceConfigSchema", () => {
 
   test("accepts overrides", () => {
     const parsed = LiveVoiceConfigSchema.parse({
-      mode: "ptt",
       vad: { silenceThresholdMs: 900 },
       frontModel: { endpointDecisionTimeoutMs: 300 },
       flux: { turnEnd: { enabled: true } },
-      maxSessionDurationSeconds: 600,
     });
-    expect(parsed.mode).toBe("ptt");
     expect(parsed.vad.silenceThresholdMs).toBe(900);
     // Unspecified vad fields still get defaults
     expect(parsed.vad.speechEnergyThreshold).toBe(800);
@@ -382,26 +376,16 @@ describe("LiveVoiceConfigSchema", () => {
     // Partial flux overrides merge with defaults
     expect(parsed.flux.turnEnd.enabled).toBe(true);
     expect(parsed.flux.eotThreshold).toBe(0.7);
-    expect(parsed.maxSessionDurationSeconds).toBe(600);
   });
 
-  test("rejects invalid mode", () => {
-    const result = LiveVoiceConfigSchema.safeParse({ mode: "always-on" });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const msgs = result.error.issues.map((i) => i.message);
-      expect(msgs.some((m) => m.includes("liveVoice.mode"))).toBe(true);
-    }
-  });
-
-  test("rejects non-positive maxSessionDurationSeconds", () => {
-    const result = LiveVoiceConfigSchema.safeParse({
-      maxSessionDurationSeconds: -1,
+  test("persisted configs carrying retired keys keep parsing", () => {
+    // Zod strips unrecognized keys, so a persisted config that still carries
+    // `mode` or `maxSessionDurationSeconds` parses.
+    const parsed = LiveVoiceConfigSchema.parse({
+      mode: "ptt",
+      maxSessionDurationSeconds: 600,
     });
-    expect(result.success).toBe(false);
-  });
-
-  test("VALID_LIVE_VOICE_MODES lists ptt and open-mic", () => {
-    expect(VALID_LIVE_VOICE_MODES).toEqual(["ptt", "open-mic"]);
+    expect(parsed).not.toHaveProperty("mode");
+    expect(parsed).not.toHaveProperty("maxSessionDurationSeconds");
   });
 });

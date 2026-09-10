@@ -62,6 +62,7 @@ import {
 import { isJobQueueResolution, type JobHandler } from "../../types.js";
 import { sweepOrphanConversationMemoryTables } from "./conversation-memory-orphan-sweep.js";
 import { getLogger } from "./logging.js";
+import { backfillRetrospectiveCursorTimestamps } from "./memory-retrospective-cursor-backfill.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { getWorkspaceDir } from "./paths.js";
 // SUBSTRATE (v2+v3) — feeds `enqueueSubstrateMaintenanceJobs`.
@@ -256,6 +257,18 @@ export function startMemoryJobsWorkerLoop(): MemoryJobsWorker {
     log.warn(
       { err },
       "Memory-retrospective startup cleanup failed; continuing worker startup",
+    );
+  });
+
+  // Second chance for the cursor timestamp backfill the daemon's memory init
+  // hook starts at boot: rows written before the column existed get their
+  // `createdAt` so a later deletion of the row they point at (a regenerated
+  // reply) cannot stall the conversation's retrospectives. Idempotent,
+  // detached, and best-effort, same as the sweeps.
+  void backfillRetrospectiveCursorTimestamps().catch((err: unknown) => {
+    log.warn(
+      { err },
+      "Retrospective cursor timestamp backfill failed; continuing worker startup",
     );
   });
 

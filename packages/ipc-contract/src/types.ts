@@ -206,6 +206,22 @@ export type VellumCommand =
    * that draws it also draws a way to stop.
    */
   | { kind: "toggleVoice" }
+  /**
+   * The user pressed a control the assistant was pointing at on the shared
+   * surface, which is the step it was walking them through being done.
+   *
+   * `label` is the control's own name as the surface reports it, the same
+   * word the assistant was told it had pointed at. The window holding the
+   * session puts the press to the call as the user's turn, so the assistant
+   * hears the step is done and says what comes next without anyone having to
+   * say so. A press on a surface with no session up lands nowhere, which is
+   * right: there is no one to tell.
+   *
+   * Like `annotateShare`, this does not raise the app. The user is working
+   * in the app they were pointed at, and the whole point is that they stay
+   * there.
+   */
+  | { kind: "coachmarkPressed"; label: string }
   | { kind: "cancelDictation" }
   | { kind: "replayOnboarding" }
   | { kind: "replayHatchFailure" }
@@ -1459,6 +1475,25 @@ export type WatchCaptureTarget =
 export type CompanionAnnotationPhase = "drawing" | "released";
 
 /**
+ * What a press on the shared surface draws: the pointer's own path, or a
+ * shape stretched between the press and the release.
+ *
+ * `freehand` is the hand's path as it went. The other three are the shapes
+ * a hand cannot draw cleanly over someone else's work: a line between two
+ * points, the box on the drag's corners, and the ellipse inscribed in that
+ * box. Main holds which one is current ({@link CompanionSurfaceState.annotationTool}),
+ * since the pill chooses it and the frame draws with it.
+ */
+export const COMPANION_ANNOTATION_TOOLS = [
+  "freehand",
+  "line",
+  "box",
+  "circle",
+] as const;
+export type CompanionAnnotationTool =
+  (typeof COMPANION_ANNOTATION_TOOLS)[number];
+
+/**
  * One mark the user drew over the shared surface, as the points the pointer
  * passed through.
  *
@@ -1468,10 +1503,12 @@ export type CompanionAnnotationPhase = "drawing" | "released";
  * is the one description both agree on, and it survives the scaling that
  * happens between them.
  *
- * A polyline rather than a shape, because the user is drawing freehand and a
- * circle they made is not a circle anything should straighten. Thinned on the
- * way in ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send
- * a point per frame.
+ * A polyline whatever the tool was. A freehand circle is not a circle anything
+ * should straighten, and a shape tool's line, box or ellipse is sent as the
+ * points along it rather than as a shape, so the frame it is drawn onto needs
+ * one idea of what a mark is. Thinned on the way in
+ * ({@link COMPANION_ANNOTATION_MIN_STEP}), so a slow hand does not send a
+ * point per frame.
  */
 export interface CompanionAnnotationStroke {
   points: readonly { x: number; y: number }[];
@@ -2110,6 +2147,34 @@ export interface CompanionSurfaceState {
    * about where the next click goes.
    */
   annotating?: boolean;
+  /**
+   * What a press on the frame draws while `annotating`: the pointer's path or
+   * one of the shapes. See {@link CompanionAnnotationTool}.
+   *
+   * Main's, alongside `annotating` and for the same reason: the pill is where
+   * it is chosen and the frame is where it is drawn with, and the two are
+   * different windows. Kept across the mode going off and on, so the tool a
+   * user reached for is the one under their hand next time. Absent on a shell
+   * that predates it, which reads as freehand, the one tool that shell had.
+   */
+  annotationTool?: CompanionAnnotationTool;
+
+  /**
+   * How many times the user has cleared the shared surface from the pill.
+   *
+   * A running count rather than an event, the way `captureCount` is. The
+   * frame's drawing layer holds the user's own ink and main never sees it,
+   * so a press on the pill reaches that ink only on the state everything
+   * else reaches it on. A step in the number is one clear. The value a
+   * window mounts with is history, since main replays its state into a
+   * window it has just opened, and a layer that dropped its ink on the
+   * replay would be clearing for a press made before it existed.
+   *
+   * The assistant's marks need no such signal: main holds those and takes
+   * them down itself. Absent on a shell that predates the control, which
+   * reads as no clears yet.
+   */
+  marksCleared?: number;
 
   /**
    * What the assistant is pointing at on the shared surface, drawn on the
