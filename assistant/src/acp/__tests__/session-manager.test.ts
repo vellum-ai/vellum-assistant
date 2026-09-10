@@ -1057,3 +1057,93 @@ describe("AcpSessionManager: unsolicited model updates", () => {
     });
   });
 });
+
+describe("AcpSessionManager: a resumed id and the process it replaced", () => {
+  /**
+   * A cancel frees the id, so a resume can register a fresh entry under it
+   * while the stopped spawn's pin is still open. Everything the old process
+   * says after that reaches the manager through the old entry's own closures,
+   * and those closures own nothing the replacement holds: not its state, not
+   * its ring buffer, not its clients.
+   */
+  test("late frames from the replaced process touch nothing the replacement owns", async () => {
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setConfigOptionResponder = async () => {
+      await held;
+      // The withdrawal a vanished selector publishes, which is the frame that
+      // would otherwise go out over the replacement's id.
+      return [];
+    };
+
+    const manager = new AcpSessionManager(5);
+    const controller = new AbortController();
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-replaced",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+      { signal: controller.signal },
+    );
+    await waitForConfigOptionCalls(1);
+    const acpSessionId = manager.getActiveAndPendingIds()[0]!;
+    const oldHandler = clientHandlerFor(manager, acpSessionId);
+
+    // The user stops the turn and a resume takes the id over, both while the
+    // pin's round trip is still open.
+    controller.abort();
+    const internals = manager as unknown as {
+      registerSession: (opts: Record<string, unknown>) => {
+        state: AcpSessionState;
+      };
+      eventBuffers: Map<string, unknown[]>;
+    };
+    const replacement = internals.registerSession({
+      acpSessionId,
+      agentId: "agent-model",
+      agentConfig: { command: "echo", args: ["hi"] },
+      parentConversationId: "conv-resumed",
+      cwd: "/tmp",
+      startedAt: Date.now(),
+      sendToVellum: () => {},
+    });
+    replacement.state.status = "running";
+    sent.length = 0;
+
+    release();
+    await expect(spawned).rejects.toThrow();
+
+    // The old adapter goes on talking: a model change typed into its
+    // transcript, then a message chunk.
+    await oldHandler.sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [modelOption("haiku")],
+      },
+    });
+    await oldHandler.sessionUpdate({
+      sessionId: "proto-agent-model",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: { type: "text", text: "from the old process" },
+      },
+    });
+
+    // The replacement is on nothing the old process said, and its buffer and
+    // its clients heard none of it.
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.parentConversationId).toBe("conv-resumed");
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toBeUndefined();
+    expect(internals.eventBuffers.get(acpSessionId)).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+});

@@ -628,10 +628,20 @@ export class AcpSessionManager {
     // Initialize the per-session ring buffer before any update can fire.
     this.eventBuffers.set(acpSessionId, []);
 
+    // The map is the evidence, as everywhere else in this class: an id whose
+    // entry is no longer this one was cancelled and resumed, so this
+    // process's late frames must not reach the buffer, the state, or the
+    // clients the replacement now owns. `entry` is declared below and read
+    // only from inside closures the process cannot fire until it exists.
+    const ownsSession = () => this.sessions.get(acpSessionId) === entry;
+
     // Wrap the sender so every emitted message is mirrored into the buffer
     // when it's an `acp_session_update`. The wrapper preserves the original
     // call semantics: it forwards every message unchanged.
     const wrappedSend = (msg: AssistantEvent) => {
+      if (!ownsSession()) {
+        return;
+      }
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
       } else if (msg.type === "acp_session_usage") {
@@ -659,7 +669,7 @@ export class AcpSessionManager {
       wrappedSend,
       opts.parentConversationId,
       (configOptions) => {
-        this.applyUnsolicitedConfigOptions(acpSessionId, configOptions);
+        this.applyUnsolicitedConfigOptions(acpSessionId, entry, configOptions);
       },
     );
 
@@ -868,10 +878,10 @@ export class AcpSessionManager {
    */
   private applyUnsolicitedConfigOptions(
     acpSessionId: string,
+    entry: SessionEntry,
     configOptions: SessionConfigOption[],
   ): void {
-    const entry = this.sessions.get(acpSessionId);
-    if (!entry || !this.isEntryLive(acpSessionId, entry)) {
+    if (!this.isEntryLive(acpSessionId, entry)) {
       return;
     }
     this.applyModelInfo(entry, configOptions);
