@@ -332,6 +332,7 @@ import type { ResponseArtifact } from "@/domains/chat/transcript/response-artifa
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 import { MIN_VERSION as REDACTED_CHIPS_MIN_VERSION } from "@/lib/backwards-compat/use-supports-redacted-credential-chips";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 const noop = () => {};
@@ -390,6 +391,7 @@ afterAll(() => {
 });
 afterEach(() => {
   cleanup();
+  useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
 });
 
 function renderMessage(
@@ -789,6 +791,307 @@ describe("TranscriptMessageBody", () => {
       expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
       expect(queryByText("I will check that.")).not.toBeNull();
       expect(queryByText("Here is the final answer.")).not.toBeNull();
+    } finally {
+      useClientFeatureFlagStore.setState({
+        inlineAssistantIntermediates: false,
+      });
+    }
+  });
+
+  test("renders all activity inline for a row marked private", () => {
+    // The row's prose is a scratchpad and its reply is a deliberate
+    // `send_user_message` call, so there is no "earlier" prose to fold.
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "private-response",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(queryByText("I will check that.")).not.toBeNull();
+    expect(queryByText("Here is the final answer.")).not.toBeNull();
+  });
+
+  test("renders all activity inline under the flag, marker or not", () => {
+    // Under `send-user-message` every text block is a message the assistant
+    // chose to send. A row that reached the client without its marker (an
+    // older wire, a reload) must not fold the earlier sends away.
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    try {
+      const { queryByRole, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "flag-on-response",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("First message sent."),
+              toolUseBlock({
+                id: "tc-send",
+                name: "bash",
+                input: {},
+                completedAt: 1,
+              }),
+              textBlock("Second message sent."),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("First message sent.")).not.toBeNull();
+      expect(queryByText("Second message sent.")).not.toBeNull();
+    } finally {
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+    }
+  });
+
+  test("still collapses a row carrying no visibility marker", () => {
+    // An unmarked row sits beside private rows in the same conversation and
+    // keeps the standard rendering. The decision is the row's, so nothing
+    // about the assistant's current settings reaches it.
+    const { getByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "legacy-response",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(getByRole("button", { name: "Earlier activity" })).not.toBeNull();
+    expect(queryByText("I will check that.")).toBeNull();
+  });
+
+  test("still collapses a fallback row marked visible", () => {
+    // A row marked visible carries its own plain text as the reply, so that
+    // text is prose the user reads and the standard folding applies to it.
+    const { getByRole } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "fallback-response",
+          role: "assistant",
+          assistantTextVisibility: "visible",
+          contentBlocks: [
+            textBlock("I will check that."),
+            toolUseBlock({
+              id: "tc-check",
+              name: "bash",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Here is the final answer."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(getByRole("button", { name: "Earlier activity" })).not.toBeNull();
+  });
+
+  test("keeps an already-sent reply visible while the turn keeps working", () => {
+    // A turn can speak, keep working, and speak again. Once the second reply
+    // opens a later text group, the first sits before the final one and would
+    // fold into "Earlier activity" if the row were not already marked private,
+    // hiding a reply the user has read.
+    const { queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "two-reply-row",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            thinkingBlock("planning"),
+            toolUseBlock({
+              id: "tc-fetch",
+              name: "web_fetch",
+              input: {},
+              completedAt: 1,
+            }),
+            textBlock("Found it."),
+            toolUseBlock({
+              id: "tc-bash",
+              name: "bash",
+              input: {},
+              completedAt: 2,
+            }),
+            textBlock("All done."),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(queryByText("Found it.")).not.toBeNull();
+    expect(queryByText("All done.")).not.toBeNull();
+  });
+
+  test("renders a projected private row's reply and none of its scratchpad", () => {
+    // The server projects such a row before it ships: the raw prose arrives as
+    // thinking, each `send_user_message` call as its own text block. The
+    // scratchpad is the assistant talking to itself, so the row is its reply
+    // and nothing else.
+    const { container, queryByRole, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "private-history",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            thinkingBlock("private working notes"),
+            textBlock("Found it."),
+            textBlock("Sending now."),
+          ],
+        }}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+    expect(
+      container.querySelectorAll("[data-testid='thought-process-link']").length,
+    ).toBe(0);
+    expect(queryByText("Thinking")).toBeNull();
+    expect(queryByText("private working notes")).toBeNull();
+    expect(queryByText("Found it.")).not.toBeNull();
+    expect(queryByText("Sending now.")).not.toBeNull();
+  });
+
+  test("draws no chip and no trailing thinking row for a send_user_message call", () => {
+    // The live block order of a tool-gated turn: the daemon streams the reply
+    // as text just before the call that carried it lands.
+    const { container, queryByText } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "tool-gated-live",
+          role: "assistant",
+          contentBlocks: [
+            textBlock("Here you go."),
+            toolUseBlock({
+              id: "tc-send",
+              name: "send_user_message",
+              input: { message: "Here you go." },
+            }),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(queryByText("Here you go.")).not.toBeNull();
+    expect(container.textContent).not.toContain("send_user_message");
+    expect(container.textContent).not.toContain("Thinking");
+  });
+
+  test("holds the thinking row off a streaming private row", () => {
+    // The row's only step draws its own inline card, so the run falls through
+    // to the thinking branch. An unmarked row shimmers "Thinking" there while
+    // the turn streams; a private row has no reasoning the user reads, so the
+    // dots row under the transcript owns the wait instead.
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "private-streaming",
+          role: "assistant",
+          assistantTextVisibility: "private",
+          contentBlocks: [
+            toolUseBlock({
+              id: "tc-spawn",
+              name: "subagent_spawn",
+              input: {},
+            }),
+          ],
+        }}
+        isStreaming
+        isLatestMessage
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(container.textContent).not.toContain("Thinking");
+  });
+
+  test("hides every thinking affordance when the transcript-wide gate is on", () => {
+    // A mixed history row: reasoning, a tool run, then the answer.
+    const mixedRow: DisplayMessage = {
+      id: "mixed-history",
+      role: "assistant",
+      contentBlocks: [
+        thinkingBlock("weighing the options"),
+        toolUseBlock({
+          id: "tc-bash",
+          name: "bash",
+          input: { command: "ls" },
+          completedAt: 1,
+        }),
+        textBlock("Here you go."),
+      ],
+    };
+
+    // The per-user opt-out renders every group inline, so the assertions read
+    // the thinking affordances themselves rather than the collapse around them.
+    useClientFeatureFlagStore.setState({ inlineAssistantIntermediates: true });
+    try {
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+      const gated = render(
+        <TranscriptMessageBody message={mixedRow} onSurfaceAction={noop} />,
+      );
+      // The reasoning reaches neither the rendered text nor the steps the
+      // activity card would draw, and the tool run it sat beside is untouched.
+      expect(gated.container.textContent).not.toContain("Thinking");
+      expect(gated.container.textContent).not.toContain("weighing the options");
+      // The run is down to its one tool, so it renders as a lone tool row
+      // rather than the combined activity card.
+      expect(
+        gated.container.querySelector("[data-testid='inline-tool-link']"),
+      ).not.toBeNull();
+      expect(gated.queryByText("Here you go.")).not.toBeNull();
+      cleanup();
+
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+      const ungated = render(
+        <TranscriptMessageBody message={mixedRow} onSurfaceAction={noop} />,
+      );
+      const ungatedCard = ungated.container.querySelector(
+        "[data-testid='tool-progress-card']",
+      );
+      expect(ungatedCard?.getAttribute("data-item-kinds")).toBe(
+        "thinking,toolCall",
+      );
+      expect(ungatedCard?.getAttribute("data-item-thinking")).toBe(
+        "weighing the options",
+      );
     } finally {
       useClientFeatureFlagStore.setState({
         inlineAssistantIntermediates: false,

@@ -34,6 +34,11 @@ export interface ReduceOptions {
   systemPrompt?: string;
   /** Model override. When omitted, the configured provider's default is used. */
   model?: string;
+  /**
+   * Turn cancellation. Composed with the reduce deadline so stopping the turn
+   * aborts the paid provider call instead of leaving it to time out.
+   */
+  signal?: AbortSignal;
 }
 
 export interface ReduceResult {
@@ -180,6 +185,7 @@ async function sendToClaude(
   systemPrompt?: string,
   model?: string,
   onProgress?: (msg: string) => void,
+  callerSignal?: AbortSignal,
 ): Promise<ReduceResult> {
   const provider = await getConfiguredProvider("mainAgent");
   if (!provider) {
@@ -194,7 +200,10 @@ async function sendToClaude(
 
   onProgress?.("Sending map output to Claude for analysis...\n");
 
-  const { signal, cleanup } = createTimeout(REDUCE_TIMEOUT_MS);
+  const { signal: timeoutSignal, cleanup } = createTimeout(REDUCE_TIMEOUT_MS);
+  const signal = callerSignal
+    ? AbortSignal.any([callerSignal, timeoutSignal])
+    : timeoutSignal;
 
   try {
     const response = await provider.sendMessage([userMessage(userContent)], {
@@ -251,6 +260,7 @@ export async function reduceForAsset(
     options.systemPrompt,
     options.model,
     onProgress,
+    options.signal,
   );
   try {
     await persistReduceCost(assetId, effectiveQuery, result);

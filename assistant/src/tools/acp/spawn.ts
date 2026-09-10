@@ -18,6 +18,7 @@ import {
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
 import { claudeResumeHint } from "../../acp/resume-hint.js";
 import { FailedDependencyError } from "../../runtime/routes/errors.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -70,6 +71,7 @@ export async function executeAcpSpawn(
   if (!task) {
     return { content: '"task" is required.', isError: true };
   }
+  throwIfCancelled(context);
 
   // Pure precondition: the session streams its results through the
   // conversation's event sink, so a context with no sink at all (a tool run
@@ -120,6 +122,9 @@ export async function executeAcpSpawn(
   try {
     const manager = getAcpSessionManager();
     const cwd = parsedInput.data.cwd || context.workingDir;
+    // Recheck: the auto-install and the agent-env preparation above are both
+    // awaits, and this is the point a long-lived subprocess starts.
+    throwIfCancelled(context);
     const { acpSessionId, protocolSessionId, modelWarning } =
       await manager.spawn(
         agent,
@@ -129,6 +134,10 @@ export async function executeAcpSpawn(
         context.conversationId,
         sendToClient,
         { parentToolUseId: context.toolUseId, model: parsedInput.data.model },
+        // The manager rechecks after its own protocol handshake and session
+        // creation, so a turn stopped in that window tears the child process
+        // down instead of handing it the task.
+        context.signal ? { signal: context.signal } : undefined,
       );
 
     // Claude Code-only resume hint; empty for other adapters. Keyed off the
@@ -162,6 +171,12 @@ export async function executeAcpSpawn(
 
     return { content: payload, isError: false };
   } catch (err) {
+    // A cancelled turn is not a spawn failure: the manager already tore the
+    // child process down, so let the abort reach the executor rather than
+    // rendering it as an error the model should recover from.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     // A pre-spawn rejection of the stored Claude credential (the adapter
     // raises auth_required during session creation) gets the same recovery
     // surface as the missing-token preflight: the errorCode raises the inline

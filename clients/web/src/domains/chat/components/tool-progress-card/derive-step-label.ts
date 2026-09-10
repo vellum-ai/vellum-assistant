@@ -155,6 +155,50 @@ export function deriveStepLabelFromName(
       return { title: "Editing", info: file, activity, iconName: "pen" };
     }
 
+    // The daemon's own file tools, each paired with its host-side twin the way
+    // `bash` is paired with `host_bash`. They reuse the `text_editor` titles
+    // rather than reading "Writing a file" beside its "Editing", because
+    // `title` is the phase-grouping key: a run touching files through both
+    // tools has to read as one phase, not two.
+    case "file_read":
+    case "host_file_read": {
+      return {
+        title: "Reading",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "file",
+      };
+    }
+
+    case "file_write":
+    case "host_file_write": {
+      return {
+        title: "Writing",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "pen",
+      };
+    }
+
+    case "file_edit":
+    case "host_file_edit": {
+      return {
+        title: "Editing",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "pen",
+      };
+    }
+
+    case "file_list": {
+      return {
+        title: "Listing",
+        info: basename(readToolInputString(inputBag, ...FILE_PATH_KEYS)),
+        activity,
+        iconName: "file",
+      };
+    }
+
     case "computer": {
       const action = readToolInputString(inputBag, "action");
       return {

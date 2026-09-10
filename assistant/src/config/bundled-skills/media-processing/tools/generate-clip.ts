@@ -13,6 +13,10 @@ import { dirname, join } from "node:path";
 
 import { uploadFileBackedAttachment } from "../../../../persistence/attachments-store.js";
 import { getMediaAssetById } from "../../../../persistence/media-store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -30,7 +34,10 @@ import {
 /**
  * Get the duration of a media file in seconds via ffprobe.
  */
-async function getMediaDuration(filePath: string): Promise<number> {
+async function getMediaDuration(
+  filePath: string,
+  signal?: AbortSignal,
+): Promise<number> {
   const result = await spawnWithTimeout(
     [
       "ffprobe",
@@ -43,6 +50,7 @@ async function getMediaDuration(filePath: string): Promise<number> {
       filePath,
     ],
     FFPROBE_TIMEOUT_MS,
+    signal,
   );
   if (result.exitCode !== 0) {
     return 0;
@@ -121,6 +129,8 @@ export async function run(
   }
   const title = input.title as string | undefined;
 
+  throwIfCancelled(context);
+
   const asset = getMediaAssetById(assetId);
   if (!asset) {
     return { content: `Media asset not found: ${assetId}`, isError: true };
@@ -135,7 +145,8 @@ export async function run(
 
   // Get the file duration so we can clamp pre/post-roll to file boundaries
   const fileDuration =
-    asset.durationSeconds ?? (await getMediaDuration(asset.filePath));
+    asset.durationSeconds ??
+    (await getMediaDuration(asset.filePath, context.signal));
 
   // Calculate actual clip boundaries with pre/post-roll, clamped to file
   const clipStart = Math.max(0, startTime - preRoll);
@@ -174,6 +185,8 @@ export async function run(
     : `clip-${timestampSuffix}-${uniqueSuffix}.${outputFormat}`;
   const clipPath = join(clipDir, clipFilename);
 
+  throwIfCancelled(context);
+
   try {
     context.onOutput?.(
       `Extracting clip ${formatTimestamp(clipStart)} – ${formatTimestamp(
@@ -198,7 +211,11 @@ export async function run(
       clipPath,
     ];
 
-    const result = await spawnWithTimeout(ffmpegArgs, FFMPEG_CLIP_TIMEOUT_MS);
+    const result = await spawnWithTimeout(
+      ffmpegArgs,
+      FFMPEG_CLIP_TIMEOUT_MS,
+      context.signal,
+    );
 
     if (result.exitCode !== 0) {
       // Stream copy failed - fall back to re-encoding (handles high-bitrate
@@ -243,9 +260,11 @@ export async function run(
         "make_zero",
         clipPath,
       ];
+      throwIfCancelled(context);
       const reencodeResult = await spawnWithTimeout(
         reencodeArgs,
         FFMPEG_CLIP_TIMEOUT_MS,
+        context.signal,
       );
       if (reencodeResult.exitCode !== 0) {
         return {
@@ -269,6 +288,10 @@ export async function run(
         1,
       )} MB). Registering as attachment...\n`,
     );
+
+    // Recheck: the transcode and the stat above are awaits, and registering
+    // hands the conversation an attachment the model was told never appeared.
+    throwIfCancelled(context);
 
     // Register as file-backed attachment (no size limit, no base64 in-memory copy)
     const mimeType = MIME_BY_FORMAT[outputFormat] ?? "video/mp4";
@@ -307,6 +330,11 @@ export async function run(
       isError: false,
     };
   } catch (err) {
+    // A cancelled turn is not a clip failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(err)) {
+      throw err;
+    }
     return {
       content: `Clip generation failed: ${(err as Error).message}`,
       isError: true,

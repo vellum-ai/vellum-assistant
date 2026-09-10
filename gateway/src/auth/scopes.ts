@@ -39,6 +39,9 @@ const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
     "internal.write",
   ]),
   local_v1: new Set<Scope>(["local.all"]),
+  // Mirrors the daemon profile a short-lived OAuth passthrough grant is
+  // minted with; the gateway resolves it on the IPC fast path.
+  oauth_proxy_v1: new Set<Scope>(["oauth.proxy"]),
   // Managed speech relay only (ATL-1033): the daemon's relay-dial token must
   // not open any other edge-scoped route.
   speech_relay_v1: new Set<Scope>(["speech.relay"]),
@@ -61,4 +64,39 @@ export function resolveScopeProfile(profile: ScopeProfile): ReadonlySet<Scope> {
     return EMPTY_SCOPES;
   }
   return PROFILE_SCOPES[profile];
+}
+
+// ---------------------------------------------------------------------------
+// Profile breadth
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a profile is broad enough to stand for its caller on a route that
+ * names no scope of its own. A profile marked `false` is minted for a single
+ * route and handed to code outside this install's trust boundary, so it
+ * reaches only a route whose policy names the scope it carries.
+ *
+ * Exhaustive over `ScopeProfile`, so a new profile has to be classified here
+ * rather than inheriting whichever answer the compiler allows.
+ */
+const BROAD_SCOPE_PROFILES: Record<ScopeProfile, boolean> = {
+  actor_client_v1: true,
+  gateway_ingress_v1: true,
+  gateway_service_v1: true,
+  local_v1: true,
+  oauth_proxy_v1: false,
+  speech_relay_v1: false,
+  ui_page_v1: true,
+};
+
+/**
+ * True when the profile reaches only a route whose policy names the scope it
+ * carries.
+ *
+ * Claims come from JSON, so an unrecognized profile reaches this despite the
+ * type. `=== true` keeps those narrow, along with inherited keys
+ * ("constructor", "__proto__") whose values are objects.
+ */
+export function isNarrowScopeProfile(profile: ScopeProfile): boolean {
+  return BROAD_SCOPE_PROFILES[profile] !== true;
 }

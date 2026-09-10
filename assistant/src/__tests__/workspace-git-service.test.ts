@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -522,6 +523,31 @@ describe("WorkspaceGitService", () => {
       expect(trackedFiles()).not.toContain("gone-a.txt");
       expect(trackedFiles()).not.toContain("gone-b.txt");
       expect(trackedFiles()).not.toContain("gone-c.txt");
+    });
+
+    test("batched rename stages origin and destination even when they split", async () => {
+      const service = new WorkspaceGitService(testDir);
+      await service.ensureInitialized();
+
+      writeFileSync(join(testDir, "old-name.txt"), "moved");
+      await service.commitChanges("Seed rename source");
+
+      renameSync(join(testDir, "old-name.txt"), join(testDir, "new-name.txt"));
+      for (const name of ["x0.txt", "x1.txt", "x2.txt", "x3.txt"]) {
+        writeFileSync(join(testDir, name), name);
+      }
+
+      await withStageBatchSize(2, async () => {
+        await service.commitChanges("Rename across batches");
+      });
+
+      expect(trackedFiles()).toContain("new-name.txt");
+      expect(trackedFiles()).not.toContain("old-name.txt");
+      const status = execFileSync("git", ["status", "--porcelain"], {
+        cwd: testDir,
+        encoding: "utf-8",
+      }).trim();
+      expect(status).toBe("");
     });
   });
 

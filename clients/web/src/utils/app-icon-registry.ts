@@ -1,0 +1,347 @@
+/**
+ * App icon registry: the Lucide glyph for each name in `@vellumai/app-icons`,
+ * the list the assistant chooses from when it stores an icon on an app's
+ * manifest. Typed against that list, so a name added to the package without
+ * a glyph here fails the typecheck, and a glyph here the package does not
+ * name is rejected the same way.
+ *
+ * Mirrors the custom-group registry (`@/domains/chat/utils/group-icon-registry`):
+ * map a stored name to a module-level Lucide component once, and every
+ * surface resolves through it. A manifest may carry an emoji in place of a
+ * name; the package maps the common ones to the name each stands for (the
+ * daemon applies the same map when it reads a manifest, this side covers a
+ * daemon that does not), and an emoji the map cannot place takes the
+ * caller's fallback. Nothing here draws an emoji: an app wears the product's
+ * glyph set or the fallback.
+ */
+
+import {
+  APP_ICON_NAMES,
+  bridgeEmojiAppIcon,
+  isAppIconName,
+  type AppIconName,
+} from "@vellumai/app-icons";
+import { createElement } from "react";
+
+import {
+  Activity,
+  AlarmClock,
+  Apple,
+  Baby,
+  Battery,
+  Bed,
+  Beer,
+  Bell,
+  Bike,
+  Book,
+  BookOpen,
+  Bookmark,
+  Bot,
+  Brain,
+  Briefcase,
+  Bus,
+  Cake,
+  Calculator,
+  Calendar,
+  Camera,
+  Car,
+  Carrot,
+  ChartBar,
+  ChartLine,
+  ChartPie,
+  ClipboardList,
+  Clock,
+  Cloud,
+  Code,
+  Coffee,
+  Compass,
+  Contact,
+  Cpu,
+  CreditCard,
+  Database,
+  DollarSign,
+  Droplets,
+  Dumbbell,
+  Egg,
+  FileText,
+  Film,
+  Fish,
+  Flag,
+  Flame,
+  FolderOpen,
+  Gamepad2,
+  Gauge,
+  Gift,
+  Globe,
+  GraduationCap,
+  Hash,
+  Headphones,
+  Heart,
+  HeartPulse,
+  House,
+  Image,
+  Inbox,
+  Key,
+  Languages,
+  Layers,
+  Leaf,
+  Lightbulb,
+  Link,
+  ListChecks,
+  ListTodo,
+  Lock,
+  Mail,
+  Map,
+  MapPin,
+  MessageSquare,
+  Mic,
+  Moon,
+  Mountain,
+  Music,
+  Newspaper,
+  NotebookPen,
+  Package,
+  Palette,
+  PartyPopper,
+  PawPrint,
+  PenTool,
+  Pencil,
+  Percent,
+  Phone,
+  PiggyBank,
+  Pill,
+  Plane,
+  Play,
+  Plug,
+  Puzzle,
+  Receipt,
+  Repeat,
+  Rocket,
+  Ruler,
+  Salad,
+  Scale,
+  Scissors,
+  Search,
+  Settings,
+  Shield,
+  Ship,
+  Shirt,
+  ShoppingCart,
+  Shuffle,
+  Smile,
+  Snowflake,
+  Sparkles,
+  Speaker,
+  SquareCheck,
+  SquareKanban,
+  Star,
+  Stethoscope,
+  StickyNote,
+  Sun,
+  Table,
+  Target,
+  Terminal,
+  Thermometer,
+  Ticket,
+  Timer,
+  Trophy,
+  Truck,
+  Tv,
+  Umbrella,
+  Users,
+  Utensils,
+  Video,
+  Volume2,
+  Wallet,
+  Wifi,
+  Wine,
+  Wrench,
+  Zap,
+  type LucideIcon,
+  type LucideProps,
+} from "lucide-react";
+
+const APP_ICONS = {
+  calculator: Calculator,
+  calendar: Calendar,
+  "list-todo": ListTodo,
+  "list-checks": ListChecks,
+  "square-check": SquareCheck,
+  timer: Timer,
+  clock: Clock,
+  "alarm-clock": AlarmClock,
+  "notebook-pen": NotebookPen,
+  "sticky-note": StickyNote,
+  pencil: Pencil,
+  "file-text": FileText,
+  "clipboard-list": ClipboardList,
+  bookmark: Bookmark,
+  book: Book,
+  "book-open": BookOpen,
+  "chart-bar": ChartBar,
+  "chart-line": ChartLine,
+  "chart-pie": ChartPie,
+  table: Table,
+  "square-kanban": SquareKanban,
+  database: Database,
+  gauge: Gauge,
+  activity: Activity,
+  target: Target,
+  flag: Flag,
+  trophy: Trophy,
+  wallet: Wallet,
+  "dollar-sign": DollarSign,
+  "piggy-bank": PiggyBank,
+  "credit-card": CreditCard,
+  receipt: Receipt,
+  percent: Percent,
+  "shopping-cart": ShoppingCart,
+  package: Package,
+  gift: Gift,
+  ticket: Ticket,
+  mail: Mail,
+  inbox: Inbox,
+  "message-square": MessageSquare,
+  phone: Phone,
+  bell: Bell,
+  users: Users,
+  contact: Contact,
+  music: Music,
+  headphones: Headphones,
+  mic: Mic,
+  video: Video,
+  film: Film,
+  tv: Tv,
+  play: Play,
+  image: Image,
+  camera: Camera,
+  "gamepad-2": Gamepad2,
+  puzzle: Puzzle,
+  "party-popper": PartyPopper,
+  smile: Smile,
+  map: Map,
+  "map-pin": MapPin,
+  compass: Compass,
+  globe: Globe,
+  plane: Plane,
+  car: Car,
+  bus: Bus,
+  bike: Bike,
+  ship: Ship,
+  truck: Truck,
+  house: House,
+  bed: Bed,
+  briefcase: Briefcase,
+  "graduation-cap": GraduationCap,
+  languages: Languages,
+  brain: Brain,
+  lightbulb: Lightbulb,
+  heart: Heart,
+  "heart-pulse": HeartPulse,
+  dumbbell: Dumbbell,
+  pill: Pill,
+  stethoscope: Stethoscope,
+  baby: Baby,
+  "paw-print": PawPrint,
+  utensils: Utensils,
+  coffee: Coffee,
+  wine: Wine,
+  beer: Beer,
+  cake: Cake,
+  apple: Apple,
+  carrot: Carrot,
+  salad: Salad,
+  egg: Egg,
+  fish: Fish,
+  cloud: Cloud,
+  sun: Sun,
+  moon: Moon,
+  umbrella: Umbrella,
+  snowflake: Snowflake,
+  thermometer: Thermometer,
+  droplets: Droplets,
+  flame: Flame,
+  leaf: Leaf,
+  mountain: Mountain,
+  code: Code,
+  terminal: Terminal,
+  cpu: Cpu,
+  bot: Bot,
+  wifi: Wifi,
+  lock: Lock,
+  key: Key,
+  shield: Shield,
+  settings: Settings,
+  wrench: Wrench,
+  plug: Plug,
+  battery: Battery,
+  search: Search,
+  link: Link,
+  hash: Hash,
+  layers: Layers,
+  "folder-open": FolderOpen,
+  palette: Palette,
+  "pen-tool": PenTool,
+  ruler: Ruler,
+  scale: Scale,
+  scissors: Scissors,
+  shirt: Shirt,
+  newspaper: Newspaper,
+  repeat: Repeat,
+  shuffle: Shuffle,
+  "volume-2": Volume2,
+  speaker: Speaker,
+  star: Star,
+  sparkles: Sparkles,
+  zap: Zap,
+  rocket: Rocket,
+  /* Lucide's other name for `house`, in case a model reaches for it. */
+  home: House,
+} satisfies Record<AppIconName, LucideIcon>;
+
+/** The names the assistant may choose from, in registry order. */
+export { APP_ICON_NAMES };
+
+/** The glyph for an app with no icon, or one whose name is unknown here. */
+export const DEFAULT_APP_ICON: LucideIcon = Rocket;
+
+/**
+ * The Lucide component for an app's stored icon: a registry name (any case),
+ * or an emoji the package maps to one. `undefined` for nothing usable
+ * (absent, an unknown name, an emoji the map cannot place, a stray URL);
+ * callers that must draw something use {@link DEFAULT_APP_ICON} or their own
+ * placeholder.
+ */
+export function getAppIcon(
+  icon: string | null | undefined,
+): LucideIcon | undefined {
+  if (!icon) {
+    return undefined;
+  }
+  const name = bridgeEmojiAppIcon(icon.trim())?.toLowerCase();
+  return name !== undefined && isAppIconName(name)
+    ? APP_ICONS[name]
+    : undefined;
+}
+
+export interface AppIconProps extends LucideProps {
+  /** The app's stored icon (`app.icon`). */
+  icon: string | null | undefined;
+  /** Drawn when the registry cannot place the icon. */
+  fallback?: LucideIcon;
+}
+
+/**
+ * An app's icon as an element: the registry glyph for `icon`, else
+ * `fallback` (the {@link DEFAULT_APP_ICON} unless told otherwise). A
+ * component rather than a resolved constructor rendered at the call site,
+ * which React's static-components rule reads as a component made during
+ * render.
+ */
+export function AppIcon({
+  icon,
+  fallback = DEFAULT_APP_ICON,
+  ...props
+}: AppIconProps) {
+  return createElement(getAppIcon(icon) ?? fallback, props);
+}

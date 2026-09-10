@@ -75,6 +75,10 @@ export async function runBtwSidechain(
       : buildSystemPrompt({
           excludeBootstrap: true,
           excludeCustomPrefix: true,
+          // `tool_choice: { type: "none" }` below: this turn calls nothing, so
+          // guidance about handing work to subagents would only make it defer
+          // work it has to answer inline.
+          canSpawnSubagents: false,
         }));
 
   const { signal: timeoutSignal, cleanup } = createTimeout(

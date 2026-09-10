@@ -44,6 +44,7 @@
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
     "@slack/types": "2.22.0",
+    "@vellumai/app-icons": "workspace:*",
     "@vellumai/avatar-catalog": "workspace:*",
     "@vellumai/avatar-manifest": "workspace:*",
     "@vellumai/ces-client": "workspace:*",

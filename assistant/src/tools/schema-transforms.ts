@@ -16,6 +16,36 @@ const ACTIVITY_PROPERTY = {
 };
 
 /**
+ * Schemas whose `activity` property is the daemon's own status convention
+ * rather than input the owning tool consumes.
+ *
+ * Membership is by schema object identity, so a schema the daemon did not
+ * author (an MCP server's, a skill manifest's) is never mistaken for one it
+ * did, however its own `activity` field happens to be worded.
+ */
+const DAEMON_ACTIVITY_SCHEMAS = new WeakSet<object>();
+
+/**
+ * Record `schema` as declaring the daemon's own `activity` field, so
+ * {@link stripActivityField} may drop it from the advertised copy. Tools
+ * derived from Zod declare it through `advertiseRequired: ["activity"]` (see
+ * `shared/zod-tool-schema.ts`); hand-written schemas call this directly.
+ */
+export function declareDaemonActivityField<T extends object>(schema: T): T {
+  DAEMON_ACTIVITY_SCHEMAS.add(schema);
+  return schema;
+}
+
+/** Whether `schema` declares the daemon's own `activity` field. */
+export function definesDaemonActivityField(schema: unknown): boolean {
+  return (
+    typeof schema === "object" &&
+    schema !== null &&
+    DAEMON_ACTIVITY_SCHEMAS.has(schema)
+  );
+}
+
+/**
  * Add the injected `activity` property to a schema, so a validator checking a
  * call against the tool's own schema accepts the field the advertised schema
  * asked the model to send.
@@ -93,11 +123,11 @@ export function injectActivityField(
 
     return {
       ...def,
-      input_schema: {
+      input_schema: declareDaemonActivityField({
         ...schema,
         properties: newProperties,
         required: existingRequired,
-      },
+      }),
     };
   });
 }
@@ -151,4 +181,76 @@ export function schemaDefinesProperty(
   }
 
   return false;
+}
+
+/**
+ * Drop the daemon's `activity` field from advertised tool schemas, the
+ * counterpart to {@link injectActivityField} for a surface that renders no
+ * tool activity text: the field then costs tokens on every definition and
+ * reads to the model as a second channel to the user.
+ *
+ * Only schemas the daemon declared the field on are touched (see
+ * {@link declareDaemonActivityField}). A tool that owns its own `activity`
+ * (an MCP server's, a skill's) keeps it, since there the field is real input.
+ *
+ * Composite (`allOf` / `oneOf` / `anyOf`) and `$ref` schemas are left whole
+ * rather than half-stripped: a branch this cannot resolve may still demand
+ * the field.
+ *
+ * CRITICAL: Never mutates the input definitions - always returns deep clones
+ * for any modified definition, since `Tool.input_schema` is a shared ref.
+ */
+export function stripActivityField(
+  definitions: ToolDefinition[],
+): ToolDefinition[] {
+  return definitions.map((def) => {
+    const schema = def.input_schema as Record<string, unknown> | undefined;
+    if (
+      schema == null ||
+      typeof schema !== "object" ||
+      schema.type !== "object" ||
+      !definesDaemonActivityField(schema)
+    ) {
+      return def;
+    }
+
+    const properties = schema.properties;
+    if (
+      typeof properties !== "object" ||
+      properties === null ||
+      !(ACTIVITY_FIELD in (properties as Record<string, unknown>))
+    ) {
+      return def;
+    }
+
+    const { [ACTIVITY_FIELD]: _activity, ...remaining } = properties as Record<
+      string,
+      unknown
+    >;
+    const stripped: Record<string, unknown> = {
+      ...schema,
+      properties: remaining,
+    };
+
+    if (
+      schemaDefinesProperty(stripped, ACTIVITY_FIELD, {
+        refBehavior: "assume-defined",
+      })
+    ) {
+      return def;
+    }
+
+    if (Array.isArray(schema.required)) {
+      const required = schema.required.filter(
+        (name) => name !== ACTIVITY_FIELD,
+      );
+      if (required.length > 0) {
+        stripped.required = required;
+      } else {
+        delete stripped.required;
+      }
+    }
+
+    return { ...def, input_schema: stripped };
+  });
 }

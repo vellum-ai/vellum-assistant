@@ -43,7 +43,7 @@
               },
               "icon": {
                 "type": "string",
-                "description": "Optional icon \u2014 image URL preferred when available (logo, favicon, photo, etc.), emoji as fallback"
+                "description": "Optional icon for the app, as a Lucide icon name from the app icon list in the app-builder skill (kebab-case, e.g. calculator, calendar, list-todo, timer, notebook-pen, chart-bar, wallet, mail, map-pin, dumbbell). Pick the one that best says what the app is; it is drawn in the sidebar and the library. Not an emoji and not a URL: for an image icon call app_generate_icon after creating the app."
               },
               "metrics": {
                 "type": "array",
@@ -73,7 +73,7 @@
           },
           "icon": {
             "type": "string",
-            "description": "Lenient alias. Prefer preview.icon. An emoji or image URL passed here is folded into preview.icon automatically."
+            "description": "Lenient alias. Prefer preview.icon. A Lucide icon name passed here is folded into preview.icon automatically."
           },
           "html": {
             "type": "string",

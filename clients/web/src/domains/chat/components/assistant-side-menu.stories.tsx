@@ -492,6 +492,34 @@ export const CharacterAvatar: Story = {
 };
 
 /**
+ * The phone the drawer stories stand in. The overlay's shell is not the
+ * desktop one: `chat-layout` mounts it as a full-bleed sheet over the chat,
+ * and the page behind it has to be there to confirm the sheet's opaque
+ * surface fully covers it. The frame is a 402x874 phone.
+ */
+function withPhoneFrame(Story: () => React.ReactElement) {
+  return (
+    <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
+      {/* Stand-in for the chat the drawer covers: only whether the sheet
+        fully hides it is under test, not its own layout. */}
+      <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
+        <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
+        <p>
+          The decel valve draws its air from above the sensor plate, so CIS has
+          accounted for that air with a corresponding fuel increase.
+        </p>
+      </div>
+      <aside
+        className="absolute inset-0 flex flex-col"
+        style={{ background: DRAWER_SURFACE_BACKGROUND }}
+      >
+        <Story />
+      </aside>
+    </div>
+  );
+}
+
+/**
  * The mobile drawer (Figma 7842-83305). Its own decorator, because the
  * overlay's shell is not the desktop one: `chat-layout` mounts it as a
  * full-bleed sheet over the chat, and the page behind it has to be there to
@@ -502,27 +530,7 @@ export const OverlayDrawer: Story = {
   name: "Overlay drawer (mobile)",
   parameters: { layout: "centered" },
   beforeEach: () => seedViewMode("asst-overlay", "all"),
-  decorators: [
-    (Story) => (
-      <div className="relative h-[874px] w-[402px] overflow-hidden bg-[var(--surface-base)]">
-        {/* Stand-in for the chat the drawer covers: only whether the sheet
-            fully hides it is under test, not its own layout. */}
-        <div className="absolute inset-0 flex flex-col gap-3 p-4 pt-24 text-body-medium-lighter text-[var(--content-default)]">
-          <p>You&rsquo;re absolutely right, and thank you for correcting me.</p>
-          <p>
-            The decel valve draws its air from above the sensor plate, so CIS
-            has accounted for that air with a corresponding fuel increase.
-          </p>
-        </div>
-        <aside
-          className="absolute inset-0 flex flex-col"
-          style={{ background: DRAWER_SURFACE_BACKGROUND }}
-        >
-          <Story />
-        </aside>
-      </div>
-    ),
-  ],
+  decorators: [withPhoneFrame],
   args: {
     ...SHARED_ARGS,
     assistantId: "asst-overlay",
@@ -537,6 +545,40 @@ export const OverlayDrawer: Story = {
     ),
     notificationsAction: (
       <Button variant="ghost" iconOnly={<Bell />} aria-label="Notifications" />
+    ),
+  },
+};
+
+const OVERLAY_CHARACTER_AVATAR_CLIENT = seededAvatarClient(
+  "asst-overlay-character",
+  {
+    components: BUNDLED_COMPONENTS,
+    traits: { bodyShape: "blob", eyeStyle: "curious", color: "purple" },
+    customImageUrl: null,
+  },
+);
+
+/**
+ * The drawer with the eyes in the identity pill. The eyes sit on the axis
+ * every other leading glyph in the drawer centres on (the section headers'
+ * and the pinned apps'), so whether those glyphs and their labels line up
+ * with the assistant row is read here rather than on the brain fallback the
+ * plain drawer story shows.
+ */
+export const OverlayDrawerCharacterAvatar: Story = {
+  ...OverlayDrawer,
+  name: "Overlay drawer (mobile) · character avatar",
+  beforeEach: () => seedViewMode("asst-overlay-character", "all"),
+  decorators: [withAvatar(OVERLAY_CHARACTER_AVATAR_CLIENT), withPhoneFrame],
+  args: {
+    ...OverlayDrawer.args,
+    assistantId: "asst-overlay-character",
+    assistantName: "Haze II",
+    footerAction: (
+      <PreferencesMenu
+        assistantId="asst-overlay-character"
+        triggerVariant="pill"
+      />
     ),
   },
 };

@@ -4,6 +4,7 @@ import type { AssistantEvent } from "../api/index.js";
 import { getDb } from "../persistence/db-connection.js";
 import { migrateCreateSubagentsTable } from "../persistence/migrations/311-create-subagents-table.js";
 import { migrateAddSubagentParentToolUseId } from "../persistence/migrations/356-add-subagent-parent-tool-use-id.js";
+import { migrateAddSubagentBudgetStopReason } from "../persistence/migrations/377-add-subagent-budget-stop-reason.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import {
   getSubagentRecordById,
@@ -383,6 +384,7 @@ describe("durable record lifetime across disposal paths", () => {
     // Idempotent; the table may already exist from a prior run.
     migrateCreateSubagentsTable();
     migrateAddSubagentParentToolUseId(getDb());
+    migrateAddSubagentBudgetStopReason(getDb());
     resetTestTables("subagents");
   });
 

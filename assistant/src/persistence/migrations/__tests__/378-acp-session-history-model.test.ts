@@ -1,5 +1,5 @@
 /**
- * Migration 377 adds the nullable `model` column that records which model a
+ * Migration 378 adds the nullable `model` column that records which model a
  * finished ACP run was on, and is idempotent so a repair flow can re-run it.
  */
 
@@ -10,7 +10,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateAcpSessionHistoryModel } from "../377-acp-session-history-model.js";
+import { migrateAcpSessionHistoryModel } from "../378-acp-session-history-model.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");

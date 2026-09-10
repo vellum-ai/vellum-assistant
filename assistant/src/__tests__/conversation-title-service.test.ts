@@ -50,7 +50,14 @@ const mockGetConversation = mock(
       isAutoTitle: number;
     },
 );
-const mockGetMessages = mock(() => [
+type TitleTestRow = {
+  role: string;
+  content: string;
+  /** Present on rows written under the tool-gated reply surface. */
+  metadata?: string;
+};
+
+const mockGetMessages = mock((): TitleTestRow[] => [
   { role: "user", content: "first message" },
   { role: "assistant", content: "first reply" },
   { role: "user", content: "follow-up" },
@@ -661,5 +668,68 @@ describe("conversation-title-service", () => {
       mockUpdateConversationTitle.mock.calls as unknown as string[][]
     ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");
     expect(secondUpdate).toBeTruthy();
+  });
+});
+
+/**
+ * A gated turn's rows are not what a user read: the plain text is a private
+ * scratchpad and the reply is inside a `send_user_message` call whose result is
+ * the bare receipt "Delivered.". Titling from the raw rows named these
+ * conversations "Delivery Confirmation" instead of what they were about.
+ */
+describe("titles on a tool-gated turn", () => {
+  const PRIVATE = JSON.stringify({ assistantTextVisibility: "private" });
+
+  function seedGatedGreeting(): void {
+    mockGetMessages.mockReturnValueOnce([
+      {
+        role: "user",
+        content: JSON.stringify([
+          { type: "text", text: "yo yo!! whats your name" },
+        ]),
+      },
+      {
+        role: "assistant",
+        metadata: PRIVATE,
+        content: JSON.stringify([
+          {
+            type: "text",
+            text: "The user is greeting me and asking my name.",
+          },
+          {
+            type: "tool_use",
+            id: "toolu_send",
+            name: "send_user_message",
+            input: { message: "vizgrid. what's up?" },
+          },
+        ]),
+      },
+      {
+        role: "user",
+        content: JSON.stringify([
+          {
+            type: "tool_result",
+            tool_use_id: "toolu_send",
+            content: "Delivered.",
+          },
+        ]),
+      },
+    ]);
+  }
+
+  test("titles from the greeting, not the delivery", async () => {
+    seedGatedGreeting();
+    const provider = makeProvider();
+
+    await regenerateConversationTitle({ conversationId: "conv-1", provider });
+
+    const prompt = (provider.sendMessage.mock.calls[0] as any)?.[0]?.[0]
+      ?.content as string;
+    expect(prompt).toContain("yo yo!! whats your name");
+    // The delivered message is what the assistant said.
+    expect(prompt).toContain("vizgrid. what's up?");
+    // Neither the receipt nor the scratchpad reaches the title model.
+    expect(prompt).not.toContain("Delivered.");
+    expect(prompt).not.toContain("The user is greeting me");
   });
 });

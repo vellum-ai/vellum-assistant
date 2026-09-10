@@ -23,6 +23,11 @@ export interface UIContext {
    * streaming "Thinking" state). Gates off the standalone thinking-dots row so
    * the two don't both render; the dots stay only for the pre-message window. */
   hasStreamingAssistantThinking: boolean;
+  /** True when the live assistant message already renders a step stack under
+   * `send-user-message`, which is then the turn's one progress label. Gates
+   * off the standalone thinking row for the rest of the turn. Always false
+   * with the flag off. */
+  hasLiveStepStack?: boolean;
   hasPendingSecret: boolean;
   hasPendingConfirmation: boolean;
   hasPendingQuestion: boolean;
@@ -113,6 +118,8 @@ export function shouldShowThinkingIndicator(
       !ctx.hasStreamingAssistantMessage) &&
     // Inline SingleActivity owns the loading state once reasoning is present.
     !ctx.hasStreamingAssistantThinking &&
+    // The step stack owns it once a step exists (send-user-message only).
+    !ctx.hasLiveStepStack &&
     activeToolCallCount === 0
   );
 }

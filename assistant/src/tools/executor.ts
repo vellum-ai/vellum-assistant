@@ -21,7 +21,6 @@ import {
   recordToolError,
   recordToolExecuted,
 } from "../telemetry/tool-audit.js";
-import { type AbortReason, isAbortReason } from "../util/abort-reasons.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
 import { truncateForLog } from "../util/logger.js";
@@ -37,6 +36,7 @@ import { getHostShell } from "./host-shell.js";
 import { PermissionChecker } from "./permission-checker.js";
 import { getToolOwner } from "./registry.js";
 import { extractAndSanitize } from "./sensitive-output-placeholders.js";
+import { extractAbortReason } from "./shared/abort.js";
 import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
@@ -416,27 +416,6 @@ export class ToolExecutor {
       };
     }
   }
-}
-
-/**
- * Extract the tagged {@link AbortReason} from a thrown value: the value
- * itself, its `reason` (an `AbortError` carrying the signal's reason), or a
- * provider wrapper's `abortReason`. Returns `undefined` for anything that is
- * not a daemon-owned abort.
- */
-function extractAbortReason(err: unknown): AbortReason | undefined {
-  if (isAbortReason(err)) {
-    return err;
-  }
-  const reason = (err as { reason?: unknown } | null)?.reason;
-  if (isAbortReason(reason)) {
-    return reason;
-  }
-  const abortReason = (err as { abortReason?: unknown } | null)?.abortReason;
-  if (isAbortReason(abortReason)) {
-    return abortReason;
-  }
-  return undefined;
 }
 
 /**

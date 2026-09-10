@@ -104,6 +104,11 @@ export const memoryRetrospectiveState = sqliteTable(
     conversationId: text("conversation_id").primaryKey(),
     lastProcessedMessageId: text("last_processed_message_id").notNull(),
     lastRunAt: integer("last_run_at").notNull(),
+    // `createdAt` of the `last_processed_message_id` row when the pointer was
+    // written, so the cursor still bounds reads after that row is deleted.
+    // NULL when unknown. Added lazily by `ensureRetrospectiveCursorColumn`
+    // (memory-retrospective-state.ts), not by the migration chain.
+    lastProcessedCreatedAt: integer("last_processed_created_at"),
     // JSON array of strings — cumulative `remember` contents from prior
     // retrospective passes (capped; see memory-retrospective-state.ts).
     // NULL for rows that predate migration 281 or have no saves yet.

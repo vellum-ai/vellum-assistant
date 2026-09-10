@@ -27,7 +27,7 @@ When the user wants something checked on a cadence (a status page, dashboard, si
 - Recurrence, cutoff times, escalation, and notifications are schedule and notification primitives. Do not reimplement them in a workspace file the user has to run.
 - Prefer **execute** mode: the scheduled message browses or fetches the source, applies the user's rules, and notifies on exceptions. Use **script** mode only for a cheap deterministic check against a live source the assistant can already reach (curl an API, read a file in the workspace). A script-mode job is still a schedule, not a file you hand the user.
 - Looking at a page, pasting HTML, or gathering a roster is setup for the schedule, not a reason to skip creating one.
-- If browsing cannot reach the page, still create the schedule. Offer the desktop app (https://www.vellum.ai/download) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) so a logged-in browser session can run it. Do not replace the schedule with a parser against a pasted export, and do not assign comparison-run homework before anything is scheduled.
+- If browsing cannot reach the page, still create the schedule. Offer the desktop app (https://www.vellum.ai/downloads) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) so a logged-in browser session can run it. Do not replace the schedule with a parser against a pasted export, and do not assign comparison-run homework before anything is scheduled.
 - Watchers cover Gmail, Google Calendar, GitHub, Linear, and Outlook event polling. An arbitrary web page or status dashboard is this skill, not the watcher skill.
 
 ## Schedule Syntax
@@ -243,7 +243,7 @@ If any required capability is missing:
 
 1. **Still create the schedule** so timing is preserved. Do not tell the user it is ready to run.
 2. Explain what is missing and why the next fire will fail until that is fixed.
-3. Offer to set up the missing integration first. For a page the assistant cannot reach, offer the desktop app (https://www.vellum.ai/download) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) before asking for a screenshot or pasted export.
+3. Offer to set up the missing integration first. For a page the assistant cannot reach, offer the desktop app (https://www.vellum.ai/downloads) or the Chrome extension (https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne) before asking for a screenshot or pasted export.
 4. Do not replace the schedule with a workspace script the user has to run themselves.
 
 ## Delivering Results

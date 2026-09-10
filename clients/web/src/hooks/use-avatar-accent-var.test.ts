@@ -4,6 +4,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import {
   AVATAR_ACCENT_CSS_VAR,
   AVATAR_ACCENT_FILL_CSS_VAR,
+  AVATAR_ACCENT_GLYPH_CSS_VAR,
   AVATAR_ACCENT_INK_CSS_VAR,
   avatarAccentVars,
   getPublishedAvatarAccentHex,
@@ -65,11 +66,13 @@ describe("avatarAccentVars", () => {
       [AVATAR_ACCENT_CSS_VAR]: YELLOW,
       [AVATAR_ACCENT_FILL_CSS_VAR]: YELLOW,
       [AVATAR_ACCENT_INK_CSS_VAR]: "#1A1A1A",
+      [AVATAR_ACCENT_GLYPH_CSS_VAR]: "#1A1A1A",
     });
     expect(avatarAccentVars(NAVY)).toEqual({
       [AVATAR_ACCENT_CSS_VAR]: NAVY,
       [AVATAR_ACCENT_FILL_CSS_VAR]: NAVY,
       [AVATAR_ACCENT_INK_CSS_VAR]: "#FFFFFF",
+      [AVATAR_ACCENT_GLYPH_CSS_VAR]: "#FFFFFF",
     });
   });
 
@@ -105,6 +108,7 @@ describe("scopedAvatarAccentVars", () => {
       [AVATAR_ACCENT_CSS_VAR]: "initial",
       [AVATAR_ACCENT_FILL_CSS_VAR]: "initial",
       [AVATAR_ACCENT_INK_CSS_VAR]: "initial",
+      [AVATAR_ACCENT_GLYPH_CSS_VAR]: "initial",
     });
     expect(scopedAvatarAccentVars(undefined)).toEqual(
       scopedAvatarAccentVars(null),

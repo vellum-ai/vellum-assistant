@@ -41,6 +41,7 @@ import {
   deleteConnection,
   disconnectOAuthProvider,
   getActiveConnection,
+  getActiveConnections,
   getApp,
   getAppByProviderAndClientId,
   getConnection,
@@ -1685,6 +1686,124 @@ describe("connection operations", () => {
 
     test("returns undefined when no connections exist", () => {
       expect(getActiveConnection("github")).toBeUndefined();
+    });
+  });
+
+  describe("getActiveConnections account selectors", () => {
+    test("selects an unlabelled connection by its exact ID", async () => {
+      const app = await createTestApp("github", "client-1");
+      const selected = createConnection({
+        oauthAppId: app.id,
+        provider: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 1000,
+      });
+      createConnection({
+        oauthAppId: app.id,
+        provider: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 2000,
+      });
+
+      expect(selected.accountInfo).toBeNull();
+      expect(getActiveConnections("github", { account: selected.id })).toEqual([
+        selected,
+      ]);
+      expect(getActiveConnection("github", { account: selected.id })?.id).toBe(
+        selected.id,
+      );
+      expect(
+        getActiveConnections("github", { account: selected.id.slice(0, -1) }),
+      ).toEqual([]);
+    });
+
+    test("prefers matching labels over an ID while preserving newest-first order", async () => {
+      const app = await createTestApp("github", "client-1");
+      const idMatch = createConnection({
+        oauthAppId: app.id,
+        provider: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 3000,
+      });
+      const olderLabelMatch = createConnection({
+        oauthAppId: app.id,
+        provider: "github",
+        accountInfo: idMatch.id,
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 1000,
+      });
+      const newerLabelMatch = createConnection({
+        oauthAppId: app.id,
+        provider: "github",
+        accountInfo: idMatch.id,
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+        createdAt: 2000,
+      });
+
+      expect(getActiveConnections("github", { account: idMatch.id })).toEqual([
+        newerLabelMatch,
+        olderLabelMatch,
+      ]);
+    });
+
+    test("keeps ID fallback inside provider, client and active-status filters", async () => {
+      const app = await createTestApp("github", "client-1");
+      const otherApp = await createTestApp("github", "client-2");
+      await createTestApp("google", "client-1");
+      const selected = createConnection({
+        oauthAppId: app.id,
+        provider: "github",
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+      const labelMatch = createConnection({
+        oauthAppId: otherApp.id,
+        provider: "github",
+        accountInfo: selected.id,
+        grantedScopes: ["repo"],
+        hasRefreshToken: false,
+      });
+
+      expect(
+        getActiveConnections("github", {
+          account: selected.id,
+          clientId: "client-1",
+        }),
+      ).toEqual([selected]);
+      expect(
+        getActiveConnections("github", {
+          account: selected.id,
+          clientId: "client-2",
+        }),
+      ).toEqual([labelMatch]);
+      expect(
+        getActiveConnections("github", {
+          account: labelMatch.id,
+          clientId: "client-1",
+        }),
+      ).toEqual([]);
+      expect(getActiveConnections("google", { account: selected.id })).toEqual(
+        [],
+      );
+      expect(
+        getActiveConnections("github", {
+          account: selected.id,
+          clientId: "missing-client",
+        }),
+      ).toEqual([]);
+
+      updateConnection(selected.id, { status: "revoked" });
+      expect(
+        getActiveConnections("github", {
+          account: selected.id,
+          clientId: "client-1",
+        }),
+      ).toEqual([]);
     });
   });
 

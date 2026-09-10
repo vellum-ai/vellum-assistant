@@ -28,6 +28,7 @@ import {
   resolveUsageAttribution,
   type UsageAttributionInput,
 } from "../usage/attribution.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { setConfig } from "./helpers/set-config.js";
 
@@ -602,6 +603,9 @@ mock.module("../daemon/assistant-attachments.js", () => ({
   }),
 }));
 
+// Flipped by the turn-boundary-commit tests; every other test leaves the commit
+// finishing inside its wait budget.
+let raceWithTimeoutOutcome: "completed" | "timed_out" = "completed";
 mock.module("../daemon/conversation-media-retry.js", () => ({
   stripMediaPayloadsForRetry: (msgs: Message[]) => ({
     messages: msgs,
@@ -609,7 +613,7 @@ mock.module("../daemon/conversation-media-retry.js", () => ({
     replacedBlocks: 0,
     latestUserIndex: null,
   }),
-  raceWithTimeout: async () => "completed" as const,
+  raceWithTimeout: async () => raceWithTimeoutOutcome,
 }));
 
 mock.module("../workspace/turn-commit.js", () => ({
@@ -688,6 +692,10 @@ import {
   runAgentLoopImpl,
 } from "../daemon/conversation-agent-loop.js";
 import type { QueueDrainReason } from "../daemon/conversation-queue-manager.js";
+import {
+  resetTurnFinalizationsForTesting,
+  waitForTurnFinalization,
+} from "../daemon/turn-finalization.js";
 import { settleTurnTail } from "../daemon/turn-tail-chain.js";
 import type { PostCompactContext } from "../hooks/types.js";
 import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
@@ -964,6 +972,8 @@ function overflowAfterToolTurnScenario(): NonNullable<
 beforeEach(() => {
   setConfig("ui", {});
   seedLlmConfig();
+  raceWithTimeoutOutcome = "completed";
+  resetTurnFinalizationsForTesting();
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -1434,6 +1444,43 @@ describe("session-agent-loop", () => {
       expect(cleanupFlagDuringInjection()).toEqual([true]);
     });
 
+    test("re-syncs the system prompt once the cleanup-mode policy is known", async () => {
+      // Sections gated on the turn's resolved tool surface (the
+      // parallel-delegation guidance, which needs the skill dispatcher that
+      // cleanup mode withholds) are built by the first sync, which runs before
+      // the disk-pressure decision. A cleanup-mode turn therefore syncs a
+      // second time, with the flag already set.
+      mockDiskPressureDecision = {
+        action: "allow-cleanup-mode",
+        reason: "local-owner",
+      };
+      const observed: Array<boolean | undefined> = [];
+      const ctx = makeCtx();
+      ctx.syncLoopSystemPrompt = () => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+      };
+
+      await runAgentLoopImpl(ctx, "free up space", "msg-1", () => {});
+
+      expect(observed).toEqual([undefined, true]);
+    });
+
+    test("does not re-sync the system prompt on an ordinary turn", async () => {
+      // The mode is cleared at the end of every turn, so the first sync
+      // already ran under the answer the turn keeps. A second rebuild would
+      // cost every turn a prompt render for nothing.
+      mockDiskPressureDecision = { action: "allow-normal" };
+      const observed: Array<boolean | undefined> = [];
+      const ctx = makeCtx();
+      ctx.syncLoopSystemPrompt = () => {
+        observed.push(ctx.diskPressureCleanupModeActive);
+      };
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observed).toEqual([undefined]);
+    });
+
     test("keeps the cleanup-mode flag set across overflow recovery reinjection", async () => {
       mockDiskPressureDecision = {
         action: "allow-cleanup-mode",
@@ -1507,6 +1554,79 @@ describe("session-agent-loop", () => {
         errorCategory: "disk_pressure",
         userMessage: expect.stringContaining("remote messages are ignored"),
       });
+    });
+
+    test("holds the finalization barrier open past a commit that outran its budget", async () => {
+      // `raceWithTimeout` returning `timed_out` means the turn stops waiting,
+      // not that the commit stopped: it is still staging the working tree. The
+      // barrier has to outlast it, or an interrupt is told the turn is finished
+      // and lets the replacement turn write files into the old turn's commit.
+      let finishCommit = () => {};
+      const commitTurnChanges = mock(
+        () =>
+          new Promise<void>((resolve) => {
+            finishCommit = resolve;
+          }),
+      );
+      raceWithTimeoutOutcome = "timed_out";
+      const ctx = makeCtx({
+        commitTurnChanges:
+          commitTurnChanges as unknown as Conversation["commitTurnChanges"],
+      });
+
+      await runAgentLoopImpl(ctx, "write a file", "msg-1", () => {});
+
+      expect(commitTurnChanges).toHaveBeenCalled();
+      // The loop has returned, but the commit has not, so the barrier stands.
+      expect(await waitForTurnFinalization("test-conv", 5)).toBe(false);
+
+      finishCommit();
+
+      expect(await waitForTurnFinalization("test-conv", 1000)).toBe(true);
+    });
+
+    test("closes the finalization barrier when the commit lands in budget", async () => {
+      const ctx = makeCtx();
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(await waitForTurnFinalization("test-conv", 5)).toBe(true);
+    });
+
+    test("emits the interrupt bridge at turn head and disarms it", async () => {
+      // `interruptRunningTurn` arms the flag instead of emitting, because the
+      // send can still fail before any turn runs and an activity state is
+      // cached and replayed to reconnecting clients. The loop is the first
+      // point at which the replacement turn is certainly running.
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        pendingInterruptActivityBridge: true,
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "and now the time", "msg-1", () => {});
+
+      expect(activityStates[0]).toEqual(["thinking", "message_interrupted"]);
+      // Disarmed, so a later unrelated turn does not replay the transition.
+      expect(ctx.pendingInterruptActivityBridge).toBe(false);
+    });
+
+    test("emits no interrupt bridge on a turn nothing interrupted", async () => {
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(activityStates).not.toContainEqual([
+        "thinking",
+        "message_interrupted",
+      ]);
     });
 
     test("blocked background turns clear processing state and drain the queue", async () => {
@@ -2107,6 +2227,74 @@ describe("session-agent-loop", () => {
       expect(cancelled).toBeDefined();
     });
 
+    // A `task_progress` card mid-run. `data` mirrors what `ui_show` stores for
+    // the card template, which is what the end-of-turn settle inspects.
+    function runningCardState(): Map<string, unknown> {
+      return new Map([
+        [
+          "surface-1",
+          {
+            title: "Working",
+            actions: [],
+            surfaceType: "card",
+            data: {
+              template: "task_progress",
+              templateData: {
+                status: "in_progress",
+                steps: [{ label: "Build", status: "in_progress" }],
+              },
+            },
+          },
+        ],
+      ]);
+    }
+
+    function cardStatus(ctx: { surfaceState: Map<string, unknown> }): unknown {
+      const entry = ctx.surfaceState.get("surface-1") as {
+        data: { templateData: { status: unknown } };
+      };
+      return entry.data.templateData.status;
+    }
+
+    test("settles a running progress card when the user stops the turn", async () => {
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort(
+            createAbortReason("user_cancel", "test", "conv-1"),
+          );
+          return textResponse("partial");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+      ctx.surfaceState = runningCardState() as typeof ctx.surfaceState;
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      expect(cardStatus(ctx)).toBe("pending");
+    });
+
+    test("keeps a running progress card live when a new message preempts the turn", async () => {
+      // The replacement turn owns the card: it resumes the work or closes it
+      // out itself, so settling here would show finished work that then
+      // restarts with no visible reason.
+      const abortController = new AbortController();
+      const provider: Provider = {
+        name: "mock",
+        async sendMessage(_messages, options) {
+          options?.onEvent?.({ type: "text_delta", text: "partial" });
+          abortController.abort(
+            createAbortReason("preempted_by_new_message", "test", "conv-1"),
+          );
+          return textResponse("partial");
+        },
+      };
+      const ctx = makeCtx({ loopProvider: provider, abortController });
+      ctx.surfaceState = runningCardState() as typeof ctx.surfaceState;
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+      expect(cardStatus(ctx)).toBe("in_progress");
+    });
+
     test("handles AbortError thrown from agent loop as user cancellation", async () => {
       const events: AssistantEvent[] = [];
       const abortController = new AbortController();
@@ -2214,6 +2402,114 @@ describe("session-agent-loop", () => {
         code: "CONVERSATION_PROCESSING_FAILED",
         errorCategory: "processing_failed",
       });
+    });
+
+    test("drops the private marker when an error row replaces the failed call", async () => {
+      // GIVEN a gated turn whose first call delivered through the tool (so the
+      // state carries `"private"`) and whose next call is rejected.
+      const featureFlags = await import("../config/assistant-feature-flags.js");
+      const flagSpy = spyOn(
+        featureFlags,
+        "isAssistantFeatureFlagEnabled",
+      ).mockImplementation((key: string) => key === "send-user-message");
+      const events: AssistantEvent[] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        providerResponses: [
+          toolUseResponse("tu_1", "send_user_message", {
+            message: "Looking now.",
+          }),
+          new Error("provider exploded"),
+        ],
+        loopTools: [
+          {
+            name: "send_user_message",
+            description: "deliver",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+      });
+
+      try {
+        await runAgentLoopImpl(ctx, "hi", "msg-1", (event) =>
+          events.push(event),
+        );
+      } finally {
+        flagSpy.mockRestore();
+      }
+
+      // THEN the terminal event describes the row it actually ends on. The
+      // error row carries no visibility marker, so labelling it private would
+      // disagree with persisted history and read to clients as working
+      // activity that produced no reply.
+      const complete = events.filter(
+        (event) => event.type === "message_complete",
+      );
+      expect(complete.length).toBeGreaterThan(0);
+      expect(complete.at(-1)).not.toHaveProperty("assistantTextVisibility");
+    });
+
+    test("never narrates the delivery tool as work in progress", async () => {
+      // The call IS the reply the user just read and its result is a bare
+      // receipt, so "Processing send user message results" would narrate
+      // plumbing at the moment the answer appears.
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        providerResponses: [
+          toolUseResponse("tu_1", "send_user_message", {
+            message: "Two meetings today.",
+          }),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "send_user_message",
+            description: "deliver",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "Delivered.", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(JSON.stringify(activityStates)).not.toContain(
+        "Processing send user message results",
+      );
+    });
+
+    test("still narrates an ordinary tool's results", async () => {
+      const activityStates: unknown[][] = [];
+      const ctx = makeCtx({
+        currentCallSite: "mainAgent",
+        emitActivityState: (...args: unknown[]) => {
+          activityStates.push(args);
+        },
+        providerResponses: [
+          toolUseResponse("tu_1", "bash", { command: "ls" }),
+          textResponse("done"),
+        ],
+        loopTools: [
+          {
+            name: "bash",
+            description: "run",
+            input_schema: { type: "object" },
+          },
+        ],
+        toolExecutor: async () => ({ content: "ok", isError: false }),
+      });
+
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // `bash` reads as "command" in the client-facing name map.
+      expect(JSON.stringify(activityStates)).toContain(
+        "Processing command results",
+      );
     });
 
     test("drains queue after completion", async () => {
