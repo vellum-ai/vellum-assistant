@@ -6,16 +6,21 @@ import { setConfig } from "../../../../__tests__/helpers/set-config.js";
 // pipeline (both flags default true under the real loader).
 setConfig("memory", { enabled: false, v2: { enabled: false } });
 
+import { createConversation } from "../../../../persistence/conversation-crud.js";
 import {
   getDb,
   getMemorySqlite,
 } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
+import { messages } from "../../../../persistence/schema/index.js";
 import {
+  _resetRetrospectiveCursorColumnForTests,
   appendToRememberedLog,
   bumpRetrospectiveLastRunAt,
+  ensureRetrospectiveCursorColumn,
   forkRetrospectiveState,
   getRetrospectiveState,
+  listRetrospectiveStates,
   REMEMBERED_LOG_MAX_BYTES,
   REMEMBERED_LOG_MAX_ENTRIES,
   upsertRetrospectiveState,
@@ -173,6 +178,127 @@ describe("memory-retrospective-state remembered log persistence", () => {
     expect(getRetrospectiveState("conv-fork-child")?.rememberedLog).toEqual([
       "parent baseline",
     ]);
+  });
+});
+
+describe("memory-retrospective-state cursor timestamp", () => {
+  beforeEach(() => {
+    resetTables();
+  });
+
+  test("upsert persists lastProcessedCreatedAt and both reads return it", async () => {
+    await upsertRetrospectiveState({
+      conversationId: "conv-ts",
+      lastProcessedMessageId: "m1",
+      lastProcessedCreatedAt: 1_234,
+      lastRunAt: 1000,
+    });
+
+    expect(getRetrospectiveState("conv-ts")?.lastProcessedCreatedAt).toBe(
+      1_234,
+    );
+    expect(
+      listRetrospectiveStates(10).find((s) => s.conversationId === "conv-ts")
+        ?.lastProcessedCreatedAt,
+    ).toBe(1_234);
+  });
+
+  test("an upsert that omits the timestamp records unknown for the new pointer", async () => {
+    await upsertRetrospectiveState({
+      conversationId: "conv-ts",
+      lastProcessedMessageId: "m1",
+      lastProcessedCreatedAt: 1_234,
+      lastRunAt: 1000,
+    });
+    await upsertRetrospectiveState({
+      conversationId: "conv-ts",
+      lastProcessedMessageId: "m2",
+      lastRunAt: 2000,
+    });
+
+    const state = getRetrospectiveState("conv-ts");
+    expect(state?.lastProcessedMessageId).toBe("m2");
+    expect(state?.lastProcessedCreatedAt).toBeNull();
+  });
+
+  test("bumpRetrospectiveLastRunAt leaves the timestamp untouched", async () => {
+    await upsertRetrospectiveState({
+      conversationId: "conv-ts",
+      lastProcessedMessageId: "m1",
+      lastProcessedCreatedAt: 1_234,
+      lastRunAt: 1000,
+    });
+    await bumpRetrospectiveLastRunAt("conv-ts", 5000);
+
+    const state = getRetrospectiveState("conv-ts");
+    expect(state?.lastRunAt).toBe(5000);
+    expect(state?.lastProcessedCreatedAt).toBe(1_234);
+  });
+
+  test("forking carries the forked pointer's createdAt, read through the main handle", async () => {
+    const db = getDb();
+    createConversation({ id: "conv-fork-ts-src" });
+    createConversation({ id: "conv-fork-ts-dst" });
+    for (const [id, conversationId] of [
+      ["src-m1", "conv-fork-ts-src"],
+      ["dst-m1", "conv-fork-ts-dst"],
+    ] as const) {
+      db.insert(messages)
+        .values({
+          id,
+          conversationId,
+          role: "user",
+          content: "[]",
+          createdAt: 4_000,
+          metadata: null,
+        })
+        .run();
+    }
+    await upsertRetrospectiveState({
+      conversationId: "conv-fork-ts-src",
+      lastProcessedMessageId: "src-m1",
+      lastProcessedCreatedAt: 4_000,
+      lastRunAt: 1,
+    });
+
+    forkRetrospectiveState({
+      database: db,
+      sourceConversationId: "conv-fork-ts-src",
+      forkedConversationId: "conv-fork-ts-dst",
+      forkedMessageIds: new Map([["src-m1", "dst-m1"]]),
+      lastCopiedSourceMessageId: "src-m1",
+    });
+
+    const child = getRetrospectiveState("conv-fork-ts-dst");
+    expect(child?.lastProcessedMessageId).toBe("dst-m1");
+    expect(child?.lastProcessedCreatedAt).toBe(4_000);
+
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
+  test("ensureRetrospectiveCursorColumn adds the column to a legacy table once and is a no-op after", () => {
+    const raw = getMemorySqlite()!;
+    raw.exec("DROP TABLE memory_retrospective_state");
+    raw.exec(`
+      CREATE TABLE memory_retrospective_state (
+        conversation_id TEXT PRIMARY KEY,
+        last_processed_message_id TEXT NOT NULL,
+        last_run_at INTEGER NOT NULL,
+        remembered_log TEXT
+      )
+    `);
+    _resetRetrospectiveCursorColumnForTests();
+
+    expect(ensureRetrospectiveCursorColumn("test")).toBe(true);
+    expect(ensureRetrospectiveCursorColumn("test")).toBe(true);
+
+    const columns = raw
+      .query("PRAGMA table_info(memory_retrospective_state)")
+      .all() as Array<{ name: string }>;
+    expect(
+      columns.filter((c) => c.name === "last_processed_created_at"),
+    ).toHaveLength(1);
   });
 });
 

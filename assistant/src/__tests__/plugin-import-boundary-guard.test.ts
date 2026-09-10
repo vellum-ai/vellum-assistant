@@ -210,6 +210,12 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../persistence/job-handlers/message-lexical.js",
     "../../../persistence/job-utils.js",
     "../../../persistence/jobs-store.js",
+    // The retrospective cursor is a `(createdAt, id)` bound that must keep
+    // working after its message row is deleted. The resolver lives beside
+    // the persistence after-reads it also drives, so the plugin's
+    // accounting imports it rather than re-deriving the bound. No
+    // plugin-api equivalent.
+    "../../../persistence/message-cursor.js",
     "../../../persistence/raw-query.js",
     "../../../persistence/schema/index.js",
     "../../../prompts/persona-resolver.js",

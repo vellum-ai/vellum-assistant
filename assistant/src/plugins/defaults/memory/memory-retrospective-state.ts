@@ -5,7 +5,11 @@
 // Two pointers move independently:
 //   - `lastProcessedMessageId` advances ONLY when a retrospective run
 //     completes successfully (correctness invariant — failures must
-//     re-process the same messages on the next attempt).
+//     re-process the same messages on the next attempt). Its companion
+//     `lastProcessedCreatedAt` is that row's `createdAt` at write time, so the
+//     `(createdAt, id)` cursor stays reconstructible after the row itself is
+//     deleted: a regenerated reply discards the latest assistant message,
+//     which is exactly where the cursor tends to sit.
 //   - `lastRunAt` advances at the end of every job that actually attempted a
 //     run (success or failure). Drives the per-conversation cooldown gate in
 //     the trigger-check helper so failing jobs can't loop in tight retries
@@ -25,20 +29,39 @@
 // that connection is unavailable. The memory database has no `conversations`
 // table, so there is no FK cascade — the `conversation-deleted` hook purges the
 // row explicitly instead.
+//
+// `last_processed_created_at` is added to the table by
+// `ensureRetrospectiveCursorColumn`: an idempotent, fail-open ALTER run lazily
+// on first use in each process (daemon, memory worker, CLI) rather than by the
+// global migration chain, which must not gate DB readiness on the memory
+// database. When the column cannot be added, reads and writes fall back to
+// the id-only cursor shape.
 
 import { desc, eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
-import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
+import {
+  memoryRetrospectiveState,
+  messages,
+} from "../../../persistence/schema/index.js";
 import { withSqliteRetry } from "./host-utils.js";
 import { getLogger } from "./logging.js";
-import { memoryDbOrNull } from "./memory-db.js";
+import { memoryDbOrNull, memorySqliteOrNull } from "./memory-db.js";
 
 const log = getLogger("memory-retrospective-state");
+
+const TABLE = "memory_retrospective_state";
+const CURSOR_CREATED_AT_COLUMN = "last_processed_created_at";
 
 export interface MemoryRetrospectiveState {
   conversationId: string;
   lastProcessedMessageId: string;
+  /**
+   * `createdAt` of the `lastProcessedMessageId` row when the pointer was
+   * written, or null when unknown: rows written before the column existed,
+   * and the `""` sentinel. Lets the cursor bound a read after its row is gone.
+   */
+  lastProcessedCreatedAt: number | null;
   lastRunAt: number;
   /**
    * Cumulative `remember` contents from prior retrospective passes, oldest
@@ -99,6 +122,100 @@ function serializeRememberedLog(log: string[]): string | null {
   return log.length === 0 ? null : JSON.stringify(log);
 }
 
+// ---------------------------------------------------------------------------
+// Cursor timestamp column
+// ---------------------------------------------------------------------------
+
+let cursorColumnState: "unknown" | "ready" | "unavailable" = "unknown";
+
+function isDuplicateColumnError(err: unknown): boolean {
+  return err instanceof Error && /duplicate column name/i.test(err.message);
+}
+
+/**
+ * Add `last_processed_created_at` to the state table when it is missing.
+ * Idempotent and memoized per process. Fail-open: when the ALTER cannot run,
+ * the outcome is memoized, logged once, and every read and write falls back
+ * to the id-only shape. A table the migration chain has not created yet is
+ * not memoized, so a later call re-probes once it exists.
+ */
+export function ensureRetrospectiveCursorColumn(context: string): boolean {
+  if (cursorColumnState !== "unknown") {
+    return cursorColumnState === "ready";
+  }
+  const raw = memorySqliteOrNull(context);
+  if (!raw) {
+    return false;
+  }
+  try {
+    const columns = raw.query(`PRAGMA table_info(${TABLE})`).all() as Array<{
+      name: string;
+    }>;
+    if (columns.length === 0) {
+      return false;
+    }
+    if (!columns.some((column) => column.name === CURSOR_CREATED_AT_COLUMN)) {
+      raw.exec(
+        `ALTER TABLE ${TABLE} ADD COLUMN ${CURSOR_CREATED_AT_COLUMN} INTEGER`,
+      );
+    }
+    cursorColumnState = "ready";
+  } catch (err) {
+    if (isDuplicateColumnError(err)) {
+      cursorColumnState = "ready";
+    } else {
+      cursorColumnState = "unavailable";
+      log.warn(
+        { err, context },
+        "could not add the retrospective cursor timestamp column; cursors fall back to id-only",
+      );
+    }
+  }
+  return cursorColumnState === "ready";
+}
+
+/**
+ * Forget the memoized column probe so the next call re-runs it. Intended
+ * ONLY for tests that recreate the memory database mid-process.
+ */
+export function _resetRetrospectiveCursorColumnForTests(): void {
+  cursorColumnState = "unknown";
+}
+
+// ---------------------------------------------------------------------------
+// Reads
+// ---------------------------------------------------------------------------
+
+const BASE_COLUMNS = {
+  conversationId: memoryRetrospectiveState.conversationId,
+  lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
+  lastRunAt: memoryRetrospectiveState.lastRunAt,
+  rememberedLog: memoryRetrospectiveState.rememberedLog,
+};
+
+const CURSOR_COLUMNS = {
+  ...BASE_COLUMNS,
+  lastProcessedCreatedAt: memoryRetrospectiveState.lastProcessedCreatedAt,
+};
+
+interface StateRow {
+  conversationId: string;
+  lastProcessedMessageId: string;
+  lastRunAt: number;
+  rememberedLog: string | null;
+  lastProcessedCreatedAt?: number | null;
+}
+
+function toState(row: StateRow): MemoryRetrospectiveState {
+  return {
+    conversationId: row.conversationId,
+    lastProcessedMessageId: row.lastProcessedMessageId,
+    lastProcessedCreatedAt: row.lastProcessedCreatedAt ?? null,
+    lastRunAt: row.lastRunAt,
+    rememberedLog: parseRememberedLog(row.rememberedLog),
+  };
+}
+
 /**
  * Return the `limit` most-recently-run retrospective state rows, newest first.
  */
@@ -109,23 +226,22 @@ export function listRetrospectiveStates(
   if (!mdb) {
     return [];
   }
-  const rows = mdb
-    .select({
-      conversationId: memoryRetrospectiveState.conversationId,
-      lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
-      lastRunAt: memoryRetrospectiveState.lastRunAt,
-      rememberedLog: memoryRetrospectiveState.rememberedLog,
-    })
-    .from(memoryRetrospectiveState)
-    .orderBy(desc(memoryRetrospectiveState.lastRunAt))
-    .limit(limit)
-    .all();
-  return rows.map((row) => ({
-    conversationId: row.conversationId,
-    lastProcessedMessageId: row.lastProcessedMessageId,
-    lastRunAt: row.lastRunAt,
-    rememberedLog: parseRememberedLog(row.rememberedLog),
-  }));
+  const rows: StateRow[] = ensureRetrospectiveCursorColumn(
+    "listRetrospectiveStates",
+  )
+    ? mdb
+        .select(CURSOR_COLUMNS)
+        .from(memoryRetrospectiveState)
+        .orderBy(desc(memoryRetrospectiveState.lastRunAt))
+        .limit(limit)
+        .all()
+    : mdb
+        .select(BASE_COLUMNS)
+        .from(memoryRetrospectiveState)
+        .orderBy(desc(memoryRetrospectiveState.lastRunAt))
+        .limit(limit)
+        .all();
+  return rows.map(toState);
 }
 
 /**
@@ -138,29 +254,33 @@ export function getRetrospectiveState(
   if (!mdb) {
     return null;
   }
-  const row = mdb
-    .select({
-      conversationId: memoryRetrospectiveState.conversationId,
-      lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
-      lastRunAt: memoryRetrospectiveState.lastRunAt,
-      rememberedLog: memoryRetrospectiveState.rememberedLog,
-    })
-    .from(memoryRetrospectiveState)
-    .where(eq(memoryRetrospectiveState.conversationId, conversationId))
-    .get();
-  if (!row) {
-    return null;
-  }
-  return {
-    conversationId: row.conversationId,
-    lastProcessedMessageId: row.lastProcessedMessageId,
-    lastRunAt: row.lastRunAt,
-    rememberedLog: parseRememberedLog(row.rememberedLog),
-  };
+  const where = eq(memoryRetrospectiveState.conversationId, conversationId);
+  const row: StateRow | undefined = ensureRetrospectiveCursorColumn(
+    "getRetrospectiveState",
+  )
+    ? mdb
+        .select(CURSOR_COLUMNS)
+        .from(memoryRetrospectiveState)
+        .where(where)
+        .get()
+    : mdb
+        .select(BASE_COLUMNS)
+        .from(memoryRetrospectiveState)
+        .where(where)
+        .get();
+  return row ? toState(row) : null;
 }
+
+// ---------------------------------------------------------------------------
+// Writes
+// ---------------------------------------------------------------------------
 
 /**
  * Upsert both pointers atomically. Used on successful retrospective runs.
+ *
+ * `lastProcessedCreatedAt` is the id's companion and is rewritten with every
+ * pointer write: an omitted value records "unknown" for the new id rather
+ * than keeping the previous row's timestamp.
  *
  * `rememberedLog`, when provided, is written in the same statement so the
  * cumulative dedup log can never drift from the pointer it was computed
@@ -168,7 +288,11 @@ export function getRetrospectiveState(
  * first insert).
  */
 export async function upsertRetrospectiveState(
-  args: Omit<MemoryRetrospectiveState, "rememberedLog"> & {
+  args: Omit<
+    MemoryRetrospectiveState,
+    "rememberedLog" | "lastProcessedCreatedAt"
+  > & {
+    lastProcessedCreatedAt?: number | null;
     rememberedLog?: string[];
   },
 ): Promise<void> {
@@ -176,6 +300,9 @@ export async function upsertRetrospectiveState(
   if (!mdb) {
     return;
   }
+  const withCursor = ensureRetrospectiveCursorColumn(
+    "upsertRetrospectiveState",
+  );
   const serializedLog =
     args.rememberedLog === undefined
       ? undefined
@@ -185,12 +312,16 @@ export async function upsertRetrospectiveState(
   // on first insert).
   const set: {
     lastProcessedMessageId: string;
+    lastProcessedCreatedAt?: number | null;
     lastRunAt: number;
     rememberedLog?: string | null;
   } = {
     lastProcessedMessageId: args.lastProcessedMessageId,
     lastRunAt: args.lastRunAt,
   };
+  if (withCursor) {
+    set.lastProcessedCreatedAt = args.lastProcessedCreatedAt ?? null;
+  }
   if (serializedLog !== undefined) {
     set.rememberedLog = serializedLog;
   }
@@ -203,6 +334,9 @@ export async function upsertRetrospectiveState(
           lastProcessedMessageId: args.lastProcessedMessageId,
           lastRunAt: args.lastRunAt,
           rememberedLog: serializedLog ?? null,
+          ...(withCursor
+            ? { lastProcessedCreatedAt: args.lastProcessedCreatedAt ?? null }
+            : {}),
         })
         .onConflictDoUpdate({
           target: memoryRetrospectiveState.conversationId,
@@ -214,6 +348,19 @@ export async function upsertRetrospectiveState(
       context: { conversationId: args.conversationId },
     },
   );
+}
+
+/** `createdAt` of a message row on the main connection, or null when absent. */
+function lookupMessageCreatedAt(
+  database: DrizzleDb,
+  messageId: string,
+): number | null {
+  const row = database
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.id, messageId))
+    .get();
+  return row?.createdAt ?? null;
 }
 
 /**
@@ -234,13 +381,15 @@ export async function upsertRetrospectiveState(
  *     messages have already been retro'd by the source, so the child should
  *     wait for new post-fork messages before its first retro fires.
  *
+ * `lastProcessedCreatedAt` is read from the forked pointer's row through
+ * `database`, the main-DB handle inside the fork transaction, which is the
+ * only handle the freshly copied rows are visible through.
  * `lastRunAt` is copied verbatim — the cooldown gate inherits from source.
  * `rememberedLog` is copied verbatim — the parent's saves remain the child's
  * dedup baseline.
  *
- * The row lives on the memory connection, so this reads/writes there rather
- * than on the main fork transaction's handle — the `database` arg is unused
- * now, and an unavailable memory database is a best-effort no-op.
+ * The state row itself is written on the memory connection; an unavailable
+ * memory database is a best-effort no-op.
  */
 export function forkRetrospectiveState(args: {
   database: DrizzleDb;
@@ -250,6 +399,7 @@ export function forkRetrospectiveState(args: {
   lastCopiedSourceMessageId: string | null;
 }): void {
   const {
+    database,
     sourceConversationId,
     forkedConversationId,
     forkedMessageIds,
@@ -288,21 +438,29 @@ export function forkRetrospectiveState(args: {
       }
     }
 
+    const withCursor = ensureRetrospectiveCursorColumn(
+      "forkRetrospectiveState",
+    );
+    const values = {
+      lastProcessedMessageId: forkedPointer,
+      lastRunAt: sourceRow.lastRunAt,
+      rememberedLog: sourceRow.rememberedLog,
+      ...(withCursor
+        ? {
+            lastProcessedCreatedAt:
+              forkedPointer === ""
+                ? null
+                : lookupMessageCreatedAt(database, forkedPointer),
+          }
+        : {}),
+    };
+
     mdb
       .insert(memoryRetrospectiveState)
-      .values({
-        conversationId: forkedConversationId,
-        lastProcessedMessageId: forkedPointer,
-        lastRunAt: sourceRow.lastRunAt,
-        rememberedLog: sourceRow.rememberedLog,
-      })
+      .values({ conversationId: forkedConversationId, ...values })
       .onConflictDoUpdate({
         target: memoryRetrospectiveState.conversationId,
-        set: {
-          lastProcessedMessageId: forkedPointer,
-          lastRunAt: sourceRow.lastRunAt,
-          rememberedLog: sourceRow.rememberedLog,
-        },
+        set: values,
       })
       .run();
   } catch (err) {

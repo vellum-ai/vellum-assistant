@@ -77,7 +77,6 @@ import { ensureDisplayOrderMigration } from "./conversation-display-order-migrat
 import { ensureGroupMigration } from "./conversation-group-migration.js";
 import {
   isReferentialFork,
-  type LineageBound,
   type LineageConversationRow,
   lineageMessageFilter,
   lineageMessagesAfterFilter,
@@ -117,6 +116,11 @@ import {
 } from "./job-handlers/message-lexical.js";
 import { buildLifecycleTelemetryEvent } from "./lifecycle-events-store.js";
 import { resolveMessageContentBlocks } from "./message-content-file.js";
+import {
+  loadMessageBound,
+  type MessagesAfterRef,
+  resolveMessagesAfterBound,
+} from "./message-cursor.js";
 import { mergeMessageMetadata } from "./message-metadata.js";
 import {
   rawAll,
@@ -2612,16 +2616,6 @@ function loadLineageRow(id: string): LineageConversationRow | null {
   return row ?? null;
 }
 
-/** The `(createdAt, id)` bound of a single message, or null when it is gone. */
-function loadMessageBound(messageId: string): LineageBound | null {
-  const row = getDb()
-    .select({ createdAt: messages.createdAt, id: messages.id })
-    .from(messages)
-    .where(eq(messages.id, messageId))
-    .get();
-  return row ?? null;
-}
-
 /**
  * The segments making up a conversation's logical message set. Non-forks and
  * copied forks resolve to a single unbounded segment after one row lookup, so
@@ -2943,81 +2937,67 @@ export function selectNewestSightFrameCapture(
 }
 
 /**
- * Count messages in a conversation that were created strictly after the
- * `afterMessageId` reference message. If `afterMessageId` is `null` or empty,
- * counts all messages in the conversation. If the referenced message no
- * longer exists (e.g. deleted by a separate flow), returns 0 — callers
- * decide how to react to a vanished reference, and the conservative answer
- * here is "no new work."
+ * Count messages in a conversation created strictly after the `after`
+ * reference. `null`, `""`, or a cursor with an empty id counts every message.
+ * The reference resolves through `resolveMessagesAfterBound`: a live row's
+ * `(createdAt, id)` is authoritative, a `MessageCursor` whose row has been
+ * deleted still bounds the count from the `createdAt` it carries, and a bare
+ * id whose row is gone counts 0: a caller holding only an id has no
+ * defensible starting point, and the conservative answer is "no new work."
  *
  * Used by the memory-retrospective trigger check to decide whether to fire
  * the message-count trigger without loading message bodies.
  */
 export function countMessagesAfter(
   conversationId: string,
-  afterMessageId: string | null,
+  after: MessagesAfterRef,
 ): number {
   const db = getDb();
   const segments = resolveLineage(conversationId);
-  if (afterMessageId === null || afterMessageId === "") {
-    const row = db
-      .select({ c: count() })
-      .from(messages)
-      .where(lineageMessageFilter(segments))
-      .get();
-    return row?.c ?? 0;
-  }
-  const ref = loadMessageBound(afterMessageId);
-  if (!ref) {
+  const start = resolveMessagesAfterBound(after);
+  if (start.kind === "vanished") {
     return 0;
   }
-  // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
-  // with the reference are not permanently skipped. Mirrors the
-  // `(createdAt, id)` cursor pattern used by the backfill job-handler and
-  // turn-events-store.
   const row = db
     .select({ c: count() })
     .from(messages)
-    .where(lineageMessagesAfterFilter(segments, ref))
+    .where(
+      start.kind === "all"
+        ? lineageMessageFilter(segments)
+        : lineageMessagesAfterFilter(segments, start.bound),
+    )
     .get();
   return row?.c ?? 0;
 }
 
 /**
- * Return messages in a conversation created strictly after the
- * `afterMessageId` reference. If the reference is `null`/empty, returns all
- * messages. If the reference doesn't exist, returns an empty array (mirrors
- * `countMessagesAfter`'s conservative semantics). Used by the
- * memory-retrospective job handler to load the message slice it processes.
+ * Return messages in a conversation created strictly after the `after`
+ * reference, in `(createdAt, id)` order. Resolves the reference exactly as
+ * `countMessagesAfter` does, returning an empty array where that returns 0.
+ * Used by the memory-retrospective job handler to load the message slice it
+ * processes.
  */
 export function getMessagesAfter(
   conversationId: string,
-  afterMessageId: string | null,
+  after: MessagesAfterRef,
 ): MessageRow[] {
   const db = getDb();
   const segments = resolveLineage(conversationId);
-  if (afterMessageId === null || afterMessageId === "") {
-    // Secondary `asc(messages.id)` matches the non-null path's cursor
-    // ordering, so callers tracking `cutoffMessageId` across runs see a
-    // consistent ordering when multiple rows share a millisecond timestamp.
-    return db
-      .select()
-      .from(messages)
-      .where(lineageMessageFilter(segments))
-      .orderBy(asc(messages.createdAt), asc(messages.id))
-      .all()
-      .map(parseMessage);
-  }
-  const ref = loadMessageBound(afterMessageId);
-  if (!ref) {
+  const start = resolveMessagesAfterBound(after);
+  if (start.kind === "vanished") {
     return [];
   }
-  // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
-  // the reference's millisecond timestamp would otherwise be skipped.
+  // Secondary `asc(messages.id)` mirrors the bound's tie-breaker, so callers
+  // tracking `cutoffMessageId` across runs see a consistent ordering when
+  // multiple rows share a millisecond timestamp.
   return db
     .select()
     .from(messages)
-    .where(lineageMessagesAfterFilter(segments, ref))
+    .where(
+      start.kind === "all"
+        ? lineageMessageFilter(segments)
+        : lineageMessagesAfterFilter(segments, start.bound),
+    )
     .orderBy(asc(messages.createdAt), asc(messages.id))
     .all()
     .map(parseMessage);
