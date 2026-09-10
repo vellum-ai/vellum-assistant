@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
-import { AGENT_PLUGINS_MCP_SCHEMA_URL } from "../../../mcp/spec-schema.js";
 import { extractWorkspaceMcpJsonMigration } from "../154-extract-workspace-mcp-json.js";
 import { WORKSPACE_MIGRATIONS } from "../registry.js";
+
+const MIGRATION_154_SCHEMA_URL =
+  "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 
 function workspaceWith(config: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "extract-workspace-mcp-"));
@@ -59,7 +61,7 @@ describe("154-extract-workspace-mcp-json", () => {
       llm: { activeProfile: "balanced" },
     });
     expect(readJson(dir, "mcp.json")).toEqual({
-      $schema: AGENT_PLUGINS_MCP_SCHEMA_URL,
+      $schema: MIGRATION_154_SCHEMA_URL,
       mcpServers: {
         remote: {
           type: "streamable-http",
@@ -93,7 +95,7 @@ describe("154-extract-workspace-mcp-json", () => {
     extractWorkspaceMcpJsonMigration.run(dir);
 
     expect(readJson(dir, "mcp.json")).toEqual({
-      $schema: AGENT_PLUGINS_MCP_SCHEMA_URL,
+      $schema: MIGRATION_154_SCHEMA_URL,
       mcpServers: {
         remote: {
           type: "sse",
@@ -126,7 +128,7 @@ describe("154-extract-workspace-mcp-json", () => {
     writeFileSync(
       join(dir, "mcp.json"),
       JSON.stringify({
-        $schema: AGENT_PLUGINS_MCP_SCHEMA_URL,
+        $schema: MIGRATION_154_SCHEMA_URL,
         mcpServers: {
           shared: {
             type: "streamable-http",
@@ -139,7 +141,7 @@ describe("154-extract-workspace-mcp-json", () => {
     extractWorkspaceMcpJsonMigration.run(dir);
 
     expect(readJson(dir, "mcp.json")).toEqual({
-      $schema: AGENT_PLUGINS_MCP_SCHEMA_URL,
+      $schema: MIGRATION_154_SCHEMA_URL,
       mcpServers: {
         fromConfig: {
           type: "streamable-http",
@@ -169,7 +171,7 @@ describe("154-extract-workspace-mcp-json", () => {
     extractWorkspaceMcpJsonMigration.run(dir);
 
     expect(readJson(dir, "mcp.json")).toEqual({
-      $schema: AGENT_PLUGINS_MCP_SCHEMA_URL,
+      $schema: MIGRATION_154_SCHEMA_URL,
       mcpServers: {
         legacy: { type: "sse", url: "https://example.com/sse" },
       },

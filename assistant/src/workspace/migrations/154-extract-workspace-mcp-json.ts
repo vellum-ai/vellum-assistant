@@ -1,11 +1,15 @@
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { AGENT_PLUGINS_MCP_SCHEMA_URL } from "../../mcp/spec-schema.js";
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const WORKSPACE_MCP_FILENAME = "mcp.json";
+
+// Inlined Agent Plugins 1.0.0 schema URL so this migration stays
+// self-contained if the production constant later changes or moves.
+const AGENT_PLUGINS_MCP_SCHEMA_URL =
+  "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json";
 
 const log = getLogger("workspace-migration-154");
 
