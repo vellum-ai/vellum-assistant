@@ -155,7 +155,6 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
     expect(screen.getByText("Library")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Import" })).toBeTruthy();
-    expect(screen.getByTestId("windows-menu-bar")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Open navigation" }),
     ).toBeNull();
@@ -196,7 +195,7 @@ describe("ChatLayoutHeader mobile affordances", () => {
     );
   });
 
-  test("allocates intrinsic menu width in a narrowed Windows shell", () => {
+  test("keeps menu and actions separate in a narrowed Windows shell", () => {
     mockIsElectron = true;
     mockElectronHostOS = "windows";
     renderHeader({
@@ -213,6 +212,11 @@ describe("ChatLayoutHeader mobile affordances", () => {
     );
     expect(screen.getByText("Library").parentElement?.className).toContain(
       "overflow-hidden",
+    );
+    const windowsMenu = screen.getByTestId("windows-menu-bar");
+    expect(customTopBar?.contains(windowsMenu)).toBe(false);
+    expect(windowsMenu.parentElement?.style.width).toBe(
+      "calc(100% + 150px)",
     );
   });
 });

@@ -160,6 +160,12 @@ export function ChatLayoutHeader({
     electronHostOS === "windows"
       ? "grid-cols-[max-content_minmax(0,1fr)_max-content]"
       : "grid-cols-[1fr_auto_1fr]";
+  const windowsMenuRowStyle =
+    electronHostOS === "windows"
+      ? {
+          width: `calc(100% + ${WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX}px)`,
+        }
+      : undefined;
 
   return (
     <header
@@ -182,24 +188,33 @@ export function ChatLayoutHeader({
       {customMobileTopBar ? (
         <div
           inert={controlsHidden || undefined}
-          className={`grid w-full items-center ${customMobileGridColumns} transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+          className={`flex w-full min-w-0 flex-col transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         >
-          <div
-            className="flex min-w-0 items-center justify-start gap-2"
-            style={macosTrafficLightStyle}
-          >
-            {customMobileTopBar.leading}
-            <WindowsMenuBar />
+          <div className={`grid w-full items-center ${customMobileGridColumns}`}>
+            <div
+              className="flex min-w-0 items-center justify-start gap-2"
+              style={macosTrafficLightStyle}
+            >
+              {customMobileTopBar.leading}
+            </div>
+            <div
+              inert={centerHidden || undefined}
+              className={`min-w-0 overflow-hidden text-center transition-opacity duration-300${centerHidden ? " pointer-events-none opacity-0" : ""}`}
+            >
+              {customMobileTopBar.center}
+            </div>
+            <div className="flex min-w-0 items-center justify-end">
+              {customMobileTopBar.trailing}
+            </div>
           </div>
-          <div
-            inert={centerHidden || undefined}
-            className={`min-w-0 overflow-hidden text-center transition-opacity duration-300${centerHidden ? " pointer-events-none opacity-0" : ""}`}
-          >
-            {customMobileTopBar.center}
-          </div>
-          <div className="flex min-w-0 items-center justify-end">
-            {customMobileTopBar.trailing}
-          </div>
+          {electronHostOS === "windows" ? (
+            <div
+              className="mt-1 flex min-w-0 items-center"
+              style={windowsMenuRowStyle}
+            >
+              <WindowsMenuBar />
+            </div>
+          ) : null}
         </div>
       ) : (
         <>
