@@ -418,6 +418,13 @@ export const messageMetadataSchema = z
      * reinjected into LLM-facing content on history reload.
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
+     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
+     * `<interrupted_turn>` note from it; the row's own content is exactly what
+     * the user sent, so clients render nothing extra.
+     */
+    interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new section block (unwrapped), the v3
      *  counterpart of `memoryInjectedBlock`. A row carries at most one of the

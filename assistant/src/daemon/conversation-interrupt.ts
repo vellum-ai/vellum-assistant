@@ -316,11 +316,13 @@ export async function interruptRunningTurn(
   }
 
   let repaired = false;
+  let preemptedToolResultOnTail = false;
   try {
-    await repairInterruptedToolUseBlocks(conversation, {
+    const repair = await repairInterruptedToolUseBlocks(conversation, {
       force: true,
       requireDurable: true,
     });
+    preemptedToolResultOnTail = repair.preemptedToolResultOnTail;
     repaired = true;
   } catch (err) {
     // The repair row is not durable, so the caller must not write the
@@ -349,6 +351,15 @@ export async function interruptRunningTurn(
   // clients. Emitted here, such a failure would leave every client showing a
   // busy conversation with nothing running and no path back to idle.
   conversation.pendingInterruptActivityBridge = true;
+
+  // An abort that landed during the provider call answered no tool call, so
+  // nothing in the history tells the model its turn was cut off. Arm the note
+  // the interrupting user message carries instead. A tail that already holds a
+  // preempted `tool_result` needs none: that result says the same thing, and
+  // saying it twice in one prompt is noise.
+  if (!preemptedToolResultOnTail) {
+    conversation.pendingInterruptNote = true;
+  }
 
   return "released";
 }

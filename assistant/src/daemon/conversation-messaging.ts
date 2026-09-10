@@ -70,6 +70,7 @@ import {
   type Message,
 } from "../providers/types.js";
 import type { AuthContext } from "../runtime/auth/types.js";
+import { INTERRUPTED_TURN_NOTE_TEXT } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { MessageQueue } from "./conversation-queue-manager.js";
 import type { SlackInboundMessageMetadata } from "./handlers/shared.js";
@@ -238,6 +239,8 @@ export interface MessagingConversationContext {
   currentTurnSourceActorPrincipalId?: string;
   /** See {@link turnActorPrincipalId}. */
   currentTurnActorFallbackSuppressed?: boolean;
+  /** See {@link Conversation.pendingInterruptNote}. */
+  pendingInterruptNote?: boolean;
   /**
    * OS surface reported by the connected client, re-applied from transport
    * metadata on every inbound message.
@@ -1549,10 +1552,36 @@ export async function persistQueuedMessageBody(
       updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
     }
 
-    const llmMessage = enrichMessageWithSourcePaths(
+    // An interrupt whose abort landed before the turn made a tool call left
+    // the model no `tool_result` saying it was cut off, so this message
+    // carries the notice instead. Consumed here, once: a second message must
+    // not repeat a note about a turn it did not interrupt. Stamped after the
+    // insert, like the stored paths above, so a persist that never lands
+    // leaves the flag armed for the send that replaces it.
+    const carriesInterruptNote = ctx.pendingInterruptNote === true;
+    if (carriesInterruptNote) {
+      ctx.pendingInterruptNote = false;
+      updateMessageMetadata(persistedUserMessage.id, {
+        interruptedPriorTurn: true,
+      });
+    }
+
+    const enrichedMessage = enrichMessageWithSourcePaths(
       cleanMessage,
       sentAttachments,
     );
+    // Appended to the LLM-facing content only, so the persisted row stays what
+    // the user typed. `reinjectInterruptTurnNote` rebuilds this same block
+    // from the metadata above on every later load.
+    const llmMessage: Message = carriesInterruptNote
+      ? {
+          ...enrichedMessage,
+          content: [
+            ...enrichedMessage.content,
+            { type: "text", text: INTERRUPTED_TURN_NOTE_TEXT },
+          ],
+        }
+      : enrichedMessage;
     log.info(
       {
         requestId,

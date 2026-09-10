@@ -198,6 +198,7 @@ function registerBusyTurn(
     pendingSteerRepair: false,
     pendingInterruptRepair: false,
     pendingInterruptActivityBridge: false,
+    pendingInterruptNote: false,
     isProcessing: () => processing,
     setProcessing: (value: boolean) => {
       if (value) {
@@ -373,6 +374,69 @@ describe("interruptRunningTurn", () => {
 
     expect(turn.conversation.pendingInterruptActivityBridge).toBe(true);
     expect(turn.activityEvents).toEqual([]);
+  });
+
+  test("arms the interrupted-turn note when the abort caught no tool call", async () => {
+    // The abort landed during the provider call, so there is no `tool_use` to
+    // answer and nothing in the history says the turn was cut off. The note
+    // rides on the interrupting user message instead.
+    const turn = registerBusyTurn({
+      messages: [
+        { role: "user", content: [{ type: "text", text: "research this" }] },
+        { role: "assistant", content: [{ type: "text", text: "on it." }] },
+      ],
+    });
+
+    await interruptRunningTurn(turn.conversation, { origin: "test" });
+
+    expect(turn.conversation.pendingInterruptNote).toBe(true);
+    expect(persisted).toEqual([]);
+  });
+
+  test("leaves the note disarmed when the repair answered a tool call", async () => {
+    // The preempted `tool_result` already tells the model a message cut it
+    // off, so repeating that in a note on the message is noise.
+    const turn = registerBusyTurn({
+      messages: [assistantWithToolUse("tool-1")],
+    });
+
+    await interruptRunningTurn(turn.conversation, { origin: "test" });
+
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0].content).toContain(PREEMPTED_TOOL_RESULT_TEXT);
+    expect(turn.conversation.pendingInterruptNote).toBe(false);
+  });
+
+  test("leaves the note disarmed when the loop wrote its own preempted result", async () => {
+    // The agent loop's abort handler unwound cleanly and answered the batch
+    // itself, so the repair finds nothing to do and the notice is already
+    // there.
+    const turn = registerBusyTurn({
+      messages: [
+        assistantWithToolUse("tool-1"),
+        toolResult("tool-1", PREEMPTED_TOOL_RESULT_TEXT),
+      ],
+    });
+
+    await interruptRunningTurn(turn.conversation, { origin: "test" });
+
+    expect(persisted).toEqual([]);
+    expect(turn.conversation.pendingInterruptNote).toBe(false);
+  });
+
+  test("arms the note when the cut-off tool call was an ordinary cancel", async () => {
+    // A tail answered with the plain cancel wording is a stop the user made
+    // earlier, not this interrupt's notice, so the note is still owed.
+    const turn = registerBusyTurn({
+      messages: [
+        assistantWithToolUse("tool-1"),
+        toolResult("tool-1", CANCELLED_TOOL_RESULT_TEXT),
+      ],
+    });
+
+    await interruptRunningTurn(turn.conversation, { origin: "test" });
+
+    expect(turn.conversation.pendingInterruptNote).toBe(true);
   });
 
   test("leaves clients idle when the send never starts a replacement turn", async () => {
@@ -897,6 +961,31 @@ describe("repairInterruptedToolUseBlocks", () => {
     );
   });
 
+  test("reports the preempted result it wrote", async () => {
+    const messages: Message[] = [assistantWithToolUse("tool-1")];
+
+    const result = await repairInterruptedToolUseBlocks(
+      fakeConversation(messages),
+      { force: true },
+    );
+
+    expect(result.preemptedToolResultOnTail).toBe(true);
+  });
+
+  test("reports no preempted result on a history that ends on plain text", async () => {
+    const messages: Message[] = [
+      { role: "user", content: [{ type: "text", text: "hi" }] },
+      { role: "assistant", content: [{ type: "text", text: "hello" }] },
+    ];
+
+    const result = await repairInterruptedToolUseBlocks(
+      fakeConversation(messages),
+      { force: true },
+    );
+
+    expect(result.preemptedToolResultOnTail).toBe(false);
+  });
+
   test("adds nothing when the loop already wrote its own results", async () => {
     // The agent loop's abort handler synthesizes results of its own when it
     // unwinds cleanly, so exactly one result per call exists either way.
@@ -905,12 +994,14 @@ describe("repairInterruptedToolUseBlocks", () => {
       toolResult("tool-1", PREEMPTED_TOOL_RESULT_TEXT),
     ];
 
-    await repairInterruptedToolUseBlocks(fakeConversation(messages), {
-      force: true,
-    });
+    const result = await repairInterruptedToolUseBlocks(
+      fakeConversation(messages),
+      { force: true },
+    );
 
     expect(messages).toHaveLength(2);
     expect(persisted).toEqual([]);
+    expect(result.preemptedToolResultOnTail).toBe(true);
   });
 
   test("does nothing on a history that ends on an ordinary assistant reply", async () => {

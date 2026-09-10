@@ -127,6 +127,7 @@ import {
   abortConversation,
   disposeConversation,
   reinjectAttachmentPathAnnotations,
+  reinjectInterruptTurnNote,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -731,6 +732,21 @@ export class Conversation {
    * @internal
    */
   pendingInterruptActivityBridge = false;
+  /**
+   * Set by `interruptRunningTurn` when the abort it ran landed with no tool
+   * call in flight, and consumed exactly once by the persist of the
+   * interrupting user message, which appends
+   * {@link INTERRUPTED_TURN_NOTE_TEXT} to that message's LLM-facing content
+   * and stamps `interruptedPriorTurn` on the row.
+   *
+   * An interrupt caught mid-tool needs nothing here: the synthetic
+   * `tool_result` the loop or the repair writes already tells the model a
+   * message preempted it. Caught mid-provider-call there is no `tool_use` to
+   * answer, so the note is the only signal, and it rides on the message that
+   * did the interrupting.
+   * @internal
+   */
+  pendingInterruptNote = false;
   /**
    * When true, side-effect tools must prompt even if a trust/allow rule
    * would auto-allow. Set by non-interactive callers (e.g. non-guardian
@@ -1354,6 +1370,7 @@ export class Conversation {
       let content: ContentBlock[] = m.content;
 
       content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
+      content = reinjectInterruptTurnNote(content, role, m.metadata);
 
       // Channel facts stamped in metadata render at load time rather than
       // at persist time, so every stored row reads correctly whenever it

@@ -16,6 +16,35 @@ import type { Conversation } from "./conversation.js";
 const log = getLogger("conversation-interrupt-repair");
 
 /**
+ * What the repair leaves behind, for the caller that has to decide whether the
+ * model was told its turn was cut off.
+ */
+export interface InterruptRepairResult {
+  /**
+   * True when the tail of the history carries a preempted `tool_result`,
+   * whether the agent loop's own abort handler wrote it or this repair did.
+   *
+   * That result is the model's notice that a message preempted it. False means
+   * the abort landed with no tool call in flight, so the notice has to ride on
+   * the interrupting user message instead.
+   */
+  preemptedToolResultOnTail: boolean;
+}
+
+/** Whether the last message answers a tool call with the preemption text. */
+function tailCarriesPreemptedToolResult(messages: Message[]): boolean {
+  const tail = messages.at(-1);
+  if (!tail || tail.role !== "user") {
+    return false;
+  }
+  return tail.content.some(
+    (block) =>
+      block.type === "tool_result" &&
+      block.content === PREEMPTED_TOOL_RESULT_TEXT,
+  );
+}
+
+/**
  * Give every abandoned `tool_use` block at the tail of the history a
  * `tool_result`, so the next provider request is well formed.
  *
@@ -47,18 +76,22 @@ const log = getLogger("conversation-interrupt-repair");
 export async function repairInterruptedToolUseBlocks(
   conversation: Conversation,
   options: { force?: boolean; requireDurable?: boolean } = {},
-): Promise<void> {
+): Promise<InterruptRepairResult> {
   const wasSteerArmed = conversation.pendingSteerRepair;
   const wasArmed = conversation.pendingInterruptRepair;
   if (!wasSteerArmed && !wasArmed && options.force !== true) {
-    return;
+    return {
+      preemptedToolResultOnTail: tailCarriesPreemptedToolResult(
+        conversation.messages,
+      ),
+    };
   }
   conversation.pendingSteerRepair = false;
   conversation.pendingInterruptRepair = false;
 
   const messages = conversation.messages;
   if (messages.length === 0) {
-    return;
+    return { preemptedToolResultOnTail: false };
   }
 
   // Walk backwards from the tail to find the last assistant message with
@@ -90,7 +123,12 @@ export async function repairInterruptedToolUseBlocks(
   }
 
   if (pendingToolUseIds.length === 0) {
-    return;
+    // Nothing dangling either because the turn made no tool call before the
+    // abort, or because the loop's abort handler already answered the batch.
+    // Only the second case leaves the model a notice.
+    return {
+      preemptedToolResultOnTail: tailCarriesPreemptedToolResult(messages),
+    };
   }
 
   log.info(
@@ -140,4 +178,5 @@ export async function repairInterruptedToolUseBlocks(
       "Failed to persist the synthetic tool_result repair row; the in-memory history carries the repair and the next turn runs on it",
     );
   }
+  return { preemptedToolResultOnTail: true };
 }

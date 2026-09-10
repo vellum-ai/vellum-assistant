@@ -68,6 +68,19 @@ export function isUserInterruptAbort(reason: AbortReason | undefined): boolean {
 export const CANCELLED_TOOL_RESULT_TEXT = "Cancelled by user";
 
 /**
+ * The instruction both interrupt annotations end on: answer the message that
+ * interrupted, then decide what happens to the work it cut off.
+ *
+ * Shared so the two annotations cannot drift. Resuming the work inline is the
+ * trap the last clause closes: the reply the user is waiting for arrives only
+ * once the resumed work finishes, so an interrupt that was meant to get their
+ * question answered first buys nothing. A subagent carries the work in
+ * parallel and leaves the conversation free.
+ */
+const INTERRUPT_PRIORITY_INSTRUCTION =
+  "reply to it first, then decide whether to resume or abandon the work that was in progress, and if it is still wanted and too big to finish inline, hand it to a subagent so it continues in parallel instead of holding up the conversation.";
+
+/**
  * Synthetic `tool_result` text for a tool call a newly arrived user message
  * cut off.
  *
@@ -76,14 +89,27 @@ export const CANCELLED_TOOL_RESULT_TEXT = "Cancelled by user";
  * message is waiting, the abandoned call may well have taken effect on the
  * outside world before the abort landed, and the model has to answer the new
  * message before it decides what to do about the work it was doing.
- *
- * Resuming that work inline is the trap the last clause closes: the reply the
- * user is waiting for arrives only once the resumed work finishes, so an
- * interrupt that was meant to get their question answered first buys nothing.
- * A subagent carries the work in parallel and leaves the conversation free.
  */
-export const PREEMPTED_TOOL_RESULT_TEXT =
-  "Interrupted by the user before this tool call finished. It may still have completed; check before repeating it. Treat the new user message as the priority: reply to it first, then decide whether to resume or abandon the work that was in progress, and if it is still wanted and too big to finish inline, hand it to a subagent so it continues in parallel instead of holding up the conversation.";
+export const PREEMPTED_TOOL_RESULT_TEXT = `Interrupted by the user before this tool call finished. It may still have completed; check before repeating it. Treat the new user message as the priority: ${INTERRUPT_PRIORITY_INSTRUCTION}`;
+
+/**
+ * Annotation appended to the LLM-facing content of the user message that
+ * interrupted a turn, for the interrupt that landed with no tool call in
+ * flight.
+ *
+ * A preemption caught mid-tool tells the model what happened through the
+ * synthetic {@link PREEMPTED_TOOL_RESULT_TEXT} result. An abort that lands
+ * during the provider call has no `tool_use` to answer, so the history the
+ * next turn reads is the abandoned turn followed by this message, with nothing
+ * saying the plan behind it was cut off. Without the note the model answers
+ * the new message and drops the work it had just committed to.
+ *
+ * Tagged rather than written as prose so it reads as a system annotation on
+ * the message instead of something the user typed. It rides on the LLM-facing
+ * content only: the persisted row stays exactly what the user sent, so no
+ * client renders it.
+ */
+export const INTERRUPTED_TURN_NOTE_TEXT = `<interrupted_turn>The previous turn was interrupted by this message before it finished, while it was still thinking and before it had made any tool call. Treat this message as the priority: ${INTERRUPT_PRIORITY_INSTRUCTION}</interrupted_turn>`;
 
 /**
  * The synthetic `tool_result` text that matches why the turn was aborted.
