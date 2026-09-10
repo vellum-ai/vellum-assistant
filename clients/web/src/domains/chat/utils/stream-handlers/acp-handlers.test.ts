@@ -14,6 +14,8 @@ import {
   handleAcpSessionError,
 } from "@/domains/chat/utils/stream-handlers/acp-handlers";
 
+const MODEL_REVISION_EPOCH = "01900000-0000-7000-8000-000000000001";
+
 function getState() {
   return useAcpRunStore.getState();
 }
@@ -181,6 +183,7 @@ describe("handleAcpSessionModelUpdate", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-1",
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
       modelRevision: 1,
       model: "opus",
       availableModels: [
@@ -202,6 +205,7 @@ describe("handleAcpSessionModelUpdate", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-1",
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
       modelRevision: 2,
       availableModels: [],
     });
@@ -214,6 +218,7 @@ describe("handleAcpSessionModelUpdate", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-missing",
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
       modelRevision: 3,
       model: "opus",
       availableModels: [{ value: "opus", label: "Opus" }],

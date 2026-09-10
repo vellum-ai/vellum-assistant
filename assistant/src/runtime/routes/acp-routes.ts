@@ -80,7 +80,9 @@ const sessionEntrySchema = z.object({
   model: z.string().optional(),
   /** Models a live session could run on. Absent for history rows. */
   availableModels: acpModelOptionsSchema.optional(),
-  /** Orders live model state against `acp_session_model_update` events. */
+  /** Scopes live model revisions to one assistant process. */
+  modelRevisionEpoch: z.string().uuid().optional(),
+  /** Orders live model state within `modelRevisionEpoch`. */
   modelRevision: z.number().int().nonnegative().optional(),
   usedTokens: z.number().optional(),
   contextSize: z.number().optional(),
@@ -888,6 +890,7 @@ function listMergedSessions(opts: { limit: number; conversationId?: string }): {
       authErrorCredential: s.authErrorCredential,
       model: s.model,
       availableModels: s.availableModels,
+      modelRevisionEpoch: s.modelRevisionEpoch,
       modelRevision: s.modelRevision,
       usedTokens: s.latestUsage?.usedTokens,
       contextSize: s.latestUsage?.contextSize,

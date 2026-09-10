@@ -110,10 +110,12 @@ export interface AcpRunEntry {
   /** Models the session can switch to; absent when the adapter has no selector. */
   availableModels?: AcpModelOption[];
   /**
-   * Monotonic server revision shared by model events and session snapshots.
-   * Absent on history rows and responses from assistants predating model
-   * reporting.
+   * Time-ordered identifier of the assistant process issuing model revisions.
+   * Absent on history rows and responses from assistants predating revision
+   * epochs.
    */
+  modelRevisionEpoch?: string;
+  /** Monotonic server revision within `modelRevisionEpoch`. */
   modelRevision?: number;
   events: AcpRunRawEvent[];
 }
@@ -122,6 +124,7 @@ export interface AcpRunEntry {
 export interface PendingModelUpdate {
   model?: string;
   availableModels: AcpModelOption[];
+  modelRevisionEpoch: string;
   modelRevision: number;
 }
 
@@ -263,6 +266,7 @@ export interface AcpRunActions {
    */
   setModel: (params: {
     acpSessionId: string;
+    modelRevisionEpoch: string;
     modelRevision: number;
     model?: string;
     availableModels: AcpModelOption[];
@@ -352,9 +356,10 @@ function mergeEvents(
 /**
  * Fold a snapshot's model selection into a live entry.
  *
- * The higher server `modelRevision` wins. Equal revisions describe the same
- * authoritative state, so the existing copy stays in place. A revisioned copy
- * also wins over an unrevisioned history or legacy snapshot.
+ * The higher time-ordered `modelRevisionEpoch` wins across assistant restarts,
+ * then the higher `modelRevision` wins within one process. Equal ordering keys
+ * describe the same authoritative state, so the existing copy stays in place.
+ * A revisioned copy also wins over an unrevisioned history or legacy snapshot.
  *
  * Otherwise the snapshot rules apply: a row carrying `availableModels` is
  * authoritative for both fields, so the supported no-selection state (no
@@ -365,29 +370,47 @@ function mergeEvents(
 function mergeModelSelection(
   existing: AcpRunEntry,
   incoming: AcpRunEntry,
-): Pick<AcpRunEntry, "model" | "availableModels" | "modelRevision"> {
-  if (
-    existing.modelRevision !== undefined &&
-    (incoming.modelRevision === undefined ||
-      existing.modelRevision >= incoming.modelRevision)
-  ) {
+): Pick<
+  AcpRunEntry,
+  "model" | "availableModels" | "modelRevisionEpoch" | "modelRevision"
+> {
+  const existingEpoch = existing.modelRevisionEpoch;
+  const incomingEpoch = incoming.modelRevisionEpoch;
+  const keepExisting =
+    existingEpoch !== undefined || incomingEpoch !== undefined
+      ? existingEpoch !== undefined &&
+        (incomingEpoch === undefined ||
+          existingEpoch > incomingEpoch ||
+          (existingEpoch === incomingEpoch &&
+            existing.modelRevision !== undefined &&
+            (incoming.modelRevision === undefined ||
+              existing.modelRevision >= incoming.modelRevision)))
+      : existing.modelRevision !== undefined &&
+        (incoming.modelRevision === undefined ||
+          existing.modelRevision >= incoming.modelRevision);
+  if (keepExisting) {
     return {
       model: existing.model,
       availableModels: existing.availableModels,
+      modelRevisionEpoch: existing.modelRevisionEpoch,
       modelRevision: existing.modelRevision,
     };
   }
+  const modelRevisionEpoch =
+    incoming.modelRevisionEpoch ?? existing.modelRevisionEpoch;
   const modelRevision = incoming.modelRevision ?? existing.modelRevision;
   if (incoming.availableModels !== undefined) {
     return {
       model: incoming.model,
       availableModels: incoming.availableModels,
+      modelRevisionEpoch,
       modelRevision,
     };
   }
   return {
     model: incoming.model ?? existing.model,
     availableModels: existing.availableModels,
+    modelRevisionEpoch,
     modelRevision,
   };
 }
@@ -403,7 +426,12 @@ function rememberPendingModelUpdate(
   update: PendingModelUpdate,
 ): Map<string, PendingModelUpdate> {
   const existing = pendingModelUpdates.get(acpSessionId);
-  if (existing && existing.modelRevision >= update.modelRevision) {
+  if (
+    existing &&
+    (existing.modelRevisionEpoch > update.modelRevisionEpoch ||
+      (existing.modelRevisionEpoch === update.modelRevisionEpoch &&
+        existing.modelRevision >= update.modelRevision))
+  ) {
     return pendingModelUpdates;
   }
   const next = new Map(pendingModelUpdates);
@@ -453,6 +481,7 @@ function applyPendingModelUpdate(
         ...entry,
         model: pending.model,
         availableModels: pending.availableModels,
+        modelRevisionEpoch: pending.modelRevisionEpoch,
         modelRevision: pending.modelRevision,
       },
       entry,
@@ -837,6 +866,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           {
             model: params.model,
             availableModels: params.availableModels,
+            modelRevisionEpoch: params.modelRevisionEpoch,
             modelRevision: params.modelRevision,
           },
         ),
@@ -853,6 +883,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
             ...existing,
             model: params.model,
             availableModels: params.availableModels,
+            modelRevisionEpoch: params.modelRevisionEpoch,
             modelRevision: params.modelRevision,
           }),
         },

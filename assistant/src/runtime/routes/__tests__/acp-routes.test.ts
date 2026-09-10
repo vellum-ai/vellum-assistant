@@ -46,6 +46,7 @@ interface FakeSessionState {
   stopReason?: string;
   model?: string;
   availableModels?: Array<{ value: string; label: string }>;
+  modelRevisionEpoch?: string;
   modelRevision?: number;
   latestUsage?: {
     usedTokens: number;
@@ -196,6 +197,7 @@ interface ResponseShape {
     authErrorCode?: string;
     model?: string;
     availableModels?: Array<{ value: string; label: string }>;
+    modelRevisionEpoch?: string;
     modelRevision?: number;
   }>;
 }
@@ -354,6 +356,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
         status: "running",
         startedAt: 9000,
         model: "opus",
+        modelRevisionEpoch: "01900000-0000-7000-8000-000000000001",
         modelRevision: 17,
         availableModels: [
           { value: "sonnet", label: "Sonnet" },
@@ -376,6 +379,7 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     const hist = body.sessions.find((s) => s.id === "hist-model");
     expect(live).toMatchObject({
       model: "opus",
+      modelRevisionEpoch: "01900000-0000-7000-8000-000000000001",
       modelRevision: 17,
       availableModels: [
         { value: "sonnet", label: "Sonnet" },

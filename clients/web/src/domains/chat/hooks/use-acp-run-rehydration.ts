@@ -76,6 +76,7 @@ interface AcpSessionRow {
   costCurrency?: string;
   model?: string;
   availableModels?: AcpModelOption[];
+  modelRevisionEpoch?: string;
   modelRevision?: number;
   eventLog?: AcpSessionEventLogItem[];
 }
@@ -158,6 +159,7 @@ function toRunEntry(row: AcpSessionRow): AcpRunEntry {
     costCurrency: row.costCurrency,
     model: row.model,
     availableModels: row.availableModels,
+    modelRevisionEpoch: row.modelRevisionEpoch,
     modelRevision: row.modelRevision,
     events,
   };

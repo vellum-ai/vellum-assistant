@@ -65,7 +65,9 @@ export interface AcpSessionState {
   model?: string;
   /** Models the adapter offers this session, flattened from its selector. */
   availableModels?: AcpModelOption[];
-  /** Monotonic server revision shared by model events and session snapshots. */
+  /** Time-ordered identifier of the assistant process issuing revisions. */
+  modelRevisionEpoch?: string;
+  /** Monotonic revision within `modelRevisionEpoch`. */
   modelRevision?: number;
 }
 

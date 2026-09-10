@@ -5,8 +5,9 @@
  * the adapter's `configOptions`. `model` is the currently selected value (absent
  * when the adapter reports none) and `availableModels` is the flattened set of
  * values the adapter offers, empty when it advertises no model selector.
- * `modelRevision` orders this snapshot against the same session state returned
- * by `GET /v1/acp/sessions`. A side gauge, not part of the ordered update
+ * `modelRevisionEpoch` scopes `modelRevision` to one assistant process, and
+ * the pair orders this snapshot against the same session state returned by
+ * `GET /v1/acp/sessions`. A side gauge, not part of the ordered update
  * timeline: carries no `seq`.
  *
  * `.strict()` like the other ACP events, for the reason spelled out in
@@ -23,6 +24,7 @@ export const AcpSessionModelUpdateEventSchema = z
   .object({
     type: z.literal("acp_session_model_update"),
     acpSessionId: z.string(),
+    modelRevisionEpoch: z.string().uuid(),
     modelRevision: z.number().int().nonnegative(),
     model: z.string().optional(),
     availableModels: z.array(

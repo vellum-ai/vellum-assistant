@@ -17,14 +17,24 @@ function getState() {
 
 type SetModelParams = Parameters<ReturnType<typeof getState>["setModel"]>[0];
 
+const OLD_MODEL_REVISION_EPOCH = "018f0000-0000-7000-8000-000000000001";
+const MODEL_REVISION_EPOCH = "01900000-0000-7000-8000-000000000001";
+const NEW_MODEL_REVISION_EPOCH = "01910000-0000-7000-8000-000000000001";
 let nextModelRevision = 1;
 
 function setModel(
-  params: Omit<SetModelParams, "modelRevision"> & { modelRevision?: number },
+  params: Omit<SetModelParams, "modelRevisionEpoch" | "modelRevision"> & {
+    modelRevisionEpoch?: string;
+    modelRevision?: number;
+  },
 ): void {
   const modelRevision = params.modelRevision ?? nextModelRevision;
   nextModelRevision = Math.max(nextModelRevision, modelRevision + 1);
-  useAcpRunStore.getState().setModel({ ...params, modelRevision });
+  useAcpRunStore.getState().setModel({
+    ...params,
+    modelRevisionEpoch: params.modelRevisionEpoch ?? MODEL_REVISION_EPOCH,
+    modelRevision,
+  });
 }
 
 const NOW = 1700000000000;
@@ -257,6 +267,62 @@ describe("spawnRun", () => {
     expect(entry.availableModels).toEqual([
       { value: "sonnet", label: "Sonnet" },
     ]);
+  });
+
+  it("accepts revision one from a newer assistant incarnation after resume", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    getState().setTerminal({
+      acpSessionId: "acp-1",
+      status: "completed",
+      completedAt: NOW + 1000,
+    });
+
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.modelRevisionEpoch).toBe(NEW_MODEL_REVISION_EPOCH);
+    expect(entry.modelRevision).toBe(1);
+  });
+
+  it("rejects an older assistant incarnation after the new one lands", () => {
+    spawn();
+    setModel({
+      acpSessionId: "acp-1",
+      modelRevisionEpoch: NEW_MODEL_REVISION_EPOCH,
+      modelRevision: 1,
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory([
+      historyEntry({
+        acpSessionId: "acp-1",
+        modelRevisionEpoch: OLD_MODEL_REVISION_EPOCH,
+        modelRevision: 99,
+        model: "opus",
+        availableModels: [{ value: "opus", label: "Opus" }],
+      }),
+    ]);
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.modelRevisionEpoch).toBe(NEW_MODEL_REVISION_EPOCH);
+    expect(entry.modelRevision).toBe(1);
   });
 
   it("a snapshot after the resume that carries no model keeps it cleared", () => {
@@ -922,6 +988,7 @@ describe("setModel", () => {
     expect(getState().pendingModelUpdates.get("acp-1")).toEqual({
       model: "opus",
       availableModels: [{ value: "opus", label: "Opus" }],
+      modelRevisionEpoch: MODEL_REVISION_EPOCH,
       modelRevision: 2,
     });
   });
@@ -948,6 +1015,11 @@ describe("setModel", () => {
 // ---------------------------------------------------------------------------
 
 function historyEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
+  const revisionEpoch =
+    overrides.modelRevision !== undefined &&
+    overrides.modelRevisionEpoch === undefined
+      ? { modelRevisionEpoch: MODEL_REVISION_EPOCH }
+      : {};
   return {
     acpSessionId: "acp-1",
     agent: "claude",
@@ -957,6 +1029,7 @@ function historyEntry(overrides: Partial<AcpRunEntry> = {}): AcpRunEntry {
     usedTokens: 0,
     contextSize: 0,
     events: [],
+    ...revisionEpoch,
     ...overrides,
   };
 }

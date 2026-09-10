@@ -8,6 +8,7 @@ import { basename } from "node:path";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { eq, inArray } from "drizzle-orm";
+import { v7 as uuidv7 } from "uuid";
 
 import type { AcpSessionUpdateEvent } from "../api/events/acp-session-update.js";
 import type { AssistantEvent } from "../api/index.js";
@@ -185,7 +186,9 @@ export interface AcpCancellationOptions {
 
 export class AcpSessionManager {
   private sessions = new Map<string, SessionEntry>();
-  /** Orders model snapshots across every live session and resume incarnation. */
+  /** Scopes process-local model revisions across assistant restarts. */
+  private readonly modelRevisionEpoch = uuidv7();
+  /** Orders model snapshots within this assistant process. */
   private modelRevision = 0;
   /**
    * Per-session ring buffer of wire-shaped update events forwarded to
@@ -733,10 +736,12 @@ export class AcpSessionManager {
   /** Publishes model state with the same revision exposed by session reads. */
   private sendModelSnapshot(acpSessionId: string, entry: SessionEntry): void {
     const modelRevision = ++this.modelRevision;
+    entry.state.modelRevisionEpoch = this.modelRevisionEpoch;
     entry.state.modelRevision = modelRevision;
     entry.sendToVellum({
       type: "acp_session_model_update",
       acpSessionId,
+      modelRevisionEpoch: this.modelRevisionEpoch,
       modelRevision,
       model: entry.state.model,
       availableModels: entry.state.availableModels ?? [],

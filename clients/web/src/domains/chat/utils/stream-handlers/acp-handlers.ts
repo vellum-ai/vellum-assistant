@@ -75,6 +75,7 @@ export function handleAcpSessionModelUpdate(
 ): void {
   useAcpRunStore.getState().setModel({
     acpSessionId: event.acpSessionId,
+    modelRevisionEpoch: event.modelRevisionEpoch,
     modelRevision: event.modelRevision,
     model: event.model,
     availableModels: event.availableModels,
