@@ -124,12 +124,47 @@ describe("requestErrorReason", () => {
     );
   });
 
-  test("serializes a payload naming no reason, and falls back to the message", () => {
+  test("keeps the rejection's own message when the payload names no reason", () => {
     expect(requestErrorReason(new RequestError(-32603, "boom", { c: 7 }))).toBe(
-      '{"c":7}',
+      "boom",
     );
+    expect(
+      requestErrorReason(
+        RequestError.methodNotFound("session/set_config_option"),
+      ),
+    ).toBe('"Method not found": session/set_config_option');
     expect(requestErrorReason(new Error("Not logged in"))).toBe(
       "Not logged in",
+    );
+  });
+
+  test("serializes the payload behind a bare Internal error that names no reason", () => {
+    expect(
+      requestErrorReason(new RequestError(-32603, "Internal error", { c: 7 })),
+    ).toBe('{"c":7}');
+  });
+
+  test("serializes the payload behind a generic Invalid params", () => {
+    // How the agent-side SDK answers a request its schema rejects.
+    expect(
+      requestErrorReason(
+        RequestError.invalidParams({ _errors: ["model: Invalid option"] }),
+      ),
+    ).toBe('{"_errors":["model: Invalid option"]}');
+  });
+
+  test("decodes claude-agent-acp's prompt-time 401 from its message", () => {
+    // RequestError.internalError({ errorKind }, cliText) as the adapter raises
+    // it: the CLI's text rides the message and the payload only names a kind.
+    const rejection = new RequestError(
+      -32603,
+      "Internal error: Failed to authenticate. API Error: 401 OAuth access token has expired.",
+      { errorKind: "authentication_failed" },
+    );
+
+    expect(requestErrorReason(rejection)).toBe(rejection.message);
+    expect(isClaudeAuthFailureMessage(requestErrorReason(rejection))).toBe(
+      true,
     );
   });
 

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { RequestError } from "@agentclientprotocol/sdk";
+
 import type { Conversation } from "../daemon/conversation.js";
 import {
   deleteConversation,
@@ -91,10 +93,10 @@ function mockConversation(opts?: { enqueueQueued?: boolean }) {
 }
 
 /** Fake AcpAgentProcess covering only the calls firePromptInBackground makes. */
-function fakeProcess(prompt: () => Promise<unknown>) {
+function fakeProcess(prompt: () => Promise<unknown>, stderr = "") {
   return {
     markStderr: () => 0,
-    stderrSince: () => "",
+    stderrSince: () => stderr,
     prompt,
     kill: mock(() => {}),
   };
@@ -366,6 +368,8 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     parentToolUseId?: string;
     cancelled?: boolean;
     credentialDigest?: string;
+    failure?: () => Promise<never>;
+    stderr?: string;
   }) {
     const manager = new AcpSessionManager(1);
     const parentId = `parent-${opts.id}`;
@@ -377,7 +381,7 @@ describe("AcpSessionManager auth-required recovery surface", () => {
       manager,
       opts.id,
       parentId,
-      fakeProcess(authFailure),
+      fakeProcess(opts.failure ?? authFailure, opts.stderr),
     );
     entry.command = opts.command;
     (entry as { parentToolUseId?: string }).parentToolUseId =
@@ -511,6 +515,62 @@ describe("AcpSessionManager auth-required recovery surface", () => {
     expect(r.authEvent).toBeUndefined();
     expect(hasAcpConnectCardRaised(r.parentId)).toBe(false);
     expect(r.persistedContent).toBeUndefined();
+  });
+
+  test("claude's prompt-time 401 raises the surface when stderr names another failure", async () => {
+    // claude-agent-acp raises it as RequestError.internalError({ errorKind },
+    // cliText), and stderr supplies the failure message, so the auth text
+    // survives only on the rejection's own message.
+    refusedDigests.length = 0;
+    const digest = claudeTokenDigest("sk-ant-oat-prompt-401");
+    const r = await driveAuthFailure({
+      id: "sess-auth-prompt-401",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-prompt-401",
+      credentialDigest: digest,
+      failure: () =>
+        Promise.reject(
+          new RequestError(
+            -32603,
+            "Internal error: Failed to authenticate. API Error: 401 OAuth access token has expired.",
+            { errorKind: "authentication_failed" },
+          ),
+        ),
+      stderr: '{"error":{"message":"Something else happened"}}',
+    });
+
+    expect(r.authEvent).toMatchObject({
+      acpSessionId: "sess-auth-prompt-401",
+      authCode: "acp_claude_auth_required",
+      parentToolUseId: "tool-anchor-prompt-401",
+    });
+    expect(hasAcpConnectCardRaised(r.parentId)).toBe(true);
+    expect(refusedDigests).toContain(digest);
+  });
+
+  test("the rejection's own message is checked when its payload names a different reason", async () => {
+    refusedDigests.length = 0;
+    const digest = claudeTokenDigest("sk-ant-oat-own-message");
+    const r = await driveAuthFailure({
+      id: "sess-auth-own-message",
+      command: "claude-agent-acp",
+      parentToolUseId: "tool-anchor-own-message",
+      credentialDigest: digest,
+      failure: () =>
+        Promise.reject(
+          new RequestError(
+            -32603,
+            "Internal error: Failed to authenticate. API Error: 401",
+            { details: "Request failed" },
+          ),
+        ),
+      stderr: '{"error":{"message":"Something else happened"}}',
+    });
+
+    expect(r.authEvent).toMatchObject({
+      authCode: "acp_claude_auth_required",
+    });
+    expect(refusedDigests).toContain(digest);
   });
 
   test("a non-claude adapter never raises the surface, even on an auth-shaped failure", async () => {
