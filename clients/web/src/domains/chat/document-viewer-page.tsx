@@ -29,8 +29,11 @@ import {
   persistDocumentConversationId,
   resolveDocumentConversationId,
 } from "@/domains/chat/utils/document-conversation";
-import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
-import { whenAssistantVersionKnownFor } from "@/lib/backwards-compat/utils";
+import { MIN_VERSION as SERVER_MINT_MIN_VERSION } from "@/lib/backwards-compat/server-minted-conversation";
+import {
+  assistantScopedSupports,
+  whenAssistantVersionKnownFor,
+} from "@/lib/backwards-compat/utils";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { resolveEditChatDraftConversationId } from "@/utils/edit-chat-session";
@@ -62,6 +65,10 @@ export function DocumentViewerPage() {
   const [error, setError] = useState<string | null>(null);
 
   const viewerRef = useRef<DocumentViewerContainerHandle>(null);
+  // Submit Feedback mints and links a row before it navigates, and a second
+  // tap during that work would mint a second row and race the first for the
+  // link and the navigation, so the action runs one at a time.
+  const feedbackInFlightRef = useRef(false);
 
   useEffect(() => {
     if (!surfaceId) {
@@ -142,61 +149,100 @@ export function DocumentViewerPage() {
   });
 
   const handleSubmitFeedback = useCallback(async () => {
-    if (!doc || !assistantId || !surfaceId) {
+    if (!doc || !assistantId || !surfaceId || feedbackInFlightRef.current) {
       return;
     }
+    feedbackInFlightRef.current = true;
+    try {
+      // Every await below is a window the user can switch assistants inside.
+      // The row this mints and links belongs to the assistant the tap was
+      // made under, so once the active assistant is another one nothing here
+      // may write the viewer or navigate: that would point the incoming
+      // assistant at the outgoing one's conversation.
+      const assistantChanged = () =>
+        useResolvedAssistantsStore.getState().activeAssistantId !== assistantId;
 
-    // Prefer the document's original conversation: it is already linked
-    // there, so the injector will surface the comments automatically. Fall
-    // back to session-cached conversation id for repeated feedback.
-    //
-    // A fresh client draft is an id the daemon has never minted. An assistant
-    // that mints rows itself would mint one for the send this navigates into,
-    // and start that turn before any relink could land, so the first turn
-    // would run without the document. The row is minted and linked here
-    // instead, before anything goes out, as the document composer does.
-    //
-    // Persisted immediately, ahead of the send this navigates into: unlike
-    // `useDocumentComposerSubmit`, this action's own job ends at navigation,
-    // with nothing here to observe whether the eventual send that materializes
-    // a legacy draft actually succeeds.
-    await whenAssistantVersionKnownFor(assistantId);
-    const resolvedId = resolveDocumentConversationId(doc, assistantId);
-    let conversationId = resolvedId;
-    const isFreshDraft = useConversationStore
-      .getState()
-      .draftConversationIds.has(resolvedId);
-    if (isFreshDraft && supportsServerMintedConversation()) {
-      try {
-        const minted = await conversationsPost({
-          path: { assistant_id: assistantId },
-          body: {},
-          throwOnError: true,
-        });
-        conversationId = minted.data.id;
-      } catch {
+      // Prefer the document's original conversation: it is already linked
+      // there, so the injector will surface the comments automatically. Fall
+      // back to session-cached conversation id for repeated feedback.
+      //
+      // A fresh client draft is an id the daemon has never minted. An
+      // assistant that mints rows itself would mint one for the send this
+      // navigates into, and start that turn before any relink could land, so
+      // the first turn would run without the document. The row is minted and
+      // linked here instead, before anything goes out, as the document
+      // composer does, and the support check is scoped to this assistant so a
+      // switch mid-wait cannot answer for another one.
+      //
+      // Persisted immediately, ahead of the send this navigates into: unlike
+      // `useDocumentComposerSubmit`, this action's own job ends at navigation,
+      // with nothing here to observe whether the eventual send that
+      // materializes a legacy draft actually succeeds.
+      await whenAssistantVersionKnownFor(assistantId);
+      if (assistantChanged()) {
+        return;
+      }
+      const resolvedId = resolveDocumentConversationId(doc, assistantId);
+      let conversationId = resolvedId;
+      const isFreshDraft = useConversationStore
+        .getState()
+        .draftConversationIds.has(resolvedId);
+      const mintsRows = assistantScopedSupports(
+        SERVER_MINT_MIN_VERSION,
+        assistantId,
+      );
+      if (isFreshDraft && mintsRows) {
+        try {
+          const minted = await conversationsPost({
+            path: { assistant_id: assistantId },
+            body: {},
+            throwOnError: true,
+          });
+          conversationId = minted.data.id;
+        } catch {
+          toast.error(t("documentComposer.sendFailed"));
+          return;
+        }
+        if (assistantChanged()) {
+          return;
+        }
+        resolveEditChatDraftConversationId(resolvedId, conversationId);
+        useConversationStore.getState().clearDraftConversationId(resolvedId);
+      }
+      persistDocumentConversationId(doc, assistantId, conversationId);
+      const linked = await linkDocumentConversationIfNeeded(
+        doc,
+        assistantId,
+        conversationId,
+      );
+      if (assistantChanged()) {
+        return;
+      }
+      // The turn this navigates into reads the link when it assembles its
+      // prompt, so on an assistant that has the link route a refused link
+      // would run that turn without the document. An older assistant has no
+      // route to refuse and its turn finds the document its own way.
+      if (!linked && mintsRows) {
         toast.error(t("documentComposer.sendFailed"));
         return;
       }
-      resolveEditChatDraftConversationId(resolvedId, conversationId);
-      useConversationStore.getState().clearDraftConversationId(resolvedId);
+
+      useViewerStore.getState().openDocument();
+      useViewerStore.getState().setLoadedDocument({
+        source: "document",
+        surfaceId: doc.surfaceId,
+        conversationId,
+        documentName: doc.title,
+        content: doc.content,
+      });
+
+      const prompt = `Please review and address my comments on "${doc.title}".`;
+      navigate(
+        `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
+      );
+    } finally {
+      feedbackInFlightRef.current = false;
     }
-    persistDocumentConversationId(doc, assistantId, conversationId);
-    await linkDocumentConversationIfNeeded(doc, assistantId, conversationId);
-
-    useViewerStore.getState().openDocument();
-    useViewerStore.getState().setLoadedDocument({
-      source: "document",
-      surfaceId: doc.surfaceId,
-      conversationId,
-      documentName: doc.title,
-      content: doc.content,
-    });
-
-    const prompt = `Please review and address my comments on "${doc.title}".`;
-    navigate(
-      `${routes.conversation(conversationId)}?prompt=${encodeURIComponent(prompt)}`,
-    );
   }, [doc, assistantId, surfaceId, navigate, t]);
 
   const handleExport = useCallback(async () => {
