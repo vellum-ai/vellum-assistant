@@ -417,26 +417,57 @@ describe("AcpAgentProcess auth_required retry", () => {
     };
   }
 
+  // An adapter that throws a plain Error reaches the client as a generic
+  // "Internal error" carrying the real sentence in `data.details`, which is
+  // the shape these fixtures reproduce.
   test("setConfigOption surfaces the adapter's error answer as a refusal", async () => {
     const { proc } = await setupAuthProcess({
       setConfigOptionRejections: [
-        new acp.RequestError(
-          -32603,
-          "Invalid value for config option model: nope",
-        ),
+        new acp.RequestError(-32603, "Internal error", {
+          details: "Invalid value for config option model: nope",
+        }),
+      ],
+    });
+
+    const refusal = await proc
+      .setConfigOption("session-1", "model", "nope")
+      .catch((err: unknown) => err);
+
+    expect(refusal).toBeInstanceOf(AcpConfigOptionRefusedError);
+    // The adapter's sentence, not the message the SDK framed it in.
+    expect((refusal as Error).message).toBe(
+      "Invalid value for config option model: nope",
+    );
+  });
+
+  test("setConfigOption serializes a payload that names no reason", async () => {
+    const { proc } = await setupAuthProcess({
+      setConfigOptionRejections: [
+        new acp.RequestError(-32603, "Internal error", { code: 7 }),
       ],
     });
 
     await expect(
       proc.setConfigOption("session-1", "model", "nope"),
-    ).rejects.toBeInstanceOf(AcpConfigOptionRefusedError);
+    ).rejects.toThrow('{"code":7}');
+  });
+
+  test("setConfigOption falls back to the message when there is no payload", async () => {
+    const { proc } = await setupAuthProcess({
+      setConfigOptionRejections: [
+        new acp.RequestError(-32603, "Session not found"),
+      ],
+    });
+
+    await expect(
+      proc.setConfigOption("session-1", "model", "nope"),
+    ).rejects.toThrow("Session not found");
   });
 
   test("setConfigOption leaves Claude's message-shaped auth failure untyped", async () => {
-    const expired = new acp.RequestError(
-      -32603,
-      "Failed to authenticate. Please run /login",
-    );
+    const expired = new acp.RequestError(-32603, "Internal error", {
+      details: "Failed to authenticate. Please run /login",
+    });
     const { proc } = await setupAuthProcess({
       setConfigOptionRejections: [expired],
     });

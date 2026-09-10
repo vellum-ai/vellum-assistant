@@ -31,6 +31,7 @@ import {
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
+  requestErrorReason,
 } from "./auth-required.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
@@ -56,7 +57,9 @@ const log = getLogger("acp:session-manager");
  * and the marker promises a repair only the Connect Claude flow can perform.
  * Checks both auth-failure shapes (see `auth-required.ts`) against both the
  * raw rejection and the derived failure message, since `deriveFailureError`
- * may replace one with the other.
+ * may replace one with the other. The raw side reads the rejection's decoded
+ * reason, because an adapter's own words travel in the payload rather than
+ * the message.
  */
 function claudeAuthRequiredCode(
   err: unknown,
@@ -66,7 +69,7 @@ function claudeAuthRequiredCode(
   if (entry.command !== CLAUDE_ACP_COMMAND) {
     return undefined;
   }
-  const rawMessage = err instanceof Error ? err.message : String(err);
+  const rawMessage = requestErrorReason(err);
   return isAcpAuthRequired(err) ||
     isClaudeAuthFailureMessage(rawMessage) ||
     isClaudeAuthFailureMessage(failureMessage)
@@ -496,7 +499,7 @@ export class AcpSessionManager {
     agentId: string,
     agentConfig: { command: string; credentialDigest?: string },
   ): unknown {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = requestErrorReason(err);
     const authCode = claudeAuthRequiredCode(err, message, {
       command: basename(agentConfig.command),
     });
@@ -514,9 +517,22 @@ export class AcpSessionManager {
     configOptions: SessionConfigOption[],
     requestedModel: string | undefined,
     resolvedModel: string | undefined,
+    options?: { keepReportedModel?: boolean },
   ): Promise<ModelPinResult> {
     const { state } = entry;
     this.applyOpeningModelInfo(entry, configOptions);
+
+    // A resume reattaches a session the adapter restored from its own
+    // transcript, so any model it has named by now is the model the run stays
+    // on, whether the opening reply carried it or a replayed
+    // `config_option_update` did.
+    if (options?.keepReportedModel && state.model) {
+      log.info(
+        { acpSessionId: state.id, agentId: state.agentId, model: state.model },
+        "ACP agent reported the resumed session's model; leaving it there",
+      );
+      return { applied: true };
+    }
 
     if (!resolvedModel || resolvedModel === state.model) {
       return { applied: true };
@@ -1015,8 +1031,8 @@ export class AcpSessionManager {
       throw err;
     }
 
-    // A fresh adapter process starts on its own default, so the resumed run
-    // is pinned through the same ladder a spawn walks.
+    // The ladder a spawn walks, for the case the adapter reports no model of
+    // its own; a reattached session that comes back naming one keeps it.
     const resolvedModel = resolveAcpModel({ agentModel: agentConfig.model });
     let applied: boolean;
     try {
@@ -1025,6 +1041,7 @@ export class AcpSessionManager {
         configOptions,
         undefined,
         resolvedModel,
+        { keepReportedModel: true },
       ));
     } catch (err) {
       log.error(

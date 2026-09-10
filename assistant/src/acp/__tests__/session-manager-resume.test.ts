@@ -17,6 +17,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
+  modelOptionWithoutCurrent,
   nonModelOption,
 } from "./helpers/acp-model-option.js";
 
@@ -796,37 +797,43 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     );
   });
 
-  test("resume pins the fresh adapter process through the same ladder a spawn walks", async () => {
+  test("a resume keeps the model the adapter restored from the session", async () => {
     fakeCaps.resume = true;
-    // The bundled Claude profile: a resumed run reaches it the way a spawn
-    // does, so it comes back on Opus rather than the adapter's own default.
+    // The bundled Claude profile names opus, but the reattached session was
+    // running on sonnet and the adapter reports it back.
     resolveImpl = () => ({
       ok: true,
       agent: { command: "claude-agent-acp", args: [], model: "opus" },
     });
-    resumeConfigOptions = [modelOption("default")];
+    resumeConfigOptions = [modelOption("sonnet")];
     insertHistoryRow({ id: "resume-model-2" });
 
     const manager = new AcpSessionManager(4);
     const sent: AssistantEvent[] = [];
     await manager.resumeFromHistory("resume-model-2", (msg) => sent.push(msg));
 
-    expect(setConfigOptionCalls).toEqual([
-      { sessionId: "proto-old", configId: "model", value: "opus" },
-    ]);
+    expect(setConfigOptionCalls).toEqual([]);
     const state = manager.getStatus("resume-model-2") as AcpSessionState;
-    expect(state.model).toBe("opus");
+    expect(state.model).toBe("sonnet");
     expect(sent.map((m) => m.type)).toEqual([
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-model-2",
+        model: "sonnet",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+    ]);
   });
 
-  test("a session/load answering with no config options keeps the replayed selector", async () => {
+  test("a model named only by the load replay keeps the session off the re-pin", async () => {
     fakeCaps.loadSession = true;
     // The selector reaches the manager only through the replayed
     // notification: the load itself answers with no config options at all.
-    replayConfigOptionUpdates = [[modelOption("default")]];
+    replayConfigOptionUpdates = [[modelOption("sonnet")]];
     resumeConfigOptions = [];
     resolveImpl = () => ({
       ok: true,
@@ -840,19 +847,16 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       sent.push(msg),
     );
 
-    // The re-pin still reaches the adapter, so the run comes back on the
-    // model its agent config names.
-    expect(setConfigOptionCalls).toEqual([
-      { sessionId: "proto-old", configId: "model", value: "opus" },
-    ]);
+    // The replay is the adapter reporting what the session came back on, so
+    // the per-agent default has nothing to put right.
+    expect(setConfigOptionCalls).toEqual([]);
     expect(
       (manager.getStatus("resume-replay-only") as AcpSessionState).model,
-    ).toBe("opus");
-    // The announced default, then the model the run was put back on.
+    ).toBe("sonnet");
     const modelEvents = sent.filter(
       (m) => m.type === "acp_session_model_update",
     );
-    expect(modelEvents.map((m) => m.model)).toEqual(["default", "opus"]);
+    expect(modelEvents.map((m) => m.model)).toEqual(["sonnet", "sonnet"]);
     expect(modelEvents[1]).toMatchObject({
       acpSessionId: "resume-replay-only",
       availableModels: MODEL_OPTION_MODELS,
@@ -862,8 +866,9 @@ describe("AcpSessionManager.resumeFromHistory", () => {
   test("a re-pin answered without the selector withdraws the picker the replay announced", async () => {
     fakeCaps.loadSession = true;
     // The replay puts the selector in front of clients before the re-pin
-    // runs, so the answer that drops it has something to correct.
-    replayConfigOptionUpdates = [[modelOption("default")]];
+    // runs, so the answer that drops it has something to correct. It names no
+    // model, which is what leaves the ladder something to apply.
+    replayConfigOptionUpdates = [[modelOptionWithoutCurrent()]];
     resumeConfigOptions = [];
     setConfigOptionResult = [nonModelOption()];
     resolveImpl = () => ({
@@ -888,7 +893,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-selector-gone",
-        model: "default",
         availableModels: MODEL_OPTION_MODELS,
       },
       {
@@ -901,7 +905,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
 
   test("a re-pin the connection cannot carry tears the resume down", async () => {
     fakeCaps.resume = true;
-    resumeConfigOptions = [modelOption("default")];
+    resumeConfigOptions = [modelOptionWithoutCurrent()];
     setConfigOptionError = new Error("ACP connection closed");
     resolveImpl = () => ({
       ok: true,
@@ -928,7 +932,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
 
   test("a resume the adapter refuses to re-pin runs on the adapter's model", async () => {
     fakeCaps.resume = true;
-    resumeConfigOptions = [modelOption("default")];
+    resumeConfigOptions = [modelOptionWithoutCurrent()];
     setConfigOptionError = new AcpConfigOptionRefusedError(
       "Invalid value for config option model: opus",
     );
@@ -947,16 +951,15 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       sent.push(msg),
     );
 
-    // State and the published event name the model the run is really on, not
-    // the one it could not be put back on.
+    // State and the published event name the model the run is really on, which
+    // is whatever the adapter reported, never the one it refused.
     expect(
       (manager.getStatus("resume-refused-model") as AcpSessionState).model,
-    ).toBe("default");
+    ).toBeUndefined();
     expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
       {
         type: "acp_session_model_update",
         acpSessionId: "resume-refused-model",
-        model: "default",
         availableModels: MODEL_OPTION_MODELS,
       },
     ]);

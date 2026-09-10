@@ -22,6 +22,15 @@ export function modelOption(currentValue: string): SessionConfigOption {
 }
 
 /**
+ * A model selector sitting on nothing. `deriveModelInfo` reads an empty
+ * `currentValue` as "no model reported", which is the only shape that leaves a
+ * resumed session with a selector to pin through.
+ */
+export function modelOptionWithoutCurrent(): SessionConfigOption {
+  return modelOption("");
+}
+
+/**
  * A selector that is not the model one, so a set carrying only this reads as
  * an adapter that advertises no model selection.
  */
