@@ -11,10 +11,17 @@ type Color = {
   flags: number;
 };
 
-function fixture(littleEndian: boolean, colors?: Color[]) {
+function fixture(
+  littleEndian: boolean,
+  colors?: Color[],
+  bitsPerPixel: 24 | 32 = 32,
+) {
   const headerSize = 103;
   const offset = headerSize + (colors?.length ?? 0) * 12;
-  const xwd = Buffer.alloc(offset + 24);
+  const bytesPerPixel = bitsPerPixel / 8;
+  const stride = bitsPerPixel === 24 ? 8 : 12;
+  const xwd = Buffer.alloc(offset + stride * 2);
+  xwd.fill(0xa5, offset);
   const fields = [
     headerSize,
     7,
@@ -27,8 +34,8 @@ function fixture(littleEndian: boolean, colors?: Color[]) {
     32,
     0,
     32,
-    32,
-    12,
+    bitsPerPixel,
+    stride,
     colors ? 5 : 4,
     0xff0000,
     0xff00,
@@ -48,14 +55,14 @@ function fixture(littleEndian: boolean, colors?: Color[]) {
   });
   for (const [relativeOffset, pixel] of [
     [0, 0xff0000],
-    [4, 0x00ff00],
-    [12, 0x0000ff],
-    [16, 0xffffff],
+    [bytesPerPixel, 0x00ff00],
+    [stride, 0x0000ff],
+    [stride + bytesPerPixel, 0xffffff],
   ]) {
     if (littleEndian) {
-      xwd.writeUInt32LE(pixel!, offset + relativeOffset!);
+      xwd.writeUIntLE(pixel!, offset + relativeOffset!, bytesPerPixel);
     } else {
-      xwd.writeUInt32BE(pixel!, offset + relativeOffset!);
+      xwd.writeUIntBE(pixel!, offset + relativeOffset!, bytesPerPixel);
     }
   }
   return xwd;
@@ -79,10 +86,19 @@ function scanlines(png: Buffer): number[] {
 }
 
 describe("desktop XWD screenshots", () => {
-  test.each([true, false])(
-    "encodes RGB pixels and padded rows into valid PNG chunks (little endian: %s)",
-    (littleEndian) => {
-      const { png, width, height } = desktopScreenshot(fixture(littleEndian));
+  const layouts = [
+    [true, 24],
+    [false, 24],
+    [true, 32],
+    [false, 32],
+  ] as const;
+
+  test.each(layouts)(
+    "encodes RGB pixels and padded rows into valid PNG chunks (little endian: %s, bpp: %s)",
+    (littleEndian, bitsPerPixel) => {
+      const { png, width, height } = desktopScreenshot(
+        fixture(littleEndian, undefined, bitsPerPixel),
+      );
       expect([width, height]).toEqual([2, 2]);
       expect(scanlines(png)).toEqual([
         0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255,
@@ -90,29 +106,38 @@ describe("desktop XWD screenshots", () => {
     },
   );
 
-  test.each([true, false])(
-    "decodes DirectColor channel maps and component flags (little endian: %s)",
-    (littleEndian) => {
+  test.each(layouts)(
+    "decodes DirectColor channel maps and component flags (little endian: %s, bpp: %s)",
+    (littleEndian, bitsPerPixel) => {
       const colors = [
         { pixel: 0xff0000, red: 0x1234, green: 0xffff, blue: 0xffff, flags: 1 },
         { pixel: 0x00ff00, red: 0xffff, green: 0x5678, blue: 0xffff, flags: 2 },
         { pixel: 0x0000ff, red: 0xffff, green: 0xffff, blue: 0x9abc, flags: 4 },
       ];
-      const { png } = desktopScreenshot(fixture(littleEndian, colors));
+      const { png } = desktopScreenshot(
+        fixture(littleEndian, colors, bitsPerPixel),
+      );
       expect(scanlines(png)).toEqual([
         0, 18, 0, 0, 0, 86, 0, 0, 0, 0, 154, 18, 86, 154,
       ]);
     },
   );
 
-  test("decodes DirectColor with a single color entry and an unaligned header", () => {
-    const { png } = desktopScreenshot(
-      fixture(true, [{ pixel: 0, red: 0, green: 0, blue: 0, flags: 7 }]),
-    );
-    expect(scanlines(png)).toEqual([
-      0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255,
-    ]);
-  });
+  test.each([24, 32] as const)(
+    "decodes DirectColor with a single color entry and an unaligned header (%s bpp)",
+    (bitsPerPixel) => {
+      const { png } = desktopScreenshot(
+        fixture(
+          true,
+          [{ pixel: 0, red: 0, green: 0, blue: 0, flags: 7 }],
+          bitsPerPixel,
+        ),
+      );
+      expect(scanlines(png)).toEqual([
+        0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255,
+      ]);
+    },
+  );
 
   test("rejects truncated pixels, unsupported formats and unbounded dimensions", () => {
     expect(() => desktopScreenshot(Buffer.alloc(10))).toThrow("Incomplete");
@@ -128,5 +153,16 @@ describe("desktop XWD screenshots", () => {
     const truncatedColors = fixture(true, []);
     truncatedColors.writeUInt32BE(256, 19 * 4);
     expect(() => desktopScreenshot(truncatedColors)).toThrow("Unsupported");
+    const packed = fixture(true, [], 24);
+    expect(() => desktopScreenshot(packed.subarray(0, -1))).toThrow(
+      "Unsupported",
+    );
+    packed.writeUInt32BE(5, 12 * 4);
+    expect(() => desktopScreenshot(packed)).toThrow("stride=5");
+    const unsupportedDepth = fixture(true);
+    unsupportedDepth.writeUInt32BE(16, 11 * 4);
+    expect(() => desktopScreenshot(unsupportedDepth)).toThrow(
+      "bitsPerPixel=16",
+    );
   });
 });

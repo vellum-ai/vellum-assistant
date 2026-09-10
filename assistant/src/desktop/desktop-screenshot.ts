@@ -21,6 +21,8 @@ export function desktopScreenshot(xwd: Buffer): {
   const field = (index: number) => xwd.readUInt32BE(index * 4);
   const width = field(4);
   const height = field(5);
+  const bitsPerPixel = field(11);
+  const bytesPerPixel = bitsPerPixel / 8;
   const stride = field(12);
   const visualClass = field(13);
   const offset = field(0) + field(19) * 12;
@@ -28,7 +30,7 @@ export function desktopScreenshot(xwd: Buffer): {
     field(1) !== 7 ||
     field(2) !== 2 ||
     field(3) !== 24 ||
-    field(11) !== 32 ||
+    (bitsPerPixel !== 24 && bitsPerPixel !== 32) ||
     (visualClass !== 4 && visualClass !== 5) ||
     field(6) !== 0 ||
     field(7) > 1 ||
@@ -39,14 +41,17 @@ export function desktopScreenshot(xwd: Buffer): {
     height === 0 ||
     width * height > 4_194_304 ||
     field(0) < 100 ||
-    stride < width * 4 ||
+    stride < width * bytesPerPixel ||
     offset + stride * height > xwd.length
   ) {
     throw new Error(
-      `Unsupported desktop screenshot layout (visual=${visualClass}, depth=${field(3)}, bitsPerPixel=${field(11)}, size=${width}x${height}, stride=${stride}, bytes=${xwd.length})`,
+      `Unsupported desktop screenshot layout (visual=${visualClass}, depth=${field(3)}, bitsPerPixel=${bitsPerPixel}, size=${width}x${height}, stride=${stride}, bytes=${xwd.length})`,
     );
   }
   const littleEndian = field(7) === 0;
+  const redOffset = littleEndian ? 2 : bytesPerPixel - 3;
+  const greenOffset = littleEndian ? 1 : bytesPerPixel - 2;
+  const blueOffset = littleEndian ? 0 : bytesPerPixel - 1;
   const red = Uint8Array.from({ length: 256 }, (_, value) => value);
   const green = red.slice();
   const blue = red.slice();
@@ -74,10 +79,10 @@ export function desktopScreenshot(xwd: Buffer): {
   for (let y = 0; y < height; y++) {
     let dest = y * (width * 3 + 1) + 1;
     for (let x = 0; x < width; x++) {
-      const source = offset + y * stride + x * 4;
-      scanlines[dest++] = red[xwd[source + (littleEndian ? 2 : 1)]!]!;
-      scanlines[dest++] = green[xwd[source + (littleEndian ? 1 : 2)]!]!;
-      scanlines[dest++] = blue[xwd[source + (littleEndian ? 0 : 3)]!]!;
+      const source = offset + y * stride + x * bytesPerPixel;
+      scanlines[dest++] = red[xwd[source + redOffset]!]!;
+      scanlines[dest++] = green[xwd[source + greenOffset]!]!;
+      scanlines[dest++] = blue[xwd[source + blueOffset]!]!;
     }
   }
   const header = Buffer.alloc(13);
