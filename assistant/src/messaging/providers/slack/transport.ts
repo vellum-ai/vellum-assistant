@@ -3,6 +3,7 @@ import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { extractThreadTsFromCallbackUrl } from "../../../channels/slack-callback-url.js";
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
 import {
@@ -24,6 +25,24 @@ function mutedBlocks(text: string): KnownBlock[] {
 
 export const slackTransport: ChannelTransport = {
   channel: "slack",
+
+  /**
+   * A chat is a channel or DM id, with `threadTs` naming the thread to post
+   * under. A person is not addressed here: reaching one means opening the
+   * DM first (`conversations.open`), which is a call this resolution does
+   * not make, so the caller names the DM channel instead.
+   */
+  addressFor(target) {
+    if (target.kind !== "chat") {
+      return undefined;
+    }
+    const threadTs = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("slack", threadTs ? { threadTs } : {}),
+      chatId: target.chatId,
+      ...(threadTs ? { threadId: threadTs } : {}),
+    };
+  },
 
   describeReactionEmoji: describeSlackReactionEmoji,
 

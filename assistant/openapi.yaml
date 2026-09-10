@@ -4997,6 +4997,132 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/channels/send:
+    post:
+      operationId: channels_send_post
+      summary: Send text to a channel chat
+      description:
+        Deliver text to a chat or person on a channel through the channel's transport, recorded after the channel
+        acknowledges it.
+      tags:
+        - channels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel:
+                  type: string
+                  enum:
+                    - telegram
+                    - phone
+                    - vellum
+                    - whatsapp
+                    - slack
+                    - email
+                    - platform
+                    - a2a
+                    - discord
+                    - plugin
+                  description: Channel to send on
+                target:
+                  oneOf:
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: chat
+                        chatId:
+                          type: string
+                          minLength: 1
+                          description: Chat id in the channel's own id space
+                        threadId:
+                          description: Thread within the chat, in the channel's own id space
+                          type: string
+                          minLength: 1
+                      required:
+                        - kind
+                        - chatId
+                    - type: object
+                      properties:
+                        kind:
+                          type: string
+                          const: person
+                        userId:
+                          type: string
+                          minLength: 1
+                          description: Person to reach in their DM, in the channel's own id space
+                      required:
+                        - kind
+                        - userId
+                  type: object
+                text:
+                  type: string
+                  minLength: 1
+                  description: Text to send
+                renderRichly:
+                  description: Ask the channel for its rich rendering, where it has one
+                  type: boolean
+                sender:
+                  description: The turn the send is made from, so a send into its own chat is not recorded twice
+                  type: object
+                  properties:
+                    conversationId:
+                      type: string
+                      minLength: 1
+                      description: Conversation the send is made for
+                    executionChannel:
+                      type: string
+                    requesterChatId:
+                      type: string
+                    sourceThreadId:
+                      type: string
+                  required:
+                    - conversationId
+              required:
+                - channel
+                - target
+                - text
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channel:
+                    type: string
+                    enum:
+                      - telegram
+                      - phone
+                      - vellum
+                      - whatsapp
+                      - slack
+                      - email
+                      - platform
+                      - a2a
+                      - discord
+                      - plugin
+                  chatId:
+                    type: string
+                  threadId:
+                    type: string
+                  messageIds:
+                    type: array
+                    items:
+                      type: string
+                  lastMessageId:
+                    type: string
+                  recordedIn:
+                    type: string
+                required:
+                  - channel
+                  - chatId
+                  - messageIds
+                additionalProperties: false
   /v1/clients:
     get:
       operationId: clients_get

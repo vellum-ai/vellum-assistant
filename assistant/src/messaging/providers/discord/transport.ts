@@ -1,6 +1,7 @@
 import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type {
   CallbackContext,
   ChannelTransport,
@@ -50,6 +51,27 @@ async function sendTarget(
 
 export const discordTransport: ChannelTransport = {
   channel: "discord",
+
+  /**
+   * A chat is a channel id, with `threadId` naming the thread, which is its
+   * own channel. A person is a user snowflake reached in their DM: `dm=1`
+   * tells `sendTarget` to open that DM, since a user id and a channel id are
+   * both bare snowflakes and nothing in the value says which arrived.
+   */
+  addressFor(target) {
+    if (target.kind === "person") {
+      return {
+        ctx: directDeliveryContext("discord", { dm: "1" }),
+        chatId: target.userId,
+      };
+    }
+    const threadId = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("discord", threadId ? { threadId } : {}),
+      chatId: target.chatId,
+      ...(threadId ? { threadId } : {}),
+    };
+  },
 
   // Discord clears a typing indicator after ten seconds.
   activityRefreshMs: 8_000,

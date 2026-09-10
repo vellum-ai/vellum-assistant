@@ -1,4 +1,5 @@
 import type { ChannelId } from "../../channels/types.js";
+import type { CallbackContext } from "./channel-transport.js";
 
 /**
  * Channels whose outbound replies the assistant delivers directly to the
@@ -21,6 +22,23 @@ const DIRECT_DELIVERY_CHANNELS = [
 export type DirectDeliveryChannel = (typeof DIRECT_DELIVERY_CHANNELS)[number];
 
 const CALLBACK_PREFIX = "/deliver/";
+
+/**
+ * The callback context a channel's operations read for a direct delivery
+ * that no inbound message brought a callback for: the channel's `/deliver`
+ * path with its per-channel params, spelled the way `channelForCallback`
+ * resolves it and the way the transports read it.
+ */
+export function directDeliveryContext(
+  channel: DirectDeliveryChannel,
+  params: Readonly<Record<string, string>> = {},
+): CallbackContext {
+  const query = new URLSearchParams(params).toString();
+  return {
+    callbackUrl: `${CALLBACK_PREFIX}${channel}${query ? `?${query}` : ""}`,
+    params,
+  };
+}
 
 /**
  * Resolve a gateway callback URL to the direct-delivery channel that owns it, or
