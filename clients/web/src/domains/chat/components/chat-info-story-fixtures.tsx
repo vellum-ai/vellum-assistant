@@ -33,7 +33,7 @@ import {
 import { attachmentContentQueryKey } from "@/domains/chat/components/chat-attachments/use-attachment-object-url";
 import {
   attachmentRows,
-  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_BODY_WIDTH_PX,
   CHAT_INFO_NARROW_PHONE_PX,
   CHAT_INFO_T0,
   clearTranscriptMessages,
@@ -185,7 +185,7 @@ export const inChatInfoDrawerColumn: Decorator = (Story) => (
     className="bg-[var(--surface-lift)]"
     style={{ padding: DETAIL_SHELL_BODY_INSET_PX }}
   >
-    <div style={{ width: CHAT_INFO_DRAWER_WIDTH_PX }}>
+    <div style={{ width: CHAT_INFO_BODY_WIDTH_PX }}>
       <Story />
     </div>
   </div>

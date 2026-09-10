@@ -51,8 +51,8 @@ import * as appHtmlCache from "@/utils/app-html-cache";
 /** Fixed epoch ms, so nothing built here depends on the clock. */
 export const CHAT_INFO_T0 = 1_760_000_000_000;
 
-/** The drawer body's column on the desktop mock: 3 app tiles, 4 file tiles. */
-export const CHAT_INFO_DRAWER_WIDTH_PX = 569;
+/** Re-exported so a fixture, a test, and the panel cannot drift on the width. */
+export { CHAT_INFO_BODY_WIDTH_PX } from "@/domains/chat/components/chat-info-drawer-width";
 
 /**
  * The narrowest phone the app's designs are drawn for, screen width and all.

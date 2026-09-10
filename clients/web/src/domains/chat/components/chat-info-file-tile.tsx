@@ -124,10 +124,12 @@ export function ChatInfoFileTile({
         </AssetActionsSlot>
       ) : null}
 
+      {/* The variant's line height is 1, which leaves `truncate` no room for a
+          descender; `leading-normal` gives the line box the 18px it needs. */}
       <Typography
         variant="body-small-default"
         title={label}
-        className="truncate text-[var(--content-tertiary)]"
+        className="truncate leading-normal text-[var(--content-tertiary)]"
       >
         {label}
       </Typography>
