@@ -64,7 +64,6 @@ import {
 } from "../../config/schemas/llm.js";
 import { VALID_MEMORY_EMBEDDING_PROVIDERS } from "../../config/schemas/memory-storage.js";
 import { ServiceModeSchema } from "../../config/schemas/services.js";
-import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import {
   describeShadowedConfigSet,
   findSubstrateShadowing,
@@ -93,6 +92,7 @@ import {
   log,
 } from "../../daemon/handlers/shared.js";
 import { rescheduleHeartbeatIfTimezoneChanged } from "../../heartbeat/heartbeat-service.js";
+import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import {
   getAssistantMessageIdsInTurn,
   getConversation,

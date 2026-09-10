@@ -14,7 +14,6 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string, maxLen = 500) => value.slice(0, maxLen),
 }));
 
-let rawConfig: Record<string, unknown> = {};
 let seededRawText = "";
 let mtimeSeq = 0;
 
@@ -27,7 +26,6 @@ function mcpJsonPath(): string {
 }
 
 function seedRawConfig(raw: Record<string, unknown>): void {
-  rawConfig = raw;
   seededRawText = JSON.stringify(raw);
   mkdirSync(process.env.VELLUM_WORKSPACE_DIR!, { recursive: true });
   writeFileSync(configJsonPath(), seededRawText);

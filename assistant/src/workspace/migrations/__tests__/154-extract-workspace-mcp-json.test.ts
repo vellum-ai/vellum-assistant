@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { AGENT_PLUGINS_MCP_SCHEMA_URL } from "../../../mcp/spec-schema.js";
-import { WORKSPACE_MIGRATIONS } from "../registry.js";
 import { extractWorkspaceMcpJsonMigration } from "../154-extract-workspace-mcp-json.js";
+import { WORKSPACE_MIGRATIONS } from "../registry.js";
 
 function workspaceWith(config: unknown): string {
   const dir = mkdtempSync(join(tmpdir(), "extract-workspace-mcp-"));

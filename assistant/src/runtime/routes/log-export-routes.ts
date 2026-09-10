@@ -22,6 +22,7 @@ import { join } from "node:path";
 import { and, desc, eq, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 
+import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import { getDb, getLogsDb } from "../../persistence/db-connection.js";
 import {
   llmRequestLogs,
@@ -29,7 +30,6 @@ import {
   messages,
   toolInvocations,
 } from "../../persistence/schema/index.js";
-import { overlayWorkspaceMcpForConfigRead } from "../../mcp/workspace-mcp-config.js";
 import { getLogger, LOG_FILE_PATTERN } from "../../util/logger.js";
 import {
   getDaemonStderrLogPath,

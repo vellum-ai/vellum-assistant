@@ -15,10 +15,6 @@
 import { z } from "zod";
 
 import type { McpServerConfig } from "../../config/schemas/mcp.js";
-import {
-  loadWorkspaceMcpConfig,
-  saveWorkspaceMcpConfig,
-} from "../../mcp/workspace-mcp-config.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
 import { McpClient } from "../../mcp/client.js";
@@ -34,6 +30,10 @@ import {
   deleteMcpOAuthCredentials,
   hasMcpOAuthTokens,
 } from "../../mcp/mcp-oauth-provider.js";
+import {
+  loadWorkspaceMcpConfig,
+  saveWorkspaceMcpConfig,
+} from "../../mcp/workspace-mcp-config.js";
 import { readPluginMcpServers } from "../../plugins/mcp-servers.js";
 import { getMcpToolsByServer } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";

@@ -11,12 +11,12 @@ import { and, eq, like, sql } from "drizzle-orm";
 import { isAssistantFeatureFlagEnabled } from "../../../../config/assistant-feature-flags.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV1Active } from "../../../../config/memory-v3-gate.js";
-import { loadWorkspaceMcpConfig } from "../../../../mcp/workspace-mcp-config.js";
 import { resolveSkillStates } from "../../../../config/skill-state.js";
 import {
   loadSkillCatalog,
   type SkillSummary,
 } from "../../../../config/skills.js";
+import { loadWorkspaceMcpConfig } from "../../../../mcp/workspace-mcp-config.js";
 import {
   enqueueMemoryJob,
   upsertEmbedGraphNodeJob,
