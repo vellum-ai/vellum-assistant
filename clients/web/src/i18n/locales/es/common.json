@@ -189,6 +189,14 @@
     "unmuteAssistant": "Activar sonido del asistente",
     "unmuteMicrophone": "Activar micrófono"
   },
+  "companionWatchFramePage": {
+    "sharingScreen": "Compartiendo tu pantalla",
+    "sharingScreenNamed": "Compartiendo tu pantalla con {name}",
+    "sharingWindow": "Compartiendo una ventana",
+    "sharingWindowNamed": "Compartiendo una ventana con {name}",
+    "teaching": "Enseñando",
+    "teachingNamed": "Enseñando a {name}"
+  },
   "contentActionBar": {
     "copiedAria": "Copiado",
     "copyFailed": "No se pudo copiar el contenido del archivo.",
@@ -573,6 +581,7 @@
     "reloadApp": "Recargar app"
   },
   "statusBanner": {
+    "reconnecting": "Reconectando con tu asistente…",
     "dismiss": "Descartar",
     "goToDoctor": "Ir a Doctor",
     "resumeAssistant": "Reanudar asistente",
@@ -779,12 +788,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "Cuenta de {name} conectada.",
-    "authPopupClosed": "La conexión de {name} falló: se cerró la ventana de autorización.",
     "authorizationError": "Error de {name}: {code}",
     "authorizationFailed": "La autorización de {name} falló",
     "popupBlocked": "Ventana emergente bloqueada. Permite las ventanas emergentes e inténtalo de nuevo.",
-    "popupClosed": "La conexión de {name} falló: se cerró la ventana emergente.",
-    "startFailed": "No se pudo iniciar la autorización de {name}."
+    "startFailed": "No se pudo iniciar la autorización de {name}.",
+    "startFailedWithReason": "No se pudo iniciar la autorización de {name}: {reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "Tu navegador bloqueó una página que el asistente intentó abrir.",

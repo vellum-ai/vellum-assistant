@@ -1,4 +1,7 @@
 {
+  "statusBanner": {
+    "reconnecting": "Восстанавливаем соединение с вашим ассистентом…"
+  },
   "addCreditsModal": {
     "configureAutoReload": "Настроить автопополнение"
   },
@@ -34,6 +37,14 @@
     "skip": "Пропустить",
     "next": "Далее",
     "done": "Понятно"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "Показываем ваш экран",
+    "sharingScreenNamed": "Показываем ваш экран {name}",
+    "sharingWindow": "Показываем окно",
+    "sharingWindowNamed": "Показываем окно {name}",
+    "teaching": "Обучаем",
+    "teachingNamed": "Обучаем {name}"
   },
   "deployStore": {
     "appExported": "Приложение экспортировано",
@@ -205,12 +216,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "Аккаунт {name} подключён.",
-    "authPopupClosed": "Не удалось подключить {name}: окно авторизации закрыто.",
     "authorizationError": "Ошибка {name}: {code}",
     "authorizationFailed": "Авторизация {name} не удалась",
     "popupBlocked": "Всплывающее окно заблокировано. Разрешите всплывающие окна и повторите попытку.",
-    "popupClosed": "Не удалось подключить {name}: всплывающее окно закрыто.",
-    "startFailed": "Не удалось начать авторизацию {name}."
+    "startFailed": "Не удалось начать авторизацию {name}.",
+    "startFailedWithReason": "Не удалось начать авторизацию {name}: {reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "Браузер заблокировал страницу, которую ассистент пытался открыть.",

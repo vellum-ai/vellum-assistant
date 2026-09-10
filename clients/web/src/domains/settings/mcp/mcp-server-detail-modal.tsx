@@ -16,8 +16,6 @@ type SettingsTranslate = ReturnType<
 
 const AUTH_OPTION_VALUES: AuthType[] = ["none", "bearer", "api-key"];
 
-const RISK_LEVELS = ["low", "medium", "high"] as const;
-
 function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
   switch (authType) {
     case "none":
@@ -29,19 +27,6 @@ function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
   }
 }
 
-function riskLevelLabel(level: string, t: SettingsTranslate): string {
-  switch (level) {
-    case "low":
-      return t("mcpServerDetailModal.riskLow");
-    case "medium":
-      return t("mcpServerDetailModal.riskMedium");
-    case "high":
-      return t("mcpServerDetailModal.riskHigh");
-    default:
-      return level;
-  }
-}
-
 interface McpServerDetailModalProps {
   server: McpServerEntry | null;
   toolsSummary: McpToolsSummaryServer | undefined;
@@ -50,8 +35,6 @@ interface McpServerDetailModalProps {
     serverId: string,
     updates: {
       name: string;
-      defaultRiskLevel?: string;
-      maxTools?: number;
       headers?: Record<string, string> | null;
     },
   ) => void;
@@ -66,7 +49,6 @@ export function McpServerDetailModal({
   isPending,
 }: McpServerDetailModalProps) {
   const { t } = useTranslation("settings");
-  const [riskLevel, setRiskLevel] = useState("medium");
   const [authType, setAuthType] = useState<AuthType>("none");
   const [bearerToken, setBearerToken] = useState("");
   const [apiKeyHeader, setApiKeyHeader] = useState("X-API-Key");
@@ -74,7 +56,6 @@ export function McpServerDetailModal({
 
   useEffect(() => {
     if (server) {
-      setRiskLevel(server.defaultRiskLevel);
       setAuthType(server.authType);
       // Credential store never returns raw values — reset secret fields.
       // Preserve the non-secret header name for API-key auth rotations.
@@ -118,12 +99,10 @@ export function McpServerDetailModal({
 
     onSave(server.id, {
       name: server.id,
-      defaultRiskLevel: riskLevel,
       ...(headers !== undefined ? { headers } : {}),
     });
   }, [
     server,
-    riskLevel,
     authType,
     bearerToken,
     apiKeyHeader,
@@ -163,27 +142,6 @@ export function McpServerDetailModal({
 
         <Modal.Body>
           <div className="space-y-5">
-            <div className="space-y-1.5">
-              <label
-                className="text-body-small-default text-[var(--content-secondary)]"
-                htmlFor="mcp-risk"
-              >
-                {t("mcpServerDetailModal.defaultRiskLevel")}
-              </label>
-              <select
-                id="mcp-risk"
-                value={riskLevel}
-                onChange={(e) => setRiskLevel(e.target.value)}
-                className="w-full rounded-md border border-[var(--border-element)] bg-[var(--surface-lift)] px-3 py-1.5 text-body-medium-default text-[var(--content-default)] outline-none focus:ring-2 focus:ring-[var(--ring)]"
-              >
-                {RISK_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {riskLevelLabel(level, t)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             {server.transport.type !== "stdio" ? (
               <>
                 {server.hasOAuth ? (

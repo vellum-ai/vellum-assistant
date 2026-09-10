@@ -191,6 +191,14 @@
     "unmuteAssistant": "Unmute assistant",
     "unmuteMicrophone": "Unmute microphone"
   },
+  "companionWatchFramePage": {
+    "sharingScreen": "Sharing your screen",
+    "sharingScreenNamed": "Sharing your screen with {name}",
+    "sharingWindow": "Sharing a window",
+    "sharingWindowNamed": "Sharing a window with {name}",
+    "teaching": "Teaching",
+    "teachingNamed": "Teaching {name}"
+  },
   "contentActionBar": {
     "copiedAria": "Copied",
     "copyFailed": "Couldn't copy the file contents.",
@@ -575,6 +583,7 @@
     "reloadApp": "Reload app"
   },
   "statusBanner": {
+    "reconnecting": "Reconnecting to your assistant…",
     "dismiss": "Dismiss",
     "goToDoctor": "Go to Doctor",
     "resumeAssistant": "Resume Assistant",
@@ -781,12 +790,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} account connected.",
-    "authPopupClosed": "{name} connection failed: authorization popup closed.",
     "authorizationError": "{name} error: {code}",
     "authorizationFailed": "{name} authorization failed",
     "popupBlocked": "Popup blocked. Please enable popups and try again.",
-    "popupClosed": "{name} connection failed: popup closed.",
-    "startFailed": "Failed to start {name} authorization."
+    "startFailed": "Failed to start {name} authorization.",
+    "startFailedWithReason": "Couldn't start {name} authorization: {reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "Your browser blocked a page the assistant tried to open.",
@@ -885,5 +893,10 @@
       "label": "Full access",
       "description": "Auto-approve all actions, including high-risk and unrecognized commands. Your assistant will never ask for permission."
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "Every {count, plural, one {# hr} other {# hrs}}",
+    "everyMinutes": "Every {count, plural, one {# min} other {# mins}}",
+    "retrospectiveSubtitle": "After conversation activity"
   }
 }

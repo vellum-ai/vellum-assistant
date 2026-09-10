@@ -1,5 +1,11 @@
 // @ts-check
 
+const fs = require("fs");
+
+const {
+  deriveCommunicationEntitlements,
+} = require("./scripts/entitlements/derive-communication-entitlements");
+
 const env = process.env.VELLUM_ENVIRONMENT || "local";
 const bucketEnv = env === "production" ? "prod" : env;
 const targetArch = process.env.ELECTRON_TARGET_ARCH || "arm64";
@@ -25,6 +31,27 @@ const helperBundleName =
   env === "production"
     ? "Vellum Helper"
     : `Vellum Helper ${env.charAt(0).toUpperCase() + env.slice(1)}`;
+
+// The Communication Notifications entitlement is restricted: an app that
+// declares it without an authorizing provisioning profile is killed at launch.
+// A build only gets the entitlement (and the profile) when
+// VELLUM_MAC_PROVISIONING_PROFILE names a decoded profile on disk; every other
+// build signs with the plain entitlements and posts plain notifications. The
+// profile build's plist is derived from app.plist at pack time, so app.plist
+// stays the single source of the entitlement set.
+//
+// A variable pointing at a file that is not there means the release job failed
+// to decode the profile, so the build stops rather than quietly shipping the
+// plain entitlements under a name that says otherwise.
+const provisioningProfile = process.env.VELLUM_MAC_PROVISIONING_PROFILE || "";
+if (provisioningProfile && !fs.existsSync(provisioningProfile)) {
+  throw new Error(
+    `VELLUM_MAC_PROVISIONING_PROFILE names ${provisioningProfile}, which does not exist`,
+  );
+}
+const entitlements = provisioningProfile
+  ? deriveCommunicationEntitlements()
+  : "./scripts/entitlements/app.plist";
 
 const schemes =
   env === "production"
@@ -63,6 +90,8 @@ module.exports = {
       from: "resources/.vellum-mac-helper.bundle-name",
       to: "bin/.vellum-mac-helper.bundle-name",
     },
+    // Native notifier addon, per architecture, built by build-notifier.sh.
+    { from: "resources/notifier", to: "bin/notifier" },
     { from: "resources/web-dist", to: "web-dist" },
     { from: "resources/cli-lockfile", to: "cli-lockfile" },
     { from: "build/icon.icns", to: "icon.icns" },
@@ -102,8 +131,9 @@ module.exports = {
     icon: "build/icon.icns",
     category: "public.app-category.productivity",
     hardenedRuntime: true,
-    entitlements: "./scripts/entitlements/app.plist",
+    entitlements,
     entitlementsInherit: "./scripts/entitlements/inherit.plist",
+    ...(provisioningProfile ? { provisioningProfile } : {}),
     extendInfo: {
       CFBundleIconName: "AppIcon",
       NSMicrophoneUsageDescription:
@@ -115,6 +145,9 @@ module.exports = {
       NSAppleEventsUsageDescription:
         "Vellum uses Automation to paste dictated voice input into the app you are using.",
       NSUserNotificationAlertStyle: "alert",
+      // Declares the intent the notifier addon donates. Harmless without the
+      // Communication Notifications entitlement, so it ships unconditionally.
+      NSUserActivityTypes: ["INSendMessageIntent"],
       // Register the .vellum UTI so Quick Look extensions can provide
       // thumbnails and previews for .vellum bundle files in Finder.
       UTExportedTypeDeclarations: [

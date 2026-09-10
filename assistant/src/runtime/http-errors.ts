@@ -11,24 +11,39 @@
 /**
  * Well-known HTTP error codes for the runtime API.
  *
- * These are wire-protocol identifiers (stable, client-facing strings) — not
- * to be confused with `ErrorCode` from `util/errors.ts`, which is for
- * internal assistant-layer errors.
+ * These are wire-protocol identifiers (stable, client-facing strings), not to
+ * be confused with `ErrorCode` from `util/errors.ts`, which is for internal
+ * assistant-layer errors.
+ *
+ * The union covers every `code` a `RouteError` subclass in `routes/errors.ts`
+ * carries. A `RouteError` constructed directly names its own code, which the
+ * union need not hold, so the adapters' `err.code as HttpErrorCode` is a wire
+ * passthrough rather than a checked narrowing.
  */
 export type HttpErrorCode =
   | "BAD_REQUEST"
   | "CREDENTIAL_IN_USE"
   | "UNAUTHORIZED"
+  | "PAYMENT_REQUIRED"
   | "FORBIDDEN"
+  | "LLM_REQUEST_LOGS_DISABLED"
   | "NOT_FOUND"
+  | "METHOD_NOT_ALLOWED"
   | "CONFLICT"
   | "GONE"
+  | "PAYLOAD_TOO_LARGE"
+  | "UNSUPPORTED_MEDIA_TYPE"
+  | "RANGE_NOT_SATISFIABLE"
+  | "BINARY_UNSUPPORTED_OVER_IPC"
   | "RATE_LIMITED"
   | "UNPROCESSABLE_ENTITY"
   | "FAILED_DEPENDENCY"
   | "INTERNAL_ERROR"
   | "NOT_IMPLEMENTED"
-  | "SERVICE_UNAVAILABLE";
+  | "BAD_GATEWAY"
+  | "UPSTREAM_PROVIDER_ERROR"
+  | "SERVICE_UNAVAILABLE"
+  | "GATEWAY_TIMEOUT";
 
 // ── Response type ────────────────────────────────────────────────────────────
 

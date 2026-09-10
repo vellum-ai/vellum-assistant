@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/web",
-  "version": "0.11.9",
+  "version": "0.11.10",
   "type": "module",
   "description": "Pre-built web SPA for the Vellum Assistant",
   "license": "MIT",
@@ -82,6 +82,8 @@
     "capacitor-plugin-safe-area": "5.0.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
+    "emojibase": "17.0.0",
+    "emojibase-data": "17.0.0",
     "gradient-shimmer": "0.1.1",
     "i18next": "26.3.6",
     "i18next-icu": "2.4.4",

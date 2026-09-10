@@ -14,7 +14,11 @@
  * is drawn to a small canvas; on iOS the native preview's existing
  * `AVCaptureVideoDataOutput` buffer is strided down in Swift. Keeping the
  * decision here rather than in each sampler is what lets the thresholds be
- * tuned in a browser and shipped to a phone unchanged.
+ * tuned in a browser and shipped to a phone unchanged. A third source, the
+ * companion's screen share, has no stream at all: it hands the gate one grid
+ * per still it takes of the shared surface, on its own occasions, and turns
+ * off the rules below that are about a lens (see
+ * `use-live-voice-screen-share.ts`).
  *
  * ## The two scores
  *
@@ -92,16 +96,21 @@ export type FrameGateReason =
   | "heartbeat"
   /** Still inside the post-open warmup, where exposure has not converged. */
   | "warmup"
-  /** A keep happened too recently. */
-  | "rate-floor"
   /** The view is moving, so this frame is likely smeared. */
   | "moving"
+  /** The view has stopped, but not for long enough yet to count as a pause. */
+  | "settling"
   /** The view has almost no structure: a blank wall, or a hand over the lens. */
   | "featureless"
   /** Settled, recent enough, and materially the same as the last keep. */
   | "unchanged"
-  /** A caller asked for a frame of this moment, whatever the thresholds say. */
-  | "forced";
+  /** A caller asked for a frame of this moment, and this is a fresh one. */
+  | "forced"
+  /**
+   * A caller asked for a frame of this moment, and the last keep already
+   * shows it. The ask stands, for a view that changes inside its window.
+   */
+  | "answered";
 
 export interface FrameGateDecision {
   readonly keep: boolean;
@@ -139,11 +148,29 @@ export interface FrameGateOptions {
    */
   readonly settleThreshold: number;
   /**
-   * Shortest gap between two keeps. This, not the novelty threshold, is what
-   * bounds the cost of the feature: pointed at a busy street every frame is
-   * genuinely novel, and only a floor stops that from becoming a flood.
+   * How long the view must stay below {@link settleThreshold}, without a
+   * break, before a frame of it counts as settled.
+   *
+   * A stop is not a pause. A person shifting in their chair in front of a
+   * fixed camera stops for two or three frames between moves, and each stop
+   * is a settled, novel frame by the other two numbers alone. Someone holding
+   * something up to be looked at holds it for longer than this, so the dwell
+   * is what tells the two apart. Resets on every moving frame, and is waived
+   * once {@link settleGraceMs} runs out, for the camera that never holds
+   * still at all.
    */
-  readonly minIntervalMs: number;
+  readonly settleDwellMs: number;
+  /**
+   * Novelty at or above which a frame a caller asked for is kept.
+   *
+   * Lower than {@link noveltyThreshold}, because the question changes what a
+   * frame is worth: a settled view that differs from the last keep by less
+   * than this is the same scene, and the keep the gate already made answers
+   * for it. Anything above it is a scene the ask was about, however small the
+   * change, since a person pointing at a different part of the same object is
+   * asking about that part.
+   */
+  readonly forcedNoveltyThreshold: number;
   /**
    * Longest gap between two keeps while the view is settled. Refreshes the
    * model's picture of a static scene, and is why a motionless camera does not
@@ -219,23 +246,36 @@ export interface FrameGateOptions {
  * - 0.6 costs roughly three near-duplicate frames out of nine on the moving
  *   clip. Both marginal keeps landed exactly on the threshold, which is what a
  *   well-placed bar looks like rather than a badly placed one.
- * - The rate floor, not the threshold, bounds the keep rate on moving footage:
- *   sweeping the threshold across the low range changes nothing there, because
- *   the floor gates every keep first. The threshold earns its keep on a fixed
- *   camera, where 30% of frames are turned away as unchanged.
+ * - The threshold earns its keep on a fixed camera, where 30% of frames are
+ *   turned away as unchanged. On moving footage the keep rate is bounded by
+ *   the settle grace instead: a camera that never settles keeps once per
+ *   grace, and one that pauses on new views keeps once per pause.
  *
- * Which is why `minIntervalMs` is the other number to argue about. Images
- * persist inline in conversation history and are re-sent on every turn, and
- * this floor caps a saturating view at twenty keeps a minute, so a ten-minute
- * call is on the order of two hundred images re-sent repeatedly. Retention has
- * to be solved alongside this regardless of tuning. The floor buys freshness
- * for that price: it is the whole gap between an ask and a frame of the scene
- * the user is asking about.
+ * There is deliberately no minimum gap between keeps. A floor was tried, and
+ * on a desk-bound call it held the frame of a newly settled scene back behind
+ * the very turn that asked about it, so the answer described the scene before.
+ * The keep a settled view earns is the freshest picture the gate can give, and
+ * with the daemon persisting a frame in well under a second it lands ahead of
+ * the turn whenever the floor would only have delayed it. What bounds the
+ * cost is retention on the daemon, which keeps the newest few keeps as images
+ * and stubs the rest, and the grace above for a camera in motion.
+ *
+ * `forcedNoveltyThreshold` sits between the measured nuisance ceiling (about
+ * 0.09 for a phone held still) and the same-subject-new-angle band (0.35 to
+ * 0.60), so a question about the view the last keep already shows spends
+ * nothing, and a question about a different part of it gets its own frame.
+ *
+ * `settleDwellMs` came from the same desk-bound call once the floor was gone:
+ * a person shifting in their chair produced a keep at every brief stop, five
+ * in a row of the same person in slightly different places. Two or three
+ * frames of stillness is a stop; 400ms is a pause, and shorter than any
+ * question, so a keep asked for still lands ahead of the turn.
  */
 export const DEFAULT_FRAME_GATE_OPTIONS: FrameGateOptions = {
   noveltyThreshold: 0.6,
   settleThreshold: 0.08,
-  minIntervalMs: 3_000,
+  settleDwellMs: 400,
+  forcedNoveltyThreshold: 0.2,
   maxIntervalMs: 30_000,
   settleGraceMs: 5_000,
   warmupMs: 600,
@@ -294,22 +334,48 @@ export interface FrameGate {
    */
   observe(grid: FrameGrid, nowMs: number): void;
   /**
-   * Ask for the next usable frame to be kept, whatever the thresholds say.
+   * Record a frame a caller sent on its own as the last keep.
+   *
+   * One kind of frame is never offered: one the user asked for by hand (a
+   * mark drawn on the shared screen), which goes whatever the gate would
+   * have said about it. The transcript now shows that view, so the next
+   * offer has to be judged against it rather than against the keep before
+   * it, or a view the call was just given is kept again as novel the moment
+   * the cadence looks at it.
+   *
+   * Exactly what a keep does to the gate's history and nothing more: the
+   * frame becomes the novelty baseline and the motion baseline, the
+   * heartbeat's clock restarts, and a standing arm is spent, since a frame
+   * the call was given of this moment answers the ask. It does not end
+   * warmup and is not judged: `nowMs` is when the picture was taken, and
+   * whether it was worth sending was the caller's call.
+   */
+  adopt(grid: FrameGrid, nowMs: number): void;
+  /**
+   * Ask for a frame of the scene the user is asking about.
    *
    * The gate judges a frame against the ones around it, and there is one thing
    * it cannot see: the moment the user starts asking about what the camera is
-   * pointed at. The ambient cadence answers that question with whichever frame
-   * it last thought was worth sending, which on a camera that has just moved is
-   * the scene before this one. An arm makes the current scene the one that
-   * lands.
+   * pointed at. The ambient cadence keeps a scene only once it differs from
+   * the last keep by a wide margin, and a question can be about a smaller
+   * change than that. An arm lowers the bar to
+   * {@link FrameGateOptions.forcedNoveltyThreshold} for the frames inside its
+   * window.
+   *
+   * It is a bar, not a bypass. Warmup and the detail floor still refuse a
+   * frame, because one taken before exposure converged or of a palm over the
+   * lens answers nobody's question and would poison the baseline everything
+   * afterwards is compared against. The settle check still holds a moving
+   * frame back, since a smeared picture of the right scene is not the picture
+   * the question deserves, and the arm waits for the view to settle. A
+   * settled frame the last keep already shows is reported as `answered` and
+   * the arm stands, so a view that changes inside the window still gets its
+   * frame. The first settled frame past the bar is kept as `forced`, recorded
+   * exactly as an ambient keep so the next frame is judged against it, and
+   * that spends the arm.
    *
    * One shot, and it expires {@link FRAME_GATE_FORCED_KEEP_TTL_MS} after
-   * `nowMs`. Warmup and the detail floor still refuse it, because a frame taken
-   * before exposure converged or of a palm over the lens answers nobody's
-   * question and would poison the baseline everything afterwards is compared
-   * against. Everything else is skipped: the rate floor, the settle check,
-   * novelty and the heartbeat. The keep is recorded exactly as an ambient one,
-   * so the next frame is judged against it rather than firing again behind it.
+   * `nowMs`.
    *
    * `nowMs` is also the arm's lower bound: only a frame whose picture provably
    * postdates it may spend it. The proof an offer carries is its
@@ -324,10 +390,7 @@ export interface FrameGate {
   armForcedKeep(nowMs: number): void;
   /**
    * Drop all comparison history: no last-kept baseline, no previous frame,
-   * and a fresh warmup window starting at `nowMs`. The one survivor is the
-   * rate floor's clock: a keep made just before the reset still counts
-   * against {@link FrameGateOptions.minIntervalMs}, because the floor bounds
-   * cost and a reset does not refund the frame already sent.
+   * and a fresh warmup window starting at `nowMs`.
    *
    * An unspent arm goes with the history. It was made about a scene this gate
    * can no longer score against, and the camera the next frame comes from may
@@ -398,9 +461,9 @@ function meanAbsoluteDifference(a: Float32Array, b: Float32Array): number {
 const FIRST_KEEP_PATH = [
   "warmup",
   "featureless",
-  "forced",
-  "rate-floor",
   "moving",
+  "settling",
+  "forced",
   "first",
 ] as const satisfies readonly FrameGateReason[];
 
@@ -408,9 +471,10 @@ const FIRST_KEEP_PATH = [
 const BASELINE_PATH = [
   "warmup",
   "featureless",
-  "forced",
-  "rate-floor",
   "moving",
+  "settling",
+  "answered",
+  "forced",
   "heartbeat",
   "novel",
   "unchanged",
@@ -456,14 +520,16 @@ export function createFrameGate(
   let hasPrevious = false;
   let hasKept = false;
   let previousAtMs = 0;
-  // When the last keep happened. Survives reset() on purpose: the rate floor
-  // is the feature's cost bound, and a camera flip must not open a gap in it.
+  // When the last keep happened: the heartbeat's clock, and the settle grace's
+  // anchor once a keep exists.
   let keptAtMs = Number.NEGATIVE_INFINITY;
   let warmupUntilMs = Number.NEGATIVE_INFINITY;
   // The first offer that got past warmup, which is the moment the very first
-  // keep became possible. Only consulted before that first keep: afterwards
-  // eligibility is governed by `minIntervalMs` instead.
+  // keep became possible and where the settle grace runs from until then.
   let firstEligibleAtMs: number | null = null;
+  // When the current run of still frames began, or null while the view is
+  // moving. The settle dwell is measured from it.
+  let stillSinceMs: number | null = null;
   // An unspent arm from `armForcedKeep`, or null when nothing is armed.
   // `sinceMs` is when it was made, and only a frame whose capture lower bound
   // reaches it may spend it: an offer can carry a capture from before the
@@ -482,16 +548,21 @@ export function createFrameGate(
     previousAtMs = nowMs;
   }
 
+  /** Make `current` the last kept frame: what every keep does to history. */
+  function recordKeep(nowMs: number): void {
+    kept.set(current);
+    hasKept = true;
+    keptAtMs = nowMs;
+    rememberPrevious(nowMs);
+  }
+
   function keepFrame(
     nowMs: number,
     reason: FrameGateReason,
     motion: number | null,
     novelty: number | null,
   ): FrameGateDecision {
-    kept.set(current);
-    hasKept = true;
-    keptAtMs = nowMs;
-    rememberPrevious(nowMs);
+    recordKeep(nowMs);
     return { keep: true, reason, motion, novelty, detail };
   }
 
@@ -528,6 +599,17 @@ export function createFrameGate(
           : null;
       const novelty = hasKept ? meanAbsoluteDifference(current, kept) : null;
 
+      // Tracked on every offer, ahead of the vetoes, so the dwell measures how
+      // long the camera has physically held still rather than how long the
+      // gate has been looking. A frame too old to judge motion on counts as
+      // still, as it does for the settle check itself.
+      const moving = motion !== null && motion >= options.settleThreshold;
+      if (moving) {
+        stillSinceMs = null;
+      } else if (stillSinceMs === null) {
+        stillSinceMs = nowMs;
+      }
+
       // Ahead of the vetoes below, so an arm that ran out while the camera had
       // nothing worth keeping is dropped rather than spent on the first frame
       // past them: it was asked for a scene a whole window ago.
@@ -548,60 +630,61 @@ export function createFrameGate(
         return skipFrame(nowMs, "featureless", motion, novelty);
       }
 
+      if (firstEligibleAtMs === null) {
+        firstEligibleAtMs = nowMs;
+      }
+      // The settle grace runs from the moment a keep became possible: the
+      // first post-warmup offer until something is kept, and the last keep
+      // from then on. Each keep restarts it, which is what bounds a camera
+      // that never settles to one keep per grace.
+      const eligibleSinceMs = Math.max(firstEligibleAtMs, keptAtMs);
+      // Past the grace window a moving frame is kept anyway rather than
+      // letting a walking user's camera go silent indefinitely.
+      const graceExpired = nowMs - eligibleSinceMs >= options.settleGraceMs;
+
+      // Ahead of the arm as well as the ambient rules: a smeared frame answers
+      // a question no better than it refreshes a scene, and an arm waits for
+      // the view to settle rather than spending itself on the blur.
+      if (moving && !graceExpired) {
+        return skipFrame(nowMs, "moving", motion, novelty);
+      }
+      // A stop is not a pause: the view has to hold still for the dwell before
+      // a frame of it is settled. Waived with the settle check once the grace
+      // runs out, for the same reason.
+      if (
+        !graceExpired &&
+        (stillSinceMs === null || nowMs - stillSinceMs < options.settleDwellMs)
+      ) {
+        return skipFrame(nowMs, "settling", motion, novelty);
+      }
+
       // Only a frame whose picture provably postdates the arm may spend it: a
       // native offer can carry a capture from before the ask, however late its
       // stamp lands, and force-keeping that one would send the stale scene the
       // arm exists to get past. It falls through to the ambient rules and the
       // arm stands for the next fresh frame.
-      // Through `keepFrame` like every other keep, so the rate floor's clock
-      // and both baselines move with it and the next ambient frame is judged
-      // against this one instead of firing again behind it.
       if (
         forcedArm !== null &&
         (capturedSinceMs ?? nowMs) >= forcedArm.sinceMs
       ) {
+        // The last keep already shows this view. The arm is left standing:
+        // the question may be about a change still on its way in, and the
+        // window is what gives that change time to arrive.
+        if (novelty !== null && novelty < options.forcedNoveltyThreshold) {
+          return skipFrame(nowMs, "answered", motion, novelty);
+        }
+        // Through `keepFrame` like every other keep, so both baselines move
+        // with it and the next ambient frame is judged against this one
+        // instead of firing again behind it.
         forcedArm = null;
         return keepFrame(nowMs, "forced", motion, novelty);
       }
 
-      if (firstEligibleAtMs === null) {
-        firstEligibleAtMs = nowMs;
-      }
-      const moving = motion !== null && motion >= options.settleThreshold;
-      // The settle grace runs from the moment a keep became POSSIBLE, not from
-      // the last frame offered: measuring from any earlier point would spend
-      // the grace inside the rate floor, and the settle check would never
-      // apply again. A keep becomes possible at the later of the first
-      // post-warmup offer and the end of the floor, including the floor a
-      // reset retains from a keep made just before it.
-      const eligibleSinceMs = Math.max(
-        firstEligibleAtMs,
-        keptAtMs + options.minIntervalMs,
-      );
-      // Past the grace window a moving frame is kept anyway rather than
-      // letting a walking user's camera go silent indefinitely.
-      const graceExpired = nowMs - eligibleSinceMs >= options.settleGraceMs;
-
       if (!hasKept) {
-        // The baseline is gone after a reset, but the floor's clock is not: a
-        // first keep is still a keep, and it pays the same minimum gap as any
-        // other, so a flip right after a keep cannot raise the keep rate.
-        if (nowMs - keptAtMs < options.minIntervalMs) {
-          return skipFrame(nowMs, "rate-floor", motion, novelty);
-        }
-        if (moving && !graceExpired) {
-          return skipFrame(nowMs, "moving", motion, novelty);
-        }
         return keepFrame(nowMs, "first", motion, novelty);
       }
 
       const sinceKeep = nowMs - keptAtMs;
-      if (sinceKeep < options.minIntervalMs) {
-        return skipFrame(nowMs, "rate-floor", motion, novelty);
-      }
-      if (moving && !graceExpired) {
-        return skipFrame(nowMs, "moving", motion, novelty);
-      }
       if (sinceKeep >= options.maxIntervalMs) {
         return keepFrame(nowMs, "heartbeat", motion, novelty);
       }
@@ -624,6 +707,21 @@ export function createFrameGate(
       rememberPrevious(nowMs);
     },
 
+    adopt(grid: FrameGrid, nowMs: number): void {
+      if (grid.length !== FRAME_GRID_CELLS) {
+        throw new Error(
+          `frame gate expects ${FRAME_GRID_CELLS} cells, received ${grid.length}`,
+        );
+      }
+      // The same history write every keep makes, so this is a keep in every
+      // respect the next offer can observe. `detail` is set as a side effect,
+      // as it is for an offer, and describes this frame until the next one is
+      // judged.
+      detail = normalizeGrid(grid, current);
+      forcedArm = null;
+      recordKeep(nowMs);
+    },
+
     armForcedKeep(nowMs: number): void {
       forcedArm = {
         sinceMs: nowMs,
@@ -636,9 +734,8 @@ export function createFrameGate(
       hasKept = false;
       previousAtMs = 0;
       forcedArm = null;
-      // `keptAtMs` is deliberately not cleared: comparison history is invalid
-      // after a reset, but the cost of the last keep is already paid and the
-      // rate floor still counts it.
+      keptAtMs = Number.NEGATIVE_INFINITY;
+      stillSinceMs = null;
       warmupUntilMs = nowMs + options.warmupMs;
       firstEligibleAtMs = null;
     },

@@ -6,6 +6,7 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { useTranslation } from "@/i18n";
 
 import {
+  catalogEnabledFlags,
   getDefaultModelForProvider,
   getModelsForProvider,
   getVisibleModelsForProvider,
@@ -82,8 +83,9 @@ export function CallSiteOverrideRow({
   onToggle,
 }: CallSiteOverrideRowProps) {
   const { t } = useTranslation("settings");
-  const developerMode =
-    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const catalogFlags = catalogEnabledFlags({
+    hostedInference: useAssistantFeatureFlagStore.use.vellumHostedInference(),
+  });
   const overrideOn = isDraftActive(draft);
 
   const profileVal = (() => {
@@ -152,7 +154,7 @@ export function CallSiteOverrideRow({
     connectionsForProvider,
   )
     ? codexServableModels(currentProvider)
-    : getVisibleModelsForProvider(currentProvider, developerMode);
+    : getVisibleModelsForProvider(currentProvider, catalogFlags);
   const modelOptions = availableModels.map((m) => ({
     value: m.id,
     label: m.displayName,

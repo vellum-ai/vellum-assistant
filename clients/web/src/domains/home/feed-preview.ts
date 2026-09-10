@@ -10,6 +10,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import { decodeLiteralLineBreaks } from "./decode-literal-line-breaks";
+
 /** Shortest continuation worth showing after the title's prefix is removed. */
 const MIN_PREVIEW_LENGTH = 12;
 
@@ -347,7 +349,9 @@ function capPreviewLength(value: string): string {
  * as markup by a screen reader.
  */
 export function flattenSummary(summary: string): string {
-  return capPreviewLength(flattenMarkdownBlocks(summary));
+  return capPreviewLength(
+    flattenMarkdownBlocks(decodeLiteralLineBreaks(summary)),
+  );
 }
 
 /**

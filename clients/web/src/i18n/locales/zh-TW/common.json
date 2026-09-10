@@ -186,7 +186,18 @@
     "talk": "交談",
     "teach": "教學",
     "unmuteAssistant": "解除助理靜音",
-    "unmuteMicrophone": "解除麥克風靜音"
+    "unmuteMicrophone": "解除麥克風靜音",
+    "dictating": "正在聆聽",
+    "dictatingTranscribing": "正在思考",
+    "draw": "繪製"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的螢幕",
+    "sharingScreenNamed": "正在與 {name} 分享你的螢幕",
+    "sharingWindow": "正在分享一個視窗",
+    "sharingWindowNamed": "正在與 {name} 分享一個視窗",
+    "teaching": "正在教學",
+    "teachingNamed": "正在教 {name}"
   },
   "contentActionBar": {
     "copiedAria": "已複製",
@@ -572,6 +583,7 @@
     "reloadApp": "重新載入應用程式"
   },
   "statusBanner": {
+    "reconnecting": "正在重新連線至你的助理…",
     "dismiss": "關閉",
     "goToDoctor": "前往診斷",
     "resumeAssistant": "恢復助理",
@@ -778,12 +790,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 帳號已連線。",
-    "authPopupClosed": "{name} 連線失敗：授權彈出視窗已關閉。",
     "authorizationError": "{name} 錯誤：{code}",
     "authorizationFailed": "{name} 授權失敗",
     "popupBlocked": "彈出視窗已阻擋。請啟用彈出視窗，然後再試一次。",
-    "popupClosed": "{name} 連線失敗：彈出視窗已關閉。",
-    "startFailed": "無法啟動 {name} 授權。"
+    "startFailed": "無法啟動 {name} 授權。",
+    "startFailedWithReason": "無法啟動 {name} 授權：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的瀏覽器阻擋了助理嘗試開啟的頁面。",
@@ -882,5 +893,10 @@
       "label": "完全存取",
       "description": "自動批准所有操作，包括高風險和無法識別的指令。助手將絕不請求權限確認。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小時",
+    "everyMinutes": "每 {count} 分鐘",
+    "retrospectiveSubtitle": "在對話活動後觸發"
   }
 }

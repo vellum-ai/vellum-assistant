@@ -110,11 +110,10 @@ export interface PendingInteraction {
   /** When set, the host_bash request should be routed to this specific client. */
   targetClientId?: string;
   /**
-   * Snapshot of `targetClientId`'s `actorPrincipalId` taken at registration
-   * time. Persisted so the result-route same-actor check compares against
-   * a stable value rather than the live hub — the target client's SSE
-   * subscription may have briefly disconnected between dispatch and result
-   * submission, which would otherwise 403 a legitimate result.
+   * Actor principal captured at registration. Targeted requests snapshot the
+   * target client's actor so a brief SSE reconnect does not 403 a legitimate
+   * result. Untargeted requests snapshot the turn's source actor so a
+   * different principal cannot forge stdout/stderr/exitCode.
    */
   targetActorPrincipalId?: string;
 
@@ -263,23 +262,63 @@ export function removeByConversation(
       interaction.kind !== "acp_confirmation" &&
       interaction.kind !== "question"
     ) {
+      if (interaction.kind === "secret") {
+        settleSecret(requestId, state);
+        continue;
+      }
       // resolve() clears the stored timer and detaches abort listeners.
       resolve(requestId, state);
-      // Secret prompts have no abort-signal teardown (unlike questions) and
-      // are not pre-settled by denyAllPendingConfirmations (unlike
-      // confirmations), so removing the entry alone would leave the caller's
-      // Promise — the CLI `credentials prompt` command or the in-conversation
-      // SecretPrompter — hanging until its IPC client times out. Settle it
-      // with a null result tagged with the resolution state so callers report
-      // a supersession honestly instead of a user cancel. rpcResolve is
-      // idempotent, so any later resolveSecret/dispose call is a no-op.
-      if (interaction.kind === "secret") {
-        interaction.rpcResolve?.({
-          value: null,
-          delivery: "store",
-          reason: state === "superseded" ? "superseded" : "cancelled",
-        });
-      }
+    }
+  }
+}
+
+/**
+ * Remove a pending `secret` interaction and settle the Promise its caller is
+ * parked on.
+ *
+ * Secret prompts have no abort-signal teardown (unlike questions) and are not
+ * pre-settled by denyAllPendingConfirmations (unlike confirmations), so
+ * removing the entry alone would leave the caller's Promise (the CLI
+ * `credentials prompt` command, or the in-conversation SecretPrompter) hanging
+ * until its IPC client times out. The result is a null value tagged with the
+ * resolution state, so callers report a supersession honestly instead of a
+ * user cancel. rpcResolve is idempotent, so any later resolveSecret/dispose
+ * call is a no-op.
+ */
+function settleSecret(
+  requestId: string,
+  state: InteractionResolutionState,
+): void {
+  // resolve() clears the stored timer and detaches abort listeners.
+  const interaction = resolve(requestId, state);
+  interaction?.rpcResolve?.({
+    value: null,
+    delivery: "store",
+    reason: state === "superseded" ? "superseded" : "cancelled",
+  });
+}
+
+/**
+ * Settle every pending `secret` interaction a conversation owns, because
+ * something superseded the turn that raised them.
+ *
+ * {@link removeByConversation} covers secrets too, but the confirmation sweep
+ * that calls it only runs when the conversation has a pending confirmation. A
+ * turn parked on a secret prompt alone needs this: nothing else settles it, so
+ * the dialog stays live and a later submission resolves the Promise the
+ * abandoned tool is parked on, resuming work its abort was meant to end.
+ */
+export function supersedePendingSecrets(
+  conversationId: string,
+  state: InteractionResolutionState = "superseded",
+): void {
+  // Snapshot keys to avoid mutation-during-iteration.
+  for (const [requestId, interaction] of [...pending]) {
+    if (
+      interaction.conversationId === conversationId &&
+      interaction.kind === "secret"
+    ) {
+      settleSecret(requestId, state);
     }
   }
 }

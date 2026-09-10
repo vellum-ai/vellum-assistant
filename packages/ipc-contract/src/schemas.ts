@@ -20,6 +20,8 @@ import {
   COMPANION_ANNOTATION_MAX_POINTS,
   COMPANION_COACHMARK_CAPTION_MAX,
   COMPANION_DICTATION_TAIL,
+  NOTIFICATION_AVATAR_BASE64_MAX_CHARS,
+  NOTIFICATION_AVATAR_HASH_PATTERN,
   NOTIFICATION_CATEGORIES,
   VOICE_ACTIVITY_CONTROL_ACTIONS,
   VOICE_ACTIVITY_PHASES,
@@ -38,6 +40,19 @@ export const assistantStatusSchema = z.enum(ASSISTANT_STATUSES);
 
 export const notificationCategorySchema = z.enum(NOTIFICATION_CATEGORIES);
 
+/**
+ * The hash names the file a host writes the avatar to, so the boundary that
+ * accepts it is where "64 lowercase hex characters" has to be true: anything
+ * else could escape the cache directory. The picture is bounded too, since
+ * main decodes it and writes it to disk.
+ */
+const notificationSenderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  avatarBase64: z.string().max(NOTIFICATION_AVATAR_BASE64_MAX_CHARS),
+  avatarHash: z.string().regex(NOTIFICATION_AVATAR_HASH_PATTERN),
+});
+
 export const showNotificationPayloadSchema = z.object({
   category: notificationCategorySchema,
   title: z.string(),
@@ -46,6 +61,12 @@ export const showNotificationPayloadSchema = z.object({
   conversationId: z.string().optional(),
   toolCallId: z.string().optional(),
   deepLinkMetadata: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * A malformed decoration degrades to no decoration. `handle()` parses this
+   * payload and a throw rejects the renderer's `invoke`, so a strict field
+   * here would cost the user the banner itself rather than its avatar.
+   */
+  sender: notificationSenderSchema.optional().catch(undefined),
 });
 
 // ---------------------------------------------------------------------------
@@ -182,13 +203,31 @@ export const companionAnnotationInkSchema = z
  * corner outside `0`..`1` is a mark measured against some other surface, and
  * that is what the bounds refuse.
  */
-export const companionCoachmarkSchema = z.object({
+const coachmarkCaption = z
+  .string()
+  .max(COMPANION_COACHMARK_CAPTION_MAX)
+  .optional();
+
+export const companionCoachmarkRegionSchema = z.object({
+  kind: z.literal("region"),
   x: z.number().min(0).max(1),
   y: z.number().min(0).max(1),
   width: z.number().min(0).max(1),
   height: z.number().min(0).max(1),
-  caption: z.string().max(COMPANION_COACHMARK_CAPTION_MAX).optional(),
+  caption: coachmarkCaption,
 });
+
+export const companionCoachmarkPointSchema = z.object({
+  kind: z.literal("point"),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  caption: coachmarkCaption,
+});
+
+export const companionCoachmarkSchema = z.discriminatedUnion("kind", [
+  companionCoachmarkRegionSchema,
+  companionCoachmarkPointSchema,
+]);
 
 /** What the app's window tells main about the assistant the surface is for. */
 export const companionContextSchema = z.object({

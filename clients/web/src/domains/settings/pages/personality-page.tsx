@@ -1,5 +1,5 @@
 /**
- * Settings → Personality. Developer-nav gated. Writes
+ * Settings → Personality. Gated by `vellum-hosted-inference`. Writes
  * `data/personality-sliders.json` and nothing else: no IDENTITY.md / SOUL.md
  * rewrite. Onboarding and About Assistant keep their own rewrite paths.
  */
@@ -12,7 +12,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Slider } from "@vellumai/design-library/components/slider";
 import { toast } from "@vellumai/design-library/components/toast";
 
-import { PERSONALITY_AXIS_IDS } from "@/assistant/personality-rewrite";
+import { PERSONALITY_AXIS_IDS } from "@vellumai/assistant-api";
+
 import {
   completeSliderValues,
   fetchPersonalitySliders,
@@ -58,8 +59,8 @@ export function SettingsPersonalityPage() {
   const { t } = useTranslation("settings");
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
-  const settingsDeveloperNav =
-    useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const vellumHostedInference =
+    useAssistantFeatureFlagStore.use.vellumHostedInference();
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const slidersQuery = useQuery({
@@ -71,7 +72,7 @@ export function SettingsPersonalityPage() {
   const [saving, setSaving] = useState(false);
   const values = edits ?? slidersQuery.data ?? {};
 
-  if (hasHydrated && !settingsDeveloperNav) {
+  if (hasHydrated && !vellumHostedInference) {
     return <Navigate replace to={routes.settings.general} />;
   }
 

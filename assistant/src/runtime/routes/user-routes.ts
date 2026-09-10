@@ -17,26 +17,81 @@
 
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-import { RouteResponse } from "./types.js";
+import { IDENTITY_HEADERS, RouteResponse } from "./types.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
 
 const dispatcher = new UserRouteDispatcher();
 
 /**
- * Reconstruct a Web API `Request` from transport-agnostic handler args.
- *
- * The synthesized Request carries all information the dispatcher needs:
- * path, method, headers, and body. The host/port/scheme are synthetic —
- * user handlers should not depend on them.
+ * The identity a user-authored handler is allowed to see. The verified
+ * subject is withheld: it is the daemon's own authorization material (an
+ * OAuth proxy grant is honored for the subject it names), and handler files
+ * in the workspace are a wider audience than the routes that gate on it.
+ * Every other {@link IDENTITY_HEADERS} entry is withheld too, so a new one
+ * reaches user code only when someone adds it here.
  */
-function synthesizeRequest(method: string, args: RouteHandlerArgs): Request {
+const USER_HANDLER_IDENTITY_HEADERS = new Set<string>([
+  "x-vellum-principal-type",
+  "x-vellum-actor-principal-id",
+]);
+
+/**
+ * Origin every user-authored handler sees, whatever transport carried the
+ * request. Handler files that resolve a relative URL against `request.url`, or
+ * echo it back, therefore read the same host on every transport and on every
+ * install, and no handler learns the daemon's listening address.
+ */
+const USER_HANDLER_ORIGIN = "http://localhost";
+
+/**
+ * URL for a request that did not arrive over HTTP, rebuilt from the matched
+ * path and the flattened query. Repeated query keys collapsed on the way in,
+ * so only `rawUrl` carries them.
+ */
+function reconstructUrl(args: RouteHandlerArgs): URL {
   const path = args.pathParams?.path ?? "";
-  const url = new URL(`http://localhost/v1/x/${path}`);
+  const url = new URL(`${USER_HANDLER_ORIGIN}/v1/x/${path}`);
   for (const [k, v] of Object.entries(args.queryParams ?? {})) {
     url.searchParams.set(k, v);
   }
+  return url;
+}
+
+/**
+ * URL the handler is given: the wire pathname and query when the request
+ * arrived over HTTP, so percent-encoding and repeated query keys survive,
+ * always under {@link USER_HANDLER_ORIGIN}.
+ *
+ * An IPC caller controls every handler arg, so the guard checks the type
+ * rather than truthiness. A `URL` pathname always carries a single leading
+ * slash; a plain object could carry two, and `//host/x` resolves against any
+ * base to `http://host/x`, which is the one thing this origin exists to
+ * prevent.
+ */
+function handlerUrl(args: RouteHandlerArgs): URL {
+  const rawUrl = args.rawUrl;
+  if (!(rawUrl instanceof URL)) {
+    return reconstructUrl(args);
+  }
+  return new URL(`${rawUrl.pathname}${rawUrl.search}`, USER_HANDLER_ORIGIN);
+}
+
+/**
+ * Reconstruct a Web API `Request` from transport-agnostic handler args.
+ *
+ * The synthesized Request carries all information the dispatcher needs:
+ * path, method, headers, and body. Its origin is synthetic on every transport,
+ * so user handlers should not depend on host, port, or scheme.
+ */
+function synthesizeRequest(method: string, args: RouteHandlerArgs): Request {
+  const url = handlerUrl(args);
 
   const headers = new Headers(args.headers ?? {});
+  for (const name of IDENTITY_HEADERS) {
+    if (!USER_HANDLER_IDENTITY_HEADERS.has(name)) {
+      headers.delete(name);
+    }
+  }
 
   let body: BodyInit | undefined;
   if (args.rawBody) {

@@ -121,6 +121,11 @@ Object.defineProperty(process, "resourcesPath", {
 });
 
 const { setPointerOnCompanion } = await import("./companion-pointer");
+const {
+  __resetFrameScrollWatchForTesting,
+  unwatchFrameScroll,
+  watchFrameScroll,
+} = await import("./frame-scroll-watch");
 
 const {
   __resetForTesting,
@@ -242,6 +247,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetForTesting();
+  __resetFrameScrollWatchForTesting();
 });
 
 describe("getMacHelperPath", () => {
@@ -849,6 +855,43 @@ describe("installHotkeyHelper", () => {
     const writes = lastChild?.stdin.writes.join("") ?? "";
     expect(writes).toContain('"method":"input.setActivityWatch"');
     expect(writes).toContain('"enable":true');
+  });
+
+  /**
+   * The watch frame asks for the scroll watch through `frame-scroll-watch.ts`
+   * rather than through the renderer: it is main's own window, and the end
+   * of the scroll is main's to act on.
+   */
+  test("asks the helper to watch for the scroll ending and reports it", async () => {
+    __setSupervisorOptionsForTesting({ initialBackoffMs: 1, maxBackoffMs: 1 });
+    installHotkeyHelper();
+    expect(await registerHold()).toEqual({ ok: true, enabled: true });
+
+    let ended = 0;
+    watchFrameScroll(() => {
+      ended += 1;
+    });
+    await wait(0);
+    let writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setScrollWatch"');
+    expect(writes).toContain('"enable":true');
+
+    lastChild?.stdout.emit(
+      "data",
+      Buffer.from('{"jsonrpc":"2.0","method":"input.scrollEnded"}\n'),
+    );
+    expect(ended).toBe(1);
+
+    // The watch goes down with the helper and comes back with it.
+    lastChild?.emit("close", 1, null);
+    await wait(10);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"method":"input.setScrollWatch"');
+
+    unwatchFrameScroll();
+    await wait(0);
+    writes = lastChild?.stdin.writes.join("") ?? "";
+    expect(writes).toContain('"enable":false');
   });
 
   test("forwards input activity to the window that holds the key", async () => {

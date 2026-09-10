@@ -34,13 +34,32 @@ export type TurnPhase =
   | "errored";
 
 export type TerminalReason =
-  "complete" | "error" | "cancelled" | "timeout" | "session_error" | null;
+  | "complete"
+  | "error"
+  | "cancelled"
+  | "timeout"
+  | "session_error"
+  | null;
 
 export interface TurnState {
   phase: TurnPhase;
   pendingQueuedCount: number;
   activeToolCallCount: number;
   activeTurnId: string | null;
+  /**
+   * The turn this client started by interrupting one already running, held
+   * until the daemon's `generation_cancelled` for the turn it replaced lands.
+   *
+   * Under `interrupt-on-send` the send is answered before the abort, so the
+   * client claims the new turn first and the cancel for the old one arrives
+   * behind it. Read as an ordinary terminal that cancel would idle the phase
+   * and drop `activeTurnId`, leaving the replacement turn running with no
+   * identity: the poll rescue and the turn timeout both refuse to act on a
+   * turn they cannot name, so a missed terminal event strands the composer
+   * busy with nothing left to recover it. Matching this id turns the cancel
+   * into the handoff it actually is.
+   */
+  interruptingTurnId: string | null;
   lastTerminalReason: TerminalReason;
   /** Daemon-provided label describing current agent activity (e.g.
    *  "Processing bash results", "Compacting context"). Populated by
@@ -62,6 +81,7 @@ export const INITIAL_TURN_STATE: TurnState = {
   pendingQueuedCount: 0,
   activeToolCallCount: 0,
   activeTurnId: null,
+  interruptingTurnId: null,
   lastTerminalReason: null,
   statusText: null,
   liveWebActivity: {},
@@ -93,6 +113,12 @@ export function isThinking(phase: TurnPhase): boolean {
 export interface UserSendRequested {
   type: "USER_SEND_REQUESTED";
   turnId?: string;
+  /**
+   * This send is replacing a turn already in flight (`interrupt-on-send`),
+   * so the cancel that follows belongs to the turn it replaced. See
+   * {@link TurnState.interruptingTurnId}.
+   */
+  interruptsRunningTurn?: boolean;
 }
 
 export interface UserSendAccepted {
@@ -241,7 +267,15 @@ export type DomainEvent =
 // ---------------------------------------------------------------------------
 
 export interface TurnActions {
-  requestSend: (turnId?: string) => void;
+  requestSend: (
+    turnId?: string,
+    opts?: {
+      /** This send replaces a turn already in flight, so the cancel that
+       *  follows is the handoff of the turn it replaced, not this turn's
+       *  terminal. See {@link TurnState.interruptingTurnId}. */
+      interruptsRunningTurn?: boolean;
+    },
+  ) => void;
   acceptSend: (turnId: string) => void;
   onTextDelta: () => void;
   onToolUseStart: () => void;
@@ -294,6 +328,44 @@ function isStale(s: TurnState): boolean {
   return (s.phase === "idle" || s.phase === "errored") && !s.activeTurnId;
 }
 
+/**
+ * What a `generation_cancelled` does to the turn.
+ *
+ * One definition for the reducer and the store action, because the two answer
+ * the same question and a cancel that idled in one but handed over in the
+ * other would be invisible until a stuck composer showed up in QA.
+ *
+ * The cancel of a turn this client interrupted is a handoff: the replacement
+ * turn is already claimed here and is about to stream, so it keeps its id and
+ * stays busy rather than being idled by the terminal of the turn it replaced.
+ * Every other cancel is terminal, including the same event seen by a client
+ * that did not send (its `interruptingTurnId` is null, so it idles as before).
+ */
+function cancelledTurnState(s: TurnState): Partial<TurnState> {
+  if (
+    s.interruptingTurnId !== null &&
+    s.interruptingTurnId === s.activeTurnId
+  ) {
+    return {
+      phase: "thinking",
+      interruptingTurnId: null,
+      activeToolCallCount: 0,
+      lastTerminalReason: null,
+      statusText: null,
+      liveWebActivity: {},
+    };
+  }
+  return {
+    phase: s.pendingQueuedCount > 0 ? "queued" : "idle",
+    activeTurnId: null,
+    interruptingTurnId: null,
+    activeToolCallCount: 0,
+    lastTerminalReason: "cancelled",
+    statusText: null,
+    liveWebActivity: {},
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
@@ -303,14 +375,19 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
 
   // ----- Send flow -----
 
-  requestSend: (turnId) =>
-    set((s) => ({
-      phase: "thinking" as const,
-      activeTurnId: turnId ?? s.activeTurnId,
-      lastTerminalReason: null,
-      activeToolCallCount: 0,
-      statusText: null,
-    })),
+  requestSend: (turnId, opts) =>
+    set((s) => {
+      const activeTurnId = turnId ?? s.activeTurnId;
+      return {
+        phase: "thinking" as const,
+        activeTurnId,
+        interruptingTurnId:
+          opts?.interruptsRunningTurn === true ? activeTurnId : null,
+        lastTerminalReason: null,
+        activeToolCallCount: 0,
+        statusText: null,
+      };
+    }),
 
   acceptSend: (turnId) =>
     set((s) => {
@@ -529,15 +606,7 @@ const useTurnStoreBase = create<TurnStore>()((set, get) => ({
   // ----- Terminal / error states -----
 
   cancelGeneration: () => {
-    const s = get();
-    set({
-      phase: s.pendingQueuedCount > 0 ? "queued" : "idle",
-      activeTurnId: null,
-      activeToolCallCount: 0,
-      lastTerminalReason: "cancelled",
-      statusText: null,
-      liveWebActivity: {},
-    });
+    set(cancelledTurnState(get()));
   },
 
   onStreamError: () =>
@@ -663,15 +732,21 @@ export const useTurnStore = createSelectors(useTurnStoreBase);
 
 export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
   switch (event.type) {
-    case "USER_SEND_REQUESTED":
+    case "USER_SEND_REQUESTED": {
+      const activeTurnId = event.turnId ?? state.activeTurnId;
       return {
         ...state,
         phase: "thinking",
-        activeTurnId: event.turnId ?? state.activeTurnId,
+        activeTurnId,
+        // A send that is not interrupting starts a turn no cancel is owed
+        // for, so any marker left by an earlier one is dropped here.
+        interruptingTurnId:
+          event.interruptsRunningTurn === true ? activeTurnId : null,
         lastTerminalReason: null,
         activeToolCallCount: 0,
         statusText: null,
       };
+    }
 
     case "USER_SEND_ACCEPTED": {
       // See `acceptSend` action for rationale.
@@ -859,26 +934,7 @@ export function turnReducer(state: TurnState, event: DomainEvent): TurnState {
       };
 
     case "GENERATION_CANCELLED":
-      if (state.pendingQueuedCount > 0) {
-        return {
-          ...state,
-          phase: "queued",
-          activeTurnId: null,
-          activeToolCallCount: 0,
-          lastTerminalReason: "cancelled",
-          statusText: null,
-          liveWebActivity: {},
-        };
-      }
-      return {
-        ...state,
-        phase: "idle",
-        activeTurnId: null,
-        activeToolCallCount: 0,
-        lastTerminalReason: "cancelled",
-        statusText: null,
-        liveWebActivity: {},
-      };
+      return { ...state, ...cancelledTurnState(state) };
 
     case "STREAM_ERROR":
       return {

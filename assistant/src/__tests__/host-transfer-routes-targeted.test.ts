@@ -35,6 +35,7 @@ mock.module("../runtime/pending-interactions.js", () => ({
 
 // Per-test controls for the proxy stub
 let stubTargetClientId: string | null = null;
+let stubTargetActorPrincipalId: string | undefined;
 const getTransferContentCalls: string[] = [];
 const receiveTransferContentCalls: string[] = [];
 const resolveTransferResultCalls: string[] = [];
@@ -50,6 +51,9 @@ mock.module("../daemon/host-transfer-proxy.js", () => ({
           return stubTargetClientId;
         },
         getTargetActorPrincipalIdForTransfer(_transferId: string) {
+          if (stubTargetActorPrincipalId !== undefined) {
+            return stubTargetActorPrincipalId;
+          }
           return stubTargetClientId
             ? clientActors.get(stubTargetClientId)
             : undefined;
@@ -139,6 +143,7 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
   beforeEach(() => {
     pendingStore.clear();
     stubTargetClientId = null;
+    stubTargetActorPrincipalId = undefined;
     getTransferContentCalls.length = 0;
     clientActors.clear();
   });
@@ -236,6 +241,30 @@ describe("handleTransferContentGet — Phase 3 targetClientId guard", () => {
       expect(result).toBeInstanceOf(Uint8Array);
       expect(getTransferContentCalls).toContain(TEST_TRANSFER_ID);
     });
+
+    test("rejects a different actor when the transfer recorded a source actor", () => {
+      stubTargetClientId = null;
+      stubTargetActorPrincipalId = "principal-owner";
+      expect(() =>
+        handleTransferContentGet({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: { "x-vellum-actor-principal-id": "principal-attacker" },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(getTransferContentCalls).toHaveLength(0);
+    });
+
+    test("accepts the recorded source actor on an untargeted transfer", async () => {
+      stubTargetClientId = null;
+      stubTargetActorPrincipalId = "principal-owner";
+      const result = await handleTransferContentGet({
+        pathParams: { transferId: TEST_TRANSFER_ID },
+        headers: { "x-vellum-actor-principal-id": "principal-owner" },
+      });
+
+      expect(result).toBeInstanceOf(Uint8Array);
+      expect(getTransferContentCalls).toContain(TEST_TRANSFER_ID);
+    });
   });
 
   // ── 5. Same-user actor binding (defense-in-depth) ─────────────────────────
@@ -289,6 +318,7 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
   beforeEach(() => {
     pendingStore.clear();
     stubTargetClientId = null;
+    stubTargetActorPrincipalId = undefined;
     receiveTransferContentCalls.length = 0;
     clientActors.clear();
   });
@@ -408,6 +438,38 @@ describe("handleTransferContentPut — Phase 3 targetClientId guard", () => {
       expect(result).toEqual({ accepted: true });
       expect(receiveTransferContentCalls).toContain(TEST_TRANSFER_ID);
     });
+
+    test("rejects a different actor when the transfer recorded a source actor", async () => {
+      stubTargetClientId = null;
+      stubTargetActorPrincipalId = "principal-owner";
+      await expect(
+        handleTransferContentPut({
+          pathParams: { transferId: TEST_TRANSFER_ID },
+          headers: {
+            "x-vellum-actor-principal-id": "principal-attacker",
+            "x-transfer-sha256": "abc",
+          },
+          rawBody: new Uint8Array(Buffer.from("data")),
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(receiveTransferContentCalls).toHaveLength(0);
+    });
+
+    test("accepts the recorded source actor on an untargeted transfer", async () => {
+      stubTargetClientId = null;
+      stubTargetActorPrincipalId = "principal-owner";
+      const result = await handleTransferContentPut({
+        pathParams: { transferId: TEST_TRANSFER_ID },
+        headers: {
+          "x-vellum-actor-principal-id": "principal-owner",
+          "x-transfer-sha256": "abc",
+        },
+        rawBody: new Uint8Array(Buffer.from("data")),
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(receiveTransferContentCalls).toContain(TEST_TRANSFER_ID);
+    });
   });
 
   // ── 5. Same-user actor binding (defense-in-depth) ─────────────────────────
@@ -469,6 +531,7 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
   beforeEach(() => {
     pendingStore.clear();
     stubTargetClientId = null;
+    stubTargetActorPrincipalId = undefined;
     resolveTransferResultCalls.length = 0;
     clientActors.clear();
   });
@@ -598,6 +661,29 @@ describe("handleTransferResult — Phase 3 targetClientId guard", () => {
       });
 
       expect(result).toEqual({ accepted: true });
+    });
+
+    test("rejects a different actor when the pending request recorded a source actor", () => {
+      registerPending({ targetActorPrincipalId: "principal-owner" });
+      expect(() =>
+        handleTransferResult({
+          body: resultBody(),
+          headers: { "x-vellum-actor-principal-id": "principal-attacker" },
+        }),
+      ).toThrow(ForbiddenError);
+      expect(resolveTransferResultCalls).toHaveLength(0);
+      expect(pendingStore.has(TEST_REQUEST_ID)).toBe(true);
+    });
+
+    test("accepts the recorded source actor on an untargeted pending request", async () => {
+      registerPending({ targetActorPrincipalId: "principal-owner" });
+      const result = await handleTransferResult({
+        body: resultBody(),
+        headers: { "x-vellum-actor-principal-id": "principal-owner" },
+      });
+
+      expect(result).toEqual({ accepted: true });
+      expect(resolveTransferResultCalls).toContain(TEST_REQUEST_ID);
     });
   });
 

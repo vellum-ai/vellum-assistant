@@ -187,7 +187,17 @@
     "talk": "交谈",
     "teach": "教学",
     "unmuteAssistant": "取消助手静音",
-    "unmuteMicrophone": "取消麦克风静音"
+    "unmuteMicrophone": "取消麦克风静音",
+    "dictating": "正在聆听",
+    "dictatingTranscribing": "正在思考"
+  },
+  "companionWatchFramePage": {
+    "sharingScreen": "正在分享你的屏幕",
+    "sharingScreenNamed": "正在与 {name} 分享你的屏幕",
+    "sharingWindow": "正在分享一个窗口",
+    "sharingWindowNamed": "正在与 {name} 分享一个窗口",
+    "teaching": "正在教学",
+    "teachingNamed": "正在教 {name}"
   },
   "contentActionBar": {
     "copiedAria": "已复制",
@@ -573,6 +583,7 @@
     "reloadApp": "重新加载应用"
   },
   "statusBanner": {
+    "reconnecting": "正在重新连接到你的助手…",
     "dismiss": "忽略",
     "goToDoctor": "前往诊断",
     "resumeAssistant": "恢复助手",
@@ -779,12 +790,11 @@
   },
   "useOauthConnect": {
     "accountConnected": "{name} 账户已连接。",
-    "authPopupClosed": "{name} 连接失败：授权弹窗已关闭。",
     "authorizationError": "{name} 错误：{code}",
     "authorizationFailed": "{name} 授权失败",
     "popupBlocked": "弹窗被阻止。请启用弹窗并重试。",
-    "popupClosed": "{name} 连接失败：弹窗已关闭。",
-    "startFailed": "启动 {name} 授权失败。"
+    "startFailed": "启动 {name} 授权失败。",
+    "startFailedWithReason": "启动 {name} 授权失败：{reason}"
   },
   "useOpenUrlDirectives": {
     "blocked": "您的浏览器阻止了助手尝试打开的页面。",
@@ -883,5 +893,10 @@
       "label": "完全访问",
       "description": "自动批准所有操作，包括高风险和无法识别的命令。助手将绝不请求权限确认。"
     }
+  },
+  "scheduleFormatters": {
+    "everyHours": "每 {count} 小时",
+    "everyMinutes": "每 {count} 分钟",
+    "retrospectiveSubtitle": "在对话活动后触发"
   }
 }

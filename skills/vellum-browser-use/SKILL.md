@@ -76,6 +76,17 @@ If the status check shows the extension is **not available**, encourage the user
 
 The status response's `userActions` array for the `extension` mode provides these same steps when the extension is not connected.
 
+## When a Page Cannot Be Reached
+
+If navigate, curl, or any fetch times out, hits an auth wall, or cannot reach a host (VPN, company login, internal dashboard):
+
+1. Tell the user a connected desktop app or Chrome extension can open the page in a browser where they are already logged in.
+2. Give the install links:
+   - Desktop app: https://www.vellum.ai/downloads
+   - Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
+3. Offer those first. Only ask for a screenshot or pasted page content if they cannot install either.
+4. On iOS or Android there is no in-app browser and no extension to install on the phone. Offer the desktop app or Chrome extension on a computer. Do not describe a browser panel.
+
 ### Fallback Modes
 
 If the user declines to install the extension:

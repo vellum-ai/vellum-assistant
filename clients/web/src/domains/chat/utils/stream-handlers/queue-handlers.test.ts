@@ -45,6 +45,60 @@ describe("handleMessageQueued", () => {
     expect(updated[0]?.queuePosition).toBe(2);
   });
 
+  it("binds a queue ack to an optimistic row that registered no pending id", () => {
+    // Under `interrupt-on-send` a send never expects to queue, so it registers
+    // no pending queued id. The daemon can still fall back to the queue (a
+    // wedged turn, a repair it could not persist) and ack the send, and without
+    // this the ack binds to nothing: no position, no requestId mapping, and a
+    // queued row the client can neither cancel nor steer.
+    const ctx = makeCtx({
+      pendingQueuedMessageIds: [],
+      getOptimisticSends: () => [
+        { id: "cmid-1", role: "user" } as DisplayMessage,
+      ],
+    });
+
+    handleMessageQueued(
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 1,
+        clientMessageId: "cmid-1",
+      },
+      ctx,
+    );
+
+    expect(ctx.setRequestIdMapping).toHaveBeenCalledWith("req-1", "cmid-1");
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+  });
+
+  it("still ignores a queue ack for a send this client did not originate", () => {
+    // The fallback stays identity-scoped: another tab's nonce matches no local
+    // optimistic row, so it must not touch local state.
+    const ctx = makeCtx({
+      pendingQueuedMessageIds: [],
+      getOptimisticSends: () => [
+        { id: "mine-1", role: "user" } as DisplayMessage,
+      ],
+    });
+
+    handleMessageQueued(
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 1,
+        clientMessageId: "other-tab-1",
+      },
+      ctx,
+    );
+
+    expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
+    expect(ctx.setRequestIdMapping).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
   it("counts the enqueue but binds no row when no pending messageId", () => {
     const ctx = makeCtx({
       pendingQueuedMessageIds: [],

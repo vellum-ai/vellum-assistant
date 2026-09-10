@@ -834,6 +834,25 @@ jobs:
       environment: dev
     secrets: inherit
 
+  # ── Web SPA (production preview channel) ─────────────────────────────
+  # Publishes the preview UI into the PRODUCTION bucket under `/preview/` on
+  # every hourly dev release, leaving the stable root index.html untouched. The
+  # bundle self-identifies via VITE_CHANNEL=preview; its version is the commit
+  # SHA. Gating matches deploy-web-spa above. The ref guard matches the other
+  # production-preview jobs so a release-branch dispatch cannot publish here.
+  deploy-web-spa-preview:
+    name: Deploy Web SPA (production /preview)
+    needs: [ci-web, register-preview-release]
+    if: ${{ !cancelled() && github.ref_name == 'main' && needs.ci-web.result == 'success' }}
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
+    with:
+      environment: production
+      channel: preview
+    secrets: inherit
+
   publish-production-preview-image-tags:
     needs: [compute-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
@@ -1304,7 +1323,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates, deploy-web-spa]
+    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates, deploy-web-spa, deploy-web-spa-preview]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1339,6 +1358,7 @@ jobs:
           ELECTRON_RESULT: ${{ needs.build-electron.result }}
           UPDATES_RESULT: ${{ needs.upload-electron-updates.result }}
           SPA_RESULT: ${{ needs.deploy-web-spa.result }}
+          PREVIEW_SPA_RESULT: ${{ needs.deploy-web-spa-preview.result }}
         run: |
           set -euo pipefail
 
@@ -1466,7 +1486,7 @@ jobs:
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
           # When the release registered but the Electron build, the Electron
-          # update feed upload, or the web SPA deploy did not succeed, swap the
+          # update feed upload, or either web SPA publish did not succeed, swap the
           # header emoji and append a warning so the notification surfaces the
           # failure instead of looking fully green. The warnings are
           # independent — any subset can fire (e.g. a build-electron failure
@@ -1496,6 +1516,15 @@ jobs:
             SPA_WARNING=""
           fi
 
+          # `skipped` is quiet: the job skips off main, and a ci-web failure is
+          # already covered by the dev SPA warning above.
+          if [ "${PREVIEW_SPA_RESULT}" != "success" ] && [ "${PREVIEW_SPA_RESULT}" != "skipped" ]; then
+            HEADER_EMOJI="⚠️"
+            PREVIEW_SPA_WARNING=$(jq -n --arg result "$PREVIEW_SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Preview web SPA was not published* (result: " + $result + "). The dev release shipped but prod `/preview/` is unchanged. See the workflow run for details.") } }')
+          else
+            PREVIEW_SPA_WARNING=""
+          fi
+
           BLOCKS=$(jq -n \
             --arg version "$VERSION" \
             --arg header "$HEADER_TEXT" \
@@ -1521,6 +1550,10 @@ jobs:
 
           if [ -n "$SPA_WARNING" ]; then
             BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$SPA_WARNING" '. += [$warn]')
+          fi
+
+          if [ -n "$PREVIEW_SPA_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$PREVIEW_SPA_WARNING" '. += [$warn]')
           fi
 
           # Attachment blocks: the actual commit list, chunked into sections to
@@ -1739,6 +1772,59 @@ jobs:
 
       - name: Stamp dev version into package.json
         run: jq --arg v "${{ needs.compute-version.outputs.version }}" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
+
+      # The Communication Notifications entitlement is restricted: it may only
+      # be signed into a build that embeds a provisioning profile authorizing
+      # it for that build's bundle id. Without the secret the pack signs the
+      # plain entitlements and posts plain notifications.
+      - name: Provision the Communication Notifications profile
+        env:
+          MAC_PROVISIONING_PROFILE: ${{ secrets.MAC_PROVISIONING_PROFILE }}
+          # electron-builder.config.cjs derives the app id from
+          # VELLUM_ENVIRONMENT, and the pack step below runs --environment dev.
+          EXPECTED_BUNDLE_ID: com.vellum.vellum-assistant-electron-dev
+        run: |
+          if [ -z "$MAC_PROVISIONING_PROFILE" ]; then
+            echo "::warning::MAC_PROVISIONING_PROFILE is unset, so the native notifier ships disabled: notifications post through Electron without the assistant avatar."
+            exit 0
+          fi
+          PROFILE_PATH="$RUNNER_TEMP/vellum-communication.provisionprofile"
+          echo "$MAC_PROVISIONING_PROFILE" | base64 -D > "$PROFILE_PATH"
+          DECODED_PATH="$RUNNER_TEMP/vellum-communication-profile.plist"
+          # A truncated or mis-encoded secret decodes to a file that codesign
+          # accepts and macOS then rejects at launch, so prove it parses here.
+          if ! security cms -D -i "$PROFILE_PATH" > "$DECODED_PATH"; then
+            echo "::error::MAC_PROVISIONING_PROFILE does not decode as a provisioning profile. Re-export the .provisionprofile from the Apple Developer portal and store it base64-encoded in the secret."
+            exit 1
+          fi
+          # Exporting the variable below makes the pack sign
+          # com.apple.developer.usernotifications.communication unconditionally,
+          # and macOS kills an app whose embedded profile does not authorize
+          # that entitlement for its bundle id. Parsing is therefore not enough.
+          GRANTED="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.usernotifications.communication" "$DECODED_PATH" 2>/dev/null || true)"
+          if [ "$GRANTED" != "true" ]; then
+            echo "::error::The provisioning profile does not grant com.apple.developer.usernotifications.communication. Enable Communication Notifications on the $EXPECTED_BUNDLE_ID App ID in the Apple Developer portal, regenerate the profile, and update the MAC_PROVISIONING_PROFILE secret."
+            exit 1
+          fi
+          # A macOS profile carries the app id under
+          # com.apple.application-identifier; the bare key is the iOS shape,
+          # which some older exports still use.
+          APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          if [ -z "$APPLICATION_ID" ]; then
+            APPLICATION_ID="$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$DECODED_PATH" 2>/dev/null || true)"
+          fi
+          if [ -z "$APPLICATION_ID" ]; then
+            echo "::error::The provisioning profile carries no application-identifier entitlement, so the bundle id it authorizes cannot be read. Re-export the .provisionprofile for the $EXPECTED_BUNDLE_ID App ID and update the MAC_PROVISIONING_PROFILE secret."
+            exit 1
+          fi
+          case "$APPLICATION_ID" in
+            *".$EXPECTED_BUNDLE_ID") ;;
+            *)
+              echo "::error::The provisioning profile authorizes '$APPLICATION_ID', not the '$EXPECTED_BUNDLE_ID' bundle this build packages. Regenerate the profile for that App ID and update the MAC_PROVISIONING_PROFILE secret."
+              exit 1
+              ;;
+          esac
+          echo "VELLUM_MAC_PROVISIONING_PROFILE=$PROFILE_PATH" >> "$GITHUB_ENV"
 
       - name: Build and package Electron app
         env:
@@ -2251,7 +2337,6 @@ jobs:
 
   release-windows:
     needs: [compute-version, register-release, build-chrome-extension]
-    if: vars.WINDOWS_DEV_RELEASE_ENABLED == 'true'
     permissions:
       contents: read
       id-token: write

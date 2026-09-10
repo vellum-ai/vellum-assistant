@@ -4,6 +4,7 @@ import { getConfig } from "../config/loader.js";
 import { HeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
 import { listSchedules, type ScheduleJob } from "../schedule/schedule-store.js";
+import { resolveScheduleTimezone } from "../schedule/schedule-timezone.js";
 
 export type BackgroundWakeIntentReason = "heartbeat" | "schedule" | "mixed";
 
@@ -110,6 +111,7 @@ function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
   const serviceNextRunAt = service?.nextRunAt ?? null;
   let nextRunAt = serviceNextRunAt;
   const mode = config.cronExpression != null ? "cron" : "interval";
+  const timezone = resolveScheduleTimezone(config.timezone);
 
   if (nextRunAt == null) {
     if (config.cronExpression != null) {
@@ -118,7 +120,7 @@ function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
           {
             syntax: "cron",
             expression: config.cronExpression,
-            timezone: config.timezone,
+            timezone,
           },
           now,
         );
@@ -139,7 +141,7 @@ function getHeartbeatWakeSource(now: number): HeartbeatWakeSource | null {
     mode,
     intervalMs: config.intervalMs,
     cronExpression: config.cronExpression,
-    timezone: config.timezone,
+    timezone,
     activeHoursStart: config.activeHoursStart,
     activeHoursEnd: config.activeHoursEnd,
     maxConsecutiveRuns: config.maxConsecutiveRuns,

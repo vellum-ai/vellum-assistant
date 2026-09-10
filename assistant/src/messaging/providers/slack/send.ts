@@ -13,6 +13,11 @@ import type {
   MessageAudience,
   StreamOp,
 } from "@vellumai/gateway-client";
+import {
+  classifyReactionEmojiSpelling,
+  type ReactionEmojiIdentity,
+} from "@vellumai/service-contracts/reactions";
+import { slackEmojiCharacter } from "@vellumai/slack-text";
 
 import type { AssistantActivityPhase } from "../../../api/index.js";
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
@@ -397,7 +402,7 @@ export async function sendSlackReaction(
   action: "add" | "remove",
 ): Promise<ChannelDeliveryResult> {
   const method = action === "add" ? "reactions.add" : "reactions.remove";
-  const bareName = name.replace(/^:+|:+$/g, "");
+  const bareName = slackReactionName(name);
   try {
     await callSlackApi(method, {
       channel,
@@ -420,6 +425,32 @@ export async function sendSlackReaction(
     );
     return { ok: false };
   }
+}
+
+/**
+ * The bare name Slack's reaction methods take: wrapping colons are how a
+ * person types a name, not part of it. Delivery and the recorded identity
+ * both read the spelling through this, so they cannot disagree about it.
+ */
+function slackReactionName(emoji: string): string {
+  return emoji.replace(/^:+|:+$/g, "");
+}
+
+/**
+ * What a name the assistant reacts with means on Slack: the character for a
+ * standard emoji, resolved from Slack's own list, or Slack's name for a
+ * workspace emoji only the workspace can render.
+ */
+export function describeSlackReactionEmoji(
+  emoji: string,
+): ReactionEmojiIdentity {
+  const bareName = slackReactionName(emoji);
+  const character = slackEmojiCharacter(bareName);
+  // A spelling Slack's list lacks is a workspace name, or the character
+  // itself; the contract's grammar tells those apart.
+  return character !== undefined
+    ? { emojiKind: "unicode", emojiName: character }
+    : classifyReactionEmojiSpelling(bareName);
 }
 
 /** How Slack spells each activity phase on an agent session. */

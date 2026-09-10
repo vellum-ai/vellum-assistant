@@ -94,6 +94,7 @@ import {
   isNoResponseMetadata,
   isReactionMessageMetadata,
   isSystemCardMetadata,
+  messageMetadataIsAmbientSightKeep,
   PINNED_GROUP_ID,
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
   sightFrameAttachmentIdsFromMetadata,
@@ -127,6 +128,7 @@ import {
   rawTelemetryRun,
 } from "./raw-query.js";
 import {
+  attachments,
   channelInboundEvents,
   conversations,
   llmRequestLogs,
@@ -388,6 +390,17 @@ export const messageMetadataSchema = z
      */
     messageKind: z.string().optional(),
     /**
+     * How a role-`"assistant"` row's plain text reached the user, stamped only
+     * by a turn that routed its reply through the `send_user_message` tool.
+     * `"private"` marks working notes the user never saw, which every
+     * user-facing read projects out (see `daemon/handlers/user-facing-content`);
+     * `"visible"` marks a fallback turn whose raw text was surfaced and so must
+     * render and deliver like any reply. Absent on every other row. Kept as a
+     * plain string, like {@link messageKind}, so an unknown future value never
+     * fails metadata validation.
+     */
+    assistantTextVisibility: z.string().optional(),
+    /**
      * Stable classified error code (`ClassifiedConversationError.code`, e.g.
      * `"PROVIDER_BILLING"`) stamped alongside
      * `messageKind: "provider_error"` on persisted provider-failure rows.
@@ -416,6 +429,13 @@ export const messageMetadataSchema = z
      * reinjected into LLM-facing content on history reload.
      */
     attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Marks a role-`"user"` row whose arrival interrupted a turn that had made
+     * no tool call yet. `loadFromDb` rebuilds the LLM-facing
+     * `<interrupted_turn>` note from it; the row's own content is exactly what
+     * the user sent, so clients render nothing extra.
+     */
+    interruptedPriorTurn: z.boolean().optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new section block (unwrapped), the v3
      *  counterpart of `memoryInjectedBlock`. A row carries at most one of the
@@ -1094,6 +1114,34 @@ async function insertMessageCore(
     },
     { op: "insertMessageCore", context: { conversationId } },
   );
+}
+
+/**
+ * Id of the row a previous send with this `(conversation, clientMessageId)`
+ * already persisted, or undefined when this send is new.
+ *
+ * The idempotent insert in `addMessage` settles a duplicate on the unique
+ * constraint, which is the authority. This read exists for callers that must
+ * recognise a retransmission BEFORE taking an action the insert cannot undo:
+ * `interrupt-on-send` aborts the running turn, and a retried POST that reached
+ * the abort first would kill the very turn its original request started and
+ * then dedupe without starting a replacement.
+ */
+export function findMessageIdByClientMessageId(
+  conversationId: string,
+  clientMessageId: string,
+): string | undefined {
+  const existing = getDb()
+    .select({ id: messages.id })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.clientMessageId, clientMessageId),
+      ),
+    )
+    .get();
+  return existing?.id;
 }
 
 export function createConversation(
@@ -2703,6 +2751,195 @@ export function selectSightFrameCaptureTimes(
     }
   }
   return captureTimes;
+}
+
+/** One attachment linked to a conversation's messages, as the listing serves it. */
+export interface ConversationAttachmentListing {
+  id: string;
+  originalFilename: string;
+  mimeType: string;
+  sizeBytes: number;
+  kind: string;
+  thumbnailBase64: string | null;
+  fileBacked: boolean;
+  messageId: string;
+  /** The carrying row's `created_at`, which is the capture time for a camera frame. */
+  createdAt: number;
+  /** The attachment is named by the carrying row's `sightFrameAttachmentIds`: the camera gate captured it. */
+  sightFrame: boolean;
+  /** The row is a standalone keep (`messageMetadataIsAmbientSightKeep`): nobody spoke it. A frame that rode a spoken turn is `sightFrame` without `ambientKeep`. */
+  ambientKeep: boolean;
+}
+
+/**
+ * Every attachment linked to a conversation's messages, newest first, across
+ * fork lineage. Metadata only: `data_base64` is never selected, so a page of
+ * listings costs no bytes. Callers fetch content from the attachment content
+ * route. Thumbnails are read in a second query, for the returned page only.
+ *
+ * Driven from `messages` so the lineage predicate rides
+ * `idx_messages_conversation_created_at`. An attachment linked to more than
+ * one row is listed once, on the newest row that carries it. Tool-result rows
+ * are left out: the transcript never shows them, and the assistant row carries
+ * the promoted copy of every image a tool produced.
+ *
+ * The lineage-wide select still reads every linked row: an exact `total` and
+ * the metadata-derived flags are only known after the role and visibility
+ * filters and the dedupe, so that whole-lineage scan is the cost the exact
+ * count carries.
+ */
+export function listConversationAttachments(
+  conversationId: string,
+  options: { sightFrames?: "only" | "exclude"; limit: number; offset: number },
+): { attachments: ConversationAttachmentListing[]; total: number } {
+  const rows = getDb()
+    .select({
+      id: attachments.id,
+      originalFilename: attachments.originalFilename,
+      mimeType: attachments.mimeType,
+      sizeBytes: attachments.sizeBytes,
+      kind: attachments.kind,
+      filePath: attachments.filePath,
+      messageId: messages.id,
+      messageCreatedAt: messages.createdAt,
+      role: messages.role,
+      metadata: messages.metadata,
+    })
+    .from(messages)
+    .innerJoin(
+      messageAttachments,
+      eq(messageAttachments.messageId, messages.id),
+    )
+    .innerJoin(attachments, eq(attachments.id, messageAttachments.attachmentId))
+    .where(
+      and(
+        lineageFilter(conversationId),
+        eq(messages.finalized, 1),
+        excludesToolResultRows(),
+      ),
+    )
+    // `(createdAt, id)` before position and the link's own id after it:
+    // carriers sharing a millisecond, or two links sharing a position, would
+    // otherwise compare equal, so paging and the first-seen dedupe would drift.
+    .orderBy(
+      desc(messages.createdAt),
+      desc(messages.id),
+      asc(messageAttachments.position),
+      asc(messageAttachments.id),
+    )
+    .all();
+
+  const seen = new Set<string>();
+  const listings: ConversationAttachmentListing[] = [];
+  for (const row of rows) {
+    if (row.role !== "user" && row.role !== "assistant") {
+      continue;
+    }
+    if (seen.has(row.id)) {
+      continue;
+    }
+    const parsed = parseMessageMetadata(row.metadata);
+    if (isHiddenMessageMetadata(parsed)) {
+      continue;
+    }
+    // A channel-deleted row renders as a tombstone, so its files stay hidden.
+    if (row.metadata !== null && isChannelDeletedMetadata(row.metadata)) {
+      continue;
+    }
+    seen.add(row.id);
+    const sightFrame = sightFrameAttachmentIdsFromMetadata(parsed).includes(
+      row.id,
+    );
+    const ambientKeep =
+      sightFrame && messageMetadataIsAmbientSightKeep(row.metadata);
+    if (options.sightFrames === "only" && !sightFrame) {
+      continue;
+    }
+    if (options.sightFrames === "exclude" && sightFrame) {
+      continue;
+    }
+    listings.push({
+      id: row.id,
+      originalFilename: row.originalFilename,
+      mimeType: row.mimeType,
+      sizeBytes: row.sizeBytes,
+      kind: row.kind,
+      thumbnailBase64: null,
+      fileBacked: row.filePath != null,
+      messageId: row.messageId,
+      createdAt: row.messageCreatedAt,
+      sightFrame,
+      ambientKeep,
+    });
+  }
+
+  const page = listings.slice(options.offset, options.offset + options.limit);
+  // Separate read so the lineage-wide select never pulls a thumbnail blob for
+  // a row outside the page being returned.
+  if (page.length > 0) {
+    const thumbnailRows = getDb()
+      .select({
+        id: attachments.id,
+        thumbnailBase64: attachments.thumbnailBase64,
+      })
+      .from(attachments)
+      .where(
+        inArray(
+          attachments.id,
+          page.map((listing) => listing.id),
+        ),
+      )
+      .all();
+    const thumbnailById = new Map(
+      thumbnailRows.map((row) => [row.id, row.thumbnailBase64 ?? null]),
+    );
+    for (const listing of page) {
+      listing.thumbnailBase64 = thumbnailById.get(listing.id) ?? null;
+    }
+  }
+
+  return {
+    attachments: page,
+    total: listings.length,
+  };
+}
+
+/**
+ * The newest camera frame in the conversation, by the `createdAt` of the row
+ * that carries it, or null when no row carries one.
+ *
+ * The one-row form of {@link selectSightFrameCaptureTimes}, for a caller that
+ * wants only the latest and runs on every voice turn: every stored frame stays
+ * a row for the life of the conversation, so the full scan grows with the
+ * call. Same narrowing and the same validation, so the two agree on what a
+ * frame is. A row carrying several frames answers with the last attached.
+ */
+export function selectNewestSightFrameCapture(
+  conversationId: string,
+): { attachmentId: string; createdAt: number } | null {
+  const db = getDb();
+  const row = db
+    .select({ metadata: messages.metadata, createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        lineageFilter(conversationId),
+        like(messages.metadata, `%"${SIGHT_FRAME_ATTACHMENT_IDS_KEY}"%`),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  if (!row) {
+    return null;
+  }
+  const ids = sightFrameAttachmentIdsFromMetadata(
+    parseMessageMetadata(row.metadata),
+  );
+  const attachmentId = ids.at(-1);
+  return attachmentId === undefined
+    ? null
+    : { attachmentId, createdAt: row.createdAt };
 }
 
 /**
@@ -4644,6 +4881,54 @@ function isToolResultMessage(role: string, content: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A `WHERE` fragment keeping every row the transcript displays, mirroring
+ * `isToolResultOnlyUserMessage` (`conversations/message-consolidation.ts`) in
+ * SQL: the transcript suppresses a `user` row that carries at least one
+ * tool-result block and nothing besides tool-result and `<system_notice>` text
+ * blocks, and any other element, a non-object one included, makes the row an
+ * ordinary one.
+ *
+ * The classification runs inside SQLite so no message body is read into memory
+ * to decide it. Every `CASE` pins an evaluation order the planner could
+ * otherwise reorder an `AND` chain out of: a plain-text body never reaches a
+ * JSON function, and an element's type is checked before `json_extract` for
+ * the same reason, since `json_each` exposes a bare string element unquoted.
+ * `COALESCE` keeps a missing `$.type` or `$.text` a definite mismatch, since a
+ * NULL inside the `NOT EXISTS` would drop the element from the scan instead.
+ */
+function excludesToolResultRows(): SQL {
+  const blockType = sql`COALESCE(json_extract(block.value, '$.type'), '')`;
+  const blockText = sql`COALESCE(json_extract(block.value, '$.text'), '')`;
+  const isToolBlock = sql`${blockType} IN ('tool_result', 'web_search_tool_result')`;
+  const isNoticeBlock = sql`substr(${blockText}, 1, 15) = '<system_notice>' AND substr(${blockText}, -16) = '</system_notice>'`;
+  return sql`NOT (CASE
+    WHEN ${messages.role} = 'user' AND json_valid(${messages.content})
+      THEN CASE
+        WHEN json_type(${messages.content}) = 'array'
+          THEN EXISTS (
+              SELECT 1 FROM json_each(${messages.content}) AS block
+              WHERE CASE WHEN block.type = 'object' THEN ${isToolBlock} ELSE 0 END
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM json_each(${messages.content}) AS block
+              WHERE CASE
+                WHEN block.type = 'object'
+                  THEN CASE
+                    WHEN ${isToolBlock} THEN 0
+                    WHEN ${blockType} = 'text'
+                      THEN CASE WHEN ${isNoticeBlock} THEN 0 ELSE 1 END
+                    ELSE 1
+                  END
+                ELSE 1
+              END
+            )
+        ELSE 0
+      END
+    ELSE 0
+  END)`;
 }
 
 /**

@@ -31,6 +31,7 @@ import { useChannelReferenceStore } from "@/domains/chat/channel-sidecar/channel
 import { useHasPendingQuestion } from "@/domains/chat/interaction-store";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { useComposerFocusWithin } from "@/domains/chat/hooks/use-composer-focus-within";
+import { useInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { nativeAttachmentPickersAvailable } from "@/domains/chat/components/chat-attachments/native-attachment-pickers";
 import { AddToChatSheet } from "@/domains/chat/components/chat-composer/add-to-chat-sheet";
@@ -816,6 +817,13 @@ export function ChatComposer({
   const hasStagedContext = hasStagedQuotes || hasStagedChannelReference;
   const canSendMessageContent =
     Boolean(input.trim()) || canSendAttachments || hasStagedContext;
+  // Under `interrupt-on-send` a turn in flight changes nothing about the
+  // composer: the message the user types stops that turn and is answered at
+  // once, so Send stays where it is and Stop has nothing left to offer that
+  // Send does not. The row keeps its resting shape (attach, dictation, voice,
+  // Send) for the whole turn.
+  const interruptOnSend = useInterruptOnSend();
+  const busyRowActive = isAssistantBusy && !interruptOnSend;
   // The busy row holds exactly one control, and stop is the default: it is the
   // only escape from a turn already running. Send takes the slot only where it
   // is strictly better, which is where the keyboard cannot submit AND pressing
@@ -1733,8 +1741,8 @@ export function ChatComposer({
                               {contextWindowIndicatorSlot}
                             </div>
                           ) : null}
-                          {!isAssistantBusy && attachControl}
-                          {!isAssistantBusy && (
+                          {!busyRowActive && attachControl}
+                          {!busyRowActive && (
                             <div
                               aria-hidden="true"
                               className="-ml-0.5 mb-2 h-6 w-px shrink-0 bg-[var(--border-hover)]"
@@ -1754,7 +1762,7 @@ export function ChatComposer({
                           data-slot="composer-inline-actions-end"
                           className="ml-auto flex shrink-0 items-end gap-1.5"
                         >
-                          {isAssistantBusy ? (
+                          {busyRowActive ? (
                             busyRowControl
                           ) : (
                             <>
@@ -1776,8 +1784,8 @@ export function ChatComposer({
                       <div className="flex items-center justify-between gap-1 px-2 pb-2">
                         <div className="flex min-w-0 items-center gap-2">
                           {contextWindowIndicatorSlot}
-                          {!isAssistantBusy && attachControl}
-                          {!isAssistantBusy && thresholdPickerSlot ? (
+                          {!busyRowActive && attachControl}
+                          {!busyRowActive && thresholdPickerSlot ? (
                             <div
                               aria-hidden="true"
                               className="h-4 w-px shrink-0 bg-[var(--border-hover)] touch-mobile:-mx-1"
@@ -1786,7 +1794,7 @@ export function ChatComposer({
                           {thresholdPickerSlot}
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
-                          {isAssistantBusy ? (
+                          {busyRowActive ? (
                             busyRowControl
                           ) : (
                             <>

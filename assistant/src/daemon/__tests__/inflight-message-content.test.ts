@@ -47,6 +47,16 @@ function rawRow(messageId: string): { content: string; finalized: number } {
     .get(messageId) as { content: string; finalized: number };
 }
 
+function rawMetadata(messageId: string): Record<string, unknown> {
+  const sqlite = getSqliteFrom(getDb());
+  const row = sqlite
+    .query("SELECT metadata FROM messages WHERE id = ?")
+    .get(messageId) as { metadata: string | null };
+  return row?.metadata
+    ? (JSON.parse(row.metadata) as Record<string, unknown>)
+    : {};
+}
+
 /** Mirror the reserve seam: writer first, row born with its ref. */
 async function reserveInflight(): Promise<{
   conversationId: string;
@@ -215,5 +225,60 @@ describe("finalizeStrandedInflightContent", () => {
     await finalizeStrandedInflightContent(writers, rlog);
     expect(writers.size).toBe(0);
     expect(JSON.parse(rawRow(messageId).content)).toEqual([textBlock("done")]);
+  });
+});
+
+/**
+ * Metadata the finalize was carrying has to survive a failed write.
+ *
+ * A finalize that exhausts its SQLite retries leaves the row `finalized = 0`
+ * and its writer in place so the turn tail can retry. The retry re-reads the
+ * content off the row, but the metadata lives only in the caller's arguments,
+ * so it has to be parked on the writer or the second write silently drops it:
+ * a fallback row reserved `"private"` and finalized `"visible"` would keep the
+ * stale marker, and its reply would project to working notes.
+ */
+describe("metadata across a retried finalize", () => {
+  test("the stranded retry stamps what the failed attempt was carrying", async () => {
+    const { messageId, writer } = await reserveInflight();
+    appendInflightSnapshot(writer, [textBlock("the fallback reply")], 1, rlog);
+    // The state a finalize leaves behind when its write never lands.
+    writer.pendingMetadataUpdates = { assistantTextVisibility: "visible" };
+
+    await finalizeStrandedInflightContent(new Map([[messageId, writer]]), rlog);
+
+    expect(rawRow(messageId).finalized).toBe(1);
+    expect(rawMetadata(messageId).assistantTextVisibility).toBe("visible");
+  });
+
+  test("a finalize parks its updates and clears them once the write lands", async () => {
+    const { messageId, writer } = await reserveInflight();
+
+    const persisted = await finalizeInflightContent(
+      writer,
+      messageId,
+      JSON.stringify([textBlock("done")]),
+      rlog,
+      { assistantTextVisibility: "visible" },
+    );
+
+    expect(persisted).toBe(true);
+    expect(rawMetadata(messageId).assistantTextVisibility).toBe("visible");
+    // Cleared, so a later stranded pass cannot re-stamp a settled row.
+    expect(writer.pendingMetadataUpdates).toBeUndefined();
+  });
+
+  test("a finalize with no metadata leaves the row's own metadata alone", async () => {
+    const { messageId, writer } = await reserveInflight();
+
+    await finalizeInflightContent(
+      writer,
+      messageId,
+      JSON.stringify([textBlock("done")]),
+      rlog,
+    );
+
+    expect(rawMetadata(messageId).assistantTextVisibility).toBeUndefined();
+    expect(writer.pendingMetadataUpdates).toBeUndefined();
   });
 });

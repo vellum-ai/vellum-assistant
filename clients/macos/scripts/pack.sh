@@ -51,7 +51,10 @@ done
 
 export VELLUM_ENVIRONMENT="${VELLUM_ENVIRONMENT:-local}"
 
-ARCH="${ELECTRON_TARGET_ARCH:-arm64}"
+# Exported rather than only read: build-notifier.sh defaults to the host's
+# architecture, and a pack has to get the one it is packaging.
+export ELECTRON_TARGET_ARCH="${ELECTRON_TARGET_ARCH:-arm64}"
+ARCH="$ELECTRON_TARGET_ARCH"
 case "$ARCH" in
   arm64) BUN_ARCH=aarch64 ;;
   x64)   BUN_ARCH=x64 ;;
@@ -73,6 +76,7 @@ bash scripts/fetch-bun.sh --arch "$BUN_ARCH"
 bash scripts/generate-icon.sh
 bash scripts/generate-dmg-background.sh
 bash scripts/build-mac-helper.sh
+bash scripts/build-notifier.sh
 bun run build:web
 bash scripts/generate-cli-lockfile.sh
 electron-vite build

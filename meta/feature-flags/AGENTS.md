@@ -46,6 +46,14 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
 
 3. **Create the flag via Terraform in `vellum-assistant-platform`** so it exists on the platform for remote sync.
 
+   If the Terraform PR is not in the same change, add one short row to
+   `PENDING_PLATFORM_PRS.md`: flag key, and a one-line note (open PR number,
+   or "not opened"). Do not write essays in that file. Delete the row the
+   moment the key exists in
+   `vellum-assistant-platform/terraform/gcp/env/prod/vellum-assistant/main.tf`.
+   Do not list flags that are already provisioned, missing from the
+   registry, or only living on an unmerged feature branch.
+
 ## Retiring a Flag
 
 1. **Remove the code reads and the registry entry in the same PR.** A registry-only removal breaks the gated surface silently: the web flag stores hold `Record<string, boolean>` state behind the `createSelectors` Proxy (`clients/web/src/utils/create-selectors.ts`), so `store.use.<removedKey>()` still type-checks and just returns `undefined`. The gate reads falsy, the surface vanishes, and no type check or test fails.

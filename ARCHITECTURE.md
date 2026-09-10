@@ -24,6 +24,8 @@ This file is the cross-system architecture index. Detailed designs live in domai
 | Web search failure normalization            | [Web Search Failure Normalization](#web-search-failure-normalization) (this file)                  |
 | Workflow orchestration engine               | [Workflow Orchestration Engine](#workflow-orchestration-engine) (this file)                        |
 | Watch sessions                              | [Watch Sessions](#watch-sessions) (this file)                                                      |
+| Screen annotation                           | [Screen Annotation](#screen-annotation) (this file)                                                |
+| Notification sender avatars                  | [Notification Sender Avatars](#notification-sender-avatars) (this file)                            |
 | Workflow authoring guide                    | [`assistant/docs/workflows.md`](assistant/docs/workflows.md)                                       |
 | Workflow manual testing runbook             | [`assistant/docs/workflows-testing.md`](assistant/docs/workflows-testing.md)                       |
 | Service communication matrix                | [`docs/service-communication-matrix.md`](docs/service-communication-matrix.md)                     |
@@ -797,6 +799,107 @@ graph LR
     TL -->|"rendered timeline (fenced)"| RETRO
     RETRO -->|"prompt as a wake hint"| WAKE
     WAKE -->|"assistant report only"| CONV
+```
+
+## Screen Annotation
+
+The assistant points at things on the screen the user is sharing with a call, so they can go and do the thing themselves. It is the opposite errand from computer use and shares none of its actions: nothing here clicks, types or takes the mouse. The bundled `screen-annotation` skill (`assistant/src/config/bundled-skills/screen-annotation/`) offers two tools, `screen_point_at` and `screen_clear_marks`, and a request replaces whatever is currently drawn. Clearing is its own tool because it is a thing the model decides to do rather than an argument shape it has to remember; on the wire it is the same request carrying no marks.
+
+**Offered on a negotiated capability, not on an interface.** The marks are drawn in a window the client opens for itself, so a client without one cannot answer the request at all. `host_cu_annotate` is therefore claimed by the client on its SSE connection (`X-Vellum-Cu-Annotate`, read in `assistant/src/runtime/routes/events-routes.ts`) rather than inferred from the interface, and `host-proxy-preactivation.ts` attaches the skill only when a connected client claims it. Offered from the `host_cu` transport alone the skill would reach Windows and Linux turns, whose executors forward it to a native helper that has no such action.
+
+**Routing.** The tools forward under the wire name `computer_use_point_at` (`assistant/src/tools/computer-use/skill-proxy-bridge.ts`), because that prefix is what `surfaceProxyResolver` routes to a desktop client. `hostCuCapabilityFor` maps that one name to `host_cu_annotate`, so the same-actor gate and the audit line name the capability that actually gated the request, and the call is exempt from the computer-use step budget.
+
+**Answered in Electron main, not in the helper.** `PointAtExecutor` (`clients/macos/src/main/executors/host-cu-executor.ts`) intercepts the pointing tool and forwards every other tool to the shared native helper. The frame the marks land on belongs to this client, and the shared executor is the transport every desktop client uses. The painter itself is handed in by `host-proxy-adapter.ts` rather than imported, since an executor reaching into the window layer would be the transport depending on what it transports to.
+
+**A name is resolved, not estimated.** A mark either names a control (`{target}`) or gives bounds. Naming is the path that works: `showCompanionCoachmarks` asks the helper's `ax.locate` for the frame the accessibility tree already holds (`AXTargetMatch`, exact match or nothing, with candidates clipped to what can actually be seen on the shared surface), then converts screen points to fractions of that surface. Bounds are for what has no label to find it by, and are the model's guess at where the thing is. `AXTargetMatch` refuses anything it fits more than once: a ring drawn confidently around the wrong control is worse than one not drawn, because the person following it cannot tell.
+
+**Failure boundaries.** Every way a request can fail to draw is an `executionError` rather than a result, so the turn cannot go on describing a ring that is not there. A refusal says the surface is not this turn's to draw on: nothing shared, the share belongs to another conversation, the coordinates were measured against a surface the user has since left, or a later request has taken the screen. An unresolved name says the surface is fine and the name is not on it, and carries the names that are, so the next attempt can pick one. That list is bounded in the helper that reads the tree (`AXLabel.shortlist`) rather than at the far end that only sees what already crossed, since a web page is ten thousand elements and any of them can be carrying a paragraph of `aria-label`; the count of how many there were travels beside it.
+
+**Lifetime.** Marks are drawn in the companion's watch frame (`clients/web/src/components/companion-coachmarks.tsx`, placed by `companion-window.ts`) and come down on their own when the share ends or moves to another surface, since a mark that outlives the surface it was measured against rings whatever has moved under it. Drawing also drops the frame's own annotating mode: a mark says go and press that, and the press has to reach the app underneath.
+
+```mermaid
+graph LR
+    SKILL["screen-annotation skill<br/>screen_point_at · screen_clear_marks"]
+    BRIDGE["skill-proxy-bridge<br/>computer_use_point_at"]
+    ROUTE["host-cu-target<br/>host_cu_annotate · same actor"]
+    SSE["Host proxy SSE<br/>X-Vellum-Cu-Annotate"]
+    EXEC["PointAtExecutor<br/>Electron main"]
+    HELPER["Shared CU helper<br/>every other tool"]
+    PAINT["showCompanionCoachmarks<br/>owns the surface"]
+    LOCATE["ax.locate<br/>AXTargetMatch · clipped"]
+    FRAME["Watch frame<br/>companion-coachmarks.tsx"]
+
+    SKILL --> BRIDGE
+    BRIDGE --> ROUTE
+    ROUTE -->|"dispatch to the claiming client"| SSE
+    SSE --> EXEC
+    EXEC -->|"every other tool"| HELPER
+    EXEC -->|"marks + conversation id"| PAINT
+    PAINT -->|"named target"| LOCATE
+    LOCATE -->|"frame in screen points"| PAINT
+    LOCATE -->|"bounded candidate labels"| PAINT
+    PAINT -->|"fractions of the surface"| FRAME
+    PAINT -->|"placed · refused · unresolved"| EXEC
+```
+
+## Notification Sender Avatars
+
+A native notification from an assistant is drawn as a message from that assistant: the assistant's avatar is the icon, its name is the first line, the conversation title drops to the second, and the body is unchanged. One drawing reaches five delivery paths (an iOS extension, an Android messaging service, and three Electron shells), and one client-scoped flag, `push-avatar-sender`, decides whether any notification carries a sender at all. It defaults off in `meta/feature-flags/feature-flag-registry.json`, the platform reads the same key server-side for pushes, and `meta/feature-flags/PENDING_PLATFORM_PRS.md` tracks the companion platform entry.
+
+**One disc, one spec.** `packages/avatar-manifest/src/notification-avatar.ts` (the `@vellumai/avatar-manifest/notification-avatar` subpath) owns the drawing: a 256px square holding a disc inscribed in it, filled with the assistant's accent mixed 14% into white (`#ECEFEA` when there is no accent), with the avatar cover-cropped into the inner square 11% in from each side and clipped to the same circle the fill uses. The corners stay transparent deliberately, because iOS, Android, and the Windows toast logo slot all circle-crop what they are handed and a square of colour would show through as a ring anywhere that does not. The module is arithmetic and string building with no decoder and no node builtins, so both rasterizers call it: the daemon feeds `notificationAvatarSvg()` to resvg, and the web renderer draws the same geometry on a canvas. `NOTIFICATION_AVATAR_SPEC_VERSION` rides the sync's dedupe key so a change to the drawing re-uploads a disc whose source avatar never moved. Two caps live here and differ on purpose: `NOTIFICATION_AVATAR_MAX_BYTES` (128 KB) bounds the PNG that crosses a push transport, `NOTIFICATION_AVATAR_MAX_LOCAL_BYTES` (512 KB) the one that only crosses local IPC.
+
+**The daemon renders it and syncs it.** `assistant/src/avatar/notification-avatar.ts` builds the SVG and rasterizes it with resvg, loaded lazily through `assistant/src/avatar/resvg-lazy.ts` because the platform-specific native addon is absent from `bun --compile` binaries and a top-level import would take the daemon down at startup. A WebP source is transcoded to PNG first (resvg has no WebP decoder and renders such an `<image>` href blank), and an over-cap render is quantised to a palette PNG and dropped if that still misses. Every failure returns `null` rather than throwing, because the point is to leave the platform holding whatever it already has. `assistant/src/platform/sync-avatar.ts` folds the result into the avatar PATCH the daemon already sends to `/v1/assistants/{id}/`: `notification_avatar_base64` beside `avatar_base64`, both `null` when the avatar is removed, and the field omitted rather than nulled when no disc could be drawn. Its dedupe key is `<kind>:<raster digest>:<spec version>:<accent>:<disc|none>`, whose last segment is answered by `canRenderNotificationAvatar()`, a probe rather than a render. Folding render availability into the key is what keeps a sync that shipped only `avatar_base64` (no native rasterizer, no codec for the source) from latching for the key's whole 7-day life: the key moves the moment the cause clears. A platform that 400s the field gets exactly one reduced re-send without it, and `assistant/src/platform/platform-patch-queue.ts` persists the key the request actually shipped rather than the optimistic one the body was enqueued under.
+
+**The push carries a sender, not a picture.** The platform owns both payload shapes and gates them on `push-avatar-sender`. APNs pushes gain a top-level `sender` block (`id`, `name`, `avatar_url`, `avatar_hash`) beside `aps`, plus `aps.mutable-content: 1` so the extension is allowed to run; the conversation title stays in `aps.alert.title`. FCM pushes to a capable Android shell go data-only, with flat `sender_id`, `sender_name`, `sender_avatar_url`, and `sender_avatar_hash` keys in `data` alongside `title`, `body`, and `channel_id`. A data-only message only reaches a token whose registration claimed the `native-notification-render` capability, which `clients/web/src/runtime/push-registration.ts` sends on the Android upsert from `AndroidPushRegistration.getCapabilities()`. That is a plugin-method presence check rather than a version comparison, so an older shell claims nothing and keeps receiving notification-block pushes. The claim is deliberately not gated on the flag: it says what a shell could render, not what the platform chooses to send.
+
+**iOS rewrites the push in an extension.** `clients/ios/App/NotificationService/` is a `UNNotificationServiceExtension` embedded by all three app targets. `SenderPayload.parse` requires a non-empty `id`, `name`, and `avatar_hash`; anything less and the push is delivered untouched. With a sender and an avatar in hand, `CommunicationContent.swift` donates an `INSendMessageIntent` whose `sender` is the assistant and whose `conversationIdentifier` is the assistant id (the same grouping macOS uses), makes it a two-recipient group whose `speakableGroupName` is the push title so the title lands on line two, and returns `content.updating(from:)`. `AvatarCache.swift` keeps the picture at `<App Group container>/Library/Caches/notification-avatars/<sha256>.png`: HTTPS only, 512 KB, eight entries evicted oldest-first by mtime, a 6-second monotonic download budget checked between bytes, and the bytes re-hashed before they are drawn, with symlinked or non-regular entries deleted rather than followed. Every failure path delivers the original content through the same one-shot handler, so a rewrite is never partial; the reasons are logged under stable `nse.` prefixes that `clients/ios/README.md` documents and a script test pins. The app targets carry `com.apple.developer.usernotifications.communication` and `NSUserActivityTypes = [INSendMessageIntent]`, the extension restates the App Group id in its own `Info.plist` because an entitlement is not Swift-readable, and `release-ios.yaml` asserts the App Group on every profile and the communication entitlement on the app's own before it archives. See [`clients/ios/README.md`](clients/ios/README.md#signing-four-profiles-per-environment).
+
+**Android renders the push itself.** `SafeMessagingService` is Firebase's message entry point in place of Capacitor's, and it routes each push to exactly one renderer: a push carrying a Firebase notification block, or a data-only push the web layer can render right now, goes to `PushNotificationsPlugin`; everything else is rendered natively, including a data-only push that arrives while the app is on screen but the bridge is not up yet, so a cold start never drops one. "Right now" means an activity of ours is resumed and the web runtime holds a foreground push handler, which it asserts through `AndroidPushRegistration.setForegroundHandler` for exactly as long as it holds one; those foreground pushes are drawn by the web layer and carry no avatar treatment. `NativePushRenderer` posts a `MessagingStyle` conversation notification on the `vellum-alerts` channel with the assistant as the `Person`, the conversation title as the conversation title, and a long-lived conversation shortcut (at most two, and none for a self-hosted assistant). `AvatarCache.java` keeps the same file shape in the app's own cache directory, `<cacheDir>/notification-avatars/<sha256>.png`, under the same 512 KB and eight-file limits and the same re-hash-before-drawing rule, bounded by a 3-second connect, a 3-second response budget that starts before the response head, and a 2-second read timeout, with the bitmap sampled down to 512px so the Firebase callback's heap is not the limit. A native render that throws falls through to the plugin rather than losing the push, and a missing avatar posts the same notification without one. See [`clients/android/README.md`](clients/android/README.md#native-notifications).
+
+**The desktop composites in the renderer.** Electron's main process has no canvas, so `clients/web/src/hooks/use-notification-avatar-sync.ts` (mounted once in `root-layout.tsx`, and only on Electron, outside a pop-out, under the flag) draws the same disc with `rasterizeNotificationAvatar` and parks the PNG and its SHA-256 in the module-level holder at `clients/web/src/runtime/notification-avatar.ts`. It is keyed on the assistant, the spec version, the accent, and the avatar's manifest identity rather than its blob URL, which the query mints fresh on every refetch; an over-cap render is a settled answer that keeps the key, while a transient one buys exactly one redraw. `senderPayload()` in `clients/web/src/runtime/notifications.ts` then attaches `sender` to the `vellum:notifications:show` payload the renderer already sends, but only when the flag is on and the holder and the identity both name the active assistant. `packages/ipc-contract` adds `NotificationSender` to `ShowNotificationPayload` with `avatarHash` constrained to 64 lowercase hex characters and `avatarBase64` bounded by the local cap, and the field is `.catch(undefined)` so a malformed decoration costs the avatar rather than the notification. `packages/electron-desktop/src/notifications.ts` decodes the base64 once at the IPC boundary and hands the bytes to the client's `create` factory. Because every OS reads a sender image from a file, `packages/electron-desktop/src/notification-avatar-file.ts` stages them at `<userData>/notification-avatars/<sha256>.png`: it recomputes the digest rather than trusting the name (the name is what could escape the directory), counts a cache entry as a hit only while its length matches, stamps mtime on every hit, and prunes past the 16 newest while sparing any file younger than ten minutes, since a posted notification may still be reading its picture. `notification-avatar-path.ts` wraps that so a throw is logged and reported as "no avatar", and `helper-toast-request.ts` derives the one toast request the Windows and Linux helper factories both send.
+
+**macOS posts through a native addon.** Electron exposes no intent API, so `clients/macos/native/notifier/notifier.mm` posts through `UNUserNotificationCenter` and donates an `INSendMessageIntent` itself. It handles only notifications that carry a sender; everything else goes through the shared `createElectronNotification`, which makes the flag a kill switch for the whole delivery path without a new build. Electron's `NotificationPresenterMac` claims the notification center's delegate the moment it is constructed and discards responses for identifiers it does not own, so the addon installs its own delegate in front of it, holds a strong reference to the one it displaced, and forwards everything it does not own there; `src/main/index.ts` builds Electron's presenter deliberately at startup with nothing on screen and then puts the proxy back, and every later post re-asserts it. Action categories are registered up front because `setNotificationCategories:` applies asynchronously and a category first registered in the runloop turn its notification is posted can miss it. `com.apple.developer.usernotifications.communication` is a restricted entitlement that kills an unauthorized app at launch, so it is added at pack time by `scripts/entitlements/derive-communication-entitlements.js` only when a provisioning profile granting it is present, and the intent path fails closed everywhere else. See [`clients/macos/README.md`](clients/macos/README.md#native-notifier).
+
+**Windows and Linux go through the shared seams.** Windows delivers through its native helper, which is already the only path with per-category action buttons: `buildHelperToastRequest` puts the assistant's name in the title, the conversation title in the subtitle, and the staged file path in `avatarPath`, and `NotificationService.cs` emits it as `<image placement="appLogoOverride" hint-crop="circle">` pointing at a `file://` URI built from escaped path segments, with the app name left in the attribution line. Linux has the same helper seam but ships no helper binary, so delivery falls to the shared module's `electron.Notification` path, which passes the disc as `icon` on Linux alone: libnotify draws it as the notification's image and takes the app icon from the desktop entry, while macOS would draw it as a right-side thumbnail and a Windows toast has no icon slot there at all. See [`clients/windows/docs/parity-matrix.md`](clients/windows/docs/parity-matrix.md).
+
+```mermaid
+graph TB
+    SPEC["packages/avatar-manifest<br/>notification-avatar.ts<br/>256px disc · 11% inset<br/>accent mixed 14% into white"]
+
+    subgraph "Daemon"
+        REND["avatar/notification-avatar.ts<br/>resvg (lazy) · quantise · cap 128 KB"]
+        SYNC["platform/sync-avatar.ts<br/>notification_avatar_base64<br/>key: kind:digest:spec:accent:disc"]
+        QUEUE["platform-patch-queue.ts<br/>PATCH /v1/assistants/{id}/<br/>one reduced re-send on 400"]
+    end
+
+    PLAT["Platform record<br/>notification_avatar + hash<br/>gated on push-avatar-sender"]
+
+    subgraph "Push"
+        APNS["APNs<br/>sender block + mutable-content"]
+        FCM["FCM data-only<br/>flat sender_* keys<br/>tokens claiming native-notification-render"]
+    end
+
+    NSE["iOS NotificationService<br/>INSendMessageIntent donation<br/>App Group avatar cache"]
+    AND["SafeMessagingService<br/>NativePushRenderer MessagingStyle<br/>cacheDir avatar cache"]
+
+    subgraph "Electron"
+        WEBH["use-notification-avatar-sync<br/>canvas composite · holder"]
+        IPCC["vellum:notifications:show<br/>sender { id, name, base64, hash }"]
+        FILE["notification-avatar-file.ts<br/>userData/notification-avatars/&lt;sha256&gt;.png"]
+        MACN["macOS notifier addon<br/>delegate proxy in front of Electron"]
+        WIN["Windows helper toast<br/>appLogoOverride"]
+        LIN["Linux electron.Notification<br/>icon"]
+    end
+
+    SPEC --> REND
+    SPEC --> WEBH
+    REND --> SYNC --> QUEUE --> PLAT
+    PLAT --> APNS --> NSE
+    PLAT --> FCM --> AND
+    WEBH --> IPCC --> FILE
+    FILE --> MACN
+    FILE --> WIN
+    IPCC --> LIN
 ```
 
 ## Maintenance Rule

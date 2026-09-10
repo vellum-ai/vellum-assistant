@@ -28,6 +28,7 @@ mock.module("../../../config/env.js", () => ({
 
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import { authenticateRequest } from "../middleware.js";
+import { CURRENT_POLICY_EPOCH } from "../policy.js";
 import { initAuthSigningKey, mintToken } from "../token-service.js";
 import type { ScopeProfile, TokenAudience } from "../types.js";
 
@@ -322,4 +323,39 @@ describe("authenticateRequest for /v1/host-browser-result", () => {
       expect(result.context.actorPrincipalId).toBe("dev-bypass");
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// oauth_proxy_v1 grants: the narrow bearer a third-party CLI presents to the
+// OAuth passthrough route. Accepted on either audience, and carrying nothing
+// but oauth.proxy.
+// ---------------------------------------------------------------------------
+
+describe("authenticateRequest for oauth_proxy_v1 grants", () => {
+  test.each(["vellum-daemon", "vellum-gateway"] as const)(
+    "accepts an %s-audience grant and grants only oauth.proxy",
+    (aud) => {
+      const token = mintValidToken({
+        aud,
+        sub: "local:self:oauth-proxy.stripe_link",
+        scope_profile: "oauth_proxy_v1",
+        policy_epoch: CURRENT_POLICY_EPOCH,
+        ttlSeconds: 60,
+      });
+
+      const req = new Request(
+        "http://localhost/v1/oauth/proxy/stripe_link/v1/accounts",
+        { method: "GET", headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      const result = authenticateRequest(req);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.context.principalType).toBe("local");
+        expect(result.context.conversationId).toBe("oauth-proxy.stripe_link");
+        expect(result.context.scopes.has("oauth.proxy")).toBe(true);
+        expect(result.context.scopes.has("settings.write")).toBe(false);
+      }
+    },
+  );
 });

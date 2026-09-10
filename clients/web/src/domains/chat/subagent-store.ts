@@ -37,6 +37,11 @@ import {
   canAddressSubagentDetail,
   resolveSubagentDetailConversationId,
 } from "./store-helpers/subagent-detail-addressability";
+import {
+  COMMAND_KEYS,
+  FILE_PATH_KEYS,
+  readToolInputString,
+} from "@/domains/chat/utils/tool-input";
 
 // ---------------------------------------------------------------------------
 // State
@@ -542,25 +547,31 @@ function mapInnerEventType(
   }
 }
 
+/**
+ * Fields that can identify a tool call, most identifying first. Not aliases of
+ * one another: this scan does not know which tool ran, so it takes whichever of
+ * these the input happens to carry.
+ */
 const TOOL_INPUT_PRIORITY_KEYS = [
-  "command",
-  "file_path",
-  "path",
+  ...COMMAND_KEYS,
+  ...FILE_PATH_KEYS,
   "query",
   "url",
   "pattern",
   "glob",
 ] as const;
 
-/** Extract a short summary string from a tool_use_start input object. */
+/**
+ * Extract a short summary string from a tool_use_start input object.
+ *
+ * Unlike the per-tool readers this does not know which tool ran, so it takes
+ * the first identifying string the input happens to carry. Blank values are
+ * skipped rather than winning: an input with an empty `command` and a real
+ * `url` summarises as the url.
+ */
 function summarizeToolInput(input: Record<string, unknown>): string {
-  for (const key of TOOL_INPUT_PRIORITY_KEYS) {
-    const value = input[key];
-    if (typeof value === "string") {
-      return value.length > 120 ? value.slice(0, 117) + "..." : value;
-    }
-  }
-  return "";
+  const value = readToolInputString(input, ...TOOL_INPUT_PRIORITY_KEYS);
+  return value.length > 120 ? value.slice(0, 117) + "..." : value;
 }
 
 /**

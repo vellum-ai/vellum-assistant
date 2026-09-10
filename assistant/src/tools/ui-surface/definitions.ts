@@ -7,6 +7,7 @@
  * handled locally by the daemon.
  */
 
+import { withSurfaceShowNote } from "../../api/surface-show-result.js";
 import {
   coerceSurfaceDataRecord,
   normalizeVisualShowData,
@@ -14,6 +15,7 @@ import {
 import { RiskLevel } from "../../permissions/types.js";
 import { isWeakOpenModel } from "../../providers/weak-open-model.js";
 import { desktopClientName } from "../client-os.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -48,6 +50,13 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    // Showing or updating a surface writes to the user's screen. Dismissal is
+    // teardown and still runs on a cancelled turn, so the surface the model
+    // opened does not outlive the turn that opened it.
+    if (toolName !== "ui_dismiss") {
+      throwIfCancelled(context);
+    }
+
     if (toolName === "ui_show") {
       const teachingError = uiShowTeachingError(input);
       if (teachingError !== null) {
@@ -102,7 +111,7 @@ function proxyExecute(toolName: string) {
     ) {
       return {
         ...result,
-        content: `${result.content}\n\n${TASK_PROGRESS_UPDATE_HINT}`,
+        content: withSurfaceShowNote(result.content, TASK_PROGRESS_UPDATE_HINT),
       };
     }
     return result;
@@ -131,10 +140,10 @@ const EMPTY_DYNAMIC_PAGE_DECLARATIVE_REDIRECT =
   'Error: ui_show dynamic_page was not displayed — `data.html` was empty, so the user would see a blank box. Authoring full HTML inline is error-prone; for data, comparisons, results, or metrics prefer a structured surface, which you fill with fields (no HTML) and which never renders blank. Re-show the content as one of: a `table` (ui_show { surface_type: "table", data: { columns: [{ id, label }], rows: [{ id, cells: { <columnId>: "<value>" } }] } }), a `card` ({ title, body, metadata: [{ label, value }] }), or `work_result` ({ summary, metrics: [{ label, value }] }). Only use dynamic_page when you genuinely need custom visual HTML, in which case include the complete markup in `data.html` now.';
 
 /**
- * Worked ui_update example, appended to a successful task_progress `ui_show`
- * result so the model learns the update pattern at the point of use (with the
- * real surface_id in hand) rather than carrying it in the always-present tool
- * description.
+ * Worked ui_update example, carried as a `note` on a successful task_progress
+ * `ui_show` result so the model learns the update pattern at the point of use
+ * (with the real surface_id in hand) rather than carrying it in the
+ * always-present tool description.
  */
 const TASK_PROGRESS_UPDATE_HINT =
   'As each step finishes, call ui_update with this surface_id to advance it — e.g. ui_update { surface_id: "<the surface_id above>", data: { templateData: { steps: [{ label: "Scaffold project", status: "completed" }, { label: "Wire up commands", status: "in_progress" }] } } }';

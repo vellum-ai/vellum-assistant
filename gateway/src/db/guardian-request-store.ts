@@ -171,8 +171,9 @@ function rowToDelivery(
 
 export interface CreateGuardianRequestParams {
   /**
-   * Caller-supplied ids are honored — they are load-bearing (deterministic
-   * `access-req-...` ids, pending-interaction requestIds reused as PK).
+   * Caller-supplied ids are honored because they are load-bearing:
+   * interaction-bound kinds reuse the pending-interaction requestId as PK.
+   * The insert is strict, so a duplicate id is a caller bug, not an upsert.
    */
   id?: string;
   kind: string;

@@ -57,12 +57,13 @@ function emptyReasonCounts(): Record<FrameGateReason, number> {
     warmup: 0,
     featureless: 0,
     first: 0,
-    "rate-floor": 0,
     moving: 0,
+    settling: 0,
     heartbeat: 0,
     novel: 0,
     unchanged: 0,
     forced: 0,
+    answered: 0,
   };
 }
 
@@ -71,7 +72,7 @@ export const FRAME_GATE_OVERRIDE_KEYS = [
   "noveltyThreshold",
   "settleThreshold",
   "minDetail",
-  "minIntervalMs",
+  "forcedNoveltyThreshold",
   "maxIntervalMs",
 ] as const;
 
@@ -98,7 +99,7 @@ export const FRAME_GATE_SLIDER_BOUNDS: Record<
   noveltyThreshold: { min: 0, max: 2, step: 0.01 },
   settleThreshold: { min: 0, max: 0.5, step: 0.005 },
   minDetail: { min: 0, max: 60, step: 1 },
-  minIntervalMs: { min: 0, max: 30_000, step: 250 },
+  forcedNoveltyThreshold: { min: 0, max: 2, step: 0.01 },
   maxIntervalMs: { min: 1_000, max: 120_000, step: 1_000 },
 };
 
@@ -108,7 +109,7 @@ export function defaultFrameGateOverrides(): FrameGateOverrides {
     noveltyThreshold: DEFAULT_FRAME_GATE_OPTIONS.noveltyThreshold,
     settleThreshold: DEFAULT_FRAME_GATE_OPTIONS.settleThreshold,
     minDetail: DEFAULT_FRAME_GATE_OPTIONS.minDetail,
-    minIntervalMs: DEFAULT_FRAME_GATE_OPTIONS.minIntervalMs,
+    forcedNoveltyThreshold: DEFAULT_FRAME_GATE_OPTIONS.forcedNoveltyThreshold,
     maxIntervalMs: DEFAULT_FRAME_GATE_OPTIONS.maxIntervalMs,
   };
 }
@@ -128,7 +129,7 @@ type MutableFrameGateOptions = {
  *
  * Never put this in an effect's dependency array: it is a stable reference on
  * purpose, and an effect that rebuilt a gate when a threshold moved would
- * reset the rate floor and fire an unwanted keep.
+ * drop the baseline and fire an unwanted first keep.
  */
 const liveOptions: MutableFrameGateOptions = { ...DEFAULT_FRAME_GATE_OPTIONS };
 
@@ -477,51 +478,20 @@ function clampFrameGateOverride(
 
 /**
  * A complete set every threshold of which the gate can honor: each value
- * inside its own slider's range, and the interval pair the right way round.
+ * inside its own slider's range.
  *
  * The one seam a value passes through on its way into the store or the gate,
  * so a restored payload and a moved slider land on the same numbers the gate
  * applies. A readout drawing a value the gate is not using describes a session
  * that does not exist.
- *
- * The two intervals are one setting in two halves, not two settings. `offer`
- * reads the floor before the heartbeat, so a floor above the ceiling makes the
- * ceiling unreachable: the readout would draw a maximum no frame can ever be
- * judged against, which is the kind of session that teaches the reader
- * something untrue about the gate.
- *
- * `moved` names the threshold a writer just set, and the other half yields to
- * it, which is how a pair of coupled sliders behaves: pushing the floor up
- * carries the ceiling with it, pulling the ceiling down carries the floor.
- * Where nothing was moved, as when a stored payload is restored, the ceiling
- * rises to meet the floor.
- *
- * Ordering survives the clamp that follows it because the ceiling's range
- * covers the floor's: any floor value is reachable by the ceiling, and any
- * ceiling value at or above the floor's own minimum is reachable by the floor.
  */
 export function normalizeFrameGateOverrides(
   overrides: FrameGateOverrides,
-  moved?: FrameGateOverrideKey,
 ): FrameGateOverrides {
   const next = {} as FrameGateOverrides;
   for (const key of FRAME_GATE_OVERRIDE_KEYS) {
     next[key] = clampFrameGateOverride(key, overrides[key]);
   }
-  if (next.minIntervalMs <= next.maxIntervalMs) {
-    return next;
-  }
-  if (moved === "maxIntervalMs") {
-    next.minIntervalMs = clampFrameGateOverride(
-      "minIntervalMs",
-      next.maxIntervalMs,
-    );
-    return next;
-  }
-  next.maxIntervalMs = clampFrameGateOverride(
-    "maxIntervalMs",
-    next.minIntervalMs,
-  );
   return next;
 }
 

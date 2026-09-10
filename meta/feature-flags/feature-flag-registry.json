@@ -2,6 +2,14 @@
   "version": 1,
   "flags": [
     {
+      "id": "interrupt-on-send",
+      "scope": "both",
+      "key": "interrupt-on-send",
+      "label": "Interrupt On Send",
+      "description": "A message sent while the assistant is busy interrupts the current tool call and is delivered immediately, instead of queueing",
+      "defaultEnabled": false
+    },
+    {
       "id": "in-chat-onboarding-tour",
       "scope": "client",
       "key": "in-chat-onboarding-tour",
@@ -76,6 +84,14 @@
       "key": "settings-developer-nav",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
+      "defaultEnabled": false
+    },
+    {
+      "id": "vellum-hosted-inference",
+      "scope": "assistant",
+      "key": "vellum-hosted-inference",
+      "label": "Vellum Hosted Inference",
+      "description": "Show Vellum-hosted GPU models (Qwen3 8B) in the catalog and the Settings Personality sliders that steer them.",
       "defaultEnabled": false
     },
     {
@@ -415,6 +431,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "push-avatar-sender",
+      "scope": "client",
+      "key": "push-avatar-sender",
+      "label": "Push Avatar Sender",
+      "description": "Native notifications show the assistant's avatar as the icon with the assistant's name on line one. Same key the platform reads for APNs/FCM sender blocks.",
+      "defaultEnabled": false
+    },
+    {
       "id": "channel-conversation-sidecar",
       "scope": "client",
       "key": "channel-conversation-sidecar",
@@ -468,6 +492,14 @@
       "key": "velay-webhooks",
       "label": "Velay Webhooks",
       "description": "Platform pods resolve webhook callback URLs from the Velay-published ingress URL instead of registering platform callback routes. Falls back to platform callback registration while no tunnel URL is published.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "send-user-message",
+      "scope": "both",
+      "key": "send-user-message",
+      "label": "Send User Message Tool",
+      "description": "Route all user-facing assistant text through the send_user_message tool instead of streamed assistant text",
       "defaultEnabled": false
     }
   ]
