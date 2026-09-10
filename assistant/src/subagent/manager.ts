@@ -428,6 +428,20 @@ export class SubagentAbortedError extends Error {
   }
 }
 
+/**
+ * Thrown by `spawn` when the spawning turn's signal is already aborted, so no
+ * child is created at all. Distinct from a spawn that failed: nothing went
+ * wrong, the caller simply asked for work the user has already stopped, and the
+ * tool layer reports it as a benign non-error rather than an error the model
+ * should try to recover from.
+ */
+export class SubagentSpawnCancelledError extends Error {
+  constructor() {
+    super("Spawn cancelled: the requesting turn was stopped.");
+    this.name = "SubagentSpawnCancelledError";
+  }
+}
+
 export class SubagentManager {
   /** subagentId → ManagedSubagent */
   private subagents = new Map<string, ManagedSubagent>();
@@ -455,12 +469,48 @@ export class SubagentManager {
   /**
    * Spawn a new subagent.  Returns the subagent ID immediately.
    * The subagent's agent loop is started asynchronously (fire-and-forget).
+   *
+   * `opts.signal` is the spawning turn's cancellation signal, and it guards the
+   * window this method's own `await` opens. Setup is asynchronous (conversation
+   * bootstrap, provider and connection resolution), and a user who stops the
+   * turn during it runs `abortAllForParent` over a manager that does not hold
+   * this child yet, so the sweep misses it and the abandoned tool promise then
+   * launches a run nobody is watching. Re-checking the signal on both sides of
+   * setup is what closes that window: a cancelled spawn either never starts or
+   * is marked terminal before its loop can begin.
    */
   async spawn(
     config: Omit<SubagentConfig, "id">,
     parentSendToClient: (msg: AssistantEvent) => void,
+    opts?: { signal?: AbortSignal },
   ): Promise<string> {
-    const { subagentId } = await this.setUpSubagent(config, parentSendToClient);
+    if (opts?.signal?.aborted) {
+      throw new SubagentSpawnCancelledError();
+    }
+    const { subagentId, managed } = await this.setUpSubagent(
+      config,
+      parentSendToClient,
+    );
+
+    // Cancellation that landed while setup was in flight. The child exists in
+    // the manager now, so marking it terminal here is what `runSubagent`'s
+    // early-terminal guard reads: it releases the conversation without ever
+    // starting the agent loop. Notification is suppressed because the parent
+    // turn the caller was serving is the thing that stopped.
+    //
+    // Read once: the throw below has to describe the same child this branch
+    // marked terminal, and an abort landing between the two would otherwise
+    // report a cancellation for a run that is already going.
+    const cancelledDuringSetup = opts?.signal?.aborted === true;
+    if (cancelledDuringSetup) {
+      this.abort(subagentId, managed.parentSendToClient, undefined, {
+        suppressNotification: true,
+      });
+      log.info(
+        { subagentId },
+        "Spawn cancelled during setup; subagent will not run",
+      );
+    }
 
     // ── Kick off the agent loop (fire-and-forget) ───────────────────
     this.runSubagent(subagentId, config.requestText ?? config.objective).catch(
@@ -468,6 +518,13 @@ export class SubagentManager {
         log.error({ subagentId, err }, "Subagent run failed unexpectedly");
       },
     );
+
+    // The run above finds the child terminal, releases its conversation and
+    // stops. Returning its id here would have the tool answer with a pending
+    // subagent, so the caller hears the cancellation instead.
+    if (cancelledDuringSetup) {
+      throw new SubagentSpawnCancelledError();
+    }
 
     return subagentId;
   }
@@ -916,12 +973,13 @@ export class SubagentManager {
     // ignores it.
     let finalText = "";
 
-    // Aborted before the run started (e.g. an already-aborted signal on the
-    // synchronous spawnAndAwait path): the subagent is already terminal. Do not
-    // start the agent loop or reset status back to "running" — but still release
-    // the conversation, exactly as the post-run `finally` does for a terminal
-    // run. The loop never started, so no messages were enqueued; this matches
-    // the finally's non-deferred release branch.
+    // Aborted before the run started (an already-aborted signal on the
+    // synchronous spawnAndAwait path, or a spawn the user stopped mid-setup):
+    // the subagent is already terminal. Do not start the agent loop or reset
+    // status back to "running", but still release the conversation, exactly as
+    // the post-run `finally` does for a terminal run. The loop never started, so
+    // no messages were enqueued; this matches the finally's non-deferred release
+    // branch.
     if (TERMINAL_STATUSES.has(managed.state.status)) {
       this.releaseConversation(managed);
       return finalText;

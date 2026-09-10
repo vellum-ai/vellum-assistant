@@ -57,8 +57,14 @@ let provider: MessagingProvider = phoneProvider;
 
 let connection: OAuthConnection | undefined = undefined;
 
+/** Fires during provider resolution, the first await after the entry guard. */
+let onResolveProvider: (() => void) | null = null;
+
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
-  resolveProvider: () => provider,
+  resolveProvider: () => {
+    onResolveProvider?.();
+    return provider;
+  },
   getProviderConnection: () => connection,
   ok: (content: string) => ({ content, isError: false }),
   err: (content: string) => ({ content, isError: true }),
@@ -156,6 +162,7 @@ describe("messaging-send tool", () => {
     sendMessageMock.mockClear();
     mockOutlookCreateDraft.mockClear();
     mockOutlookCreateReplyDraft.mockClear();
+    onResolveProvider = null;
     getConversationMock.mockClear();
     syncMessageToDiskMock.mockClear();
     resolveProactiveHomeConversationMock.mockClear();
@@ -288,9 +295,7 @@ describe("messaging-send tool", () => {
         expect.objectContaining({
           subject: "Docs",
           body: { contentType: "text", content: "see attached" },
-          toRecipients: [
-            { emailAddress: { address: "user@example.com" } },
-          ],
+          toRecipients: [{ emailAddress: { address: "user@example.com" } }],
           attachments: [expect.objectContaining({ name: "report.pdf" })],
         }),
       );
@@ -644,5 +649,68 @@ describe("messaging-send tool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Message sent");
+  });
+
+  /**
+   * Provider and connection resolution and the attachment reads all sit
+   * between the tool's entry guard and the Graph call, so a turn stopped
+   * during them must not leave a draft in the user's mailbox. The stop lands
+   * inside provider resolution rather than before the call, which is what
+   * makes these exercise the recheck instead of the entry guard.
+   */
+  describe("a cancelled turn creates no Outlook draft", () => {
+    function abortedContext() {
+      const controller = new AbortController();
+      onResolveProvider = () => controller.abort();
+      return {
+        workingDir: "/tmp",
+        conversationId: "conv-1",
+        assistantId: "ast-alpha",
+        trustClass: "guardian" as const,
+        signal: controller.signal,
+      };
+    }
+
+    test("new message", async () => {
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
+
+      await expect(
+        run(
+          {
+            platform: "outlook",
+            conversation_id: "user@example.com",
+            text: "never sent",
+            subject: "Docs",
+          },
+          abortedContext(),
+        ),
+      ).rejects.toThrow();
+      expect(mockOutlookCreateDraft).not.toHaveBeenCalled();
+    });
+
+    test("reply", async () => {
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
+
+      await expect(
+        run(
+          {
+            platform: "outlook",
+            conversation_id: "user@example.com",
+            text: "never sent",
+            in_reply_to: "msg-1",
+          },
+          abortedContext(),
+        ),
+      ).rejects.toThrow();
+      expect(mockOutlookCreateReplyDraft).not.toHaveBeenCalled();
+    });
   });
 });

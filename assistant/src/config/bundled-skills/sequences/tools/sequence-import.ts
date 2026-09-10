@@ -1,5 +1,9 @@
 import { bulkEnroll, parseContactFile } from "../../../../sequence/importer.js";
 import { getSequence } from "../../../../sequence/store.js";
+import {
+  isAbortLikeError,
+  throwIfCancelled,
+} from "../../../../tools/shared/abort.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -8,7 +12,7 @@ import { err, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const filePath = input.file_path as string;
   const sequenceId = input.sequence_id as string;
@@ -19,6 +23,10 @@ export async function run(
   }
   if (!sequenceId) {
     return err("sequence_id is required.");
+  }
+  // Only the auto-enroll branch mutates; the default preview branch reads.
+  if (autoEnroll) {
+    throwIfCancelled(context);
   }
 
   try {
@@ -101,6 +109,11 @@ export async function run(
 
     return ok(lines.join("\n"));
   } catch (e) {
+    // A cancelled turn is not an import failure: let it reach the executor's
+    // abort handling instead of being rendered as a tool error.
+    if (isAbortLikeError(e)) {
+      throw e;
+    }
     return err(e instanceof Error ? e.message : String(e));
   }
 }
