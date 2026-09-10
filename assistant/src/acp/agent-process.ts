@@ -28,6 +28,7 @@ import {
   AcpAuthRequiredError,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
+  requestErrorReason,
 } from "./auth-required.js";
 import { type AcpAgentConfig, AcpConfigOptionRefusedError } from "./types.js";
 
@@ -48,25 +49,6 @@ function normalizeConfigOptions(
   configOptions: SessionConfigOption[] | null | undefined,
 ): SessionConfigOption[] {
   return configOptions ?? [];
-}
-
-/**
- * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
- * Error reaches the client as a generic "Internal error" whose real text the
- * agent-side SDK moved into the payload, so `data` is read before `message`.
- */
-function requestErrorReason(err: acp.RequestError): string {
-  const { data } = err;
-  if (data == null) {
-    return err.message;
-  }
-  const details = (data as { details?: unknown }).details;
-  if (typeof details === "string" && details.length > 0) {
-    return details;
-  }
-  // JSON.stringify answers undefined for a value it cannot represent.
-  const serialized: string | undefined = JSON.stringify(data);
-  return serialized ?? err.message;
 }
 
 function isEnvVarMethod(

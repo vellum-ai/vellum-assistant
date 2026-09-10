@@ -6,6 +6,8 @@
 
 import { describe, expect, test } from "bun:test";
 
+import { RequestError } from "@agentclientprotocol/sdk";
+
 import { AcpAuthRequiredEventSchema } from "../../api/events/acp-auth-required.js";
 import { AcpSessionErrorEventSchema } from "../../api/events/acp-session-error.js";
 import {
@@ -15,6 +17,7 @@ import {
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
+  requestErrorReason,
 } from "../auth-required.js";
 
 describe("isAcpAuthRequired", () => {
@@ -86,6 +89,33 @@ describe("isClaudeAuthFailureMessage", () => {
     ).toBe(false);
     expect(isClaudeAuthFailureMessage(undefined)).toBe(false);
     expect(isClaudeAuthFailureMessage("")).toBe(false);
+  });
+});
+
+describe("requestErrorReason", () => {
+  test("decodes the sentence the SDK moved into the payload", () => {
+    const rejection = new RequestError(-32603, "Internal error", {
+      details: "Failed to authenticate. Please run /login",
+    });
+
+    expect(requestErrorReason(rejection)).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+    // The point of decoding: the generic message never matches.
+    expect(isClaudeAuthFailureMessage(rejection.message)).toBe(false);
+    expect(isClaudeAuthFailureMessage(requestErrorReason(rejection))).toBe(
+      true,
+    );
+  });
+
+  test("serializes a payload naming no reason, and falls back to the message", () => {
+    expect(requestErrorReason(new RequestError(-32603, "boom", { c: 7 }))).toBe(
+      '{"c":7}',
+    );
+    expect(requestErrorReason(new Error("Not logged in"))).toBe(
+      "Not logged in",
+    );
+    expect(requestErrorReason("plain string")).toBe("plain string");
   });
 });
 

@@ -8,7 +8,8 @@
  * 2. Credentials present but rejected (the expired/revoked case): the CLI
  *    surfaces the API 401 as an error message it authors, and the adapter
  *    relays it as a generic -32603 internal error, NOT as `auth_required`.
- *    {@link isClaudeAuthFailureMessage}.
+ *    {@link isClaudeAuthFailureMessage}, over the text
+ *    {@link requestErrorReason} decodes out of the rejection.
  *
  * A positive detection becomes {@link ACP_CLAUDE_AUTH_REQUIRED_CODE} on the
  * `acp_auth_required` event, which the client turns into the inline
@@ -79,6 +80,32 @@ export function isClaudeAuthFailureMessage(
     message != null &&
     CLAUDE_AUTH_FAILURE_PATTERNS.some((pattern) => pattern.test(message))
   );
+}
+
+/**
+ * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
+ * Error reaches the client as a generic "Internal error" whose real text the
+ * agent-side SDK moved into the `data` payload, so `data` is read before
+ * `message`. Duck-typed like {@link isAcpAuthRequired}, so a plain JSON-RPC
+ * error object decodes too, and an error carrying no payload answers with its
+ * own message.
+ */
+export function requestErrorReason(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (typeof err !== "object" || err === null) {
+    return message;
+  }
+  const { data } = err as { data?: unknown };
+  if (data == null) {
+    return message;
+  }
+  const details = (data as { details?: unknown }).details;
+  if (typeof details === "string" && details.length > 0) {
+    return details;
+  }
+  // JSON.stringify answers undefined for a value it cannot represent.
+  const serialized: string | undefined = JSON.stringify(data);
+  return serialized ?? message;
 }
 
 /** The adapter whose auth failures the Connect Claude flow can repair. */

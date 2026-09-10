@@ -10,9 +10,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
+import * as acp from "@agentclientprotocol/sdk";
 
 import type { AssistantEvent } from "../../api/index.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { claudeCredentialRefused } from "../acp-auth-marker-store.js";
 import { AcpAuthRequiredError, isAcpAuthRequired } from "../auth-required.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
@@ -456,16 +458,21 @@ describe("AcpSessionManager: model selection at spawn", () => {
   test("Claude's message-shaped 401 during the pin surfaces as auth required", async () => {
     scriptedConfigOptions = [[modelOption("default")]];
     // Not the structured auth_required answer: the CLI's own words, which the
-    // spawn boundary only recognises once the manager has classified them.
-    setConfigOptionResult = new Error(
-      "Failed to authenticate. Please run /login",
-    );
+    // adapter relays as a generic internal error carrying them in `data`, and
+    // which the spawn boundary only recognises once the manager classifies.
+    setConfigOptionResult = new acp.RequestError(-32603, "Internal error", {
+      details: "Failed to authenticate. Please run /login",
+    });
 
     const manager = new AcpSessionManager(5);
     const sent: AssistantEvent[] = [];
     const spawned = manager.spawn(
       "claude",
-      { command: "claude-agent-acp", args: [] },
+      {
+        command: "claude-agent-acp",
+        args: [],
+        credentialDigest: "digest-pin-401",
+      },
       "task",
       "/tmp",
       "conv-pin-auth-message",
@@ -477,17 +484,49 @@ describe("AcpSessionManager: model selection at spawn", () => {
       () => undefined,
       (err: unknown) => err,
     );
+    expect(failure).toBeInstanceOf(AcpAuthRequiredError);
     expect(isAcpAuthRequired(failure)).toBe(true);
     expect((failure as Error).message).toBe(
       "Failed to authenticate. Please run /login",
     );
+    // The refused credential is written down, so no later spawn resolves it.
+    expect(claudeCredentialRefused("digest-pin-401")).toBe(true);
     expect(sent).toEqual([]);
     expect(manager.getStatus()).toEqual([]);
   });
 
+  test("a message-shaped 401 with no payload classifies off the message", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    setConfigOptionResult = new Error(
+      "Failed to authenticate. Please run /login",
+    );
+
+    const failure = await new AcpSessionManager(5)
+      .spawn(
+        "claude",
+        { command: "claude-agent-acp", args: [] },
+        "task",
+        "/tmp",
+        "conv-pin-auth-plain",
+        () => {},
+        { model: "opus" },
+      )
+      .then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+
+    expect(failure).toBeInstanceOf(AcpAuthRequiredError);
+    expect((failure as Error).message).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+  });
+
   test("the message-shaped 401 is still recognised when the adapter runs by full path", async () => {
     scriptedConfigOptions = [[modelOption("default")]];
-    setConfigOptionResult = new Error("Not logged in");
+    setConfigOptionResult = new acp.RequestError(-32603, "Internal error", {
+      details: "Not logged in",
+    });
 
     const manager = new AcpSessionManager(5);
     const failure = await manager
