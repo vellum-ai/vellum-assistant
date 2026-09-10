@@ -315,6 +315,7 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    handedOffConversationIds: new Set(),
   });
   useConversationStore.setState({
     processingConversationIds: new Set(),
@@ -534,7 +535,7 @@ describe("DocumentComposerReplyWatcher", () => {
     expect(processing("conv-1")).toBe(true);
   });
 
-  test("a handoff leaves the activity up for a message this composer never sent", () => {
+  test("the follow-up's own terminal takes down the activity a handoff left up", () => {
     // GIVEN the only document send in the conversation, running, with an
     // ordinary chat message queued behind it
     useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
@@ -548,11 +549,43 @@ describe("DocumentComposerReplyWatcher", () => {
     expect(awaiting("conv-1")).toBe(false);
     expect(processing("conv-1")).toBe(true);
 
-    // The queued message's own turn ends. Nothing of this composer's is
-    // running in it, so the chat stream's turn end owns the activity.
+    // The queued message's own turn ends. On the standalone document route no
+    // chat view is mounted to end that turn, so the marker the handoff left
+    // up is this watcher's to take down, and there is no reply of this
+    // composer's to announce.
     publishMessageComplete("conv-1");
 
     expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(processing("conv-1")).toBe(false);
+  });
+
+  test("a follow-up that hands off in turn keeps the activity up", () => {
+    useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+    acknowledgeRunning("conv-1");
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishGenerationHandoff("conv-1");
+    // The message that ran next has one of its own queued behind it.
+    publishGenerationHandoff("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(processing("conv-1")).toBe(true);
+
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).toHaveBeenCalledTimes(1);
+    expect(processing("conv-1")).toBe(false);
+  });
+
+  test("a terminal for a turn no handoff announced leaves the activity alone", () => {
+    // GIVEN an activity this composer never raised and no send of its own
+    useConversationStore.getState().addProcessingConversationId("conv-1");
+    render(<DocumentComposerReplyWatcher />);
+
+    publishMessageComplete("conv-1");
+
+    expect(toastSuccessMock).not.toHaveBeenCalled();
     expect(processing("conv-1")).toBe(true);
   });
 

@@ -13,7 +13,9 @@
  *
  * The store also holds the messages of sends the daemon reported as failed,
  * keyed by the document surface each one was composed for, until that
- * document's composer panel takes its own back.
+ * document's composer panel takes its own back, and names the conversations
+ * whose last send ended on a handoff, where the processing marker is left up
+ * for queued work no send of this store's is in.
  *
  * Wrapped with `createSelectors` for auto-generated per-field hooks.
  *
@@ -74,6 +76,12 @@ export interface DocumentComposerReplyState {
    * surface holding nothing has no entry.
    */
   failedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
+  /**
+   * Conversations whose last send settled on a handoff, so the processing
+   * marker stays up for the queued work the handoff announced. A conversation
+   * is named until a terminal takes that marker down.
+   */
+  handedOffConversationIds: ReadonlySet<string>;
 }
 
 export interface DocumentComposerReplyActions {
@@ -160,6 +168,18 @@ export interface DocumentComposerReplyActions {
     queued: boolean,
   ) => void;
   /**
+   * Name `conversationId` as handed off: a handoff settled its running sends
+   * with more messages queued behind them, so the marker it left up answers
+   * work this store does not list. Naming it twice names it once.
+   */
+  markHandedOff: (conversationId: string) => void;
+  /**
+   * Drop `conversationId` from the handed-off conversations, reporting
+   * whether it was named. The marker that name stood for is coming down, or
+   * a terminal of this store's own sends is taking it down instead.
+   */
+  clearHandedOff: (conversationId: string) => boolean;
+  /**
    * Hold the message of a failed send for the document surface it was
    * composed for, until that document's composer takes it back. A surface
    * already holding one keeps both, oldest first: the two drafts are joined
@@ -173,8 +193,9 @@ export interface DocumentComposerReplyActions {
    */
   takeFailedSend: (surfaceId: string) => PendingDocumentReplyPayload | null;
   /**
-   * Drop every pending send and every held message, for a context change no
-   * reply can arrive across and no composer should carry a message over.
+   * Drop every pending send, every held message, and every handed-off
+   * conversation, for a context change no reply can arrive across and no
+   * composer should carry a message over.
    */
   clearAwaitingReplies: () => void;
 }
@@ -249,6 +270,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set, get) => ({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    handedOffConversationIds: new Set(),
 
     startAwaitingReply: (conversationId, clientMessageId, payload) => {
       set((s) => {
@@ -443,6 +465,29 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       });
     },
 
+    markHandedOff: (conversationId) => {
+      set((s) => {
+        if (s.handedOffConversationIds.has(conversationId)) {
+          return s;
+        }
+        const next = new Set(s.handedOffConversationIds);
+        next.add(conversationId);
+        return { handedOffConversationIds: next };
+      });
+    },
+
+    clearHandedOff: (conversationId) => {
+      if (!get().handedOffConversationIds.has(conversationId)) {
+        return false;
+      }
+      set((s) => {
+        const next = new Set(s.handedOffConversationIds);
+        next.delete(conversationId);
+        return { handedOffConversationIds: next };
+      });
+      return true;
+    },
+
     stashFailedSend: (payload) => {
       set((s) => {
         const held = s.failedSends.get(payload.surfaceId);
@@ -470,10 +515,18 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
 
     clearAwaitingReplies: () => {
       set((s) => {
-        if (s.pendingReplies.size === 0 && s.failedSends.size === 0) {
+        if (
+          s.pendingReplies.size === 0 &&
+          s.failedSends.size === 0 &&
+          s.handedOffConversationIds.size === 0
+        ) {
           return s;
         }
-        return { pendingReplies: new Map(), failedSends: new Map() };
+        return {
+          pendingReplies: new Map(),
+          failedSends: new Map(),
+          handedOffConversationIds: new Set(),
+        };
       });
     },
   }),

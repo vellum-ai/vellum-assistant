@@ -231,15 +231,26 @@ export function DocumentComposerReplyWatcher() {
     const settled = useDocumentComposerReplyStore
       .getState()
       .settleRunningReplies(conversationId);
+    // A handoff leaves the marker up for the queued work it announces, and the
+    // conversation is named as handed off. The next terminal there that is not
+    // itself a handoff takes the marker down, whether or not it answers a send
+    // of this composer's: on the standalone document route no chat view is
+    // mounted to end that turn, and the graduation sweep in
+    // `use-attention-tracking.ts` passes over the conversation on screen.
     if (settled === 0) {
+      if (
+        event.type !== "generation_handoff" &&
+        useDocumentComposerReplyStore.getState().clearHandedOff(conversationId)
+      ) {
+        clearProcessingWhenSettled(conversationId);
+      }
+      // A terminal none of these sends is running in has no reply to announce.
       return;
     }
-    // A handoff means more messages are queued in this conversation, so it is
-    // not idle: the marker stays up for the queued work, and the terminal of
-    // the turn that runs next takes it down, through this watcher when that
-    // turn is a document send's and through the chat stream's turn end
-    // otherwise.
-    if (event.type !== "generation_handoff") {
+    if (event.type === "generation_handoff") {
+      useDocumentComposerReplyStore.getState().markHandedOff(conversationId);
+    } else {
+      useDocumentComposerReplyStore.getState().clearHandedOff(conversationId);
       clearProcessingWhenSettled(conversationId);
     }
     // The daemon emits a handoff in place of `message_complete` when the turn

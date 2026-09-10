@@ -464,8 +464,8 @@ export function useDocumentComposerSubmit({
       // List this send among `conversationId`'s pending sends, under the nonce
       // it is carrying, so the watcher can tell stream events that echo it
       // apart from events about any other message in the conversation. A send
-      // lists itself unacknowledged: nothing settles it until the daemon has
-      // taken it in on the stream or answered the POST.
+      // lists itself unacknowledged: nothing settles it until the stream says
+      // it is running.
       const raiseReplyWait = (conversationId: string) => {
         useDocumentComposerReplyStore
           .getState()
@@ -592,23 +592,24 @@ export function useDocumentComposerSubmit({
             );
         }
       }
-      if (sameAssistant) {
-        // The stream is what acknowledges a send and says whether it runs or
-        // waits, ordered against the terminals it has to outrank. The
-        // response reaches the client on its own schedule, possibly after the
-        // stream has already moved the send along, so it acknowledges only a
-        // send the stream has not spoken for, and says queued or running as
-        // the daemon answered. It addresses the row the daemon answered with,
-        // where the entry lives once the id has moved. A switch to another
-        // assistant dropped every entry, so there is nothing left there to
-        // acknowledge.
+      if (sameAssistant && result.queued === true) {
+        // The queue is the only thing the response speaks for. It reaches the
+        // client on its own schedule, unordered against the stream, so a
+        // terminal still in flight from the turn before this send would settle
+        // an entry the response had marked running: the toast would go up for
+        // someone else's turn and this send's own completion would go
+        // untracked. The daemon echoes back every send it takes for a turn,
+        // and that echo is ordered with the terminals, so the echo is what
+        // marks a send running. A queued mark is safe from here whenever it
+        // lands, because nothing settles a queued send before its own dequeue
+        // arrives on the stream, and a send the stream has already spoken for
+        // is left as the stream put it. It addresses the row the daemon
+        // answered with, where the entry lives once the id has moved. A switch
+        // to another assistant dropped every entry, so there is nothing left
+        // there to acknowledge.
         useDocumentComposerReplyStore
           .getState()
-          .acknowledgeReply(
-            conversationId,
-            clientMessageId,
-            result.queued === true,
-          );
+          .acknowledgeReply(conversationId, clientMessageId, true);
       }
 
       if (isFreshDraft && !useServerMint) {

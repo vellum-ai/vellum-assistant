@@ -55,6 +55,7 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    handedOffConversationIds: new Set(),
   });
 });
 
@@ -720,6 +721,42 @@ describe("acknowledgeReply", () => {
   });
 });
 
+describe("markHandedOff", () => {
+  test("names the conversation, and clearHandedOff takes the name back", () => {
+    getState().markHandedOff("conv-1");
+
+    expect(getState().handedOffConversationIds.has("conv-1")).toBe(true);
+    expect(getState().clearHandedOff("conv-1")).toBe(true);
+    expect(getState().handedOffConversationIds.has("conv-1")).toBe(false);
+  });
+
+  test("naming one conversation twice names it once", () => {
+    getState().markHandedOff("conv-1");
+    const before = getState().handedOffConversationIds;
+
+    getState().markHandedOff("conv-1");
+
+    expect(getState().handedOffConversationIds).toBe(before);
+  });
+
+  test("names each conversation on its own", () => {
+    getState().markHandedOff("conv-1");
+    getState().markHandedOff("conv-2");
+
+    expect(getState().clearHandedOff("conv-1")).toBe(true);
+    expect(getState().handedOffConversationIds.has("conv-2")).toBe(true);
+  });
+});
+
+describe("clearHandedOff", () => {
+  test("reports false for a conversation no handoff named", () => {
+    const before = getState().handedOffConversationIds;
+
+    expect(getState().clearHandedOff("conv-1")).toBe(false);
+    expect(getState().handedOffConversationIds).toBe(before);
+  });
+});
+
 describe("clearAwaitingReplies", () => {
   test("drops every conversation's sends at once", () => {
     getState().startAwaitingReply("conv-1", "cm-1");
@@ -742,6 +779,18 @@ describe("clearAwaitingReplies", () => {
     expect(getState().failedSends.size).toBe(0);
   });
 
+  test("drops every handed-off conversation too", () => {
+    // The outgoing assistant's stream sends no terminal for its
+    // conversations, so a name left here would answer a later turn of some
+    // other assistant's.
+    getState().markHandedOff("conv-1");
+    getState().markHandedOff("conv-2");
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().handedOffConversationIds.size).toBe(0);
+  });
+
   test("is a no-op when nothing is awaiting a reply", () => {
     const before = getState().pendingReplies;
 
@@ -756,6 +805,14 @@ describe("clearAwaitingReplies", () => {
     getState().clearAwaitingReplies();
 
     expect(getState().failedSends).toBe(before);
+  });
+
+  test("is a no-op when no conversation has handed off either", () => {
+    const before = getState().handedOffConversationIds;
+
+    getState().clearAwaitingReplies();
+
+    expect(getState().handedOffConversationIds).toBe(before);
   });
 });
 
