@@ -144,6 +144,19 @@ interface AssistantNavItemProps {
    * and while the tour owns the nav.
    */
   expansion?: ReactNode;
+  /**
+   * Stands beside the pill on its own row, against the row's far edge (the
+   * toggle for the assistant's own section). Off the collapsed rail, whose
+   * tile has no row, and out of the tour's drained nav, like
+   * `trailingAction`; and gone while an `expansion` holds the row.
+   */
+  aside?: ReactNode;
+  /**
+   * Rendered directly beneath the assistant row, above New Chat (the
+   * assistant's own section, when the `aside` has opened it). Ignored on the
+   * collapsed rail and while the tour owns the nav.
+   */
+  beneath?: ReactNode;
 }
 
 export function AssistantNavItem({
@@ -155,6 +168,8 @@ export function AssistantNavItem({
   onNewConversation,
   trailingAction,
   expansion,
+  aside,
+  beneath,
 }: AssistantNavItemProps) {
   const { t } = useTranslation("chat");
   const {
@@ -364,6 +379,19 @@ export function AssistantNavItem({
   const activeExpansion =
     !collapsed && !navTourActive ? (expansion ?? null) : null;
   const pillGapClass = pillTrailingAction ? "gap-[12px]" : undefined;
+  const rowAside = !collapsed && !navTourActive ? aside : undefined;
+  const rowBeneath = !collapsed && !navTourActive ? beneath : undefined;
+  /* The pill keeps hugging its label; the aside takes the row's far edge, so
+     it stands on the line the section cards' own controls end on. */
+  const withAside = (row: ReactNode): ReactNode =>
+    rowAside ? (
+      <div className="flex items-center justify-between gap-2">
+        {row}
+        {rowAside}
+      </div>
+    ) : (
+      row
+    );
 
   const avatarImage =
     uploadedAvatarUrl !== null ? (
@@ -462,7 +490,8 @@ export function AssistantNavItem({
              the pill wears its plain surface. Same component and same
              geometry as the tinted one below: the colour is the only
              difference between them. */
-          (activeExpansion ?? (
+          (activeExpansion ??
+          withAside(
             <PanelItem
               shape="pill"
               leadingSlot={avatarImage ?? brainSlot}
@@ -473,9 +502,10 @@ export function AssistantNavItem({
               className={cn(DISC_PILL_CLASSES, pillGapClass)}
               style={DISC_PILL_STYLE}
               data-tour-id="assistant-page"
-            />
+            />,
           ))
         )}
+        {rowBeneath}
         {newConversationRow}
       </div>
     );
@@ -636,7 +666,8 @@ export function AssistantNavItem({
 
   return (
     <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
-      {activeExpansion ?? assistantRow}
+      {activeExpansion ?? withAside(assistantRow)}
+      {rowBeneath}
       {newConversationRow}
     </div>
   );

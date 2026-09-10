@@ -150,6 +150,43 @@ describe("AssistantNavItem switcher slots", () => {
     expect(html).not.toContain("gap-[12px]");
   });
 
+  const ASIDE = createElement(
+    "button",
+    { "data-testid": "section-toggle" },
+    "t",
+  );
+  const BENEATH = createElement(
+    "div",
+    { "data-testid": "section-card" },
+    "card",
+  );
+
+  test("an aside stands on the pill's row and a beneath slot under it", () => {
+    const html = renderWithSlots({ aside: ASIDE, beneath: BENEATH });
+    expect(html).toContain('data-testid="section-toggle"');
+    expect(html).toContain('data-testid="section-card"');
+    // The aside sits after the pill inside one row, not inside the pill.
+    const pillEnd = html.indexOf('data-tour-id="assistant-page"');
+    const asideAt = html.indexOf('data-testid="section-toggle"');
+    expect(asideAt).toBeGreaterThan(pillEnd);
+  });
+
+  test("the collapsed tile drops the aside and the beneath slot", () => {
+    const html = renderWithSlots({
+      aside: ASIDE,
+      beneath: BENEATH,
+      collapsed: true,
+    });
+    expect(html).not.toContain('data-testid="section-toggle"');
+    expect(html).not.toContain('data-testid="section-card"');
+  });
+
+  test("an expansion takes the row from the aside", () => {
+    const html = renderWithSlots({ aside: ASIDE, expansion: EXPANSION });
+    expect(html).toContain('data-testid="switcher-card"');
+    expect(html).not.toContain('data-testid="section-toggle"');
+  });
+
   test("the collapsed tile has no slot for the trailing action", () => {
     const html = renderWithSlots({ trailingAction: TRAILING, collapsed: true });
     expect(html).not.toContain('data-testid="switcher-chevron"');
