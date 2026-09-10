@@ -1,24 +1,26 @@
-name: PR Chrome Extension Checks
+name: PR SSE Idle Watchdog Checks
 
 on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
-      - 'clients/chrome-extension/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
       - 'packages/sse-idle-watchdog/**'
-      - '.github/workflows/pr-chrome-extension.yaml'
+      - '.github/workflows/pr-sse-idle-watchdog.yaml'
 
 concurrency:
-  group: pr-chrome-extension-${{ github.event.pull_request.number }}
+  group: pr-sse-idle-watchdog-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   checks:
-    name: Lint, Type Check & Test
+    name: Type Check & Test
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: clients/chrome-extension
+        working-directory: packages/sse-idle-watchdog
 
     steps:
       - name: Checkout
@@ -30,10 +32,7 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Lint
-        run: bun run lint
+        run: bun install --frozen-lockfile --filter=@vellumai/sse-idle-watchdog
 
       - name: Type check
         run: bun run typecheck
