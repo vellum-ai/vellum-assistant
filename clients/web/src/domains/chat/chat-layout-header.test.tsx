@@ -32,6 +32,14 @@ stubModule("@/runtime/is-electron", await import("@/runtime/is-electron"), {
   isElectron: () => mockIsElectron,
 });
 
+stubModule(
+  "@/components/windows-menu-bar",
+  await import("@/components/windows-menu-bar"),
+  {
+    WindowsMenuBar: () => <div data-testid="windows-menu-bar" />,
+  },
+);
+
 // The two stores the header writes through are driven by their own state
 // rather than a module stub, so the spies are checked against the real store
 // shapes. Both stores are process-global, so the real actions go back below.
@@ -147,6 +155,7 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
     expect(screen.getByText("Library")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Import" })).toBeTruthy();
+    expect(screen.getByTestId("windows-menu-bar")).toBeTruthy();
     expect(
       screen.queryByRole("button", { name: "Open navigation" }),
     ).toBeNull();

@@ -176,8 +176,9 @@ export function ChatLayoutHeader({
           inert={controlsHidden || undefined}
           className={`grid w-full grid-cols-[1fr_auto_1fr] items-center transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         >
-          <div className="flex min-w-0 items-center justify-start">
+          <div className="flex min-w-0 items-center justify-start gap-2">
             {customMobileTopBar.leading}
+            <WindowsMenuBar />
           </div>
           <div
             inert={centerHidden || undefined}
