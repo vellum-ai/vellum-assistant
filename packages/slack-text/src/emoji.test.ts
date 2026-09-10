@@ -20,6 +20,12 @@ describe("slackEmojiCharacter", () => {
     expect(glyph(slackEmojiCharacter("thumbsup::skin-tone-3"))).toBe("👍🏼");
   });
 
+  test("a same-tone composite repeats the tone for each person", () => {
+    expect(
+      glyph(slackEmojiCharacter("people_holding_hands::skin-tone-3")),
+    ).toBe(glyph("🧑🏼‍🤝‍🧑🏼"));
+  });
+
   test("places the tone inside a multi-person sequence", () => {
     expect(glyph(slackEmojiCharacter("woman-raising-hand::skin-tone-2"))).toBe(
       glyph("🙋🏻‍♀️"),

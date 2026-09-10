@@ -683,17 +683,23 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve an IPC caller's identity headers, mirroring what the HTTP adapter
- * derives from the verified `AuthContext`: `x-vellum-principal-type` and a
- * synthetic `x-vellum-actor-principal-id` for the local guardian. Handlers read
- * the resolved identity from `headers` (the single source of truth across both
- * transports); they never trust the request body.
+ * Resolve an IPC caller's identity headers, the IPC counterpart to what the
+ * HTTP adapter derives from the verified `AuthContext`:
+ * `x-vellum-principal-type` and a synthetic `x-vellum-actor-principal-id` for
+ * the local guardian. Handlers read the resolved identity from `headers` (the
+ * single source of truth across both transports); they never trust the request
+ * body.
  *
  * Principal type comes from the gateway-forwarded `x-vellum-principal-type`,
  * else `svc_gateway` for a gateway-proxied request (marked by
  * `x-vellum-proxy-server: ipc`, which a direct CLI never sends), else `local`.
  * Routes that elevate trust gate on `local`, so a remote caller arriving with
  * no verified principal must resolve to `svc_gateway`, never `local`.
+ *
+ * `x-vellum-subject` and `rawUrl` are dropped: this transport verifies no
+ * subject, and the wire-exact URL is the HTTP adapter's to set. Both are
+ * spoofable by anything that reaches the socket, and a handler that reads
+ * either treats absence as the fail-closed case.
  */
 export function injectLocalActorHeader(
   params: Record<string, unknown> | undefined,
@@ -709,6 +715,7 @@ export function injectLocalActorHeader(
     "x-vellum-principal-type":
       forwardedPrincipal ?? (isGatewayProxied ? "svc_gateway" : "local"),
   };
+  delete headers["x-vellum-subject"];
 
   // Fill the local guardian's actor id for direct callers that lack one.
   // Defensive: the lookup queries the contacts table, which may not exist on a
@@ -728,7 +735,9 @@ export function injectLocalActorHeader(
     }
   }
 
-  return { ...args, headers };
+  const sanitized: RouteHandlerArgs = { ...args, headers };
+  delete sanitized.rawUrl;
+  return sanitized;
 }
 
 // ── Process-level singleton ───────────────────────────────────────────────

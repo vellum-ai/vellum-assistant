@@ -581,6 +581,7 @@
     "reloadApp": "Recargar app"
   },
   "statusBanner": {
+    "reconnecting": "Reconectando con tu asistente…",
     "dismiss": "Descartar",
     "goToDoctor": "Ir a Doctor",
     "resumeAssistant": "Reanudar asistente",

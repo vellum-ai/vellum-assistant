@@ -427,6 +427,10 @@ describe("command-registry", () => {
       test("assistant oauth disconnect is medium risk", () => {
         expect(oauthSpec.subcommands!.disconnect.baseRisk).toBe("medium");
       });
+
+      test("assistant oauth proxy-url is medium risk", () => {
+        expect(oauthSpec.subcommands!["proxy-url"].baseRisk).toBe("medium");
+      });
     });
 
     // ── credentials subcommand ────────────────────────────────────────────
@@ -509,6 +513,7 @@ describe("command-registry", () => {
       expect(oauthSubs).toContain("request");
       expect(oauthSubs).toContain("connect");
       expect(oauthSubs).toContain("disconnect");
+      expect(oauthSubs).toContain("proxy-url");
     });
 
     test("credentials has all expected sub-subcommands", () => {

@@ -4553,6 +4553,8 @@ paths:
                         - type
                     slackBotMentioned:
                       type: boolean
+                    slackEditedTs:
+                      type: string
                     account:
                       type: string
                     actorTeamId:
@@ -24497,6 +24499,346 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/oauth/proxy-grant:
+    post:
+      operationId: oauth_proxygrant_post
+      summary: Mint an OAuth proxy grant
+      description:
+        Returns a short-lived token and base URL a third-party CLI uses to call the provider's API through the
+        passthrough proxy.
+      tags:
+        - oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  type: string
+                  minLength: 1
+                account:
+                  type: string
+                  minLength: 1
+                ttlSeconds:
+                  type: integer
+                  minimum: 60
+                  maximum: 3600
+              required:
+                - provider
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  provider:
+                    type: string
+                  account:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  baseUrl:
+                    type: string
+                  path:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: string
+                  ttlSeconds:
+                    type: number
+                required:
+                  - ok
+                  - provider
+                  - account
+                  - baseUrl
+                  - path
+                  - token
+                  - expiresAt
+                  - ttlSeconds
+                additionalProperties: false
+        "400":
+          description: Malformed request, provider key, or account
+        "404":
+          description: Unknown provider
+        "409":
+          description: Several accounts are connected and none was pinned
+        "424":
+          description: No usable connection; reconnect the provider
+  /v1/oauth/proxy/{provider}/{path}:
+    delete:
+      operationId: oauth_proxy_by_provider_by_path_delete
+      summary: Proxy a DELETE request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: &a1
+                type: string
+                format: binary
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    get:
+      operationId: oauth_proxy_by_provider_by_path_get
+      summary: Proxy a GET request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    head:
+      operationId: oauth_proxy_by_provider_by_path_head
+      summary: Proxy a HEAD request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    patch:
+      operationId: oauth_proxy_by_provider_by_path_patch
+      summary: Proxy a PATCH request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    post:
+      operationId: oauth_proxy_by_provider_by_path_post
+      summary: Proxy a POST request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
+    put:
+      operationId: oauth_proxy_by_provider_by_path_put
+      summary: Proxy a PUT request through an OAuth connection
+      description:
+        Forwards the remainder path, query, headers, and body to the provider's API base through the connection
+        resolved from the provider segment; the grant minted by oauth_proxy_grant is the only credential accepted, and
+        it is honored only for the provider and account its subject names.
+      tags:
+        - oauth
+      parameters:
+        - name: provider
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/octet-stream:
+              schema: *a1
+        "400":
+          description: Malformed provider segment or proxied path, or request headers unsupported by a managed connection
+        "402":
+          description: The managed account is out of balance
+        "403":
+          description: The grant was minted for a different provider or account
+        "404":
+          description: Unknown provider
+        "405":
+          description: The resolved connection rejects this method
+        "409":
+          description: Several accounts are connected and none was pinned
+        "421":
+          description: Dispatched over IPC; retry over HTTP
+        "424":
+          description: No usable connection; reconnect the provider
+        "502":
+          description: The provider API could not be reached
   /v1/oauth/request:
     post:
       operationId: oauth_request_post
@@ -33951,6 +34293,67 @@ paths:
                         - suggestion_count
                         - plugins
                         - installed_plugins
+                      description:
+                        Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
+                        assistant_version).
+                    daemon_event_id:
+                      description:
+                        "Optional collapse key: rows sharing an id collapse downstream (e.g. a retried report). Defaults to a fresh
+                        per-row id."
+                      type: string
+                      minLength: 1
+                      maxLength: 128
+                  required:
+                    - type
+                    - fields
+                - type: object
+                  properties:
+                    type:
+                      type: string
+                      const: avatar_changed
+                    fields:
+                      type: object
+                      properties:
+                        action:
+                          type: string
+                          minLength: 1
+                          maxLength: 32
+                        kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        previous_kind:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        body_shape:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        eye_style:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        color:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                        accent_hex:
+                          type: string
+                          minLength: 1
+                          maxLength: 7
+                        accent_source:
+                          type: string
+                          minLength: 1
+                          maxLength: 16
+                        client_os:
+                          type: string
+                          minLength: 1
+                          maxLength: 64
+                      required:
+                        - action
+                        - kind
+                        - previous_kind
                       description:
                         Wire event fields, excluding the daemon-stamped base fields (type, daemon_event_id, recorded_at,
                         assistant_version).

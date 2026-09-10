@@ -54,11 +54,13 @@ export function slackEmojiCharacter(name: string): string | undefined {
     return entry.unicode;
   }
   const modifier = SKIN_TONE_MODIFIERS[Number(toned[2]) - 2]!;
+  // A multi-person emoji repeats the tone for each person; the variant
+  // Slack's single suffix names is the one carrying that tone and no other.
   const skin = entry.skins?.find((s) => {
     const modifiers = s.hexcode
       .split("-")
       .filter((h) => SKIN_TONE_MODIFIERS.includes(h));
-    return modifiers.length === 1 && modifiers[0] === modifier;
+    return modifiers.length > 0 && modifiers.every((h) => h === modifier);
   });
   return skin?.unicode ?? entry.unicode;
 }

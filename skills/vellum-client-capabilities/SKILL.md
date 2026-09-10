@@ -44,7 +44,7 @@ It does not exist today in any client. The honest answer is that they can mentio
 
 When a task needs a logged-in browser or a host computer (internal pages, company SSO, VPN-only dashboards, local files, or host shell):
 
-1. Offer the desktop app: https://www.vellum.ai/download
+1. Offer the desktop app: https://www.vellum.ai/downloads
 2. For browser sessions, also offer the Chrome extension: https://chromewebstore.google.com/detail/vellum-assistant-browser/hphbdmpffeigpcdjkckleobjmhhokpne
 3. Offer those first. Only ask for a screenshot or pasted page content if the user cannot install either.
 

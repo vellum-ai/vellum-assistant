@@ -31,7 +31,7 @@ If you've set up a Personal AI on OpenClaw, Hermes Agent, or Claude Code, you kn
 
 ## Get Started
 
-**1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/download)**
+**1. [Sign up](https://vellum.ai/signup) or [download the app](https://vellum.ai/downloads)**
 
 **2. Pick your mode**
 

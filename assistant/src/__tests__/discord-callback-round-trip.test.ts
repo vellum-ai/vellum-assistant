@@ -19,13 +19,18 @@ const sent: Array<{ channelId: string; text: string }> = [];
 // need. `mock.module` replaces the module wholesale, so a partial stub breaks
 // the transport's import of any export it omits, and would break again the
 // next time `send.ts` grows one.
+const { acknowledgedSend } =
+  await import("../messaging/providers/send-result.js");
 const actualSend = await import("../messaging/providers/discord/send.js");
 
+const actualDiscordSend =
+  await import("../messaging/providers/discord/send.js");
 mock.module("../messaging/providers/discord/send.js", () => ({
+  ...actualDiscordSend,
   ...actualSend,
   sendDiscordReply: async (target: { channelId: string }, text: string) => {
     sent.push({ channelId: target.channelId, text });
-    return { messageId: "1401234567890123456" };
+    return acknowledgedSend(["1401234567890123456"]);
   },
 }));
 

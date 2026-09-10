@@ -18,6 +18,7 @@ import type {
   OperationalStatusStateEnum,
 } from "@/generated/api/types.gen";
 
+import { useAssistantRespondedSinceStatus } from "@/assistant/request-activity";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
@@ -136,6 +137,7 @@ async function fetchOperationalStatus(
 }
 
 export function useAssistantOperationalStatus(assistantId: string | null) {
+  const hasResponded = useAssistantRespondedSinceStatus(assistantId);
   const platformApiGate = usePlatformGate();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
@@ -169,6 +171,16 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
     }).queryKey,
     queryFn: ({ signal }) => fetchOperationalStatus(assistantId!, signal),
     enabled,
+    // Project liveness without replacing the server response in the cache.
+    select: (status) =>
+      hasResponded &&
+      status &&
+      status.detail_state !== "failed" &&
+      (status.state === "sleeping" ||
+        status.state === "waking" ||
+        status.state === "unreachable")
+        ? { ...status, state: "active" as const }
+        : status,
     retry: false,
     staleTime: 0,
     refetchIntervalInBackground: true,

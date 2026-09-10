@@ -5,11 +5,13 @@
  * artifacts:
  *   - setCharacter  → traits.json + PNG (+ ASCII) on disk, `character` manifest
  *   - setImage      → PNG on disk, character sidecars removed, `image` manifest
- *   - clearAvatar   → everything removed, `none` manifest
+ *   - clearAvatar   → everything removed, manifest deleted
  *
- * Every successful mutation also leaves a `## Avatar` note in IDENTITY.md and
- * hands the change to the client/platform fan-out; the fan-out module is
- * mocked so the origin ids it receives can be asserted.
+ * Every successful mutation also leaves a `## Avatar` note in IDENTITY.md,
+ * hands the change to the client/platform fan-out, and records an
+ * `avatar_changed` telemetry event unless the avatar came out identical; the
+ * fan-out and outbox modules are mocked so the origin ids and event payloads
+ * they receive can be asserted.
  *
  * The avatar directory is controlled per-test via VELLUM_WORKSPACE_DIR, which
  * `getAvatarDir()` resolves live. Per the test-isolation rule in
@@ -43,6 +45,20 @@ const publishedOrigins: Array<string | undefined> = [];
 mock.module("../../runtime/sync/resource-sync-events.js", () => ({
   publishAvatarChanged: (originClientId?: string) => {
     publishedOrigins.push(originClientId);
+  },
+}));
+
+/** Every telemetry event the store records, in order. */
+const recorded: Array<{ name: string; fields: Record<string, unknown> }> = [];
+/** When set, the outbox throws it instead of recording (an unmigrated DB). */
+let recordFailure: Error | null = null;
+mock.module("../../telemetry/telemetry-events-outbox.js", () => ({
+  recordTelemetryEvent: (name: string, fields: Record<string, unknown>) => {
+    if (recordFailure) {
+      throw recordFailure;
+    }
+    recorded.push({ name, fields });
+    return { id: "evt", createdAt: 0 };
   },
 }));
 
@@ -95,6 +111,8 @@ describe("avatar-store", () => {
     // into it before the store's own mkdir runs.
     mkdirSync(avatarDir, { recursive: true });
     publishedOrigins.length = 0;
+    recorded.length = 0;
+    recordFailure = null;
   });
 
   afterEach(() => {
@@ -272,15 +290,16 @@ describe("avatar-store", () => {
     });
   });
 
-  describe("backfillAccent", () => {
-    const imageState = (etag: string) => ({
-      kind: "image" as const,
-      traits: null,
-      source: "upload" as const,
-      image: { updatedAt: "2026-01-01T00:00:00.000Z", etag },
-      accent: null,
-    });
+  /** An image manifest written before accents existed, as read-time repair sees it. */
+  const imageState = (etag: string) => ({
+    kind: "image" as const,
+    traits: null,
+    source: "upload" as const,
+    image: { updatedAt: "2026-01-01T00:00:00.000Z", etag },
+    accent: null,
+  });
 
+  describe("backfillAccent", () => {
     test("reads an image's accent out of the PNG on disk and persists it", async () => {
       writeFileSync(path(IMAGE_FILENAME), RED_PNG);
       const state = imageState("backfill-red");
@@ -466,25 +485,173 @@ describe("avatar-store", () => {
       expect(avatarNote()).toBe("A custom image the user uploaded.");
     });
 
-    test("a refused accent publishes nothing", async () => {
+    test("a refused accent publishes and records nothing", async () => {
       expect(await setAccent("#12ab34")).toBeNull();
       expect(publishedOrigins).toEqual([]);
+      expect(recorded).toEqual([]);
     });
 
-    test("backfillAccent is a read-time repair and publishes nothing", async () => {
+    test("backfillAccent is a read-time repair: it publishes and records nothing", async () => {
       writeFileSync(path(IMAGE_FILENAME), RED_PNG);
-      const state = {
-        kind: "image" as const,
-        traits: null,
-        source: "upload" as const,
-        image: { updatedAt: "2026-01-01T00:00:00.000Z", etag: "quiet-red" },
-        accent: null,
-      };
+      const state = imageState("quiet-red");
       writeFileSync(path(MANIFEST_FILENAME), JSON.stringify(state));
 
       await backfillAccent(state);
 
       expect(publishedOrigins).toEqual([]);
+      expect(recorded).toEqual([]);
+    });
+  });
+
+  describe("avatar_changed telemetry", () => {
+    const RED_ACCENT = { accent_hex: "#c81e1e", accent_source: "derived" };
+    const events = () => recorded.map((entry) => entry.fields);
+
+    test("an identical re-upload above the raster serving cap is not a change", async () => {
+      const big = Buffer.alloc(5 * 1024 * 1024 + 1, 7);
+
+      await setImage(big, "upload");
+      await setImage(big, "upload");
+
+      expect(events()).toHaveLength(1);
+      expect(events()[0]).toMatchObject({ previous_kind: "none" });
+    });
+
+    test("a failed record never fails the change: the manifest and fan-out stand", async () => {
+      recordFailure = new Error("no such table: telemetry_events");
+
+      await setImage(RED_PNG, "upload", { originClientId: "web-1" });
+
+      expect(readManifestFile()?.kind).toBe("image");
+      expect(publishedOrigins).toEqual(["web-1"]);
+      expect(recorded).toEqual([]);
+    });
+
+    test("an upload over an empty workspace records one image event carrying the client OS", async () => {
+      await setImage(RED_PNG, "upload", { clientOs: "macos" });
+
+      expect(recorded.map((entry) => entry.name)).toEqual(["avatar_changed"]);
+      expect(events()).toEqual([
+        {
+          action: "upload_image",
+          kind: "image",
+          previous_kind: "none",
+          ...RED_ACCENT,
+          client_os: "macos",
+        },
+      ]);
+    });
+
+    test("an AI image records generate_image, with no client_os key when none was given", async () => {
+      await setImage(RED_PNG, "ai");
+
+      expect(events()).toEqual([
+        {
+          action: "generate_image",
+          kind: "image",
+          previous_kind: "none",
+          ...RED_ACCENT,
+        },
+      ]);
+    });
+
+    test("the same bytes uploaded twice count once; different bytes count again", async () => {
+      await setImage(RED_PNG, "upload");
+      await setImage(RED_PNG, "upload");
+      expect(events()).toHaveLength(1);
+
+      await setImage(Buffer.from("v2"), "upload");
+      expect(events()).toHaveLength(2);
+      expect(events()[1]).toMatchObject({
+        action: "upload_image",
+        kind: "image",
+        previous_kind: "image",
+      });
+    });
+
+    test("the same bytes from a different source count again", async () => {
+      await setImage(RED_PNG, "upload");
+      await setImage(RED_PNG, "ai");
+
+      expect(events().map((fields) => fields.action)).toEqual([
+        "upload_image",
+        "generate_image",
+      ]);
+    });
+
+    test(
+      "a character records its traits and palette accent once, and an identical re-set not at all",
+      () => {
+        const result = setCharacter(VALID_TRAITS);
+        if (!result.ok) {
+          expect(result.reason).toBe("native_unavailable");
+          expect(recorded).toEqual([]);
+          return;
+        }
+
+        expect(events()).toEqual([
+          {
+            action: "set_character",
+            kind: "character",
+            previous_kind: "none",
+            body_shape: "blob",
+            eye_style: "curious",
+            color: "green",
+            accent_hex: "#4c9b50",
+            accent_source: "palette",
+          },
+        ]);
+
+        expect(setCharacter(VALID_TRAITS).ok).toBe(true);
+        expect(events()).toHaveLength(1);
+      },
+      NATIVE_RENDER_TEST_TIMEOUT_MS,
+    );
+
+    test("an accent counts only when it lands somewhere new", async () => {
+      await setImage(RED_PNG, "upload");
+      recorded.length = 0;
+
+      await setAccent("#123456");
+      expect(events()).toEqual([
+        {
+          action: "set_accent",
+          kind: "image",
+          previous_kind: "image",
+          accent_hex: "#123456",
+          accent_source: "custom",
+        },
+      ]);
+
+      await setAccent("#123456");
+      expect(events()).toHaveLength(1);
+
+      await setAccent(null);
+      expect(events()).toHaveLength(2);
+      expect(events()[1]).toEqual({
+        action: "set_accent",
+        kind: "image",
+        previous_kind: "image",
+        ...RED_ACCENT,
+      });
+
+      await setAccent(null);
+      expect(events()).toHaveLength(2);
+    });
+
+    test("clearing an image records a bare clear; clearing nothing publishes but records nothing", async () => {
+      await setImage(RED_PNG, "upload");
+      recorded.length = 0;
+
+      clearAvatar();
+      expect(events()).toEqual([
+        { action: "clear", kind: "none", previous_kind: "image" },
+      ]);
+
+      const publishedBefore = publishedOrigins.length;
+      clearAvatar();
+      expect(events()).toHaveLength(1);
+      expect(publishedOrigins.length).toBe(publishedBefore + 1);
     });
   });
 });

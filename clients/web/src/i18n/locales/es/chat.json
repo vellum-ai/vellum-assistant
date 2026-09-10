@@ -1306,7 +1306,8 @@
     "railAria": "Progreso",
     "stepCounter": "{current} de {total}",
     "title": "Progreso",
-    "titleFinished": "Terminado"
+    "titleFinished": "Terminado",
+    "titleStopped": "Detenido"
   },
   "promptSubmission": {
     "noActiveSession": "No hay ninguna sesión activa. Inténtalo de nuevo."

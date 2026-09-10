@@ -583,6 +583,7 @@
     "reloadApp": "Reload app"
   },
   "statusBanner": {
+    "reconnecting": "Reconnecting to your assistant…",
     "dismiss": "Dismiss",
     "goToDoctor": "Go to Doctor",
     "resumeAssistant": "Resume Assistant",

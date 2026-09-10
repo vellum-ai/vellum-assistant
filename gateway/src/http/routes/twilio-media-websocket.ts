@@ -5,11 +5,22 @@ import {
   validateEdgeToken,
   mintServiceToken,
 } from "../../auth/token-exchange.js";
+import type { ScopeProfile } from "../../auth/types.js";
 import type { GatewayConfig } from "../../config.js";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("twilio-media-ws");
+
+/**
+ * Identity of the relay token `mintRelayToken` embeds in the `<Stream>` TwiML
+ * Twilio dials back with, and the only credential this upgrade accepts. The
+ * sibling upgrades on `runtime-audio-stream.ts` and `live-voice-websocket.ts`
+ * require an actor principal; Twilio presents the gateway service principal
+ * instead, so that is the equivalent gate here.
+ */
+const RELAY_TOKEN_SUB = "svc:gateway:self";
+const RELAY_TOKEN_PROFILE: ScopeProfile = "gateway_service_v1";
 
 // Cap buffered messages to prevent unbounded memory growth if upstream stalls
 const MAX_PENDING_MESSAGES = 100;
@@ -124,7 +135,9 @@ export function createTwilioMediaWebsocketHandler(
  *   3. `token` query parameter (legacy Twilio media streams fallback)
  *
  * Fail-closed: rejects all unauthenticated requests unless the deliver auth
- * bypass flag is set (local-dev only escape hatch).
+ * bypass flag is set (local-dev only escape hatch). A valid edge token is not
+ * enough on its own; it must carry the relay-token identity (see
+ * {@link RELAY_TOKEN_SUB}).
  */
 function checkMediaStreamAuth(
   req: Request,
@@ -156,6 +169,17 @@ function checkMediaStreamAuth(
     log.warn(
       { reason: result.reason },
       "Media stream WS: authentication failed",
+    );
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  if (
+    result.claims.sub !== RELAY_TOKEN_SUB ||
+    result.claims.scope_profile !== RELAY_TOKEN_PROFILE
+  ) {
+    log.warn(
+      { sub: result.claims.sub, scopeProfile: result.claims.scope_profile },
+      "Media stream WS: token is not a relay token",
     );
     return new Response("Unauthorized", { status: 401 });
   }

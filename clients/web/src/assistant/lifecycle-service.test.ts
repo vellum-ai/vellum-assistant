@@ -9,6 +9,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  beginAssistantRequest,
+  recordAssistantResponse,
+} from "@/assistant/request-activity";
 import type { QueryClient } from "@tanstack/react-query";
 
 // Import the real helpers from `@/assistant/lifecycle` before mocking
@@ -1240,6 +1244,69 @@ describe("lifecycleService — local health heartbeat", () => {
       }
     ).probeReachability(assistantId);
   }
+
+  test.each(["sleeping", "starting", "crashed", "upgrading"] as const)(
+    "daemon success recovers only soft local state: %s",
+    async (health) => {
+      await driveHealthyThenProbe(async () => ({ ok: true }));
+      getLocalAssistantStatusHostMock.mockImplementation(async () => ({
+        ok: true,
+        state: health,
+      }));
+      getAssistantHealthzMock.mockImplementation(async () => ({
+        ok: false,
+        status: 503,
+      }));
+      const assistantId =
+        useResolvedAssistantsStore.getState().activeAssistantId!;
+      await (
+        lifecycleService as unknown as {
+          probeReachability(id: string): Promise<void>;
+        }
+      ).probeReachability(assistantId);
+      expect(
+        useAssistantLifecycleStore.getState().assistantState,
+      ).toMatchObject({ health });
+      recordAssistantResponse(beginAssistantRequest(assistantId), true);
+      expect(
+        useAssistantLifecycleStore.getState().assistantState,
+      ).toMatchObject({
+        health:
+          health === "sleeping" || health === "starting" ? "healthy" : health,
+        reachable: health === "sleeping" || health === "starting",
+      });
+    },
+  );
+
+  test("success during an in-flight failed probe prevents a stale sleep downgrade", async () => {
+    await driveHealthyThenProbe(async () => ({ ok: true }));
+    const assistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId!;
+    getLocalAssistantStatusHostMock.mockImplementation(async () => ({
+      ok: true,
+      state: "sleeping",
+    }));
+    let finish!: (value: { ok: false; status: number }) => void;
+    getAssistantHealthzMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = (
+      lifecycleService as unknown as {
+        probeReachability(id: string): Promise<void>;
+      }
+    ).probeReachability(assistantId);
+    await waitFor(() => Boolean(finish));
+    recordAssistantResponse(beginAssistantRequest(assistantId), true);
+    finish({ ok: false, status: 503 });
+    await pending;
+    expect(useAssistantLifecycleStore.getState().assistantState).toMatchObject({
+      health: "healthy",
+      reachable: true,
+    });
+  });
 
   test("a 401 healthz keeps the last known health (stale bearer, not a down assistant)", async () => {
     await driveHealthyThenProbe(async () => ({ ok: false, status: 401 }));

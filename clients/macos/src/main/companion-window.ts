@@ -1126,6 +1126,18 @@ let frameScrolling = false;
  * holding it, so it can ask for the mouse back. Off the mode, nothing is
  * forwarded, since there is nothing on the frame to point at and a forwarded
  * move over a display-sized window is a move on every pixel of the screen.
+ *
+ * Key status goes with the mouse. Chromium on macOS puts a page's cursor on
+ * the pointer only while the page's window is the key window, and a window
+ * opened `focusable: false` can never be one, so the pencil the layer hangs
+ * on the pointer would never show and the user would have nothing to say the
+ * mode took. Lent with `setFocusable` and then `focus`, which on a panel
+ * makes it key without bringing Vellum forward, and released with
+ * `setFocusable` alone: `blur` would flash the frame and drop it to the back
+ * of its level, and `setFocusable(false)` does not resign key on macOS, so
+ * the keyboard returns to the user's app on their next press in it rather
+ * than the moment the mode ends. Left key across a scroll the frame stepped
+ * aside for, since the mode is still on and the mouse is coming back.
  */
 const applyFrameMouse = (): void => {
   const frame = getFloatingWindow(WATCH_FRAME_KIND);
@@ -1134,6 +1146,7 @@ const applyFrameMouse = (): void => {
   }
   if (!annotating) {
     frame.setIgnoreMouseEvents(true);
+    frame.setFocusable(false);
     return;
   }
   if (frameScrolling) {
@@ -1141,6 +1154,8 @@ const applyFrameMouse = (): void => {
     return;
   }
   frame.setIgnoreMouseEvents(false);
+  frame.setFocusable(true);
+  frame.focus();
 };
 
 /**

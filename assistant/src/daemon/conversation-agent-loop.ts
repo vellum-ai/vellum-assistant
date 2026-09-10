@@ -126,7 +126,10 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import type { CurrentTurnSurface } from "./conversation-surfaces.js";
-import { markSurfaceCompleted } from "./conversation-surfaces.js";
+import {
+  markSurfaceCompleted,
+  settleRunningTaskProgressSurfaces,
+} from "./conversation-surfaces.js";
 import {
   runDeferredTurnTail,
   settleTurnContent,
@@ -1830,6 +1833,12 @@ export async function runAgentLoopImpl(
       turnCronRunId,
     );
 
+    // Generation is over for every outcome below (reply, hand-off, or
+    // cancellation), so a progress card still spinning would be lying.
+    // Settle before the terminal SSE so the client sees the card at rest by
+    // the time it re-enables the composer.
+    settleRunningTaskProgressSurfaces(ctx, rlog);
+
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
     // so the client can re-enable the UI without delay. Disk sync and the rest
@@ -1967,6 +1976,8 @@ export async function runAgentLoopImpl(
     );
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
+    // A turn that threw out of the loop is over too; see the happy path.
+    settleRunningTaskProgressSurfaces(ctx, rlog);
     const errorCtx = {
       phase: "agent_loop" as const,
       aborted: abortController.signal.aborted,

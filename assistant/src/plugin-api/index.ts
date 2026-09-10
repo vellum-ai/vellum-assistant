@@ -254,6 +254,12 @@ export { isVisionNotSupportedError } from "../util/provider-error-patterns.js";
 // avoid touching stale tool-result media the sanitizer will replace with its
 // removed-media marker.
 export { lastToolResultUserMessageIndex } from "../context/outbound-sanitize.js";
+// The `surfaceId` a successful `ui_show` tool result reports, read from the
+// envelope the host writes (which may also carry advisory `note`/`status`
+// fields). A `post-model-call` hook correlates a progress surface's `ui_show`
+// with its later `ui_update`/`ui_dismiss` through this id to see whether the
+// model left the surface open.
+export { parseSurfaceShowResultId } from "../api/surface-show-result.js";
 // Refusal quarantine — the canned apology a refusal turn is rewritten into
 // (`REFUSAL_FALLBACK_TEXT`, which doubles as the persisted per-exchange
 // "refused" marker), the tool-result-only user-message classifier the producer

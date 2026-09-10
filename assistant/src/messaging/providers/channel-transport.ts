@@ -3,6 +3,7 @@ import type {
   ChannelReplyPayload,
   StreamOp,
 } from "@vellumai/gateway-client";
+import type { ReactionEmojiIdentity } from "@vellumai/service-contracts/reactions";
 
 import type { AssistantActivityPhase } from "../../api/index.js";
 import type { ChannelId } from "../../channels/types.js";
@@ -143,6 +144,16 @@ export interface ChannelTransport {
    * capability's absence.
    */
   react?(target: ReactionTarget): Promise<ChannelDeliveryResult>;
+
+  /**
+   * What an emoji spelling the assistant reacts with means on this channel:
+   * the character for a standard emoji, or the channel's own name for one
+   * only it can render. The record of the assistant's reaction carries
+   * this, so a reader never resolves the channel's naming itself. A channel
+   * without this method has its spelling classified by the contract's
+   * grammar.
+   */
+  describeReactionEmoji?(emoji: string): ReactionEmojiIdentity;
 
   /**
    * Show how busy the assistant is, in whatever form the channel has.
