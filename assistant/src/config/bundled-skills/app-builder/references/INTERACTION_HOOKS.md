@@ -29,11 +29,28 @@ window.vellum.sendAction("relay_prompt", {
   prompt: "Draft a follow-up email to this customer.",
   conversation: "new", // "active" (default) | "new"
 });
+
+// Send into one specific existing conversation, whichever chat is open
+window.vellum.sendAction("relay_prompt", {
+  prompt: "Review the deploy that just finished.",
+  conversationId: reviewConversationId,
+});
 ```
 
 - **`prompt`** (required) — the message text. Empty or missing → ignored.
 - **`conversation`** — `"active"` (default: the open conversation) or
   `"new"` (a fresh draft). With `"active"` and nothing open, it's a no-op.
+- **`conversationId`**: an existing conversation's id. Takes precedence over
+  `conversation`. The host posts the prompt into that conversation as the
+  user, from the user's own session, so the assistant sees it exactly as a
+  typed message (same identity, same permissions) and it lands there even if
+  the user switches chats meanwhile. It does not open the conversation; send
+  `open_conversation` with the same id when the user should watch the reply.
+  Only honored from a user gesture (a click in the app); calls on load or from
+  a timer are dropped. Never send to a conversation from a backend route with
+  `runConversationTurn` to work around this: that turn is attributed to the
+  app, not the user, and runs with nobody present, so anything that needs the
+  user's approval is denied instead of asked.
 - **The layout is left exactly as-is.** Relaying never opens, closes, or
   resizes the app — if the user has chat and app side by side, it stays that
   way. Each relay is delivered even when the same text is sent repeatedly.

@@ -333,7 +333,7 @@ To reach daemon capabilities, import from `@vellumai/plugin-api` — `publishEve
 
 ### Keep the assistant aware
 
-Wire `window.vellum.sendAction()` during the build so the app can pull the assistant in. The host handles two actions: **`relay_prompt`** (`{ prompt, conversation }`) sends a message to the assistant as if the user typed it — the way to get an explanation, summary, or follow-up from inside the app (`conversation: "new"` starts a fresh chat instead of the open one); **`set_view`** (`{ view }`) arranges the app and chat (`"split"` / `"full"` / `"chat"`). These two are the whole app→host surface — relay anything you want the assistant to act on as a self-contained prompt. Patterns in `{baseDir}/references/INTERACTION_HOOKS.md`.
+Wire `window.vellum.sendAction()` during the build so the app can pull the assistant in. The host handles two actions: **`relay_prompt`** (`{ prompt, conversation, conversationId }`) sends a message to the assistant as if the user typed it, the way to get an explanation, summary, or follow-up from inside the app (`conversation: "new"` starts a fresh chat instead of the open one; `conversationId` sends into one specific existing chat, from a click only); **`set_view`** (`{ view }`) arranges the app and chat (`"split"` / `"full"` / `"chat"`). These two are the whole app→host surface: relay anything you want the assistant to act on as a self-contained prompt. Patterns in `{baseDir}/references/INTERACTION_HOOKS.md`.
 
 ### Actionable UI
 

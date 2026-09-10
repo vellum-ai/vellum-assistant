@@ -1,14 +1,47 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 
+import type * as MessagesApi from "@/domains/chat/api/messages";
+import type * as CaptureErrorModule from "@/lib/sentry/capture-error";
+
+const postChatMessageMock = mock<typeof MessagesApi.postChatMessage>(
+  async (assistantId, conversationId) => ({
+    ok: true,
+    assistantId,
+    conversationId: conversationId ?? "minted",
+    messageId: "msg-1",
+  }),
+);
+mock.module(
+  "@/domains/chat/api/messages",
+  (): Partial<typeof MessagesApi> => ({
+    postChatMessage: postChatMessageMock,
+  }),
+);
+const captureErrorMock = mock<typeof CaptureErrorModule.captureError>(() => {});
+mock.module(
+  "@/lib/sentry/capture-error",
+  (): Partial<typeof CaptureErrorModule> => ({
+    captureError: captureErrorMock,
+  }),
+);
+
 import { handleAppViewerAction } from "@/domains/chat/app-viewer-actions";
 import { stubViewportAxes } from "@/hooks/viewport-axes.test-helper";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
 const SAMPLE_APP = { appId: "app-1", name: "My App", html: "<h1>hi</h1>" };
 
 function makeCtx(isMobile = false) {
   return { navigate: mock((_to: string) => {}), isMobile };
+}
+
+function setUserActivation(isActive: boolean): void {
+  Object.defineProperty(navigator, "userActivation", {
+    value: { isActive, hasBeenActive: isActive },
+    configurable: true,
+  });
 }
 
 let restoreViewport: (() => void) | undefined;
@@ -18,6 +51,8 @@ beforeEach(() => {
     narrow: false,
     coarsePointer: false,
   });
+  postChatMessageMock.mockClear();
+  captureErrorMock.mockClear();
 });
 
 afterEach(() => {
@@ -27,6 +62,7 @@ afterEach(() => {
     activeConversationId: null,
     editingConversationId: null,
   });
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
 });
 
 describe("handleAppViewerAction — relay_prompt", () => {
@@ -84,6 +120,91 @@ describe("handleAppViewerAction — relay_prompt", () => {
     handleAppViewerAction(ctx, "relay_prompt", { prompt: "nowhere" });
 
     expect(ctx.navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleAppViewerAction: relay_prompt to an exact conversation", () => {
+  beforeEach(() => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: "asst-1" });
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    setUserActivation(true);
+  });
+
+  it("posts the prompt into the named conversation as the user, without navigating", () => {
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "relay_prompt", {
+      prompt: "review this",
+      conversationId: "conv-9",
+    });
+
+    expect(postChatMessageMock).toHaveBeenCalledTimes(1);
+    expect(postChatMessageMock.mock.calls[0]?.slice(0, 3)).toEqual([
+      "asst-1",
+      "conv-9",
+      "review this",
+    ]);
+    expect(ctx.navigate).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
+  });
+
+  it("an explicit conversationId wins over conversation: 'new'", () => {
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "relay_prompt", {
+      prompt: "hi",
+      conversation: "new",
+      conversationId: "conv-9",
+    });
+
+    expect(postChatMessageMock.mock.calls[0]?.[1]).toBe("conv-9");
+    expect(ctx.navigate).not.toHaveBeenCalled();
+    expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
+  });
+
+  it("is dropped without a transient user activation", () => {
+    setUserActivation(false);
+    const ctx = makeCtx();
+
+    handleAppViewerAction(ctx, "relay_prompt", {
+      prompt: "on load",
+      conversationId: "conv-9",
+    });
+
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(ctx.navigate).not.toHaveBeenCalled();
+  });
+
+  it("is dropped when no assistant is active", () => {
+    useResolvedAssistantsStore.setState({ activeAssistantId: null });
+
+    handleAppViewerAction(makeCtx(), "relay_prompt", {
+      prompt: "hi",
+      conversationId: "conv-9",
+    });
+
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a rejected send", async () => {
+    postChatMessageMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+      error: {},
+    }));
+
+    handleAppViewerAction(makeCtx(), "relay_prompt", {
+      prompt: "hi",
+      conversationId: "conv-gone",
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    expect(captureErrorMock.mock.calls[0]?.[1]).toMatchObject({
+      context: "app_viewer_relay_prompt",
+      extra: { conversationId: "conv-gone" },
+    });
   });
 });
 
