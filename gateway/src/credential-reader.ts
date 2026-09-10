@@ -225,27 +225,35 @@ export type ServiceCredentialSpec = {
   requiredFields: readonly string[];
 };
 
+export type ServiceCredentialsRead =
+  | { status: "ok"; credentials: Record<string, string> }
+  | { status: "missing" }
+  | { status: "unreachable" };
+
 /**
  * When CES HTTP is configured, every required field must have a CES
  * metadata record. Leftover workspace `metadata.json` is not consulted.
  * Local keys.enc mode (no CES HTTP) skips this gate.
  */
-async function requiredCesMetadataPresent(
+async function requiredCesMetadataResult(
   spec: ServiceCredentialSpec,
-): Promise<boolean> {
+): Promise<"ok" | "missing" | "unreachable"> {
   const config = getCesHttpConfig();
   if (!config) {
-    return true;
+    return "ok";
   }
 
   const client = createCesHttpCredentialClient(config, log);
   for (const field of spec.requiredFields) {
     const result = await client.getRecord(credentialKey(spec.service, field));
-    if (result.unreachable || !result.record) {
-      return false;
+    if (result.unreachable) {
+      return "unreachable";
+    }
+    if (!result.record) {
+      return "missing";
     }
   }
-  return true;
+  return "ok";
 }
 
 // ---------------------------------------------------------------------------
@@ -299,36 +307,65 @@ export async function readCredential(
 }
 
 /**
+ * Read every required field for a service, distinguishing a vault outage
+ * from a missing catalog entry.
+ *
+ * Returns `unreachable` when CES HTTP is configured and any metadata or
+ * secret lookup fails with a transport/5xx error. Callers that hot-reload
+ * channel state should keep last-known credentials in that case rather
+ * than treating the service as cleared.
+ */
+export async function readServiceCredentialsResult(
+  spec: ServiceCredentialSpec,
+): Promise<ServiceCredentialsRead> {
+  try {
+    const metadata = await requiredCesMetadataResult(spec);
+    if (metadata === "unreachable") {
+      return { status: "unreachable" };
+    }
+    if (metadata === "missing") {
+      return { status: "missing" };
+    }
+
+    const credentials: Record<string, string> = {};
+    for (const field of spec.requiredFields) {
+      const value = await readCredentialResult(
+        credentialKey(spec.service, field),
+      );
+      if (value.unreachable) {
+        return { status: "unreachable" };
+      }
+      if (!value.value) {
+        return { status: "missing" };
+      }
+      credentials[field] = value.value;
+    }
+
+    return { status: "ok", credentials };
+  } catch (err) {
+    log.debug({ err }, `Failed to read ${spec.service} credentials`);
+    return { status: "unreachable" };
+  }
+}
+
+/**
  * Generic credential reader that checks CES metadata (when CES HTTP is
  * configured) and then loads every required secret from CES or the
  * encrypted store.
  *
  * Returns a `Record<string, string>` mapping field names to their values if
  * all required secrets are readable. Returns `null` if CES metadata is
- * missing or unreachable, or if any secret value can't be read.
+ * missing or unreachable, or if any secret value can't be read. Prefer
+ * `readServiceCredentialsResult` when an outage must not look like a clear.
  */
 export async function readServiceCredentials(
   spec: ServiceCredentialSpec,
 ): Promise<Record<string, string> | null> {
-  try {
-    if (!(await requiredCesMetadataPresent(spec))) {
-      return null;
-    }
-
-    const result: Record<string, string> = {};
-    for (const field of spec.requiredFields) {
-      const value = await readCredential(credentialKey(spec.service, field));
-      if (!value) {
-        return null;
-      }
-      result[field] = value;
-    }
-
-    return result;
-  } catch (err) {
-    log.debug({ err }, `Failed to read ${spec.service} credentials`);
+  const result = await readServiceCredentialsResult(spec);
+  if (result.status !== "ok") {
     return null;
   }
+  return result.credentials;
 }
 
 // ---------------------------------------------------------------------------

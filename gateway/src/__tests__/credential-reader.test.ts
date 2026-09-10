@@ -28,6 +28,7 @@ import {
   readCredential,
   readCredentialResult,
   readServiceCredentials,
+  readServiceCredentialsResult,
   type ServiceCredentialSpec,
 } from "../credential-reader.js";
 
@@ -420,6 +421,39 @@ describe("readCredentialResult", () => {
             value: "keys-enc-value",
             unreachable: false,
           });
+        },
+      );
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
+describe("readServiceCredentialsResult", () => {
+  const telegramSpec: ServiceCredentialSpec = {
+    service: "telegram",
+    requiredFields: ["bot_token", "webhook_secret"],
+  };
+
+  test("CES 5xx is unreachable, not missing", async () => {
+    writeEncryptedStore({
+      [credentialKey("telegram", "bot_token")]: "my-bot-token",
+      [credentialKey("telegram", "webhook_secret")]: "my-webhook-secret",
+    });
+    const server = Bun.serve({
+      port: 0,
+      fetch() {
+        return new Response("internal error", { status: 500 });
+      },
+    });
+    try {
+      await withCesEnv(
+        `http://127.0.0.1:${server.port}`,
+        "test-ces-service-token",
+        async () => {
+          const result = await readServiceCredentialsResult(telegramSpec);
+          expect(result).toEqual({ status: "unreachable" });
+          expect(await readServiceCredentials(telegramSpec)).toBeNull();
         },
       );
     } finally {
