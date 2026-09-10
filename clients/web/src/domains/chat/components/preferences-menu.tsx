@@ -37,6 +37,7 @@ import { adminUrl, routes } from "@/utils/routes";
 
 import { CreditsCard } from "./credits-card";
 import { PreferencesUsagePanel } from "./preferences-usage-panel";
+import { SIDEBAR_PILL_GAP_CLASSES } from "@/components/sidebar-nav-geometry";
 import { useTranslation } from "@/i18n";
 
 // The top-up checkout only opens from the usage panel's exhausted strip, so
@@ -195,6 +196,8 @@ export function PreferencesMenu({
         label={t("preferencesMenu.preferences")}
         expandChevron={isOpen ? ChevronDown : ChevronUp}
         active={isOpen}
+        /* Its label on the line every other rail pill's starts on. */
+        className={SIDEBAR_PILL_GAP_CLASSES}
         data-tour-id="settings"
       />
     );

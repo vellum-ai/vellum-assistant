@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import {
   SIDEBAR_CHIP_CLASSES,
   SIDEBAR_MOBILE_GLYPH_CLASSES,
+  SIDEBAR_PILL_GAP_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 
@@ -198,7 +199,7 @@ export function PinnedAppNavItem({
       label={app.name}
       active={active}
       onSelect={onOpen ? () => onOpen(app.id) : undefined}
-      className="max-md:w-full"
+      className={cn("max-md:w-full", SIDEBAR_PILL_GAP_CLASSES)}
       trailingAction={
         <button
           type="button"

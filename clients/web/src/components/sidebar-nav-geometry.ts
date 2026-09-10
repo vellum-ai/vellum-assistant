@@ -13,6 +13,15 @@
 export const SIDEBAR_ROW_PADDING_X = 12;
 
 /**
+ * A section header's own leading inset on the rail (Figma 8300:167416): the
+ * 8px a pill (`PanelItem`) keeps before its glyph, less the 1px transparent
+ * border the section card draws inside the same column, so the header's
+ * glyph stands on the same left edge as the New Chat plus and a pinned
+ * app's icon above it. The trailing inset stays {@link SIDEBAR_ROW_PADDING_X}.
+ */
+export const SIDEBAR_HEADER_PADDING_X = 7;
+
+/**
  * Width of the leading icon slot. Icons of any size center inside it,
  * so the axis holds whether the slot shows a 12px section icon, the
  * 14px plus, or the hand-tuned assistant eyes.
@@ -52,9 +61,23 @@ export const SIDEBAR_CHIP_GAP_CLASSES = "gap-[6px] max-md:gap-2";
 export const SIDEBAR_MOBILE_CHIP_CLASSES = "max-md:h-5 max-md:w-6";
 export const SIDEBAR_MOBILE_GLYPH_CLASSES = "max-md:size-4";
 
-/** The chip at both breakpoints, for a slot that is the chip on a pointer
- * viewport as well (a pinned app's). */
-export const SIDEBAR_CHIP_CLASSES = `size-5 ${SIDEBAR_MOBILE_CHIP_CLASSES}`;
+/**
+ * A pinned app's leading slot at both breakpoints. On a pointer viewport it
+ * hugs its 14px glyph, so the glyph starts on the pill's 8px inset, the
+ * same edge the New Chat plus and a section header's glyph start on; on a
+ * phone it is the chip.
+ */
+export const SIDEBAR_CHIP_CLASSES = `h-5 w-3.5 ${SIDEBAR_MOBILE_CHIP_CLASSES}`;
+
+/**
+ * The gap a pill that leads with a 14px glyph (New Chat, a pinned app,
+ * Preferences) keeps before its label: 6px on the rail, so the label starts
+ * 28px in like a section header's (8px inset, 14px glyph, 6px gap, Figma
+ * 8300:167416); the pill's own 8px on a phone, where the chip is wider and
+ * every label meets the assistant row's at 40px.
+ */
+export const SIDEBAR_PILL_GAP_CLASSES =
+  "[--panel-item-gap:6px] max-md:[--panel-item-gap:8px]";
 /* Only the width grows: a 24px-tall chip would stand a pinned pill 4px past
    the 44px overlay tile and a card's header row 4px past its 20px. */
 
