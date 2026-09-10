@@ -3,7 +3,9 @@
  *
  * `resolveAcpAgent(id)` merges user-provided `config.acp.agents[id]` (wins on
  * overlap) with the bundled `DEFAULT_ACP_AGENT_PROFILES` so common agents like
- * `claude` and `codex` Just Work with no per-user config required. Natural
+ * `claude` and `codex` Just Work with no per-user config required. `model` is
+ * the one leaf that is not inherited across a replaced `command` (see
+ * `mergeWithProfile`). Natural
  * names ("claude code", "OpenAI Codex") resolve via `AGENT_ID_ALIASES` when the
  * raw id misses both maps. The result is a discriminated union covering every
  * reason a spawn might fail before we even start the agent process: unknown
@@ -209,12 +211,8 @@ function directLookup(
     ? DEFAULT_ACP_AGENT_PROFILES[id]
     : undefined;
   if (userAgent) {
-    // Field-wise, so a leaf the profile ships and the user's entry omits is
-    // inherited rather than dropped: `acp.agents.<id>.model` reads back the
-    // profile's model until the user names one of their own. Zod omits absent
-    // optional keys, so an omission never spreads as an undefined override.
     return {
-      agent: defaultAgent ? { ...defaultAgent, ...userAgent } : userAgent,
+      agent: mergeWithProfile(userAgent, defaultAgent),
       source: "config",
     };
   }
@@ -222,6 +220,36 @@ function directLookup(
     return { agent: defaultAgent, source: "default" };
   }
   return undefined;
+}
+
+/**
+ * Layer a user config entry over the bundled profile for the same id, field by
+ * field, so a leaf the profile ships and the entry omits is inherited rather
+ * than dropped: `acp.agents.<id>.model` reads back the profile's model until
+ * the user names one of their own. Zod omits absent optional keys, so an
+ * omission never spreads as an undefined override.
+ *
+ * `model` is the exception, because it is an alias only the profile's own
+ * adapter understands. It is inherited only while the profile's `command` is
+ * still the one being run; an entry that points the id at a different adapter
+ * keeps only the model it names itself, so a config that reuses the `claude`
+ * id for something else never has Claude's `opus` sent to it.
+ */
+function mergeWithProfile(
+  userAgent: AcpAgentConfig,
+  profile: AcpAgentConfig | undefined,
+): AcpAgentConfig {
+  if (!profile) {
+    return userAgent;
+  }
+  const merged: AcpAgentConfig = { ...profile, ...userAgent };
+  const command: string | undefined = userAgent.command;
+  const runsProfileAdapter =
+    command === undefined || command === profile.command;
+  if (!runsProfileAdapter && userAgent.model === undefined) {
+    delete merged.model;
+  }
+  return merged;
 }
 
 /**

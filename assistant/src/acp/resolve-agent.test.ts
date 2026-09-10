@@ -317,7 +317,45 @@ describe("resolveAcpAgent", () => {
     expect(result.agent.model).toBe("sonnet");
   });
 
-  test("a user entry that omits model inherits the bundled one", () => {
+  test("a user entry keeping the profile command and omitting model inherits it", () => {
+    config.setConfig({
+      agents: {
+        claude: { command: "claude-agent-acp", args: ["--my-flag"] },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.args).toEqual(["--my-flag"]);
+    expect(result.agent.model).toBe("opus");
+  });
+
+  test("a user entry that omits command entirely still inherits the model", () => {
+    // `command` is required by the schema, so this only reaches the resolver
+    // from a hand-edited config that failed validation and was salvaged.
+    config.setConfig({
+      agents: {
+        claude: JSON.parse('{"args": ["--my-flag"]}'),
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("claude-agent-acp");
+    expect(result.agent.model).toBe("opus");
+  });
+
+  test("a user entry pointing the id at another adapter inherits no model", () => {
+    // The bundled aliases are Claude's own vocabulary, so an unrelated
+    // adapter under the `claude` id must not be handed `opus`.
     config.setConfig({
       agents: {
         claude: { command: "my-custom-claude", args: ["--my-flag"] },
@@ -331,7 +369,28 @@ describe("resolveAcpAgent", () => {
       return;
     }
     expect(result.agent.command).toBe("my-custom-claude");
-    expect(result.agent.model).toBe("opus");
+    expect(result.agent.model).toBeUndefined();
+  });
+
+  test("a user entry naming its own model keeps it across a replaced command", () => {
+    config.setConfig({
+      agents: {
+        claude: {
+          command: "my-custom-claude",
+          args: [],
+          model: "my-fork-large",
+        },
+      },
+    });
+
+    const result = resolveAcpAgent("claude");
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.agent.command).toBe("my-custom-claude");
+    expect(result.agent.model).toBe("my-fork-large");
   });
 
   test("a bundled profile with no model leaves the resolved agent without one", () => {
