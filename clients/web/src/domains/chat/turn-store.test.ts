@@ -985,6 +985,7 @@ describe("TURN_RESET", () => {
       pendingQueuedCount: 5,
       activeToolCallCount: 3,
       activeTurnId: "turn-99",
+      interruptingTurnId: "turn-99",
       lastTerminalReason: "error",
       statusText: null,
       liveWebActivity: {},

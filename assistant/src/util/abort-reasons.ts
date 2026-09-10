@@ -76,9 +76,14 @@ export const CANCELLED_TOOL_RESULT_TEXT = "Cancelled by user";
  * message is waiting, the abandoned call may well have taken effect on the
  * outside world before the abort landed, and the model has to answer the new
  * message before it decides what to do about the work it was doing.
+ *
+ * Resuming that work inline is the trap the last clause closes: the reply the
+ * user is waiting for arrives only once the resumed work finishes, so an
+ * interrupt that was meant to get their question answered first buys nothing.
+ * A subagent carries the work in parallel and leaves the conversation free.
  */
 export const PREEMPTED_TOOL_RESULT_TEXT =
-  "Interrupted by the user before this tool call finished. It may still have completed; check before repeating it. Treat the new user message as the priority: reply to it first, then decide whether to resume or abandon the work that was in progress.";
+  "Interrupted by the user before this tool call finished. It may still have completed; check before repeating it. Treat the new user message as the priority: reply to it first, then decide whether to resume or abandon the work that was in progress, and if it is still wanted and too big to finish inline, hand it to a subagent so it continues in parallel instead of holding up the conversation.";
 
 /**
  * The synthetic `tool_result` text that matches why the turn was aborted.

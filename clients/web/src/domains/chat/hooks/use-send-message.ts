@@ -44,7 +44,7 @@ import { useStreamStore } from "@/domains/chat/stream-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { useTurnStore } from "@/domains/chat/turn-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -862,10 +862,13 @@ export function useSendMessage({
         }
       }
 
-      const willQueue = shouldQueueSend(
-        useTurnStore.getState().phase,
-        getInterruptOnSend(),
-      );
+      const phaseAtSend = useTurnStore.getState().phase;
+      const willQueue = shouldQueueSend(phaseAtSend, getInterruptOnSend());
+      // The same read decides the other half: a send that does not queue into
+      // a busy turn is replacing it, so the `generation_cancelled` that lands
+      // behind this send's 202 is that turn's handoff and must not idle the
+      // turn this one is starting.
+      const interruptsRunningTurn = isSending(phaseAtSend) && !willQueue;
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
@@ -1060,7 +1063,7 @@ export function useSendMessage({
       // behind it. The id still travels, so the send's own bookkeeping is
       // unchanged.
       if (sendScopeIsCurrent()) {
-        useTurnStore.getState().requestSend(turnId);
+        useTurnStore.getState().requestSend(turnId, { interruptsRunningTurn });
       }
 
       const currentConv = findConversation(
