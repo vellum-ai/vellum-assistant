@@ -42,9 +42,13 @@ const {
   installHostProxyBridge,
   setExecutor,
   removeExecutor,
+  LOCAL_GATEWAY_TOKEN_RETRY,
   __testing,
 } = await import("./router");
 type HostProxyRuntime = import("./router").HostProxyRuntime;
+
+// Keep the mint ride-out loop fast: many attempts, no real wait between them.
+LOCAL_GATEWAY_TOKEN_RETRY.intervalMs = 0;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -503,6 +507,112 @@ describe("host-proxy-router", () => {
       await flush();
 
       expect(__testing.connections.has("a1")).toBe(false);
+    });
+
+    test("rides out a fetch-failed mint, then connects", async () => {
+      let mintAttempts = 0;
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/auth/token")) {
+          mintAttempts++;
+          if (mintAttempts < 3) {
+            throw new TypeError("fetch failed");
+          }
+        }
+        return mockGatewayTokenFetch(input);
+      }) as typeof globalThis.fetch;
+      installHostProxyBridge(testRuntime);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+        ],
+        activeAssistant: "a1",
+      });
+      await flush();
+
+      expect(mintAttempts).toBe(3);
+      expect(__testing.connections.has("a1")).toBe(true);
+    });
+
+    test("rides out a 401 mint, then connects", async () => {
+      let mintAttempts = 0;
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/auth/token")) {
+          mintAttempts++;
+          if (mintAttempts < 3) {
+            return new Response("unauthorized", { status: 401 });
+          }
+        }
+        return mockGatewayTokenFetch(input);
+      }) as typeof globalThis.fetch;
+      installHostProxyBridge(testRuntime);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+        ],
+        activeAssistant: "a1",
+      });
+      await flush();
+
+      expect(mintAttempts).toBe(3);
+      expect(__testing.connections.has("a1")).toBe(true);
+    });
+
+    test("a 403 mint is terminal and does not retry", async () => {
+      let mintAttempts = 0;
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/auth/token")) {
+          mintAttempts++;
+          return new Response("forbidden", { status: 403 });
+        }
+        return mockGatewayTokenFetch(input);
+      }) as typeof globalThis.fetch;
+      installHostProxyBridge(testRuntime);
+
+      lockfileListener?.({
+        assistants: [
+          { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+        ],
+        activeAssistant: "a1",
+      });
+      await flush();
+
+      expect(mintAttempts).toBe(1);
+      expect(__testing.connections.has("a1")).toBe(false);
+    });
+
+    test("a mint that never comes up spends the budget and skips the connection", async () => {
+      const originalAttempts = LOCAL_GATEWAY_TOKEN_RETRY.attempts;
+      LOCAL_GATEWAY_TOKEN_RETRY.attempts = 5;
+      let mintAttempts = 0;
+      globalThis.fetch = (async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/auth/token")) {
+          mintAttempts++;
+          throw new TypeError("fetch failed");
+        }
+        return mockGatewayTokenFetch(input);
+      }) as typeof globalThis.fetch;
+      installHostProxyBridge(testRuntime);
+
+      try {
+        lockfileListener?.({
+          assistants: [
+            { assistantId: "a1", cloud: "local", resources: { gatewayPort: 9001, daemonPort: 9002 } },
+          ],
+          activeAssistant: "a1",
+        });
+        await flush();
+
+        expect(mintAttempts).toBe(5);
+        expect(__testing.connections.has("a1")).toBe(false);
+      } finally {
+        LOCAL_GATEWAY_TOKEN_RETRY.attempts = originalAttempts;
+      }
     });
   });
 

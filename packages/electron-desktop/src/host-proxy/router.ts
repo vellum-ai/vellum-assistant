@@ -504,12 +504,31 @@ function seedPresence(assistantId: string): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Retry budget for riding out the local gateway's Login Item startup window.
+ * Matches the renderer `LOCAL_GATEWAY_STARTUP_RETRY` window: fetch-failed
+ * while the port is unbound, then a transient 401/503 before the guardian
+ * binding lands. Mutable so tests can shrink the wait.
+ */
+export const LOCAL_GATEWAY_TOKEN_RETRY = {
+  attempts: 90,
+  intervalMs: 1_000,
+};
+
+type GatewayTokenExchange =
+  | { kind: "ok"; token: string; expiresAt: number }
+  | { kind: "retryable" }
+  | { kind: "terminal" };
+
+/**
  * Exchange a guardian access token for a gateway JWT via POST /auth/token.
+ * A loopback-boundary `403` is terminal. Transport errors, `401`, and `5xx`
+ * are retryable: the gateway may still be binding its port or backfilling
+ * the guardian binding.
  */
 async function exchangeForGatewayToken(
   gatewayPort: number,
   guardianToken: string,
-): Promise<{ token: string; expiresAt: number } | null> {
+): Promise<GatewayTokenExchange> {
   try {
     const url = `http://127.0.0.1:${gatewayPort}/auth/token`;
     const res = await fetch(url, {
@@ -521,13 +540,13 @@ async function exchangeForGatewayToken(
     });
     if (!res.ok) {
       log.warn("[host-proxy-router] gateway token exchange failed", { status: res.status });
-      return null;
+      return { kind: res.status === 403 ? "terminal" : "retryable" };
     }
     const body = (await res.json()) as { token: string; expiresAt: number };
-    return body;
+    return { kind: "ok", token: body.token, expiresAt: body.expiresAt };
   } catch (err) {
     log.warn("[host-proxy-router] gateway token exchange error", { err });
-    return null;
+    return { kind: "retryable" };
   }
 }
 
@@ -553,9 +572,41 @@ async function acquireGatewayToken(
   if (!guardianToken) return null;
 
   const exchanged = await exchangeForGatewayToken(gatewayPort, guardianToken);
-  if (!exchanged) return null;
+  if (exchanged.kind !== "ok") return null;
 
   return exchanged.token;
+}
+
+/**
+ * Prime-time mint for a local connect. Rides out retryable mint failures
+ * (port not bound yet, starting 503, transient 401) without skipping the
+ * connection. A missing guardian token or a `403` falls through immediately.
+ * `isCurrentAttempt` aborts when lockfile reconcile cancels this connect.
+ */
+async function acquireGatewayTokenRidingStartup(
+  assistantId: string,
+  gatewayPort: number,
+  isCurrentAttempt: () => boolean,
+): Promise<string | null> {
+  const { attempts, intervalMs } = LOCAL_GATEWAY_TOKEN_RETRY;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (!isCurrentAttempt()) {
+      return null;
+    }
+    const guardianToken = await acquireGuardianToken(assistantId);
+    if (!guardianToken) {
+      return null;
+    }
+    const exchanged = await exchangeForGatewayToken(gatewayPort, guardianToken);
+    if (exchanged.kind === "ok") {
+      return exchanged.token;
+    }
+    if (exchanged.kind === "terminal" || attempt >= attempts) {
+      return null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return null;
 }
 
 // A connection's fingerprint encodes everything that, if changed, requires a
@@ -577,7 +628,7 @@ const cloudFingerprint = (runtimeUrl: string, organizationId?: string): string =
 async function connectWithPendingGuard(
   assistantId: string,
   fingerprint: string,
-  acquireToken: () => Promise<string | null>,
+  acquireToken: (isCurrentAttempt: () => boolean) => Promise<string | null>,
   open: (token: string) => void,
 ): Promise<void> {
   if (connections.has(assistantId)) return;
@@ -585,9 +636,10 @@ async function connectWithPendingGuard(
 
   const pending: PendingConnect = { fingerprint };
   pendingConnects.set(assistantId, pending);
+  const isCurrentAttempt = () => pendingConnects.get(assistantId) === pending;
   try {
-    const token = await acquireToken();
-    if (pendingConnects.get(assistantId) !== pending || connections.has(assistantId)) {
+    const token = await acquireToken(isCurrentAttempt);
+    if (!isCurrentAttempt() || connections.has(assistantId)) {
       log.info("[host-proxy-router] lockfile changed during token acquisition, aborting stale connect", { assistantId, fingerprint });
       return;
     }
@@ -612,7 +664,8 @@ async function connectLocalAssistant(
   await connectWithPendingGuard(
     assistantId,
     fingerprint,
-    () => acquireGatewayToken(assistantId, gatewayPort),
+    (isCurrentAttempt) =>
+      acquireGatewayTokenRidingStartup(assistantId, gatewayPort, isCurrentAttempt),
     (token) => openLocalConnection(assistantId, gatewayPort, token, fingerprint),
   );
 }

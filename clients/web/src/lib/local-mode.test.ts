@@ -1350,11 +1350,10 @@ describe("primeLocalGatewayConnection", () => {
 });
 
 describe("primeLocalGatewayConnectionWithStartupRetry (paired target)", () => {
-  // The startup ride-out exists for the LOCAL gateway's reboot window and only
-  // retries GatewayTokenErrors, which the paired proxy prime never throws. A
-  // paired failure (failed host credential read, remote transport error) falls through
-  // promptly to the chooser instead of stalling the 8x1s retry budget on a
-  // machine that waiting cannot fix.
+  // The startup ride-out exists for the LOCAL gateway's Login Item window.
+  // Paired failures (failed host credential read, remote transport error) fall
+  // through promptly to the chooser instead of stalling the boot retry budget
+  // on a machine that waiting cannot start.
   test("a failing paired credential read is not ridden out", async () => {
     enableLocalMode();
     const fetchMock = mock(
