@@ -987,18 +987,18 @@ export function ChatMainPanel({
       />
     ) : null;
 
-  // While a conversation's row hasn't loaded (a draft, or one opened by URL
-  // mid-load), its profile lives in the composer stash, not on a server row —
-  // feed it in so attachment/vision gating reflects the profile the first
-  // message will actually use rather than the global default.
-  const activeDraftProfile =
-    !activeConversation && activeConversationId
-      ? (pendingDraftProfiles.get(activeConversationId) ?? undefined)
-      : undefined;
+  // A client-minted draft has no server row, so the profile its first
+  // message will use is the one stashed in the composer. Every other
+  // conversation is looked up by its id, whether or not its row has loaded
+  // yet, so the gate stays unresolved until that row's profile is known: an
+  // image is never staged against the global profile while the
+  // conversation's own override is still on its way.
   const imageAttachmentsAllowed = useImageAttachmentsAllowed(
     assistantId,
-    activeConversation?.conversationId,
-    activeDraftProfile,
+    activeDraftId ? undefined : (activeConversationId ?? undefined),
+    activeDraftId
+      ? (pendingDraftProfiles.get(activeDraftId) ?? undefined)
+      : undefined,
   );
 
   const isInMaintenanceWithNoMessages =
