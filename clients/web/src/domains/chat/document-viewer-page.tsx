@@ -72,9 +72,14 @@ export function DocumentViewerPage() {
   // reused across route parameter changes, so the route's current surface is
   // mirrored into a ref for the in-flight action to check against.
   const feedbackInFlightRef = useRef<string | null>(null);
-  const routeSurfaceIdRef = useRef(surfaceId);
+  const routeSurfaceIdRef = useRef<string | undefined>(surfaceId);
   useEffect(() => {
     routeSurfaceIdRef.current = surfaceId;
+    // Leaving the document route is leaving every document, so an action
+    // still out reads its surface as gone and writes nothing.
+    return () => {
+      routeSurfaceIdRef.current = undefined;
+    };
   }, [surfaceId]);
 
   useEffect(() => {

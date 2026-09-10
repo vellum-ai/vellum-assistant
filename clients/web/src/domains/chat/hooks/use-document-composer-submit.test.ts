@@ -1960,11 +1960,13 @@ describe("acknowledging the send", () => {
       await result.current.submit();
     });
 
-    // THEN the entry moved onto the answered row, where the echo will find it,
-    // still unacknowledged.
+    // THEN the entry moved onto the answered row and is running there: no
+    // stream event named the nonce and the row together, so on a daemon whose
+    // events carry no nonce the response is the one signal the daemon took
+    // the send in, and the terminal on that row is what settles it.
     expect(awaitingState("conv-key")).toBeUndefined();
     expect(awaitingState("conv-minted")).toEqual({
-      acknowledged: false,
+      acknowledged: true,
       queued: false,
     });
   });
@@ -2518,6 +2520,7 @@ describe("a send that outlives its owner", () => {
       version: "0.8.5",
       assistantId: "assistant-2",
     });
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
     useComposerStore
       .getState()
       .setInput("for the second assistant", "document");
@@ -2531,6 +2534,39 @@ describe("a send that outlives its owner", () => {
     expect(
       isAwaitingReply(postChatMessageMock.mock.calls[0]?.[1] as string),
     ).toBe(true);
+  });
+
+  test("an unmount while the document is being linked registers nothing", async () => {
+    // GIVEN a send whose link is out when the host unmounts (an assistant
+    // switch closing the overlay), after the switch watcher has cleared the
+    // outgoing assistant's state.
+    const settleLink = deferDocumentLink();
+    useComposerStore.getState().setInput("hello", "document");
+    const { result, unmount } = renderSubmitForAssistant(ASSISTANT_ID, "");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() =>
+      expect(documentsByIdConversationsPostMock).toHaveBeenCalledTimes(1),
+    );
+    unmount();
+
+    await act(async () => {
+      settleLink();
+      await submitted;
+    });
+
+    // THEN the continuation sent nothing and listed nothing: an entry raised
+    // now would wait on a connection that never carries its reply.
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(useDocumentComposerReplyStore.getState().pendingReplies.size).toBe(
+      0,
+    );
+    expect(useConversationStore.getState().processingConversationIds.size).toBe(
+      0,
+    );
   });
 
   test("an assistant switch while the document is being linked leaves the incoming assistant's document alone", async () => {

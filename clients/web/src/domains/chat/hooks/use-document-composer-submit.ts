@@ -201,6 +201,11 @@ export function useDocumentComposerSubmit({
         abandonAttempt(previous);
       }
       pendingClientMessageRef.current = null;
+      // An unmounted hook owns no assistant. A continuation still out past
+      // this point reads the owner as gone and registers nothing: an entry
+      // listed after the switch watcher has cleared the outgoing assistant's
+      // state would wait on a connection that never carries its reply.
+      currentAssistantIdRef.current = null;
     };
   }, [assistantId, surfaceId]);
 
@@ -226,8 +231,12 @@ export function useDocumentComposerSubmit({
     // shared slot to the incoming assistant, and resets this attempt's
     // nonce, so an attempt that finds the assistant changed has nothing left
     // to send, or to say on a composer that is not the one it started on.
+    // Both the owner this hook still holds and the assistant the app has
+    // active: a switch that unmounts the host clears the owner, and one that
+    // keeps it mounted moves the active assistant first.
     const assistantChanged = () =>
-      currentAssistantIdRef.current !== assistantId;
+      currentAssistantIdRef.current !== assistantId ||
+      useResolvedAssistantsStore.getState().activeAssistantId !== assistantId;
     const ownsSlotNow = () => ownerGenerationRef.current === ownerGeneration;
 
     const { documentInput, documentAttachments } = useComposerStore.getState();
@@ -587,6 +596,23 @@ export function useDocumentComposerSubmit({
             .getState()
             .stopAwaitingReply(targetConversationId, clientMessageId);
           raiseReplyWait(conversationId);
+          // The wait still sat under the key, so no stream event named the
+          // nonce and the row together: on a daemon whose events carry no
+          // nonce, none ever will, its echo passed under the row before the
+          // entry got there, and the response is the one signal that the
+          // daemon took the send in. A queued mark is safe from here at any
+          // time; a running mark is what lets that daemon's terminal settle
+          // the send, at the ordering risk a nonce-less stream carries
+          // anyway.
+          if (!useServerMint) {
+            useDocumentComposerReplyStore
+              .getState()
+              .acknowledgeReply(
+                conversationId,
+                clientMessageId,
+                result.queued === true,
+              );
+          }
         }
         if (waiting) {
           useConversationStore
