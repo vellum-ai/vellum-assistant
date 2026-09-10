@@ -10,12 +10,15 @@ import {
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { type Assistant, getAssistant } from "@/assistant/api";
+import {
+  type Assistant,
+  getAssistant,
+  getAssistantHealthz,
+} from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { healthzGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import { healthzGet } from "@/generated/daemon/sdk.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { t, useTranslation } from "@/i18n";
@@ -86,9 +89,10 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
      and be rejected. Ready immediately when there is no platform session, so
      self-hosted and gateway-only sessions are not held up by it. */
   const orgReadiness = useOrgHeaderReadiness();
-  /* Keyed on the active assistant rather than on the resolved record, so the
-     two reads run side by side instead of nose to tail. Over a tunnel that
-     serialization was a second full round trip before this one could start. */
+  /* Keyed on the active id rather than on the resolved record, so this read
+     and the record's own go out together. The record can only ever report the
+     id the hook already holds, so waiting for it would buy nothing and cost a
+     round trip on a tunnel. */
   const healthzQueryOptions = useMemo(
     () => healthzGetOptions({ path: { assistant_id: activeAssistantId } }),
     [activeAssistantId],
@@ -154,15 +158,12 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   const readHealthzOutsideQuery =
     useCallback(async (): Promise<HealthzGetResponse | null> => {
       try {
-        const { data, response } = await healthzGet({
-          path: { assistant_id: activeAssistantId },
-          throwOnError: false,
-        });
-        if (!response?.ok || !data) {
+        const result = await getAssistantHealthz(activeAssistantId);
+        if (!result.ok) {
           return null;
         }
-        queryClient.setQueryData(healthzQueryOptions.queryKey, data);
-        return data;
+        queryClient.setQueryData(healthzQueryOptions.queryKey, result.data);
+        return result.data;
       } catch {
         // Unreachable mid-restart. The last good reading stays in the cache,
         // so the cards keep their values instead of blanking.
@@ -171,10 +172,10 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     }, [activeAssistantId, queryClient, healthzQueryOptions]);
 
   /* The user asked for this one, so it goes through the query: a failure here
-     is theirs to see, and the reporting effect above surfaces it. */
+     is theirs to see, and the reporting effect above surfaces it. Both reads
+     go out together for the same reason the mount path does. */
   const refetch = useCallback(async () => {
-    await refetchAssistant();
-    await refetchHealthz();
+    await Promise.all([refetchAssistant(), refetchHealthz()]);
   }, [refetchAssistant, refetchHealthz]);
 
   const refetchUntilResized = useCallback(
