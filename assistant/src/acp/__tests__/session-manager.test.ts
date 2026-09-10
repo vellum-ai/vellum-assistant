@@ -13,6 +13,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 
 import type { AssistantEvent } from "../../api/index.js";
 import { initializeDb } from "../../persistence/db-init.js";
+import { AcpAuthRequiredError, isAcpAuthRequired } from "../auth-required.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
 import { AcpConfigOptionRefusedError } from "../types.js";
@@ -422,6 +423,66 @@ describe("AcpSessionManager: model selection at spawn", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+  });
+
+  test("an authentication failure during the pin surfaces as auth required", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    setConfigOptionResult = new AcpAuthRequiredError(
+      "agent-model",
+      "Claude refused the configured credential",
+    );
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-auth",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+
+    const failure = await spawned.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(isAcpAuthRequired(failure)).toBe(true);
+    expect(sent).toEqual([]);
+    expect(manager.getStatus()).toEqual([]);
+  });
+
+  test("Claude's message-shaped 401 during the pin surfaces as auth required", async () => {
+    scriptedConfigOptions = [[modelOption("default")]];
+    // Not the structured auth_required answer: the CLI's own words, which the
+    // spawn boundary only recognises once the manager has classified them.
+    setConfigOptionResult = new Error(
+      "Failed to authenticate. Please run /login",
+    );
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "claude",
+      { command: "claude-agent-acp", args: [] },
+      "task",
+      "/tmp",
+      "conv-pin-auth-message",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+
+    const failure = await spawned.then(
+      () => undefined,
+      (err: unknown) => err,
+    );
+    expect(isAcpAuthRequired(failure)).toBe(true);
+    expect((failure as Error).message).toBe(
+      "Failed to authenticate. Please run /login",
+    );
+    expect(sent).toEqual([]);
+    expect(manager.getStatus()).toEqual([]);
   });
 
   test("a pin the connection cannot carry tears the spawn down", async () => {

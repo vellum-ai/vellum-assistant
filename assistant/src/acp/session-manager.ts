@@ -27,6 +27,7 @@ import { AcpAgentProcess } from "./agent-process.js";
 import {
   ACP_AUTH_RECOVERY_GUIDANCE,
   ACP_CLAUDE_AUTH_REQUIRED_CODE,
+  AcpAuthRequiredError,
   CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
@@ -389,9 +390,10 @@ export class AcpSessionManager {
         { acpSessionId, agentId, err },
         "ACP spawn failed while applying the model",
       );
+      const failure = this.classifyPinFailure(err, agentId, agentConfig);
       // No prompt has fired yet, so no permissions can be pending.
       this.teardownSession(acpSessionId, entry);
-      throw err;
+      throw failure;
     }
 
     // Recheck: the model pin is an await too, and everything below it either
@@ -482,6 +484,29 @@ export class AcpSessionManager {
    * rung (the per-agent config model) is only logged, so a value the caller
    * never named does not surface as a warning on every spawn.
    */
+  /**
+   * A model pin that fails for authentication is the same failure a session
+   * that could not open: Claude refused the configured credential, so it is
+   * written down before teardown and surfaced in the shape the spawn boundary
+   * recognises, whether the adapter answered with a structured
+   * `auth_required` or with Claude's message-shaped 401.
+   */
+  private classifyPinFailure(
+    err: unknown,
+    agentId: string,
+    agentConfig: { command: string; credentialDigest?: string },
+  ): unknown {
+    const message = err instanceof Error ? err.message : String(err);
+    const authCode = claudeAuthRequiredCode(err, message, agentConfig);
+    if (authCode === undefined && !isAcpAuthRequired(err)) {
+      return err;
+    }
+    noteClaudeTokenRefused(agentConfig.credentialDigest, Date.now());
+    return isAcpAuthRequired(err)
+      ? err
+      : new AcpAuthRequiredError(agentId, message);
+  }
+
   private async pinSessionModel(
     entry: SessionEntry,
     configOptions: SessionConfigOption[],
@@ -1004,8 +1029,9 @@ export class AcpSessionManager {
         { acpSessionId, agentId: row.agentId, err },
         "ACP resume failed while applying the model",
       );
+      const failure = this.classifyPinFailure(err, row.agentId, agentConfig);
       this.teardownSession(acpSessionId, entry);
-      throw err;
+      throw failure;
     }
     if (resolvedModel && !applied) {
       // State keeps the adapter's own answer, so the model event, the status

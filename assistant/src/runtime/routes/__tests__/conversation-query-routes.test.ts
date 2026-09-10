@@ -51,7 +51,12 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 }));
 
 import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
-import { getConfig, loadRawConfig } from "../../../config/loader.js";
+import {
+  getConfig,
+  loadConfig,
+  loadRawConfig,
+} from "../../../config/loader.js";
+import { AssistantConfigSchema } from "../../../config/schema.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import {
@@ -1938,5 +1943,47 @@ describe("ingress URL writes through the generic config routes", () => {
     const ingress = savedIngress();
     expect(ingress.assistantId).toBe("assistant-1");
     expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
+  });
+});
+
+describe("PATCH /v1/config clearing a per-agent acp model", () => {
+  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
+  const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
+
+  beforeEach(() => {
+    rawConfigFixture = {
+      acp: {
+        agents: {
+          claude: { command: "claude-agent-acp", args: [], model: "opus" },
+        },
+      },
+    };
+    seedRawConfig();
+  });
+
+  function agentEntry(raw: Record<string, unknown>): Record<string, unknown> {
+    const acp = raw.acp as Record<string, unknown>;
+    const agents = acp.agents as Record<string, Record<string, unknown>>;
+    return agents.claude!;
+  }
+
+  test("a nulled per-agent model is dropped on both write paths", async () => {
+    await patchRoute.handler({
+      body: { acp: { agents: { claude: { model: null } } } },
+    });
+
+    const patched = agentEntry(loadRawConfig());
+    expect("model" in patched).toBe(false);
+    expect(patched.command).toBe("claude-agent-acp");
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+
+    seedRawConfig();
+    await setRoute.handler({
+      body: { path: "acp.agents.claude.model", value: null },
+    });
+
+    expect("model" in agentEntry(loadRawConfig())).toBe(false);
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    expect(loadConfig().acp.agents.claude?.model).toBeUndefined();
   });
 });
