@@ -1293,12 +1293,70 @@ const sameCaptureTarget = (
  * press inside it says nothing about a step.
  */
 interface CoachmarkPress {
+  /**
+   * The control's hit area as fractions of the surface it was found on, the
+   * way the mark's centre is. A window share moves, and the frame follows
+   * it; a rectangle kept in screen points would stay where the control was,
+   * so it is kept the way the mark is and measured out again wherever the
+   * frame is now.
+   */
   rect: CoachmarkPressRect;
   /** The control's own name, for the turn the press becomes. */
   label: string;
 }
 
 const NO_PRESSES: readonly CoachmarkPress[] = [];
+
+/** The presses the marks on screen can be heard as, if any. */
+let coachmarkPresses: readonly CoachmarkPress[] = NO_PRESSES;
+
+/**
+ * The surface the presses are measured out on: the frame's bounds when they
+ * went up, then wherever the frame has followed the window to since.
+ */
+let coachmarkSurface: Rectangle | null = null;
+
+/**
+ * Ask the helper to watch the presses where they are now. The rectangles it
+ * is given are in screen points, which is the one thing it tests a press
+ * against, and they are worked out from the surface each time rather than
+ * kept, so a frame that has moved is answered with rectangles that moved.
+ */
+const armCoachmarkPressWatch = (): void => {
+  const surface = coachmarkSurface;
+  const presses = coachmarkPresses;
+  if (surface === null || presses.length === 0) {
+    unwatchCoachmarkPress();
+    return;
+  }
+  watchCoachmarkPress(
+    presses.map((press) => ({
+      x: surface.x + press.rect.x * surface.width,
+      y: surface.y + press.rect.y * surface.height,
+      width: press.rect.width * surface.width,
+      height: press.rect.height * surface.height,
+    })),
+    (index) => {
+      const press = presses[index];
+      if (press !== undefined) {
+        onCoachmarkPressed(press);
+      }
+    },
+  );
+};
+
+/**
+ * The frame the marks are drawn on has moved: the controls they point at
+ * moved with the window under it, so the presses are measured out again on
+ * the new bounds. Nothing to do while nothing is pointed at.
+ */
+const moveCoachmarkPresses = (bounds: Rectangle): void => {
+  if (coachmarkPresses.length === 0) {
+    return;
+  }
+  coachmarkSurface = bounds;
+  armCoachmarkPressWatch();
+};
 
 /**
  * The user pressed the control a mark was pointing at.
@@ -1319,15 +1377,16 @@ const onCoachmarkPressed = (press: CoachmarkPress): void => {
  * Point at things on the shared surface, or take down what is pointed at.
  *
  * `presses` are the marks among `next` the user can press, which is how the
- * step a mark describes is heard to be done. Asked for beside the marks
- * rather than kept with them, because the renderer draws the marks and has
- * no use for a rectangle in screen points, and because they are one-shot
- * where the marks are not: a press consumes the watch and leaves the marks
- * to whoever asked for them.
+ * step a mark describes is heard to be done, measured against `surface`.
+ * Asked for beside the marks rather than kept with them, because the
+ * renderer draws the marks and has no use for a hit area, and because they
+ * are one-shot where the marks are not: a press consumes the watch and
+ * leaves the marks to whoever asked for them.
  */
 const setCoachmarks = (
   next: readonly CompanionCoachmark[],
   presses: readonly CoachmarkPress[] = NO_PRESSES,
+  surface: Rectangle | null = null,
 ): void => {
   const resolved = framesTheShare() ? next : NO_COACHMARKS;
   if (resolved.length > 0) {
@@ -1345,18 +1404,13 @@ const setCoachmarks = (
   // down for any reason take the watch with them, since a press on a
   // control nothing points at is not a step being done.
   if (resolved === NO_COACHMARKS) {
-    unwatchCoachmarkPress();
+    coachmarkPresses = NO_PRESSES;
+    coachmarkSurface = null;
   } else {
-    watchCoachmarkPress(
-      presses.map((press) => press.rect),
-      (index) => {
-        const press = presses[index];
-        if (press !== undefined) {
-          onCoachmarkPressed(press);
-        }
-      },
-    );
+    coachmarkPresses = presses;
+    coachmarkSurface = surface;
   }
+  armCoachmarkPressWatch();
   const against = resolved === NO_COACHMARKS ? undefined : context.screenShare;
   if (resolved === coachmarks && sameCaptureTarget(against, coachmarkTarget)) {
     return;
@@ -1471,6 +1525,7 @@ export const showCompanionCoachmarks = async (
 
   const marks: PlacedCoachmark[] = [];
   const presses: CoachmarkPress[] = [];
+  let surface: Rectangle | null = null;
   for (const request of requests) {
     if (!namesATarget(request)) {
       // Bounds given outright are an extent someone means, so they keep the
@@ -1503,9 +1558,10 @@ export const showCompanionCoachmarks = async (
       setCoachmarks(NO_COACHMARKS);
       return { kind: "unresolved", unresolved: located };
     }
-    const { hit, ...placed } = located;
+    const { hit, surface: measured, ...placed } = located;
     marks.push(placed);
     presses.push({ rect: hit, label: placed.matched });
+    surface = measured;
   }
 
   // The name a mark resolved from is for the caller to read back, not for the
@@ -1514,6 +1570,7 @@ export const showCompanionCoachmarks = async (
   setCoachmarks(
     marks.map(({ matched: _matched, ...mark }) => mark),
     presses,
+    surface,
   );
   return { kind: "placed", marks };
 };
@@ -1557,13 +1614,15 @@ const whyNotToDraw = (
 /**
  * A mark that was found by name, with the frame it was found at.
  *
- * `hit` is where a press on the control would land, in the screen points
- * the tree reported. It stays on this side: the mark the renderer draws is
- * the centre alone, for the reason {@link placeOnNamedTarget} gives.
+ * `hit` is where a press on the control would land, as fractions of
+ * `surface`, the bounds the tree's screen points were measured against. It
+ * stays on this side: the mark the renderer draws is the centre alone, for
+ * the reason {@link placeOnNamedTarget} gives.
  */
 type LocatedCoachmark = PlacedCoachmark & {
   matched: string;
   hit: CoachmarkPressRect;
+  surface: Rectangle;
 };
 
 /**
@@ -1607,11 +1666,12 @@ const placeOnNamedTarget = async (
     ...(request.caption === undefined ? {} : { caption: request.caption }),
     matched: located.label,
     hit: {
-      x: located.x,
-      y: located.y,
-      width: located.width,
-      height: located.height,
+      x: (located.x - bounds.x) / bounds.width,
+      y: (located.y - bounds.y) / bounds.height,
+      width: located.width / bounds.width,
+      height: located.height / bounds.height,
     },
+    surface: bounds,
   };
 };
 
@@ -1668,6 +1728,7 @@ const placeWatchFrame = (bounds: Rectangle): void => {
       current.height !== bounds.height
     ) {
       existing.setBounds(bounds);
+      moveCoachmarkPresses(bounds);
     }
     if (!existing.isVisible()) {
       existing.showInactive();
