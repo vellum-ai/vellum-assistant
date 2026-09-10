@@ -7271,10 +7271,10 @@ export async function defaultSpawnBackgroundContinuation(args: {
     // spoken by a session turn, on the session's terms; it was never meant to
     // mean invisible.
     //
-    // NOT the conversation's own sender: the voice bridge resets that to a
-    // no-op at turn teardown (see voice-session-bridge's clientCallbackInstalled
-    // reset), and the detach deliberately waits for that teardown before
-    // spawning — so a sender-based route is guaranteed to be dead by the time
+    // NOT a per-turn sender: the conversation's event sink is fixed at
+    // construction (see "Conversation event delivery" in assistant/AGENTS.md),
+    // and the detach deliberately waits for the interrupted turn's bridge
+    // teardown before spawning, so nothing turn-scoped is alive by the time
     // these events fire. `broadcastMessage` is the same path the bridge itself
     // uses to reach an attached web client. The subagent events carry
     // `parentConversationId`, not `conversationId`, so scope explicitly.

@@ -29,11 +29,11 @@ export const HOLD_VERDICT_TOKEN = "[0]";
 export const ESCALATE_VERDICT_TOKEN = "[1]";
 
 /**
- * Emitted inline by the main/escalated voice leg to ask the live-voice
- * client to minimize the voice room and reveal the screen behind it
- * (e.g. after creating an app worth showing). Advisory: the daemon
- * translates it into a `minimize_room` server frame after the turn's TTS
- * drains; it is never spoken and never persisted.
+ * Room-minimize token, kept in the marker table so it is stripped from
+ * speech and from persisted rows. No prompt teaches it: the live-voice
+ * session decides a minimize from whether a ui-surface tool ran during the
+ * turn (`revealsUiSurface` on `tool_result`) and sends the `minimize_room`
+ * frame itself, so a model that emits this token regardless moves nothing.
  */
 export const MINIMIZE_ROOM_MARKER = "[-1]";
 
