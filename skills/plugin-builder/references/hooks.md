@@ -165,7 +165,7 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 ### `message-deleted`
 
 **Context:** `MessageDeletedContext`
-**When:** Once per deleted message row, after the row is removed. Fires from the shared single-message delete primitive, so every caller that removes one row (a regenerated reply, turn consolidation, an in-flight row discarded on failure) dispatches it. Whole-conversation deletes dispatch `conversation-deleted` instead.
+**When:** Once per deleted message row, after the row is removed. Fires from the shared single-message delete primitive, so every caller that removes individual rows (a regenerated reply, an undone exchange, turn consolidation, an in-flight row discarded on failure) dispatches it, once per row. Whole-conversation deletes dispatch `conversation-deleted` instead.
 **Use it to:** Settle state your plugin keyed on that row. The context carries the row's `createdAt` alongside its id because the row is gone by the time the hook runs; together they are the `(createdAt, id)` position the row held. Fire-and-forget, like `conversation-deleted`.
 **Example:** [memory](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/memory/hooks/message-deleted.ts)
 

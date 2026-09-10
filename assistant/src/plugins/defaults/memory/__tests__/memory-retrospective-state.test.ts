@@ -278,6 +278,76 @@ describe("memory-retrospective-state cursor timestamp", () => {
     db.run(`DELETE FROM conversations`);
   });
 
+  test("a source cursor whose row was regenerated away is placed by its stored bound, not clamped past the copies", async () => {
+    const db = getDb();
+    createConversation({ id: "conv-fork-bound-src" });
+    createConversation({ id: "conv-fork-bound-dst" });
+    // src-m2 (createdAt 2_000) was the cursor; a regenerate deleted it and
+    // src-m3 replaced it. The fork copies src-m1 and src-m3.
+    for (const [id, conversationId, createdAt] of [
+      ["src-m1", "conv-fork-bound-src", 1_000],
+      ["src-m3", "conv-fork-bound-src", 3_000],
+      ["dst-m1", "conv-fork-bound-dst", 1_000],
+      ["dst-m3", "conv-fork-bound-dst", 3_000],
+    ] as const) {
+      db.insert(messages)
+        .values({
+          id,
+          conversationId,
+          role: "user",
+          content: "[]",
+          createdAt,
+          metadata: null,
+        })
+        .run();
+    }
+    await upsertRetrospectiveState({
+      conversationId: "conv-fork-bound-src",
+      lastProcessedMessageId: "src-m2",
+      lastProcessedCreatedAt: 2_000,
+      lastRunAt: 1,
+    });
+
+    forkRetrospectiveState({
+      database: db,
+      sourceConversationId: "conv-fork-bound-src",
+      forkedConversationId: "conv-fork-bound-dst",
+      forkedMessageIds: new Map([
+        ["src-m1", "dst-m1"],
+        ["src-m3", "dst-m3"],
+      ]),
+      lastCopiedSourceMessageId: "src-m3",
+    });
+
+    const child = getRetrospectiveState("conv-fork-bound-dst");
+    expect(child?.lastProcessedMessageId).toBe("dst-m1");
+    expect(child?.lastProcessedCreatedAt).toBe(1_000);
+
+    // A bound before every copied row leaves the child with nothing processed.
+    await upsertRetrospectiveState({
+      conversationId: "conv-fork-bound-src",
+      lastProcessedMessageId: "src-m0",
+      lastProcessedCreatedAt: 500,
+      lastRunAt: 1,
+    });
+    forkRetrospectiveState({
+      database: db,
+      sourceConversationId: "conv-fork-bound-src",
+      forkedConversationId: "conv-fork-bound-dst",
+      forkedMessageIds: new Map([
+        ["src-m1", "dst-m1"],
+        ["src-m3", "dst-m3"],
+      ]),
+      lastCopiedSourceMessageId: "src-m3",
+    });
+    expect(
+      getRetrospectiveState("conv-fork-bound-dst")?.lastProcessedMessageId,
+    ).toBe("");
+
+    db.run(`DELETE FROM messages`);
+    db.run(`DELETE FROM conversations`);
+  });
+
   test("ensureRetrospectiveCursorColumn adds the column to a legacy table once and is a no-op after", () => {
     const raw = getMemorySqlite()!;
     raw.exec("DROP TABLE memory_retrospective_state");

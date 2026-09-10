@@ -4248,12 +4248,12 @@ export function deleteLastExchange(conversationId: string): number {
 
   // Collect attachment IDs linked to the messages being deleted so we can
   // scope orphan cleanup to only those candidates (not freshly uploaded ones).
-  const messageIds = db
-    .select({ id: messages.id })
+  const deletedRows = db
+    .select({ id: messages.id, createdAt: messages.createdAt })
     .from(messages)
     .where(condition)
-    .all()
-    .map((r) => r.id);
+    .all();
+  const messageIds = deletedRows.map((r) => r.id);
   const candidateAttachmentIds =
     messageIds.length > 0
       ? db
@@ -4298,6 +4298,17 @@ export function deleteLastExchange(conversationId: string): number {
   // (best-effort, breaker-wrapped) when it is disabled.
   for (const deletedMessageId of messageIds) {
     enqueueDeleteMessageLexical(deletedMessageId);
+  }
+
+  // Notify `message-deleted` hooks for each removed row, as the
+  // single-message primitive does: undo removes the same tail a regenerate
+  // does, and a hook keeping a cursor on one of these rows needs its position.
+  for (const row of deletedRows) {
+    void runHook(HOOKS.MESSAGE_DELETED, {
+      conversationId,
+      messageId: row.id,
+      createdAt: row.createdAt,
+    } satisfies MessageDeletedInputContext);
   }
 
   return deleted;

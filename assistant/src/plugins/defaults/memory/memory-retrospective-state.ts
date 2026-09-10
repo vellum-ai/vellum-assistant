@@ -375,6 +375,46 @@ export async function upsertRetrospectiveState(
 }
 
 /**
+ * The copied source row that sits latest at or before `bound` in
+ * `(createdAt, id)` order, as its forked id and `createdAt`, or null when
+ * every copied row lies after the bound. Reads the source rows through the
+ * fork transaction's handle.
+ */
+function latestCopiedRowAtOrBefore(
+  database: DrizzleDb,
+  forkedMessageIds: Map<string, string>,
+  bound: { createdAt: number; id: string },
+): { forkedId: string; createdAt: number } | null {
+  const createdAtBySourceId = messageCreatedAtByIds(
+    [...forkedMessageIds.keys()],
+    { db: database },
+  );
+  let best: { sourceId: string; createdAt: number } | null = null;
+  for (const [sourceId, createdAt] of createdAtBySourceId) {
+    const atOrBefore =
+      createdAt < bound.createdAt ||
+      (createdAt === bound.createdAt && sourceId <= bound.id);
+    if (!atOrBefore) {
+      continue;
+    }
+    const later =
+      best === null ||
+      createdAt > best.createdAt ||
+      (createdAt === best.createdAt && sourceId > best.sourceId);
+    if (later) {
+      best = { sourceId, createdAt };
+    }
+  }
+  if (best === null) {
+    return null;
+  }
+  const forkedId = forkedMessageIds.get(best.sourceId);
+  return forkedId === undefined
+    ? null
+    : { forkedId, createdAt: best.createdAt };
+}
+
+/**
  * Carry the source conversation's retrospective state into a forked child so
  * the fork doesn't re-process content the parent already covered. Synchronous
  * so it can run inside the bun:sqlite transaction wrapping `forkConversation`.
@@ -387,10 +427,13 @@ export async function upsertRetrospectiveState(
  *     succeeded) → child pointer is also `""`.
  *   - source pointer is within the copied range (`forkedMessageIds` has it) →
  *     child pointer is the mapped forked message ID.
- *   - source pointer is past the fork boundary (not in `forkedMessageIds`) →
- *     child pointer is the last copied message's mapped ID. All copied
- *     messages have already been retro'd by the source, so the child should
- *     wait for new post-fork messages before its first retro fires.
+ *   - source pointer is not in `forkedMessageIds` (its row was deleted, or it
+ *     lies past the copied range) and carries a stored `createdAt` → child
+ *     pointer is the latest copied row at or before the source's
+ *     `(createdAt, id)` bound; copied rows after the bound stay unprocessed.
+ *   - source pointer is not in `forkedMessageIds` and has no stored
+ *     `createdAt` → child pointer is the last copied message's mapped ID, on
+ *     the assumption it lies past the fork boundary.
  *
  * `lastProcessedCreatedAt` is read from the forked pointer's row through
  * `database`, the fork transaction's main-DB handle, which is the only handle
@@ -423,49 +466,76 @@ export function forkRetrospectiveState(args: {
       return;
     }
 
-    const sourceRow = mdb
-      .select({
-        lastProcessedMessageId: memoryRetrospectiveState.lastProcessedMessageId,
-        lastRunAt: memoryRetrospectiveState.lastRunAt,
-        rememberedLog: memoryRetrospectiveState.rememberedLog,
-      })
-      .from(memoryRetrospectiveState)
-      .where(eq(memoryRetrospectiveState.conversationId, sourceConversationId))
-      .get();
+    const withCursor = ensureRetrospectiveCursorColumn(
+      "forkRetrospectiveState",
+    );
+    const sourceRow: StateRow | undefined = withCursor
+      ? mdb
+          .select(CURSOR_COLUMNS)
+          .from(memoryRetrospectiveState)
+          .where(
+            eq(memoryRetrospectiveState.conversationId, sourceConversationId),
+          )
+          .get()
+      : mdb
+          .select(BASE_COLUMNS)
+          .from(memoryRetrospectiveState)
+          .where(
+            eq(memoryRetrospectiveState.conversationId, sourceConversationId),
+          )
+          .get();
     if (!sourceRow) {
       return;
     }
 
+    const sourcePointer = sourceRow.lastProcessedMessageId;
+    const sourceCreatedAt = sourceRow.lastProcessedCreatedAt ?? null;
     let forkedPointer = "";
-    if (sourceRow.lastProcessedMessageId !== "") {
-      const mapped = forkedMessageIds.get(sourceRow.lastProcessedMessageId);
+    let forkedCreatedAt: number | null = null;
+    if (sourcePointer !== "") {
+      const mapped = forkedMessageIds.get(sourcePointer);
       if (mapped !== undefined) {
         forkedPointer = mapped;
+        forkedCreatedAt =
+          messageCreatedAtByIds([forkedPointer], { db: database }).get(
+            forkedPointer,
+          ) ?? null;
+      } else if (sourceCreatedAt !== null) {
+        // The source pointer is not among the copied rows: either its row
+        // was deleted (a regenerated reply) or it lies past the copied range.
+        // Its stored `(createdAt, id)` bound still says where it sat, so the
+        // child takes the latest copied row at or before that bound. Copied
+        // rows after it (a replacement reply, later turns) stay unprocessed;
+        // a bound before every copied row leaves the child at "nothing
+        // processed yet".
+        const placed = latestCopiedRowAtOrBefore(database, forkedMessageIds, {
+          createdAt: sourceCreatedAt,
+          id: sourcePointer,
+        });
+        if (placed) {
+          forkedPointer = placed.forkedId;
+          forkedCreatedAt = placed.createdAt;
+        }
       } else if (lastCopiedSourceMessageId !== null) {
-        // Source pointer is past the fork boundary — everything copied has
-        // already been processed by the source, so clamp to the last copied
-        // message so the fork waits for new post-fork messages.
+        // No stored bound to place a missing pointer by (a row written before
+        // timestamps were kept): treat it as past the fork boundary and clamp
+        // to the last copied message so the fork waits for new post-fork
+        // messages.
         forkedPointer = forkedMessageIds.get(lastCopiedSourceMessageId) ?? "";
+        forkedCreatedAt =
+          forkedPointer === ""
+            ? null
+            : (messageCreatedAtByIds([forkedPointer], { db: database }).get(
+                forkedPointer,
+              ) ?? null);
       }
     }
 
-    const withCursor = ensureRetrospectiveCursorColumn(
-      "forkRetrospectiveState",
-    );
     const values = {
       lastProcessedMessageId: forkedPointer,
       lastRunAt: sourceRow.lastRunAt,
       rememberedLog: sourceRow.rememberedLog,
-      ...(withCursor
-        ? {
-            lastProcessedCreatedAt:
-              forkedPointer === ""
-                ? null
-                : (messageCreatedAtByIds([forkedPointer], {
-                    db: database,
-                  }).get(forkedPointer) ?? null),
-          }
-        : {}),
+      ...(withCursor ? { lastProcessedCreatedAt: forkedCreatedAt } : {}),
     };
 
     mdb

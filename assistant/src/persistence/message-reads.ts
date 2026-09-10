@@ -203,17 +203,21 @@ export function messageCreatedAtByIds(
   messageIds: readonly string[],
   opts?: { db?: MessageReadHandle },
 ): Map<string, number> {
-  if (messageIds.length === 0) {
-    return new Map();
-  }
-  return new Map(
-    (opts?.db ?? getDb())
+  const db = opts?.db ?? getDb();
+  const result = new Map<string, number>();
+  // Chunked so a whole-conversation id list stays under SQLite's bound
+  // parameter limit.
+  for (let offset = 0; offset < messageIds.length; offset += 500) {
+    const rows = db
       .select({ id: messages.id, createdAt: messages.createdAt })
       .from(messages)
-      .where(inArray(messages.id, [...messageIds]))
-      .all()
-      .map((r) => [r.id, r.createdAt] as const),
-  );
+      .where(inArray(messages.id, messageIds.slice(offset, offset + 500)))
+      .all();
+    for (const row of rows) {
+      result.set(row.id, row.createdAt);
+    }
+  }
+  return result;
 }
 
 /**
