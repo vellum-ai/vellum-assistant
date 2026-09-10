@@ -25,15 +25,13 @@ Users can refer to agents by natural names: "claude code", "codex cli", and "ope
 
 ## Choosing a model
 
-Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
+Claude runs on Opus unless the user names a model; every other agent starts on its own default.
 
-- **The user names a model for this piece of work.** Pass it as `model` on `acp_spawn`.
-- **"From now on", "always", "by default".** Call `acp_set_default_model`, then state in one line what is now set. Add `agent` to scope it to one agent (`acp.agents.<id>.model`); leave it off to cover every agent (`acp.defaultModel`). `model: null` clears the setting.
-- **"Switch this to X" about a session that is already running.** Call `acp_set_model` with that `acp_session_id`. The agent applies it from the next turn, so a prompt in flight finishes on the model it started on.
+When the user does name one, pass it as `model` on `acp_spawn`. Model names are the agent's own vocabulary, not Assistant model ids: an alias such as `default`, `sonnet`, `opus`, `haiku`, `fable`, or `opusplan` for Claude, or a full model id. Pass what the user said and let the agent resolve it.
 
-A spawn with no `model` starts on `acp.agents.<id>.model`, then `acp.defaultModel`, then the agent's own default.
+If the agent refuses the model, or advertises no model selector, the spawn result says so: relay it in one sentence and carry on, because the session is live on the agent's own model.
 
-When the agent advertises no model selector, or does not offer the model, the tool result says so: relay it in one sentence and carry on. A result saying the switch could not be completed leaves the session's state unknown, so check it with `acp_status` rather than assuming which model it is on.
+A session runs on the model it started on, so a different model means a new `acp_spawn`. A standing default per agent lives in the config at `acp.agents.<id>.model`.
 
 ## When the user names Claude Code or Codex
 

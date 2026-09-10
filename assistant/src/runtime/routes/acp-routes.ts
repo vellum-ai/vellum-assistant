@@ -75,8 +75,10 @@ const sessionEntrySchema = z.object({
   /** Credential failure that ended the run, when one did. Drives the inline
    *  Connect card on reopen; cleared when a replacement token is stored. */
   authErrorCode: z.string().optional(),
+  /** Model a live session is running on. Absent for history rows, which have
+   *  no live process to ask. */
   model: z.string().optional(),
-  /** Models a live session can switch to. Absent for history rows. */
+  /** Models a live session could run on. Absent for history rows. */
   availableModels: acpModelOptionsSchema.optional(),
   usedTokens: z.number().optional(),
   contextSize: z.number().optional(),
@@ -960,9 +962,6 @@ function toMergedSession(
     parentToolUseId: row.parentToolUseId ?? undefined,
     authErrorCode: row.authErrorCode ?? undefined,
     authErrorCredential: row.authErrorCredential ?? undefined,
-    // The model the run ended on, and no picker: a history row has no live
-    // process to ask what it could switch to.
-    model: row.model ?? undefined,
     usedTokens: row.usedTokens ?? undefined,
     contextSize: row.contextSize ?? undefined,
     costAmount: row.costAmount ?? undefined,

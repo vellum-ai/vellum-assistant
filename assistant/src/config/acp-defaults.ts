@@ -13,8 +13,12 @@ const FROZEN_EMPTY_ARGS = Object.freeze([] as string[]) as unknown as string[];
  * falls back to this map so common agents like `claude` and `codex` Just Work
  * without requiring per-user config.
  *
- * Keyed by agent id. Deeply frozen — the outer object, each profile, and the
- * `args` arrays — so mutation throws in strict mode rather than silently
+ * A profile's `model` is the model a session of that agent starts on when the
+ * ask names none, and is the rung `acp.agents.<id>.model` fills: a user config
+ * entry that names a model overrides it, one that omits it inherits it.
+ *
+ * Keyed by agent id. Deeply frozen: the outer object, each profile, and the
+ * `args` arrays, so mutation throws in strict mode rather than silently
  * corrupting the shared defaults.
  */
 export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
@@ -24,6 +28,7 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
     command: "claude-agent-acp",
     args: FROZEN_EMPTY_ARGS,
     description: "Claude Code (via @agentclientprotocol/claude-agent-acp)",
+    model: "opus",
   }),
   codex: Object.freeze({
     command: "codex-acp",

@@ -58,7 +58,7 @@ export interface AcpSessionState {
    * invisible for agents that cannot switch models.
    */
   model?: string;
-  /** Models this session can switch to, flattened from the adapter's selector. */
+  /** Models the adapter offers this session, flattened from its selector. */
   availableModels?: AcpModelOption[];
 }
 

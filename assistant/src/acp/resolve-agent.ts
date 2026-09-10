@@ -139,8 +139,7 @@ const AGENT_ID_ALIASES: Record<string, string> = {
  * configured agents. `directLookup` and `mergedAgentIds` refuse them so an id
  * from a tool call or an HTTP body can resolve to nothing but a real entry:
  * resolving one would report a configured agent that does not exist, and a
- * caller that then writes settings under the resolved id (the
- * `acp_set_default_model` tool) would walk onto the prototype chain.
+ * spawn would then start a process for a config nobody wrote.
  */
 const PROTOTYPE_SENSITIVE_AGENT_IDS: ReadonlySet<string> = new Set([
   "__proto__",
@@ -179,30 +178,6 @@ export function lookupAcpAgentConfig(id: string): AcpAgentConfig | undefined {
   return lookupAgent(getConfig().acp.agents, id)?.agent;
 }
 
-/**
- * The canonical config key for an agent id, plus the command the agent would
- * run, resolved through the same aliases a spawn accepts. Config-only, unlike
- * `resolveAcpAgent`: the binary is never consulted, so a caller that only
- * writes settings for an agent (`acp_set_default_model`) works before the
- * adapter is installed.
- */
-export function resolveAcpAgentId(
-  id: string,
-):
-  | { ok: true; id: string; command: string }
-  | Extract<ResolveAcpAgentFailure, { reason: "unknown_agent" }> {
-  const userAgents = getConfig().acp.agents;
-  const found = lookupAgent(userAgents, id);
-  if (!found) {
-    return {
-      ok: false,
-      reason: "unknown_agent",
-      available: mergedAgentIds(userAgents),
-    };
-  }
-  return { ok: true, id: found.id, command: found.agent.command };
-}
-
 function lookupAgent(
   userAgents: Record<string, AcpAgentConfig>,
   id: string,
@@ -230,12 +205,19 @@ function directLookup(
     return undefined;
   }
   const userAgent = Object.hasOwn(userAgents, id) ? userAgents[id] : undefined;
-  if (userAgent) {
-    return { agent: userAgent, source: "config" };
-  }
   const defaultAgent = Object.hasOwn(DEFAULT_ACP_AGENT_PROFILES, id)
     ? DEFAULT_ACP_AGENT_PROFILES[id]
     : undefined;
+  if (userAgent) {
+    // Field-wise, so a leaf the profile ships and the user's entry omits is
+    // inherited rather than dropped: `acp.agents.<id>.model` reads back the
+    // profile's model until the user names one of their own. Zod omits absent
+    // optional keys, so an omission never spreads as an undefined override.
+    return {
+      agent: defaultAgent ? { ...defaultAgent, ...userAgent } : userAgent,
+      source: "config",
+    };
+  }
   if (defaultAgent) {
     return { agent: defaultAgent, source: "default" };
   }

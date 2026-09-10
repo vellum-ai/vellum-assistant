@@ -2,8 +2,6 @@ import { utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { z } from "zod";
-
 import {
   sampleConcepts as sharedSampleConcepts,
   sampleConfig,
@@ -53,12 +51,7 @@ mock.module("../../../persistence/embeddings/embedding-backend.js", () => ({
 }));
 
 import { BACKUP_PROFILE_KEYS } from "../../../config/default-profile-names.js";
-import {
-  getConfig,
-  loadConfig,
-  loadRawConfig,
-} from "../../../config/loader.js";
-import { AssistantConfigSchema } from "../../../config/schema.js";
+import { getConfig, loadRawConfig } from "../../../config/loader.js";
 import { LLMConfigBase } from "../../../config/schemas/llm.js";
 import type { ConversationCreateType } from "../../../persistence/conversation-types.js";
 import {
@@ -1335,82 +1328,6 @@ describe("PATCH /v1/config fallbackProfile write protection", () => {
   });
 });
 
-describe("PATCH /v1/config clearing acp.defaultModel", () => {
-  const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
-  const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
-
-  beforeEach(() => {
-    rawConfigFixture = {
-      acp: {
-        defaultModel: "opus",
-        agents: {
-          claude: { command: "claude-agent-acp", args: [], model: "opus" },
-        },
-      },
-    };
-    seedRawConfig();
-  });
-
-  function agentEntry(raw: Record<string, unknown>): Record<string, unknown> {
-    const acp = raw.acp as Record<string, unknown>;
-    const agents = acp.agents as Record<string, Record<string, unknown>>;
-    return agents.claude!;
-  }
-
-  test("a config_set of null removes the key too", async () => {
-    // `set` writes `null` verbatim by design, which the acp schema rejects.
-    await setRoute.handler({
-      body: { path: "acp.defaultModel", value: null },
-    });
-
-    const acp = loadRawConfig().acp as Record<string, unknown>;
-    expect("defaultModel" in acp).toBe(false);
-    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
-    expect(Object.keys(loadConfig().acp.agents)).toEqual(["claude"]);
-  });
-
-  test("a nulled per-agent model is dropped on both write paths", async () => {
-    await patchRoute.handler({
-      body: { acp: { agents: { claude: { model: null } } } },
-    });
-
-    const patched = agentEntry(loadRawConfig());
-    expect("model" in patched).toBe(false);
-    expect(patched.command).toBe("claude-agent-acp");
-    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
-
-    seedRawConfig();
-    await setRoute.handler({
-      body: { path: "acp.agents.claude.model", value: null },
-    });
-
-    expect("model" in agentEntry(loadRawConfig())).toBe(false);
-    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
-    expect(loadConfig().acp.agents.claude?.model).toBeUndefined();
-  });
-
-  test("removes the key rather than persisting a schema-invalid null", async () => {
-    await patchRoute.handler({ body: { acp: { defaultModel: null } } });
-
-    const acp = loadRawConfig().acp as Record<string, unknown>;
-    expect("defaultModel" in acp).toBe(false);
-    expect(acp.agents).toEqual({
-      claude: { command: "claude-agent-acp", args: [], model: "opus" },
-    });
-  });
-
-  test("the config it leaves behind loads without a validation warning", async () => {
-    await patchRoute.handler({ body: { acp: { defaultModel: null } } });
-
-    // A persisted `null` fails `acp.defaultModel` and sends every later load
-    // down the salvage ladder, warning each time.
-    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
-    const acp = loadConfig().acp;
-    expect(acp.defaultModel).toBeUndefined();
-    expect(Object.keys(acp.agents)).toEqual(["claude"]);
-  });
-});
-
 describe("custom profile write normalization (complete overrides)", () => {
   const configPatchRoute = ROUTES.find(
     (r) => r.operationId === "config_patch",
@@ -2021,39 +1938,5 @@ describe("ingress URL writes through the generic config routes", () => {
     const ingress = savedIngress();
     expect(ingress.assistantId).toBe("assistant-1");
     expect(ingress.lastTunnel).toEqual(LAST_TUNNEL);
-  });
-});
-
-describe("acp config wire schemas", () => {
-  const getSchema = ROUTES.find((r) => r.operationId === "config_get")!
-    .responseBody as z.ZodTypeAny;
-  const patchSchema = ROUTES.find((r) => r.operationId === "config_patch")!
-    .requestBody as z.ZodTypeAny;
-
-  test("the GET response carries acp.defaultModel", () => {
-    expect(getSchema.parse({ acp: { defaultModel: "opus" } })).toEqual({
-      acp: { defaultModel: "opus" },
-    });
-  });
-
-  test("the PATCH body carries acp.defaultModel", () => {
-    expect(patchSchema.parse({ acp: { defaultModel: "sonnet" } })).toEqual({
-      acp: { defaultModel: "sonnet" },
-    });
-  });
-
-  test("the PATCH body accepts a null defaultModel so the key can be deleted", () => {
-    expect(patchSchema.parse({ acp: { defaultModel: null } })).toEqual({
-      acp: { defaultModel: null },
-    });
-  });
-
-  test("both schemas reject a non-string defaultModel", () => {
-    expect(getSchema.safeParse({ acp: { defaultModel: 3 } }).success).toBe(
-      false,
-    );
-    expect(patchSchema.safeParse({ acp: { defaultModel: 3 } }).success).toBe(
-      false,
-    );
   });
 });

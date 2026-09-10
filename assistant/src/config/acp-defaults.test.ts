@@ -13,15 +13,17 @@ describe("DEFAULT_ACP_AGENT_PROFILES", () => {
     ]);
   });
 
-  test("claude profile uses the @agentclientprotocol adapter binary", () => {
+  test("claude profile uses the @agentclientprotocol adapter binary on opus", () => {
     expect(DEFAULT_ACP_AGENT_PROFILES.claude).toEqual({
       command: "claude-agent-acp",
       args: [],
       description: "Claude Code (via @agentclientprotocol/claude-agent-acp)",
+      model: "opus",
     });
   });
 
   test("codex profile uses the @agentclientprotocol adapter binary", () => {
+    // No model: Codex aliases are its own, so the adapter's default stands.
     expect(DEFAULT_ACP_AGENT_PROFILES.codex).toEqual({
       command: "codex-acp",
       args: [],

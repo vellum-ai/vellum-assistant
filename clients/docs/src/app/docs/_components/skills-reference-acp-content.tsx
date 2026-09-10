@@ -92,10 +92,10 @@ export function SkillsReferenceACPContent() {
                 </tr>
                 <tr>
                   <td className="px-3 py-2">
-                    &ldquo;Always run Claude Code on opus&rdquo;
+                    &ldquo;Run Claude Code on sonnet for this&rdquo;
                   </td>
                   <td className="px-3 py-2">
-                    Saves the default model for new Claude Code sessions
+                    Starts the session on the model you named
                   </td>
                 </tr>
                 <tr>
@@ -153,13 +153,11 @@ export function SkillsReferenceACPContent() {
               code generation, Gemini CLI for Google ecosystem integration.
             </li>
             <li>
-              <strong>Ask for a model.</strong> Say which model a coding-agent session should run on,
-              for example &ldquo;use opus&rdquo;, and it starts there. &ldquo;Always use opus for
-              Claude Code&rdquo; saves that as the standing default for new sessions, and
-              &ldquo;switch this to sonnet&rdquo; moves a session that is already running onto
-              another model from its next turn. Standing defaults live in your Assistant config as{" "}
-              <code>acp.defaultModel</code>, or <code>acp.agents.&lt;id&gt;.model</code> for a single
-              agent.
+              <strong>Ask for a model.</strong> Claude Code runs on Opus unless you name a model,
+              and every other agent starts on its own default. Say which model a session should run
+              on, for example &ldquo;use sonnet&rdquo;, and it starts there. A session keeps the
+              model it started on, so ask for a new one to change it. A standing default per agent
+              lives in your Assistant config as <code>acp.agents.&lt;id&gt;.model</code>.
             </li>
           </ul>
         </section>

@@ -37,7 +37,6 @@ function buildSessionWithFakeProcess(opts: {
   task?: string;
   parentToolUseId?: string;
   latestUsage?: AcpUsageSnapshot;
-  model?: string;
 }): {
   manager: AcpSessionManager;
   resolvePrompt: (v: {
@@ -114,7 +113,6 @@ function buildSessionWithFakeProcess(opts: {
       task: opts.task,
       parentToolUseId: opts.parentToolUseId,
       latestUsage: opts.latestUsage,
-      model: opts.model,
     },
     clientHandler,
     sendToVellum: wrappedSend,
@@ -466,27 +464,6 @@ describe("AcpSessionManager — terminal persistence", () => {
     expect(row!.cost_currency).toBeNull();
     expect(row!.input_tokens).toBeNull();
     expect(row!.output_tokens).toBeNull();
-    // Nothing pinned a model, so the column stays empty.
-    expect(row!.model).toBeNull();
-  });
-
-  test("persists the model the session ran on", async () => {
-    const id = "session-model-1";
-    const handles = buildSessionWithFakeProcess({
-      id,
-      agentId: "agent-model",
-      protocolSessionId: "proto-model",
-      parentConversationId: "conv-model",
-      model: "claude-opus-4-5",
-    });
-
-    handles.resolvePrompt({ stopReason: "end_turn" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    const row = readHistoryRow(id);
-    expect(row).not.toBeNull();
-    expect(row!.model).toBe("claude-opus-4-5");
   });
 
   test("emits acp_session_usage and persists input/output tokens from PromptResponse.usage", async () => {

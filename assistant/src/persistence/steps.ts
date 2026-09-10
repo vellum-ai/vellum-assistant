@@ -485,7 +485,6 @@ import { migrateChannelInboundMessageIdIndex } from "./migrations/374-channel-in
 import { migrateCreateChannelOutboundPosts } from "./migrations/375-create-channel-outbound-posts.js";
 import { migrateNotificationDeliveriesCanonicalMessageId } from "./migrations/376-notification-deliveries-canonical-message-id.js";
 import { migrateAddSubagentBudgetStopReason } from "./migrations/377-add-subagent-budget-stop-reason.js";
-import { migrateAcpSessionHistoryModel } from "./migrations/378-acp-session-history-model.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1612,5 +1611,4 @@ export const migrationSteps: MigrationStep[] = [
     // this as a no-op.
     dependsOn: ["migrateCreateSubagentsTable"],
   },
-  migrateAcpSessionHistoryModel,
 ];

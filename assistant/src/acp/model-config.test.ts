@@ -134,24 +134,14 @@ describe("deriveModelInfo", () => {
 });
 
 describe("resolveAcpModel", () => {
-  test("prefers the requested model over every other rung", () => {
+  test("prefers the requested model over the per-agent one", () => {
     expect(
-      resolveAcpModel({
-        requestedModel: "opus",
-        agentModel: "haiku",
-        defaultModel: "fable",
-      }),
+      resolveAcpModel({ requestedModel: "opus", agentModel: "haiku" }),
     ).toBe("opus");
   });
 
   test("falls back to the per-agent model", () => {
-    expect(
-      resolveAcpModel({ agentModel: "haiku", defaultModel: "fable" }),
-    ).toBe("haiku");
-  });
-
-  test("falls back to the global default model", () => {
-    expect(resolveAcpModel({ defaultModel: "fable" })).toBe("fable");
+    expect(resolveAcpModel({ agentModel: "haiku" })).toBe("haiku");
   });
 
   test("returns undefined when every rung is unset", () => {
@@ -160,17 +150,13 @@ describe("resolveAcpModel", () => {
 
   test("treats blank and whitespace-only values as unset", () => {
     expect(
-      resolveAcpModel({
-        requestedModel: "",
-        agentModel: "\t\n",
-        defaultModel: "fable",
-      }),
-    ).toBe("fable");
+      resolveAcpModel({ requestedModel: "\t\n", agentModel: "haiku" }),
+    ).toBe("haiku");
   });
 
   test("returns undefined when every rung is whitespace", () => {
     expect(
-      resolveAcpModel({ requestedModel: " ", defaultModel: "  " }),
+      resolveAcpModel({ requestedModel: " ", agentModel: "  " }),
     ).toBeUndefined();
   });
 

@@ -29,7 +29,6 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
-import { scrubNulledAcpModels } from "../../config/acp-model-write.js";
 import {
   catalogEntryFor,
   type InputModalities,
@@ -778,12 +777,6 @@ const ConfigGetResponseSchema = z
       })
       .passthrough()
       .optional(),
-    acp: z
-      .object({
-        defaultModel: z.string().optional(),
-      })
-      .passthrough()
-      .optional(),
   })
   .passthrough()
   .meta({ id: "ConfigGetResponse" });
@@ -890,12 +883,6 @@ const ConfigPatchRequestSchema = z
           .passthrough()
           .nullable()
           .optional(),
-      })
-      .passthrough()
-      .optional(),
-    acp: z
-      .object({
-        defaultModel: z.string().nullable().optional(),
       })
       .passthrough()
       .optional(),
@@ -1616,7 +1603,6 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   }
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
-  scrubNulledAcpModels(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
@@ -1722,14 +1708,10 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       written.source = "managed";
     }
   }
-  // A SET writes `null` verbatim, which is right for the keys that document
-  // it and wrong for the acp model fields, whose schema takes only a string;
-  // the same scrub that guards PATCH keeps this write loadable. A SET can
-  // also create `services.stt` with a leaf like `language` and no
+  // A SET can create `services.stt` with a leaf like `language` and no
   // `provider`, which SttServiceSchema requires whenever the block exists;
   // the same seeding that guards PATCH keeps this write's persisted block
   // schema-valid.
-  scrubNulledAcpModels(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "set");

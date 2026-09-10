@@ -239,7 +239,7 @@ mock.module("../prepare-agent-env.js", () => ({
 type ResolveResult =
   | {
       ok: true;
-      agent: { command: string; args: string[] };
+      agent: { command: string; args: string[]; model?: string };
     }
   | { ok: false; reason: "binary_not_found"; hint: string; command: string };
 let resolveImpl: (id: string) => ResolveResult = () => ({
@@ -781,38 +781,30 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     expect(row.cost_currency).toBe("USD");
   });
 
-  test("re-terminate after a resume keeps the recorded model when the adapter reports no selector", async () => {
+  test("a resume with no configured model leaves the adapter on its own", async () => {
     fakeCaps.resume = true;
-    insertHistoryRow({
-      id: "resume-model-1",
-      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
-      model: "claude-opus-4-5",
-    });
+    resumeConfigOptions = [modelOption("default")];
+    insertHistoryRow({ id: "resume-model-1" });
 
     const manager = new AcpSessionManager(4);
     await manager.resumeFromHistory("resume-model-1", () => {});
 
-    // Seeded from the row, so the terminal upsert rewrites it instead of
-    // NULLing a column the resumed run never touched.
-    expect((manager.getStatus("resume-model-1") as AcpSessionState).model).toBe(
-      "claude-opus-4-5",
-    );
     expect(setConfigOptionCalls).toEqual([]);
-
-    await manager.steer("resume-model-1", "keep going");
-    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(readHistoryRow("resume-model-1")!.model).toBe("claude-opus-4-5");
+    expect((manager.getStatus("resume-model-1") as AcpSessionState).model).toBe(
+      "default",
+    );
   });
 
-  test("resume puts the fresh adapter process back on the recorded model", async () => {
+  test("resume pins the fresh adapter process through the same ladder a spawn walks", async () => {
     fakeCaps.resume = true;
-    // A new adapter process starts on its own default, not the model the
-    // original run was pinned to.
+    // The bundled Claude profile: a resumed run reaches it the way a spawn
+    // does, so it comes back on Opus rather than the adapter's own default.
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
     resumeConfigOptions = [modelOption("default")];
-    insertHistoryRow({ id: "resume-model-2", model: "opus" });
+    insertHistoryRow({ id: "resume-model-2" });
 
     const manager = new AcpSessionManager(4);
     const sent: AssistantEvent[] = [];
@@ -835,7 +827,11 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     // notification: the load itself answers with no config options at all.
     replayConfigOptionUpdates = [[modelOption("default")]];
     resumeConfigOptions = [];
-    insertHistoryRow({ id: "resume-replay-only", model: "opus" });
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
+    insertHistoryRow({ id: "resume-replay-only" });
 
     const manager = new AcpSessionManager(4);
     const sent: AssistantEvent[] = [];
@@ -844,7 +840,7 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     );
 
     // The re-pin still reaches the adapter, so the run comes back on the
-    // model its row recorded.
+    // model its agent config names.
     expect(setConfigOptionCalls).toEqual([
       { sessionId: "proto-old", configId: "model", value: "opus" },
     ]);
@@ -869,10 +865,13 @@ describe("AcpSessionManager.resumeFromHistory", () => {
     replayConfigOptionUpdates = [[modelOption("default")]];
     resumeConfigOptions = [];
     setConfigOptionResult = [nonModelOption()];
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
     insertHistoryRow({
       id: "resume-selector-gone",
       eventLogJson: JSON.stringify([PERSISTED_EVENT]),
-      model: "opus",
     });
 
     const manager = new AcpSessionManager(4);
@@ -897,25 +896,21 @@ describe("AcpSessionManager.resumeFromHistory", () => {
         availableModels: [],
       },
     ]);
-
-    await manager.steer("resume-selector-gone", "keep going");
-    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(readHistoryRow("resume-selector-gone")!.model).toBeNull();
   });
 
-  test("a resume the adapter refuses to re-pin runs on the adapter's model and records that on the row", async () => {
+  test("a resume the adapter refuses to re-pin runs on the adapter's model", async () => {
     fakeCaps.resume = true;
     resumeConfigOptions = [modelOption("default")];
     setConfigOptionError = new Error(
-      "Invalid value for config option model: claude-opus-4-5",
+      "Invalid value for config option model: opus",
     );
+    resolveImpl = () => ({
+      ok: true,
+      agent: { command: "claude-agent-acp", args: [], model: "opus" },
+    });
     insertHistoryRow({
       id: "resume-refused-model",
       eventLogJson: JSON.stringify([PERSISTED_EVENT]),
-      model: "claude-opus-4-5",
     });
 
     const manager = new AcpSessionManager(4);
@@ -937,15 +932,6 @@ describe("AcpSessionManager.resumeFromHistory", () => {
         availableModels: MODEL_OPTION_MODELS,
       },
     ]);
-
-    await manager.steer("resume-refused-model", "keep going");
-    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    // The row records the model the run ended on, so the next resume re-pins
-    // to the one the user was actually working with.
-    expect(readHistoryRow("resume-refused-model")!.model).toBe("default");
   });
 
   test("concurrent resumes of the same id: one wins, the loser fails cleanly without leaking a process", async () => {

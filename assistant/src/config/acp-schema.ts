@@ -19,7 +19,7 @@ export const AcpAgentConfigSchema = z
       .string()
       .optional()
       .describe(
-        "Default model for this agent, overriding acp.defaultModel. An adapter-reported alias.",
+        "Model sessions of this agent start on when the ask names none (an adapter-reported alias such as 'opus' or 'sonnet' for Claude, not an Assistant catalog id). Overrides the bundled profile's value; unset inherits it.",
       ),
   })
   .describe("Configuration for an individual ACP agent");
@@ -38,12 +38,6 @@ export const AcpConfigSchema = z
       .record(z.string(), AcpAgentConfigSchema)
       .default({})
       .describe("Map of agent names to their configurations"),
-    defaultModel: z
-      .string()
-      .optional()
-      .describe(
-        "Default model the coding agent starts with (an adapter-reported alias such as 'opus' or 'sonnet' for Claude, not an Assistant catalog id). Unset means the agent's own default.",
-      ),
   })
   .describe(
     "Agent Communication Protocol (ACP) — inter-agent communication and delegation",
