@@ -18,6 +18,12 @@ import type { AppSummary } from "@/types/app-types";
 
 let apps: AppSummary[] = [];
 let pointerIsCoarse = false;
+const isMobileRef = { value: false };
+
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => isMobileRef.value,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
 
 mock.module("@/utils/pointer", () => ({
   isPointerCoarse: () => pointerIsCoarse,
@@ -106,6 +112,7 @@ function renderView() {
 beforeEach(() => {
   apps = [];
   pointerIsCoarse = false;
+  isMobileRef.value = false;
 });
 
 afterEach(() => {
@@ -129,6 +136,17 @@ describe("LibraryView import affordance", () => {
     expect(screen.queryByText("Your library is empty")).toBeNull();
     expect(screen.getByRole("button", { name: /Import/ })).not.toBeNull();
     expect(container.querySelectorAll('input[type="file"]')).toHaveLength(1);
+  });
+
+  test("uses an icon-only import action in the mobile top bar", () => {
+    isMobileRef.value = true;
+    renderView();
+
+    const importButton = screen.getByRole("button", { name: "Import" });
+    expect(importButton.textContent).toBe("");
+    expect(importButton.className).toContain(
+      "max-md:bg-[var(--surface-active)]",
+    );
   });
 
   test("constrains the picker to .vellum on a fine-pointer device", () => {

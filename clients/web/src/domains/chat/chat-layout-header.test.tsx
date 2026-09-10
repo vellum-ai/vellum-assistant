@@ -133,6 +133,43 @@ describe("ChatLayoutHeader mobile affordances", () => {
       screen.getByRole("button", { name: "Search (Ctrl+K)" }),
     ).toBeTruthy();
   });
+
+  test("replaces the standard clusters with a route-owned mobile top bar", () => {
+    renderHeader({
+      topBarRightSlot: <button type="button">Notifications</button>,
+      mobileTopBar: {
+        leading: <button type="button">Back</button>,
+        center: <span>Library</span>,
+        trailing: <button type="button">Import</button>,
+      },
+    });
+
+    expect(screen.getByRole("button", { name: "Back" })).toBeTruthy();
+    expect(screen.getByText("Library")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Import" })).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Open navigation" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Search (Ctrl+K)" }),
+    ).toBeNull();
+    expect(screen.queryByText("Notifications")).toBeNull();
+  });
+
+  test("ignores a mobile top-bar override on desktop", () => {
+    renderHeader({
+      isMobile: false,
+      mobileTopBar: {
+        leading: <span>Mobile back</span>,
+        center: <span>Mobile title</span>,
+        trailing: <span>Mobile action</span>,
+      },
+      topBarCenter: <span>Desktop title</span>,
+    });
+
+    expect(screen.getByText("Desktop title")).toBeTruthy();
+    expect(screen.queryByText("Mobile title")).toBeNull();
+  });
 });
 
 describe("ChatLayoutHeader page surface", () => {
