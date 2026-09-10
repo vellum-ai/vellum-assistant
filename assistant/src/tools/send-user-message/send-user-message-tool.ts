@@ -17,7 +17,10 @@
 
 import { z } from "zod";
 
-import { SEND_USER_MESSAGE_TOOL_NAME } from "../../config/send-user-message-constants.js";
+import {
+  SEND_USER_MESSAGE_DELIVERED_ACK,
+  SEND_USER_MESSAGE_TOOL_NAME,
+} from "../../config/send-user-message-constants.js";
 import { RiskLevel } from "../../permissions/types.js";
 import {
   invalidToolInputResult,
@@ -67,6 +70,6 @@ export const sendUserMessageTool = {
     if (!parsed.success) {
       return invalidToolInputResult(SEND_USER_MESSAGE_TOOL_NAME, parsed.error);
     }
-    return { content: "Delivered.", isError: false };
+    return { content: SEND_USER_MESSAGE_DELIVERED_ACK, isError: false };
   },
 } satisfies ToolDefinition;

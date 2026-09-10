@@ -14,3 +14,14 @@ export const SEND_USER_MESSAGE_FLAG = "send-user-message" as const;
 
 /** LLM-facing name of the tool that delivers user-facing text. */
 export const SEND_USER_MESSAGE_TOOL_NAME = "send_user_message";
+
+/**
+ * What the tool's executor answers. A bare acknowledgement, never topical: the
+ * message itself is what carries meaning, and this string is only the loop's
+ * receipt that the call was well formed.
+ *
+ * Named here so the readers that must ignore it (conversation titling, which
+ * would otherwise title a gated conversation "Delivery Confirmation") match
+ * the executor byte for byte.
+ */
+export const SEND_USER_MESSAGE_DELIVERED_ACK = "Delivered.";
