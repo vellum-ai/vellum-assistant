@@ -5,6 +5,7 @@ import {
   capEscalationBridge,
   classifyFrontDoorLeading,
   createFrontDoorStreamGate,
+  createFrontDoorVerdictMachine,
   ESCALATE_VERDICT_TOKEN,
   escalatedContinuationRule,
   ESCALATION_CONTINUATION_CONTENT,
@@ -447,6 +448,81 @@ describe("live-voice escalation orchestration (end-to-end — TODO)", () => {
     "the escalated answer's TTS follows the bridge audio with no listening window between them",
     () => {},
   );
+});
+
+describe("createFrontDoorVerdictMachine", () => {
+  /** Feed `deltas` through a machine and return the step kinds, in order. */
+  function kinds(deltas: string[], holdEnabled = false): string[] {
+    const machine = createFrontDoorVerdictMachine(holdEnabled);
+    return deltas.map((delta) => machine.push(delta).kind);
+  }
+
+  test("stays pending while the lead could still become a token", () => {
+    expect(kinds(["", "[", "1"])).toEqual(["pending", "pending", "pending"]);
+  });
+
+  test("an answer releases the held lead on the transition, then each delta", () => {
+    const machine = createFrontDoorVerdictMachine(false);
+    expect(machine.push("[")).toEqual({ kind: "pending" });
+    expect(machine.push("A] first")).toEqual({
+      kind: "answer",
+      text: "[A] first",
+    });
+    expect(machine.push(", second")).toEqual({
+      kind: "answer",
+      text: ", second",
+    });
+  });
+
+  test("escalate reports the capped bridge on the delta that completes it", () => {
+    const machine = createFrontDoorVerdictMachine(false);
+    expect(machine.push(`${ESCALATE_VERDICT_TOKEN} One `)).toEqual({
+      kind: "escalate",
+      bridge: null,
+    });
+    expect(machine.push("moment")).toEqual({ kind: "bridging" });
+    expect(machine.push(". Extra text past the cap")).toEqual({
+      kind: "bridge",
+      bridge: "One moment.",
+    });
+    expect(machine.push(" more")).toEqual({ kind: "done" });
+  });
+
+  test("a bridge that completes on the verdict delta is reported with it", () => {
+    const machine = createFrontDoorVerdictMachine(false);
+    expect(machine.push(`${ESCALATE_VERDICT_TOKEN} Let me check.`)).toEqual({
+      kind: "escalate",
+      bridge: "Let me check.",
+    });
+  });
+
+  test("finish hands off a bridge that never hit a terminator", () => {
+    const machine = createFrontDoorVerdictMachine(false);
+    machine.push(`${ESCALATE_VERDICT_TOKEN} Give me a second`);
+    expect(machine.finish()).toEqual({
+      kind: "bridge",
+      bridge: "Give me a second",
+    });
+    expect(machine.push("late")).toEqual({ kind: "done" });
+  });
+
+  test("finish on an answer or a pending lead is done, not a bridge", () => {
+    const answering = createFrontDoorVerdictMachine(false);
+    answering.push("Sure.");
+    expect(answering.finish()).toEqual({ kind: "done" });
+    const undecided = createFrontDoorVerdictMachine(false);
+    undecided.push("[");
+    expect(undecided.finish()).toEqual({ kind: "done" });
+  });
+
+  test("hold is a step only when the leg was taught the token", () => {
+    expect(kinds([HOLD_VERDICT_TOKEN], true)).toEqual(["hold"]);
+    expect(kinds([`${HOLD_VERDICT_TOKEN} trailing`], true)).toEqual(["hold"]);
+    expect(kinds([HOLD_VERDICT_TOKEN], false)).toEqual(["answer"]);
+    const held = createFrontDoorVerdictMachine(true);
+    held.push(HOLD_VERDICT_TOKEN);
+    expect(held.push("anything")).toEqual({ kind: "done" });
+  });
 });
 
 describe("createFrontDoorStreamGate", () => {
