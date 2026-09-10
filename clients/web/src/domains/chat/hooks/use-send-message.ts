@@ -920,6 +920,23 @@ export function useSendMessage({
             .pushPendingQueuedMessageId(userMessage.id);
         }
         const attachmentIds = attachments.map((att) => att.id);
+        // The daemon holds a queued message and owes an answer for it that
+        // can be a refusal, and that answer rides the stream, unordered
+        // against this POST's response: the running turn can finish, the
+        // daemon can dequeue this message and refuse it, all before the
+        // response lands. The composer was cleared the moment this send
+        // started and the optimistic row goes with the transcript on a
+        // switch, so the copy the refusal hands back
+        // (`QueuedSendRecoveryWatcher`) is kept from before the request goes
+        // out, and let go once the daemon answers with anything but a queue.
+        // A hidden send has no user text to hand back.
+        if (!isHidden) {
+          useComposerStore.getState().recordQueuedSend(clientMessageId, {
+            conversationId: activeConversationId,
+            content,
+            attachments,
+          });
+        }
         try {
           const postResult = await postChatMessage(
             assistantId,
@@ -934,6 +951,8 @@ export function useSendMessage({
             },
           );
           if (!postResult.ok) {
+            // The daemon took nothing, so nothing is owed a copy.
+            useComposerStore.getState().dropQueuedSend(clientMessageId);
             // Reported only to the thread it happened in. The streaming path
             // answers a scope mismatch the same way, returning `ignored`
             // without surfacing anything, because an error banner raised over
@@ -979,8 +998,11 @@ export function useSendMessage({
           if (!postResult.queued) {
             // The daemon processed the message directly (turn finished
             // between the client-side isSending check and the POST
-            // arriving). Clear the optimistic queue status and let the
-            // existing SSE stream deliver the response.
+            // arriving). A message the daemon runs is never refused as a
+            // queued one, so the copy kept for that refusal goes.
+            useComposerStore.getState().dropQueuedSend(clientMessageId);
+            // Clear the optimistic queue status and let the existing SSE
+            // stream deliver the response.
             //
             // All of that describes the thread on screen: the queue FIFO, the
             // row's queue badge, and the turn this send is now driving. A send
@@ -1023,20 +1045,18 @@ export function useSendMessage({
             }
             return;
           }
-          // The daemon holds the message on its queue and owes an answer for
-          // it that can be a refusal, arriving long after this response and
-          // from a conversation the user has since left. The composer was
-          // cleared the moment this send started and the optimistic row goes
-          // with the transcript on a switch, so this is the only copy of the
-          // message the client keeps until the daemon persists it or refuses
-          // it (`QueuedSendRecoveryWatcher`). A hidden send has no user text
-          // to hand back.
-          if (!isHidden) {
-            useComposerStore.getState().recordQueuedSend(clientMessageId, {
-              conversationId: postResult.conversationId,
-              content,
-              attachments,
-            });
+          // The copy kept before the request is filed under the id the
+          // request went to; the daemon's answer names the row it queued the
+          // message in, which is where the refusal, if it comes, is filed.
+          if (!isHidden && postResult.conversationId !== activeConversationId) {
+            const composer = useComposerStore.getState();
+            const kept = composer.takeQueuedSend(clientMessageId);
+            if (kept !== null) {
+              composer.recordQueuedSend(clientMessageId, {
+                ...kept,
+                conversationId: postResult.conversationId,
+              });
+            }
           }
           const requestId = postResult.requestId;
           // The mapping exists to bind the daemon's `message_queued_deleted`
@@ -1066,6 +1086,7 @@ export function useSendMessage({
           // Captured whatever the scope, since a thrown send is a real fault;
           // only its report to the user is scoped, as above.
           captureError(err, { context: "send_message_queue" });
+          useComposerStore.getState().dropQueuedSend(clientMessageId);
           const onScreenAtThrow = sendScopeIsCurrent();
           if (onScreenAtThrow) {
             revertQueuedMessage(userMessage.id);
@@ -1133,6 +1154,20 @@ export function useSendMessage({
       let resolvedId: string | undefined;
 
       try {
+        // The daemon can queue this send even though the client took the
+        // active path believing the thread idle, and its refusal of a queued
+        // message rides the stream unordered against the response, so the
+        // copy that refusal hands back (`QueuedSendRecoveryWatcher`) is kept
+        // from before the request goes out and let go once the daemon
+        // answers with anything but a queue. A hidden send has no user text
+        // to hand back.
+        if (!isHidden) {
+          useComposerStore.getState().recordQueuedSend(clientMessageId, {
+            conversationId: activeConversationId,
+            content,
+            attachments,
+          });
+        }
         const result = await sendMessageViaStream(
           content,
           useStreamStore.getState().streamEpoch,
@@ -1146,6 +1181,7 @@ export function useSendMessage({
         );
 
         if (result.status === "failed") {
+          useComposerStore.getState().dropQueuedSend(clientMessageId);
           // Roll back every piece of optimistic state we just set up: the
           // optimistic send, the processing flag on the conversation, the
           // prepended draft conversation in the sidebar, and the cleared
@@ -1177,25 +1213,29 @@ export function useSendMessage({
 
         if (result.status === "ignored") {
           // Scope changed mid-flight; the new scope owns UI state from here.
+          // The POST was refused, so the daemon holds nothing to hand back.
+          useComposerStore.getState().dropQueuedSend(clientMessageId);
           return;
         }
 
         resolvedId = result.resolvedConversationId;
 
-        // The client took this send down the active path believing the thread
-        // was idle, and the daemon queued it instead: the same debt as the
-        // queue branch above, so the same copy is kept. The daemon owes an
-        // answer that can be a refusal, arriving long after this response and
-        // from a conversation the user has since left, with the composer
-        // cleared and the optimistic row gone with the transcript
-        // (`QueuedSendRecoveryWatcher`). A hidden send has no user text to
-        // hand back.
-        if (result.queued && !isHidden && resolvedId) {
-          useComposerStore.getState().recordQueuedSend(clientMessageId, {
-            conversationId: resolvedId,
-            content,
-            attachments,
-          });
+        // A message the daemon runs is never refused as a queued one, so the
+        // copy kept for that refusal goes unless the daemon queued the send;
+        // a queued one is filed under the row the daemon named.
+        if (!isHidden) {
+          const composer = useComposerStore.getState();
+          if (!result.queued) {
+            composer.dropQueuedSend(clientMessageId);
+          } else if (resolvedId && resolvedId !== activeConversationId) {
+            const kept = composer.takeQueuedSend(clientMessageId);
+            if (kept !== null) {
+              composer.recordQueuedSend(clientMessageId, {
+                ...kept,
+                conversationId: resolvedId,
+              });
+            }
+          }
         }
 
         // The send materialized the conversation, so the key is no longer a

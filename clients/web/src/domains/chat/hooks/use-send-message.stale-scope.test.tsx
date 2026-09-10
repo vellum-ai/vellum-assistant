@@ -425,6 +425,68 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     ]);
   });
 
+  test("the copy is kept from before the request goes out", async () => {
+    // The daemon's refusal of a queued message rides the stream, unordered
+    // against the response, so the copy has to exist while the POST is out.
+    let answer: (() => void) | null = null;
+    daemonClient.post = mock(
+      async () =>
+        new Promise((resolve) => {
+          answer = () =>
+            resolve({
+              data: ACCEPTED_QUEUED,
+              error: null,
+              response: new Response(null, { status: 200 }),
+            });
+        }),
+    ) as typeof daemonClient.post;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    let sent: Promise<void> = Promise.resolve();
+    await act(async () => {
+      sent = result.current.sendMessage("still in flight");
+      await Promise.resolve();
+    });
+    expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
+      {
+        conversationId: SEND_CONVERSATION,
+        content: "still in flight",
+        attachments: [],
+      },
+    ]);
+
+    await act(async () => {
+      answer?.();
+      await sent;
+    });
+    expect(useComposerStore.getState().queuedSends.size).toBe(1);
+  });
+
+  test("a directly-processed response lets the copy go", async () => {
+    postResponse = ACCEPTED_DIRECTLY;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("ran at once");
+    });
+
+    // A message the daemon runs is never refused as a queued one.
+    expect(useComposerStore.getState().queuedSends.size).toBe(0);
+  });
+
+  test("a POST the daemon refuses leaves no copy behind", async () => {
+    daemonClient.post = mock(async () => {
+      throw new Error("network down");
+    }) as typeof daemonClient.post;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("never taken");
+    });
+
+    expect(useComposerStore.getState().queuedSends.size).toBe(0);
+  });
+
   test("a failed queue POST raises no error over the open thread", async () => {
     postResponse = {};
     daemonClient.post = mock(async () => ({
