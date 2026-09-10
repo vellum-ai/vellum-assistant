@@ -31,6 +31,8 @@ const DESKTOP_BINARIES = {
   panel: ["tint2"],
   clipboard: ["tigervncconfig", "vncconfig"],
   terminal: ["xterm"],
+  screenshot: ["xwd"],
+  input: ["xdotool"],
 } as const;
 
 const DESKTOP_PACKAGES = [
@@ -43,6 +45,8 @@ const DESKTOP_PACKAGES = [
   "xcompmgr",
   "xfonts-base",
   "xterm",
+  "x11-apps",
+  "xdotool",
   "fonts-liberation",
   "libgtk-3-0",
   "libvulkan1",

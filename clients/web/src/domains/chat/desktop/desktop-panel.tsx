@@ -4,6 +4,7 @@ import { lazy, Suspense } from "react";
 
 import { useTranslation } from "@/i18n";
 
+import { DesktopControlPanel } from "./desktop-control-panel";
 import { useDesktopSetup } from "./use-desktop-setup";
 
 const DesktopViewer = lazy(() =>
@@ -28,11 +29,19 @@ export function DesktopPanel({ assistantId }: DesktopPanelProps) {
   const setup = query.data;
   if (setup?.state === "ready") {
     return (
-      <Suspense
-        fallback={<p role="status">{t("assistantDesktop.connecting")}</p>}
-      >
-        <DesktopViewer key={assistantId} assistantId={assistantId} />
-      </Suspense>
+      <DesktopControlPanel assistantId={assistantId}>
+        {(viewOnly) => (
+          <Suspense
+            fallback={<p role="status">{t("assistantDesktop.connecting")}</p>}
+          >
+            <DesktopViewer
+              key={assistantId}
+              assistantId={assistantId}
+              viewOnly={viewOnly}
+            />
+          </Suspense>
+        )}
+      </DesktopControlPanel>
     );
   }
   const busy =

@@ -11930,6 +11930,65 @@ paths:
                 required:
                   - defers
                 additionalProperties: false
+  /v1/desktop/control:
+    get:
+      operationId: desktop_control_get
+      summary: Get desktop control status
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - idle
+                      - assistant
+                      - human
+                required:
+                  - state
+                additionalProperties: false
+    post:
+      operationId: desktop_control_post
+      summary: Hand desktop control between the user and assistant
+      tags:
+        - desktop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum:
+                    - take
+                    - allow
+              required:
+                - action
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    enum:
+                      - idle
+                      - assistant
+                      - human
+                required:
+                  - state
+                additionalProperties: false
   /v1/desktop/setup:
     get:
       operationId: desktop_setup_get

@@ -31,6 +31,7 @@ class FakeRFB {
   channel: unknown;
   scaleViewport = false;
   resizeSession = false;
+  viewOnly = false;
   clipViewport = true;
   disconnectCalls = 0;
   pasted: string[] = [];
@@ -388,4 +389,21 @@ describe("DesktopViewer", () => {
 
 afterAll(() => {
   globalThis.WebSocket = originalWebSocket;
+});
+
+test("assistant control disables viewer input and resumes it without reconnecting", async () => {
+  const { rerender } = render(
+    <DesktopViewer assistantId="assistant-123" viewOnly />,
+  );
+  await act(async () => {
+    await Promise.resolve();
+  });
+  const rfb = FakeRFB.instances.at(-1)!;
+  expect(rfb.viewOnly).toBe(true);
+  expect(rfb.resizeSession).toBe(false);
+  const count = FakeRFB.instances.length;
+  rerender(<DesktopViewer assistantId="assistant-123" viewOnly={false} />);
+  expect(rfb.viewOnly).toBe(false);
+  expect(rfb.resizeSession).toBe(true);
+  expect(FakeRFB.instances).toHaveLength(count);
 });

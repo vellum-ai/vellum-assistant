@@ -17,3 +17,14 @@ export function isAssistantDesktopEnabled(
     isAssistantFeatureFlagEnabled(ASSISTANT_DESKTOP_FLAG, config)
   );
 }
+
+const ASSISTANT_DESKTOP_CONTROL_FLAG = "assistant-desktop-control" as const;
+
+export function isAssistantDesktopControlEnabled(
+  config: AssistantConfig,
+): boolean {
+  return (
+    isAssistantDesktopEnabled(config) &&
+    isAssistantFeatureFlagEnabled(ASSISTANT_DESKTOP_CONTROL_FLAG, config)
+  );
+}

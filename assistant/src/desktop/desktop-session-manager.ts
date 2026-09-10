@@ -17,11 +17,14 @@ import {
   desktopChromePath,
   resolveDesktopBinaries,
 } from "./desktop-dependencies.js";
+import {
+  DESKTOP_DISPLAY,
+  DESKTOP_INPUT_PARAMETERS,
+} from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 
 const log = getLogger("desktop-session");
 
-const DESKTOP_DISPLAY = ":99";
 export const DESKTOP_VNC_PORT = 5999;
 const DESKTOP_WIDTH = 1440;
 const DESKTOP_HEIGHT = 900;
@@ -178,6 +181,7 @@ export class DesktopSessionManager {
   /** Bumped on every teardown so an in-flight start notices it lost its tree. */
   private generation = 0;
   private viewer: DesktopViewer | null = null;
+  private automation: DesktopViewer | null = null;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
   private browserExitsAt: number[] = [];
@@ -244,7 +248,29 @@ export class DesktopSessionManager {
       return;
     }
     this.viewer = null;
-    if (this.running || this.starting) {
+    if (!this.automation && (this.running || this.starting)) {
+      this.armLinger();
+    }
+  }
+
+  acquireAutomationSlot(owner: DesktopViewer): ViewerSlotResult {
+    if (this.ingressClosed) {
+      return { ok: false, loss: SHUTTING_DOWN_LOSS };
+    }
+    if (this.automation) {
+      return { ok: false, loss: BUSY_LOSS };
+    }
+    this.automation = owner;
+    this.clearLinger();
+    return { ok: true };
+  }
+
+  releaseAutomationSlot(owner: DesktopViewer): void {
+    if (this.automation !== owner) {
+      return;
+    }
+    this.automation = null;
+    if (!this.viewer && (this.running || this.starting)) {
       this.armLinger();
     }
   }
@@ -479,7 +505,12 @@ export class DesktopSessionManager {
     const children = new Map(this.children);
     this.children.clear();
     const viewer = this.viewer;
+    const automation = this.automation;
     this.viewer = null;
+    this.automation = null;
+    if (automation && loss) {
+      automation.onDesktopLost(loss);
+    }
     if (viewer && loss) {
       viewer.onDesktopLost(loss);
     }
@@ -593,6 +624,8 @@ function xServerCommand(executable: string): string[] {
     "None",
     "-rfbport",
     String(DESKTOP_VNC_PORT),
+    "-AllowOverride",
+    DESKTOP_INPUT_PARAMETERS.join(","),
     "-geometry",
     DESKTOP_GEOMETRY,
     "-depth",

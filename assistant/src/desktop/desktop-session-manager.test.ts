@@ -502,3 +502,37 @@ describe("DesktopSessionManager viewer slot", () => {
     expect(h.count("x-server")).toBe(1);
   });
 });
+
+describe("desktop automation lifecycle", () => {
+  test("an automation session outlives viewer disconnect and idles after both release", async () => {
+    const f = newManager({ exitOnTerm: true });
+    const viewer = newViewer();
+    const automation = newViewer();
+    expect(f.manager.acquireViewerSlot(viewer.viewer)).toEqual({ ok: true });
+    expect(f.manager.acquireAutomationSlot(automation.viewer)).toEqual({
+      ok: true,
+    });
+    await f.manager.ensureDesktopRunning();
+    f.manager.releaseViewerSlot(viewer.viewer);
+    await sleep(LINGER_MS + 20);
+    expect(f.terminated()).toHaveLength(0);
+    f.manager.releaseAutomationSlot(automation.viewer);
+    await waitFor(() => f.terminated().length > 0);
+    await f.manager.destroy();
+  });
+
+  test("shutdown notifies both the viewer and automation owner", async () => {
+    const f = newManager({ exitOnTerm: true });
+    const viewer = newViewer();
+    const automation = newViewer();
+    f.manager.acquireViewerSlot(viewer.viewer);
+    f.manager.acquireAutomationSlot(automation.viewer);
+    await f.manager.ensureDesktopRunning();
+    await f.manager.destroy();
+    expect(viewer.lost[0]?.code).toBe(1001);
+    expect(automation.lost[0]?.code).toBe(1001);
+    expect(f.manager.acquireAutomationSlot(newViewer().viewer)).toEqual(
+      SHUTTING_DOWN,
+    );
+  });
+});
