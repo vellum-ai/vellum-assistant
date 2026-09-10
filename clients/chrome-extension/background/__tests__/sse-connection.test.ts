@@ -239,4 +239,49 @@ describe("SseConnection idle watchdog", () => {
     await wait(120);
     expect(fetchCount).toBe(fetchesAtClose);
   });
+
+  test("setMode does not treat the aborted prior fetch as an unexpected close", async () => {
+    let fetchCount = 0;
+    const closes: Array<string | undefined> = [];
+
+    globalThis.fetch = (async (_input, init) => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return new Promise((_resolve, reject) => {
+          const signal = abortSignalOf(init);
+          const fail = () => {
+            reject(new DOMException("Aborted", "AbortError"));
+          };
+          if (signal?.aborted) {
+            fail();
+            return;
+          }
+          signal?.addEventListener("abort", fail, { once: true });
+        });
+      }
+      return new Response("Authentication failed (401).", { status: 401 });
+    }) as typeof fetch;
+
+    connection = new SseConnection({
+      mode: { kind: "self-hosted", runtimeUrl: "http://127.0.0.1:7830", token: "t" },
+      idleTimeoutMs: 5_000,
+      reconnectBaseDelayMs: 20,
+      onMessage: () => {},
+      onOpen: () => {},
+      onClose: (authError) => {
+        closes.push(authError);
+      },
+    });
+    connection.start();
+    await wait(20);
+    connection.setMode({
+      kind: "self-hosted",
+      runtimeUrl: "http://127.0.0.1:7830",
+      token: "t2",
+    });
+    await wait(80);
+
+    expect(closes.filter((message) => message !== undefined).length).toBe(1);
+    expect(fetchCount).toBe(2);
+  });
 });

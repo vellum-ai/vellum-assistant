@@ -100,6 +100,7 @@ export class SseConnection {
   private reconnectDelay: number;
   private reconnectAttempt = 0;
   private closedByCaller = false;
+  private connectGeneration = 0;
   private _isOpen = false;
   private readonly reconnectBaseMs: number;
   private readonly watchdog: IdleWatchdog;
@@ -140,6 +141,7 @@ export class SseConnection {
    */
   close(): void {
     this.closedByCaller = true;
+    this.connectGeneration += 1;
     this._isOpen = false;
     this.watchdog.clear();
     if (this.reconnectTimer !== null) {
@@ -163,12 +165,16 @@ export class SseConnection {
 
   // ── Internals ─────────────────────────────────────────────────────
 
-  private handleUnexpectedClose(): void {
-    this._isOpen = false;
-    this.watchdog.clear();
-    if (this.closedByCaller) {
+  private isCurrentConnect(generation: number): boolean {
+    return !this.closedByCaller && generation === this.connectGeneration;
+  }
+
+  private handleUnexpectedClose(generation: number): void {
+    if (!this.isCurrentConnect(generation)) {
       return;
     }
+    this._isOpen = false;
+    this.watchdog.clear();
     this.deps.onClose();
     this.scheduleReconnect();
   }
@@ -177,6 +183,7 @@ export class SseConnection {
     if (this._isOpen || this.closedByCaller) {
       return;
     }
+    const generation = ++this.connectGeneration;
 
     const { mode } = this.deps;
     const baseUrl = mode.runtimeUrl.replace(/\/$/, "");
@@ -192,6 +199,9 @@ export class SseConnection {
       Accept: "text/event-stream",
       ...(await getClientRegistrationHeaders()),
     };
+    if (!this.isCurrentConnect(generation)) {
+      return;
+    }
     if (mode.kind === "vellum-cloud") {
       if (mode.token) {
         headers["Authorization"] = `Bearer ${mode.token}`;
@@ -207,6 +217,9 @@ export class SseConnection {
     }
 
     const ac = new AbortController();
+    if (this.abortController && this.abortController !== ac) {
+      this.abortController.abort();
+    }
     this.abortController = ac;
     this.watchdog.resetCounters();
     this.watchdog.clear();
@@ -219,16 +232,20 @@ export class SseConnection {
         credentials: "include",
       });
     } catch {
-      if (this.closedByCaller) {
-        return;
-      }
-      this.handleUnexpectedClose();
+      this.handleUnexpectedClose(generation);
+      return;
+    }
+
+    if (!this.isCurrentConnect(generation)) {
       return;
     }
 
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         const body = await response.text().catch(() => "");
+        if (!this.isCurrentConnect(generation)) {
+          return;
+        }
         this._isOpen = false;
         this.watchdog.clear();
         this.deps.onClose(
@@ -239,6 +256,9 @@ export class SseConnection {
       if (response.status === 404 && this.deps.onNotFound) {
         // The assistant no longer exists — stop reconnecting and let
         // the worker handle recovery (re-validate, switch, or show picker).
+        if (!this.isCurrentConnect(generation)) {
+          return;
+        }
         this._isOpen = false;
         this.watchdog.clear();
         this.deps.onNotFound();
@@ -246,12 +266,12 @@ export class SseConnection {
       }
       // Other errors: notify the worker so health state transitions
       // (e.g. connected → reconnecting), then schedule a retry.
-      this.handleUnexpectedClose();
+      this.handleUnexpectedClose(generation);
       return;
     }
 
     if (!response.body) {
-      this.handleUnexpectedClose();
+      this.handleUnexpectedClose(generation);
       return;
     }
 
@@ -268,9 +288,7 @@ export class SseConnection {
       // Stream ended or errored
     }
 
-    if (!this.closedByCaller) {
-      this.handleUnexpectedClose();
-    }
+    this.handleUnexpectedClose(generation);
   }
 
   private async readStream(
