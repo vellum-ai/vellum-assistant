@@ -1,34 +1,34 @@
 /**
- * Backwards-compat gate: the parent conversation on `subagent_status_changed`.
+ * Backwards-compat fallback: the parent conversation of a
+ * `subagent_status_changed` that names none.
  *
- * Below `MIN_VERSION` the event names no conversation, so a status for a
- * subagent the store has never seen (its `subagent_spawned` was missed, or the
- * store was reset by a conversation switch) can only be scoped by guessing the
- * conversation on screen. A subagent still running in the conversation the
- * user just left is then filed under the one they opened: its card surfaces
- * in the wrong transcript, and the reconcile that follows asks about that
- * conversation, finds no such subagent, and settles it as interrupted while
- * it is still running. At or above `MIN_VERSION` the event carries the parent
- * `conversationId` and the stub is scoped to it.
+ * Assistants below `MIN_VERSION` send the event with no `conversationId`, so
+ * a status for a subagent the store has never seen (its `subagent_spawned`
+ * was missed, or the store was reset by a conversation switch) can only be
+ * scoped by guessing the conversation on screen. That guess files a subagent
+ * still running in the conversation the user just left under the one they
+ * opened: its card surfaces in the wrong transcript, and the reconcile that
+ * follows asks about that conversation, finds no such subagent, and settles
+ * it as interrupted while it is still running. An entry with no parent at all
+ * is worse on those assistants: the overlay shows it in every conversation
+ * and no reconcile ever settles it.
  *
- * `MIN_VERSION` names the lowest assistant version whose status events carry
- * the field. A dev build stamps the base version in `package.json`, so the
- * gate reads false on dev builds until the base moves; that only matters when
- * the field is missing, which no build that carries it does.
+ * The switch is the field, not the version: an assistant at or above
+ * `MIN_VERSION` names the parent on every status emit, so this is reached
+ * only for older ones. `MIN_VERSION` records when the field became
+ * guaranteed, for whoever deletes this.
  *
- * Delete this gate, and the on-screen fallback at its call site, once the
- * minimum supported assistant is >= MIN_VERSION.
+ * Delete this module, and the fallback at its call site, once the minimum
+ * supported assistant is >= MIN_VERSION.
  */
-import { assistantSupports } from "./utils";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export const MIN_VERSION = "0.11.12";
 
 /**
- * Snapshot check (safe in stream handlers): `true` when the connected
- * assistant names the parent conversation on `subagent_status_changed`, so an
- * id-less status is a defect to leave unscoped rather than a cue to guess.
- * Conservative on an unknown or unparseable version (returns `false`).
+ * The conversation on screen, as the parent of a status event that names
+ * none. `undefined` with no conversation on screen: nothing to scope by.
  */
-export function supportsScopedSubagentStatus(): boolean {
-  return assistantSupports(MIN_VERSION);
+export function legacySubagentStatusParentConversationId(): string | undefined {
+  return useConversationStore.getState().activeConversationId ?? undefined;
 }

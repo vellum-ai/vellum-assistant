@@ -10,8 +10,7 @@ import {
   useSubagentStore,
 } from "@/domains/chat/subagent-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import { supportsScopedSubagentStatus } from "@/lib/backwards-compat/subagent-status-conversation-id";
-import { useConversationStore } from "@/stores/conversation-store";
+import { legacySubagentStatusParentConversationId } from "@/lib/backwards-compat/subagent-status-conversation-id";
 
 export function handleSubagentSpawned(
   event: SubagentSpawnedEvent,
@@ -29,25 +28,6 @@ export function handleSubagentSpawned(
   });
 }
 
-/**
- * The parent conversation a status event belongs to. Older assistants name
- * none, and only for them is the conversation on screen taken as the parent:
- * the guess that files a subagent still running in the conversation the user
- * left under the one they opened. A missing id on an assistant that names the
- * parent is a defect, not a cue to guess, so the stub stays unscoped there.
- */
-function resolveStatusParentConversationId(
-  event: SubagentStatusChangedEvent,
-): string | undefined {
-  if (event.conversationId) {
-    return event.conversationId;
-  }
-  if (supportsScopedSubagentStatus()) {
-    return undefined;
-  }
-  return useConversationStore.getState().activeConversationId ?? undefined;
-}
-
 export function handleSubagentStatusChanged(
   event: SubagentStatusChangedEvent,
   _ctx: StreamHandlerContext,
@@ -62,7 +42,10 @@ export function handleSubagentStatusChanged(
   // the real identity, and any sibling subagent that streamed nothing at all,
   // a round-trip later.
   if (!store.byId[event.subagentId]) {
-    const parentConversationId = resolveStatusParentConversationId(event);
+    // Older assistants name no parent; only for them is the conversation on
+    // screen taken as one.
+    const parentConversationId =
+      event.conversationId || legacySubagentStatusParentConversationId();
     store.ensureEntry({
       subagentId: event.subagentId,
       timestamp: Date.now(),

@@ -31,11 +31,6 @@ mock.module("@/lib/backwards-compat/subagents-reconcile", () => ({
   supportsSubagentsReconcile: () => true,
 }));
 
-let scopedStatusSupported = true;
-mock.module("@/lib/backwards-compat/subagent-status-conversation-id", () => ({
-  supportsScopedSubagentStatus: () => scopedStatusSupported,
-}));
-
 let reconcileCalls = 0;
 const reconciledParents: string[] = [];
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -75,7 +70,6 @@ beforeEach(() => {
   // Also clears the reconcile-kick debounce window.
   useSubagentStore.getState().reset();
   selfLookupSupported = true;
-  scopedStatusSupported = true;
   reconcileCalls = 0;
   reconciledParents.length = 0;
   useResolvedAssistantsStore.getState().setActiveAssistantId(null);
@@ -255,8 +249,7 @@ describe("handleSubagentStatusChanged: unknown subagent id", () => {
     expect(entry).toBeDefined();
     expect(entry?.status).toBe("completed");
     expect(entry?.inputTokens).toBe(10);
-    // An id-less status from an assistant that names the parent is a defect,
-    // and the stub is left unscoped rather than guessed.
+    // No id on the event and no conversation on screen: nothing to scope by.
     expect(entry?.conversationId).toBeUndefined();
     expect(entry?.parentConversationId).toBeUndefined();
     expect(entry?.hydrationPending).toBeUndefined();
@@ -285,29 +278,11 @@ describe("handleSubagentStatusChanged: unknown subagent id", () => {
     expect(entry?.hydrationPending).toBe(true);
   });
 
-  it("leaves an id-less stub unscoped on an assistant that names the parent", () => {
-    useConversationStore.getState().setActiveConversationId(PARENT);
-
-    handleSubagentStatusChanged(
-      {
-        type: "subagent_status_changed",
-        subagentId: "sa-9",
-        status: "running",
-      },
-      ctx,
-    );
-
-    expect(
-      useSubagentStore.getState().byId["sa-9"]?.parentConversationId,
-    ).toBeUndefined();
-  });
-
-  it("falls back to the conversation on screen only for an assistant that names no parent", () => {
-    // Assistants below the gate send no id at all; an entry with no parent id is
-    // shown by the Active-Subagents overlay in EVERY conversation while
-    // reconcile's per-parent orphan pass settles it in none, so the guess is
-    // the lesser wrong there.
-    scopedStatusSupported = false;
+  it("falls back to the conversation on screen when the event names no parent", () => {
+    // Older assistants send no id at all; an entry with no parent id is shown
+    // by the Active-Subagents overlay in EVERY conversation while reconcile's
+    // per-parent orphan pass settles it in none, so the guess is the lesser
+    // wrong there.
     useConversationStore.getState().setActiveConversationId(PARENT);
 
     handleSubagentStatusChanged(
@@ -454,17 +429,7 @@ describe("unknown-id reconcile kick", () => {
     expect(reconciledParents).toEqual([BACKGROUND]);
   });
 
-  it("does not kick for an id-less status change on an assistant that names the parent", async () => {
-    activate();
-
-    handleSubagentStatusChanged(statusEvent("sa-1"), ctx);
-    await Promise.resolve();
-
-    expect(reconcileCalls).toBe(0);
-  });
-
-  it("reconciles the conversation on screen for a status change from an assistant that names none", async () => {
-    scopedStatusSupported = false;
+  it("reconciles the conversation on screen for a status change that names no parent", async () => {
     activate();
 
     handleSubagentStatusChanged(statusEvent("sa-1"), ctx);
