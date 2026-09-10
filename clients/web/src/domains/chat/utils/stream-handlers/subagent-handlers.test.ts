@@ -60,12 +60,10 @@ const {
 } = await import("@/domains/chat/utils/stream-handlers/subagent-handlers");
 const { useSubagentStore } = await import("@/domains/chat/subagent-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
-const { useResolvedAssistantsStore } = await import(
-  "@/stores/resolved-assistants-store"
-);
-const { makeCtx } = await import(
-  "@/domains/chat/utils/stream-handlers/test-helpers"
-);
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
+const { makeCtx } =
+  await import("@/domains/chat/utils/stream-handlers/test-helpers");
 
 const PARENT = "conv-parent";
 const CHILD = "conv-child";
@@ -305,7 +303,7 @@ describe("handleSubagentStatusChanged: unknown subagent id", () => {
   });
 
   it("falls back to the conversation on screen only for an assistant that names no parent", () => {
-    // Pre-0.11.12 assistants send no id at all; an entry with no parent id is
+    // Assistants below the gate send no id at all; an entry with no parent id is
     // shown by the Active-Subagents overlay in EVERY conversation while
     // reconcile's per-parent orphan pass settles it in none, so the guess is
     // the lesser wrong there.

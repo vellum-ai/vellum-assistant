@@ -863,8 +863,7 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     }
     // An entry with no parent id is scoped to no conversation: the overlay
     // shows it everywhere and reconcile's per-parent orphan pass settles it
-    // nowhere. Callers scope the stub from the evidence they hold; nothing
-    // here guesses.
+    // nowhere. Only the caller's evidence scopes the stub.
     const { parentConversationId } = params;
     const status = params.status ?? "running";
 
