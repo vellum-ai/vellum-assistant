@@ -1917,12 +1917,15 @@ async function main() {
   });
 
   for (const method of ["GET", "POST"] as const) {
-    routes.push({
-      path: /^\/v1\/(?:assistants\/[^/]+\/)?desktop\/setup\/?$/,
+    const setupRoute = {
       method,
-      auth: "edge-guardian",
-      handler: (req) => desktopSetupProxy(req),
-    });
+      auth: "edge-guardian" as const,
+      handler: desktopSetupProxy,
+    };
+    routes.push(
+      { path: /^\/v1\/desktop\/setup\/?$/, ...setupRoute },
+      { path: /^\/v1\/assistants\/[^/]+\/desktop\/setup\/?$/, ...setupRoute },
+    );
   }
 
   // Runtime proxy catch-all — must be last so specific routes are checked first.
