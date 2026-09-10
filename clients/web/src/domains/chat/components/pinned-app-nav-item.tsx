@@ -52,6 +52,14 @@ export interface PinnedAppNavItemProps {
  * reveals the unpin behind it, in the pill's own size and shape, the way a
  * list cell reveals its actions. The wrapper takes the pill's `w-fit
  * rounded-full`, so nothing wider than the pill is ever painted.
+ *
+ * At a phone width the pill and its wrapper both go full width, the same
+ * band the conversation rows beneath it fill, so the unpin sits on the
+ * drawer's right edge rather than wherever the app's name happens to end.
+ * The unpin is drawn at the size the assistant pill's chevron and a row's
+ * ellipsis are drawn: a 24px box on desktop, a 36px touch target on a phone,
+ * with the same negative margin the chevron uses so the target never grows
+ * the pill past the height its label sets.
  */
 export function PinnedAppNavItem({
   app,
@@ -165,6 +173,7 @@ export function PinnedAppNavItem({
       label={app.name}
       active={active}
       onSelect={onOpen ? () => onOpen(app.id) : undefined}
+      className="max-md:w-full"
       trailingAction={
         <button
           type="button"
@@ -173,9 +182,9 @@ export function PinnedAppNavItem({
             event.stopPropagation();
             onUnpin(app.id);
           }}
-          className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]"
+          className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] max-md:-my-2 max-md:size-9 max-md:rounded-full"
         >
-          <PinOff size={12} aria-hidden />
+          <PinOff size={14} aria-hidden className="max-md:size-4" />
         </button>
       }
     />
@@ -185,7 +194,7 @@ export function PinnedAppNavItem({
     <ContextMenu.Root>
       <ContextMenu.Trigger>
         <SwipeActionReveal
-          className="w-fit rounded-full"
+          className="w-fit rounded-full max-md:w-full"
           trailingActions={trailingActions}
         >
           {item}
