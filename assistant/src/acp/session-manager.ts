@@ -1415,6 +1415,13 @@ export class AcpSessionManager {
 
   /**
    * Denies pending ACP permissions, kills the process, and removes the session.
+   *
+   * The permissions and the process belong to `entry`, so they are always
+   * torn down; the map slot and its buffer belong to whichever entry holds
+   * the id, so they are only cleared while that is still this one. A caller
+   * whose entry the map has since replaced (a cancel that persisted a
+   * resumable row, then a resume of the same id, while an await was pending)
+   * would otherwise evict the live session that took its place.
    */
   private teardownSession(acpSessionId: string, entry: SessionEntry): void {
     for (const requestId of entry.clientHandler.pendingRequestIds) {
@@ -1424,6 +1431,9 @@ export class AcpSessionManager {
       }
     }
     entry.process.kill();
+    if (this.sessions.get(acpSessionId) !== entry) {
+      return;
+    }
     this.sessions.delete(acpSessionId);
     // Free the buffer in case persistTerminal hasn't already (e.g. close()
     // before terminal transition).
