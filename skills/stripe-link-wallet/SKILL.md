@@ -121,11 +121,11 @@ This creates the managed OAuth connection the proxy preamble uses. Present the i
 }
 ```
 
-Do not run `assistant oauth connect stripe_link` from the shell and do not paste an OAuth URL into chat; the surface is the connect path for managed providers. Wait for the user to finish or dismiss it, then re-run `assistant oauth status stripe_link --json`. An active connection means the proxy path is ready: continue with what the user originally asked for. If they dismiss the surface, offer the device login below instead.
+Do not run `assistant oauth connect stripe_link` from the shell and do not paste an OAuth URL into chat; the surface is the connect path for managed providers. Wait for the user to finish or dismiss it, then re-run `assistant oauth status stripe_link --json`. An active connection means the proxy path is ready: continue with what the user originally asked for. If they dismiss the surface, or it cannot be shown (a headless or API conversation has no interactive surface), fall back to the device login below.
 
 ### Fallback: `link-cli` device login
 
-Use this only when Stripe Link OAuth is unavailable for this assistant (`Unknown provider`) or the user declined to connect through the assistant.
+Use this when Stripe Link OAuth is unavailable for this assistant (`Unknown provider`), the connect surface cannot be shown, or the user declined to connect through the assistant.
 
 Login is a device flow: the CLI hands back a URL, and the user approves it in the Link app on their own device. There is no browser here, so nothing happens until the user has the link in front of them.
 
@@ -346,7 +346,7 @@ link-cli spend-request cancel <id> --format json
 | Error / condition                                       | Action                                                                                                                                                                                                                                                 |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `link-cli` not found                                    | Invoke it with `bunx @stripe/link-cli` and substitute that prefix wherever examples use `link-cli`.                                                                                                                                                    |
-| No connection and no device login                       | Setup: show the connect surface first; offer the device login if the user declines or Stripe Link OAuth is unavailable                                                                                                                                 |
+| No connection and no device login                       | Setup: show the connect surface first; fall back to the device login if the user declines, the surface cannot be shown, or Stripe Link OAuth is unavailable                                                                                            |
 | `proxy-url` reports no active connection                | The connection is gone. Show the connect surface again, or switch to an existing device login                                                                                                                                                          |
 | `proxy-url` reports several accounts (409)              | Ask the user which account, then add `--account <account>` to the preamble                                                                                                                                                                             |
 | Link API call returns 424 on the connection path        | The connection needs reconnecting. Show the connect surface again; do not retry the command until status is active                                                                                                                                     |
