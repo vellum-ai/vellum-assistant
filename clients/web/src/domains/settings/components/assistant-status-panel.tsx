@@ -4,17 +4,12 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
-import {
-  type Assistant,
-  getAssistant,
-  getAssistantHealthz,
-} from "@/assistant/api";
+import { type Assistant, getAssistant } from "@/assistant/api";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
@@ -51,6 +46,42 @@ function allocationChanged(
   );
 }
 
+/** What a post-resize watch is waiting for. */
+export interface ResizeWatch {
+  /**
+   * The allocation to watch for a change from. Null when nothing had loaded
+   * when the resize started: the first reading after that could still be the
+   * pre-resize values, so it is adopted as the baseline rather than read as
+   * the resized allocation.
+   */
+  baseline: HealthzGetResponse | null;
+  /** Wall clock. The watch ends here whether or not the allocation moved. */
+  until: number;
+}
+
+/**
+ * The health query's `refetchInterval` decision: the cadence to poll at, or
+ * `false` to stop.
+ *
+ * At module scope so the tests exercise the same code path the runtime does.
+ * A copy of this rule in a test helper would let the two drift.
+ */
+export function resizePollInterval(
+  data: HealthzGetResponse | undefined,
+  watch: ResizeWatch | null,
+  now: number,
+): number | false {
+  if (watch === null || now >= watch.until) {
+    return false;
+  }
+  if (data === undefined || watch.baseline === null) {
+    return HEALTHZ_POLL_INTERVAL_MS;
+  }
+  return allocationChanged(data, watch.baseline)
+    ? false
+    : HEALTHZ_POLL_INTERVAL_MS;
+}
+
 export interface AssistantWithHealthz {
   assistant: Assistant | null;
   assistantLoading: boolean;
@@ -62,11 +93,12 @@ export interface AssistantWithHealthz {
   healthzPolling: boolean;
   refetch: () => Promise<void>;
   /**
-   * Refetch repeatedly until the reported CPU/memory allocation differs from
-   * `baseline` (the resize has landed) or a timeout elapses. Tolerates the
-   * pod-restart window where /v1/health is briefly unreachable.
+   * Watch for the reported CPU/memory allocation to differ from `baseline`,
+   * meaning the resize has landed. The health query polls while the watch is
+   * open and stops on its own once the allocation moves or the window
+   * elapses, tolerating the pod restart where /v1/health is unreachable.
    */
-  refetchUntilResized: (baseline: HealthzGetResponse | null) => Promise<void>;
+  refetchUntilResized: (baseline: HealthzGetResponse | null) => void;
 }
 
 export function useAssistantWithHealthz(): AssistantWithHealthz {
@@ -83,7 +115,6 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     },
     retry: false,
   });
-  const queryClient = useQueryClient();
   /* A platform-mode read needs `Vellum-Organization-Id`, which the org store
      hydrates after auth. Without this gate the request can go out headerless
      and be rejected. Ready immediately when there is no platform session, so
@@ -97,6 +128,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     () => healthzGetOptions({ path: { assistant_id: activeAssistantId } }),
     [activeAssistantId],
   );
+  const [resizeWatch, setResizeWatch] = useState<ResizeWatch | null>(null);
   const {
     data: healthz = null,
     isLoading: healthzQueryLoading,
@@ -107,6 +139,16 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
     ...healthzQueryOptions,
     enabled: orgReadiness === "ready",
     retry: false,
+    /* Live readings, so a revisit revalidates rather than serving a frozen
+       number. The cache is here to paint the last values immediately, not to
+       stand in for a fresh one. */
+    staleTime: 0,
+    /* A resize rolls the pod, so the new allocation only appears once it comes
+       back. The query owns that cadence: it already retries nothing, keeps the
+       last good data across a failed attempt, and stops on its own when the
+       allocation moves. */
+    refetchInterval: (query) =>
+      resizePollInterval(query.state.data, resizeWatch, Date.now()),
   });
   /* A disabled query reports `isLoading: false`, so the wait for the org
      header would otherwise read as a settled "no metrics" and the cards would
@@ -115,112 +157,70 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
      a spinner on it would spin for as long as the page is open. */
   const healthzLoading = healthzQueryLoading || orgReadiness === "resolving";
 
-  const [healthzPolling, setHealthzPolling] = useState(false);
-  // Bumped to supersede any in-flight resize poll (a new poll, or unmount).
-  const pollIdRef = useRef(0);
+  const healthzPolling = resizeWatch !== null;
 
-  /* Transient unreachability is not worth a report: it is what a connection
-     blip looks like from here, and the query retries on its own terms.
-     Anything else is a real failure of a card the user is looking at. Only
-     failures the query publishes reach this, which is why the resize poll
-     reads outside it. */
+  /* Reported only when there is nothing to show. A failure with values still
+     on the cards is not worth interrupting for: the last reading stands as the
+     truth of when it was taken, and a resize deliberately spends part of its
+     window unreachable. Keyed on the error and the data rather than on whether
+     a poll is running, so there is no flag whose flip can surface a failure
+     after the fact. */
   useEffect(() => {
-    if (!healthzError || isTransientNetworkError(healthzError)) {
+    if (healthzError === null || healthz !== null) {
+      return;
+    }
+    if (isTransientNetworkError(healthzError)) {
       return;
     }
     captureError(healthzError, { context: "fetch_assistant_healthz" });
     toast.error(t("settings:assistantStatusPanel.loadHealthzFailed"));
-  }, [healthzError]);
+  }, [healthzError, healthz]);
 
-  // Cancel any in-flight resize poll when the active assistant changes or the
-  // hook unmounts. Without it a poll for the previous assistant keeps running
-  // and holds its resize controls disabled. The reported health needs no
-  // cleanup: it is cached per assistant id, so a switch reads the new
-  // assistant's entry rather than the old one's values.
+  /* Ends the watch, and adopts a baseline for a resize that started before any
+     reading arrived. The cadence is the query's; this owns only when the watch
+     is over, which is the allocation moving or the deadline passing. */
   useEffect(() => {
-    return () => {
-      pollIdRef.current += 1;
-      setHealthzPolling(false);
-    };
+    if (resizeWatch === null) {
+      return;
+    }
+    if (resizeWatch.baseline === null && healthz !== null) {
+      setResizeWatch({ ...resizeWatch, baseline: healthz });
+      return;
+    }
+    if (
+      resizePollInterval(healthz ?? undefined, resizeWatch, Date.now()) ===
+      false
+    ) {
+      setResizeWatch(null);
+      return;
+    }
+    const timer = setTimeout(
+      () => setResizeWatch(null),
+      Math.max(0, resizeWatch.until - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [resizeWatch, healthz]);
+
+  /* A watch belongs to the assistant that was resized. The reported health
+     needs no cleanup of its own, being cached per assistant id, but a watch
+     left running would hold the next assistant's resize controls disabled. */
+  useEffect(() => {
+    setResizeWatch(null);
   }, [activeAssistantId]);
 
-  /**
-   * One reading for the resize poll, taken outside the query on purpose.
-   *
-   * A resize rolls the pod, so the endpoint is expected to fail for part of
-   * the window. Routing those failures through the query would publish them
-   * as its error, where they outlive the poll: the error stays on the cache
-   * entry, and the next mount of this hook reports a failure the poll had
-   * deliberately swallowed. Reading directly keeps a poll failure local to the
-   * poll, and a success is written into the cache so the cards follow the
-   * resize live.
-   */
-  const readHealthzOutsideQuery =
-    useCallback(async (): Promise<HealthzGetResponse | null> => {
-      try {
-        const result = await getAssistantHealthz(activeAssistantId);
-        if (!result.ok) {
-          return null;
-        }
-        queryClient.setQueryData(healthzQueryOptions.queryKey, result.data);
-        return result.data;
-      } catch {
-        // Unreachable mid-restart. The last good reading stays in the cache,
-        // so the cards keep their values instead of blanking.
-        return null;
-      }
-    }, [activeAssistantId, queryClient, healthzQueryOptions]);
-
-  /* The user asked for this one, so it goes through the query: a failure here
-     is theirs to see, and the reporting effect above surfaces it. Both reads
-     go out together for the same reason the mount path does. */
   const refetch = useCallback(async () => {
     await Promise.all([refetchAssistant(), refetchHealthz()]);
   }, [refetchAssistant, refetchHealthz]);
 
+  /* Opens the watch; the query polls from there. The machine-size tag comes
+     from the assistant record, which the platform updates synchronously during
+     a resize, so that one is refreshed up front. */
   const refetchUntilResized = useCallback(
-    async (baseline: HealthzGetResponse | null) => {
-      const pollId = ++pollIdRef.current;
-      const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
-      setHealthzPolling(true);
-      // `baseline` is null when metrics weren't loaded yet at resize time. In
-      // that case the first reading could still be pre-resize values, so we
-      // can't treat it as the resized allocation — adopt it as the baseline and
-      // keep polling until it changes instead.
-      let reference = baseline;
-      try {
-        // The machine-size tag comes from the assistant record, which the
-        // platform updates synchronously during resize — refresh it up front.
-        void refetchAssistant();
-        while (Date.now() < deadline && pollId === pollIdRef.current) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, HEALTHZ_POLL_INTERVAL_MS),
-          );
-          if (pollId !== pollIdRef.current) {
-            return;
-          }
-          const data = await readHealthzOutsideQuery();
-          if (pollId !== pollIdRef.current) {
-            return;
-          }
-          if (!data) {
-            continue;
-          }
-          if (reference == null) {
-            reference = data;
-            continue;
-          }
-          if (allocationChanged(data, reference)) {
-            return;
-          }
-        }
-      } finally {
-        if (pollId === pollIdRef.current) {
-          setHealthzPolling(false);
-        }
-      }
+    (baseline: HealthzGetResponse | null) => {
+      void refetchAssistant();
+      setResizeWatch({ baseline, until: Date.now() + HEALTHZ_POLL_TIMEOUT_MS });
     },
-    [readHealthzOutsideQuery, refetchAssistant],
+    [refetchAssistant],
   );
 
   return {

@@ -1,10 +1,12 @@
 /**
  * Tests for `useAssistantWithHealthz`.
  *
- * The properties that matter are that the health read is cached per assistant
- * rather than re-issued on every mount of the Settings landing page, and that
- * it does not queue behind the assistant record. Both are asserted by counting
- * requests, because both were previously true only by accident of ordering.
+ * Two properties carry this hook. A revisit to Settings paints the last
+ * readings straight away instead of blanking the cards back to spinners, and
+ * the health read does not queue behind the assistant record. The resize watch
+ * is the third: the query owns its cadence, so the rule that decides it is
+ * tested as a pure function and the hook test only covers the watch opening
+ * and closing.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -36,6 +38,15 @@ const HEALTHZ: HealthzGetResponse = {
   memory: { currentMb: 200, maxMb: 1024 },
 } as HealthzGetResponse;
 
+/** The same pod after a resize landed: more cores, more memory. */
+const RESIZED: HealthzGetResponse = {
+  ...HEALTHZ,
+  cpu: { currentPercent: 5, maxCores: 4 },
+  memory: { currentMb: 200, maxMb: 4096 },
+} as HealthzGetResponse;
+
+let healthzResponse: HealthzGetResponse = HEALTHZ;
+
 let healthzCalls = 0;
 let healthzFails = false;
 /** Set to hold the next response open, so an in-flight window is observable. */
@@ -49,7 +60,11 @@ const healthzGetMock = mock(async () => {
   if (healthzFails) {
     throw new Error("healthz unreachable");
   }
-  return { data: HEALTHZ, error: undefined, response: new Response(null) };
+  return {
+    data: healthzResponse,
+    error: undefined,
+    response: new Response(null),
+  };
 });
 
 let orgReadiness: "ready" | "resolving" | "unavailable" = "ready";
@@ -111,7 +126,7 @@ stubModule(
   },
 );
 
-const { useAssistantWithHealthz } =
+const { useAssistantWithHealthz, resizePollInterval } =
   await import("@/domains/settings/components/assistant-status-panel");
 
 /**
@@ -129,34 +144,70 @@ beforeEach(() => {
   healthzCalls = 0;
   assistantCalls = 0;
   healthzFails = false;
+  healthzResponse = HEALTHZ;
   holdHealthz = null;
   orgReadiness = "ready";
   releaseAssistant = null;
   captureErrorMock.mockClear();
   toastErrorMock.mockClear();
   queryClient = new QueryClient({
-    defaultOptions: { queries: { staleTime: 10_000, retry: false } },
+    defaultOptions: { queries: { retry: false } },
   });
 });
 
 afterEach(cleanup);
 
+describe("resizePollInterval", () => {
+  const watch = { baseline: HEALTHZ, until: 1_000 };
+
+  test("does not poll when no resize is being watched", () => {
+    expect(resizePollInterval(HEALTHZ, null, 0)).toBe(false);
+  });
+
+  test("stops at the deadline even if the allocation never moved", () => {
+    expect(resizePollInterval(HEALTHZ, watch, 1_000)).toBe(false);
+    expect(resizePollInterval(HEALTHZ, watch, 2_000)).toBe(false);
+  });
+
+  test("keeps polling while the allocation still matches the baseline", () => {
+    expect(resizePollInterval(HEALTHZ, watch, 0)).toBeGreaterThan(0);
+  });
+
+  test("stops as soon as the allocation differs", () => {
+    expect(resizePollInterval(RESIZED, watch, 0)).toBe(false);
+  });
+
+  test("keeps polling until a baseline exists to compare against", () => {
+    // A resize started before any reading arrived: the first one back could
+    // still be the pre-resize values, so it cannot end the watch.
+    const unknown = { baseline: null, until: 1_000 };
+    expect(resizePollInterval(undefined, unknown, 0)).toBeGreaterThan(0);
+    expect(resizePollInterval(HEALTHZ, unknown, 0)).toBeGreaterThan(0);
+  });
+
+  test("keeps polling while the endpoint is still unreachable", () => {
+    // Mid-restart there is no reading at all, which is not a reason to stop.
+    expect(resizePollInterval(undefined, watch, 0)).toBeGreaterThan(0);
+  });
+});
+
 describe("useAssistantWithHealthz", () => {
-  test("a second visit reads the cached health instead of asking again", async () => {
+  test("a second visit paints the last readings instead of spinners", async () => {
     // GIVEN one visit to Settings that loaded the health card
     const first = renderHook(() => useAssistantWithHealthz(), { wrapper });
     await waitFor(() => expect(first.result.current.healthz).not.toBeNull());
-    expect(healthzCalls).toBe(1);
 
-    // WHEN the user leaves Settings and comes back inside the stale window
+    // WHEN the user leaves Settings and comes back
     first.unmount();
     const second = renderHook(() => useAssistantWithHealthz(), { wrapper });
 
-    // THEN the card has its values with no request and no loading state, so it
-    // paints immediately rather than showing spinners again
+    // THEN the values are on screen in the first render, with no loading state
+    // to blank the cards. These are live readings, so a fresh one is still
+    // fetched behind them: the cache is here to avoid the blank, not to stand
+    // in for a current number.
     expect(second.result.current.healthz).toEqual(HEALTHZ);
     expect(second.result.current.healthzLoading).toBe(false);
-    expect(healthzCalls).toBe(1);
+    await waitFor(() => expect(healthzCalls).toBe(2));
   });
 
   test("the health read does not queue behind the assistant record", async () => {
@@ -173,7 +224,7 @@ describe("useAssistantWithHealthz", () => {
     expect(assistantCalls).toBe(1);
   });
 
-  test("reports a failure the user is looking at", async () => {
+  test("reports a failure when there is nothing to show", async () => {
     healthzFails = true;
 
     const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
@@ -183,7 +234,26 @@ describe("useAssistantWithHealthz", () => {
     expect(result.current.healthz).toBeNull();
   });
 
-  test("waits for the organization header rather than reporting no metrics", async () => {
+  test("stays silent when a reading is already on the cards", async () => {
+    // GIVEN a loaded card
+    const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
+    await waitFor(() => expect(result.current.healthz).not.toBeNull());
+
+    // WHEN a later read fails, which is what a rolling pod looks like from here
+    healthzFails = true;
+    await act(async () => {
+      await result.current.refetch();
+    });
+
+    // THEN nothing interrupts the user, and the last reading stands. This is
+    // what keeps a resize quiet, without a flag that can surface the failure
+    // once the resize is over.
+    expect(captureErrorMock).not.toHaveBeenCalled();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(result.current.healthz).toEqual(HEALTHZ);
+  });
+
+  test("waits for the organization header rather than reporting no metrics", () => {
     // GIVEN a platform session whose organization header has not resolved yet
     orgReadiness = "resolving";
 
@@ -195,7 +265,7 @@ describe("useAssistantWithHealthz", () => {
     expect(result.current.healthzLoading).toBe(true);
   });
 
-  test("stops waiting once organization resolution has given up", async () => {
+  test("stops waiting once organization resolution has given up", () => {
     // GIVEN organization resolution that concluded with no usable id
     orgReadiness = "unavailable";
 
@@ -208,49 +278,36 @@ describe("useAssistantWithHealthz", () => {
     expect(result.current.healthz).toBeNull();
   });
 
-  test("stays silent about a failure while polling through a resize", async () => {
+  test("opens a resize watch and closes it when the allocation moves", async () => {
     // GIVEN a loaded card
-    const { result, unmount } = renderHook(() => useAssistantWithHealthz(), {
-      wrapper,
-    });
+    const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
     await waitFor(() => expect(result.current.healthz).not.toBeNull());
+    expect(result.current.healthzPolling).toBe(false);
 
-    // WHEN a resize poll is running and the endpoint goes unreachable, which
-    // is what a rolling pod looks like from here
-    healthzFails = true;
-    const polling = result.current.refetchUntilResized(HEALTHZ);
-    await waitFor(() => expect(result.current.healthzPolling).toBe(true));
-    // The poll sleeps a whole interval before its first read, so this outwaits
-    // `HEALTHZ_POLL_INTERVAL_MS` rather than the default second.
-    await waitFor(() => expect(healthzCalls).toBeGreaterThan(1), {
-      timeout: 10_000,
+    // WHEN a resize starts
+    act(() => {
+      result.current.refetchUntilResized(HEALTHZ);
     });
 
-    // THEN the expected unreachability is not reported to the user, and the
-    // last good reading stays on the cards rather than blanking
-    expect(captureErrorMock).not.toHaveBeenCalled();
-    expect(toastErrorMock).not.toHaveBeenCalled();
-    expect(result.current.healthz).toEqual(HEALTHZ);
+    // THEN the watch is open, which is what disables the resize controls
+    expect(result.current.healthzPolling).toBe(true);
 
-    // Stand the poll down rather than leaving it running behind the suite.
-    unmount();
-    await polling;
+    // WHEN the rolled pod comes back with the new allocation
+    healthzResponse = RESIZED;
+    await act(async () => {
+      await result.current.refetch();
+    });
 
-    // AND the swallowed failure does not outlive the poll. A later visit reads
-    // the same cache entry, so a poll failure left on it as the query's error
-    // would surface as a toast for a failure nobody was meant to see.
-    healthzFails = false;
-    renderHook(() => useAssistantWithHealthz(), { wrapper });
-    await waitFor(() => expect(healthzCalls).toBeGreaterThan(0));
-    expect(captureErrorMock).not.toHaveBeenCalled();
-    expect(toastErrorMock).not.toHaveBeenCalled();
-  }, 30_000);
+    // THEN the watch closes itself off the data, with no timer to cancel
+    await waitFor(() => expect(result.current.healthzPolling).toBe(false));
+    expect(result.current.healthz).toEqual(RESIZED);
+  });
 
   test("the refresh affordance reflects a refresh over existing values", async () => {
     // GIVEN a card that already has its values
     const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
     await waitFor(() => expect(result.current.healthz).not.toBeNull());
-    expect(result.current.healthzFetching).toBe(false);
+    await waitFor(() => expect(result.current.healthzFetching).toBe(false));
 
     // WHEN the user asks for a refresh, held open so the window is observable
     let releaseRefresh = (): void => {};
