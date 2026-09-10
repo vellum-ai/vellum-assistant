@@ -5,9 +5,7 @@ import { extractThreadTsFromCallbackUrl } from "../../../channels/slack-callback
 import { getLogger } from "../../../util/logger.js";
 import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
-import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
-import { resolveSlackAuth } from "./auth.js";
-import { conversationsOpen } from "./client.js";
+import { openSlackDmChannel, SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
 import {
   describeSlackReactionEmoji,
   sendSlackAgentSessionStatus,
@@ -36,14 +34,9 @@ export const slackTransport: ChannelTransport = {
    */
   async addressFor(target) {
     if (target.kind === "person") {
-      const auth = await resolveSlackAuth("bot");
-      if (!auth) {
-        throw new Error("Slack bot token not configured");
-      }
-      const opened = await conversationsOpen(auth, target.userId);
       return {
         ctx: directDeliveryContext("slack"),
-        chatId: opened.channel.id,
+        chatId: await openSlackDmChannel(target.userId),
       };
     }
     const threadTs = target.threadId?.trim();

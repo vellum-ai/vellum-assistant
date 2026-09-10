@@ -20,18 +20,10 @@ mock.module("../discord/api.js", () => ({
   openDiscordDmChannel: async (userId: string) => `dm-of-${userId}`,
 }));
 
-const actualSlackAuth = await import("../slack/auth.js");
-mock.module("../slack/auth.js", () => ({
-  ...actualSlackAuth,
-  resolveSlackAuth: async () => "xoxb-test",
-}));
-const actualSlackClient = await import("../slack/client.js");
-mock.module("../slack/client.js", () => ({
-  ...actualSlackClient,
-  conversationsOpen: async (_auth: unknown, userId: string) => ({
-    ok: true,
-    channel: { id: `D-of-${userId}` },
-  }),
+const actualSlackApi = await import("../slack/api.js");
+mock.module("../slack/api.js", () => ({
+  ...actualSlackApi,
+  openSlackDmChannel: async (userId: string) => `D-of-${userId}`,
 }));
 
 const { channelForCallback } = await import("../callback-routing.js");

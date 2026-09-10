@@ -80,16 +80,14 @@ export async function run(
     // channel, records what it sent, and reaches channels with no messaging
     // provider at all. A platform named outright is checked first; one
     // auto-detected from the connected providers is checked the same way.
-    const provider =
-      platform && isProactivelyAddressable(platform)
-        ? undefined
-        : await resolveProvider(platform);
+    const namedChannel =
+      platform && isProactivelyAddressable(platform) ? platform : undefined;
+    const provider = namedChannel ? undefined : await resolveProvider(platform);
     const channel =
-      platform && isProactivelyAddressable(platform)
-        ? platform
-        : provider && isProactivelyAddressable(provider.id)
-          ? provider.id
-          : undefined;
+      namedChannel ??
+      (provider && isProactivelyAddressable(provider.id)
+        ? provider.id
+        : undefined);
 
     if (channel) {
       if (attachmentPaths?.length) {
