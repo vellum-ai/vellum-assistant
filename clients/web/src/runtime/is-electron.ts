@@ -22,6 +22,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCharacter,
@@ -411,6 +412,7 @@ declare global {
         setAnnotating?(annotating: boolean): void;
         toggleAnnotating?(): void;
         clearMarks?(): void;
+        setAnnotationTool?(tool: CompanionAnnotationTool): void;
         annotateShare?(
           phase: CompanionAnnotationPhase,
           strokes: readonly CompanionAnnotationStroke[],

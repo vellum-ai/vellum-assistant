@@ -303,6 +303,9 @@ export function CompanionWatchFramePage() {
           // same push as the mode, so a clear cannot arrive for a layer the
           // same push is taking down.
           cleared={state?.marksCleared ?? 0}
+          // Read off the same push as the mode, so the tool chosen on the
+          // pill and the one under the hand here are never two.
+          tool={state?.annotationTool}
         />
       )}
       {/* Above the user's own ink in the markup for the reason it is drawn at

@@ -28,6 +28,7 @@ import type {
   ChordRegistrationResult,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCoachmark,
   CompanionCharacter,
   CompanionContext,
@@ -661,6 +662,15 @@ export interface VellumBridge {
      * as having nothing to offer, the bargain `setScreenShare` makes.
      */
     setAnnotating?(annotating: boolean): void;
+    /**
+     * Choose what a press on the frame draws while the mode is on.
+     *
+     * Main's the way the mode is: the pill chooses and the frame draws, and
+     * neither window can tell the other. What comes back is
+     * `annotationTool` on `onState`. Absent on a shell that predates the
+     * shapes, which the surface reads as having only the pencil to offer.
+     */
+    setAnnotationTool?(tool: CompanionAnnotationTool): void;
     /**
      * The same mode, flipped rather than set, for a press that has to be its
      * own way back and no view of which way that is.

@@ -78,6 +78,7 @@ import { conversations } from "../../../persistence/schema/index.js";
 import { getLogger } from "./logging.js";
 import { countRetrospectiveMessagesAfter } from "./memory-retrospective-accounting.js";
 import { MEMORY_RETROSPECTIVE_SOURCES } from "./memory-retrospective-constants.js";
+import { retrospectiveCursor } from "./memory-retrospective-cursor.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "./memory-retrospective-enqueue.js";
 import { getRetrospectiveState } from "./memory-retrospective-state.js";
 
@@ -273,7 +274,7 @@ export async function runRetrospectiveSweep(
 
       const unprocessed = countRetrospectiveMessagesAfter(
         conversationId,
-        state?.lastProcessedMessageId ?? null,
+        retrospectiveCursor(state),
       );
       if (unprocessed === 0) {
         continue;

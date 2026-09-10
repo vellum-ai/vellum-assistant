@@ -91,6 +91,17 @@ final class MacHelper: @unchecked Sendable {
     private var scrollMonitor: Any?
     private var scrollEndReport: DispatchWorkItem?
     private static let scrollEndGap: TimeInterval = 0.12
+    /// The global mouse-down monitor, up only while main is waiting for a
+    /// press on something the assistant is pointing at, and the rectangles
+    /// that press would have to land in. The monitor comes down on the first
+    /// hit: a mark is one step, and the step is done once.
+    ///
+    /// Where a press landed is read here and nowhere else, and only against
+    /// these rectangles: what leaves the process is which of them was hit,
+    /// never the point. An `NSEvent` monitor for the reason the scroll one
+    /// is, so pointing does not depend on Input Monitoring.
+    private var pressMonitor: Any?
+    private var pressRects: [CGRect] = []
     private let outputLock = NSLock()
     private var dictationSession: DictationPartialsSession?
     // Bumped on every dictation.setPartials so a pending speech-authorization
@@ -261,6 +272,37 @@ final class MacHelper: @unchecked Sendable {
                 )
             }
             return try self.setScrollWatch(enable: enable)
+        }
+        // Whether the next press lands on something the assistant is pointing
+        // at. `rects` are where those things are, in screen points with the
+        // origin at the top-left of the primary display; none is the watch
+        // coming down. Reported once, as the index of the rectangle hit.
+        router.register("input.setPressWatch") { [weak self] params in
+            guard let self else {
+                throw JsonRpcDispatchError.internalError("Helper is shutting down")
+            }
+            guard
+                let object = params as? [String: Any],
+                let rects = object["rects"] as? [[String: Any]]
+            else {
+                throw JsonRpcDispatchError.invalidParams(
+                    "input.setPressWatch requires rects"
+                )
+            }
+            let parsed = try rects.map { rect -> CGRect in
+                guard
+                    let x = rect["x"] as? Double,
+                    let y = rect["y"] as? Double,
+                    let width = rect["width"] as? Double,
+                    let height = rect["height"] as? Double
+                else {
+                    throw JsonRpcDispatchError.invalidParams(
+                        "input.setPressWatch rects need x, y, width and height"
+                    )
+                }
+                return CGRect(x: x, y: y, width: width, height: height)
+            }
+            return try self.setPressWatch(rects: parsed)
         }
         // Where a paste would land, asked when there are words to paste rather
         // than when a hold opens. No hold guard: the hold is over by then, and
@@ -616,6 +658,52 @@ final class MacHelper: @unchecked Sendable {
             NSEvent.removeMonitor(scrollMonitor)
         }
         scrollMonitor = nil
+    }
+
+    /// Watch for the next press inside one of `rects`, or stop watching when
+    /// there are none. A new list replaces the old one under a monitor that
+    /// is already up, so pointing at the next step does not take the monitor
+    /// down and put it back.
+    private func setPressWatch(rects: [CGRect]) throws -> [String: Any] {
+        pressRects = rects
+        if rects.isEmpty {
+            removePressMonitor()
+            return ["enabled": false]
+        }
+        if pressMonitor == nil {
+            guard
+                let monitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] _ in
+                    self?.handlePress()
+                })
+            else {
+                throw HelperError.eventMonitor("NSEvent.addGlobalMonitorForEvents(.leftMouseDown)")
+            }
+            pressMonitor = monitor
+        }
+        return ["enabled": true]
+    }
+
+    /// A press went down somewhere on the desktop while main is waiting for
+    /// one. Only whether it landed in a watched rectangle is read, and which;
+    /// a press anywhere else is nothing, and keeps the watch up.
+    private func handlePress() {
+        guard let primaryHeight = NSScreen.screens.first?.frame.maxY else {
+            return
+        }
+        let point = PressWatch.flipped(NSEvent.mouseLocation, primaryHeight: primaryHeight)
+        guard let index = PressWatch.hit(point, in: pressRects) else {
+            return
+        }
+        removePressMonitor()
+        writeNotification(method: "input.pressed", params: ["index": index])
+    }
+
+    private func removePressMonitor() {
+        pressRects = []
+        if let pressMonitor {
+            NSEvent.removeMonitor(pressMonitor)
+        }
+        pressMonitor = nil
     }
 
     private func readCommands() {
@@ -1561,6 +1649,7 @@ final class MacHelper: @unchecked Sendable {
         activityWatch = false
         releaseMonitorIfUnused()
         removeScrollMonitor()
+        removePressMonitor()
     }
 
     private func writeNotification(method: String, params: Any? = nil) {

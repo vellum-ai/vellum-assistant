@@ -6,6 +6,7 @@ import { Typography } from "@vellumai/design-library";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { PageShell } from "@/components/page-shell";
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -57,6 +58,7 @@ export function IntelligenceLayout() {
   const { pathname } = useLocation();
   const isMobile = useIsMobile();
   const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+  const headerTrailing = useIntelligenceLayoutSlotsStore.use.headerTrailing();
 
   const section = aboutAssistantSectionForPath(pathname);
   const sectionTitle = section
@@ -98,6 +100,12 @@ export function IntelligenceLayout() {
 
   return (
     <PageShell>
+      {/* The heading row: back chevron and title on the left, and on the
+          right whatever the section page has registered as its header
+          action (the Library's Import button), so a page-level command sits
+          on the title line rather than taking a row of its own above the
+          page body. On mobile the title has moved to the top bar, so the row
+          is the chevron and that action alone. */}
       <div className="mb-4 flex shrink-0 items-center gap-1.5">
         <Link
           to={routes.identity}
@@ -114,6 +122,11 @@ export function IntelligenceLayout() {
         <h1 className="text-title-large text-[var(--content-default)] max-md:hidden">
           {sectionTitle}
         </h1>
+        {headerTrailing ? (
+          <div className="ml-auto flex shrink-0 items-center">
+            {headerTrailing}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

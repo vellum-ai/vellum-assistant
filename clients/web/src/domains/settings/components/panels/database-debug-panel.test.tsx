@@ -89,9 +89,14 @@ describe("DatabaseDebugPanel", () => {
     };
     const { findByText } = renderPanel();
     expect(await findByText("Failed")).toBeDefined();
-    expect(await findByText("flakyStep")).toBeDefined();
-    expect(await findByText("transient failure")).toBeDefined();
-    expect(await findByText("dependentStep")).toBeDefined();
+    const failedName = await findByText("flakyStep");
+    expect(failedName.textContent).toBe("flakyStep");
+    expect(failedName.closest("[data-slot='card']")).not.toBeNull();
+    const failedError = await findByText("transient failure");
+    expect(failedError.tagName).toBe("P");
+    expect(failedName.contains(failedError)).toBe(false);
+    const deferredName = await findByText("dependentStep");
+    expect(deferredName.textContent).toBe("dependentStep");
     expect(await findByText("Waiting on: flakyStep")).toBeDefined();
     expect(await findByText("schema mismatch")).toBeDefined();
   });

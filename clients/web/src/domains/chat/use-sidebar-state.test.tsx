@@ -729,7 +729,7 @@ describe("useSidebarState assistant-initiated section", () => {
 
     const sections = result.current.sections;
     expect(sections.at(-1)?.key).toBe("assistant");
-    expect(sections.at(-1)?.label).toBe("On My Mind");
+    expect(sections.at(-1)?.label).toBe("From me");
   });
 
   test("stays at the foot under a stored order that puts it first", () => {

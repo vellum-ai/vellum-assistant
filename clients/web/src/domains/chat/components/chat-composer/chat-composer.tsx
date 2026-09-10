@@ -41,6 +41,7 @@ import {
   useIsCompactComposerWidth,
 } from "@/domains/chat/components/chat-composer/composer-compact";
 import {
+  ACCENT_FILL_CLASS,
   COMPOSER_MOBILE_RADIUS_CLASS,
   COMPOSER_RADIUS_CLASS,
   MOBILE_CONTROL_CLASS,
@@ -277,13 +278,12 @@ function measureVoiceOriginAvatar(): { x: number; y: number } | null {
 }
 
 /**
- * The mobile send button's filled circle. Applied only while the button can
- * actually send, so a blocked draft keeps the `Button` primitive's disabled
- * fill rather than a green control nobody can press. Hover holds the fill
- * alongside active, since a mouse reaches this row too.
+ * The send button's fill: the assistant's accent (`ACCENT_FILL_CLASS`), at
+ * every width. Applied only while the button can actually send, so a blocked
+ * draft keeps the `Button` primitive's disabled fill rather than a coloured
+ * control nobody can press.
  */
-const MOBILE_SEND_FILL_CLASS =
-  "bg-[var(--system-positive-strong)] hover:bg-[var(--system-positive-strong)] active:bg-[var(--system-positive-strong)] [--vbtn-fg:var(--aux-white)]";
+const SEND_FILL_CLASS = ACCENT_FILL_CLASS;
 
 /**
  * The padding the mobile text field carries on each side (`px-2`). Taken off
@@ -1205,7 +1205,7 @@ export function ChatComposer({
       aria-label={t("chatComposer.sendMessage")}
       className={cn(
         isMobile && MOBILE_CONTROL_CLASS,
-        isMobile && !sendBlocked && MOBILE_SEND_FILL_CLASS,
+        !sendBlocked && SEND_FILL_CLASS,
       )}
     />
   );
@@ -1227,7 +1227,7 @@ export function ChatComposer({
         // Reachable only when the draft can actually go, so the filled tone
         // never lands on a send nobody can press.
         isMobile && MOBILE_CONTROL_CLASS,
-        isMobile && MOBILE_SEND_FILL_CLASS,
+        SEND_FILL_CLASS,
       )}
     />
   ) : (

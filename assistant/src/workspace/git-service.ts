@@ -17,6 +17,10 @@ import { getLogger } from "../util/logger.js";
 import { Mutex } from "../util/mutex.js";
 import { addToPathEnv, getExtraToolPathDirs } from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
+import {
+  collectDirtyPathsFromPorcelain,
+  parsePorcelainZ,
+} from "./git-porcelain.js";
 
 const execFileAsync = promisify(execFile);
 const log = getLogger("workspace-git");
@@ -226,59 +230,6 @@ done
 exit 0
 `;
 
-/**
- * Parse NUL-terminated `git status --porcelain -z` output into status/path
- * pairs. NUL termination is required so paths with special characters
- * (non-ASCII, quotes, newlines) arrive verbatim instead of C-style quoted.
- * A rename/copy record is followed by a bare origin-path entry, which is
- * skipped.
- */
-function parsePorcelainZ(
-  stdout: string,
-): Array<{ status: string; path: string }> {
-  const entries = stdout.split("\0");
-  const parsed: Array<{ status: string; path: string }> = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i] ?? "";
-    if (entry.length < 4) {
-      continue;
-    }
-    const status = entry.substring(0, 2);
-    parsed.push({ status, path: entry.substring(3) });
-    if (status[0] === "R" || status[0] === "C") {
-      i++;
-    }
-  }
-  return parsed;
-}
-
-/**
- * Every path git status knows about, including rename/copy origins.
- * Origins are skipped by {@link parsePorcelainZ} (they have no status
- * prefix) but still need to be staged so a deletion is not left behind
- * when a rename is split across add batches.
- */
-function collectDirtyPathsFromPorcelain(stdout: string): string[] {
-  const entries = stdout.split("\0");
-  const paths: string[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    const entry = entries[i] ?? "";
-    if (entry.length < 4) {
-      continue;
-    }
-    const status = entry.substring(0, 2);
-    paths.push(entry.substring(3));
-    if (status[0] === "R" || status[0] === "C") {
-      i++;
-      const origin = entries[i];
-      if (origin && origin.length > 0) {
-        paths.push(origin);
-      }
-    }
-  }
-  return paths;
-}
-
 /** Properties added by Node's child_process errors. */
 interface ExecError extends Error {
   killed?: boolean;
@@ -433,7 +384,7 @@ export class WorkspaceGitService {
    *
    * This method is always called inside the mutex, so no git operation from
    * our code can be concurrently holding the lock. However, an external git
-   * process (user running `git add`, IDE tooling, etc.) could legitimately
+   * git process (user running `git add`, IDE tooling, etc.) could legitimately
    * hold the lock. We use `lsof` to check — if any process has the file
    * open, we leave it alone. If no process holds it, it's stale (crashed
    * process) and safe to remove.

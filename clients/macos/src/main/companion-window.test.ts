@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   companionAnnotationInkSchema,
   companionAnnotationStrokeSchema,
+  companionAnnotationToolSchema,
   companionCoachmarkSchema,
   COMPANION_COACHMARK_MAX,
   COMPANION_BASE_AVATAR_BOX,
@@ -564,6 +565,12 @@ const {
   provideFrameScrollWatch,
 } = await import("./frame-scroll-watch");
 
+const {
+  __resetCoachmarkPressWatchForTesting,
+  coachmarkPressed,
+  provideCoachmarkPressWatch,
+} = await import("./coachmark-press-watch");
+
 installCompanionWindow();
 
 /**
@@ -572,6 +579,7 @@ installCompanionWindow();
  */
 beforeEach(() => {
   __resetFrameScrollWatchForTesting();
+  __resetCoachmarkPressWatchForTesting();
   sizes.avatar = "small";
   sizes.options = "small";
   setCompanionSurfaceSize("avatar", "small");
@@ -3231,6 +3239,34 @@ describe("companion window: drawing on what is shared", () => {
   });
 
   /**
+   * What a press on the frame draws is main's for the reason the mode is:
+   * the pill chooses it and the frame draws with it, and both read it off
+   * the pushed state. Kept across the mode and the share, since it decides
+   * nothing about where a click goes and a user who reached for the box
+   * expects it under their hand next time.
+   */
+  test("the tool is the pencil until the pill says otherwise, and is kept", () => {
+    shareDisplay();
+    expect(state().annotationTool).toBe("freehand");
+    send("vellum:companion:setAnnotationTool", "box");
+    expect(state().annotationTool).toBe("box");
+
+    send("vellum:companion:setAnnotating", true);
+    send("vellum:companion:setAnnotating", false);
+    expect(state().annotationTool).toBe("box");
+
+    send("vellum:companion:setContext", context());
+    expect(state().annotationTool).toBe("box");
+  });
+
+  test("the wire refuses a tool it does not know", () => {
+    expect(companionAnnotationToolSchema.safeParse("star").success).toBe(false);
+    expect(companionAnnotationToolSchema.safeParse("circle").success).toBe(
+      true,
+    );
+  });
+
+  /**
    * A frame taking presses takes the wheel with them, and it cannot forward
    * a wheel event it has taken. So on the first one the renderer sees, the
    * frame steps aside for the rest of the scroll, with mouse-move forwarded
@@ -3991,6 +4027,120 @@ describe("companion window: pointing at what is shared", () => {
     expect(result).toEqual({
       kind: "placed",
       marks: [{ kind: "region", ...MARK }],
+    });
+  });
+
+  /**
+   * A mark says go and press that, and the press is the step being done. The
+   * frame is click-through while marks stand, so the press is heard from the
+   * helper: main tells it where the control is, and is told which one was
+   * pressed.
+   */
+  describe("hearing the press", () => {
+    /** Every set of rectangles the helper was asked to watch, in order. */
+    const watches: unknown[][] = [];
+
+    beforeEach(() => {
+      watches.length = 0;
+      dispatched.length = 0;
+      // A window the control can be found on; without bounds there is no
+      // surface to measure against and nothing is drawn.
+      windowBounds = { x: 100, y: 50, width: 1000, height: 500 };
+      provideCoachmarkPressWatch((rects) => {
+        watches.push([...rects]);
+      });
+    });
+
+    test("a named control is watched at the frame the tree reported", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      // The tree's frame in screen points, not the fraction the arrow is
+      // aimed at: a press is tested against the control's hit area.
+      expect(watches).toEqual([[{ x: 120, y: 80, width: 60, height: 20 }]]);
+    });
+
+    test("a press takes the marks down and tells the call which control", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      coachmarkPressed(0);
+
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+      expect(state().coachmarks).toBeUndefined();
+      // The watch went with the marks, so a second press on the same control
+      // reports nothing.
+      coachmarkPressed(0);
+      expect(dispatched).toHaveLength(1);
+    });
+
+    /**
+     * The control is on a window, and windows move. The frame follows the
+     * window, and the marks with it; a rectangle left where the control was
+     * would miss the press on it and take a press on empty desktop for it.
+     */
+    test("the watch follows the window the control is on", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      expect(watches).toEqual([[{ x: 120, y: 80, width: 60, height: 20 }]]);
+
+      windowBounds = { x: 300, y: 150, width: 1000, height: 500 };
+      await Bun.sleep(300);
+
+      expect(watches.at(-1)).toEqual([
+        { x: 320, y: 180, width: 60, height: 20 },
+      ]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
+    });
+
+    /**
+     * A ring drawn from bounds the model gave is an extent someone means, not
+     * a button: a press inside it says nothing about a step.
+     */
+    test("an extent given as bounds is not something to press", async () => {
+      await shareAndSee();
+      await showCompanionCoachmarks([MARK], CALL);
+
+      expect(watches).toEqual([]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([]);
+    });
+
+    test("clearing the marks takes the watch down", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      await showCompanionCoachmarks([], CALL);
+
+      expect(watches.at(-1)).toEqual([]);
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([]);
+    });
+
+    test("the share ending takes the watch down", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      send("vellum:companion:setContext", context());
+
+      expect(watches.at(-1)).toEqual([]);
+    });
+
+    /** Pointing at the same control for a second step arms a second press. */
+    test("pointing again arms the watch again", async () => {
+      await shareAndSee(WINDOW);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+      coachmarkPressed(0);
+      await showCompanionCoachmarks([{ target: "Share" }], CALL);
+
+      coachmarkPressed(0);
+      expect(dispatched).toEqual([
+        { kind: "coachmarkPressed", label: "Share" },
+        { kind: "coachmarkPressed", label: "Share" },
+      ]);
     });
   });
 

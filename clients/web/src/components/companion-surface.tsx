@@ -1,6 +1,7 @@
 import {
   AudioLines,
   Check,
+  Circle,
   Eraser,
   Eye,
   EyeOff,
@@ -9,6 +10,8 @@ import {
   Pencil,
   ScreenShare,
   ScrollText,
+  Slash,
+  Square,
   Volume2,
   VolumeX,
   X,
@@ -32,6 +35,7 @@ import {
   COMPANION_BASE_AVATAR_IMAGE,
 } from "@vellumai/ipc-contract";
 import type {
+  CompanionAnnotationTool,
   CompanionCharacter,
   CompanionWatchRetro,
   VoiceActivityControlAction,
@@ -630,6 +634,26 @@ export interface CompanionSurfaceProps {
    */
   annotating?: boolean;
   /**
+   * What a press on that frame draws, which the strip Draw opens shows held
+   * down. Main's the way {@link CompanionSurfaceProps.annotating} is, and
+   * read the same way: the pill chooses, and this is what main did with it.
+   *
+   * Absent is a shell that names no tool, which is a shell with only the
+   * pencil, and then no strip is drawn: a strip offering shapes to a shell
+   * that cannot take the choice would draw the pencil held down whatever
+   * was pressed.
+   */
+  annotationTool?: CompanionAnnotationTool;
+  /** A press on the strip: the tool the user reached for. */
+  onAnnotationTool?: (tool: CompanionAnnotationTool) => void;
+  /**
+   * The strip of drawing tools, handed out for the reason
+   * {@link CompanionSurfaceProps.rootRef} is: it stands off the pill, above
+   * or below it, and the host hit-tests a union of rects, so a strip it is
+   * not told about is one whose presses fall through to the desktop.
+   */
+  drawToolsRef?: Ref<HTMLDivElement>;
+  /**
    * The press of Draw, carrying the state it is asking for rather than being
    * a toggle. The mode is the shell's and the shell may refuse it (a share
    * that has ended takes it down), so the press says what it wants and the
@@ -829,6 +853,9 @@ export function CompanionSurface({
   onShare,
   onStopShare,
   annotating = false,
+  annotationTool,
+  onAnnotationTool,
+  drawToolsRef,
   onAnnotate,
   marked = false,
   onClearMarks,
@@ -1161,6 +1188,10 @@ export function CompanionSurface({
                 sharePicking={sharePicking}
                 annotating={annotating}
                 marked={marked}
+                annotationTool={annotationTool}
+                cardGrowth={cardGrowth}
+                drawToolsRef={drawToolsRef}
+                onAnnotationTool={onAnnotationTool}
                 onControl={onControl}
                 onWatch={onWatch}
                 onTeach={onTeach}
@@ -1897,6 +1928,10 @@ function CallBody({
   sharePicking,
   annotating,
   marked,
+  annotationTool,
+  cardGrowth,
+  drawToolsRef,
+  onAnnotationTool,
   onControl,
   onWatch,
   onTeach,
@@ -1916,6 +1951,10 @@ function CallBody({
   sharePicking: boolean;
   annotating: boolean;
   marked: boolean;
+  annotationTool?: CompanionAnnotationTool;
+  cardGrowth: CompanionSurfaceCardGrowth;
+  drawToolsRef?: Ref<HTMLDivElement>;
+  onAnnotationTool?: (tool: CompanionAnnotationTool) => void;
   onControl?: (action: VoiceActivityControlAction, requestId?: string) => void;
   onWatch?: () => void;
   onTeach?: () => void;
@@ -2016,7 +2055,11 @@ function CallBody({
         sharing={sharing}
         annotating={annotating}
         shortcut={shareEnabled ? shortcuts?.draw : undefined}
+        tool={annotationTool}
+        cardGrowth={cardGrowth}
+        toolsRef={drawToolsRef}
         onAnnotate={onAnnotate}
+        onTool={onAnnotationTool}
       />
       {/* Behind Draw and only while something is on the shared surface,
           because that is what it acts on: the marks come down and the share
@@ -2123,32 +2166,145 @@ function ShareButton({
  * of a click on the app underneath. That is a big thing to do quietly, which
  * is why it is a mode with a control drawn held down for as long as it lasts
  * rather than something that happens on a modifier nobody can see.
+ *
+ * While the mode is on, the tools stand off this control in a strip of their
+ * own ({@link DrawTools}). Off it rather than in the row, since the row is
+ * one thin line of controls by design and the tools are a choice inside one
+ * of them; and only while the mode is on, since a tool is a fact about the
+ * next press on the frame, and off the mode there is no such press. Not at
+ * all on a shell that names no tool: that shell cannot take the choice.
  */
 function DrawButton({
   sharing,
   annotating,
   shortcut,
+  tool,
+  cardGrowth,
+  toolsRef,
   onAnnotate,
+  onTool,
 }: {
   sharing: boolean;
   annotating: boolean;
   shortcut?: string;
+  /** Absent on a shell with only the pencil, which draws no strip. */
+  tool?: CompanionAnnotationTool;
+  cardGrowth: CompanionSurfaceCardGrowth;
+  toolsRef?: Ref<HTMLDivElement>;
   onAnnotate?: (annotating: boolean) => void;
+  onTool?: (tool: CompanionAnnotationTool) => void;
 }) {
   const { t } = useTranslation();
   if (!sharing) {
     return null;
   }
   return (
-    <PillButton
-      icon={<Pencil className="size-4" />}
-      label={t("companionSurface.draw")}
-      shortcut={shortcut}
-      pressed={annotating}
-      onClick={() => {
-        onAnnotate?.(!annotating);
+    <>
+      <PillButton
+        icon={<Pencil className="size-4" />}
+        label={t("companionSurface.draw")}
+        shortcut={shortcut}
+        pressed={annotating}
+        // The anchor the strip hangs off. See `.companion-draw-anchor`.
+        className="companion-draw-anchor"
+        onClick={() => {
+          onAnnotate?.(!annotating);
+        }}
+      />
+      {annotating && tool !== undefined && (
+        <DrawTools
+          tool={tool}
+          cardGrowth={cardGrowth}
+          toolsRef={toolsRef}
+          onTool={onTool}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * The drawing tools, in a strip hung off the Draw control: the pencil, a
+ * line, a box and a circle, the current one drawn held down.
+ *
+ * **On the card side of the pill.** The canvas keeps only its own pad on the
+ * other side, which a strip standing there would be cut off by, so the strip
+ * goes where the introduction's card and the picker go: above the pill where
+ * the card grows up, below it where the card grows down. The stylesheet
+ * places it against the control by CSS anchor positioning
+ * (`.companion-draw-tools`), so nothing here measures where in the row the
+ * control ended up, and the row's own clipping cannot take it: its containing
+ * block is the row's positioned parent, the same way the captions escape.
+ *
+ * A press on the strip's own padding is stopped like a press on a control,
+ * so the strip is not a drag handle for the surface: it is a menu, and a
+ * menu that moved the pill when missed would move the thing it was hung off.
+ */
+function DrawTools({
+  tool,
+  cardGrowth,
+  toolsRef,
+  onTool,
+}: {
+  tool: CompanionAnnotationTool;
+  cardGrowth: CompanionSurfaceCardGrowth;
+  toolsRef?: Ref<HTMLDivElement>;
+  onTool?: (tool: CompanionAnnotationTool) => void;
+}) {
+  const { t } = useTranslation();
+  const tools: readonly {
+    tool: CompanionAnnotationTool;
+    icon: ReactNode;
+    label: string;
+  }[] = [
+    {
+      tool: "freehand",
+      icon: <Pencil className="size-4" />,
+      label: t("companionSurface.drawFreehand"),
+    },
+    {
+      tool: "line",
+      icon: <Slash className="size-4" />,
+      label: t("companionSurface.drawLine"),
+    },
+    {
+      tool: "box",
+      icon: <Square className="size-4" />,
+      label: t("companionSurface.drawBox"),
+    },
+    {
+      tool: "circle",
+      icon: <Circle className="size-4" />,
+      label: t("companionSurface.drawCircle"),
+    },
+  ];
+  return (
+    <div
+      className={`companion-draw-tools absolute flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-white/10 bg-[#17181b]/95 p-0.5 shadow-lg shadow-black/40 ${
+        cardGrowth === "up"
+          ? "companion-draw-tools-above"
+          : "companion-draw-tools-below"
+      }`}
+      role="group"
+      aria-label={t("companionSurface.drawTools")}
+      data-testid="companion-draw-tools"
+      ref={toolsRef}
+      onPointerDown={(event) => {
+        event.stopPropagation();
       }}
-    />
+    >
+      {tools.map((one) => (
+        <PillButton
+          key={one.tool}
+          icon={one.icon}
+          label={one.label}
+          pressed={tool === one.tool}
+          onClick={() => {
+            onTool?.(one.tool);
+          }}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -2347,6 +2503,7 @@ function PillButton({
   tone,
   showLabel = false,
   pressed,
+  className = "",
   onClick,
 }: {
   icon: ReactNode;
@@ -2356,6 +2513,8 @@ function PillButton({
   tone?: "positive" | "negative";
   showLabel?: boolean;
   pressed?: boolean;
+  /** A name for the stylesheet, for a control something else is placed against. */
+  className?: string;
   onClick?: () => void;
 }) {
   return (
@@ -2369,7 +2528,7 @@ function PillButton({
       onPointerDown={(event) => {
         event.stopPropagation();
       }}
-      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${
+      className={`group flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full px-2 text-[12px] transition-colors hover:bg-white/15 ${className} ${
         pressed === true ? "bg-white/15" : ""
       } ${
         tone === "negative"
