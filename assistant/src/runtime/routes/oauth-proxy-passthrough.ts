@@ -59,6 +59,9 @@ const STRIPPED_REQUEST_HEADERS = new Set([
   "cookie",
   "forwarded",
   "x-real-ip",
+  // The gateway stamps this on every request it forwards. It names this
+  // hop's trace, not the caller's request, and the daemon never reads it.
+  "x-trace-id",
 ]);
 
 const TEXT_ENCODER = new TextEncoder();
