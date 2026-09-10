@@ -75,7 +75,7 @@ import {
   CALL_OPENING_ACK_MARKER,
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
-  couldBeControlMarker,
+  createControlMarkerHoldback,
   END_CALL_MARKER,
   extractBalancedJson,
   stripInternalSpeechMarkers,
@@ -707,7 +707,6 @@ export class CallController {
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
     // could be the start of a control marker.
-    let ttsBuffer = "";
     let fullResponseText = "";
     // Reasoning models can inline <think> spans in the content stream when a
     // profile has not opted into parseThinkTags. Neither the spoken path nor
@@ -871,45 +870,17 @@ export class CallController {
       }
     };
 
-    const flushSafeText = (): void => {
+    // Speech goes out through the shared control-marker holdback: text up to
+    // a possibly-streaming marker flushes, the marker itself is stripped, and
+    // ordinary bracketed text ("[A]", "[note]") never stalls TTS. Marker
+    // detection for actions (END_CALL, ASK_GUARDIAN) reads fullResponseText
+    // separately, after the turn.
+    const flushSafeText = createControlMarkerHoldback((chunk) => {
       if (!this.isCurrentRun(runVersion)) {
         return;
       }
-      if (ttsBuffer.length === 0) {
-        return;
-      }
-      const bracketIdx = ttsBuffer.indexOf("[");
-      if (bracketIdx === -1) {
-        // No bracket at all — safe to flush everything
-        emitSafeChunk(ttsBuffer);
-        ttsBuffer = "";
-      } else {
-        // Flush everything before the bracket
-        if (bracketIdx > 0) {
-          emitSafeChunk(ttsBuffer.slice(0, bracketIdx));
-          ttsBuffer = ttsBuffer.slice(bracketIdx);
-        }
-
-        // Only hold the buffer if the bracket text could be the start of a
-        // known control marker. Otherwise flush immediately so ordinary
-        // bracketed text (e.g. "[A]", "[note]") doesn't stall TTS.
-        const afterBracket = ttsBuffer;
-        const couldBeControl = couldBeControlMarker(afterBracket);
-
-        if (!couldBeControl) {
-          // Not a control marker prefix — flush up to the next '[' (if any)
-          const nextBracket = ttsBuffer.indexOf("[", 1);
-          if (nextBracket === -1) {
-            emitSafeChunk(ttsBuffer);
-            ttsBuffer = "";
-          } else {
-            emitSafeChunk(ttsBuffer.slice(0, nextBracket));
-            ttsBuffer = ttsBuffer.slice(nextBracket);
-          }
-        }
-        // Otherwise hold it — might be a control marker still being streamed
-      }
-    };
+      emitSafeChunk(chunk);
+    });
 
     // Use a promise to track completion of the voice turn
     const turnComplete = new Promise<void>((resolve, reject) => {
@@ -923,9 +894,7 @@ export class CallController {
         // never trigger a real action the caller did not hear.
         const speakable = reasoningFilter.push(text);
         fullResponseText += speakable;
-        ttsBuffer += speakable;
-        ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-        flushSafeText();
+        flushSafeText(fullResponseText);
       };
 
       const onComplete = (): void => {
@@ -1002,15 +971,12 @@ export class CallController {
       return fullResponseText;
     }
 
-    // Final sweep: release any held-back partial tag to both consumers,
-    // then strip any remaining control markers from the buffer.
+    // Final sweep: release any held-back partial tag to both consumers. A
+    // held "[..." tail that never completed a marker is real text, so the
+    // forced flush speaks it instead of dropping it.
     const filterTail = reasoningFilter.flush();
     fullResponseText += filterTail;
-    ttsBuffer += filterTail;
-    ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
-    if (ttsBuffer.length > 0) {
-      emitSafeChunk(ttsBuffer);
-    }
+    flushSafeText(fullResponseText, { force: true });
 
     // Synthesized path: force-extract whatever never reached a speakable
     // boundary, then drain the chain so every segment's audio (or its

@@ -192,9 +192,9 @@ export function stripInternalSpeechMarkers(text: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * All known control marker prefixes. Used by couldBeControlMarker to detect
- * whether a buffer that starts with `[` might be the beginning of a control
- * marker (and should therefore be held rather than flushed to TTS).
+ * All known control marker prefixes. Used by isIncompleteControlMarkerTail to
+ * detect whether a buffer that starts with `[` might be the beginning of a
+ * control marker (and should therefore be held rather than flushed to TTS).
  */
 const CONTROL_MARKER_STRINGS = [
   "[ASK_GUARDIAN_APPROVAL:",
@@ -210,19 +210,6 @@ const CONTROL_MARKER_STRINGS = [
   "[GUARDIAN_TIMEOUT]",
   "[GUARDIAN_UNAVAILABLE]",
 ];
-
-/**
- * Check whether `text` could be a partial or complete control marker.
- *
- * Returns true if any known marker string is a prefix of `text`
- * (text starts with the marker) or `text` is a prefix of a marker
- * (the marker starts with text — i.e. text is still being streamed).
- */
-export function couldBeControlMarker(text: string): boolean {
-  return CONTROL_MARKER_STRINGS.some(
-    (marker) => marker.startsWith(text) || text.startsWith(marker),
-  );
-}
 
 // Colon-style markers whose bodies terminate at the first "]" — their strip
 // regexes are non-greedy (`.+?\]`), so the first bracket IS the terminator.
@@ -266,4 +253,49 @@ export function isIncompleteControlMarkerTail(tail: string): boolean {
     return !tail.includes("]");
   }
   return false;
+}
+
+/**
+ * Control-marker hygiene for one model leg's streamed text, shared by the
+ * phone call controller and the live-voice session. The returned flush is
+ * called with the leg's cumulative raw text so far and forwards, through
+ * `emit`, the stripped ({@link stripInternalSpeechMarkers}) prefix that has
+ * not been emitted yet and cannot contain a still-streaming control marker:
+ * the flush stops at the first "[" whose tail is an incomplete marker
+ * ({@link isIncompleteControlMarkerTail}) and holds from there until a later
+ * delta completes or disproves it. `force` (leg completion) emits the held
+ * tail so real text that merely resembles a marker prefix is not dropped.
+ *
+ * The scan runs forward from the emitted boundary, not from the last "[", so
+ * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
+ * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
+ * its terminator. Markers are stripped, never acted on: a consumer that acts
+ * on a marker reads the leg's full raw text for it separately.
+ */
+export function createControlMarkerHoldback(
+  emit: (chunk: string) => void,
+): (raw: string, opts?: { force?: boolean }) => void {
+  let emitted = 0;
+  return (raw, opts) => {
+    let safeEnd = raw.length;
+    if (opts?.force !== true) {
+      for (
+        let i = raw.indexOf("[", emitted);
+        i !== -1;
+        i = raw.indexOf("[", i + 1)
+      ) {
+        if (isIncompleteControlMarkerTail(raw.slice(i))) {
+          safeEnd = i;
+          break;
+        }
+      }
+    }
+    if (safeEnd > emitted) {
+      const chunk = stripInternalSpeechMarkers(raw.slice(emitted, safeEnd));
+      emitted = safeEnd;
+      if (chunk.length > 0) {
+        emit(chunk);
+      }
+    }
+  };
 }

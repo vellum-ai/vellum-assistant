@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  couldBeControlMarker,
+  createControlMarkerHoldback,
   ESCALATE_VERDICT_TOKEN,
   HOLD_VERDICT_TOKEN,
   isIncompleteControlMarkerTail,
@@ -28,21 +28,7 @@ describe("front-door verdict tokens", () => {
     ).toBe(" one two ");
   });
 
-  test("couldBeControlMarker holds the complete tokens (not flushed to TTS)", () => {
-    expect(couldBeControlMarker("[0]")).toBe(true);
-    expect(couldBeControlMarker("[1]")).toBe(true);
-  });
-
-  test("couldBeControlMarker holds a partial token still streaming", () => {
-    // Any prefix of a token must be held so a streamed "[1" does not leak
-    // to the TTS engine before the full token arrives.
-    for (const partial of ["[", "[0", "[1"]) {
-      expect(couldBeControlMarker(partial)).toBe(true);
-    }
-  });
-
   test("ordinary text is not mistaken for a token", () => {
-    expect(couldBeControlMarker("Sure, one moment")).toBe(false);
     expect(stripInternalSpeechMarkers("Sure, one moment")).toBe(
       "Sure, one moment",
     );
@@ -58,16 +44,6 @@ describe("minimize-room marker", () => {
     expect(
       stripInternalSpeechMarkers("Done [-1] here").replace(/\s+/g, " "),
     ).toBe("Done here");
-  });
-
-  test("couldBeControlMarker holds the marker and its streaming prefixes", () => {
-    for (const text of ["[", "[-", "[-1", "[-1]", "[-1] trailing"]) {
-      expect(couldBeControlMarker(text)).toBe(true);
-    }
-  });
-
-  test("a bracket prefix that disproves the marker is not held", () => {
-    expect(couldBeControlMarker("[- something else")).toBe(false);
   });
 });
 
@@ -101,5 +77,62 @@ describe("isIncompleteControlMarkerTail", () => {
     for (const tail of ["[- something else", "[sic]", '["a", "b"]']) {
       expect(isIncompleteControlMarkerTail(tail)).toBe(false);
     }
+  });
+});
+
+describe("createControlMarkerHoldback", () => {
+  function collect(): {
+    flush: ReturnType<typeof createControlMarkerHoldback>;
+    chunks: string[];
+  } {
+    const chunks: string[] = [];
+    const flush = createControlMarkerHoldback((chunk) => chunks.push(chunk));
+    return { flush, chunks };
+  }
+
+  test("holds a token still streaming and strips it once complete", () => {
+    const { flush, chunks } = collect();
+    flush("Sure [");
+    expect(chunks).toEqual(["Sure "]);
+    flush("Sure [1");
+    expect(chunks).toEqual(["Sure "]);
+    flush("Sure [1] one moment");
+    expect(chunks).toEqual(["Sure ", " one moment"]);
+  });
+
+  test("ordinary bracketed text flushes without stalling", () => {
+    const { flush, chunks } = collect();
+    flush("Option [A] then [note] here");
+    expect(chunks).toEqual(["Option [A] then [note] here"]);
+  });
+
+  test("a bracket prefix that disproves every marker flushes", () => {
+    const { flush, chunks } = collect();
+    flush("[- something else");
+    expect(chunks).toEqual(["[- something else"]);
+  });
+
+  test("a guardian-approval body is held until its JSON balances", () => {
+    const { flush, chunks } = collect();
+    const streaming =
+      'Hold on. [ASK_GUARDIAN_APPROVAL: {"question": "ok]?", "options": ["a", "b"';
+    flush(streaming);
+    expect(chunks).toEqual(["Hold on. "]);
+    flush(`${streaming}]}] Thanks.`);
+    expect(chunks).toEqual(["Hold on. ", " Thanks."]);
+  });
+
+  test("force emits a held tail that never became a marker", () => {
+    const { flush, chunks } = collect();
+    flush("Score was [1");
+    expect(chunks).toEqual(["Score was "]);
+    flush("Score was [1", { force: true });
+    expect(chunks).toEqual(["Score was ", "[1"]);
+  });
+
+  test("a chunk that strips to nothing is not emitted", () => {
+    const { flush, chunks } = collect();
+    flush("[END_CALL]");
+    expect(chunks).toEqual([]);
   });
 });

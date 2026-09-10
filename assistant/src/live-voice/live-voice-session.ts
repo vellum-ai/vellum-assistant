@@ -10,10 +10,7 @@ import {
   SPOKEN_REPLY_PLAIN_TEXT_RULE,
 } from "../calls/spoken-reply-rules.js";
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
-import {
-  isIncompleteControlMarkerTail,
-  stripInternalSpeechMarkers,
-} from "../calls/voice-control-protocol.js";
+import { createControlMarkerHoldback } from "../calls/voice-control-protocol.js";
 import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
@@ -827,55 +824,6 @@ interface ActiveAssistantTurn {
   assistantAudioChunks: Buffer[];
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
-}
-
-/**
- * Control-marker hygiene for one model leg's delta stream, shared by the
- * front-door answer stage and the default/escalated leg. The returned flush
- * forwards the stripped (stripInternalSpeechMarkers) prefix of `raw` that has
- * not been emitted yet and cannot contain a still-streaming control marker:
- * the flush stops at the first "[" whose tail is an incomplete marker
- * (isIncompleteControlMarkerTail) and holds from there until a later delta
- * completes or disproves it; `force` (leg completion) emits the held tail so
- * real text that merely resembles a marker prefix is not dropped. The scan
- * runs forward from the emitted boundary — not from the last "[" — so
- * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
- * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
- * its terminator.
- *
- * **Markers are stripped, never acted on.** Nothing the model can say
- * minimizes the room any more: that is decided by whether a ui tool ran (see
- * the `tool_use_start` handler), so the reveal cannot depend on the model
- * remembering a token, and a reply whose content happens to contain "[-1]" (an
- * array literal, a temperature) cannot move the room either. No prompt teaches
- * a marker, so this stripping is defense against a model that emits one
- * regardless: an unspoken, unpersisted "[-1]" is the correct handling of a
- * token that now means nothing.
- */
-function createControlMarkerHoldback(
-  turn: ActiveAssistantTurn,
-  emit: (chunk: string) => void,
-): (raw: string, opts?: { force?: boolean }) => void {
-  let emitted = 0;
-  return (raw, opts) => {
-    let safeEnd = raw.length;
-    if (opts?.force !== true) {
-      for (
-        let i = raw.indexOf("[", emitted);
-        i !== -1;
-        i = raw.indexOf("[", i + 1)
-      ) {
-        if (isIncompleteControlMarkerTail(raw.slice(i))) {
-          safeEnd = i;
-          break;
-        }
-      }
-    }
-    if (safeEnd > emitted) {
-      emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
-      emitted = safeEnd;
-    }
-  };
 }
 
 // Base control prompt for every live-voice turn. Opens with the spoken-reply
@@ -5370,7 +5318,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.bufferAssistantTextForTts(token, chunk);
     };
 
-    const flushLegText = createControlMarkerHoldback(activeTurn, emitLegText);
+    const flushLegText = createControlMarkerHoldback(emitLegText);
 
     // Hand off once enough of the post-verdict stream has arrived to cap
     // the bridge (sentence terminator or hard cap). Until then nothing is
