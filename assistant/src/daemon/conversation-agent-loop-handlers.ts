@@ -19,6 +19,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { SEND_USER_MESSAGE_TOOL_NAME } from "../config/send-user-message-constants.js";
 import { resolveSendUserMessageActive } from "../config/send-user-message-gate.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { stripInjectionsForCompaction } from "../context/strip-injections.js";
@@ -1691,6 +1692,25 @@ function handleTextDelta(
   }
 }
 
+/**
+ * Whether a completed tool should drive a "Processing ... results" status.
+ *
+ * The delivery tool is mechanical: its call IS the reply the user just read
+ * and its result is a bare receipt, so "Processing send user message results"
+ * narrates plumbing at the exact moment the user is reading the answer.
+ *
+ * Skipping the emission rather than blanking the text is deliberate: the
+ * client overwrites its status on every `assistant_activity_state`, so an
+ * emission with no `statusText` would clear whatever the turn was showing.
+ * This is the same reason the thinking-delta site skips when no tool has
+ * completed at all.
+ */
+function announcesToolResultStatus(
+  toolName: string | undefined,
+): toolName is string {
+  return toolName !== undefined && toolName !== SEND_USER_MESSAGE_TOOL_NAME;
+}
+
 function handleThinkingDelta(
   state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -1706,7 +1726,7 @@ function handleThinkingDelta(
     // after approval"). Even omitting statusText from the message would
     // cause the client to clear it, since the client overwrites
     // assistantStatusText for every assistant_activity_state event.
-    if (lastToolName) {
+    if (announcesToolResultStatus(lastToolName)) {
       const statusText = `Processing ${friendlyToolName(lastToolName)} results`;
       deps.ctx.emitActivityState("thinking", "thinking_delta", {
         requestId: deps.reqId,
@@ -2527,13 +2547,15 @@ export async function handleToolResult(
 
   // Emit activity state immediately so clients show a thinking indicator
   // during the gap between tool_result and the next thinking_delta/text_delta.
-  const statusText = `Processing ${friendlyToolName(
-    state.lastCompletedToolName ?? "",
-  )} results`;
-  deps.ctx.emitActivityState("thinking", "tool_result_received", {
-    requestId: deps.reqId,
-    statusText,
-  });
+  if (announcesToolResultStatus(state.lastCompletedToolName)) {
+    const statusText = `Processing ${friendlyToolName(
+      state.lastCompletedToolName,
+    )} results`;
+    deps.ctx.emitActivityState("thinking", "tool_result_received", {
+      requestId: deps.reqId,
+      statusText,
+    });
+  }
 
   // Once all tools for this turn have completed, annotate the persisted
   // assistant message with timing and confirmation metadata.
