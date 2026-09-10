@@ -32,10 +32,12 @@ import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
 import { useAvailableActivationList } from "../capabilities";
-import { ActivationListPage } from "../components/activation-list-page";
+import { ActivationListPage } from "../components/activation-task-list";
 import { useActivationProgress } from "../hooks/use-activation-progress";
-import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
-import { toastActivationLaunchResult } from "../toast-activation-launch";
+import {
+  toastActivationLaunchResult,
+  useLaunchActivationTask,
+} from "../hooks/use-launch-activation-task";
 
 export function ActivationListRoute() {
   const navigate = useNavigate();

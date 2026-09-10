@@ -61,7 +61,7 @@ afterAll(() => {
 const { ActivationController } =
   await import("@/domains/activation/activation-controller");
 const { ActivationSuggestionsPillHost } =
-  await import("@/domains/activation/activation-suggestions-pill-host");
+  await import("@/domains/activation/components/activation-suggestions-pill");
 
 const { starters } = getActivationList("smb");
 const ASSISTANT_ID = "asst-1";

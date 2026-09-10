@@ -18,7 +18,7 @@ import {
   ACTIVATION_PROGRESS_LIST_MIXED,
 } from "@/domains/activation/activation-test-fixtures";
 import { useActivationList } from "@/domains/activation/catalog";
-import { ActivationListPage } from "@/domains/activation/components/activation-list-page";
+import { ActivationListPage } from "@/domains/activation/components/activation-task-list";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 
 /**

@@ -57,7 +57,7 @@ import {
   type ActivationProgress,
 } from "../hooks/use-activation-progress";
 import { useLaunchActivationTask } from "../hooks/use-launch-activation-task";
-import { toastActivationLaunchResult } from "../toast-activation-launch";
+import { toastActivationLaunchResult } from "../hooks/use-launch-activation-task";
 import { ActivationTaskList } from "./activation-task-list";
 
 /** Extra catalog items under the three starters. Ten rows in all. */

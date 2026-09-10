@@ -25,8 +25,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowUp } from "lucide-react";
-
+import { ArrowUp, CircleCheck, Loader2 } from "lucide-react";
 import {
   Button,
   cn,
@@ -42,7 +41,6 @@ import {
 } from "@/components/external-anchor";
 import { LocalFileCard } from "@/components/local-file/local-file-card";
 import { artifactFileCardProps } from "@/components/local-file/workspace-artifact";
-import { ProcessStatusPill } from "@/components/process-status-pill";
 import { useTranslation } from "@/i18n";
 import { isElectron } from "@/runtime/is-electron";
 
@@ -330,5 +328,62 @@ export function ActivationTaskRow({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Compact "Working · 6 steps" / "Done · 4 steps" strip for a launched row.
+ * Local to this row: the only consumer, and not a duplicate of `ChatPill`.
+ */
+function ProcessStatusPill({
+  state,
+  label,
+  count,
+}: {
+  state: "working" | "done";
+  label: string;
+  count?: string;
+}): ReactNode {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-2 rounded-[20px] border py-1.5 pl-2 pr-1.5",
+        "border-[var(--border-base)] bg-[var(--surface-overlay)]",
+      )}
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          "flex shrink-0 items-center justify-center",
+          state === "done"
+            ? "text-[var(--system-positive-strong)]"
+            : "text-[var(--content-secondary)]",
+        )}
+      >
+        {state === "working" ? (
+          // `motion-safe` keeps the spin out of a reduced-motion session; the
+          // glyph still reads as the working state without it.
+          <Loader2 className="h-4 w-4 motion-safe:animate-spin" />
+        ) : (
+          <CircleCheck className="h-4 w-4" />
+        )}
+      </span>
+      <Typography
+        as="span"
+        variant="body-small-emphasised"
+        className="text-[var(--content-emphasised)]"
+      >
+        {label}
+      </Typography>
+      {count !== undefined ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="shrink-0 rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-1.5 py-1 text-[var(--content-emphasised)]"
+        >
+          {count}
+        </Typography>
+      ) : null}
+    </span>
   );
 }

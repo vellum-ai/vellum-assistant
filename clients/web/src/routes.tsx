@@ -12,7 +12,7 @@ import { ChatPage } from "@/domains/chat/chat-page";
 import { ConversationRedirect } from "@/domains/chat/conversation-redirect";
 import { NotificationsBell } from "@/domains/home/components/notifications-bell";
 import { ActivationController } from "@/domains/activation/activation-controller";
-import { ActivationSuggestionsPillHost } from "@/domains/activation/activation-suggestions-pill-host";
+import { ActivationSuggestionsPillHost } from "@/domains/activation/components/activation-suggestions-pill";
 import { InChatOnboardingController } from "@/domains/chat/in-chat-onboarding/in-chat-onboarding-controller";
 import { NotFound } from "@/components/not-found";
 import { RouteErrorBoundary } from "@/components/route-error-boundary";

@@ -9,9 +9,10 @@
  * product.
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import * as lucide from "lucide-react";
 
+import { seedActivationIdentity } from "@/domains/activation/activation-test-helpers";
 import {
   ACTIVATION_CAPABILITY_TAGS,
   isKnownCapabilityTag,
@@ -21,13 +22,17 @@ import {
   ACTIVATION_COLORS,
   getActivationList,
   getActivationListIds,
+  readActivationAssistantName,
   readRawActivationTask,
+  resolveActivationAssistantName,
   resolveActivationTask,
   type RawActivationTask,
 } from "@/domains/activation/catalog";
 import { ACTIVATION_ICONS } from "@/domains/activation/catalog-icons";
 import { ACTIVATION_LIST_IDS } from "@/hooks/use-activation-checklist-flag";
 import activationTasks from "@/i18n/locales/en/activation-tasks.json";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { VELLUM_DOWNLOADS_URL } from "@/utils/external-urls";
 
 const TASKS = activationTasks.tasks as unknown as Record<
@@ -210,5 +215,55 @@ describe("activation name interpolation", () => {
     expect(resolveActivationTask("teach-memory", undefined, "   ")?.title).toBe(
       "Teach your assistant about you",
     );
+  });
+});
+
+const FALLBACK = "your assistant";
+
+describe("resolveActivationAssistantName", () => {
+  test("uses a trimmed name", () => {
+    expect(resolveActivationAssistantName("  Luna  ", FALLBACK)).toBe("Luna");
+  });
+
+  test("falls back when the name is missing or blank", () => {
+    expect(resolveActivationAssistantName(null, FALLBACK)).toBe(FALLBACK);
+    expect(resolveActivationAssistantName(undefined, FALLBACK)).toBe(FALLBACK);
+    expect(resolveActivationAssistantName("   ", FALLBACK)).toBe(FALLBACK);
+  });
+});
+
+describe("readActivationAssistantName", () => {
+  afterEach(() => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: null,
+      assistants: [],
+    });
+  });
+
+  test("prefers the identity name for the matching assistant", () => {
+    seedActivationIdentity("asst-1");
+    expect(readActivationAssistantName("asst-1")).toBe("Vel");
+  });
+
+  test("uses the resolved assistant name when identity belongs elsewhere", () => {
+    seedActivationIdentity("asst-other");
+    useResolvedAssistantsStore.setState({
+      assistants: [
+        {
+          id: "asst-1",
+          name: "Luna",
+          isLocal: true,
+          isPlatformHosted: false,
+          isPaired: false,
+        },
+      ],
+    });
+    expect(readActivationAssistantName("asst-1")).toBe("Luna");
+  });
+
+  test("returns null when nothing has a name", () => {
+    expect(readActivationAssistantName(null)).toBeNull();
+    expect(readActivationAssistantName("asst-1")).toBeNull();
   });
 });

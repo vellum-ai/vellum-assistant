@@ -19,8 +19,18 @@ import type { ReactNode } from "react";
 import { cn, Typography } from "@vellumai/design-library";
 
 import { ChatPill } from "@/components/chat-pill";
+import { MidlineDot } from "@/components/midline-dot";
 import { useTranslation } from "@/i18n";
+import { emitActivationEvent } from "@/utils/activation-telemetry";
 import { publicAsset } from "@/utils/public-asset";
+
+import { useActivationUiStore } from "../activation-ui-store";
+import { getActivationListIds } from "../catalog";
+import { useActivationProgress } from "../hooks/use-activation-progress";
+import {
+  doneStarterCount,
+  useActivationVisibility,
+} from "../hooks/use-activation-visibility";
 
 export interface ActivationSuggestionsPillProps {
   /** Starters the daemon has marked done. */
@@ -64,11 +74,7 @@ export function ActivationSuggestionsPill({
       >
         {t("pill.label")}
       </Typography>
-      {/* The dot separates two things, so it goes when one of them does. */}
-      <span
-        aria-hidden="true"
-        className="h-[2px] w-[2px] shrink-0 rounded-full bg-[var(--content-tertiary)] max-[479px]:hidden"
-      />
+      <MidlineDot className="size-[2px] max-[479px]:hidden" />
       {/* Secondary rather than tertiary: at 12px the tertiary ink misses AA on
           the pill's ground, and on a phone this count is the whole label. */}
       <Typography
@@ -79,5 +85,38 @@ export function ActivationSuggestionsPill({
         {t("pill.progress", { done, total })}
       </Typography>
     </ChatPill>
+  );
+}
+
+/**
+ * The suggestions pill, wired to the checklist's gate stack.
+ *
+ * Passed to the chat layout header as its `topBarPill`, a slot of its own that
+ * the header seats ahead of the route's own accessory. Registering the pill
+ * through `setTopBarRightSlot` instead would erase whatever the chat page's
+ * header registration had put there, since that slot has a single writer and
+ * is rewritten on every conversation change.
+ *
+ * Shows only while the checklist is in its dismissed-but-unfinished state, so
+ * it retires itself once the third starter lands.
+ */
+export function ActivationSuggestionsPillHost(): ReactNode {
+  const { surface, listId } = useActivationVisibility();
+  const { data: progress } = useActivationProgress();
+  const openModal = useActivationUiStore.use.openModal();
+
+  if (surface !== "pill" || listId === null || !progress) {
+    return null;
+  }
+
+  return (
+    <ActivationSuggestionsPill
+      done={doneStarterCount(progress, listId)}
+      total={getActivationListIds(listId).starters.length}
+      onClick={() => {
+        emitActivationEvent("activation_pill_clicked");
+        openModal();
+      }}
+    />
   );
 }

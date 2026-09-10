@@ -17,7 +17,7 @@ import {
   FIXTURE_STARTER_IDS,
 } from "@/domains/activation/activation-test-fixtures";
 import { getActivationList } from "@/domains/activation/catalog";
-import { ActivationListPage } from "@/domains/activation/components/activation-list-page";
+import { ActivationListPage } from "@/domains/activation/components/activation-task-list";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 
 const { starters, items } = getActivationList("smb");

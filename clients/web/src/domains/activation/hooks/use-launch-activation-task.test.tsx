@@ -45,7 +45,7 @@ import {
   type RecordedRequest,
 } from "@/domains/activation/activation-test-helpers";
 import { getActivationList } from "@/domains/activation/catalog";
-import { ActivationListPage } from "@/domains/activation/components/activation-list-page";
+import { ActivationListPage } from "@/domains/activation/components/activation-task-list";
 import type { ActivationProgress } from "@/domains/activation/hooks/use-activation-progress";
 import { activationProgressGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";

@@ -1,15 +1,15 @@
 /**
- * The bordered group the checklist rows sit in (Figma: New-App `8300:168062`).
+ * The checklist list surfaces: the bordered row group (Figma: New-App
+ * `8300:168062`) and the Inspiration List page that wraps it in `PageShell`.
  *
  * A card that clips its contents, with a hairline between rows. `ListRow`'s
  * own sibling divider cannot draw it here because each row wraps its body in
  * an element of its own, which breaks the adjacent-sibling selector, so the
  * group owns the rule instead.
  *
- * Both surfaces draw the group through this one component, so the border, the
- * dividers and the placeholder rows are measured once: the Inspiration List's
- * skeleton and the rows that replace it cannot come out different heights, and
- * the modal cannot end up with a different edge from the page.
+ * Both the welcome modal and the full list draw the group through this one
+ * component, so the border, the dividers and the placeholder rows are
+ * measured once.
  *
  * Accordion state lives with the caller. The list only says which row is open,
  * so the modal and the list page can differ on what "open" means without this
@@ -19,6 +19,9 @@
 import type { ReactNode } from "react";
 
 import { Card, Skeleton } from "@vellumai/design-library";
+
+import { PageShell } from "@/components/page-shell";
+import { useTranslation } from "@/i18n";
 
 import type { ActivationTask } from "../catalog";
 import type {
@@ -108,5 +111,70 @@ export function ActivationTaskList({
         })}
       </ul>
     </Card.Root>
+  );
+}
+
+export interface ActivationListPageProps {
+  /** Starters first, then the rest, exactly as the list orders them. */
+  tasks: ActivationTask[];
+  /**
+   * The daemon's per-task records, keyed by task id. `undefined` while the
+   * read is still out, which renders placeholder rows instead of actionable
+   * ones.
+   */
+  progress: ActivationProgress["tasks"] | undefined;
+  /** Every task whose launch is in flight. */
+  pendingTaskIds?: ReadonlySet<string>;
+  onLaunch: (taskId: string) => void;
+  onOpenConversation: (conversationId: string) => void;
+  assistantId?: string;
+}
+
+/**
+ * The Inspiration List: every task the active persona list offers, in catalog
+ * order, with the daemon's progress on each.
+ *
+ * Flat and unsectioned by design: the list is browsed, not navigated, and
+ * category headers would ask the reader to pick a bucket before picking a
+ * task.
+ */
+export function ActivationListPage({
+  tasks,
+  progress,
+  pendingTaskIds,
+  onLaunch,
+  onOpenConversation,
+  assistantId,
+}: ActivationListPageProps): ReactNode {
+  const { t } = useTranslation("activation");
+  const loading = progress === undefined;
+
+  return (
+    <PageShell className="overflow-y-auto">
+      <div className="mx-auto w-full max-w-[600px] px-4 md:px-0">
+        <h1
+          className="text-center text-[40px] leading-[1.2] tracking-[0.02em] text-[var(--content-emphasised)] md:text-[48px]"
+          style={{ fontFamily: "var(--font-serif)" }}
+        >
+          {t("page.title")}
+        </h1>
+        <div
+          className="mt-10 mb-6"
+          aria-busy={loading || undefined}
+          role={loading ? "status" : undefined}
+          aria-label={loading ? t("page.loading") : undefined}
+        >
+          <ActivationTaskList
+            tasks={tasks}
+            surface="list"
+            progress={progress}
+            pendingTaskIds={pendingTaskIds}
+            onLaunch={onLaunch}
+            onOpenConversation={onOpenConversation}
+            assistantId={assistantId}
+          />
+        </div>
+      </div>
+    </PageShell>
   );
 }
