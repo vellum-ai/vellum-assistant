@@ -827,6 +827,39 @@ describe("TranscriptMessageBody", () => {
     expect(queryByText("Here is the final answer.")).not.toBeNull();
   });
 
+  test("renders all activity inline under the flag, marker or not", () => {
+    // Under `send-user-message` every text block is a message the assistant
+    // chose to send. A row that reached the client without its marker (an
+    // older wire, a reload) must not fold the earlier sends away.
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    try {
+      const { queryByRole, queryByText } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "flag-on-response",
+            role: "assistant",
+            contentBlocks: [
+              textBlock("First message sent."),
+              toolUseBlock({
+                id: "tc-send",
+                name: "bash",
+                input: {},
+                completedAt: 1,
+              }),
+              textBlock("Second message sent."),
+            ],
+          }}
+          onSurfaceAction={noop}
+        />,
+      );
+      expect(queryByRole("button", { name: "Earlier activity" })).toBeNull();
+      expect(queryByText("First message sent.")).not.toBeNull();
+      expect(queryByText("Second message sent.")).not.toBeNull();
+    } finally {
+      useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
+    }
+  });
+
   test("still collapses a row carrying no visibility marker", () => {
     // An unmarked row sits beside private rows in the same conversation and
     // keeps the standard rendering. The decision is the row's, so nothing

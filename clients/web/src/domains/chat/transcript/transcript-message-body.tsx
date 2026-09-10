@@ -1213,15 +1213,18 @@ export function TranscriptMessageBody({
     groups,
     groupDrawsVisibleOutput,
   );
-  // Two reasons no group is collapsible, after which the whole response
+  // Three reasons no group is collapsible, after which the whole response
   // renders inline at full size and none of the collapsed styling applies: the
-  // per-user opt-out, and a row the daemon marks private, whose prose arrives
-  // projected into thinking blocks with the reply as its own text, leaving no
-  // "earlier" prose to fold away. The second reason is the row's own marker,
-  // so each row in a conversation stands on its own.
+  // per-user opt-out; the `send-user-message` flag, under which every text
+  // block is a message the assistant chose to send and none is "earlier"
+  // prose to fold away; and a row the daemon marks private, whose prose
+  // arrives projected into thinking blocks with the reply as its own text.
+  // The third reason is the row's own marker, so a row sent under the flag
+  // stays inline after the flag is turned off.
   const collapsibleGroupIndexes = groups.flatMap((group, groupIndex) => {
     if (
       inlineAssistantIntermediates ||
+      hideThinkingUi ||
       message.assistantTextVisibility === "private"
     ) {
       return [];
