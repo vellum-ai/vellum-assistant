@@ -17,14 +17,12 @@ Apps come from two places, distinguished by their source path:
 
 Create and delete workspace apps through the app-builder skill and its tools
 (app_create, app_delete). This command lists apps, inspects whether source
-has changed since the last compile, and compiles a workspace app once you
-are done editing. File edits do not compile on their own.
-
-Plugin apps are owned by their plugin and cannot be compiled here.
+has changed since the last compile, and compiles an app once you are done
+editing. File edits do not compile on their own.
 
 list and inspect read the workspace directly (the assistant does not need to
 be running). refresh compiles inside the running assistant so open surfaces
-pick up the new build.
+pick up the new build, including plugin apps with local source changes.
 
 Examples:
   $ assistant apps list
@@ -77,7 +75,7 @@ Examples:
       name: "refresh",
       args: "<app_name>",
       description:
-        "Compile a workspace app and refresh open surfaces. Requires a running assistant",
+        "Compile an app and refresh open surfaces. Requires a running assistant",
       options: [
         { flags: "--json", description: "Machine-readable JSON output" },
       ],
@@ -88,9 +86,11 @@ Arguments:
 
 Compiles src/ into dist/ inside the running assistant, then refreshes any
 open surfaces and published deployments. Call this once after a batch of
-edits, not after every file write.
+edits, not after every file write. Workspace and plugin apps are both
+accepted so local plugin source changes can be compiled without waiting
+for the plugin watcher.
 
-Plugin-bundled apps are refused. The assistant must be running.
+The assistant must be running.
 
 Examples:
   $ assistant apps refresh Budget

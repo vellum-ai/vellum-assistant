@@ -181,18 +181,19 @@ describe("assistant apps refresh", () => {
     expect(result.exitCode).toBe(0);
     expect(lastIpcCall).toEqual({
       method: "apps_refresh",
-      params: { body: { appId: created.id } },
+      params: { pathParams: { id: created.id } },
     });
     const body = parseJson(result.stdout);
     expect(body.compiled).toBe(true);
   });
 
-  test("refuses to refresh a plugin-bundled app without calling IPC", async () => {
-    const pluginDir = join(getWorkspacePluginsDir(), "charts");
+  test("sends apps_refresh IPC for a plugin app", async () => {
+    const pluginName = `charts-${Math.random().toString(36).slice(2, 8)}`;
+    const pluginDir = join(getWorkspacePluginsDir(), pluginName);
     mkdirSync(pluginDir, { recursive: true });
     writeFileSync(
       join(pluginDir, "package.json"),
-      JSON.stringify({ name: "charts", version: "1.0.0" }),
+      JSON.stringify({ name: pluginName, version: "1.0.0" }),
     );
     mkdirSync(join(pluginDir, "apps", "viewer"), { recursive: true });
     writeFileSync(join(pluginDir, "apps", "viewer", "index.html"), "<h1></h1>");
@@ -204,11 +205,11 @@ describe("assistant apps refresh", () => {
       "--json",
     ]);
 
-    expect(result.exitCode).toBe(1);
-    expect(lastIpcCall).toBeNull();
-    const body = parseJson(result.stdout);
-    expect(body.ok).toBe(false);
-    expect(String(body.error)).toContain("plugin");
+    expect(result.exitCode).toBe(0);
+    expect(lastIpcCall).toEqual({
+      method: "apps_refresh",
+      params: { pathParams: { id: `plugins~${pluginName}~viewer` } },
+    });
   });
 
   test("exits 1 when compile fails", async () => {

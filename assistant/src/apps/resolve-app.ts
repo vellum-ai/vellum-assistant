@@ -79,8 +79,3 @@ export function appAmbiguousMessage(
   return `Ambiguous app name "${query}". Matches:\n${listed}\nRun 'assistant apps list' and pass a unique name, slug, or id.`;
 }
 
-export function pluginAppRefreshMessage(app: EnumeratedApp): string {
-  const pluginName =
-    app.origin.kind === "plugin" ? app.origin.pluginName : "its plugin";
-  return `Plugin-bundled apps are compiled by their plugin, not by this command. "${app.name}" is owned by plugin "${pluginName}". Run 'assistant apps list' to see workspace apps.`;
-}

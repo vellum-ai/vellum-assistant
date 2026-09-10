@@ -207,18 +207,18 @@ export function readAppSourceFingerprint(
 }
 
 /**
- * Write a source fingerprint into `distDir` for the source currently on disk
- * under `appDir`. Called after a successful compile so inspect can compare
- * against the tree that produced this dist.
+ * Write a source fingerprint into `distDir`. Pass the snapshot taken
+ * before compile so inspect compares against the tree that produced this
+ * dist, even if source changes during the build.
  */
 export function writeAppSourceFingerprint(
   appDir: string,
   distDir: string,
+  fingerprint: AppSourceFingerprint = computeAppSourceFingerprint(appDir),
 ): void {
-  const fingerprint = computeAppSourceFingerprint(appDir);
   const payload: AppSourceFingerprint = {
     algorithm: fingerprint.algorithm,
-    compiledAt: new Date().toISOString(),
+    compiledAt: fingerprint.compiledAt ?? new Date().toISOString(),
     files: fingerprint.files,
   };
   writeFileSync(
@@ -234,9 +234,7 @@ export function writeAppSourceFingerprint(
  */
 export function inspectAppSource(appDir: string): AppSourceInspectResult {
   const compiled = existsSync(join(appDir, "dist", "index.html"));
-  const baseline = readAppSourceFingerprint(appDir);
-
-  if (!compiled && baseline === null) {
+  if (!compiled) {
     return {
       status: "never_compiled",
       compiledAt: null,
@@ -246,6 +244,7 @@ export function inspectAppSource(appDir: string): AppSourceInspectResult {
     };
   }
 
+  const baseline = readAppSourceFingerprint(appDir);
   if (baseline === null) {
     return {
       status: "unknown_baseline",

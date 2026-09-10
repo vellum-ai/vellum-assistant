@@ -31,6 +31,10 @@ interface AppsRefreshResponse {
   }>;
 }
 
+function refreshHint(appId: string): string {
+  return `Run 'assistant apps refresh ${appId}' to compile.`;
+}
+
 function formatDiagnostic(diag: {
   text: string;
   location?: { file: string; line: number; column: number };
@@ -135,9 +139,7 @@ export function registerAppsCommand(program: Command): void {
           }
           if (inspect.status === "never_compiled") {
             log.info("Compile: never compiled");
-            log.info(
-              `Run 'assistant apps refresh ${app.name}' to compile.`,
-            );
+            log.info(refreshHint(app.id));
             return;
           }
           if (inspect.status === "unknown_baseline") {
@@ -145,7 +147,7 @@ export function registerAppsCommand(program: Command): void {
               "Compile: compiled, but no source fingerprint is recorded.",
             );
             log.info(
-              `Run 'assistant apps refresh ${app.name}' to record one and rebuild.`,
+              `Run 'assistant apps refresh ${app.id}' to record one and rebuild.`,
             );
             return;
           }
@@ -172,17 +174,14 @@ export function registerAppsCommand(program: Command): void {
               log.info(`  ${path}`);
             }
           }
+          log.info(refreshHint(app.id));
         },
       );
 
       subcommand(apps, "refresh").action(
         async (appName: string, opts: { json?: boolean }, cmd: Command) => {
-          const {
-            resolveAppQuery,
-            appNotFoundMessage,
-            appAmbiguousMessage,
-            pluginAppRefreshMessage,
-          } = await import("../../apps/resolve-app.js");
+          const { resolveAppQuery, appNotFoundMessage, appAmbiguousMessage } =
+            await import("../../apps/resolve-app.js");
 
           const resolved = resolveAppQuery(appName);
           if (!resolved.ok) {
@@ -195,14 +194,8 @@ export function registerAppsCommand(program: Command): void {
             return;
           }
 
-          if (resolved.app.origin.kind === "plugin") {
-            writeError(cmd, pluginAppRefreshMessage(resolved.app));
-            process.exitCode = 1;
-            return;
-          }
-
           const result = await cliIpcCall<AppsRefreshResponse>("apps_refresh", {
-            body: { appId: resolved.app.id },
+            pathParams: { id: resolved.app.id },
           });
 
           if (!result.ok || !result.result) {

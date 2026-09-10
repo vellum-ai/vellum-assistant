@@ -109,11 +109,13 @@ describe("compareAppSourceFingerprint", () => {
 });
 
 describe("inspectAppSource", () => {
-  test("reports never_compiled when dist is missing", () => {
+  test("reports never_compiled when dist index is missing even if a fingerprint exists", () => {
     write("src/main.tsx", "src");
+    mkdirSync(join(root, "dist"), { recursive: true });
+    writeAppSourceFingerprint(root, join(root, "dist"));
+
     const result = inspectAppSource(root);
     expect(result.status).toBe("never_compiled");
-    expect(result.compiledAt).toBeNull();
   });
 
   test("reports unknown_baseline when dist exists without a fingerprint", () => {

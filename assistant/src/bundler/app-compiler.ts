@@ -13,7 +13,10 @@ import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, dirname, join, resolve } from "node:path";
 
-import { writeAppSourceFingerprint } from "../apps/source-fingerprint.js";
+import {
+  computeAppSourceFingerprint,
+  writeAppSourceFingerprint,
+} from "../apps/source-fingerprint.js";
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
 import {
@@ -429,6 +432,8 @@ export async function runCompile(
     };
   }
 
+  const sourceFingerprint = computeAppSourceFingerprint(appDir);
+
   // Clear stale dist/ output so removed assets (e.g. CSS) don't persist
   if (existsSync(distDir)) {
     rmSync(distDir, { recursive: true, force: true });
@@ -552,7 +557,7 @@ export async function runCompile(
   }
 
   try {
-    writeAppSourceFingerprint(appDir, distDir);
+    writeAppSourceFingerprint(appDir, distDir, sourceFingerprint);
   } catch (err) {
     log.warn(
       { err, appDir, distDir },
