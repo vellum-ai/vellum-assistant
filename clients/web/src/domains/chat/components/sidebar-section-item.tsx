@@ -33,6 +33,7 @@ import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
 import type { Conversation } from "@/types/conversation-types";
+import { cn } from "@vellumai/design-library";
 
 /**
  * The assistant section shows at most five realizations before scrolling
@@ -168,7 +169,16 @@ export function SidebarSectionItem({
          margin is inert. */
       cardClassName={
         isAssistantSection
-          ? "mt-auto [--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]"
+          ? cn(
+              "mt-auto [--sidebar-card-surface:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))]",
+              /* A row hovered on this card raises to the same wash the New
+                 Chat pill raises to (`PANEL_ITEM_WASH.raised`, 24% of the
+                 accent into the lift), rather than the neutral gray every
+                 other card's rows hover in, so the card reads as one tinted
+                 object under the pointer as well as at rest. Every row is a
+                 `PanelItem`, and this is the property its hover reads. */
+              "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+            )
           : undefined
       }
       /* The "…" button and the header's right-click menu both render from

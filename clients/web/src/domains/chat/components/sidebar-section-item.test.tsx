@@ -176,6 +176,18 @@ describe("SidebarSectionItem — the assistant-initiated section", () => {
     );
   });
 
+  /* Its rows hover in the accent's raised wash, the New Chat pill's own
+     hover, rather than the neutral gray the other cards' rows hover in. */
+  test("raises a hovered row to the New Chat pill's wash", () => {
+    const { container } = renderSection(assistantSection());
+    const card = container.querySelector<HTMLElement>(
+      "[class*='--sidebar-card-surface:']",
+    );
+    expect(card!.className).toContain(
+      "[--panel-item-hover:color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_24%,var(--surface-lift))]",
+    );
+  });
+
   test("shows the empty state in place of the rows when it has none", () => {
     renderSection(assistantSection());
 
