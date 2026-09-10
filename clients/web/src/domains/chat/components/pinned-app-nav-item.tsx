@@ -1,6 +1,10 @@
 import { PinOff, Rocket } from "lucide-react";
 import { useMemo } from "react";
 
+import {
+  SIDEBAR_CHIP_SIZE,
+  SIDEBAR_MOBILE_GLYPH_CLASSES,
+} from "@/components/sidebar-nav-geometry";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
@@ -8,7 +12,7 @@ import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
+import { cn, ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppView;
@@ -81,6 +85,10 @@ export function PinnedAppNavItem({
      property resolves on the element that declares it, so one mechanism
      covers both shapes. */
   const tintStyle = pinTintStyle(app.pinColor);
+
+  /* The Lucide fallback for an app whose manifest carries no emoji. */
+  const LeadingIcon =
+    typeof app.icon === "string" ? Rocket : (app.icon ?? Rocket);
 
   /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
      array each render would re-mint them each render. */
@@ -155,20 +163,36 @@ export function PinnedAppNavItem({
     <PanelItem
       style={tintStyle}
       shape="pill"
-      /* An app's icon is an emoji string on its manifest, so it goes in
-         `leadingSlot`; `icon` takes a Lucide component, which is the fallback
-         for an app with no emoji. Exactly one of the two is ever set. The
-         emoji box matches the one `SideMenu.Item` renders for the same value. */
-      icon={typeof app.icon === "string" ? undefined : (app.icon ?? Rocket)}
+      /* The glyph in the same chip the assistant row keeps its eyes in, so
+         the pill's label starts where the assistant's name does and the glyph
+         centres on the eyes' axis. `icon` would draw the Lucide fallback at
+         its own width, 14px against the eyes' 20px chip, and put the label
+         6px left of the name above it. An app's icon is an emoji string on
+         its manifest; the Rocket stands in for an app with no emoji, at the
+         size and in the ink `PanelItem` gives a leading icon. */
       leadingSlot={
-        typeof app.icon === "string" ? (
-          <span
-            aria-hidden
-            className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none"
-          >
-            {app.icon}
-          </span>
-        ) : undefined
+        <span
+          aria-hidden
+          className="inline-flex shrink-0 items-center justify-center"
+          style={{ width: SIDEBAR_CHIP_SIZE, height: SIDEBAR_CHIP_SIZE }}
+        >
+          {typeof app.icon === "string" ? (
+            <span className="text-[14px] leading-none max-md:text-[16px]">
+              {app.icon}
+            </span>
+          ) : (
+            <LeadingIcon
+              size={14}
+              aria-hidden
+              className={cn(
+                SIDEBAR_MOBILE_GLYPH_CLASSES,
+                "shrink-0 text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
+                "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
+                "group-aria-[current=page]:text-[var(--content-default)]",
+              )}
+            />
+          )}
+        </span>
       }
       label={app.name}
       active={active}

@@ -23,6 +23,24 @@ export const SIDEBAR_CHIP_SIZE = 20;
 export const SIDEBAR_CHIP_GAP = 6;
 
 /**
+ * {@link SIDEBAR_CHIP_GAP} as classes, with the touch-viewport value beside
+ * it. A pill (`PanelItem`) sets 8px between its leading slot and its label,
+ * and on a phone the section headers stand in the same column as the pills
+ * at the same chip width, so they take the same 8px there: with it, a
+ * header's label starts where the assistant row's and a pinned app's do.
+ */
+export const SIDEBAR_CHIP_GAP_CLASSES = "gap-[6px] max-md:gap-2";
+
+/**
+ * The leading chip on a touch viewport: the same {@link SIDEBAR_CHIP_SIZE}
+ * box, stated as a class so a slot that is 14px wide on a pointer viewport
+ * (a section header's) can grow to the chip on a phone. The 16px glyph
+ * beside it is the size `PanelItem` draws its own leading icon at there.
+ */
+export const SIDEBAR_MOBILE_CHIP_CLASSES = "max-md:size-5";
+export const SIDEBAR_MOBILE_GLYPH_CLASSES = "max-md:size-4";
+
+/**
  * Left indent applied to a collapsible section's content. Zero, so a
  * section's rows (e.g. Pinned's) start at the same x as flat-list rows
  * (e.g. Recents') instead of nesting under the header.

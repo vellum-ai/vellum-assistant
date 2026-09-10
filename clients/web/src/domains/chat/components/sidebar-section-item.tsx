@@ -37,9 +37,14 @@ import {
   assistantSectionLabel,
   sectionIcon,
 } from "@/domains/chat/utils/sidebar-section-icon";
+import {
+  SIDEBAR_MOBILE_CHIP_CLASSES,
+  SIDEBAR_MOBILE_GLYPH_CLASSES,
+} from "@/components/sidebar-nav-geometry";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { Conversation } from "@/types/conversation-types";
+import { cn } from "@vellumai/design-library";
 
 /**
  * The assistant section shows at most five realizations before scrolling
@@ -137,13 +142,19 @@ export function SidebarSectionItem({
          those glyphs wear. */
       iconNode={
         isAssistantSection ? (
-          <span className="flex h-[14px] w-[14px] shrink-0 items-center justify-center">
+          <span
+            className={cn(
+              "flex h-[14px] w-[14px] shrink-0 items-center justify-center",
+              SIDEBAR_MOBILE_CHIP_CLASSES,
+            )}
+          >
             <Inbox
               size={12}
               aria-hidden
-              className={
-                accentHex ? undefined : "text-[var(--content-tertiary)]"
-              }
+              className={cn(
+                SIDEBAR_MOBILE_GLYPH_CLASSES,
+                accentHex ? undefined : "text-[var(--content-tertiary)]",
+              )}
               style={accentHex ? { color: accentHex } : undefined}
             />
           </span>
