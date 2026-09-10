@@ -1946,7 +1946,7 @@ describe("ingress URL writes through the generic config routes", () => {
   });
 });
 
-describe("config writes to a per-agent acp model", () => {
+describe("config writes to a per-agent acp entry", () => {
   const patchRoute = ROUTES.find((r) => r.operationId === "config_patch")!;
   const setRoute = ROUTES.find((r) => r.operationId === "config_set")!;
 
@@ -1961,10 +1961,13 @@ describe("config writes to a per-agent acp model", () => {
     seedRawConfig();
   });
 
-  function agentEntry(raw: Record<string, unknown>): Record<string, unknown> {
+  function agentEntry(
+    raw: Record<string, unknown>,
+    id = "claude",
+  ): Record<string, unknown> {
     const acp = raw.acp as Record<string, unknown>;
     const agents = acp.agents as Record<string, Record<string, unknown>>;
-    return agents.claude!;
+    return agents[id]!;
   }
 
   test("a nulled per-agent model is dropped on both write paths", async () => {
@@ -1985,6 +1988,49 @@ describe("config writes to a per-agent acp model", () => {
     expect("model" in agentEntry(loadRawConfig())).toBe(false);
     expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
     expect(loadConfig().acp.agents.claude?.model).toBeUndefined();
+  });
+
+  test("a nulled per-agent command is dropped on both write paths", async () => {
+    await setRoute.handler({
+      body: { path: "acp.agents.claude.command", value: null },
+    });
+
+    expect("command" in agentEntry(loadRawConfig())).toBe(false);
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    expect(loadConfig().acp.agents.claude?.command).toBeUndefined();
+
+    seedRawConfig();
+    await patchRoute.handler({
+      body: { acp: { agents: { claude: { command: null } } } },
+    });
+
+    const patched = agentEntry(loadRawConfig());
+    expect("command" in patched).toBe(false);
+    expect(patched.model).toBe("opus");
+    expect(AssistantConfigSchema.safeParse(loadRawConfig()).success).toBe(true);
+    expect(loadConfig().acp.agents.claude?.command).toBeUndefined();
+  });
+
+  test("a nulled command on an id with no bundled profile is dropped too", async () => {
+    rawConfigFixture = {
+      acp: { agents: { mine: { command: "my-acp", args: [] } } },
+    };
+    seedRawConfig();
+
+    await setRoute.handler({
+      body: { path: "acp.agents.mine.command", value: null },
+    });
+
+    expect("command" in agentEntry(loadRawConfig(), "mine")).toBe(false);
+    const result = AssistantConfigSchema.safeParse(loadRawConfig());
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+    expect(result.error.issues.map((issue) => issue.path)).toEqual([
+      ["acp", "agents", "mine", "command"],
+    ]);
+    expect(result.error.issues[0]?.message).toContain("acp.agents.mine");
   });
 
   test("a model set on a bare bundled entry survives the next load", async () => {

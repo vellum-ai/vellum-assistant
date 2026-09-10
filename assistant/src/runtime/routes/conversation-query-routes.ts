@@ -29,7 +29,7 @@ import {
   LatencyBreakdownSchema,
   LLMRequestLogEntrySchema,
 } from "../../api/responses/llm-request-log-entry.js";
-import { scrubNulledAcpModels } from "../../config/acp-model-write.js";
+import { scrubNulledAcpAgentLeaves } from "../../config/acp-agent-write.js";
 import {
   catalogEntryFor,
   type InputModalities,
@@ -1604,7 +1604,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   }
   deepMergeOverwrite(raw, patch);
   scrubRemovedServiceModes(raw);
-  scrubNulledAcpModels(raw);
+  scrubNulledAcpAgentLeaves(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "patch");
@@ -1714,7 +1714,7 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   // `provider`, which SttServiceSchema requires whenever the block exists;
   // the same seeding that guards PATCH keeps this write's persisted block
   // schema-valid.
-  scrubNulledAcpModels(raw);
+  scrubNulledAcpAgentLeaves(raw);
   seedSttProviderForSparseBlock(raw);
 
   await commitConfigWrite(raw, "set");
