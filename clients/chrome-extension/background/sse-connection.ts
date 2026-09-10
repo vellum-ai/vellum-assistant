@@ -8,7 +8,7 @@
  * and forwards unwrapped event payloads to the caller via `onMessage`.
  * It handles reconnection with exponential backoff on unexpected closes
  * and aborts a silently stalled stream (no events or heartbeat comments)
- * via the shared idle watchdog.
+ * via the idle watchdog.
  *
  * Client registration headers (`X-Vellum-Client-Id`,
  * `X-Vellum-Interface-Id`) are sent on every connect so the daemon's
@@ -19,7 +19,7 @@ import {
   createIdleWatchdog,
   DEFAULT_SSE_IDLE_TIMEOUT_MS,
   type IdleWatchdog,
-} from "@vellumai/sse-idle-watchdog";
+} from "./sse-idle-watchdog.js";
 
 import { getClientRegistrationHeaders } from "./client-identity.js";
 

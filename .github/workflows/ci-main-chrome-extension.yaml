@@ -6,7 +6,6 @@ on:
     branches: [main]
     paths:
       - 'clients/chrome-extension/**'
-      - 'packages/sse-idle-watchdog/**'
       - '.github/workflows/ci-main-chrome-extension.yaml'
 
 jobs:

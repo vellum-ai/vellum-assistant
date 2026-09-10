@@ -9,7 +9,6 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "dependencies": {
-    "@vellumai/sse-idle-watchdog": "file:../../packages/sse-idle-watchdog",
     "react": "19.2.6",
     "react-dom": "19.2.6"
   },

@@ -46,7 +46,6 @@ import { captureError } from "@/lib/sentry/capture-error";
 import { createStreamWatchdog } from "@/lib/streaming/stream-watchdog";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { toError } from "@/utils/to-error";
-import { DEFAULT_SSE_IDLE_TIMEOUT_MS } from "@vellumai/sse-idle-watchdog";
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -57,7 +56,7 @@ const DOCTOR_REPLAY_GAP_CODE = "replay_gap";
 const MAX_DOCTOR_SSE_RECONNECT_ATTEMPTS = 5;
 const DOCTOR_SSE_RECONNECT_BASE_MS = 500;
 const DOCTOR_SSE_RECONNECT_MAX_MS = 5_000;
-const DOCTOR_SSE_IDLE_TIMEOUT_MS = DEFAULT_SSE_IDLE_TIMEOUT_MS;
+const DOCTOR_SSE_IDLE_TIMEOUT_MS = 45_000;
 
 function doctorReconnectDelayMs(attempt: number): number {
   const exponential = DOCTOR_SSE_RECONNECT_BASE_MS * 2 ** attempt;

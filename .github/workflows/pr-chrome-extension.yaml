@@ -5,7 +5,6 @@ on:
     types: [synchronize, opened, reopened]
     paths:
       - 'clients/chrome-extension/**'
-      - 'packages/sse-idle-watchdog/**'
       - '.github/workflows/pr-chrome-extension.yaml'
 
 concurrency:

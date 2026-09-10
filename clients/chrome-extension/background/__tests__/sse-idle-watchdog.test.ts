@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, jest, test } from "bun:test";
 
-import { createIdleWatchdog, DEFAULT_SSE_IDLE_TIMEOUT_MS } from "./index.js";
+import { createIdleWatchdog, DEFAULT_SSE_IDLE_TIMEOUT_MS } from "../sse-idle-watchdog.js";
 
 describe("createIdleWatchdog", () => {
   afterEach(() => {
@@ -85,7 +85,7 @@ describe("createIdleWatchdog", () => {
     watchdog.arm(controller, 3);
     jest.advanceTimersByTime(50);
 
-    expect(fires).toHaveLength(1);
+    expect(fires.length).toBe(1);
     expect(fires[0]?.attempt).toBe(3);
     expect(fires[0]?.lastByteAgeMs).toBeNull();
     expect(fires[0]?.keepalivesReceivedSinceConnect).toBe(0);

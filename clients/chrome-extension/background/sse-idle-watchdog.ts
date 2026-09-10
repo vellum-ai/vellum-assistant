@@ -1,12 +1,12 @@
 /**
- * Idle watchdog for SSE stream connections.
+ * Idle watchdog for the extension SSE stream.
  *
  * Detects silently stalled connections where `fetch()` holds a streaming
  * connection open at the network layer with no bytes flowing and no error
- * surfaced to JavaScript (Chrome MV3 service-worker sleep, iOS WKWebView,
- * some proxies). The daemon emits a heartbeat comment every ~7 s; this
- * watchdog aborts the active fetch when no SSE traffic (events OR
- * heartbeat comments) arrives within a configurable window.
+ * surfaced to JavaScript (Chrome MV3 service-worker sleep, some proxies).
+ * The daemon emits a heartbeat comment every ~7 s; this watchdog aborts
+ * the active fetch when no SSE traffic (events OR heartbeat comments)
+ * arrives within a configurable window.
  */
 
 /** Milliseconds of silence before the watchdog fires. */
@@ -69,7 +69,7 @@ export interface IdleWatchdog {
  * The returned handle encapsulates the timer and liveness counters.
  * Callers arm it on every SSE chunk and clear it when the read loop
  * exits. Optional {@link IdleWatchdogConfig.onFire} is the hook for
- * surface-specific telemetry.
+ * logging.
  */
 export function createIdleWatchdog(
   config: IdleWatchdogConfig = {},

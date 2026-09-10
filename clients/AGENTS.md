@@ -10,10 +10,7 @@ Applies to all code under `clients/`. Subordinate to root [`AGENTS.md`](../AGENT
   with `--filter=@vellumai/<name>` when needed). Each keeps its own
   `package.json`, `tsconfig.json`, and lint config.
 - `clients/chrome-extension/` is the one standalone package, with its own
-  `bun.lock` and per-package `bun install`. Shared client logic it needs
-  from `packages/` is taken as a `file:` dependency (for example
-  `@vellumai/sse-idle-watchdog`), not `workspace:*`, so the extension
-  lockfile stays independent of the root workspace. Native shell directories
+  `bun.lock` and per-package `bun install`. Native shell directories
   (`clients/ios/`, `clients/android/`) are Capacitor shells built from
   `clients/web/` and have no package manifests of their own.
 - When adding or changing platform checks for iOS or Android, consider whether
