@@ -164,6 +164,10 @@ describe("SidebarShell menu route content", () => {
     // THEN the child still mounts, so the redirect still runs. Substitution is
     // opt-in precisely because a child can have work that outlives being seen.
     expect(contentMounts).toBe(1);
+
+    // AND the nav list is still what the viewer gets, exactly as before: not
+    // opting in withholds the unmounting, not the two-page flow.
+    expect(screen.getAllByRole("navigation")).toHaveLength(1);
   });
 
   test("a roomy viewport mounts the routed page on the menu route too", () => {

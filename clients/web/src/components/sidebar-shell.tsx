@@ -52,14 +52,17 @@ export function SidebarShell({
   const isMenuRoute = pathname === menuRoute;
   const isMobile = useIsMobile();
 
-  // On a narrow viewport the nav list and the routed page substitute for each
-  // other, so one signal decides which of them mounts rather than each hiding
-  // itself at its own breakpoint. A mounted page runs its render, its effects
-  // and its request fan-out whether or not anything shows it, which on a phone
-  // is the whole Settings landing tree behind a list of links. The route's
-  // chunk is fetched either way: the router resolves it before this renders.
-  const menuReplacesContent =
-    menuReplacesContentOnMobile && isMobile && isMenuRoute;
+  // The two-page flow: on a narrow viewport the menu route is the nav list and
+  // a sub-page is the content, so one signal decides which is on screen rather
+  // than each hiding itself at its own breakpoint.
+  const showsMobileMenu = isMobile && isMenuRoute;
+  // A page that is on screen for nobody can also skip mounting, but only where
+  // the caller says its menu-route child has nothing to do out of sight. A
+  // mounted page runs its render, its effects and its request fan-out whether
+  // or not anything shows it, which on a phone is the whole Settings landing
+  // tree behind a list of links. The route's chunk is fetched either way: the
+  // router resolves it before this renders.
+  const contentMounted = !(showsMobileMenu && menuReplacesContentOnMobile);
 
   // Edge-swipe back gesture for the mobile two-page flow. It mirrors the
   // header back arrow: from a sub-page it returns to the menu root, and from
@@ -189,21 +192,25 @@ export function SidebarShell({
             </aside>
           )}
 
-          {menuReplacesContent ? (
+          {showsMobileMenu ? (
             /* `overflow-x-hidden`: `overflow-y: auto` alone computes
                `overflow-x: auto`, so any child overflowing horizontally makes
                the whole page pannable sideways on touch devices. */
             <div className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden pb-6">
               {sidebar}
             </div>
-          ) : (
+          ) : null}
+
+          {contentMounted ? (
             <main
               ref={contentRef}
-              className="flex min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:px-6 md:pt-0"
+              className={`min-w-0 min-h-0 flex-1 flex-col gap-4 overflow-y-auto overflow-x-hidden pb-6 md:px-6 md:pt-0 ${
+                showsMobileMenu ? "hidden" : "flex"
+              }`}
             >
               {children}
             </main>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
