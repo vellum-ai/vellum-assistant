@@ -261,7 +261,7 @@ export const Default: Story = {
   args: { assistantThreads: ASSISTANT_THREADS, assistantName: "Ada" },
 };
 
-/** Before the assistant is named, the header falls back to "On My Mind". */
+/** Unnamed: the pill falls back to "Your Assistant"; the header is "From me" either way. */
 export const UnnamedAssistant: Story = {
   args: { assistantThreads: ASSISTANT_THREADS, assistantName: null },
 };

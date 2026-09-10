@@ -18,6 +18,10 @@ The `plugins/<name>/` prefix resolves **only** against `<workspaceDir>/plugins/<
 
 The same file-based dispatcher also serves standalone workspace routes at `/x/<path>` from `<workspaceDir>/routes/`. Plugin routes are the namespaced form of that surface — a plugin is what lets you ship routes together with its other surfaces as one installable unit.
 
+### Reserved for the gateway: `notices/`
+
+Everything under `/x/plugins/<name>/notices/` is served to the gateway's service principal only. The gateway posts a notice there when it has decided something on the plugin's behalf and the plugin has to act on it with its own vendor credentials, such as the [admission-denied notice](channels.md#when-a-sender-is-refused). An app frontend, a local tool, or another plugin gets `403` on every path under the prefix, whatever the method, so a handler under `routes/notices/` can trust that what it receives is the gateway's own decision and not a forged one. Put nothing else there.
+
 ## Path mapping
 
 The file's path under `routes/` becomes the sub-path, minus the extension. Nested directories nest, and an `index` file maps to the directory itself:
@@ -74,7 +78,7 @@ Authenticated callers (the plugin's own app, local tools) reach the same route o
 
 ## Loading and lifecycle
 
-Route files are loaded lazily on the first matching request and cached by path + mtime. Editing a route file is picked up on the next request — the dispatcher re-reads it when its mtime changes, so there is no restart or reload step. A handler that throws returns 500; a handler that runs longer than the per-request timeout (30s) returns 504.
+Route files are loaded lazily on the first matching request and cached by path + mtime. Editing a route file is picked up on the next request, because the dispatcher re-reads it when its mtime changes, so there is no restart or reload step. A handler that throws returns 500; a handler that runs longer than the per-request timeout (120s) returns 504.
 
 ## Anatomy of a route
 

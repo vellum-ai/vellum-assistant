@@ -20,6 +20,7 @@ import {
   setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { reportCoachmarkPressed } from "@/domains/chat/voice/live-voice/coachmark-press-turn";
 import { useCallChords } from "@/domains/chat/voice/live-voice/use-call-chords";
 import {
   cancelPendingVoiceStart,
@@ -422,6 +423,15 @@ export function RootLayout() {
         return;
       }
       void answerDictationOffer(command.answer, command.offerId);
+    },
+    // The user pressed a control the assistant was pointing at. Handled here
+    // rather than beside the session's controls for the reason the dial's
+    // cancel is: this layout is mounted on every route the call can be on.
+    coachmarkPressed: (command) => {
+      if (command.kind !== "coachmarkPressed") {
+        return;
+      }
+      reportCoachmarkPressed(command.label);
     },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so

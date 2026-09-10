@@ -38,6 +38,7 @@ import {
 } from "../persistence/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
+import { publishConversationListChanged } from "./sync/resource-sync-events.js";
 
 const log = getLogger("channel-send");
 
@@ -199,7 +200,7 @@ function bindChatForNextInbound(
   address: ProactiveAddress,
 ): void {
   try {
-    const { conversationId } = getOrCreateConversation(
+    const { conversationId, created } = getOrCreateConversation(
       buildScopedConversationKey(channel, address.chatId, address.threadId),
     );
     upsertOutboundBinding({
@@ -208,6 +209,11 @@ function bindChatForNextInbound(
       externalChatId: address.chatId,
       externalThreadId: address.threadId ?? null,
     });
+    // The record that follows finds this conversation rather than minting
+    // it, so the list invalidation a mint owes is published here.
+    if (created) {
+      publishConversationListChanged("created");
+    }
   } catch (e) {
     log.warn(
       {
@@ -251,6 +257,7 @@ async function recordProactivePost(params: {
     const home = await resolveProactiveHomeConversation({
       sourceChannel: channel,
       externalChatId: address.chatId,
+      threadId: address.threadId,
       source: "notification",
       conversationType: "background",
       title: `Messages to ${address.chatId}`,

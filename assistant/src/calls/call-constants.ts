@@ -69,15 +69,35 @@ export function getGuardianWaitUpdateSteadyMaxIntervalMs(): number {
   return getConfig().calls.guardianWaitUpdateSteadyMaxIntervalMs;
 }
 
+// Fixed conversational timings. Named here, beside the config-backed limits
+// above, so the phone path's cadence is readable in one place.
+
+/** Caller silence after the assistant's turn before it nudges them. */
+export const CALLER_SILENCE_NUDGE_MS = 30_000;
+
+/** Listen window after the goodbye drains, in case the caller re-engages. */
+export const END_CALL_LISTEN_WINDOW_MS = 2_000;
+
+/** Max time to wait for goodbye audio to drain before forcing hangup. */
+export const END_CALL_DRAIN_MAX_WAIT_MS = 15_000;
+
+/** Lead before the max call duration at which the low-on-time warning is spoken. */
+export const DURATION_WARNING_LEAD_MS = 2 * 60 * 1000;
+
+/** Delay after the max-duration goodbye is spoken before the call is ended. */
+export const POST_GOODBYE_HANGUP_DELAY_MS = 3_000;
+
+/** Cap on waiting for a superseded turn's teardown before the next caller turn starts. */
+export const BARGE_IN_TEARDOWN_WAIT_MS = 2_000;
+
 export function getSilenceTimeoutMs(): number {
-  return 30 * 1000; // 30 seconds
+  return CALLER_SILENCE_NUDGE_MS;
 }
 
 export function getEndCallListenWindowMs(): number {
-  return 2 * 1000;
+  return END_CALL_LISTEN_WINDOW_MS;
 }
 
-/** Max time to wait for goodbye audio to drain before forcing hangup. */
 export function getEndCallDrainMaxWaitMs(): number {
-  return 15 * 1000;
+  return END_CALL_DRAIN_MAX_WAIT_MS;
 }

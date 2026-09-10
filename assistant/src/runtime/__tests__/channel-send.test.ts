@@ -87,11 +87,18 @@ mock.module("../../persistence/conversation-crud.js", () => ({
 mock.module("../../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
+let bindCreates = true;
 mock.module("../../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: (key: string) => {
     getOrCreateCalls.push(key);
-    return { conversationId: `conv-for-${key}` };
+    return { conversationId: `conv-for-${key}`, created: bindCreates };
   },
+}));
+const listChangedMock = mock((_reason: string) => {});
+const actualSync = await import("../sync/resource-sync-events.js");
+mock.module("../sync/resource-sync-events.js", () => ({
+  ...actualSync,
+  publishConversationListChanged: listChangedMock,
 }));
 mock.module("../../persistence/delivery-crud.js", () => ({
   buildScopedConversationKey: (
@@ -124,6 +131,8 @@ beforeEach(() => {
   deliverCalls.length = 0;
   bindCalls.length = 0;
   getOrCreateCalls.length = 0;
+  bindCreates = true;
+  listChangedMock.mockClear();
   resolveHomeMock.mockClear();
   recordMock.mockClear();
   deliverResult = {
@@ -261,6 +270,25 @@ describe("delivery through the transport", () => {
     ]);
   });
 
+  test("a conversation the binding mints reaches the list; one it finds does not", async () => {
+    await sendChannelText({
+      channel: "telegram",
+      target: { kind: "chat", chatId: "123456789", threadId: "42" },
+      text: "hello",
+    });
+    expect(listChangedMock).toHaveBeenCalledTimes(1);
+    expect(listChangedMock).toHaveBeenCalledWith("created");
+
+    listChangedMock.mockClear();
+    bindCreates = false;
+    await sendChannelText({
+      channel: "telegram",
+      target: { kind: "chat", chatId: "123456789", threadId: "42" },
+      text: "again",
+    });
+    expect(listChangedMock).not.toHaveBeenCalled();
+  });
+
   test("a failed send binds nothing, so it does not move where the next inbound lands", async () => {
     deliverResult = { ok: false };
     await expect(
@@ -345,6 +373,11 @@ describe("recording after acknowledgement", () => {
       target: { kind: "chat", chatId: "C123", threadId: "1690000000.000009" },
       text: "hello",
       sender,
+    });
+    expect(resolveHomeMock.mock.calls[0]![0]).toMatchObject({
+      sourceChannel: "slack",
+      externalChatId: "C123",
+      threadId: "1690000000.000009",
     });
     expect(recordMock).toHaveBeenCalledTimes(1);
     expect(recordMock.mock.calls[0]![0]).toMatchObject({

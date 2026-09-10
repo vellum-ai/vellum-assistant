@@ -28,6 +28,7 @@ import type {
   ChordRegistrationResult,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCoachmark,
   CompanionCharacter,
   CompanionContext,
@@ -662,6 +663,15 @@ export interface VellumBridge {
      */
     setAnnotating?(annotating: boolean): void;
     /**
+     * Choose what a press on the frame draws while the mode is on.
+     *
+     * Main's the way the mode is: the pill chooses and the frame draws, and
+     * neither window can tell the other. What comes back is
+     * `annotationTool` on `onState`. Absent on a shell that predates the
+     * shapes, which the surface reads as having only the pencil to offer.
+     */
+    setAnnotationTool?(tool: CompanionAnnotationTool): void;
+    /**
      * The same mode, flipped rather than set, for a press that has to be its
      * own way back and no view of which way that is.
      *
@@ -671,6 +681,17 @@ export interface VellumBridge {
      * was when that push left.
      */
     toggleAnnotating?(): void;
+    /**
+     * Take down everything on the shared surface without ending the share:
+     * the assistant's marks, and the user's own ink.
+     *
+     * Main's, since it holds the marks and opened the frame the ink is on.
+     * What comes back is `coachmarks` gone from `onState` and `marksCleared`
+     * stepped on it, which is what the frame's drawing layer drops its ink
+     * on. Absent on a shell that predates the control, which the surface
+     * reads as having no clear to offer.
+     */
+    clearMarks?(): void;
     /**
      * A mark the user is drawing over the shared surface, from the frame's
      * own window: `drawing` while the hand is still on it, `released` when it

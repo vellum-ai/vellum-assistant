@@ -9,7 +9,7 @@ import {
   classifyAttachment,
   formatAttachmentSize,
   middleTruncate,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { cn } from "@/utils/misc";

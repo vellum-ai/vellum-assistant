@@ -30,33 +30,14 @@ export const RECENTS_SECTION_LABEL = "Chats";
 export const RECENTS_SECTION_ICON: LucideIcon = MessageSquare;
 
 /**
- * Fallback header for the assistant-initiated section, used when the assistant
- * has no name of its own. Named assistants render "From <name>" instead — the
- * section is a person rather than a category, and "Your Assistant" (the
- * unnamed placeholder the switcher pill shows) reads badly as a section
- * header.
+ * Header for the assistant-initiated section. In the assistant's own voice,
+ * the voice its empty state already speaks in ("Nothing on my mind yet"):
+ * the section opens from beside her pill, directly under her name, so a
+ * header that repeated the name ("From Ada" under "Ada") said the same thing
+ * twice. A byline rather than a category, which is the whole reason these
+ * threads are worth separating from Chats.
  */
-export const ASSISTANT_SECTION_LABEL = "On My Mind";
-
-/**
- * Header for the assistant-initiated section: `"From <name>"` once the
- * assistant has a name, {@link ASSISTANT_SECTION_LABEL} before it does.
- *
- * The named form is the point — it makes the section a person rather than a
- * category, which is the whole reason these threads are worth separating from
- * Chats. The fallback exists because the unnamed placeholder the switcher pill
- * shows ("Your Assistant") reads as a settings row rather than a byline, so an
- * unnamed assistant gets a neutral header instead of "From Your Assistant".
- *
- * Whitespace-only names fall back too: the name is user-entered, and `"From "`
- * with nothing after it is worse than either real option.
- */
-export function assistantSectionLabel(
-  assistantName: string | null | undefined,
-): string {
-  const trimmed = assistantName?.trim();
-  return trimmed ? `From ${trimmed}` : ASSISTANT_SECTION_LABEL;
-}
+export const ASSISTANT_SECTION_LABEL = "From me";
 
 export function sectionIcon(section: SidebarSection): LucideIcon {
   switch (section.type) {

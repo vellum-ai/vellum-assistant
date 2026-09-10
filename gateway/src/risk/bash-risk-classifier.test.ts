@@ -914,6 +914,40 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
+  // The bot-identity door can produce any effect the bot's API allows, reads
+  // and writes alike, so the whole command is high: the rating follows what
+  // the command can do, not what a caller means to use it for.
+  test("assistant channels request → high, whatever the endpoint", async () => {
+    for (const command of [
+      "assistant channels request slack /conversations.history",
+      "assistant channels request slack -X POST -d '{}' /chat.postMessage",
+      "assistant channels request discord /users/@me",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("high");
+    }
+  });
+
+  // The OAuth request door reaches the same bot when --provider names a bot
+  // credential, so that form is high too; a person's integration stays at
+  // the door's own rating.
+  test("assistant oauth request as a channel bot → high; as a person → medium", async () => {
+    for (const command of [
+      "assistant oauth request --provider slack_channel /conversations.history",
+      "assistant oauth request --provider=discord_channel /users/@me",
+      "assistant oauth request /getMe --provider telegram",
+    ]) {
+      const result = await classifier.classify({ command, toolName: "bash" });
+      expect(result.riskLevel).toBe("high");
+    }
+    const person = await classifier.classify({
+      command:
+        "assistant oauth request --provider google /gmail/v1/users/me/messages",
+      toolName: "bash",
+    });
+    expect(person.riskLevel).toBe("medium");
+  });
+
   test("assistant oauth connect → low", async () => {
     const result = await classifier.classify({
       command: "assistant oauth connect",

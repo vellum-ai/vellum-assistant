@@ -31,7 +31,7 @@ import {
   SAMPLE_PREVIEWS,
 } from "@/domains/chat/components/chat-attachments/attachment-fixtures";
 import {
-  CHAT_INFO_DRAWER_WIDTH_PX,
+  CHAT_INFO_BODY_WIDTH_PX,
   CHAT_INFO_T0,
   CHAT_INFO_TEST_LOCALE,
   installChatInfoDomStubs,
@@ -47,7 +47,7 @@ const restoreDomStubs = installChatInfoDomStubs();
 const restoreHostLanguage = stubHostLanguage(CHAT_INFO_TEST_LOCALE);
 
 mock.module("@/hooks/use-element-size", () =>
-  makeElementSizeMock(() => CHAT_INFO_DRAWER_WIDTH_PX),
+  makeElementSizeMock(() => CHAT_INFO_BODY_WIDTH_PX),
 );
 
 const { ChatInfoFileRow } =

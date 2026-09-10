@@ -18,7 +18,7 @@ import type { ReactNode } from "react";
 import {
   ATTACHMENT_ICON_BY_KIND,
   type AttachmentIconKind,
-} from "@/domains/chat/components/chat-attachments/utils";
+} from "@/utils/attachment-utils";
 import { cn } from "@/utils/misc";
 
 interface AttachmentPreviewBoxProps {
