@@ -60,5 +60,8 @@ describe("LibraryGridSection card surface", () => {
     expect(grid?.className).toContain(
       "[--swipe-item-surface:var(--surface-base)]",
     );
+    expect(container.querySelector("h2")?.className).toContain(
+      "max-md:sr-only",
+    );
   });
 });

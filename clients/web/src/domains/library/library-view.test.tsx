@@ -146,6 +146,17 @@ describe("LibraryView import affordance", () => {
     expect(appName.nextElementSibling?.className).toContain("max-md:hidden");
   });
 
+  test("uses compact secondary app-name typography at mobile widths", () => {
+    apps = [APP];
+    renderView();
+
+    const appName = screen.getByText("Example App");
+    expect(appName.className).toContain("max-md:text-body-medium-lighter");
+    expect(appName.className).toContain(
+      "max-md:text-[color:var(--content-secondary)]",
+    );
+  });
+
   test("uses an icon-only import action in the mobile top bar", () => {
     isMobileRef.value = true;
     renderView();
