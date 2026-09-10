@@ -59,7 +59,11 @@ import {
   invalidateConnectionsAfterCredentialDelete,
 } from "./credential-in-use.js";
 import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
-import { BadRequestError, InternalError } from "./errors.js";
+import { BadRequestError, ForbiddenError, InternalError } from "./errors.js";
+import {
+  isPlatformManagedCredential,
+  platformManagedCredentialRefusal,
+} from "./platform-managed-credentials.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -157,7 +161,12 @@ interface CredentialLookup {
 
 /**
  * Resolve a credential lookup from service+field or UUID.
- * Throws BadRequestError when neither is provided or the UUID is not found.
+ * Throws BadRequestError when neither is provided or the UUID is not found,
+ * and ForbiddenError for a credential the platform owns.
+ *
+ * Every read handler that returns credential material (inspect, reveal)
+ * resolves through here, so the platform-managed refusal sits at the single
+ * point they share and cannot drift apart from the list filter.
  */
 function resolveCredentialLookup(
   body: Record<string, unknown>,
@@ -169,6 +178,7 @@ function resolveCredentialLookup(
   };
 
   if (service && field) {
+    assertNotPlatformManaged(service, field);
     return {
       storageKey: credentialKey(service, field),
       metadata: getCredentialMetadata(service, field),
@@ -182,6 +192,7 @@ function resolveCredentialLookup(
     if (!metadata) {
       throw new BadRequestError("Credential not found");
     }
+    assertNotPlatformManaged(metadata.service, metadata.field);
     return {
       storageKey: credentialKey(metadata.service, metadata.field),
       metadata,
@@ -193,6 +204,18 @@ function resolveCredentialLookup(
   throw new BadRequestError("Either service+field or id is required");
 }
 
+/**
+ * Refuse reads of a credential the platform provisions for itself, whatever
+ * the calling principal. The assistant's own tool shell arrives as `local`
+ * and Settings arrives as `user`, and neither has any business reading the
+ * key the daemon bills inference with.
+ */
+function assertNotPlatformManaged(service: string, field: string): void {
+  if (isPlatformManagedCredential(service, field)) {
+    throw new ForbiddenError(platformManagedCredentialRefusal(service, field));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -200,7 +223,11 @@ function resolveCredentialLookup(
 async function handleCredentialsList({ body }: RouteHandlerArgs) {
   const search = (body as { search?: string } | undefined)?.search;
 
-  let allMetadata = listCredentialMetadata();
+  // Platform-provisioned credentials are not the user's to act on, so they
+  // never become a Settings row (and never a click-to-reveal).
+  let allMetadata = listCredentialMetadata().filter(
+    (m) => !isPlatformManagedCredential(m.service, m.field),
+  );
 
   if (search) {
     const query = search.toLowerCase();
