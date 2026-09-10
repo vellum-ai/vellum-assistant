@@ -347,11 +347,17 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
     const callSites = {
       recall: { provider: "openai", model: STALE },
       heartbeatAgent: { provider: "openai", model: STALE_MINI },
-      // A pin with its own binding is judged by that binding alone.
+      // A raw call-site binding is stripped by the schema, so it neither
+      // protects an openai pin nor routes an entry-bound one.
       filingAgent: {
         provider: "openai",
         provider_connection: "openai-key",
         model: STALE,
+      },
+      memoryRouter: {
+        provider: "openai-key",
+        provider_connection: "chatgpt-subscription",
+        model: STALE_MINI,
       },
       // Another vendor never inherits an openai binding.
       commitMessage: { provider: "anthropic", model: STALE },
@@ -382,7 +388,8 @@ describe("154-repair-retired-codex-gpt-5-4-model-ids migration", () => {
       const llm = readLlm();
       expect(llm.callSites.recall.model).toBe(REPLACEMENT);
       expect(llm.callSites.heartbeatAgent.model).toBe(REPLACEMENT_MINI);
-      expect(llm.callSites.filingAgent.model).toBe(STALE);
+      expect(llm.callSites.filingAgent.model).toBe(REPLACEMENT);
+      expect(llm.callSites.memoryRouter.model).toBe(STALE_MINI);
       expect(llm.callSites.commitMessage.model).toBe(STALE);
     }
 

@@ -45,9 +45,11 @@ import type { WorkspaceMigration } from "./types.js";
  * it can select, and a call site this snapshot does not know (written by a
  * newer assistant) is left alone.
  *
- * A call-site pin that declares `provider: "openai"` with no binding of its
- * own is composed over the winner too, and keeps the winner's
- * `provider_connection`. When that binding is the subscription row (an
+ * A call-site pin that declares `provider: "openai"` is composed over the
+ * winner too, and keeps the winner's `provider_connection`: the call-site
+ * schema carries no binding of its own, so a raw one on disk (an older
+ * backfill can leave one) is stripped before resolution and never counts.
+ * When the winner's binding is the subscription row (an
  * `openai` default provider pinning it, or a user-owned `openai` profile
  * bound to it) dispatch hard-routes the retired model to Codex, so such a
  * pin is repaired when any selectable profile carries a subscription
@@ -155,14 +157,20 @@ export const repairRetiredCodexGpt54ModelIdsMigration: WorkspaceMigration = {
     const callSites = readObject(llm.callSites);
     if (callSites !== null) {
       for (const [site, rawConfig] of Object.entries(callSites)) {
-        const isRouted = (fragment: Record<string, unknown>): boolean =>
-          isBound(fragment) ||
-          (KNOWN_CALL_SITES.has(site) &&
-            ((fragment.provider === undefined &&
-              anySelectableSubscriptionProfile()) ||
-              (fragment.provider === "openai" &&
-                fragment.provider_connection === undefined &&
-                anySelectableSubscriptionBinding())));
+        // Call-site fragments carry no binding (the schema strips a raw
+        // `provider_connection`), so only the declared provider counts.
+        const isRouted = (fragment: Record<string, unknown>): boolean => {
+          if (!KNOWN_CALL_SITES.has(site)) {
+            return lookup.isSubscription(fragment.provider);
+          }
+          if (fragment.provider === undefined) {
+            return anySelectableSubscriptionProfile();
+          }
+          if (fragment.provider === "openai") {
+            return anySelectableSubscriptionBinding();
+          }
+          return lookup.isSubscription(fragment.provider);
+        };
         changed = repairFragment(readObject(rawConfig), isRouted) || changed;
       }
     }
