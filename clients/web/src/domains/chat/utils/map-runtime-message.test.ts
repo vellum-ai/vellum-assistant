@@ -208,7 +208,7 @@ describe("mapRuntimeToDisplayMessage", () => {
       id: "m-unknown",
       role: "assistant",
       assistantTextVisibility: "later",
-    } as Partial<ConversationMessage>);
+    } as unknown as Partial<ConversationMessage>);
     expect(
       mapRuntimeToDisplayMessage(unknown).assistantTextVisibility,
     ).toBeUndefined();
