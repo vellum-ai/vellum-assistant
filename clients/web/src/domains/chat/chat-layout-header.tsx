@@ -33,6 +33,7 @@ import { useTranslation } from "@/i18n";
 // (≈ button left edge at 96px, leaving a ~25px gap past the green control).
 // Off Electron the inset is 0.
 const ELECTRON_TRAFFIC_LIGHT_CLEARANCE = 80;
+const ELECTRON_TITLE_BAR_HEIGHT_PX = 44;
 
 /**
  * The `data-slot` this header publishes, and the selector that finds it.
@@ -166,6 +167,10 @@ export function ChatLayoutHeader({
           width: `calc(100% + ${WINDOWS_TITLE_BAR_CONTROL_CLEARANCE_PX}px)`,
         }
       : undefined;
+  const customMobileActionRowStyle =
+    electronHostOS === "windows"
+      ? { minHeight: ELECTRON_TITLE_BAR_HEIGHT_PX }
+      : undefined;
 
   return (
     <header
@@ -177,7 +182,9 @@ export function ChatLayoutHeader({
       }`}
       style={{
         background: headerBackground,
-        minHeight: usesCustomTitleBar ? "44px" : "40px",
+        minHeight: usesCustomTitleBar
+          ? `${ELECTRON_TITLE_BAR_HEIGHT_PX}px`
+          : "40px",
         paddingTop: usesCustomTitleBar ? 0 : undefined,
         paddingRight:
           electronHostOS === "windows"
@@ -190,7 +197,10 @@ export function ChatLayoutHeader({
           inert={controlsHidden || undefined}
           className={`flex w-full min-w-0 flex-col transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         >
-          <div className={`grid w-full items-center ${customMobileGridColumns}`}>
+          <div
+            className={`grid w-full items-center ${customMobileGridColumns}`}
+            style={customMobileActionRowStyle}
+          >
             <div
               className="flex min-w-0 items-center justify-start gap-2"
               style={macosTrafficLightStyle}
@@ -209,7 +219,7 @@ export function ChatLayoutHeader({
           </div>
           {electronHostOS === "windows" ? (
             <div
-              className="mt-1 flex min-w-0 items-center"
+              className="flex min-w-0 items-center"
               style={windowsMenuRowStyle}
             >
               <WindowsMenuBar />

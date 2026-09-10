@@ -210,6 +210,7 @@ describe("ChatLayoutHeader mobile affordances", () => {
     expect(customTopBar?.className).toContain(
       "grid-cols-[max-content_minmax(0,1fr)_max-content]",
     );
+    expect(customTopBar?.style.minHeight).toBe("44px");
     expect(screen.getByText("Library").parentElement?.className).toContain(
       "overflow-hidden",
     );
