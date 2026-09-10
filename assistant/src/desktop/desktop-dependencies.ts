@@ -166,7 +166,7 @@ export class DesktopDependencyInstaller {
 async function run(command: string[]): Promise<void> {
   const proc = Bun.spawn(command, {
     env: {
-      PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      PATH: "/usr/sbin:/usr/bin:/sbin:/bin",
       HOME: "/root",
       DEBIAN_FRONTEND: "noninteractive",
     },
@@ -198,9 +198,10 @@ async function installDesktopDependencies(
 ): Promise<void> {
   const chrome = CHROME_PACKAGES[process.arch as keyof typeof CHROME_PACKAGES];
   await rm(desktopChromePath() + ".ready", { force: true });
-  await run(["apt-get", "update"]);
+  // Desktop binaries, X assets and the loader share the image root.
+  await run(["/usr/bin/apt-get", "update"]);
   await run([
-    "apt-get",
+    "/usr/bin/apt-get",
     "install",
     "-y",
     "--no-install-recommends",
