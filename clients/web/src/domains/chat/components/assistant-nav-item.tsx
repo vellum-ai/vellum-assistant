@@ -91,6 +91,8 @@ const DISC_PILL_STYLE: CustomPropertyStyle = {
  * hover, so the disc reads as swelling to fill its pill. The same timing
  * the cards use, 0.5s out on the way in and 0.35s in on the way out, and
  * only where a pointer can hover: a touch has no rest state to return to.
+ * While the assistant page is the current page the pill holds the flooded
+ * look, so the place the user is standing wears the full colour.
  *
  * The clip's circle is anchored on the disc's centre, 2px of inset plus its
  * 16px radius from the leading edge and halfway down, and the flooded
@@ -109,13 +111,16 @@ const FLOOD_CLASSES = cn(
   "[@media(hover:hover)]:group-hover/panel-item:[clip-path:circle(141%_at_18px_50%)]",
   "[@media(hover:hover)]:group-hover/panel-item:duration-500",
   "[@media(hover:hover)]:group-hover/panel-item:ease-out",
+  "group-aria-[current=page]/panel-item:[clip-path:circle(141%_at_18px_50%)]",
 );
 /* The pill under the flood: a stacking context and a clip for the layer,
-   and the name in the flood's own contrast ink while it is covered. `!` on
-   the hover ink, so it beats the current-page ink at the same specificity. */
+   and the name in the flood's own contrast ink while it is covered, on hover
+   and on the current page alike. `!` on both, so they beat `PanelItem`'s own
+   current-page ink at the same specificity. */
 const FLOODED_PILL_CLASSES = cn(
   "isolate overflow-hidden transition-colors duration-300",
   "[@media(hover:hover)]:hover:text-[color:var(--pill-flood-fg)]!",
+  "aria-[current=page]:text-[color:var(--pill-flood-fg)]!",
 );
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
