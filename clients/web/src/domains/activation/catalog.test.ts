@@ -216,6 +216,12 @@ describe("activation name interpolation", () => {
       "Teach your assistant about you",
     );
   });
+
+  test("teach-memory asks its questions one at a time", () => {
+    expect(resolveActivationTask("teach-memory")?.prompt).toBe(
+      "Ask me ten quick questions about my life and work so you can remember what matters. One at a time: ask the first, wait for my answer, then the next. Save what you learn.",
+    );
+  });
 });
 
 const FALLBACK = "your assistant";
