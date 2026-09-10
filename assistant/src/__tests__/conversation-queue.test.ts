@@ -2541,7 +2541,15 @@ describe("Batched drain correctness fixes", () => {
       scope: "message",
       clientMessageId: "cm-head",
     });
-    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(true);
+    expect(events3.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      scope: "message",
+    });
+    // One terminal closes the turn, sent once the last failed sibling has
+    // been answered; the head's own drain does not add a second.
+    expect(
+      [...events2, ...events3].filter((e) => e.type === "generation_cancelled"),
+    ).toHaveLength(1);
     expect(conversation.isProcessing()).toBe(false);
   });
 
@@ -2583,6 +2591,110 @@ describe("Batched drain correctness fixes", () => {
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 20));
+  });
+
+  test("a failed queued message followed only by a synchronous command leaves the turn to that command's terminal", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // The failing message is followed by /status, which the drain answers
+    // inline with its own message_complete and no agent run.
+    conversation.enqueueMessage({
+      content: "",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+      clientMessageId: "cm-2",
+    });
+    conversation.enqueueMessage({
+      content: "/status",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(events2.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      scope: "message",
+      clientMessageId: "cm-2",
+    });
+    // The command's terminal closed the turn, so no cancel contradicts it.
+    expect(eventsSlash.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(false);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(pendingRuns.length).toBe(1);
+  });
+
+  test("a failed batch head with a failed sibling and a synchronous command behind them leaves the turn to that command's terminal", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+    const eventsSlash: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Both batch members fail to persist; the /status behind them is answered
+    // inline with its own message_complete and no agent run.
+    addMessageShouldThrowForContent.add("bad-head-marker");
+    addMessageShouldThrowForContent.add("bad-tail-marker");
+    conversation.enqueueMessage({
+      content: "bad-head-marker",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-head",
+      clientMessageId: "cm-head",
+    });
+    conversation.enqueueMessage({
+      content: "bad-tail-marker",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-tail",
+    });
+    conversation.enqueueMessage({
+      content: "/status",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(events2.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      scope: "message",
+      clientMessageId: "cm-head",
+    });
+    expect(events3.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      scope: "message",
+    });
+    expect(eventsSlash.some((e) => e.type === "message_complete")).toBe(true);
+    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(false);
+    expect(events3.some((e) => e.type === "generation_cancelled")).toBe(false);
+    expect(conversation.isProcessing()).toBe(false);
+    expect(pendingRuns.length).toBe(1);
   });
 
   test("failed batch member error names its requestId and clientMessageId", async () => {

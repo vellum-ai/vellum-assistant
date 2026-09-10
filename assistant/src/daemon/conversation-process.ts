@@ -474,11 +474,17 @@ function requeueDrainedMessages(
  * `runAgentLoop`. Since the drain chain depends on `runAgentLoop`'s `finally`
  * block, we must explicitly continue draining on failure — otherwise
  * remaining queued messages would be stranded.
+ *
+ * Resolves to whether the drain closed the turn a dequeue opens on clients: a
+ * terminal event went out (`message_complete`, a conversation-scoped `error`,
+ * `generation_cancelled`), or a turn holds the lock and its own terminal
+ * follows. A drain that ran nothing and answered nothing resolves false, and
+ * the caller that opened a turn is the one to close it.
  */
 export async function drainQueue(
   conversation: Conversation,
   reason: QueueDrainReason = "loop_complete",
-): Promise<void> {
+): Promise<boolean> {
   // After a steer, drain only the promoted head message — don't batch
   // the remaining queue items into the same turn.
   const steered = conversation.pendingSteerRepair;
@@ -504,7 +510,7 @@ export async function drainQueue(
   if (steered) {
     const next = conversation.queue.shift();
     if (!next) {
-      return;
+      return false;
     }
     return dispatchDrainWithRestore(conversation, [next], true, () =>
       drainSingleMessage(conversation, next, reason, true),
@@ -518,7 +524,7 @@ export async function drainQueue(
     // path — which owns slash / compact / verification-intent behavior.
     const next = conversation.queue.shift();
     if (!next) {
-      return;
+      return false;
     }
     return dispatchDrainWithRestore(conversation, [next], false, () =>
       drainSingleMessage(conversation, next, reason),
@@ -555,8 +561,8 @@ async function dispatchDrainWithRestore(
   conversation: Conversation,
   messages: QueuedMessage[],
   steered: boolean,
-  dispatch: () => Promise<void>,
-): Promise<void> {
+  dispatch: () => Promise<boolean>,
+): Promise<boolean> {
   try {
     return await dispatch();
   } catch (err) {
@@ -651,7 +657,7 @@ async function drainSingleMessage(
   next: QueuedMessage,
   reason: QueueDrainReason,
   steered = false,
-): Promise<void> {
+): Promise<boolean> {
   // Another turn already owns the processing lock: requeue before touching
   // ANY conversation state. The lock holder installed its own per-turn
   // context (turn channel/interface, trust, transport hints) and a drain
@@ -665,7 +671,7 @@ async function drainSingleMessage(
       steered,
       "Requeueing drained message: processing lock is held",
     );
-    return;
+    return true;
   }
 
   // Reset per-turn preactivation so a prior iteration (e.g. an unknown-slash
@@ -873,7 +879,7 @@ async function drainSingleMessage(
     }
     // Continue draining regardless of success/failure
     await drainQueue(conversation);
-    return;
+    return true;
   }
 
   // /compact — force context compaction, persist exchange, continue draining.
@@ -966,7 +972,7 @@ async function drainSingleMessage(
       });
     }
     await drainQueue(conversation);
-    return;
+    return true;
   }
 
   // /clean — strip runtime injections and reset memory state, no LLM call.
@@ -1052,7 +1058,7 @@ async function drainSingleMessage(
       });
     }
     await drainQueue(conversation);
-    return;
+    return true;
   }
 
   const resolvedContent = slashResult.content;
@@ -1111,7 +1117,7 @@ async function drainSingleMessage(
         steered,
         "Requeueing drained message: processing lock was retaken",
       );
-      return;
+      return true;
     }
     log.error(
       {
@@ -1135,17 +1141,18 @@ async function drainSingleMessage(
         : {}),
     });
     // Continue draining — don't strand remaining messages
-    await drainQueue(conversation);
+    const closed = await drainQueue(conversation);
     // A message-scoped error leaves a client's turn open for the turn that
-    // runs on. When the drain started none, nothing is coming to close it,
-    // so the turn the failed message was to start ends here instead.
-    if (!conversation.isProcessing()) {
+    // runs on. When the drain neither ran one nor answered with a terminal of
+    // its own, and no turn took the lock meanwhile, nothing is coming to
+    // close it, so the turn the failed message was to start ends here.
+    if (!closed && !conversation.isProcessing()) {
       next.onEvent({
         type: "generation_cancelled",
         conversationId: conversation.conversationId,
       });
     }
-    return;
+    return true;
   }
 
   const userMessageId = persistResult.id;
@@ -1156,8 +1163,7 @@ async function drainSingleMessage(
       "Skipping agent loop for deduplicated queued message",
     );
     conversation.preactivatedSkillIds = undefined;
-    await drainQueue(conversation);
-    return;
+    return drainQueue(conversation);
   }
 
   // Broadcast the user message to all hub subscribers so passive devices
@@ -1279,6 +1285,26 @@ async function drainSingleMessage(
         message: `Failed to process queued message: ${message}`,
       });
     });
+  return true;
+}
+
+/**
+ * Drain what a batch holds after its head dropped out: the tails it already
+ * took off the queue, then the queue behind them. Resolves as
+ * {@link drainQueue} does.
+ */
+async function drainBatchRemainder(
+  conversation: Conversation,
+  remaining: QueuedMessage[],
+  reason: QueueDrainReason,
+): Promise<boolean> {
+  if (remaining.length >= 2) {
+    return drainBatch(conversation, remaining, reason);
+  }
+  if (remaining.length === 1) {
+    return drainSingleMessage(conversation, remaining[0], reason);
+  }
+  return drainQueue(conversation);
 }
 
 // Drives a batched turn where multiple queued passthrough messages share one
@@ -1288,7 +1314,7 @@ async function drainBatch(
   conversation: Conversation,
   batch: QueuedMessage[],
   reason: QueueDrainReason,
-): Promise<void> {
+): Promise<boolean> {
   // Another turn already owns the processing lock: requeue the whole batch
   // before touching ANY conversation state, mirroring `drainSingleMessage`.
   // The head persist-busy requeue below stays as the TOCTOU backstop.
@@ -1300,7 +1326,7 @@ async function drainBatch(
       false,
       "Requeueing drained batch: processing lock is held",
     );
-    return;
+    return true;
   }
 
   // Head-wins: the batch-builder guarantees identical userMessageInterface
@@ -1457,15 +1483,8 @@ async function drainBatch(
         conversation.abortController = null;
         conversation.currentRequestId = undefined;
         conversation.preactivatedSkillIds = undefined;
-        const remaining = batch.slice(1);
-        if (remaining.length >= 2) {
-          await drainBatch(conversation, remaining, reason);
-        } else if (remaining.length === 1) {
-          await drainSingleMessage(conversation, remaining[0], reason);
-        } else {
-          await drainQueue(conversation);
-        }
-        return;
+        await drainBatchRemainder(conversation, batch.slice(1), reason);
+        return true;
       }
       // Tail case — processing is live, just skip this message. Loop
       // continues to drain any remaining tails.
@@ -1504,15 +1523,7 @@ async function drainBatch(
           // processing flag. Recursively drain remaining items so the
           // first non-duplicate becomes the new batch head and sets
           // processing via persistUserMessage.
-          const remaining = batch.slice(1);
-          if (remaining.length >= 2) {
-            await drainBatch(conversation, remaining, reason);
-          } else if (remaining.length === 1) {
-            await drainSingleMessage(conversation, remaining[0], reason);
-          } else {
-            await drainQueue(conversation);
-          }
-          return;
+          return drainBatchRemainder(conversation, batch.slice(1), reason);
         }
         continue;
       }
@@ -1532,7 +1543,7 @@ async function drainBatch(
           false,
           "Requeueing drained batch: processing lock was retaken",
         );
-        return;
+        return true;
       }
       log.error(
         {
@@ -1562,25 +1573,23 @@ async function drainBatch(
         // would be stranded. Reset per-turn state and recursively drain the
         // remaining tails (they're still valid by the batch invariant).
         conversation.preactivatedSkillIds = undefined;
-        const remaining = batch.slice(1);
-        if (remaining.length >= 2) {
-          await drainBatch(conversation, remaining, reason);
-        } else if (remaining.length === 1) {
-          await drainSingleMessage(conversation, remaining[0], reason);
-        } else {
-          await drainQueue(conversation);
-        }
+        const closed = await drainBatchRemainder(
+          conversation,
+          batch.slice(1),
+          reason,
+        );
         // The message-scoped error above leaves a client's turn open for the
-        // turn that runs on. When the drain started none, every sibling a
-        // duplicate or the queue empty, nothing is coming to close it, so the
-        // turn the failed head was to start ends here instead.
-        if (!conversation.isProcessing()) {
+        // turn that runs on. When the drain neither ran one nor answered with
+        // a terminal of its own, and no turn took the lock meanwhile, nothing
+        // is coming to close it, so the turn the failed head was to start
+        // ends here.
+        if (!closed && !conversation.isProcessing()) {
           qm.onEvent({
             type: "generation_cancelled",
             conversationId: conversation.conversationId,
           });
         }
-        return;
+        return true;
       }
       // Tail persist failed — we cannot abandon the batch without stranding
       // the head's in-flight turn. Processing state is already set; skip
@@ -1687,7 +1696,7 @@ async function drainBatch(
       "drainBatch: no messages persisted successfully; skipping runAgentLoop",
     );
     conversation.preactivatedSkillIds = undefined;
-    return;
+    return false;
   }
 
   // Every persisted member except the last is a coalesced-batch head: its
@@ -1792,6 +1801,7 @@ async function drainBatch(
         message: `Failed to process queued messages: ${message}`,
       });
     });
+  return true;
 }
 
 // ── ProcessMessageOptions ────────────────────────────────────────────

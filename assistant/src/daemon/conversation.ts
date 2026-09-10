@@ -3399,8 +3399,8 @@ export class Conversation {
     );
   }
 
-  drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
-    return drainQueueImpl(this, reason);
+  async drainQueue(reason: QueueDrainReason = "loop_complete"): Promise<void> {
+    await drainQueueImpl(this, reason);
   }
 
   /**
