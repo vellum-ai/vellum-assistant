@@ -6,6 +6,7 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
+import { basename } from "node:path";
 import { Readable, Writable } from "node:stream";
 
 import type {
@@ -26,6 +27,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import { getLogger } from "../util/logger.js";
 import {
   AcpAuthRequiredError,
+  CLAUDE_ACP_COMMAND,
   isAcpAuthRequired,
   isClaudeAuthFailureMessage,
   requestErrorReason,
@@ -467,10 +469,14 @@ export class AcpAgentProcess {
         // an auth_required answer and a caller cannot confuse the adapter's
         // refusal with a transport or authentication failure. Claude's
         // expired-token failure travels as a generic error whose reason is
-        // the only signal, so it is left for the caller to classify.
+        // the only signal, so under the Claude adapter it is left for the
+        // caller to classify.
         if (err instanceof acp.RequestError && !isAcpAuthRequired(err)) {
           const reason = requestErrorReason(err);
-          if (!isClaudeAuthFailureMessage(reason)) {
+          const claudeAuthFailure =
+            basename(this.config.command) === CLAUDE_ACP_COMMAND &&
+            isClaudeAuthFailureMessage(reason);
+          if (!claudeAuthFailure) {
             throw new AcpConfigOptionRefusedError(reason);
           }
         }

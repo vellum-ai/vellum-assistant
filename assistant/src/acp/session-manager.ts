@@ -57,9 +57,9 @@ const log = getLogger("acp:session-manager");
  * and the marker promises a repair only the Connect Claude flow can perform.
  * Checks both auth-failure shapes (see `auth-required.ts`) against both the
  * raw rejection and the derived failure message, since `deriveFailureError`
- * may replace one with the other. The raw side reads the rejection's decoded
- * reason, because an adapter's own words travel in the payload rather than
- * the message.
+ * may replace one with the other. The raw side reads both the rejection's own
+ * message and its decoded reason, because an adapter's words travel in either
+ * depending on how it raised the error.
  */
 function claudeAuthRequiredCode(
   err: unknown,
@@ -69,9 +69,10 @@ function claudeAuthRequiredCode(
   if (entry.command !== CLAUDE_ACP_COMMAND) {
     return undefined;
   }
-  const rawMessage = requestErrorReason(err);
+  const rawMessage = err instanceof Error ? err.message : String(err);
   return isAcpAuthRequired(err) ||
     isClaudeAuthFailureMessage(rawMessage) ||
+    isClaudeAuthFailureMessage(requestErrorReason(err)) ||
     isClaudeAuthFailureMessage(failureMessage)
     ? ACP_CLAUDE_AUTH_REQUIRED_CODE
     : undefined;

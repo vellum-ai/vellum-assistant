@@ -82,13 +82,19 @@ export function isClaudeAuthFailureMessage(
   );
 }
 
+/** The message `RequestError.internalError()` builds when given no text. */
+const BARE_INTERNAL_ERROR_MESSAGE = "Internal error";
+
 /**
  * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
- * Error reaches the client as a generic "Internal error" whose real text the
- * agent-side SDK moved into the `data` payload, so `data` is read before
- * `message`. Duck-typed like {@link isAcpAuthRequired}: `message` is read as a
- * property, so a rejection that arrives as a plain object off the wire decodes
- * the same as an `Error` instance.
+ * Error reaches the client as a bare "Internal error" whose real text the
+ * agent-side SDK moved into `data.details`, so that is read first. An adapter
+ * that raises `RequestError.internalError(data, text)` keeps its words in the
+ * message and only a kind in `data`, so the message comes next, and `data` is
+ * serialized only behind the bare placeholder. Duck-typed like
+ * {@link isAcpAuthRequired}: `message` is read as a property, so a rejection
+ * that arrives as a plain object off the wire decodes the same as an `Error`
+ * instance.
  */
 export function requestErrorReason(err: unknown): string {
   if (typeof err !== "object" || err === null) {
@@ -102,6 +108,13 @@ export function requestErrorReason(err: unknown): string {
   const details = (data as { details?: unknown }).details;
   if (typeof details === "string" && details.length > 0) {
     return details;
+  }
+  if (
+    typeof message === "string" &&
+    message.length > 0 &&
+    message !== BARE_INTERNAL_ERROR_MESSAGE
+  ) {
+    return message;
   }
   // JSON.stringify answers undefined for a value it cannot represent.
   const serialized: string | undefined = JSON.stringify(data);

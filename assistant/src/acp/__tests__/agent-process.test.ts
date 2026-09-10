@@ -336,6 +336,7 @@ describe("AcpAgentProcess auth_required retry", () => {
    * initialize() so the advertised authMethods are captured.
    */
   async function setupAuthProcess(options: {
+    command?: string;
     env?: Record<string, string>;
     authMethods?: AuthMethod[];
     /** Rejections to throw from successive newSession calls before succeeding. */
@@ -347,7 +348,7 @@ describe("AcpAgentProcess auth_required retry", () => {
   }) {
     const proc = new AcpAgentProcess(
       "codex",
-      { command: "echo", args: [], env: options.env },
+      { command: options.command ?? "echo", args: [], env: options.env },
       () => {
         throw new Error("client factory should not be called in this test");
       },
@@ -464,17 +465,39 @@ describe("AcpAgentProcess auth_required retry", () => {
     ).rejects.toThrow("Session not found");
   });
 
-  test("setConfigOption leaves Claude's message-shaped auth failure untyped", async () => {
-    const expired = new acp.RequestError(-32603, "Internal error", {
-      details: "Failed to authenticate. Please run /login",
-    });
+  test.each(["claude-agent-acp", "/usr/local/bin/claude-agent-acp"])(
+    "setConfigOption leaves Claude's message-shaped auth failure untyped (%s)",
+    async (command) => {
+      const expired = new acp.RequestError(-32603, "Internal error", {
+        details: "Not logged in",
+      });
+      const { proc } = await setupAuthProcess({
+        command,
+        setConfigOptionRejections: [expired],
+      });
+
+      await expect(
+        proc.setConfigOption("session-1", "model", "opus"),
+      ).rejects.toBe(expired);
+    },
+  );
+
+  test("setConfigOption reads Claude's login wording from another adapter as a refusal", async () => {
     const { proc } = await setupAuthProcess({
-      setConfigOptionRejections: [expired],
+      command: "codex-acp",
+      setConfigOptionRejections: [
+        new acp.RequestError(-32603, "Internal error", {
+          details: "Not logged in",
+        }),
+      ],
     });
 
-    await expect(
-      proc.setConfigOption("session-1", "model", "opus"),
-    ).rejects.toBe(expired);
+    const refusal = await proc
+      .setConfigOption("session-1", "model", "gpt-5")
+      .catch((err: unknown) => err);
+
+    expect(refusal).toBeInstanceOf(AcpConfigOptionRefusedError);
+    expect((refusal as Error).message).toBe("Not logged in");
   });
 
   test("setConfigOption leaves a transport failure untyped", async () => {
