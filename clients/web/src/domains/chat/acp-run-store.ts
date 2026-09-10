@@ -110,10 +110,10 @@ export interface AcpRunEntry {
   /** Models the session can switch to; absent when the adapter has no selector. */
   availableModels?: AcpModelOption[];
   /**
-   * When `setModel` last recorded a live selection, in `Date.now()` ms. Store
-   * local, never on the wire: it orders a live update against a snapshot whose
-   * fetch began earlier, so an in-flight `/acp/sessions` read cannot replace a
-   * selection the adapter has already moved past.
+   * When `setModel` or a resume last set the live selection, in `Date.now()`
+   * ms. Store local, never on the wire: it orders a live update against a
+   * snapshot whose fetch began earlier, so an in-flight `/acp/sessions` read
+   * cannot replace a selection the adapter has already moved past.
    */
   modelUpdatedAt?: number;
   events: AcpRunRawEvent[];
@@ -602,6 +602,12 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           completedAt: undefined,
           task: existing.task ?? params.task,
           parentToolUseId: existing.parentToolUseId ?? params.parentToolUseId,
+          // The resumed session reports its own model right after this event
+          // when its adapter has a selector. The stamp keeps a snapshot
+          // requested before the resume from restoring the old pair.
+          model: undefined,
+          availableModels: undefined,
+          modelUpdatedAt: Date.now(),
         },
         pending,
       );
