@@ -156,6 +156,10 @@ export function ChatLayoutHeader({
     electronHostOS === "macos"
       ? { paddingLeft: ELECTRON_TRAFFIC_LIGHT_CLEARANCE }
       : {};
+  const customMobileGridColumns =
+    electronHostOS === "windows"
+      ? "grid-cols-[max-content_minmax(0,1fr)_max-content]"
+      : "grid-cols-[1fr_auto_1fr]";
 
   return (
     <header
@@ -178,7 +182,7 @@ export function ChatLayoutHeader({
       {customMobileTopBar ? (
         <div
           inert={controlsHidden || undefined}
-          className={`grid w-full grid-cols-[1fr_auto_1fr] items-center transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
+          className={`grid w-full items-center ${customMobileGridColumns} transition-opacity duration-300${controlsHidden ? " pointer-events-none opacity-0" : controlsDimmed ? " opacity-40" : ""}`}
         >
           <div
             className="flex min-w-0 items-center justify-start gap-2"
@@ -189,7 +193,7 @@ export function ChatLayoutHeader({
           </div>
           <div
             inert={centerHidden || undefined}
-            className={`min-w-0 transition-opacity duration-300${centerHidden ? " pointer-events-none opacity-0" : ""}`}
+            className={`min-w-0 overflow-hidden text-center transition-opacity duration-300${centerHidden ? " pointer-events-none opacity-0" : ""}`}
           >
             {customMobileTopBar.center}
           </div>

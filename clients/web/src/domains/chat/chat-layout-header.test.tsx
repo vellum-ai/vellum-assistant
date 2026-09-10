@@ -195,6 +195,26 @@ describe("ChatLayoutHeader mobile affordances", () => {
       "80px",
     );
   });
+
+  test("allocates intrinsic menu width in a narrowed Windows shell", () => {
+    mockIsElectron = true;
+    mockElectronHostOS = "windows";
+    renderHeader({
+      mobileTopBar: {
+        leading: <span>Back</span>,
+        center: <span>Library</span>,
+        trailing: <span>Import</span>,
+      },
+    });
+
+    const customTopBar = screen.getByText("Library").parentElement?.parentElement;
+    expect(customTopBar?.className).toContain(
+      "grid-cols-[max-content_minmax(0,1fr)_max-content]",
+    );
+    expect(screen.getByText("Library").parentElement?.className).toContain(
+      "overflow-hidden",
+    );
+  });
 });
 
 describe("ChatLayoutHeader page surface", () => {
