@@ -8,6 +8,7 @@ import type { CredentialRecord } from "@vellumai/service-contracts/credential-rp
 import type { CredentialRecordBackend } from "../security/ces-rpc-record-backend.js";
 import {
   _ensureCesRecordsLoaded,
+  _setHttpRecordBackendForTests,
   _setMetadataPath,
   getCredentialMetadata,
   listCredentialRecordsLive,
@@ -36,7 +37,9 @@ function leftoverContents(): string {
   return readFileSync(leftoverPath(), "utf-8");
 }
 
-function makeBackend(): CredentialRecordBackend & {
+function makeBackend(
+  name?: string,
+): CredentialRecordBackend & {
   store: Map<string, CredentialRecord>;
   bulkSetCalls: number;
   listCalls: number;
@@ -47,6 +50,7 @@ function makeBackend(): CredentialRecordBackend & {
     bulkSetCalls: number;
     listCalls: number;
   } = {
+    name,
     store,
     bulkSetCalls: 0,
     listCalls: 0,
@@ -84,6 +88,7 @@ function makeBackend(): CredentialRecordBackend & {
 describe("CES credential record cache", () => {
   beforeEach(() => {
     setCredentialRecordBackend(undefined);
+    _setHttpRecordBackendForTests(null);
     _setMetadataPath(null);
     const leftover = leftoverPath();
     if (existsSync(leftover)) {
@@ -93,6 +98,7 @@ describe("CES credential record cache", () => {
 
   afterEach(() => {
     setCredentialRecordBackend(undefined);
+    _setHttpRecordBackendForTests(null);
     _setMetadataPath(null);
     const leftover = leftoverPath();
     if (existsSync(leftover)) {
@@ -251,6 +257,132 @@ describe("CES credential record cache", () => {
   });
 
   test("live catalog list reports unreachable when no record backend is attached", async () => {
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(true);
+    expect(live.records).toEqual([]);
+  });
+
+  test("live catalog list fails over to CES HTTP when CES RPC list fails", async () => {
+    const rpc = makeBackend("ces-rpc");
+    rpc.list = async () => null;
+    setCredentialRecordBackend(rpc);
+
+    const http = makeBackend("ces-http");
+    const record: CredentialRecord = {
+      credentialId: "cred-http",
+      service: "github",
+      field: "token",
+      allowedTools: ["bash"],
+      allowedDomains: [],
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    http.store.set(credentialKey("github", "token"), record);
+    _setHttpRecordBackendForTests(http);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(false);
+    expect(live.records).toHaveLength(1);
+    expect(live.records[0]?.credentialId).toBe("cred-http");
+    expect(http.listCalls).toBe(1);
+  });
+
+  test("live catalog list fails over to CES HTTP when CES RPC is unavailable", async () => {
+    const rpc = makeBackend("ces-rpc");
+    rpc.isAvailable = () => false;
+    setCredentialRecordBackend(rpc);
+
+    const http = makeBackend("ces-http");
+    const record: CredentialRecord = {
+      credentialId: "cred-http-down-rpc",
+      service: "github",
+      field: "token",
+      allowedTools: ["bash"],
+      allowedDomains: [],
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    http.store.set(credentialKey("github", "token"), record);
+    _setHttpRecordBackendForTests(http);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(false);
+    expect(live.records[0]?.credentialId).toBe("cred-http-down-rpc");
+  });
+
+  test("live catalog list uses CES HTTP when no record backend is attached", async () => {
+    const http = makeBackend("ces-http");
+    const record: CredentialRecord = {
+      credentialId: "cred-http-only",
+      service: "github",
+      field: "token",
+      allowedTools: ["bash"],
+      allowedDomains: [],
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    http.store.set(credentialKey("github", "token"), record);
+    _setHttpRecordBackendForTests(http);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(false);
+    expect(live.records[0]?.credentialId).toBe("cred-http-only");
+  });
+
+  test("live catalog list does not fail over when CES RPC returns an empty catalog", async () => {
+    const rpc = makeBackend("ces-rpc");
+    setCredentialRecordBackend(rpc);
+
+    const http = makeBackend("ces-http");
+    http.store.set(credentialKey("github", "token"), {
+      credentialId: "cred-http-ignored",
+      service: "github",
+      field: "token",
+      allowedTools: ["bash"],
+      allowedDomains: [],
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    _setHttpRecordBackendForTests(http);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(false);
+    expect(live.records).toEqual([]);
+    expect(http.listCalls).toBe(0);
+  });
+
+  test("live catalog list does not fail over for a non-RPC record backend", async () => {
+    const backend = makeBackend();
+    backend.list = async () => null;
+    setCredentialRecordBackend(backend);
+
+    const http = makeBackend("ces-http");
+    http.store.set(credentialKey("github", "token"), {
+      credentialId: "cred-http-ignored",
+      service: "github",
+      field: "token",
+      allowedTools: ["bash"],
+      allowedDomains: [],
+      createdAt: 1,
+      updatedAt: 2,
+    });
+    _setHttpRecordBackendForTests(http);
+
+    const live = await listCredentialRecordsLive();
+    expect(live.unreachable).toBe(true);
+    expect(live.records).toEqual([]);
+    expect(http.listCalls).toBe(0);
+  });
+
+  test("live catalog list reports unreachable when CES RPC and HTTP both fail", async () => {
+    const rpc = makeBackend("ces-rpc");
+    rpc.list = async () => null;
+    setCredentialRecordBackend(rpc);
+
+    const http = makeBackend("ces-http");
+    http.list = async () => null;
+    _setHttpRecordBackendForTests(http);
+
     const live = await listCredentialRecordsLive();
     expect(live.unreachable).toBe(true);
     expect(live.records).toEqual([]);
