@@ -37001,6 +37001,281 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/x/plugins/{plugin}/notices:
+    delete:
+      operationId: x_plugins_by_plugin_notices_delete
+      summary: Gateway DELETE notice to a plugin (namespace root)
+      description:
+        "Dispatches DELETE requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: x_plugins_by_plugin_notices_get
+      summary: Gateway GET notice to a plugin (namespace root)
+      description:
+        "Dispatches GET requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    head:
+      operationId: x_plugins_by_plugin_notices_head
+      summary: Gateway HEAD notice to a plugin (namespace root)
+      description:
+        "Dispatches HEAD requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    options:
+      operationId: x_plugins_by_plugin_notices_options
+      summary: Gateway OPTIONS notice to a plugin (namespace root)
+      description:
+        "Dispatches OPTIONS requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    patch:
+      operationId: x_plugins_by_plugin_notices_patch
+      summary: Gateway PATCH notice to a plugin (namespace root)
+      description:
+        "Dispatches PATCH requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: x_plugins_by_plugin_notices_post
+      summary: Gateway POST notice to a plugin (namespace root)
+      description:
+        "Dispatches POST requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: x_plugins_by_plugin_notices_put
+      summary: Gateway PUT notice to a plugin (namespace root)
+      description:
+        "Dispatches PUT requests to the root handler of a plugin's reserved notices/ namespace. Served to the
+        gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+  /v1/x/plugins/{plugin}/notices/{path}:
+    delete:
+      operationId: x_plugins_by_plugin_notices_by_path_delete
+      summary: Gateway DELETE notice to a plugin
+      description:
+        "Dispatches DELETE requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: x_plugins_by_plugin_notices_by_path_get
+      summary: Gateway GET notice to a plugin
+      description:
+        "Dispatches GET requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    head:
+      operationId: x_plugins_by_plugin_notices_by_path_head
+      summary: Gateway HEAD notice to a plugin
+      description:
+        "Dispatches HEAD requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    options:
+      operationId: x_plugins_by_plugin_notices_by_path_options
+      summary: Gateway OPTIONS notice to a plugin
+      description:
+        "Dispatches OPTIONS requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    patch:
+      operationId: x_plugins_by_plugin_notices_by_path_patch
+      summary: Gateway PATCH notice to a plugin
+      description:
+        "Dispatches PATCH requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: x_plugins_by_plugin_notices_by_path_post
+      summary: Gateway POST notice to a plugin
+      description:
+        "Dispatches POST requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: x_plugins_by_plugin_notices_by_path_put
+      summary: Gateway PUT notice to a plugin
+      description:
+        "Dispatches PUT requests under a plugin's reserved notices/ namespace to that plugin's handler files.
+        Served to the gateway's service principal only: a notice is the gateway's own decision, never a client's."
+      tags:
+        - user-routes
+      parameters:
+        - name: plugin
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: path
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
 components:
   schemas:
     ConfigPatchRequest:
