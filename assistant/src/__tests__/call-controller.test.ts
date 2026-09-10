@@ -506,35 +506,6 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("handleCallerUtterance: includes speaker context in voice turn content", async () => {
-    mockStartVoiceTurn.mockImplementation(
-      async (opts: {
-        content: string;
-        onTextDelta: (t: string) => void;
-        onComplete: () => void;
-      }) => {
-        expect(opts.content).toContain(
-          '[SPEAKER id="speaker-1" label="Aaron" source="provider" confidence="0.91"]',
-        );
-        expect(opts.content).toContain("Can you summarize this meeting?");
-        opts.onTextDelta("Sure, here is a summary.");
-        opts.onComplete();
-        return { turnId: "run-1", abort: () => {} };
-      },
-    );
-
-    const { controller } = setupController();
-
-    await controller.handleCallerUtterance("Can you summarize this meeting?", {
-      speakerId: "speaker-1",
-      speakerLabel: "Aaron",
-      speakerConfidence: 0.91,
-      source: "provider",
-    });
-
-    controller.destroy();
-  });
-
   test("startInitialGreeting: sends CALL_OPENING content and strips control marker from speech", async () => {
     let turnCount = 0;
     mockStartVoiceTurn.mockImplementation(

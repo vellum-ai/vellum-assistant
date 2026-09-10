@@ -65,7 +65,6 @@ import {
   resolveCallTtsProvider,
   resolveSynthesisFormats,
 } from "./resolve-call-tts-provider.js";
-import type { PromptSpeakerContext } from "./speaker-identification.js";
 import {
   resolveTelephonyLanguageVoice,
   resolveTelephonySynthesisLanguage,
@@ -313,10 +312,7 @@ export class CallController {
    * Caller utterances always trigger normal turns, even when a guardian
    * consultation is pending — the consultation is tracked separately.
    */
-  async handleCallerUtterance(
-    transcript: string,
-    speaker?: PromptSpeakerContext,
-  ): Promise<void> {
+  async handleCallerUtterance(transcript: string): Promise<void> {
     // If the caller speaks while an END_CALL teardown is pending (during the
     // drain wait or the listen window), this is a deferral — the caller is
     // re-engaging after we tried to hang up. Track it so we can cap repeats.
@@ -349,7 +345,7 @@ export class CallController {
 
     this.state = "processing";
     this.resetSilenceTimer();
-    const callerContent = this.formatCallerUtterance(transcript, speaker);
+    const callerContent = transcript;
     const shouldMarkOpeningAck = this.awaitingOpeningAck;
     if (shouldMarkOpeningAck) {
       this.awaitingOpeningAck = false;
@@ -583,22 +579,6 @@ export class CallController {
       this.activeSynthesisAbort.abort();
       this.activeSynthesisAbort = null;
     }
-  }
-
-  private formatCallerUtterance(
-    transcript: string,
-    speaker?: PromptSpeakerContext,
-  ): string {
-    if (!speaker) {
-      return transcript;
-    }
-    const safeId = speaker.speakerId.replaceAll('"', "'");
-    const safeLabel = speaker.speakerLabel.replaceAll('"', "'");
-    const confidencePart =
-      speaker.speakerConfidence != null
-        ? ` confidence="${speaker.speakerConfidence.toFixed(2)}"`
-        : "";
-    return `[SPEAKER id="${safeId}" label="${safeLabel}" source="${speaker.source}"${confidencePart}] ${transcript}`;
   }
 
   /**
