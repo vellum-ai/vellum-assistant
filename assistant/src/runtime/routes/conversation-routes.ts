@@ -2469,7 +2469,11 @@ export async function handleSendMessage(
    * gone out that response reaches nobody: the message would be accepted and
    * then silently gone. `requestId` is the id the acceptance carried, so the
    * client can fail the optimistic row it is already showing and offer the
-   * retry; the body it typed is in that row, so this does not repeat it.
+   * retry; the body it typed is in that row, so this does not repeat it. The
+   * error is this one message's, not the turn's: the turn it tried to
+   * interrupt runs on, so it is scoped to the message and carries the client
+   * nonce the send came with, which is how a client that lists its sends by
+   * nonce finds the one to fail.
    */
   const reportQueueRejectionAfterAcceptance = (reason: string): void => {
     log.error(
@@ -2484,6 +2488,8 @@ export async function handleSendMessage(
       type: "error",
       conversationId: mapping.conversationId,
       requestId: sendRequestId,
+      scope: "message",
+      ...(clientMessageId ? { clientMessageId } : {}),
       code: "QUEUE_FULL",
       category: "queue_drain_failed",
       message:
@@ -3243,10 +3249,14 @@ export async function handleSendMessage(
             { err: queueErr, conversationId: mapping.conversationId },
             "Queue fallback for a failed interrupting send also failed",
           );
+          // One message's failure, like the refused queue above: the turn
+          // this send tried to interrupt runs on.
           broadcastMessage({
             type: "error",
             conversationId: mapping.conversationId,
             requestId: sendRequestId,
+            scope: "message",
+            ...(clientMessageId ? { clientMessageId } : {}),
             code: "SEND_FAILED",
             message:
               "Your message could not be delivered. Please send it again.",

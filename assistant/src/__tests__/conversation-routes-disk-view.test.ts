@@ -904,7 +904,12 @@ describe("host-proxy preactivation across an interrupt", () => {
       },
     });
 
-    const response = await sendMacosMessage(conversationKey, "please answer");
+    const rejectedNonce = `cmid-${crypto.randomUUID()}`;
+    const response = await sendMacosMessage(
+      conversationKey,
+      "please answer",
+      rejectedNonce,
+    );
     expect(response.status).toBe(202);
 
     // The hub wraps each event in an envelope; the payload is `message`.
@@ -923,6 +928,11 @@ describe("host-proxy preactivation across an interrupt", () => {
     // must not mint an id of its own: the client was told this one.
     expect(reported.requestId).toBe(accepted.requestId);
     expect(reported.category).toBe("queue_drain_failed");
+    // This one message's failure, not the turn's: the turn it tried to
+    // interrupt runs on. The nonce the send came with names the message for a
+    // client that lists its sends by nonce.
+    expect(reported.scope).toBe("message");
+    expect(reported.clientMessageId).toBe(rejectedNonce);
     // And ONLY that one. `enqueueMessage` also announces a refused enqueue as a
     // generic uncorrelated `queue_full` error, which a client reads as the
     // running turn failing and tears that turn down over: a turn this send does
@@ -1065,6 +1075,7 @@ describe("host-proxy preactivation across an interrupt", () => {
       return undefined;
     });
     expect(reported.category).toBe("queue_drain_failed");
+    expect(reported.scope).toBe("message");
 
     subscription.dispose();
   });
