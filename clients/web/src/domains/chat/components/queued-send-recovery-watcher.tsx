@@ -4,6 +4,7 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useTranslation } from "@/i18n";
 
 /**
@@ -54,17 +55,35 @@ export function QueuedSendRecoveryWatcher() {
       if (held === null) {
         return;
       }
+      const payload = {
+        content: held.content,
+        attachments: held.attachments,
+      };
+      composer.dropFailedSend(held.assistantId, held.conversationId, payload);
       composer.clearRestoredDraft(
         held.assistantId,
         held.conversationId,
         held.content,
       );
+      const activeAssistantId =
+        useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId =
+        useConversationStore.getState().activeConversationId;
+      const restoredAttachmentsAreCurrent =
+        composer.attachments.length === held.attachments.length &&
+        composer.attachments.every(
+          (attachment, index) =>
+            attachment.kind === "uploaded" &&
+            attachment.id === held.attachments[index]?.id,
+        );
       if (
-        useConversationStore.getState().activeConversationId ===
-          held.conversationId &&
-        composer.input === held.content
+        activeAssistantId === held.assistantId &&
+        activeConversationId === held.conversationId &&
+        composer.input === held.content &&
+        restoredAttachmentsAreCurrent
       ) {
         composer.setInput("");
+        composer.resetAttachments();
       }
       return;
     }
@@ -110,7 +129,7 @@ export function QueuedSendRecoveryWatcher() {
       return;
     }
     composer.takeQueuedSend(clientMessageId);
-    composer.stashFailedSend(held.conversationId, {
+    composer.stashFailedSend(held.assistantId, held.conversationId, {
       content: held.content,
       attachments: held.attachments,
     });

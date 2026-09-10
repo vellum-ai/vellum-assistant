@@ -257,9 +257,9 @@ export interface ComposerState {
   documentAttachmentLastError: string | null;
 
   /**
-   * The messages of failed sends, keyed by the conversation each was composed
-   * for, waiting for that conversation's composer to take one back. A
-   * conversation holding nothing has no entry.
+   * The messages of failed sends, keyed by the assistant and conversation each
+   * was composed for (`failedSendFor` reads one), waiting for that exact
+   * composer's return. A pair holding nothing has no entry.
    */
   failedSendsByConversation: ReadonlyMap<string, FailedSendPayload>;
 
@@ -384,26 +384,41 @@ export interface ComposerActions {
    * created (e.g. on assistant switch), including the ones whose
    * attachments a previous `resetAttachments` already cleared into sent
    * message bubbles. The other slot's URLs are left alive, so resetting one
-   * slot never frees blob URLs the other is still rendering. On the main slot
-   * this also drops every held failed send, whose attachments were uploaded
-   * against the assistant being left. */
+   * slot never frees blob URLs the other is still rendering. */
   fullReset: (slot?: ComposerSlot) => void;
   dismissAttachmentError: (slot?: ComposerSlot) => void;
 
   // --- Failed sends held for their own conversation ---
   /**
-   * Hold the message of a failed send for the conversation it was composed
-   * for, until that conversation's composer takes it back. A conversation
+   * Hold the message of a failed send for the assistant and conversation it
+   * was composed for, until that exact composer takes it back. A composer
    * already holding one keeps both, oldest first: the two drafts are joined by
    * a blank line and the attachments run one list after the other.
    */
-  stashFailedSend: (conversationId: string, payload: FailedSendPayload) => void;
+  stashFailedSend: (
+    assistantId: string,
+    conversationId: string,
+    payload: FailedSendPayload,
+  ) => void;
   /**
-   * Take the message held for `conversationId`, removing it, so one thread's
-   * composer reclaims only what was composed there. Null when that
-   * conversation holds none.
+   * Take the message held for the assistant and `conversationId`, removing it,
+   * so one composer reclaims only what was composed there. Null when that
+   * composer holds none.
    */
-  takeFailedSend: (conversationId: string) => FailedSendPayload | null;
+  takeFailedSend: (
+    assistantId: string,
+    conversationId: string,
+  ) => FailedSendPayload | null;
+  /**
+   * Drop the held message only when it still exactly matches `payload`. An
+   * eventual echo uses this to retract an ambiguous failure recovery without
+   * deleting a newer or merged failure for the same composer.
+   */
+  dropFailedSend: (
+    assistantId: string,
+    conversationId: string,
+    payload: FailedSendPayload,
+  ) => boolean;
 
   // --- Sends the daemon holds on its queue ---
   /**
@@ -424,6 +439,22 @@ export interface ComposerActions {
 }
 
 type ComposerStore = ComposerState & ComposerActions;
+
+/** The `failedSendsByConversation` key for one assistant's conversation. */
+function failedSendKey(assistantId: string, conversationId: string): string {
+  return `${assistantId}\u0000${conversationId}`;
+}
+
+/** The message held for `conversationId` under `assistantId`, if any. */
+export function failedSendFor(
+  state: Pick<ComposerState, "failedSendsByConversation">,
+  assistantId: string,
+  conversationId: string,
+): FailedSendPayload | undefined {
+  return state.failedSendsByConversation.get(
+    failedSendKey(assistantId, conversationId),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Internal mutable state (not reactive — never triggers re-renders)
@@ -842,20 +873,13 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       if (slot === "document") {
         return { documentAttachments: [], documentAttachmentLastError: null };
       }
-      // A held failed message belongs to a conversation of the assistant this
-      // reset is leaving, and its attachments were uploaded against that
-      // assistant, so it goes with the previews revoked below rather than
-      // waiting for a composer under the next one. A send still out on the
-      // outgoing assistant keeps its copy: its POST can still throw after the
-      // switch, and the draft that throw hands back goes to that assistant's
-      // own stored drafts, since `restoreFailedDraft` files it under the
-      // send's assistant. A copy the stream never speaks for again waits under
-      // its nonce until something takes it or the tab ends, which costs
-      // nothing.
+      // Held failures and in-flight copies carry their assistant identity, so
+      // they survive this visual reset without reaching the incoming
+      // assistant's composer. Preview URLs are still revoked below; a restored
+      // attachment returns as a chip when its preview is no longer alive.
       return {
         attachments: [],
         attachmentLastError: null,
-        failedSendsByConversation: new Map(),
       };
     });
     revokeSlotPreviews(slot);
@@ -885,29 +909,42 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     setAttachmentError(set, slot, null);
   },
 
-  stashFailedSend: (conversationId, payload) => {
+  stashFailedSend: (assistantId, conversationId, payload) => {
     set((s) => {
-      const held = s.failedSendsByConversation.get(conversationId);
+      const key = failedSendKey(assistantId, conversationId);
+      const held = s.failedSendsByConversation.get(key);
       const next = new Map(s.failedSendsByConversation);
-      next.set(
-        conversationId,
-        held ? mergeFailedSends(held, payload) : payload,
-      );
+      next.set(key, held ? mergeFailedSends(held, payload) : payload);
       return { failedSendsByConversation: next };
     });
   },
 
-  takeFailedSend: (conversationId) => {
-    const held = get().failedSendsByConversation.get(conversationId);
+  takeFailedSend: (assistantId, conversationId) => {
+    const key = failedSendKey(assistantId, conversationId);
+    const held = get().failedSendsByConversation.get(key);
     if (held === undefined) {
       return null;
     }
     set((s) => {
       const next = new Map(s.failedSendsByConversation);
-      next.delete(conversationId);
+      next.delete(key);
       return { failedSendsByConversation: next };
     });
     return held;
+  },
+
+  dropFailedSend: (assistantId, conversationId, payload) => {
+    const key = failedSendKey(assistantId, conversationId);
+    const held = get().failedSendsByConversation.get(key);
+    if (held === undefined || !sameFailedSend(held, payload)) {
+      return false;
+    }
+    set((s) => {
+      const next = new Map(s.failedSendsByConversation);
+      next.delete(key);
+      return { failedSendsByConversation: next };
+    });
+    return true;
   },
 
   recordQueuedSend: (clientMessageId, payload) => {
@@ -964,6 +1001,20 @@ function mergeFailedSends(
       .join("\n\n"),
     attachments: [...older.attachments, ...newer.attachments],
   };
+}
+
+/** Whether a held recovery is still exactly the send an eventual echo names. */
+function sameFailedSend(
+  left: FailedSendPayload,
+  right: FailedSendPayload,
+): boolean {
+  return (
+    left.content === right.content &&
+    left.attachments.length === right.attachments.length &&
+    left.attachments.every(
+      (attachment, index) => attachment.id === right.attachments[index]?.id,
+    )
+  );
 }
 
 /** Read/write the attachment list belonging to `slot`, main or document. */

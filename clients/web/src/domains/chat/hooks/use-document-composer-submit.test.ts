@@ -157,6 +157,15 @@ const { useDocumentComposerSubmit } =
 
 const ASSISTANT_ID = "assistant-1";
 const SURFACE_ID = "surf-1";
+const UPLOADED_ATTACHMENT = {
+  kind: "uploaded" as const,
+  localId: "local-1",
+  id: "srv-1",
+  filename: "spec.pdf",
+  mimeType: "application/pdf",
+  sizeBytes: 2048,
+  previewUrl: null,
+};
 
 /**
  * Which slot-clearing action ran, and against which slot. The real actions
@@ -499,7 +508,9 @@ describe("conversation id resolution", () => {
       sentConversationId,
     );
     expect(
-      useConversationStore.getState().draftConversationIds.has(sentConversationId),
+      useConversationStore
+        .getState()
+        .draftConversationIds.has(sentConversationId),
     ).toBe(false);
   });
 
@@ -637,6 +648,39 @@ describe("conversation id resolution", () => {
 });
 
 describe("the version the send is framed against", () => {
+  test("closing the document during version resolution holds its full payload", async () => {
+    useAssistantIdentityStore.setState({ version: null, assistantId: null });
+    useComposerStore.setState({
+      documentInput: "waiting for identity",
+      documentAttachments: [UPLOADED_ATTACHMENT],
+    });
+    const { result, unmount } = renderSubmit("");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    unmount();
+    act(() => {
+      useAssistantIdentityStore.setState({
+        version: "0.9.0",
+        assistantId: ASSISTANT_ID,
+      });
+    });
+    await act(async () => {
+      await submitted;
+    });
+
+    expect(conversationsPostMock).not.toHaveBeenCalled();
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "waiting for identity",
+      attachments: [UPLOADED_ATTACHMENT],
+    });
+  });
+
   test("a version that hydrates while the send waits takes the mint path", async () => {
     // GIVEN an identity store with no version yet, where a synchronous read
     // would report an assistant that cannot mint a conversation.
@@ -2519,11 +2563,42 @@ describe("a send that outlives its owner", () => {
     expect(useConversationStore.getState().processingConversationIds.size).toBe(
       0,
     );
+    expect(takeHeldMessage(SURFACE_ID)).toBeNull();
     // The incoming assistant's composer is untouched and still sendable.
     expect(useComposerStore.getState().documentInput).toBe(
       "for the second assistant",
     );
     expect(result.current.status).toBe("idle");
+  });
+
+  test("closing the document while its conversation is minted holds its full payload", async () => {
+    useAssistantIdentityStore.setState({ version: "0.9.0" });
+    const settleMint = deferConversationsPost();
+    useComposerStore.setState({
+      documentInput: "waiting for the conversation",
+      documentAttachments: [UPLOADED_ATTACHMENT],
+    });
+    const { result, unmount } = renderSubmit("");
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(conversationsPostMock).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => {
+      settleMint();
+      await submitted;
+    });
+
+    expect(documentsByIdConversationsPostMock).not.toHaveBeenCalled();
+    expect(postChatMessageMock).not.toHaveBeenCalled();
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "waiting for the conversation",
+      attachments: [UPLOADED_ATTACHMENT],
+    });
   });
 
   test("an assistant switch while the document is being linked drops the send, and the next one is ordinary", async () => {
@@ -2573,12 +2648,13 @@ describe("a send that outlives its owner", () => {
     ).toBe(true);
   });
 
-  test("an unmount while the document is being linked registers nothing", async () => {
-    // GIVEN a send whose link is out when the host unmounts (an assistant
-    // switch closing the overlay), after the switch watcher has cleared the
-    // outgoing assistant's state.
+  test("closing the document while it is being linked holds its full payload", async () => {
+    // GIVEN a send whose link is out when the host closes the document.
     const settleLink = deferDocumentLink();
-    useComposerStore.getState().setInput("hello", "document");
+    useComposerStore.setState({
+      documentInput: "hello",
+      documentAttachments: [UPLOADED_ATTACHMENT],
+    });
     const { result, unmount } = renderSubmitForAssistant(ASSISTANT_ID, "");
 
     let submitted: Promise<void> = Promise.resolve();
@@ -2595,8 +2671,8 @@ describe("a send that outlives its owner", () => {
       await submitted;
     });
 
-    // THEN the continuation sent nothing and listed nothing: an entry raised
-    // now would wait on a connection that never carries its reply.
+    // THEN the continuation sends and lists nothing, while the original
+    // document keeps everything the user composed.
     expect(postChatMessageMock).not.toHaveBeenCalled();
     expect(useDocumentComposerReplyStore.getState().pendingReplies.size).toBe(
       0,
@@ -2604,6 +2680,12 @@ describe("a send that outlives its owner", () => {
     expect(useConversationStore.getState().processingConversationIds.size).toBe(
       0,
     );
+    expect(takeHeldMessage(SURFACE_ID)).toEqual({
+      assistantId: ASSISTANT_ID,
+      surfaceId: SURFACE_ID,
+      content: "hello",
+      attachments: [UPLOADED_ATTACHMENT],
+    });
   });
 
   test("an assistant switch while the document is being linked leaves the incoming assistant's document alone", async () => {
@@ -2643,6 +2725,7 @@ describe("a send that outlives its owner", () => {
     expect(postChatMessageMock).not.toHaveBeenCalled();
     expect(openedConversationId()).toBe("conv-draft");
     expect(getEditChatConversationId("assistant-2", SURFACE_ID)).toBeNull();
+    expect(takeHeldMessage(SURFACE_ID)).toBeNull();
   });
 
   test("a document switch while the document is being linked still sends", async () => {

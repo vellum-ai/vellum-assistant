@@ -305,6 +305,29 @@ export function useDocumentComposerSubmit({
     // The ref may have been nulled or replaced by then, so a throw reads the
     // attempt it has to answer for from here.
     let attempt: DocumentComposerAttempt | null = null;
+    const preflightPayload: PendingDocumentReplyPayload = {
+      assistantId,
+      surfaceId: doc.surfaceId,
+      content,
+      attachments: documentAttachments.filter(
+        (attachment): attachment is UploadedAttachment =>
+          attachment.kind === "uploaded",
+      ),
+    };
+    let preflightPayloadHeld = false;
+    const holdAbandonedPreflight = () => {
+      if (
+        preflightPayloadHeld ||
+        currentAssistantIdRef.current !== null ||
+        useResolvedAssistantsStore.getState().activeAssistantId !== assistantId
+      ) {
+        return;
+      }
+      preflightPayloadHeld = true;
+      useDocumentComposerReplyStore
+        .getState()
+        .stashFailedSend(preflightPayload);
+    };
 
     setStatus("sending");
     try {
@@ -316,6 +339,7 @@ export function useDocumentComposerSubmit({
       // than settling for the outgoing one's.
       await whenAssistantVersionKnownFor(assistantId);
       if (assistantChanged()) {
+        holdAbandonedPreflight();
         return;
       }
       const resolvedId = resolveDocumentConversationId(doc, assistantId);
@@ -326,8 +350,9 @@ export function useDocumentComposerSubmit({
       // resolved, and either sent successfully before or is the document's
       // own id), so it always takes the direct path regardless of assistant
       // support.
-      const isFreshDraft =
-        useConversationStore.getState().draftConversationIds.has(resolvedId);
+      const isFreshDraft = useConversationStore
+        .getState()
+        .draftConversationIds.has(resolvedId);
       // Unscoped, matching the read `postChatMessage` makes when it picks its
       // own wire field: the two have to agree on one version, and that read
       // has no owner to scope to.
@@ -359,6 +384,7 @@ export function useDocumentComposerSubmit({
         }
       }
       if (assistantChanged()) {
+        holdAbandonedPreflight();
         return;
       }
 
@@ -376,6 +402,7 @@ export function useDocumentComposerSubmit({
       // document open, and pointing it at this send's conversation would hand
       // the next send a row belonging to the assistant the user left.
       if (assistantChanged()) {
+        holdAbandonedPreflight();
         return;
       }
       if (linked) {
@@ -432,8 +459,11 @@ export function useDocumentComposerSubmit({
       // next pass, before the assistant has actually replied. `undefined` for
       // a conversation the client doesn't know about yet (a fresh draft),
       // same as the main send path.
-      const snapshot = findConversation(queryClient, assistantId, resolvedId)
-        ?.latestAssistantMessageAt;
+      const snapshot = findConversation(
+        queryClient,
+        assistantId,
+        resolvedId,
+      )?.latestAssistantMessageAt;
 
       // The nonce is only valid for the exact payload it was minted for. If an
       // earlier attempt failed ambiguously (the daemon may have accepted the
@@ -476,15 +506,7 @@ export function useDocumentComposerSubmit({
       // daemon can report the send failed after the composer has been cleared
       // and told the user it went out, and nothing else holds the message by
       // then.
-      const sentPayload: PendingDocumentReplyPayload = {
-        assistantId,
-        surfaceId: doc.surfaceId,
-        content,
-        attachments: documentAttachments.filter(
-          (attachment): attachment is UploadedAttachment =>
-            attachment.kind === "uploaded",
-        ),
-      };
+      const sentPayload = preflightPayload;
       attempt = {
         clientMessageId,
         snapshot: payloadSnapshot,
@@ -755,6 +777,8 @@ export function useDocumentComposerSubmit({
         if (!(isMountedRef.current && ownsSlotNow())) {
           holdAbandonedMessage(attempt);
         }
+      } else {
+        holdAbandonedPreflight();
       }
       if (ownsSlotNow()) {
         setStatus("error");

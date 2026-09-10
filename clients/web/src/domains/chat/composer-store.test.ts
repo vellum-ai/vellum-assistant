@@ -75,7 +75,7 @@ mock.module(
 import type { UploadedAttachment } from "@/domains/chat/composer-store";
 import type { DisplayAttachment } from "@/types/attachment-types";
 
-const { MAX_ATTACHMENT_BYTES, useComposerStore } =
+const { MAX_ATTACHMENT_BYTES, failedSendFor, useComposerStore } =
   await import("@/domains/chat/composer-store");
 
 function getStore() {
@@ -96,6 +96,10 @@ function resetDocumentSlot() {
 beforeEach(() => {
   getStore().fullReset();
   resetDocumentSlot();
+  useComposerStore.setState({
+    failedSendsByConversation: new Map(),
+    queuedSends: new Map(),
+  });
   localSettingsStore.clear();
   uploadChatAttachmentMock.mockClear();
   fetchAttachmentContentBlobMock.mockClear();
@@ -104,6 +108,10 @@ beforeEach(() => {
 afterEach(() => {
   getStore().fullReset();
   resetDocumentSlot();
+  useComposerStore.setState({
+    failedSendsByConversation: new Map(),
+    queuedSends: new Map(),
+  });
   localSettingsStore.clear();
 });
 
@@ -1345,108 +1353,138 @@ describe("stashFailedSend and takeFailedSend", () => {
   };
 
   test("holds a message under the conversation it was composed for", () => {
-    getStore().stashFailedSend("conv-1", {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "the batched send",
       attachments: [attachment],
     });
 
-    expect(getStore().failedSendsByConversation.get("conv-1")).toEqual({
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toEqual({
       content: "the batched send",
       attachments: [attachment],
     });
   });
 
   test("keeps both messages when a conversation already holds one, oldest first", () => {
-    getStore().stashFailedSend("conv-1", {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "first",
       attachments: [attachment],
     });
-    getStore().stashFailedSend("conv-1", {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "second",
       attachments: [otherAttachment],
     });
 
-    expect(getStore().failedSendsByConversation.get("conv-1")).toEqual({
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toEqual({
       content: "first\n\nsecond",
       attachments: [attachment, otherAttachment],
     });
   });
 
   test("joins nothing onto a message the other of the pair carried no text for", () => {
-    getStore().stashFailedSend("conv-1", { content: "", attachments: [] });
-    getStore().stashFailedSend("conv-1", {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
+      content: "",
+      attachments: [],
+    });
+    getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "only text",
       attachments: [attachment],
     });
 
-    expect(getStore().failedSendsByConversation.get("conv-1")).toEqual({
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toEqual({
       content: "only text",
       attachments: [attachment],
     });
   });
 
   test("take returns the held message and removes it", () => {
-    getStore().stashFailedSend("conv-1", {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "the batched send",
       attachments: [attachment],
     });
 
-    expect(getStore().takeFailedSend("conv-1")).toEqual({
+    expect(getStore().takeFailedSend("assistant-1", "conv-1")).toEqual({
       content: "the batched send",
       attachments: [attachment],
     });
-    expect(getStore().failedSendsByConversation.has("conv-1")).toBe(false);
-    expect(getStore().takeFailedSend("conv-1")).toBeNull();
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toBeUndefined();
+    expect(getStore().takeFailedSend("assistant-1", "conv-1")).toBeNull();
   });
 
   test("take is null for a conversation holding nothing", () => {
-    expect(getStore().takeFailedSend("conv-nothing")).toBeNull();
+    expect(getStore().takeFailedSend("assistant-1", "conv-nothing")).toBeNull();
   });
 
   test("one conversation's take leaves another's message alone", () => {
-    getStore().stashFailedSend("conv-1", { content: "mine", attachments: [] });
-    getStore().stashFailedSend("conv-2", {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
+      content: "mine",
+      attachments: [],
+    });
+    getStore().stashFailedSend("assistant-1", "conv-2", {
       content: "theirs",
       attachments: [otherAttachment],
     });
 
-    getStore().takeFailedSend("conv-1");
+    getStore().takeFailedSend("assistant-1", "conv-1");
 
-    expect(getStore().failedSendsByConversation.get("conv-2")).toEqual({
+    expect(failedSendFor(getStore(), "assistant-1", "conv-2")).toEqual({
       content: "theirs",
       attachments: [otherAttachment],
     });
+  });
+
+  test("the same conversation id stays isolated between assistants", () => {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
+      content: "first assistant",
+      attachments: [attachment],
+    });
+    getStore().stashFailedSend("assistant-2", "conv-1", {
+      content: "second assistant",
+      attachments: [otherAttachment],
+    });
+
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")?.content).toBe(
+      "first assistant",
+    );
+    expect(failedSendFor(getStore(), "assistant-2", "conv-1")?.content).toBe(
+      "second assistant",
+    );
   });
 
   test("a conversation switch within one assistant keeps every held message", () => {
-    getStore().stashFailedSend("conv-1", { content: "mine", attachments: [] });
+    getStore().stashFailedSend("assistant-1", "conv-1", {
+      content: "mine",
+      attachments: [],
+    });
 
     getStore().resetAttachments();
 
-    expect(getStore().failedSendsByConversation.has("conv-1")).toBe(true);
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toBeDefined();
   });
 
-  test("the assistant switch's full reset drops every held message", () => {
-    getStore().stashFailedSend("conv-1", {
+  test("the assistant switch's full reset keeps held messages scoped", () => {
+    getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "the batched send",
       attachments: [attachment],
-    });
-    getStore().stashFailedSend("conv-2", {
-      content: "another",
-      attachments: [],
     });
 
     getStore().fullReset();
 
-    expect(getStore().failedSendsByConversation.size).toBe(0);
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toEqual({
+      content: "the batched send",
+      attachments: [attachment],
+    });
+    expect(failedSendFor(getStore(), "assistant-2", "conv-1")).toBeUndefined();
   });
 
   test("resetting the document slot leaves the main slot's held messages alone", () => {
-    getStore().stashFailedSend("conv-1", { content: "mine", attachments: [] });
+    getStore().stashFailedSend("assistant-1", "conv-1", {
+      content: "mine",
+      attachments: [],
+    });
 
     getStore().fullReset("document");
 
-    expect(getStore().failedSendsByConversation.has("conv-1")).toBe(true);
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toBeDefined();
   });
 });
 

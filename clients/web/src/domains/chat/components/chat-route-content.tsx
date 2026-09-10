@@ -68,7 +68,7 @@ import { useSupportsNewChatPlugins } from "@/lib/backwards-compat/use-supports-n
 import { recordCommit } from "@/lib/commit-pressure";
 import { useSwitchPaintMeasurement } from "@/lib/telemetry/switch-telemetry";
 import { NewChatPluginsSection } from "@/domains/chat/components/new-chat-plugins/new-chat-plugins-section";
-import { useComposerStore } from "@/domains/chat/composer-store";
+import { failedSendFor, useComposerStore } from "@/domains/chat/composer-store";
 import { ActiveProcessOverlay } from "@/domains/chat/process-registry/active-process-overlay";
 import {
   OVERLAY_PROCESS_KINDS,
@@ -365,8 +365,8 @@ export function ChatMainPanel({
     [assistantId],
   );
 
-  // A send the daemon reports as failed is held under the conversation it was
-  // composed for, and the panel showing that conversation takes it once the
+  // A send the daemon reports as failed is held under the assistant and
+  // conversation it was composed for. The matching panel takes it once the
   // whole main slot is empty: the failure can be acknowledged while its thread
   // is on screen or long after the user has moved to another one, and the
   // message waits either way. A draft typed or staged since is never replaced,
@@ -377,15 +377,20 @@ export function ChatMainPanel({
   // so typing still never re-renders this orchestrator: the emptiness flag
   // flips on the first character and on the last one leaving.
   const failedSend = useComposerStore((s) =>
-    activeConversationId
-      ? s.failedSendsByConversation.get(activeConversationId)
+    assistantId && activeConversationId
+      ? failedSendFor(s, assistantId, activeConversationId)
       : undefined,
   );
   const mainSlotEmpty = useComposerStore(
     (s) => s.input.trim() === "" && s.attachments.length === 0,
   );
   useEffect(() => {
-    if (!activeConversationId || failedSend === undefined || !mainSlotEmpty) {
+    if (
+      !assistantId ||
+      !activeConversationId ||
+      failedSend === undefined ||
+      !mainSlotEmpty
+    ) {
       return;
     }
     const composer = useComposerStore.getState();
@@ -393,13 +398,13 @@ export function ChatMainPanel({
     if (composer.input.trim() !== "" || composer.attachments.length > 0) {
       return;
     }
-    const payload = composer.takeFailedSend(activeConversationId);
+    const payload = composer.takeFailedSend(assistantId, activeConversationId);
     if (payload === null) {
       return;
     }
     composer.setInput(payload.content);
     composer.restoreAttachmentsIfEmpty(payload.attachments);
-  }, [activeConversationId, failedSend, mainSlotEmpty]);
+  }, [activeConversationId, assistantId, failedSend, mainSlotEmpty]);
 
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
@@ -995,7 +1000,7 @@ export function ChatMainPanel({
         message={error.message}
         onClose={() => {
           // A modal that still carries the message it reports is the
-          // rejected-POST one from `use-send-message`, whose text never
+          // rejected-POST one from `use-send-message`, whose payload never
           // reached the store. Holding it for its own conversation is what
           // puts it back into that thread's composer, once that conversation
           // is on screen with an empty composer, so a draft typed or staged
@@ -1004,14 +1009,17 @@ export function ChatMainPanel({
           // handler hands the message over at failure time, and this modal
           // only tells the user about it.
           if (
+            assistantId &&
             error.conversationId &&
             (typeof error.restoreContent === "string" ||
               error.restoreAttachments)
           ) {
-            useComposerStore.getState().stashFailedSend(error.conversationId, {
-              content: error.restoreContent ?? "",
-              attachments: error.restoreAttachments ?? [],
-            });
+            useComposerStore
+              .getState()
+              .stashFailedSend(assistantId, error.conversationId, {
+                content: error.restoreContent ?? "",
+                attachments: error.restoreAttachments ?? [],
+              });
           }
           useChatSessionStore.getState().setError(null);
         }}

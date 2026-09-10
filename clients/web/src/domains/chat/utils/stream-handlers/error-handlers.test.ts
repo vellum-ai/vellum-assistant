@@ -9,7 +9,7 @@ import {
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useComposerStore } from "@/domains/chat/composer-store";
+import { failedSendFor, useComposerStore } from "@/domains/chat/composer-store";
 import type { ChatError } from "@/domains/chat/types";
 import type {
   DisplayAttachment,
@@ -139,12 +139,12 @@ describe("handleStreamError", () => {
     // for the conversation it was composed for, and the modal only tells the
     // user
     expect(ctx.setOptimisticSends).toHaveBeenCalled();
-    const updater = ((ctx.setOptimisticSends as unknown) as ReturnType<
-      typeof Object
-    >).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    const updater = (
+      ctx.setOptimisticSends as unknown as ReturnType<typeof Object>
+    ).mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
     expect(updater([optimisticSendWithAttachment])).toEqual([]);
     expect(
-      useComposerStore.getState().failedSendsByConversation.get("conv-1"),
+      failedSendFor(useComposerStore.getState(), "ast-1", "conv-1"),
     ).toEqual({
       content: "the batched send",
       attachments: [failedAttachment],
@@ -186,7 +186,7 @@ describe("handleStreamError", () => {
     );
 
     expect(
-      useComposerStore.getState().failedSendsByConversation.get("conv-batched"),
+      failedSendFor(useComposerStore.getState(), "ast-1", "conv-batched"),
     ).toEqual({
       content: "the batched send",
       attachments: [failedAttachment],
@@ -239,7 +239,7 @@ describe("handleStreamError", () => {
     );
 
     expect(
-      useComposerStore.getState().failedSendsByConversation.get("conv-batched"),
+      failedSendFor(useComposerStore.getState(), "ast-1", "conv-batched"),
     ).toEqual({
       content: "the batched send\n\nthe second send",
       attachments: [failedAttachment],
@@ -283,7 +283,7 @@ describe("handleStreamError", () => {
     );
 
     expect(
-      useComposerStore.getState().failedSendsByConversation.get("conv-1"),
+      failedSendFor(useComposerStore.getState(), "ast-1", "conv-1"),
     ).toEqual({ content: "the batched send", attachments: [] });
   });
 
@@ -313,7 +313,7 @@ describe("handleStreamError", () => {
     // Held once, from the row, and the copy that would have held it a second
     // time is gone.
     expect(
-      useComposerStore.getState().failedSendsByConversation.get("conv-1"),
+      failedSendFor(useComposerStore.getState(), "ast-1", "conv-1"),
     ).toEqual({
       content: "the batched send",
       attachments: [failedAttachment],
@@ -344,7 +344,7 @@ describe("handleStreamError", () => {
     );
 
     expect(
-      useComposerStore.getState().failedSendsByConversation.get("conv-queued"),
+      failedSendFor(useComposerStore.getState(), "assistant-1", "conv-queued"),
     ).toEqual({
       content: "parked behind the running turn",
       attachments: [failedAttachment],

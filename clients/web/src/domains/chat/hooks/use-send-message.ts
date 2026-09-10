@@ -321,7 +321,7 @@ export function useSendMessage({
       content: string,
       epoch: number,
       turnId: string,
-      attachmentIds: string[] = [],
+      attachments: DisplayAttachment[] = [],
       isDraft = false,
       clientMessageId?: string,
       isHidden = false,
@@ -402,7 +402,7 @@ export function useSendMessage({
           useServerMint ? null : requestConversationId,
           content,
           {
-            attachmentIds,
+            attachmentIds: attachments.map((attachment) => attachment.id),
             onboarding: onboardingContext ?? undefined,
             clientMessageId,
             inferenceProfile: inferenceProfileForSend,
@@ -437,18 +437,17 @@ export function useSendMessage({
               useConversationStore.getState().activeConversationId,
           });
           // Ignored is about the UI, not about the message. Nothing on screen
-          // belongs to this send any more, but its text was cleared from the
+          // belongs to this send any more, but its payload was cleared from the
           // composer when it started and this failure is the end of the line
-          // for it, so it goes back to its own conversation's draft rather than
-          // nowhere. A hidden send has no user text to give back.
+          // for it, so it is held for its own conversation rather than nowhere.
+          // A hidden send has no user payload to give back.
           if (!isHidden) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(
-                requestAssistantId,
-                requestConversationId,
+              .stashFailedSend(requestAssistantId, requestConversationId, {
                 content,
-              );
+                attachments,
+              });
           }
           return { status: "ignored" };
         }
@@ -977,15 +976,18 @@ export function useSendMessage({
               });
             }
             // Off screen there is no banner to carry the failure and no
-            // composer of this thread's to put the text back into, so it goes
-            // to that thread's draft instead of being lost. Its own condition
+            // composer of this thread's to put the payload back into, so it is
+            // held for that thread instead of being lost. Its own condition
             // rather than the banner's `else`, because what matters is where
             // the send stands NOW: one that was on screen when it started and
             // is not by the time it fails belongs here.
             if (!onScreenAtFailure && !isHidden) {
               useComposerStore
                 .getState()
-                .restoreFailedDraft(assistantId, activeConversationId, content);
+                .stashFailedSend(assistantId, activeConversationId, {
+                  content,
+                  attachments,
+                });
             }
             return;
           }
@@ -1096,9 +1098,8 @@ export function useSendMessage({
             revertQueuedMessage(userMessage.id);
             setError({ message: "Failed to queue message. Please try again." });
           }
-          // The draft is the copy for a request the daemon never saw. One it
-          // did see is spoken for on the stream, whose echo has by then let
-          // the queued copy go and would find nothing to take back.
+          // The held payload is the recovery copy while the queued send stays
+          // available for a late echo to retract it.
           if (
             !onScreenAtThrow &&
             !isHidden &&
@@ -1106,7 +1107,10 @@ export function useSendMessage({
           ) {
             useComposerStore
               .getState()
-              .restoreFailedDraft(assistantId, activeConversationId, content);
+              .stashFailedSend(assistantId, activeConversationId, {
+                content,
+                attachments,
+              });
           }
         }
         return;
@@ -1184,7 +1188,7 @@ export function useSendMessage({
           content,
           useStreamStore.getState().streamEpoch,
           turnId,
-          attachments.map((att) => att.id),
+          attachments,
           isDraft,
           clientMessageId,
           isHidden,
@@ -1211,13 +1215,16 @@ export function useSendMessage({
               ...(result.error.code ? { code: result.error.code } : {}),
               displayAs: "modal",
               restoreContent: content,
+              restoreAttachments: attachments,
               // The conversation the POST went to, so acknowledging the modal
               // hands the text back to that thread's composer even if the user
               // has moved on by then.
               conversationId: activeConversationId,
             });
           } else {
-            useComposerStore.getState().setInput(content);
+            const composer = useComposerStore.getState();
+            composer.setInput(content);
+            composer.restoreAttachmentsIfEmpty(attachments);
             setError(result.error);
           }
           return;
@@ -1232,12 +1239,14 @@ export function useSendMessage({
 
         resolvedId = result.resolvedConversationId;
 
-        // A message the daemon runs is never refused as a queued one, so the
-        // copy kept for that refusal goes unless the daemon queued the send;
-        // a queued one is filed under the row the daemon named.
+        // A direct send normally has already persisted by the time the POST
+        // answers, so its recovery copy can go. An interrupt is accepted before
+        // its detached handoff persists the message and can still fail there,
+        // so it keeps the copy until the echo or correlated failure settles it.
+        // Every retained copy is filed under the row the daemon named.
         if (!isHidden) {
           const composer = useComposerStore.getState();
-          if (!result.queued) {
+          if (!result.queued && !interruptsRunningTurn) {
             composer.dropQueuedSend(clientMessageId);
           } else if (resolvedId && resolvedId !== activeConversationId) {
             const kept = composer.takeQueuedSend(clientMessageId);
@@ -1361,14 +1370,14 @@ export function useSendMessage({
         //
         // A throw is also the one failure that never reaches
         // `sendMessageViaStream`'s own scope classification, so this is the
-        // only place that can hand the text back to its conversation.
+        // only place that can hand the payload back to its conversation.
         const onScreenAtThrow = sendScopeIsCurrent();
         if (onScreenAtThrow) {
           setError({ message: "Something went wrong. Please try again." });
           useTurnStore.getState().onStreamError();
         }
-        // As on the queue branch: the draft is for a request the daemon never
-        // saw, and one its echo has already spoken for keeps no draft.
+        // As on the queue branch, the held payload is the recovery copy while
+        // the queued send stays available for a late echo to retract it.
         if (
           !onScreenAtThrow &&
           !isHidden &&
@@ -1376,7 +1385,10 @@ export function useSendMessage({
         ) {
           useComposerStore
             .getState()
-            .restoreFailedDraft(assistantId, activeConversationId, content);
+            .stashFailedSend(assistantId, activeConversationId, {
+              content,
+              attachments,
+            });
         }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key

@@ -21,8 +21,11 @@ mock.module("@vellumai/design-library/components/toast", () => ({
   },
 }));
 
-const { useComposerStore } = await import("@/domains/chat/composer-store");
+const { failedSendFor, useComposerStore } =
+  await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { publish } = await import("@/lib/event-bus");
 const { QueuedSendRecoveryWatcher } =
   await import("@/domains/chat/components/queued-send-recovery-watcher");
@@ -111,10 +114,12 @@ function publishMessageQueuedDeleted(
   });
 }
 
-function heldFor(conversationId: string) {
-  return useComposerStore
-    .getState()
-    .failedSendsByConversation.get(conversationId);
+function heldFor(conversationId: string, assistantId = "assistant-1") {
+  return failedSendFor(
+    useComposerStore.getState(),
+    assistantId,
+    conversationId,
+  );
 }
 
 function stillQueued(clientMessageId: string): boolean {
@@ -128,6 +133,7 @@ beforeEach(() => {
   });
   useConversationStore.getState().reset();
   useConversationStore.getState().setActiveConversationId("conv-open");
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   toastErrorMock.mockClear();
 });
 
@@ -149,6 +155,49 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(stillQueued("nonce-1")).toBe(false);
     // The message is persisted, so nothing is owed to that conversation.
     expect(heldFor("conv-left")).toBeUndefined();
+  });
+
+  test("a late echo retracts a full payload held after an ambiguous failure", () => {
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend("assistant-1", "conv-left", {
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(stillQueued("nonce-1")).toBe(false);
+  });
+
+  test("a late echo clears the exact payload already restored on screen", () => {
+    useConversationStore.getState().setActiveConversationId("conv-left");
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().setInput("parked behind the running turn");
+    useComposerStore.getState().restoreAttachmentsIfEmpty([attachment]);
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    expect(useComposerStore.getState().input).toBe("");
+    expect(useComposerStore.getState().attachments).toEqual([]);
+    expect(stillQueued("nonce-1")).toBe(false);
+  });
+
+  test("an assistant switch keeps recovery scoped to its originating assistant", () => {
+    useComposerStore.getState().stashFailedSend("assistant-1", "conv-shared", {
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
+
+    useComposerStore.getState().fullReset();
+
+    expect(heldFor("conv-shared", "assistant-2")).toBeUndefined();
+    expect(heldFor("conv-shared", "assistant-1")).toEqual({
+      content: "parked behind the running turn",
+      attachments: [attachment],
+    });
   });
 
   test("the daemon's echo takes back the draft written for a request that looked lost", () => {

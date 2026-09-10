@@ -27,7 +27,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import { useComposerStore } from "@/domains/chat/composer-store";
+import { failedSendFor, useComposerStore } from "@/domains/chat/composer-store";
 import { useDoctorHandoffStore } from "@/stores/doctor-handoff-store";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import {
@@ -38,6 +38,7 @@ import {
 import type { EphemeralMetaResult } from "@/domains/chat/types/types";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 /** The thread the send was written in. */
 const SEND_CONVERSATION = "conv-written-in";
@@ -45,6 +46,13 @@ const SEND_CONVERSATION = "conv-written-in";
 const OPEN_CONVERSATION = "conv-now-open";
 /** The assistant the user switched to while the send was awaiting. */
 const OTHER_ASSISTANT = "assistant-2";
+const FAILED_ATTACHMENT = {
+  id: "srv-failed",
+  filename: "spec.pdf",
+  mimeType: "application/pdf",
+  sizeBytes: 2048,
+  previewUrl: null,
+};
 
 let capturedBody: Record<string, unknown> | null = null;
 /** What the daemon answers the send POST with. Reset to a plain accept. */
@@ -81,6 +89,10 @@ function draftFor(key: string): string {
   currentLocation = START_LOCATION;
   useComposerStore.getState().restoreDraftIfEmpty(key);
   return useComposerStore.getState().input;
+}
+
+function heldFor(key: string, assistantId = "assistant-1") {
+  return failedSendFor(useComposerStore.getState(), assistantId, key);
 }
 
 /**
@@ -197,6 +209,9 @@ function throwWhileAnswering(
       // the outgoing one's.
       useComposerStore.getState().fullReset();
       useComposerStore.getState().loadAssistantDrafts(OTHER_ASSISTANT);
+      useResolvedAssistantsStore
+        .getState()
+        .setActiveAssistantId(OTHER_ASSISTANT);
     }
     throw new Error("network down");
   }) as typeof daemonClient.post;
@@ -216,6 +231,7 @@ beforeEach(() => {
     requestIdToMessageId: new Map(),
   });
   useResolvedAssistantsStore.getState().setActiveAssistantId("assistant-1");
+  useAssistantFeatureFlagStore.getState().setFlags({ interruptOnSend: false });
   // The draft map is module state shared across tests; reloading it for the
   // assistant from an empty localStorage is how the store itself resets it.
   localStorage.clear();
@@ -438,6 +454,29 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     ]);
   });
 
+  test("an accepted interrupt keeps its payload until the detached send settles", async () => {
+    useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
+    useTurnStore.setState({ phase: "streaming", activeTurnId: "own-turn" });
+    useAssistantFeatureFlagStore.getState().setFlags({ interruptOnSend: true });
+    postResponse = ACCEPTED_DIRECTLY;
+    const { result } = renderSendFor(SEND_CONVERSATION);
+
+    await act(async () => {
+      await result.current.sendMessage("interrupt with this", [
+        FAILED_ATTACHMENT,
+      ]);
+    });
+
+    expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
+      {
+        assistantId: "assistant-1",
+        conversationId: SEND_CONVERSATION,
+        content: "interrupt with this",
+        attachments: [FAILED_ATTACHMENT],
+      },
+    ]);
+  });
+
   test("the copy is kept from before the request goes out", async () => {
     // The daemon's refusal of a queued message rides the stream, unordered
     // against the response, so the copy has to exist while the POST is out.
@@ -555,9 +594,9 @@ describe("useSendMessage: a stale send through the queue branch", () => {
 /**
  * A send that fails after the user has moved on has nowhere on screen to report
  * itself: the streaming path classifies it `ignored` and the queue path's
- * banner is scoped to the thread the failure happened in. The text still has to
- * survive, so it goes back to its own conversation's draft slot and is handed
- * over the next time that thread is opened.
+ * banner is scoped to the thread the failure happened in. The payload still has
+ * to survive, so it is held for its own assistant and conversation and handed
+ * over the next time that composer is opened.
  */
 describe("useSendMessage: a stale send that fails", () => {
   /** A daemon that refuses the POST. */
@@ -574,28 +613,35 @@ describe("useSendMessage: a stale send that fails", () => {
     refusePost();
   });
 
-  test("the streaming path parks the text in its own thread's draft", async () => {
+  test("the streaming path holds the full payload for its own composer", async () => {
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("the one that got away");
+      await result.current.sendMessage("the one that got away", [
+        FAILED_ATTACHMENT,
+      ]);
     });
 
-    expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
-    // Never into the thread the user is actually reading.
-    expect(draftFor(OPEN_CONVERSATION)).toBe("");
+    expect(heldFor(SEND_CONVERSATION)).toEqual({
+      content: "the one that got away",
+      attachments: [FAILED_ATTACHMENT],
+    });
+    expect(heldFor(OPEN_CONVERSATION)).toBeUndefined();
   });
 
-  test("the queue path parks it too", async () => {
+  test("the queue path holds its full payload too", async () => {
     useTurnStore.setState({ phase: "streaming", activeTurnId: "open-turn" });
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("queued and lost");
+      await result.current.sendMessage("queued and lost", [FAILED_ATTACHMENT]);
     });
 
-    expect(draftFor(SEND_CONVERSATION)).toBe("queued and lost");
-    expect(draftFor(OPEN_CONVERSATION)).toBe("");
+    expect(heldFor(SEND_CONVERSATION)).toEqual({
+      content: "queued and lost",
+      attachments: [FAILED_ATTACHMENT],
+    });
+    expect(heldFor(OPEN_CONVERSATION)).toBeUndefined();
   });
 
   test("a draft already waiting in that thread is left alone", async () => {
@@ -609,6 +655,7 @@ describe("useSendMessage: a stale send that fails", () => {
     });
 
     expect(draftFor(SEND_CONVERSATION)).toBe("typed later");
+    expect(heldFor(SEND_CONVERSATION)?.content).toBe("the one that got away");
   });
 
   test("a hidden send has no user text to give back", async () => {
@@ -620,7 +667,7 @@ describe("useSendMessage: a stale send that fails", () => {
       });
     });
 
-    expect(draftFor(SEND_CONVERSATION)).toBe("");
+    expect(heldFor(SEND_CONVERSATION)).toBeUndefined();
   });
 
   test("an on-screen failure is unchanged: it banners rather than parks", async () => {
@@ -632,7 +679,7 @@ describe("useSendMessage: a stale send that fails", () => {
     });
 
     expect(useChatSessionStore.getState().error).not.toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("");
+    expect(heldFor(SEND_CONVERSATION)).toBeUndefined();
   });
 });
 
@@ -666,7 +713,7 @@ describe("useSendMessage: a switch during the POST", () => {
     expect(turnState()).toEqual(OPEN_THREAD_TURN);
   });
 
-  test("a failure raises no banner and parks the text instead", async () => {
+  test("a failure raises no banner and holds the payload instead", async () => {
     daemonClient.post = mock(async () => {
       useConversationStore
         .getState()
@@ -680,13 +727,18 @@ describe("useSendMessage: a switch during the POST", () => {
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("the one that got away");
+      await result.current.sendMessage("the one that got away", [
+        FAILED_ATTACHMENT,
+      ]);
     });
 
     // On screen when it started, off screen when it failed: the banner would
-    // land on the wrong thread, so the text goes to its own thread's draft.
+    // land on the wrong thread, so the payload is held for its own composer.
     expect(useChatSessionStore.getState().error).toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
+    expect(heldFor(SEND_CONVERSATION)).toEqual({
+      content: "the one that got away",
+      attachments: [FAILED_ATTACHMENT],
+    });
   });
 
   test("a queue-branch failure banners nowhere and parks the text", async () => {
@@ -711,7 +763,7 @@ describe("useSendMessage: a switch during the POST", () => {
     });
 
     expect(useChatSessionStore.getState().error).toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("queued and lost");
+    expect(heldFor(SEND_CONVERSATION)?.content).toBe("queued and lost");
   });
 
   test("a queued response leaves the newly opened thread's mapping empty", async () => {
@@ -766,23 +818,29 @@ describe("useSendMessage: a local command answering after a switch", () => {
 /**
  * A POST that throws instead of answering. The outer catch is the only handler
  * such a send reaches, so everything the scoped paths do has to happen there
- * too: idle the turn only for the thread on screen, and hand the text back to
+ * too: idle the turn only for the thread on screen, and hand the payload back to
  * its own conversation otherwise.
  */
 describe("useSendMessage: a send whose POST throws", () => {
-  test("off screen it idles no turn, banners nothing, and parks the text", async () => {
+  test("off screen it idles no turn, banners nothing, and holds the payload", async () => {
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
     throwWhileAnswering({ switchFirst: true });
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("the one that got away");
+      await result.current.sendMessage("the one that got away", [
+        FAILED_ATTACHMENT,
+      ]);
     });
 
     // The answer the user is watching is still running.
     expect(turnState()).toEqual(OPEN_THREAD_ANSWERING);
     expect(useChatSessionStore.getState().error).toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("the one that got away");
+    expect(heldFor(SEND_CONVERSATION)).toEqual({
+      content: "the one that got away",
+      attachments: [FAILED_ATTACHMENT],
+    });
+    expect(useComposerStore.getState().queuedSends.size).toBe(1);
   });
 
   test("on screen it behaves as it always has", async () => {
@@ -798,26 +856,29 @@ describe("useSendMessage: a send whose POST throws", () => {
     // `onStreamError` ran: the turn is idled and its id dropped.
     expect(turnState()).toEqual({ phase: "idle", activeTurnId: null });
     // Nothing parked, because the banner carries the failure.
-    expect(draftFor(SEND_CONVERSATION)).toBe("");
+    expect(heldFor(SEND_CONVERSATION)).toBeUndefined();
   });
 
-  test("an assistant switch parks the text under the send's own assistant", async () => {
+  test("an assistant switch holds the payload under the send's own assistant", async () => {
     useConversationStore.getState().setActiveConversationId(SEND_CONVERSATION);
     throwWhileAnswering({ switchFirst: true, switchAssistantFirst: true });
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("left behind by the switch");
+      await result.current.sendMessage("left behind by the switch", [
+        FAILED_ATTACHMENT,
+      ]);
     });
 
     // Nothing under the assistant now loaded: the send was never theirs.
-    expect(draftFor(SEND_CONVERSATION)).toBe("");
-
-    useComposerStore.getState().loadAssistantDrafts("assistant-1");
-    expect(draftFor(SEND_CONVERSATION)).toBe("left behind by the switch");
+    expect(heldFor(SEND_CONVERSATION, OTHER_ASSISTANT)).toBeUndefined();
+    expect(heldFor(SEND_CONVERSATION, "assistant-1")).toEqual({
+      content: "left behind by the switch",
+      attachments: [FAILED_ATTACHMENT],
+    });
   });
 
-  test("the queue branch's own catch parks it too", async () => {
+  test("the queue branch's own catch holds attachments too", async () => {
     // `willQueue` is read pre-POST, so a thread already answering puts this
     // send on the queue path; its catch is a separate handler from the one
     // above and needs the same split.
@@ -827,11 +888,17 @@ describe("useSendMessage: a send whose POST throws", () => {
     const { result } = renderSendFor(SEND_CONVERSATION);
 
     await act(async () => {
-      await result.current.sendMessage("queued and thrown");
+      await result.current.sendMessage("queued and thrown", [
+        FAILED_ATTACHMENT,
+      ]);
     });
 
     expect(useChatSessionStore.getState().error).toBeNull();
-    expect(draftFor(SEND_CONVERSATION)).toBe("queued and thrown");
+    expect(heldFor(SEND_CONVERSATION)).toEqual({
+      content: "queued and thrown",
+      attachments: [FAILED_ATTACHMENT],
+    });
+    expect(useComposerStore.getState().queuedSends.size).toBe(1);
   });
 });
 

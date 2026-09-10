@@ -129,10 +129,12 @@ function handleMessageScopedError(
   if (clientMessageId && !failedSend) {
     const held = useComposerStore.getState().takeQueuedSend(clientMessageId);
     if (held) {
-      useComposerStore.getState().stashFailedSend(held.conversationId, {
-        content: held.content,
-        attachments: held.attachments,
-      });
+      useComposerStore
+        .getState()
+        .stashFailedSend(held.assistantId, held.conversationId, {
+          content: held.content,
+          attachments: held.attachments,
+        });
       ctx.setError({
         message: detail,
         code: event.code,
@@ -178,11 +180,13 @@ function handleMessageScopedError(
   ctx.setOptimisticSends((prev) =>
     prev.filter((m) => !messageMatchesKey(m, clientMessageId)),
   );
-  if (event.conversationId) {
-    useComposerStore.getState().stashFailedSend(event.conversationId, {
-      content: messagePlainText(failedSend),
-      attachments: failedSend.attachments ?? [],
-    });
+  if (event.conversationId && ctx.assistantId) {
+    useComposerStore
+      .getState()
+      .stashFailedSend(ctx.assistantId, event.conversationId, {
+        content: messagePlainText(failedSend),
+        attachments: failedSend.attachments ?? [],
+      });
   }
   // The row said everything the queued copy of this send would have, so the
   // copy is spent.
