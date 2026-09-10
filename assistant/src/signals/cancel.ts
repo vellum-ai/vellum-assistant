@@ -51,7 +51,9 @@ export function handleCancelSignal(): void {
     conversation.abort(
       createAbortReason("signal_cancel", "handleCancelSignal", conversationId),
     );
-    getSubagentManager().abortAllForParent(conversationId);
+    getSubagentManager().abortAllForParent(conversationId, undefined, {
+      userCancelled: true,
+    });
 
     log.info({ conversationId }, "Generation cancelled via signal file");
   } catch (err) {

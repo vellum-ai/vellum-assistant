@@ -111,7 +111,9 @@ export function cancelGeneration(conversationId: string): boolean {
   // unwanted model activity after the user pressed stop. Terminal children
   // stay readable: the conversation survives the stop, and its next turn may
   // still `subagent_read` a completed child's result.
-  getSubagentManager().abortAllForParent(conversationId);
+  getSubagentManager().abortAllForParent(conversationId, undefined, {
+    userCancelled: true,
+  });
   // Cancel any in-flight ACP agent sessions this conversation spawned, for the
   // same reason: a backgrounded ACP prompt would otherwise keep running (and
   // holding a child process) past the stop and, on completion, enqueue a

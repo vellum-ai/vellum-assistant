@@ -5,6 +5,7 @@
  * the proxy resolver, which forwards the call to the connected desktop client.
  */
 
+import { throwIfCancelled } from "../shared/abort.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
 /**
@@ -18,6 +19,14 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
 export const POINT_AT_PROXY_TOOL = "computer_use_point_at";
 
 /**
+ * Session teardown, which runs even on a cancelled turn: refusing it would
+ * leave the computer-use session the model opened running with nothing left to
+ * close it. Keyed on the wire name, so a caller whose wire name it shares with
+ * an actuating tool says so with `opts.teardown` instead.
+ */
+const TEARDOWN_TOOLS: ReadonlySet<string> = new Set(["computer_use_done"]);
+
+/**
  * Forward a computer-use proxy tool call through the context's proxyToolResolver.
  *
  * Returns a clear error result if the resolver is missing (e.g. when the tool
@@ -27,7 +36,13 @@ export function forwardComputerUseProxyTool(
   toolName: string,
   input: Record<string, unknown>,
   context: ToolContext,
+  opts?: { teardown?: boolean },
 ): Promise<ToolExecutionResult> {
+  // Every non-teardown call actuates the user's desktop: a click, a keystroke,
+  // an app launch, an AppleScript run.
+  if (!opts?.teardown && !TEARDOWN_TOOLS.has(toolName)) {
+    throwIfCancelled(context);
+  }
   if (!context.proxyToolResolver) {
     return Promise.resolve({
       content: `Cannot execute ${toolName}: no proxy resolver available. This tool requires a connected desktop client.`,
