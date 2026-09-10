@@ -26,8 +26,8 @@ import {
 } from "../../api/responses/conversation-message.js";
 import { GUARDIAN_TERMINAL_REASON_SUPERSEDED } from "../../api/responses/home.js";
 import {
-  SYSTEM_DECISION_SURFACE,
   syncTerminalGuardianRequestStatus,
+  SYSTEM_DECISION_SURFACE,
 } from "../../approvals/guardian-request-status-sync.js";
 import {
   expireGuardianRequest,

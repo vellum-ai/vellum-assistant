@@ -15,6 +15,7 @@ import type {
   MessageCompleteEvent,
 } from "../api/index.js";
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
+import { SYSTEM_DECISION_SURFACE } from "../approvals/guardian-request-status-sync.js";
 import type {
   ChannelId,
   ClientOs,
@@ -1596,7 +1597,7 @@ export async function startVoiceTurn(
               "Consumed scoped grant — allowing non-guardian voice confirmation",
             );
             conversation.handleConfirmationResponse(msg.requestId, "allow", {
-              decidedVia: "phone",
+              decidedVia: SYSTEM_DECISION_SURFACE,
               decisionContext: `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
             });
             return;
@@ -1618,7 +1619,7 @@ export async function startVoiceTurn(
         // gateway unreachable) — tell the model verification failed rather
         // than implying the owner lacks guardian access.
         conversation.handleConfirmationResponse(msg.requestId, "deny", {
-          decidedVia: "phone",
+          decidedVia: SYSTEM_DECISION_SURFACE,
           decisionContext:
             turnChannelContext.userMessageChannel === "vellum"
               ? `Permission denied for "${msg.toolName}": the caller's permissions could not be verified for this voice session, so side-effect tools are unavailable. In your next assistant reply, briefly say you could not verify permissions for this action right now and suggest retrying or completing it in text chat.`
@@ -1682,7 +1683,7 @@ export async function startVoiceTurn(
             "Voice approval timed out — falling back to the guardian allow",
           );
           conversation.handleConfirmationResponse(msg.requestId, "allow", {
-            decidedVia: "phone",
+            decidedVia: SYSTEM_DECISION_SURFACE,
             decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call and the approval prompt went unanswered.`,
           });
         }, VOICE_APPROVAL_TIMEOUT_MS);
@@ -1697,7 +1698,7 @@ export async function startVoiceTurn(
         "Auto-approving confirmation request for guardian voice turn",
       );
       conversation.handleConfirmationResponse(msg.requestId, "allow", {
-        decidedVia: "phone",
+        decidedVia: SYSTEM_DECISION_SURFACE,
         decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
       });
       return;

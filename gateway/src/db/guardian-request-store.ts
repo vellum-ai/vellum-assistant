@@ -480,9 +480,10 @@ export function resolveGuardianRequest(
     sets.push("decided_by_principal_id = ?");
     args.push(decision.decidedByPrincipalId);
   }
-  // Stamped only for a status that means a decision was made. The CAS is
-  // direction-agnostic, so a terminal → pending swap must not leave a
-  // decision timestamp on a row that is decidable again.
+  // Decision provenance tracks the status, in both directions. The CAS is
+  // direction-agnostic, so a transition back to a decidable status clears
+  // the pair rather than leaving a pending row reporting a decision that no
+  // longer stands.
   if (DECISION_STATUSES.has(decision.status)) {
     sets.push("decided_at = ?");
     args.push(now);
@@ -490,6 +491,8 @@ export function resolveGuardianRequest(
       sets.push("decided_via = ?");
       args.push(decision.decidedVia);
     }
+  } else {
+    sets.push("decided_at = NULL", "decided_via = NULL");
   }
 
   const guards = ["id = ?", "status = ?"];

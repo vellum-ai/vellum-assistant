@@ -46,8 +46,9 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       touchConversation(conversationId);
+      // No `decidedVia`: this message protocol carries no client interface,
+      // so the surface behind a confirmation response cannot be named.
       conversation.handleConfirmationResponse(msg.requestId, decision, {
-        decidedVia: "vellum",
         emissionContext: { source: "button" },
       });
       return;

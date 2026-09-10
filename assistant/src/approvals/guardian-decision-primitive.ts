@@ -428,9 +428,9 @@ export async function applyGuardianDecision(
         ? { decidedByExternalUserId: actorContext.actorExternalUserId }
         : {}),
       decidedByPrincipalId: actorContext.guardianPrincipalId,
-      // The surface this decision was made on, which is the routing question
-      // the request row could not answer before: `sourceChannel` says where
-      // the request was raised, never where the guardian answered it.
+      // The surface this decision is made on. `sourceChannel` says where the
+      // request was raised, never where the guardian answers it, so the two
+      // are separate columns.
       decidedVia: actorContext.channel,
       ...(plan.aclOutcome ? { aclOutcome: plan.aclOutcome } : {}),
     });

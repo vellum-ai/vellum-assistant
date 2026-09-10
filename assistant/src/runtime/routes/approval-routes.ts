@@ -99,9 +99,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
       requestId,
       status: effectiveDecision === "allow" ? "approved" : "denied",
       syncContext: "confirm-direct-resolve",
-      // This route is the in-app confirm surface by construction: an ACP
-      // client resolving its own pending prompt.
-      decidedVia: "vellum",
+      // No `decidedVia`: this route is shared by the web app, the IPC
+      // adapter and the `vellum confirm` command, and the trusted header set
+      // carries a principal rather than a client interface, so the deciding
+      // surface cannot be named here without guessing one.
     });
     return { accepted: true };
   }
@@ -117,7 +118,6 @@ function handleConfirm({ body }: RouteHandlerArgs) {
     requestId,
     effectiveDecision as UserDecision,
     {
-      decidedVia: "vellum",
       emissionContext: { source: "button" },
     },
   );

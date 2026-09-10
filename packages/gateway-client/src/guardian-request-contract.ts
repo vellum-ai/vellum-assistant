@@ -139,17 +139,25 @@ export const GuardianRequestSchema = z.object({
    * When the decision landed. Distinct from `updatedAt`, which also moves for
    * delivery and followup writes, so only this one measures time-to-decision
    * against `createdAt`. NULL until a decision resolves the request.
+   *
+   * Defaulted rather than merely nullable so a response from a peer that
+   * predates the column parses as NULL instead of failing the whole DTO. The
+   * inferred type stays `number | null`, so a writer that omits it is still a
+   * compile error. Rolling upgrades stagger the daemon and the gateway, and a
+   * rejected decide response would report a persistence failure for a
+   * decision the gateway had already committed.
    */
-  decidedAt: z.number().nullable(),
+  decidedAt: z.number().nullable().default(null),
   /**
    * Surface the decision came from: a channel id (`vellum`, `slack`,
    * `telegram`, ...) for a person's decision, `system` for a machine-driven
    * terminal transition. Open string set. Distinct from `sourceChannel`, which
    * says where the request was RAISED. A request raised in Telegram and
    * approved from the in-app card has `sourceChannel: telegram` and
-   * `decidedVia: vellum`.
+   * `decidedVia: vellum`. Defaulted for the same rolling-upgrade reason as
+   * `decidedAt`.
    */
-  decidedVia: z.string().nullable(),
+  decidedVia: z.string().nullable().default(null),
   followupState: z.string().nullable(),
   expiresAt: z.number().nullable(),
   createdAt: z.number(),

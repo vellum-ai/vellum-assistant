@@ -408,11 +408,10 @@ describe("resolveGuardianRequest", () => {
     expect(touched?.updatedAt).toBeGreaterThan(decided.request.decidedAt!);
   });
 
-  test("a swap back to pending stamps no decision timestamp", () => {
-    // The CAS is direction-agnostic, so the stamp is gated on the status
-    // meaning a decision. A row that is decidable again must carry no
-    // decision timestamp, or it would report a latency for a decision that
-    // no longer stands.
+  test("a swap back to pending clears the decision provenance", () => {
+    // The CAS is direction-agnostic. A row returned to a decidable status
+    // must carry no decision timestamp or surface, or a pending request
+    // would report a latency for a decision that no longer stands.
     const req = createRequest();
     resolveGuardianRequest(req.id, "pending", {
       status: "approved",
@@ -428,9 +427,8 @@ describe("resolveGuardianRequest", () => {
       throw new Error("expected swap to apply");
     }
     expect(swapped.request.status).toBe("pending");
-    // The prior decision's stamps are left as they were rather than
-    // overwritten by a transition that decided nothing.
-    expect(swapped.request.decidedVia).toBe("telegram");
+    expect(swapped.request.decidedAt).toBeNull();
+    expect(swapped.request.decidedVia).toBeNull();
   });
 
   test("first writer wins — the second resolve returns applied:false", () => {
