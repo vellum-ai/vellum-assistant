@@ -40,8 +40,10 @@
  * client that made it so that client can suppress its own echo.
  */
 
+import { randomUUID } from "node:crypto";
 import {
   closeSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -376,6 +378,9 @@ function linkedTaskIdFor(conversationId: string): string | null {
 /** Suffix of the lock file that guards a read-modify-write of the snapshot. */
 const ACTIVATION_PROGRESS_LOCK_SUFFIX = ".lock";
 
+/** Suffix of the file that serializes reclaiming an abandoned lock. */
+const ACTIVATION_PROGRESS_RECLAIM_SUFFIX = ".reclaim";
+
 /**
  * How long a mutation waits for another process to finish before it gives up
  * and fails. Every holder does one small read and one rename, so a wait this
@@ -502,6 +507,97 @@ function progressLockIsStale(lockPath: string): boolean {
 }
 
 /**
+ * Remove a lock that {@link progressLockIsStale} judged abandoned, and only
+ * that lock.
+ *
+ * Two waiters can judge the same abandoned lock at once. If both simply
+ * unlinked the path, the slower unlink would land on whatever the faster
+ * waiter created after its own reclaim, and a third writer would then take a
+ * lock the faster one believes it holds. Reclaiming is therefore serialized
+ * through a second exclusive file, and the lock is judged again inside that
+ * section, where nothing else can remove it. The removal itself goes through
+ * a rename, so the instance taken off the path is provably the one that was
+ * judged: an inode that changed underneath the rename belongs to a live
+ * writer that took the path in between, and it is put back.
+ *
+ * The reclaim file is stamped and judged by the same rules as the lock, so a
+ * reclaimer that dies inside this section is aged out the same way.
+ */
+function reclaimStaleProgressLock(lockPath: string): void {
+  const reclaimPath = `${lockPath}${ACTIVATION_PROGRESS_RECLAIM_SUFFIX}`;
+  if (tryAcquireProgressLock(reclaimPath) !== "acquired") {
+    if (progressLockIsStale(reclaimPath)) {
+      rmSync(reclaimPath, { force: true });
+    }
+    return;
+  }
+  try {
+    let judgedIno: number;
+    try {
+      judgedIno = statSync(lockPath).ino;
+    } catch {
+      return;
+    }
+    if (!progressLockIsStale(lockPath)) {
+      return;
+    }
+    const claimedPath = `${lockPath}.${process.pid}.${randomUUID()}`;
+    try {
+      renameSync(lockPath, claimedPath);
+    } catch {
+      return;
+    }
+    let claimedIno: number | null = null;
+    try {
+      claimedIno = statSync(claimedPath).ino;
+    } catch {
+      return;
+    }
+    if (claimedIno === judgedIno) {
+      rmSync(claimedPath, { force: true });
+      return;
+    }
+    restoreDisplacedProgressLock(claimedPath, lockPath);
+  } finally {
+    rmSync(reclaimPath, { force: true });
+  }
+}
+
+/**
+ * Put a live lock back on its path after a reclaim moved it by mistake.
+ *
+ * `link` refuses to clobber, so a lock some other writer created while the
+ * path was empty survives; the displaced writer is the one that loses, and
+ * that is logged rather than silently doubled up.
+ */
+function restoreDisplacedProgressLock(
+  claimedPath: string,
+  lockPath: string,
+): void {
+  try {
+    linkSync(claimedPath, lockPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      log.warn(
+        { lockPath },
+        "A live activation progress lock was displaced during a reclaim and another writer took its place",
+      );
+    } else {
+      try {
+        renameSync(claimedPath, lockPath);
+        return;
+      } catch (renameErr) {
+        log.warn(
+          { err: renameErr, lockPath },
+          "Failed to restore a displaced activation progress lock",
+        );
+      }
+    }
+  }
+  rmSync(claimedPath, { force: true });
+}
+
+/**
  * Take the lock for the whole read-modify-write below, so a sidecar worker
  * and the daemon cannot both read one snapshot and rename over each other's
  * update.
@@ -532,7 +628,7 @@ async function acquireProgressLock(): Promise<boolean> {
     if (progressLockIsStale(lockPath)) {
       // Whoever left this behind is gone. Clear it and contend for it again
       // on the next pass rather than assuming the removal was ours.
-      rmSync(lockPath, { force: true });
+      reclaimStaleProgressLock(lockPath);
     }
     if (Date.now() >= deadline) {
       log.warn(

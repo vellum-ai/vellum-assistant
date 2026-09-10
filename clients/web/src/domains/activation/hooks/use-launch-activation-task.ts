@@ -50,6 +50,14 @@
  * back to the user mid-launch. The set is mirrored in a ref so the duplicate
  * guard answers within the click that fires it, before React has re-rendered
  * the row into its pending state.
+ *
+ * The sets are kept per assistant. The surfaces stay mounted across an
+ * assistant switch, so a launch still out against the previous assistant
+ * must neither disable the same row on the next one nor, when it settles,
+ * clear a launch the next one has in flight. A launch that settles under a
+ * different assistant than it began on reports nothing: its conversation
+ * belongs to an assistant the user has left, so there is no thread to offer
+ * and no accordion to move.
  */
 
 import { useCallback, useRef, useState } from "react";
@@ -301,17 +309,33 @@ export interface UseLaunchActivationTask {
 
 const NONE_PENDING: ReadonlySet<string> = new Set();
 
+/** A copy React can tell apart from the last one, set by set. */
+function snapshotPending(
+  inFlight: ReadonlyMap<string, ReadonlySet<string>>,
+): ReadonlyMap<string, ReadonlySet<string>> {
+  return new Map(
+    [...inFlight].map(([assistantId, taskIds]) => [
+      assistantId,
+      new Set(taskIds),
+    ]),
+  );
+}
+
 export function useLaunchActivationTask(
   listId: string,
 ): UseLaunchActivationTask {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const queryClient = useQueryClient();
   const { t } = useTranslation("activation");
-  const [pendingTaskIds, setPendingTaskIds] =
-    useState<ReadonlySet<string>>(NONE_PENDING);
+  const [pendingByAssistant, setPendingByAssistant] = useState<
+    ReadonlyMap<string, ReadonlySet<string>>
+  >(new Map());
   // The ref is the authority the guard reads; the state is the copy React
   // renders. Two clicks in one tick both see the ref, and only one gets past.
-  const inFlight = useRef<Set<string>>(new Set());
+  const inFlight = useRef<Map<string, Set<string>>>(new Map());
+  const pendingTaskIds =
+    (assistantId ? pendingByAssistant.get(assistantId) : undefined) ??
+    NONE_PENDING;
 
   const launch = useCallback(
     async (
@@ -345,11 +369,19 @@ export function useLaunchActivationTask(
 
       // The row is already working. Launching again would open a second
       // conversation for one task and leave the daemon two rows to mark done.
-      if (inFlight.current.has(taskId)) {
+      const pending = inFlight.current.get(assistantId) ?? new Set<string>();
+      if (pending.has(taskId)) {
         return { ok: false };
       }
-      inFlight.current.add(taskId);
-      setPendingTaskIds(new Set(inFlight.current));
+      pending.add(taskId);
+      inFlight.current.set(assistantId, pending);
+      setPendingByAssistant(snapshotPending(inFlight.current));
+      const settle = (
+        result: LaunchActivationTaskResult,
+      ): LaunchActivationTaskResult =>
+        useResolvedAssistantsStore.getState().activeAssistantId === assistantId
+          ? result
+          : { ok: false };
       try {
         const created = await createBackgroundConversation({
           assistantId,
@@ -357,7 +389,7 @@ export function useLaunchActivationTask(
           ...(task?.title ? { title: task.title } : {}),
         });
         if (!created.ok) {
-          return { ok: false, error: created.error };
+          return settle({ ok: false, error: created.error });
         }
         const { conversationId } = created;
 
@@ -371,9 +403,13 @@ export function useLaunchActivationTask(
         if (link.failure) {
           if (link.failure.rejected) {
             void discardBackgroundConversation(assistantId, conversationId);
-            return { ok: false, error: link.failure.error };
+            return settle({ ok: false, error: link.failure.error });
           }
-          return { ok: false, conversationId, error: link.failure.error };
+          return settle({
+            ok: false,
+            conversationId,
+            error: link.failure.error,
+          });
         }
         // The daemon holds the link from here, whatever the send does next, so
         // the row is guarded and the read is refreshed before either can end.
@@ -403,14 +439,14 @@ export function useLaunchActivationTask(
         } catch (error) {
           // The link already stands, so the conversation is the task's; the
           // user can open and drive it whatever the transport did.
-          return {
+          return settle({
             ok: false,
             conversationId,
             error: extractErrorMessage(error, undefined, t("launch.failed")),
-          };
+          });
         }
         if (!sent.ok) {
-          return {
+          return settle({
             ok: false,
             conversationId,
             error: extractErrorMessage(
@@ -418,7 +454,7 @@ export function useLaunchActivationTask(
               undefined,
               t("launch.failed"),
             ),
-          };
+          });
         }
 
         emitActivationEvent(
@@ -426,10 +462,13 @@ export function useLaunchActivationTask(
           { taskId },
           telemetryContext,
         );
-        return { ok: true, conversationId };
+        return settle({ ok: true, conversationId });
       } finally {
-        inFlight.current.delete(taskId);
-        setPendingTaskIds(new Set(inFlight.current));
+        pending.delete(taskId);
+        if (pending.size === 0) {
+          inFlight.current.delete(assistantId);
+        }
+        setPendingByAssistant(snapshotPending(inFlight.current));
       }
     },
     [assistantId, listId, queryClient, t],

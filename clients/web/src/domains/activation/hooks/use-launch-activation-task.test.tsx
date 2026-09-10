@@ -97,6 +97,13 @@ function releaseCreates(): void {
   }
 }
 
+/** Let the oldest parked create answer while the rest stay held. */
+function releaseOneCreate(): void {
+  const resume = parkedCreates.shift();
+  expect(resume).toBeDefined();
+  resume!();
+}
+
 const emitMock = mock(() => {});
 
 // Every `mock.module` spreads the real module: it replaces the module for
@@ -630,6 +637,99 @@ describe("useLaunchActivationTask concurrency", () => {
     });
 
     expect(again?.ok).toBe(true);
+  });
+});
+
+/**
+ * The surfaces stay mounted across an assistant switch, so a launch still out
+ * against the previous assistant is bookkeeping for that assistant alone.
+ */
+describe("useLaunchActivationTask across an assistant switch", () => {
+  test("a launch out against the previous assistant does not hold the row on the next", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let first: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      first = result.current.launch("pdf-proposal");
+    });
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(true);
+
+    await act(async () => {
+      seedActivationIdentity("asst-2");
+    });
+    expect(result.current.pendingTaskIds.size).toBe(0);
+
+    let second: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      second = result.current.launch("pdf-proposal");
+    });
+    expect(calls.filter((leg) => leg === "create")).toHaveLength(2);
+    expect(result.current.pendingTaskIds.has("pdf-proposal")).toBe(true);
+
+    await act(async () => {
+      releaseCreates();
+      await first;
+      await second;
+    });
+    expect((await second)?.ok).toBe(true);
+  });
+
+  test("a launch that settles under another assistant clears nothing of that assistant's", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let first: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      first = result.current.launch("pdf-proposal");
+    });
+
+    await act(async () => {
+      seedActivationIdentity("asst-2");
+    });
+    let second: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      second = result.current.launch("weekly-report");
+    });
+
+    await act(async () => {
+      releaseOneCreate();
+      await first;
+    });
+    expect(result.current.pendingTaskIds.has("weekly-report")).toBe(true);
+
+    await act(async () => {
+      releaseCreates();
+      await second;
+    });
+    expect(result.current.pendingTaskIds.size).toBe(0);
+  });
+
+  // The thread it opened belongs to an assistant the user has left: there is
+  // nothing to offer and no accordion to move.
+  test("a launch that settles under another assistant reports nothing", async () => {
+    holdCreates = true;
+    const result = launcher();
+
+    let launched: Promise<LaunchActivationTaskResult> | undefined;
+    await act(async () => {
+      launched = result.current.launch("pdf-proposal");
+    });
+
+    let settled: LaunchActivationTaskResult | undefined;
+    await act(async () => {
+      seedActivationIdentity("asst-2");
+      releaseCreates();
+      settled = await launched;
+    });
+
+    expect(settled).toEqual({ ok: false });
+    expect(calls).toEqual(["create", "start", "send"]);
+    expect(emitMock).toHaveBeenCalledWith(
+      "activation_task_started",
+      { taskId: "pdf-proposal" },
+      { arm: "smb", listId: "smb" },
+    );
   });
 });
 

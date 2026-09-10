@@ -157,6 +157,9 @@ function holdProgressLock(
  */
 const OTHER_LIVE_PID = process.ppid > 1 ? process.ppid : process.pid;
 
+/** Above every pid_max, so it names no process on any host. */
+const DEAD_PID = 0x40000000;
+
 /** Backdate the lock file, the only signal a holderless lock is judged on. */
 function ageLockFile(lockPath: string, ageMs: number): void {
   const when = new Date(Date.now() - ageMs);
@@ -1231,12 +1234,46 @@ describe("activation progress store", () => {
     });
 
     test("takes over a lock a dead process left behind", async () => {
-      // Above every pid_max, so it names no process on any host.
-      const lockPath = getActivationProgressLockPath();
-      mkdirSync(join(workspaceDir, "data"), { recursive: true });
+      holdProgressLock(Date.now(), DEAD_PID);
+
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      expect(readRawProgress().tasks["draft-email"]).toMatchObject({
+        status: "started",
+      });
+    });
+
+    test("leaves a dead process's lock alone while another process is reclaiming it", async () => {
+      setActivationLockTimingForTesting({ waitMs: 40 });
+      const lockPath = holdProgressLock(Date.now(), DEAD_PID);
+      const reclaimPath = `${lockPath}.reclaim`;
       writeFileSync(
-        lockPath,
-        JSON.stringify({ pid: 0x40000000, at: Date.now() }),
+        reclaimPath,
+        JSON.stringify({ pid: OTHER_LIVE_PID, at: Date.now() }),
+        "utf-8",
+      );
+
+      const err = await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      }).catch((e: unknown) => e);
+
+      // The other reclaimer owns the removal; a second unlink here could land
+      // on whatever it creates once its own reclaim is through.
+      expect((err as InstanceType<typeof RouteError>).statusCode).toBe(503);
+      expect(existsSync(lockPath)).toBe(true);
+      expect(existsSync(reclaimPath)).toBe(true);
+    });
+
+    test("clears a reclaim another process died inside of, then takes the lock", async () => {
+      const lockPath = holdProgressLock(Date.now(), DEAD_PID);
+      const reclaimPath = `${lockPath}.reclaim`;
+      writeFileSync(
+        reclaimPath,
+        JSON.stringify({ pid: DEAD_PID, at: Date.now() }),
         "utf-8",
       );
 
@@ -1248,6 +1285,22 @@ describe("activation progress store", () => {
       expect(readRawProgress().tasks["draft-email"]).toMatchObject({
         status: "started",
       });
+      expect(readdirSync(join(workspaceDir, "data"))).toEqual([
+        ACTIVATION_PROGRESS_FILENAME,
+      ]);
+    });
+
+    test("a reclaim leaves nothing beside the snapshot", async () => {
+      holdProgressLock(Date.now(), DEAD_PID);
+
+      await startActivationTask({
+        taskId: "draft-email",
+        conversationId: "conv-1",
+      });
+
+      expect(readdirSync(join(workspaceDir, "data"))).toEqual([
+        ACTIVATION_PROGRESS_FILENAME,
+      ]);
     });
 
     test("a write that lands while a mutation waits is not clobbered", async () => {
