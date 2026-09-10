@@ -1674,6 +1674,9 @@ describe("Conversation message queue", () => {
 
     // msg-3 should have received a dequeued event
     expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
+    // The failure is the empty message's alone, and msg-3's turn is the one
+    // that closes the client's turn, so no cancel is sent for it.
+    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(false);
 
     // Complete the third message's run
     await resolveRun(1);
@@ -2455,6 +2458,131 @@ describe("Batched drain correctness fixes", () => {
 
     expect(events2.find((e) => e.type === "message_complete")).toBeDefined();
     expect(events4.find((e) => e.type === "message_complete")).toBeDefined();
+  });
+
+  test("a failed queued message with nothing behind it ends the turn it was to start", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // The only queued message fails to persist, and nothing runs after it.
+    conversation.enqueueMessage({
+      content: "",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+      clientMessageId: "cm-2",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    // The failure names the message, so a client listing its sends by nonce
+    // fails the right one, and the turn that message was to start ends,
+    // since no turn is coming to close it.
+    expect(events2.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      conversationId: "conv-1",
+      requestId: "req-2",
+      scope: "message",
+      clientMessageId: "cm-2",
+    });
+    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(true);
+    expect(conversation.isProcessing()).toBe(false);
+  });
+
+  test("a failed batch head whose siblings start no turn ends the turn it was to start", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Both batch members fail to persist, so the drain starts nothing.
+    addMessageShouldThrowForContent.add("bad-head-marker");
+    addMessageShouldThrowForContent.add("bad-tail-marker");
+    conversation.enqueueMessage({
+      content: "bad-head-marker",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-head",
+      clientMessageId: "cm-head",
+    });
+    conversation.enqueueMessage({
+      content: "bad-tail-marker",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-tail",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(events2.find((e) => e.type === "error")).toMatchObject({
+      type: "error",
+      scope: "message",
+      clientMessageId: "cm-head",
+    });
+    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(true);
+    expect(conversation.isProcessing()).toBe(false);
+  });
+
+  test("a failed batch head whose sibling runs leaves the turn to that sibling", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: AssistantEvent[] = [];
+    const events2: AssistantEvent[] = [];
+    const events3: AssistantEvent[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    addMessageShouldThrowForContent.add("bad-head-marker");
+    conversation.enqueueMessage({
+      content: "bad-head-marker",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-head",
+    });
+    conversation.enqueueMessage({
+      content: "good-tail",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-tail",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // The sibling's turn is the one that closes the client's turn.
+    expect(events2.some((e) => e.type === "generation_cancelled")).toBe(false);
+    expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 20));
   });
 
   test("failed batch member error names its requestId and clientMessageId", async () => {

@@ -1121,13 +1121,30 @@ async function drainSingleMessage(
       },
       "Failed to persist queued message",
     );
+    // The failure is this one message's: the event carries the message
+    // scope and, when the sender supplied one, the nonce it tracks its send
+    // by, so a client listing its sends by nonce fails the right one.
     next.onEvent({
       type: "error",
       conversationId: conversation.conversationId,
+      requestId: next.requestId,
       message,
+      scope: "message",
+      ...(next.clientMessageId
+        ? { clientMessageId: next.clientMessageId }
+        : {}),
     });
     // Continue draining — don't strand remaining messages
     await drainQueue(conversation);
+    // A message-scoped error leaves a client's turn open for the turn that
+    // runs on. When the drain started none, nothing is coming to close it,
+    // so the turn the failed message was to start ends here instead.
+    if (!conversation.isProcessing()) {
+      next.onEvent({
+        type: "generation_cancelled",
+        conversationId: conversation.conversationId,
+      });
+    }
     return;
   }
 
@@ -1552,6 +1569,16 @@ async function drainBatch(
           await drainSingleMessage(conversation, remaining[0], reason);
         } else {
           await drainQueue(conversation);
+        }
+        // The message-scoped error above leaves a client's turn open for the
+        // turn that runs on. When the drain started none, every sibling a
+        // duplicate or the queue empty, nothing is coming to close it, so the
+        // turn the failed head was to start ends here instead.
+        if (!conversation.isProcessing()) {
+          qm.onEvent({
+            type: "generation_cancelled",
+            conversationId: conversation.conversationId,
+          });
         }
         return;
       }
