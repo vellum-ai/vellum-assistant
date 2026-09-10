@@ -32,11 +32,14 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import type { CallAudioFormat } from "./audio-store.js";
 import {
+  BARGE_IN_TEARDOWN_WAIT_MS,
+  DURATION_WARNING_LEAD_MS,
   getEndCallDrainMaxWaitMs,
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
   getSilenceTimeoutMs,
   getUserConsultationTimeoutMs,
+  POST_GOODBYE_HANGUP_DELAY_MS,
 } from "./call-constants.js";
 import {
   formatDuration,
@@ -339,7 +342,9 @@ export class CallController {
       this.currentTurnPromise = null;
       await Promise.race([
         teardownPromise.catch(() => {}),
-        new Promise<void>((resolve) => setTimeout(resolve, 2000)),
+        new Promise<void>((resolve) =>
+          setTimeout(resolve, BARGE_IN_TEARDOWN_WAIT_MS),
+        ),
       ]);
     }
 
@@ -1779,7 +1784,7 @@ export class CallController {
 
   private startDurationTimer(): void {
     const maxDurationMs = getMaxCallDurationMs();
-    const warningMs = maxDurationMs - 2 * 60 * 1000; // 2 minutes before max
+    const warningMs = maxDurationMs - DURATION_WARNING_LEAD_MS;
 
     if (warningMs > 0) {
       this.durationWarningTimer = setTimeout(() => {
@@ -1840,7 +1845,7 @@ export class CallController {
             },
           );
         }
-      }, 3000);
+      }, POST_GOODBYE_HANGUP_DELAY_MS);
     }, maxDurationMs);
   }
 

@@ -56,7 +56,10 @@ let mockSilenceTimeoutMs = 30_000;
 let mockEndCallListenWindowMs = 0;
 let mockEndCallDrainMaxWaitMs = 15_000;
 
+import * as realCallConstants from "../call-constants.js";
+
 mock.module("../call-constants.js", () => ({
+  ...realCallConstants,
   getMaxCallDurationMs: () => 12 * 60 * 1000,
   getUserConsultationTimeoutMs: () => mockConsultationTimeoutMs,
   getSilenceTimeoutMs: () => mockSilenceTimeoutMs,

@@ -274,7 +274,10 @@ mock.module("../resolve-call-tts-provider.js", () => ({
 let mockTtsPlaybackDelayMs = 5;
 let mockAccessRequestPollIntervalMs = 5;
 let mockUserConsultationTimeoutMs = 500;
+import * as realCallConstants from "../call-constants.js";
+
 mock.module("../call-constants.js", () => ({
+  ...realCallConstants,
   isDeniedNumber: jest.fn(() => false),
   getMaxCallDurationMs: jest.fn(() => 3_600_000),
   getUserConsultationTimeoutMs: jest.fn(() => mockUserConsultationTimeoutMs),
