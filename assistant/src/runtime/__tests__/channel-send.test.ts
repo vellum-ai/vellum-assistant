@@ -88,6 +88,7 @@ mock.module("../../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 let bindCreates = true;
+let bindThrows = false;
 mock.module("../../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: (key: string) => {
     getOrCreateCalls.push(key);
@@ -116,6 +117,9 @@ mock.module("../../persistence/external-conversation-store.js", () => ({
     return trimmed ? trimmed : null;
   },
   upsertOutboundBinding: (input: Record<string, unknown>) => {
+    if (bindThrows) {
+      throw new Error("binding store unavailable");
+    }
     bindCalls.push(input);
   },
 }));
@@ -132,6 +136,7 @@ beforeEach(() => {
   bindCalls.length = 0;
   getOrCreateCalls.length = 0;
   bindCreates = true;
+  bindThrows = false;
   listChangedMock.mockClear();
   resolveHomeMock.mockClear();
   recordMock.mockClear();
@@ -287,6 +292,18 @@ describe("delivery through the transport", () => {
       text: "again",
     });
     expect(listChangedMock).not.toHaveBeenCalled();
+  });
+
+  test("a binding that throws still leaves its minted conversation in the list", async () => {
+    bindThrows = true;
+    const result = await sendChannelText({
+      channel: "telegram",
+      target: { kind: "chat", chatId: "123456789", threadId: "42" },
+      text: "hello",
+    });
+    expect(bindCalls).toEqual([]);
+    expect(listChangedMock).toHaveBeenCalledWith("created");
+    expect(result.messageIds).toEqual(["1700000000.000100"]);
   });
 
   test("a failed send binds nothing, so it does not move where the next inbound lands", async () => {

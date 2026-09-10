@@ -203,17 +203,19 @@ function bindChatForNextInbound(
     const { conversationId, created } = getOrCreateConversation(
       buildScopedConversationKey(channel, address.chatId, address.threadId),
     );
+    // Published before the binding, not after: the conversation exists as
+    // soon as it is minted, the record that follows finds it rather than
+    // minting it, and a binding that throws must not leave a conversation
+    // holding a real message out of the list.
+    if (created) {
+      publishConversationListChanged("created");
+    }
     upsertOutboundBinding({
       conversationId,
       sourceChannel: channel,
       externalChatId: address.chatId,
       externalThreadId: address.threadId ?? null,
     });
-    // The record that follows finds this conversation rather than minting
-    // it, so the list invalidation a mint owes is published here.
-    if (created) {
-      publishConversationListChanged("created");
-    }
   } catch (e) {
     log.warn(
       {
