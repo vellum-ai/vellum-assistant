@@ -50,7 +50,10 @@ import {
   getBindingByChannelChat,
   upsertOutboundBinding,
 } from "../persistence/external-conversation-store.js";
-import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import {
+  publishConversationListChanged,
+  publishConversationMessagesChanged,
+} from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
@@ -546,6 +549,9 @@ export async function resolveProactiveHomeConversation(params: {
       threadId,
       isChannelId(sourceChannel) ? { origin: sourceChannel } : undefined,
     );
+    // The record that follows invalidates only the conversation's messages;
+    // a conversation that did not exist a moment ago has to reach the list.
+    publishConversationListChanged("created");
     return {
       conversationId: minted.conversationId,
       createdNewConversation: true,
@@ -610,6 +616,7 @@ export async function resolveProactiveHomeConversation(params: {
     sourceChannel: notificationChannel(sourceChannel),
     externalChatId,
   });
+  publishConversationListChanged("created");
   return { conversationId: conversation.id, createdNewConversation: true };
 }
 
