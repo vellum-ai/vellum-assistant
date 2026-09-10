@@ -119,6 +119,17 @@ export interface AcpRunEntry {
   events: AcpRunRawEvent[];
 }
 
+/** A model update recorded before its session had an entry in the store. */
+export interface PendingModelUpdate {
+  model?: string;
+  availableModels: AcpModelOption[];
+  /** When the update landed, in `Date.now()` ms, for the snapshot ordering rule. */
+  updatedAt: number;
+}
+
+/** How many sessions can hold a buffered model update at once. */
+const MAX_PENDING_MODEL_UPDATES = 32;
+
 export interface AcpRunState {
   byId: Record<string, AcpRunEntry>;
   orderedIds: string[];
@@ -133,6 +144,14 @@ export interface AcpRunState {
    * reconnection by ignoring anything at or below the mark.
    */
   highWaterMark: Map<string, number>;
+  /**
+   * Model updates that landed for a session with no entry yet. The snapshot
+   * that creates the entry folds the buffered update in under the same
+   * ordering rule a live entry gets, so an update racing an in-flight
+   * `/acp/sessions` read is not lost. Bounded by
+   * {@link MAX_PENDING_MODEL_UPDATES}, least recently updated id dropped first.
+   */
+  pendingModelUpdates: Map<string, PendingModelUpdate>;
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +256,9 @@ export interface AcpRunActions {
    * cleared selection or a shrunken option set must not be masked by the
    * previous one. Stamps `modelUpdatedAt` so a snapshot requested before this
    * update cannot roll it back.
+   *
+   * A session with no entry yet buffers the update in `pendingModelUpdates`
+   * instead, for the snapshot that creates the entry to apply.
    */
   setModel: (params: {
     acpSessionId: string;
@@ -254,7 +276,8 @@ export interface AcpRunActions {
    * `fetchedAt` is when the caller issued the request these entries answer.
    * A model update stamped at or after it is newer than the snapshot, so the
    * live selection is kept. Callers that cannot say omit it and get the plain
-   * snapshot rules.
+   * snapshot rules. A buffered update from `pendingModelUpdates` is folded in
+   * by the same rule and dropped either way.
    */
   seedFromHistory: (
     entries: AcpRunEntry[],
@@ -275,6 +298,7 @@ const INITIAL_STATE: AcpRunState = {
   orderedIds: [],
   byToolUseId: new Map<string, string>(),
   highWaterMark: new Map<string, number>(),
+  pendingModelUpdates: new Map<string, PendingModelUpdate>(),
 };
 
 // ---------------------------------------------------------------------------
@@ -371,6 +395,72 @@ function mergeModelSelection(
     model: incoming.model ?? existing.model,
     availableModels: existing.availableModels,
     modelUpdatedAt,
+  };
+}
+
+/**
+ * Buffer a model update for a session with no entry, replacing any earlier one
+ * for the same id. Re-inserting the key keeps the map in recency order so the
+ * cap evicts the least recently updated session.
+ */
+function rememberPendingModelUpdate(
+  pendingModelUpdates: Map<string, PendingModelUpdate>,
+  acpSessionId: string,
+  update: PendingModelUpdate,
+): Map<string, PendingModelUpdate> {
+  const next = new Map(pendingModelUpdates);
+  next.delete(acpSessionId);
+  next.set(acpSessionId, update);
+  for (const id of next.keys()) {
+    if (next.size <= MAX_PENDING_MODEL_UPDATES) {
+      break;
+    }
+    next.delete(id);
+  }
+  return next;
+}
+
+/**
+ * Forget the buffered model updates for the given sessions, keeping the map
+ * reference stable when none of them had one.
+ */
+function dropPendingModelUpdates(
+  pendingModelUpdates: Map<string, PendingModelUpdate>,
+  acpSessionIds: string[],
+): Map<string, PendingModelUpdate> {
+  const buffered = acpSessionIds.filter((id) => pendingModelUpdates.has(id));
+  if (buffered.length === 0) {
+    return pendingModelUpdates;
+  }
+  const next = new Map(pendingModelUpdates);
+  for (const id of buffered) {
+    next.delete(id);
+  }
+  return next;
+}
+
+/**
+ * Fold a buffered model update into the snapshot entry that creates its
+ * session. The buffered update stands in for the live entry the store never
+ * had, so {@link mergeModelSelection} picks the winner by the same rule.
+ */
+function applyPendingModelUpdate(
+  entry: AcpRunEntry,
+  pending: PendingModelUpdate,
+  fetchedAt?: number,
+): AcpRunEntry {
+  return {
+    ...entry,
+    ...mergeModelSelection(
+      {
+        ...entry,
+        model: pending.model,
+        availableModels: pending.availableModels,
+        modelUpdatedAt: pending.updatedAt,
+      },
+      entry,
+      fetchedAt,
+    ),
   };
 }
 
@@ -708,9 +798,20 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
   },
 
   setModel: (params) => {
-    const { byId } = get();
+    const { byId, pendingModelUpdates } = get();
     const existing = byId[params.acpSessionId];
     if (!existing) {
+      set({
+        pendingModelUpdates: rememberPendingModelUpdate(
+          pendingModelUpdates,
+          params.acpSessionId,
+          {
+            model: params.model,
+            availableModels: params.availableModels,
+            updatedAt: Date.now(),
+          },
+        ),
+      });
       return;
     }
 
@@ -724,11 +825,20 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
           modelUpdatedAt: Date.now(),
         },
       },
+      pendingModelUpdates: dropPendingModelUpdates(pendingModelUpdates, [
+        params.acpSessionId,
+      ]),
     });
   },
 
   seedFromHistory: (entries, options) => {
-    const { byId, orderedIds, byToolUseId, highWaterMark } = get();
+    const {
+      byId,
+      orderedIds,
+      byToolUseId,
+      highWaterMark,
+      pendingModelUpdates,
+    } = get();
 
     // Union live + history events by seq and always merge terminal/status/
     // usage metadata from history so a live entry can't stay stale. The shared
@@ -737,10 +847,16 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
     // A row inserted fresh carries the fetch time too, so an older overlapping
     // response cannot roll it back through the merge path afterwards.
     const fetchedAt = options?.fetchedAt;
-    const stamped =
-      fetchedAt === undefined
-        ? entries
-        : entries.map((entry) => ({ ...entry, modelUpdatedAt: fetchedAt }));
+    const stamped = entries.map((entry) => {
+      const base =
+        fetchedAt === undefined
+          ? entry
+          : { ...entry, modelUpdatedAt: fetchedAt };
+      // An update that landed while this snapshot was in flight had no entry to
+      // stamp, so it waited in `pendingModelUpdates` for the row to arrive.
+      const pending = pendingModelUpdates.get(entry.acpSessionId);
+      return pending ? applyPendingModelUpdate(base, pending, fetchedAt) : base;
+    });
     const { byId: nextById, orderedIds: nextOrderedIds } =
       seedEntriesFromHistory({
         entries: stamped,
@@ -781,6 +897,10 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       orderedIds: nextOrderedIds,
       byToolUseId: nextByToolUseId,
       highWaterMark: nextHighWaterMark,
+      pendingModelUpdates: dropPendingModelUpdates(
+        pendingModelUpdates,
+        entries.map((entry) => entry.acpSessionId),
+      ),
     });
   },
 
@@ -790,6 +910,7 @@ const useAcpRunStoreBase = create<AcpRunStore>()((set, get) => ({
       orderedIds: [],
       byToolUseId: new Map<string, string>(),
       highWaterMark: new Map<string, number>(),
+      pendingModelUpdates: new Map<string, PendingModelUpdate>(),
     }),
 }));
 

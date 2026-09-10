@@ -754,15 +754,50 @@ describe("setModel", () => {
     expect(stamped).toBeGreaterThanOrEqual(before);
   });
 
-  it("ignores an unknown session", () => {
+  it("buffers an update for a session it has not seeded yet", () => {
     const before = { ...getState().byId };
     getState().setModel({
       acpSessionId: "acp-missing",
       model: "opus",
-      availableModels: [],
+      availableModels: [{ value: "opus", label: "Opus" }],
     });
 
     expect(getState().byId).toEqual(before);
+    expect(getState().pendingModelUpdates.get("acp-missing")).toMatchObject({
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+  });
+
+  it("drops the buffered update once a live update lands on the entry", () => {
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    spawn();
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("caps the buffer and drops the least recently updated session", () => {
+    for (let i = 0; i < 64; i += 1) {
+      getState().setModel({
+        acpSessionId: `acp-pending-${i}`,
+        model: "opus",
+        availableModels: [],
+      });
+    }
+
+    const pending = getState().pendingModelUpdates;
+    expect(pending.size).toBeLessThan(64);
+    expect(pending.has("acp-pending-0")).toBe(false);
+    expect(pending.has("acp-pending-63")).toBe(true);
   });
 });
 
@@ -979,6 +1014,59 @@ describe("seedFromHistory", () => {
     const entry = getState().byId["acp-1"]!;
     expect(entry.model).toBe("opus");
     expect(entry.modelUpdatedAt).toBe(200);
+  });
+
+  it("applies an update buffered before the session was seeded", () => {
+    // The update lands while /acp/sessions is in flight, so there is no entry
+    // to stamp, and the response still carries the model read before it.
+    const fetchedAt = Date.now() - 1;
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("sonnet");
+    expect(entry.availableModels).toEqual([
+      { value: "sonnet", label: "Sonnet" },
+    ]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
+  });
+
+  it("lets a snapshot fetched after the buffered update win", () => {
+    getState().setModel({
+      acpSessionId: "acp-1",
+      model: "sonnet",
+      availableModels: [{ value: "sonnet", label: "Sonnet" }],
+    });
+
+    getState().seedFromHistory(
+      [
+        historyEntry({
+          acpSessionId: "acp-1",
+          model: "opus",
+          availableModels: [{ value: "opus", label: "Opus" }],
+        }),
+      ],
+      { fetchedAt: Date.now() + 1000 },
+    );
+
+    const entry = getState().byId["acp-1"]!;
+    expect(entry.model).toBe("opus");
+    expect(entry.availableModels).toEqual([{ value: "opus", label: "Opus" }]);
+    expect(getState().pendingModelUpdates.has("acp-1")).toBe(false);
   });
 
   it("is idempotent — re-seeding the same entry does not duplicate ordered ids", () => {
@@ -1215,5 +1303,18 @@ describe("reset", () => {
     expect(getState().orderedIds).toEqual([]);
     expect(getState().byToolUseId.size).toBe(0);
     expect(getState().highWaterMark.size).toBe(0);
+  });
+
+  it("clears buffered model updates", () => {
+    getState().setModel({
+      acpSessionId: "acp-unseeded",
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+    expect(getState().pendingModelUpdates.size).toBe(1);
+
+    getState().reset();
+
+    expect(getState().pendingModelUpdates.size).toBe(0);
   });
 });
