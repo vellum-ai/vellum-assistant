@@ -88,15 +88,51 @@ export function runDesktopCommand(
 }
 
 export class X11DesktopInput implements DesktopInput {
+  constructor(private readonly runCommand = runDesktopCommand) {}
+
   async observe(signal: AbortSignal): Promise<DesktopObservation> {
     return desktopScreenshot(
-      await runDesktopCommand("xwd", ["-root", "-silent"], signal),
+      await this.runCommand("xwd", ["-root", "-silent"], signal),
     );
   }
 
+  private async movePointer(
+    x: number,
+    y: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const location = (
+      await this.runCommand("xdotool", ["getmouselocation", "--shell"], signal)
+    ).toString();
+    const fromX = Number(/^X=(-?\d+)$/m.exec(location)?.[1] ?? NaN);
+    const fromY = Number(/^Y=(-?\d+)$/m.exec(location)?.[1] ?? NaN);
+    if (!Number.isFinite(fromX) || !Number.isFinite(fromY)) {
+      throw new Error("Could not read the desktop pointer position");
+    }
+    const distance = Math.hypot(x - fromX, y - fromY);
+    if (distance === 0) {
+      return;
+    }
+    const durationMs = Math.min(400, Math.max(120, distance * 0.3));
+    const steps = Math.ceil(durationMs / (1000 / 60));
+    const commands: string[] = [];
+    for (let step = 1; step <= steps; step++) {
+      const progress = step / steps;
+      const eased = progress * progress * (3 - 2 * progress);
+      commands.push(
+        "sleep",
+        String(durationMs / steps / 1000),
+        "mousemove",
+        String(Math.round(fromX + (x - fromX) * eased)),
+        String(Math.round(fromY + (y - fromY) * eased)),
+      );
+    }
+    // One cancellable process streams the whole motion without per-frame spawning.
+    await this.runCommand("xdotool", commands, signal);
+  }
+
   async perform(action: DesktopAction, signal: AbortSignal): Promise<void> {
-    const run = (...args: string[]) =>
-      runDesktopCommand("xdotool", args, signal);
+    const run = (...args: string[]) => this.runCommand("xdotool", args, signal);
     if ("x" in action) {
       const geometry = (await run("getdisplaygeometry"))
         .toString()
@@ -113,7 +149,7 @@ export class X11DesktopInput implements DesktopInput {
           "Desktop dimensions changed or coordinates are out of bounds. Observe again.",
         );
       }
-      await run("mousemove", "--sync", String(action.x), String(action.y));
+      await this.movePointer(action.x, action.y, signal);
     }
     switch (action.action) {
       case "click":
@@ -128,7 +164,7 @@ export class X11DesktopInput implements DesktopInput {
         );
         break;
       case "type":
-        await runDesktopCommand(
+        await this.runCommand(
           "xdotool",
           ["type", "--clearmodifiers", "--delay", "1", "--file", "-"],
           signal,
@@ -151,25 +187,23 @@ export class X11DesktopInput implements DesktopInput {
         break;
       case "drag":
         await run("mousedown", "1");
-        await run(
-          "mousemove",
-          "--sync",
-          String(action.to_x),
-          String(action.to_y),
-        );
-        await run("mouseup", "1");
+        try {
+          await this.movePointer(action.to_x, action.to_y, signal);
+        } finally {
+          await this.runCommand("xdotool", ["mouseup", "1"]);
+        }
         break;
     }
   }
 
   async setViewerInput(enabled: boolean): Promise<void> {
     const value = enabled ? "1" : "0";
-    await runDesktopCommand("tigervncconfig", [
+    await this.runCommand("tigervncconfig", [
       "-set",
       ...DESKTOP_INPUT_PARAMETERS.map((name) => `${name}=${value}`),
     ]);
     for (const name of DESKTOP_INPUT_PARAMETERS) {
-      const actual = await runDesktopCommand("tigervncconfig", ["-get", name]);
+      const actual = await this.runCommand("tigervncconfig", ["-get", name]);
       if (
         !new Set(enabled ? ["1", "true", "on"] : ["0", "false", "off"]).has(
           actual.toString().trim().toLowerCase(),
@@ -182,7 +216,7 @@ export class X11DesktopInput implements DesktopInput {
 
   async releaseInput(): Promise<void> {
     // Zero padding makes xdotool interpret every value as a keycode, including 8 and 9.
-    await runDesktopCommand("xdotool", [
+    await this.runCommand("xdotool", [
       "keyup",
       "--delay",
       "0",

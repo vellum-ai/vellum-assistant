@@ -51,6 +51,7 @@ const state = async () =>
     saved: string;
     scroll: number;
     released: boolean;
+    motion: { x: number; y: number; time: number; down: boolean }[];
   };
 const act = (value: Record<string, unknown>) =>
   input.perform(
@@ -82,7 +83,7 @@ try {
   const fixture = join(directory, "form.py");
   await writeFile(
     fixture,
-    `import tkinter as tk, json, sys
+    `import tkinter as tk, json, sys, time
 r = tk.Tk()
 r.overrideredirect(True)
 r.geometry("600x400+0+0")
@@ -92,6 +93,10 @@ entry.place(x=20, y=20, width=400, height=40)
 saved = ""
 scroll = 0
 released = False
+motion = []
+def moved(event):
+    motion.append(dict(x=event.x_root, y=event.y_root, time=time.monotonic(), down=bool(event.state & 256)))
+r.bind("<Motion>", moved)
 def key_release(event):
     global released
     if event.keysym == "F8":
@@ -108,7 +113,7 @@ r.bind("<Button-4>", wheel)
 r.bind("<Button-5>", wheel)
 def report():
     with open(sys.argv[1], "w") as f:
-        json.dump(dict(text=entry.get(), saved=saved, scroll=scroll, released=released), f)
+        json.dump(dict(text=entry.get(), saved=saved, scroll=scroll, released=released, motion=motion), f)
     r.after(20, report)
 r.after(100, lambda: entry.focus_force())
 report()
@@ -122,6 +127,17 @@ r.mainloop()
   const before = await input.observe(signal);
   assert.equal(before.width, 1440);
   assert.equal(before.height, 900);
+  await runDesktopCommand("xdotool", ["mousemove", "100", "300"]);
+  await waitFor(async () => (await state()).motion.at(-1)?.x === 100);
+  const motionStart = (await state()).motion.length;
+  await act({ action: "drag", x: 100, y: 300, to_x: 500, to_y: 300 });
+  await waitFor(async () => (await state()).motion.at(-1)?.x === 500);
+  const motion = (await state()).motion.slice(motionStart);
+  assert(motion.length >= 5, "Drag must emit intermediate pointer positions");
+  assert(motion.every((point) => point.down && point.y === 300));
+  assert(motion[0]!.x > 100 && motion[0]!.x < 500);
+  assert(motion.at(-1)!.time - motion[0]!.time >= 0.075);
+  console.log(`Verified smooth drag: ${motion.length} timed pointer positions`);
   await act({ action: "click", x: 40, y: 40 });
   await act({ action: "type", text: "Hello café 世界" });
   console.log("Typed Unicode");
@@ -194,7 +210,7 @@ r.mainloop()
     viewer.destroy();
   }
   console.log(
-    "PASS: real X11 screenshots, Unicode typing, clicks, keyboard shortcuts, scrolling, dragging, and RFB input takeover",
+    "PASS: real X11 screenshots, smooth pointer motion, Unicode typing, clicks, keyboard shortcuts, scrolling, dragging, and RFB input takeover",
   );
 } finally {
   for (const child of children.reverse()) {
