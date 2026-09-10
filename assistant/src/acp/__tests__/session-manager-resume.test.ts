@@ -17,6 +17,7 @@ import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
+  nonModelOption,
 } from "./helpers/acp-model-option.js";
 
 // ---------------------------------------------------------------------------
@@ -48,6 +49,8 @@ let resumeConfigOptions: SessionConfigOption[] = [];
 let replayConfigOptionUpdates: SessionConfigOption[][] = [];
 /** When set, setConfigOption rejects with it (the adapter refusing a pin). */
 let setConfigOptionError: Error | null = null;
+/** When set, setConfigOption answers with this instead of the moved selector. */
+let setConfigOptionResult: SessionConfigOption[] | null = null;
 /** Every `setConfigOption` the manager dispatched during a resume. */
 const setConfigOptionCalls: Array<{
   sessionId: string;
@@ -132,6 +135,9 @@ class FakeAcpAgentProcess {
     setConfigOptionCalls.push({ sessionId, configId, value });
     if (setConfigOptionError) {
       throw setConfigOptionError;
+    }
+    if (setConfigOptionResult) {
+      return setConfigOptionResult;
     }
     return typeof value === "string"
       ? [modelOption(value)]
@@ -326,6 +332,7 @@ beforeEach(() => {
   resumeConfigOptions = [];
   replayConfigOptionUpdates = [];
   setConfigOptionError = null;
+  setConfigOptionResult = null;
   setConfigOptionCalls.length = 0;
   resolveImpl = () => ({
     ok: true,
@@ -853,6 +860,50 @@ describe("AcpSessionManager.resumeFromHistory", () => {
       acpSessionId: "resume-replay-only",
       availableModels: MODEL_OPTION_MODELS,
     });
+  });
+
+  test("a re-pin answered without the selector withdraws the picker the replay announced", async () => {
+    fakeCaps.loadSession = true;
+    // The replay puts the selector in front of clients before the re-pin
+    // runs, so the answer that drops it has something to correct.
+    replayConfigOptionUpdates = [[modelOption("default")]];
+    resumeConfigOptions = [];
+    setConfigOptionResult = [nonModelOption()];
+    insertHistoryRow({
+      id: "resume-selector-gone",
+      eventLogJson: JSON.stringify([PERSISTED_EVENT]),
+      model: "opus",
+    });
+
+    const manager = new AcpSessionManager(4);
+    const sent: AssistantEvent[] = [];
+    await manager.resumeFromHistory("resume-selector-gone", (msg) =>
+      sent.push(msg),
+    );
+
+    const state = manager.getStatus("resume-selector-gone") as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    expect(sent.filter((m) => m.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-selector-gone",
+        model: "default",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+      {
+        type: "acp_session_model_update",
+        acpSessionId: "resume-selector-gone",
+        availableModels: [],
+      },
+    ]);
+
+    await manager.steer("resume-selector-gone", "keep going");
+    fakeInstances[0]!.resolvePrompt!({ stopReason: "end_turn" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(readHistoryRow("resume-selector-gone")!.model).toBeNull();
   });
 
   test("a resume the adapter refuses to re-pin runs on the adapter's model and records that on the row", async () => {

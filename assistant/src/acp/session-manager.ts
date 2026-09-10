@@ -184,6 +184,15 @@ interface ModelPinResult {
 }
 
 /**
+ * The sentence a caller who named a model gets when the session has no model
+ * selector to put it through, whether the adapter never advertised one or its
+ * answer to the pin dropped the one it had.
+ */
+function noModelSelectionWarning(agentId: string): string {
+  return `Agent "${agentId}" does not support model selection, so the session is running on the agent's own model.`;
+}
+
+/**
  * An `acp_session_history` row that passed resumeFromHistory's validation
  * guards: `cwd` (nullable in the schema for pre-resume-support rows) is
  * guaranteed present.
@@ -489,6 +498,11 @@ export class AcpSessionManager {
   /**
    * The pin itself: record what the opening response says about the model,
    * then put the session on `resolvedModel` if that is somewhere else.
+   *
+   * An answer that carries no model selector is not a pin that landed: the
+   * session is left with no model rather than one only the superseded
+   * response ever named, and the empty picker goes out so no client is left
+   * holding a selector the answer retired.
    */
   private async applyModelPin(
     entry: SessionEntry,
@@ -510,9 +524,7 @@ export class AcpSessionManager {
       return {
         applied: false,
         ...(requestedModel
-          ? {
-              warning: `Agent "${state.agentId}" does not support model selection, so the session is running on the agent's own model.`,
-            }
+          ? { warning: noModelSelectionWarning(state.agentId) }
           : {}),
       };
     }
@@ -524,6 +536,22 @@ export class AcpSessionManager {
         resolvedModel,
       );
       this.applyModelInfo(entry, refreshed);
+      if (!entry.modelConfigId) {
+        // Published, not just recorded: a `config_option_update` that arrived
+        // while the round trip was open has already put its selector in front
+        // of clients, and a session no client holds yet drops the frame.
+        this.clearVanishedModelSelector(state.id, entry);
+        log.warn(
+          { acpSessionId: state.id, agentId: state.agentId, resolvedModel },
+          "ACP agent dropped its model selector while applying the model; running on its own model",
+        );
+        return {
+          applied: false,
+          ...(requestedModel
+            ? { warning: noModelSelectionWarning(state.agentId) }
+            : {}),
+        };
+      }
       return { applied: true };
     } catch (err) {
       log.warn(

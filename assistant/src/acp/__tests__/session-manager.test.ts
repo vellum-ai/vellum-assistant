@@ -16,6 +16,7 @@ import { initializeDb } from "../../persistence/db-init.js";
 import type { VellumAcpClientHandler } from "../client-handler.js";
 import type { AcpSessionState } from "../types.js";
 import { installAcpConfigStub } from "./helpers/acp-config-stub.js";
+import { readHistoryRow } from "./helpers/acp-history-db.js";
 import {
   MODEL_OPTION_MODELS,
   modelOption,
@@ -438,6 +439,109 @@ describe("AcpSessionManager: model selection at spawn", () => {
       "acp_session_spawned",
       "acp_session_model_update",
     ]);
+  });
+
+  test("a pin answered without the selector warns and leaves no model", async () => {
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    // The adapter takes the call, then answers with a set that advertises no
+    // model selection at all.
+    setConfigOptionResult = [nonModelOption()];
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const result = await manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-dropped",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+
+    expect(result.modelWarning).toBe(
+      'Agent "agent-model" does not support model selection, so the ' +
+        "session is running on the agent's own model.",
+    );
+    const state = manager.getStatus(result.acpSessionId) as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    // The withdrawal goes out before the session is announced, which no
+    // client holds an entry for yet, and the spawn's own model event stays
+    // silent for an adapter with nothing to select.
+    expect(sent.map((e) => e.type)).toEqual([
+      "acp_session_model_update",
+      "acp_session_spawned",
+    ]);
+    expect(sent[0]).toEqual({
+      type: "acp_session_model_update",
+      acpSessionId: result.acpSessionId,
+      availableModels: [],
+    });
+
+    manager.close(result.acpSessionId);
+    expect(readHistoryRow(result.acpSessionId)?.model).toBeNull();
+  });
+
+  test("a selector announced while the pin was open is withdrawn from clients", async () => {
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setConfigOptionResponder = async () => {
+      await held;
+      return [nonModelOption()];
+    };
+
+    const manager = new AcpSessionManager(5);
+    const sent: AssistantEvent[] = [];
+    const spawned = manager.spawn(
+      "agent-model",
+      { command: "echo", args: ["hi"] },
+      "task",
+      "/tmp",
+      "conv-pin-announced",
+      (msg) => sent.push(msg),
+      { model: "opus" },
+    );
+    await waitForConfigOptionCalls(1);
+    const acpSessionId = manager.getActiveAndPendingIds()[0]!;
+    // The adapter reports a selector of its own while the pin is still open,
+    // which reaches clients right away.
+    await emitConfigOptions(manager, acpSessionId, [modelOption("opus")]);
+    release();
+    await spawned;
+
+    const state = manager.getStatus(acpSessionId) as AcpSessionState;
+    expect(state.model).toBeUndefined();
+    expect(state.availableModels).toEqual([]);
+    expect(sent.filter((e) => e.type === "acp_session_model_update")).toEqual([
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        model: "opus",
+        availableModels: MODEL_OPTION_MODELS,
+      },
+      {
+        type: "acp_session_model_update",
+        acpSessionId,
+        availableModels: [],
+      },
+    ]);
+  });
+
+  test("an inherited model whose pin loses the selector warns nobody", async () => {
+    config.setConfig({ defaultModel: "opus" });
+    scriptedConfigOptions = [[modelOption("sonnet")]];
+    setConfigOptionResult = [nonModelOption()];
+
+    const { modelWarning, state } = await spawnWithModel({
+      conversationId: "conv-pin-dropped-inherited",
+    });
+
+    expect(modelWarning).toBeUndefined();
+    expect(state.model).toBeUndefined();
   });
 });
 

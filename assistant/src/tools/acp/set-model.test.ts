@@ -20,7 +20,11 @@ let setModelImpl: (
 ) => Promise<unknown> = async (acpSessionId, model) =>
   sessionState(acpSessionId, model);
 
-function sessionState(acpSessionId: string, model?: string): AcpSessionState {
+function sessionState(
+  acpSessionId: string,
+  model?: string,
+  availableModels?: AcpSessionState["availableModels"],
+): AcpSessionState {
   return {
     id: "sess-1",
     agentId: "claude",
@@ -29,6 +33,7 @@ function sessionState(acpSessionId: string, model?: string): AcpSessionState {
     status: "running",
     startedAt: 0,
     ...(model ? { model } : {}),
+    ...(availableModels ? { availableModels } : {}),
   } as AcpSessionState;
 }
 
@@ -93,6 +98,24 @@ describe("executeAcpSetModel", () => {
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content as string).model).toBe("sonnet");
+  });
+
+  test("a switch the adapter answered without a selector is not claimed", async () => {
+    // What the manager leaves behind when the reply drops the model selector.
+    setModelImpl = async (acpSessionId) =>
+      sessionState(acpSessionId, undefined, []);
+
+    const result = await executeAcpSetModel(
+      { acp_session_id: "acp-123", model: "opus" },
+      makeContext(),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(
+      'Could not switch the model on ACP session "acp-123": the agent ' +
+        "dropped its model selector. Check the session with acp_status " +
+        "before relying on it.",
+    );
   });
 
   test("trims the requested model before handing it to the manager", async () => {
