@@ -138,8 +138,11 @@ const { useComposerStore } = await import("@/domains/chat/composer-store");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useAssistantIdentityStore } =
   await import("@/stores/assistant-identity-store");
-const { getEditChatConversationId, setEditChatConversationId } =
-  await import("@/utils/edit-chat-session");
+const {
+  getEditChatConversationId,
+  getEditChatDraftReplacement,
+  setEditChatConversationId,
+} = await import("@/utils/edit-chat-session");
 const { conversationListQueryKey } =
   await import("@/utils/conversation-list-keys");
 const { listPage } = await import("@/utils/conversation-list.test-helper");
@@ -388,7 +391,6 @@ beforeEach(() => {
     processingConversationIds: new Set(),
     processingSnapshots: new Map(),
     draftConversationIds: new Set(),
-    resolvedDraftConversationIds: new Map(),
   });
   useDocumentComposerReplyStore.setState({ pendingReplies: new Map() });
   useViewerStore.setState({ openedDocumentState: null });
@@ -471,6 +473,16 @@ describe("conversation id resolution", () => {
     // The session cache is written for real (sessionStorage), so its ordering
     // against the send shows up here rather than in `callOrder`.
     const cachedIdAtSend: (string | null)[] = [];
+    // The draft id this send resolves is minted inside the hook and its mark
+    // is off before the send, so it is read while the mint is in flight.
+    const draftIdsAtMint: string[] = [];
+    const mintConversation = conversationsPostMock;
+    conversationsPostMock = mock(async (...args: unknown[]) => {
+      draftIdsAtMint.push(
+        ...useConversationStore.getState().draftConversationIds,
+      );
+      return mintConversation(...(args as []));
+    });
     postChatMessageMock = mock(
       async (..._args: unknown[]): Promise<PostMessageResult> => {
         cachedIdAtSend.push(
@@ -516,9 +528,9 @@ describe("conversation id resolution", () => {
     expect(useConversationStore.getState().draftConversationIds.size).toBe(0);
     // The draft the mint replaced maps to the minted row, so a surface still
     // holding that id resolves to the row instead of the dead draft.
-    expect([
-      ...useConversationStore.getState().resolvedDraftConversationIds.values(),
-    ]).toEqual([MINTED_CONVERSATION_ID]);
+    const draftId = draftIdsAtMint[0] ?? "";
+    expect(draftId).not.toBe("");
+    expect(getEditChatDraftReplacement(draftId)).toBe(MINTED_CONVERSATION_ID);
     expect(
       useConversationStore
         .getState()

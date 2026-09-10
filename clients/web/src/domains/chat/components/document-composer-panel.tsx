@@ -9,8 +9,12 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 import { useDocumentComposerReplyStore } from "@/domains/chat/document-composer-reply-store";
 import { useDocumentComposerSubmit } from "@/domains/chat/hooks/use-document-composer-submit";
 import { useImageAttachmentsAllowed } from "@/domains/chat/hooks/use-image-attachments-allowed";
-import type { DocumentConversationRef } from "@/domains/chat/utils/document-conversation";
+import {
+  peekDocumentConversationRow,
+  type DocumentConversationRef,
+} from "@/domains/chat/utils/document-conversation";
 import { useTranslation } from "@/i18n";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export interface DocumentComposerPanelProps {
   assistantId: string | null;
@@ -31,12 +35,22 @@ export function DocumentComposerPanel({
 }: DocumentComposerPanelProps) {
   const { t } = useTranslation("chat");
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // These attachments are sent to the document's own conversation, so the
-  // image gate reads that conversation's model, not the chat route's. A null
-  // is that model still loading, which holds an image back until it is known.
+  // These attachments go to the row the next send targets, which can differ
+  // from the id the document was opened against: a draft the daemon retired,
+  // or a row a previous send minted for this document. The image gate reads
+  // that row's model, not the chat route's. A live draft has no row yet and
+  // reads the global profile, and a null is that model still loading, which
+  // holds an image back until it is known.
+  const ownIsDraft = useConversationStore(
+    (s) => doc !== null && s.draftConversationIds.has(doc.conversationId),
+  );
+  const targetConversationId =
+    doc !== null && assistantId !== null
+      ? peekDocumentConversationRow(doc, assistantId, ownIsDraft)
+      : undefined;
   const imageAttachmentsAllowed = useImageAttachmentsAllowed(
     assistantId,
-    doc?.conversationId,
+    targetConversationId,
   );
   const { status, submit } = useDocumentComposerSubmit({
     assistantId,

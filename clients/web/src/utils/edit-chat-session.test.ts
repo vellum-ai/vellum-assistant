@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   __TEST_ONLY__,
   getEditChatConversationId,
+  getEditChatDraftReplacement,
   resolveEditChatDraftConversationId,
   setEditChatConversationId,
+  setEditChatDraftReplacement,
 } from "@/utils/edit-chat-session";
 
 const ASSISTANT = "assistant-1";
@@ -71,6 +73,34 @@ describe("edit-chat-session", () => {
     expect(getEditChatConversationId(ASSISTANT, "app-a", 0)).toBe("real-1");
     expect(getEditChatConversationId(ASSISTANT, "app-b", 0)).toBe("real-1");
     expect(getEditChatConversationId(ASSISTANT, "app-c", 0)).toBe("draft-2");
+  });
+
+  it("records the row a resolved draft was replaced by", () => {
+    setEditChatConversationId(ASSISTANT, "app-a", "draft-1", 0);
+
+    resolveEditChatDraftConversationId("draft-1", "real-1");
+
+    expect(getEditChatDraftReplacement("draft-1", 0)).toBe("real-1");
+  });
+
+  it("records the replacement even when no app entry named the draft", () => {
+    // A document opened against the draft is the surface that needs the
+    // mapping, and it has no edit-chat entry of its own.
+    resolveEditChatDraftConversationId("draft-1", "real-1");
+
+    expect(getEditChatDraftReplacement("draft-1", 0)).toBe("real-1");
+  });
+
+  it("returns null for a draft that was never replaced", () => {
+    expect(getEditChatDraftReplacement("draft-1")).toBeNull();
+  });
+
+  it("expires a replacement after the TTL", () => {
+    setEditChatDraftReplacement("draft-1", "real-1", 0);
+
+    expect(
+      getEditChatDraftReplacement("draft-1", __TEST_ONLY__.TTL_MS + 1),
+    ).toBeNull();
   });
 
   it("ignores corrupted JSON", () => {

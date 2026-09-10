@@ -148,7 +148,6 @@ describe("useConversationStore", () => {
     getState().addAttentionConversationId("a1");
     getState().setPendingDraftProfile("draft-a", "smart");
     getState().togglePendingDraftPlugin("draft-a", "plugin-1");
-    getState().recordResolvedDraftConversationId("draft-a", "conv-1");
     getState().reset();
     expect(getState().activeConversationId).toBeNull();
     expect(getState().editingConversationId).toBeNull();
@@ -156,7 +155,6 @@ describe("useConversationStore", () => {
     expect(getState().attentionConversationIds.size).toBe(0);
     expect(getState().pendingDraftProfiles.size).toBe(0);
     expect(getState().pendingDraftPlugins.size).toBe(0);
-    expect(getState().resolvedDraftConversationIds.size).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
@@ -298,42 +296,5 @@ describe("draft conversation ids", () => {
     getState().reset();
 
     expect(getState().draftConversationIds.size).toBe(0);
-  });
-});
-
-describe("resolvedDraftConversationIds", () => {
-  it("records the row that replaced a draft key", () => {
-    getState().recordResolvedDraftConversationId("draft-1", "conv-1");
-
-    expect(getState().resolvedDraftConversationIds.get("draft-1")).toBe(
-      "conv-1",
-    );
-  });
-
-  it("records nothing when the daemon kept the client key", () => {
-    const before = getState().resolvedDraftConversationIds;
-
-    getState().recordResolvedDraftConversationId("draft-1", "draft-1");
-
-    expect(getState().resolvedDraftConversationIds).toBe(before);
-    expect(getState().resolvedDraftConversationIds.size).toBe(0);
-  });
-
-  it("keeps the same map reference when re-recording the same pair", () => {
-    getState().recordResolvedDraftConversationId("draft-1", "conv-1");
-    const before = getState().resolvedDraftConversationIds;
-
-    getState().recordResolvedDraftConversationId("draft-1", "conv-1");
-
-    expect(getState().resolvedDraftConversationIds).toBe(before);
-  });
-
-  it("drops every mapping on reset", () => {
-    getState().recordResolvedDraftConversationId("draft-1", "conv-1");
-    getState().recordResolvedDraftConversationId("draft-2", "conv-2");
-
-    getState().reset();
-
-    expect(getState().resolvedDraftConversationIds.size).toBe(0);
   });
 });

@@ -29,8 +29,15 @@ mock.module("@/domains/chat/hooks/use-document-composer-submit", () => ({
 }));
 
 let imageAttachmentsAllowed: boolean | null = true;
+const imageGateCalls: (string | undefined)[] = [];
 mock.module("@/domains/chat/hooks/use-image-attachments-allowed", () => ({
-  useImageAttachmentsAllowed: () => imageAttachmentsAllowed,
+  useImageAttachmentsAllowed: (
+    _assistantId: string | null,
+    conversationId: string | undefined,
+  ) => {
+    imageGateCalls.push(conversationId);
+    return imageAttachmentsAllowed;
+  },
 }));
 
 // The store uploads what it queues. Spread the real module rather than naming
@@ -52,6 +59,9 @@ mock.module("@/domains/chat/components/chat-composer/chat-composer", () => ({
 }));
 
 const { useComposerStore } = await import("@/domains/chat/composer-store");
+const { useConversationStore } = await import("@/stores/conversation-store");
+const { setEditChatDraftReplacement } =
+  await import("@/utils/edit-chat-session");
 const { useDocumentComposerReplyStore } =
   await import("@/domains/chat/document-composer-reply-store");
 const { DocumentComposerPanel } = await import(
@@ -69,8 +79,11 @@ function resetComposerDocumentSlot() {
 afterEach(() => {
   cleanup();
   useDocumentComposerReplyStore.setState({ failedSends: new Map() });
+  useConversationStore.setState({ draftConversationIds: new Set() });
+  window.sessionStorage.clear();
   hookStatus = "idle";
   imageAttachmentsAllowed = true;
+  imageGateCalls.length = 0;
   submitMock.mockClear();
   lastComposerProps = {};
   lastSubmitParams = {};
@@ -268,6 +281,47 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
       chatEn.composerAttachments.imageGateResolving,
     );
+  });
+
+  test("gates on the row that replaced the document's retired draft", () => {
+    // The send targets the row the daemon minted for the draft this document
+    // is still open against, so the gate has to read that row's model.
+    useConversationStore.setState({
+      draftConversationIds: new Set(["conv-draft"]),
+    });
+    setEditChatDraftReplacement("conv-draft", "conv-minted");
+
+    render(
+      <DocumentComposerPanel
+        assistantId="assistant-1"
+        doc={{ surfaceId: "surf-1", conversationId: "conv-draft" }}
+      />,
+    );
+
+    expect(imageGateCalls.at(-1)).toBe("conv-minted");
+  });
+
+  test("gates on the global profile while the document is a live draft", () => {
+    // Nothing server-side answers to a draft id, so there is no row whose
+    // model could be read.
+    useConversationStore.setState({
+      draftConversationIds: new Set(["conv-draft"]),
+    });
+
+    render(
+      <DocumentComposerPanel
+        assistantId="assistant-1"
+        doc={{ surfaceId: "surf-1", conversationId: "conv-draft" }}
+      />,
+    );
+
+    expect(imageGateCalls.at(-1)).toBeUndefined();
+  });
+
+  test("gates on a linked document's own conversation", () => {
+    render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
+
+    expect(imageGateCalls.at(-1)).toBe("conv-1");
   });
 
   test("hands the gate's verdict to the submit hook", () => {

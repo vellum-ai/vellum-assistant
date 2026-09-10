@@ -29,6 +29,7 @@ import { useTurnStore, INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   getEditChatConversationId,
+  getEditChatDraftReplacement,
   setEditChatConversationId,
 } from "@/utils/edit-chat-session";
 
@@ -151,12 +152,9 @@ describe("useSendMessage: a mint that assigns a different id", () => {
     expect(getEditChatConversationId("assistant-1", SURFACE_ID)).toBe(
       MINTED_ID,
     );
-    // The draft mark is already off by this point, so the mapping is what a
-    // document still holding the draft id resolves through.
-    expect(
-      useConversationStore
-        .getState()
-        .resolvedDraftConversationIds.get(DRAFT_ID),
-    ).toBe(MINTED_ID);
+    // The draft mark is already off by this point, so the recorded
+    // replacement is what a document still holding the draft id resolves
+    // through.
+    expect(getEditChatDraftReplacement(DRAFT_ID)).toBe(MINTED_ID);
   });
 });

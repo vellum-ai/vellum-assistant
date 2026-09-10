@@ -22,12 +22,14 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
     documentsByIdConversationsPostMock(...(args as [])),
 }));
 
-const { getEditChatConversationId } = await import("@/utils/edit-chat-session");
+const { getEditChatConversationId, setEditChatDraftReplacement } =
+  await import("@/utils/edit-chat-session");
 const { useConversationStore } = await import("@/stores/conversation-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const {
   linkDocumentConversationIfNeeded,
   markOpenedDocumentLinked,
+  peekDocumentConversationRow,
   persistDocumentConversationId,
   rekeyOpenedDocumentConversation,
   resolveDocumentConversationId,
@@ -47,10 +49,7 @@ const OPENED_DOC = {
 beforeEach(() => {
   window.sessionStorage.clear();
   documentsByIdConversationsPostMock.mockClear();
-  useConversationStore.setState({
-    draftConversationIds: new Set(),
-    resolvedDraftConversationIds: new Map(),
-  });
+  useConversationStore.setState({ draftConversationIds: new Set() });
   useViewerStore.setState({ openedDocumentState: null });
 });
 
@@ -90,9 +89,7 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("resolves a retired draft to the row that replaced it", () => {
-    useConversationStore
-      .getState()
-      .recordResolvedDraftConversationId("conv-draft", "conv-minted");
+    setEditChatDraftReplacement("conv-draft", "conv-minted");
 
     const id = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
@@ -108,9 +105,7 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("prefers the recorded replacement over a cache naming another row", () => {
-    useConversationStore
-      .getState()
-      .recordResolvedDraftConversationId("conv-draft", "conv-minted");
+    setEditChatDraftReplacement("conv-draft", "conv-minted");
     persistDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "" },
       ASSISTANT_ID,
@@ -128,9 +123,7 @@ describe("resolveDocumentConversationId", () => {
   });
 
   test("leaves a linked conversation alone when an unrelated draft was replaced", () => {
-    useConversationStore
-      .getState()
-      .recordResolvedDraftConversationId("conv-other-draft", "conv-other");
+    setEditChatDraftReplacement("conv-other-draft", "conv-other");
 
     const id = resolveDocumentConversationId(
       { surfaceId: SURFACE_ID, conversationId: "conv-linked" },
@@ -204,6 +197,90 @@ describe("resolveDocumentConversationId", () => {
 
     const second = resolveDocumentConversationId(doc, ASSISTANT_ID);
     expect(second).toBe(first);
+  });
+});
+
+describe("peekDocumentConversationRow", () => {
+  test("names the row that replaced a retired draft", () => {
+    setEditChatDraftReplacement("conv-draft", "conv-minted");
+
+    expect(
+      peekDocumentConversationRow(
+        { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
+        ASSISTANT_ID,
+        true,
+      ),
+    ).toBe("conv-minted");
+  });
+
+  test("names no row for a live draft nothing has replaced", () => {
+    // Nothing server-side answers to this id yet, so there is no row to read
+    // a model or anything else off.
+    expect(
+      peekDocumentConversationRow(
+        { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
+        ASSISTANT_ID,
+        true,
+      ),
+    ).toBeUndefined();
+  });
+
+  test("names the cached row for a live draft when the cache holds another", () => {
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-cached",
+    );
+
+    expect(
+      peekDocumentConversationRow(
+        { surfaceId: SURFACE_ID, conversationId: "conv-draft" },
+        ASSISTANT_ID,
+        true,
+      ),
+    ).toBe("conv-cached");
+  });
+
+  test("names a linked document's own conversation", () => {
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-cached",
+    );
+
+    expect(
+      peekDocumentConversationRow(
+        { surfaceId: SURFACE_ID, conversationId: "conv-linked" },
+        ASSISTANT_ID,
+        false,
+      ),
+    ).toBe("conv-linked");
+  });
+
+  test("falls back to the cache when the document has no conversation of its own", () => {
+    persistDocumentConversationId(
+      { surfaceId: SURFACE_ID, conversationId: "" },
+      ASSISTANT_ID,
+      "conv-cached",
+    );
+
+    expect(
+      peekDocumentConversationRow(
+        { surfaceId: SURFACE_ID, conversationId: "" },
+        ASSISTANT_ID,
+        false,
+      ),
+    ).toBe("conv-cached");
+  });
+
+  test("names no row when nothing is linked, cached, or replaced", () => {
+    expect(
+      peekDocumentConversationRow(
+        { surfaceId: SURFACE_ID, conversationId: "" },
+        ASSISTANT_ID,
+        false,
+      ),
+    ).toBeUndefined();
   });
 });
 

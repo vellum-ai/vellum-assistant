@@ -313,12 +313,6 @@ export function useDocumentComposerSubmit({
         persistDocumentConversationId(doc, assistantId, targetConversationId);
         if (targetConversationId !== resolvedId) {
           resolveEditChatDraftConversationId(resolvedId, targetConversationId);
-          useConversationStore
-            .getState()
-            .recordResolvedDraftConversationId(
-              resolvedId,
-              targetConversationId,
-            );
         }
       }
       if (assistantChanged()) {

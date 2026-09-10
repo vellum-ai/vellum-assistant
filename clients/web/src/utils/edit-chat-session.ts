@@ -6,6 +6,10 @@
  * the assistant can iterate on the app without losing thread. After a TTL
  * elapses or the tab is closed, the next Edit click mints a fresh chat.
  *
+ * The same store holds each client draft conversation id the daemon replaced
+ * with a row of its own, keyed by the retired draft, so a surface still open
+ * against that draft can reach the row that replaced it.
+ *
  * Storage: sessionStorage (per-tab). Each app has its own entry; entries are
  * never shared across apps or assistants.
  */
@@ -28,6 +32,10 @@ function storage(): Storage | null {
 
 function buildKey(assistantId: string, appId: string): string {
   return `${PREFIX}${assistantId}:${appId}`;
+}
+
+function buildDraftKey(draftConversationId: string): string {
+  return `${PREFIX}draft:${draftConversationId}`;
 }
 
 function readEntry(key: string): Entry | null {
@@ -65,12 +73,7 @@ function writeEntry(key: string, entry: Entry): void {
   }
 }
 
-export function getEditChatConversationId(
-  assistantId: string,
-  appId: string,
-  now: number = Date.now(),
-): string | null {
-  const key = buildKey(assistantId, appId);
+function readLiveConversationId(key: string, now: number): string | null {
   const entry = readEntry(key);
   if (!entry) {
     return null;
@@ -83,6 +86,14 @@ export function getEditChatConversationId(
   return entry.conversationId;
 }
 
+export function getEditChatConversationId(
+  assistantId: string,
+  appId: string,
+  now: number = Date.now(),
+): string | null {
+  return readLiveConversationId(buildKey(assistantId, appId), now);
+}
+
 export function setEditChatConversationId(
   assistantId: string,
   appId: string,
@@ -93,10 +104,39 @@ export function setEditChatConversationId(
 }
 
 /**
+ * Record the row a client draft conversation id resolved to, so a surface
+ * holding the retired draft can find it. Reads back through
+ * {@link getEditChatDraftReplacement}.
+ */
+export function setEditChatDraftReplacement(
+  draftConversationId: string,
+  conversationId: string,
+  now: number = Date.now(),
+): void {
+  writeEntry(buildDraftKey(draftConversationId), {
+    conversationId,
+    lastUsedAt: now,
+  });
+}
+
+/**
+ * The row that replaced a client draft conversation id in this tab, or `null`
+ * when the draft was never replaced or the entry has aged out.
+ */
+export function getEditChatDraftReplacement(
+  draftConversationId: string,
+  now: number = Date.now(),
+): string | null {
+  return readLiveConversationId(buildDraftKey(draftConversationId), now);
+}
+
+/**
  * When a draft conversation id is resolved to a real server-assigned id
- * (first message sent), update any stored edit-chat entries that referenced
- * the draft. Without this, the next Edit click would land on a conversation
- * id that no longer exists.
+ * (first message sent), record the replacement and update any stored
+ * edit-chat entries that referenced the draft. Without this, the next Edit
+ * click would land on a conversation id that no longer exists, and a surface
+ * still open against the draft would send against an id the daemon has never
+ * minted.
  */
 export function resolveEditChatDraftConversationId(
   oldConversationId: string,
@@ -105,6 +145,9 @@ export function resolveEditChatDraftConversationId(
   const store = storage();
   if (!store) {
     return;
+  }
+  if (oldConversationId !== newConversationId) {
+    setEditChatDraftReplacement(oldConversationId, newConversationId);
   }
   for (let i = 0; i < store.length; i += 1) {
     const key = store.key(i);

@@ -13,6 +13,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   getEditChatConversationId,
+  getEditChatDraftReplacement,
   setEditChatConversationId,
 } from "@/utils/edit-chat-session";
 
@@ -23,23 +24,55 @@ export interface DocumentConversationRef {
 }
 
 /**
+ * The server row a send about `doc` targets, when one is known without
+ * minting: the row that replaced the document's own id once that id is a
+ * client draft the daemon has retired, then the document's own linked
+ * conversation, then the session-cached id from a previous resolution (4h
+ * TTL, see `edit-chat-session.ts`).
+ *
+ * `undefined` is "no row yet", which a document open against a live draft
+ * reads: that draft is an id the daemon has never heard of, and nothing has
+ * replaced it. A caller that has to name a conversation mints one (see
+ * {@link resolveDocumentConversationId}); a caller reading a property of the
+ * row, such as the model it runs, has nothing to read yet.
+ *
+ * `ownIsDraft` is whether `doc.conversationId` is still a client-minted draft,
+ * passed in so a React caller can subscribe to that mark and re-render when it
+ * flips.
+ */
+export function peekDocumentConversationRow(
+  doc: DocumentConversationRef,
+  assistantId: string,
+  ownIsDraft: boolean,
+): string | undefined {
+  const replacement = doc.conversationId
+    ? getEditChatDraftReplacement(doc.conversationId)
+    : null;
+  if (replacement) {
+    return replacement;
+  }
+  const cached = getEditChatConversationId(assistantId, doc.surfaceId);
+  if (ownIsDraft) {
+    // A cache naming another row is a send that minted a row for this
+    // document and failed to link it: that row is the one to reuse.
+    return cached && cached !== doc.conversationId ? cached : undefined;
+  }
+  return doc.conversationId || cached || undefined;
+}
+
+/**
  * Resolve the conversation a document's assistant-facing actions should
  * target.
  *
- * Fallback order: the document's own linked conversation, then the
- * session-cached id from a previous resolution (4h TTL, see
- * `edit-chat-session.ts`), then a freshly minted draft id.
+ * The row {@link peekDocumentConversationRow} names, and a freshly minted
+ * draft id when it names none.
  *
- * A document still open against a client draft the daemon has since replaced
- * resolves to the row that replaced it, whether or not the draft mark is still
- * set and whether or not the document's own relink has landed. A draft id is
- * one the daemon has never heard of, so sending against it would 404 on an
- * assistant that strict-looks-up conversation ids.
- *
- * A document's own id yields to the cache while that id is still a
- * client-minted draft and the cache names a different row. That pairing is a
- * send that minted a row for this document and failed to link it: the minted
- * row is the one to reuse.
+ * A document the daemon still reports as owned by a retired draft resolves to
+ * the row that replaced it for as long as this tab's session cache holds the
+ * replacement, whether or not the draft mark is still set and whether or not
+ * the document's own relink has landed. A draft id is one the daemon has
+ * never heard of, so sending against it would 404 on an assistant that
+ * strict-looks-up conversation ids.
  *
  * Deliberately does not persist the result: a caller that resolves a fresh or
  * reused id but never successfully sends against it must not leave that id
@@ -51,21 +84,13 @@ export function resolveDocumentConversationId(
   doc: DocumentConversationRef,
   assistantId: string,
 ): string {
-  const replacement = useConversationStore
+  const ownIsDraft = useConversationStore
     .getState()
-    .resolvedDraftConversationIds.get(doc.conversationId);
-  if (replacement) {
-    return replacement;
-  }
-  const cached = getEditChatConversationId(assistantId, doc.surfaceId);
-  if (
-    cached &&
-    cached !== doc.conversationId &&
-    useConversationStore.getState().draftConversationIds.has(doc.conversationId)
-  ) {
-    return cached;
-  }
-  return doc.conversationId || cached || createDraftConversationId();
+    .draftConversationIds.has(doc.conversationId);
+  return (
+    peekDocumentConversationRow(doc, assistantId, ownIsDraft) ??
+    (doc.conversationId || createDraftConversationId())
+  );
 }
 
 /**
