@@ -13,9 +13,9 @@ import { useTranslation } from "@/i18n";
  * two chunks before it will commit.
  *
  * The reveal is delayed in CSS rather than by a timer, so a navigation that
- * resolves inside the delay never paints the bar and fast transitions look
- * exactly as they did. Nothing here drives a render: the bar mounts when the
- * router reports a pending navigation and unmounts when it stops.
+ * resolves inside the delay never paints the bar at all. Nothing here holds
+ * state: the bar mounts while the router reports a pending navigation and
+ * unmounts when it stops, so it cannot outlive one or miss one.
  */
 export function RoutePendingIndicator() {
   const { t } = useTranslation();
