@@ -134,10 +134,11 @@ function abandonAttempt(
 }
 
 /**
- * Hand the message of an attempt nothing can retry back to its document when
- * the daemon never spoke for it, whether its entry comes off here or an
- * assistant switch already took it off. An acknowledged entry keeps its
- * message for the watcher.
+ * Hand an attempt nothing can retry back to its document. An ordinary
+ * document close keeps the pending nonce correlated with the recovery copy,
+ * so a later stream acknowledgment can retract it. An assistant switch has
+ * already detached that nonce from the stream and keeps an ordinary recovery
+ * copy instead. An acknowledged entry stays with the watcher.
  */
 function holdAbandonedMessage(
   attempt: Pick<
@@ -145,11 +146,33 @@ function holdAbandonedMessage(
     "clientMessageId" | "targetConversationId" | "payload"
   >,
 ): void {
-  const detached = useDocumentComposerReplyStore
-    .getState()
-    .takeDetachedSend(attempt.clientMessageId);
-  if (abandonAttempt(attempt) || detached !== null) {
-    useDocumentComposerReplyStore.getState().stashFailedSend(attempt.payload);
+  const replyStore = useDocumentComposerReplyStore.getState();
+  const detached = replyStore.takeDetachedSend(attempt.clientMessageId);
+  if (detached !== null) {
+    replyStore.stashFailedSend(attempt.payload);
+    return;
+  }
+  if (
+    replyStore.markReplyRecovering(
+      attempt.targetConversationId,
+      attempt.clientMessageId,
+    )
+  ) {
+    replyStore.stashFailedSend(attempt.payload, attempt.clientMessageId);
+    if (
+      !keepsProcessingMarker(
+        useDocumentComposerReplyStore.getState(),
+        attempt.targetConversationId,
+      )
+    ) {
+      useConversationStore
+        .getState()
+        .removeProcessingConversationId(attempt.targetConversationId);
+    }
+    return;
+  }
+  if (abandonAttempt(attempt)) {
+    replyStore.stashFailedSend(attempt.payload);
   }
 }
 

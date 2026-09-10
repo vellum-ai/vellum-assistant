@@ -261,7 +261,10 @@ export interface ComposerState {
    * was composed for (`failedSendFor` reads one), waiting for that exact
    * composer's return. A pair holding nothing has no entry.
    */
-  failedSendsByConversation: ReadonlyMap<string, FailedSendPayload>;
+  failedSendsByConversation: ReadonlyMap<
+    string,
+    readonly FailedSendPayload[]
+  >;
 
   /**
    * The sends the daemon has taken onto its queue and not yet spoken for,
@@ -451,9 +454,10 @@ export function failedSendFor(
   assistantId: string,
   conversationId: string,
 ): FailedSendPayload | undefined {
-  return state.failedSendsByConversation.get(
+  const held = state.failedSendsByConversation.get(
     failedSendKey(assistantId, conversationId),
   );
+  return held === undefined ? undefined : mergeFailedSendList(held);
 }
 
 // ---------------------------------------------------------------------------
@@ -912,9 +916,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   stashFailedSend: (assistantId, conversationId, payload) => {
     set((s) => {
       const key = failedSendKey(assistantId, conversationId);
-      const held = s.failedSendsByConversation.get(key);
+      const held = s.failedSendsByConversation.get(key) ?? [];
       const next = new Map(s.failedSendsByConversation);
-      next.set(key, held ? mergeFailedSends(held, payload) : payload);
+      next.set(key, [...held, payload]);
       return { failedSendsByConversation: next };
     });
   },
@@ -930,18 +934,27 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       next.delete(key);
       return { failedSendsByConversation: next };
     });
-    return held;
+    return mergeFailedSendList(held);
   },
 
   dropFailedSend: (assistantId, conversationId, payload) => {
     const key = failedSendKey(assistantId, conversationId);
     const held = get().failedSendsByConversation.get(key);
-    if (held === undefined || !sameFailedSend(held, payload)) {
+    const index = held?.findIndex((entry) => sameFailedSend(entry, payload));
+    if (held === undefined || index === undefined || index === -1) {
       return false;
     }
     set((s) => {
       const next = new Map(s.failedSendsByConversation);
-      next.delete(key);
+      const remaining = [
+        ...held.slice(0, index),
+        ...held.slice(index + 1),
+      ];
+      if (remaining.length === 0) {
+        next.delete(key);
+      } else {
+        next.set(key, remaining);
+      }
       return { failedSendsByConversation: next };
     });
     return true;
@@ -991,17 +1004,28 @@ type ComposerSetFn = (fn: (s: ComposerState) => Partial<ComposerState>) => void;
  * the drafts joined by a blank line when both carry text, and the attachments
  * run one list after the other.
  */
-function mergeFailedSends(
-  older: FailedSendPayload,
-  newer: FailedSendPayload,
+function mergeFailedSendList(
+  payloads: readonly FailedSendPayload[],
 ): FailedSendPayload {
-  return {
-    content: [older.content, newer.content]
+  const cached = mergedFailedSendCache.get(payloads);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const merged = {
+    content: payloads
+      .map((payload) => payload.content)
       .filter((content) => content !== "")
       .join("\n\n"),
-    attachments: [...older.attachments, ...newer.attachments],
+    attachments: payloads.flatMap((payload) => payload.attachments),
   };
+  mergedFailedSendCache.set(payloads, merged);
+  return merged;
 }
+
+const mergedFailedSendCache = new WeakMap<
+  readonly FailedSendPayload[],
+  FailedSendPayload
+>();
 
 /** Whether a held recovery is still exactly the send an eventual echo names. */
 function sameFailedSend(

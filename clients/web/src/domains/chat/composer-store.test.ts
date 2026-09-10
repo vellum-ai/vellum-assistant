@@ -1380,6 +1380,26 @@ describe("stashFailedSend and takeFailedSend", () => {
     });
   });
 
+  test("drops one echoed recovery without dropping another held message", () => {
+    const first = {
+      content: "first",
+      attachments: [attachment],
+    };
+    const second = {
+      content: "second",
+      attachments: [otherAttachment],
+    };
+    getStore().stashFailedSend("assistant-1", "conv-1", first);
+    getStore().stashFailedSend("assistant-1", "conv-1", second);
+
+    expect(
+      getStore().dropFailedSend("assistant-1", "conv-1", second),
+    ).toBe(true);
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toEqual(
+      first,
+    );
+  });
+
   test("joins nothing onto a message the other of the pair carried no text for", () => {
     getStore().stashFailedSend("assistant-1", "conv-1", {
       content: "",

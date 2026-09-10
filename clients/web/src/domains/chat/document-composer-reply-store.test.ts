@@ -303,6 +303,25 @@ describe("dropUnacknowledgedReply", () => {
   });
 });
 
+describe("markReplyRecovering", () => {
+  test("keeps an ambiguous send correlated without keeping its marker up", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+
+    expect(getState().markReplyRecovering("conv-1", "cm-1")).toBe(true);
+
+    expect(pendingFor("conv-1")[0]?.recovering).toBe(true);
+    expect(keepsProcessingMarker(getState(), "conv-1")).toBe(false);
+  });
+
+  test("does not recover a send the assistant already acknowledged", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().markReplyRunning("conv-1", "cm-1");
+
+    expect(getState().markReplyRecovering("conv-1", "cm-1")).toBe(false);
+    expect(pendingFor("conv-1")[0]?.recovering).toBeUndefined();
+  });
+});
+
 describe("settleRunningReplies", () => {
   test("settles nothing in a conversation with nothing pending", () => {
     expect(getState().settleRunningReplies("conv-1")).toBe(0);
@@ -1093,6 +1112,18 @@ describe("stashFailedSend", () => {
     const held = heldFor("surf-1");
     expect(held?.content).toBe("a note on the draft\n\na second note");
     expect(held?.attachments.map((a) => a.id)).toEqual(["srv-1", "srv-2"]);
+  });
+
+  test("drops only the recovery carrying an accepted send's nonce", () => {
+    const second = {
+      ...SENT_PAYLOAD,
+      content: "a second note",
+    };
+    getState().stashFailedSend(SENT_PAYLOAD, "cm-1");
+    getState().stashFailedSend(second, "cm-2");
+
+    expect(getState().dropFailedSend("cm-2")).toBe(true);
+    expect(heldFor("surf-1")).toEqual(SENT_PAYLOAD);
   });
 
   test("a message with no text joins by the text there is", () => {

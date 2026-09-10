@@ -3206,7 +3206,7 @@ describe("an attempt nothing can retry", () => {
     ).toEqual([firstNonce, secondNonce]);
   });
 
-  test("a document switch after a thrown send takes the entry and the mark down", async () => {
+  test("a document switch keeps a thrown send correlated without a processing mark", async () => {
     // GIVEN a send that threw, still listed for a retry.
     throwFirstPostChatMessage("conv-a");
     useComposerStore.getState().setInput("about the first doc", "document");
@@ -3222,11 +3222,13 @@ describe("an attempt nothing can retry", () => {
     expect(isAwaitingReply("conv-a")).toBe(true);
 
     // WHEN the composer moves to another document, which takes the draft with
-    // it, so no retry can reach the daemon under that nonce.
+    // it, so a later stream acknowledgment has to decide the recovery copy.
     rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
 
-    // THEN nothing is left owing a reply on the row the send went toward.
-    expect(isAwaitingReply("conv-a")).toBe(false);
+    // THEN the nonce remains correlated, but the ambiguous request does not
+    // leave the conversation looking active indefinitely.
+    expect(isAwaitingReply("conv-a")).toBe(true);
+    expect(awaitingSends("conv-a")[0]?.recovering).toBe(true);
     expect(isProcessing("conv-a")).toBe(false);
   });
 
@@ -3320,7 +3322,7 @@ describe("an attempt nothing can retry", () => {
     expect(useComposerStore.getState().documentInput).toBe("about the doc");
   });
 
-  test("an unmount after a thrown send takes the entry and the mark down", async () => {
+  test("an unmount keeps a thrown send correlated and takes its mark down", async () => {
     // GIVEN a send that threw, still listed for a retry.
     throwFirstPostChatMessage("conv-a");
     useComposerStore.getState().setInput("about the doc", "document");
@@ -3334,8 +3336,9 @@ describe("an attempt nothing can retry", () => {
     // WHEN the host closes the document, unmounting the composer.
     unmount();
 
-    // THEN the attempt has no composer left to retry it from.
-    expect(isAwaitingReply("conv-a")).toBe(false);
+    // THEN a later stream acknowledgment can still retract the recovery.
+    expect(isAwaitingReply("conv-a")).toBe(true);
+    expect(awaitingSends("conv-a")[0]?.recovering).toBe(true);
     expect(isProcessing("conv-a")).toBe(false);
   });
 
@@ -3358,15 +3361,16 @@ describe("an attempt nothing can retry", () => {
     // draft was written in with it.
     rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
 
-    // THEN the message waits for the document it was written in, and nothing
-    // is left owing a reply on the row it went toward.
+    // THEN the message waits for the document it was written in, correlated
+    // with the nonce a later stream acknowledgment will carry.
     expect(takeHeldMessage(SURFACE_ID)).toEqual({
       assistantId: ASSISTANT_ID,
       surfaceId: SURFACE_ID,
       content: "about the first doc",
       attachments: [],
     });
-    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isAwaitingReply("conv-a")).toBe(true);
+    expect(awaitingSends("conv-a")[0]?.recovering).toBe(true);
   });
 
   test("an unmount while the POST is out leaves the entry listed", async () => {
@@ -3396,7 +3400,7 @@ describe("an attempt nothing can retry", () => {
     });
   });
 
-  test("a send that throws after a document switch takes its entry down", async () => {
+  test("a send that throws after a document switch keeps its nonce correlated", async () => {
     // GIVEN a send in flight for the first document.
     const fail = failPostChatMessage();
     useComposerStore.getState().setInput("about the first doc", "document");
@@ -3419,10 +3423,11 @@ describe("an attempt nothing can retry", () => {
       await submitted;
     });
 
-    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(isAwaitingReply("conv-a")).toBe(true);
+    expect(awaitingSends("conv-a")[0]?.recovering).toBe(true);
     expect(isProcessing("conv-a")).toBe(false);
-    // The entry the daemon never took in came off, so nothing on the stream
-    // can hand the message back: it waits for the document it was written in.
+    // The message waits for the document it was written in while the nonce
+    // remains available to retract it if the assistant accepted the request.
     expect(takeHeldMessage(SURFACE_ID)).toEqual({
       assistantId: ASSISTANT_ID,
       surfaceId: SURFACE_ID,
@@ -3647,7 +3652,8 @@ describe("an attempt nothing can retry", () => {
     await act(async () => {
       await result.current.submit();
     });
-    expect(sentOptions(0).clientMessageId).not.toBe("other-nonce");
+    const abandonedNonce = sentOptions(0).clientMessageId as string;
+    expect(abandonedNonce).not.toBe("other-nonce");
     act(() => {
       useDocumentComposerReplyStore
         .getState()
@@ -3660,11 +3666,13 @@ describe("an attempt nothing can retry", () => {
     // WHEN the composer moves on, so nothing can retry the thrown send.
     rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
 
-    // THEN only that attempt's entry goes, and the mark stands for the send
-    // still running there.
+    // THEN the ambiguous attempt stays correlated without contributing a
+    // marker, and the mark stands for the other send still running there.
     expect(awaitingSends("conv-a").map((p) => p.clientMessageId)).toEqual([
+      abandonedNonce,
       "other-nonce",
     ]);
+    expect(awaitingSends("conv-a")[0]?.recovering).toBe(true);
     expect(isProcessing("conv-a")).toBe(true);
   });
 
@@ -3687,9 +3695,10 @@ describe("an attempt nothing can retry", () => {
     // WHEN the composer moves on, so nothing can retry the thrown send.
     rerender({ doc: { surfaceId: "surf-2", conversationId: "conv-b" } });
 
-    // THEN the thrown send's entry goes, and the mark stands for the queued
-    // work the handoff announced.
-    expect(awaitingSends("conv-a")).toEqual([]);
+    // THEN the thrown send stays correlated without owning the mark, which
+    // stands for the queued work the handoff announced.
+    expect(awaitingSends("conv-a")).toHaveLength(1);
+    expect(awaitingSends("conv-a")[0]?.recovering).toBe(true);
     expect(isProcessing("conv-a")).toBe(true);
   });
 });

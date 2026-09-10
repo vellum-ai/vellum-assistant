@@ -73,11 +73,24 @@ export interface PendingDocumentReply {
    */
   queuedOnStream: boolean;
   /**
+   * The request ended ambiguously after its composer went away. Its payload
+   * is available for recovery, but this nonce stays listed so a later stream
+   * acknowledgment can retract that recovery copy.
+   */
+  recovering?: boolean;
+  /**
    * What the send carried, when it was listed with one. The daemon can report
    * a message-scoped failure after the send's own response has already
    * cleared the composer, so the message it took is kept here to hand back.
    */
   payload?: PendingDocumentReplyPayload;
+}
+
+interface FailedDocumentSend {
+  payload: PendingDocumentReplyPayload;
+  /** The ambiguous send this recovery belongs to, until the stream decides
+   * whether the assistant accepted it. */
+  clientMessageId?: string;
 }
 
 export interface DocumentComposerReplyState {
@@ -92,7 +105,7 @@ export interface DocumentComposerReplyState {
    * for that document's composer under that assistant to take one back. A
    * pair holding nothing has no entry.
    */
-  failedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
+  failedSends: ReadonlyMap<string, readonly FailedDocumentSend[]>;
   /**
    * The messages of pending sends an assistant switch cleared before the
    * daemon spoke for them, keyed by the nonce each send went out with. A send
@@ -133,6 +146,15 @@ export interface DocumentComposerReplyActions {
    * stays, since its reply is still coming.
    */
   dropUnacknowledgedReply: (
+    conversationId: string,
+    clientMessageId: string,
+  ) => boolean;
+  /**
+   * Keep an unacknowledged send correlated after its request ended
+   * ambiguously and its composer went away. Reports whether the nonce still
+   * names an unacknowledged send.
+   */
+  markReplyRecovering: (
     conversationId: string,
     clientMessageId: string,
   ) => boolean;
@@ -224,7 +246,12 @@ export interface DocumentComposerReplyActions {
    * both, oldest first: the two drafts are joined by a blank line and the
    * attachments run one list after the other.
    */
-  stashFailedSend: (payload: PendingDocumentReplyPayload) => void;
+  stashFailedSend: (
+    payload: PendingDocumentReplyPayload,
+    clientMessageId?: string,
+  ) => void;
+  /** Drop the recovery copy correlated with `clientMessageId`. */
+  dropFailedSend: (clientMessageId: string) => boolean;
   /**
    * Take the message held for `surfaceId` under `assistantId`, removing it,
    * so one document's composer reclaims only what was composed there for its
@@ -275,7 +302,8 @@ export function keepsProcessingMarker(
   conversationId: string,
 ): boolean {
   return (
-    state.pendingReplies.has(conversationId) ||
+    state.pendingReplies.get(conversationId)?.some((p) => !p.recovering) ===
+      true ||
     state.handedOffConversationIds.has(conversationId)
   );
 }
@@ -295,7 +323,10 @@ export function heldMessageFor(
   assistantId: string,
   surfaceId: string,
 ): PendingDocumentReplyPayload | undefined {
-  return state.failedSends.get(heldKey(assistantId, surfaceId));
+  const held = state.failedSends.get(heldKey(assistantId, surfaceId));
+  return held === undefined
+    ? undefined
+    : mergeFailedSendList(held);
 }
 
 export type DocumentComposerReplyStore = DocumentComposerReplyState &
@@ -309,6 +340,16 @@ function carriesNonce(
   return clientMessageId !== undefined
     ? pending.clientMessageId === clientMessageId
     : false;
+}
+
+/** Remove the transient recovery marker once the stream accepts a send. */
+function acceptedReply(
+  pending: PendingDocumentReply,
+  updates: Pick<PendingDocumentReply, "acknowledged" | "queued"> &
+    Partial<Pick<PendingDocumentReply, "queuedOnStream">>,
+): PendingDocumentReply {
+  const { recovering: _recovering, ...rest } = pending;
+  return { ...rest, ...updates };
 }
 
 /**
@@ -336,19 +377,31 @@ function indexOfAwaitedSend(
  * first: the drafts joined by a blank line when both carry text, and the
  * attachments run one list after the other.
  */
-function mergeFailedSends(
-  older: PendingDocumentReplyPayload,
-  newer: PendingDocumentReplyPayload,
+function mergeFailedSendList(
+  entries: readonly FailedDocumentSend[],
 ): PendingDocumentReplyPayload {
-  return {
-    assistantId: older.assistantId,
-    surfaceId: older.surfaceId,
-    content: [older.content, newer.content]
+  const cached = mergedFailedSendCache.get(entries);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const first = entries[0].payload;
+  const merged = {
+    assistantId: first.assistantId,
+    surfaceId: first.surfaceId,
+    content: entries
+      .map((entry) => entry.payload.content)
       .filter((content) => content !== "")
       .join("\n\n"),
-    attachments: [...older.attachments, ...newer.attachments],
+    attachments: entries.flatMap((entry) => entry.payload.attachments),
   };
+  mergedFailedSendCache.set(entries, merged);
+  return merged;
 }
+
+const mergedFailedSendCache = new WeakMap<
+  readonly FailedDocumentSend[],
+  PendingDocumentReplyPayload
+>();
 
 /** The map with `conversationId`'s list replaced, or removed when empty. */
 function withPending(
@@ -430,6 +483,23 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return true;
     },
 
+    markReplyRecovering: (conversationId, clientMessageId) => {
+      const pending = get().pendingReplies.get(conversationId);
+      const index =
+        pending?.findIndex((p) => carriesNonce(p, clientMessageId)) ?? -1;
+      if (!pending || index === -1 || pending[index].acknowledged) {
+        return false;
+      }
+      set((s) => {
+        const next = [...pending];
+        next[index] = { ...pending[index], recovering: true };
+        return {
+          pendingReplies: withPending(s.pendingReplies, conversationId, next),
+        };
+      });
+      return true;
+    },
+
     settleRunningReplies: (conversationId) => {
       const pending = get().pendingReplies.get(conversationId);
       if (!pending) {
@@ -469,7 +539,10 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const next = [...pending];
-        next[index] = { ...current, acknowledged: true, queued: false };
+        next[index] = acceptedReply(current, {
+          acknowledged: true,
+          queued: false,
+        });
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
@@ -498,12 +571,11 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const next = [...pending];
-        next[index] = {
-          ...current,
+        next[index] = acceptedReply(current, {
           acknowledged: true,
           queued: true,
           queuedOnStream: true,
-        };
+        });
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
@@ -525,7 +597,10 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const next = [...pending];
-        next[index] = { ...pending[index], queued: false };
+        next[index] = acceptedReply(pending[index], {
+          acknowledged: true,
+          queued: false,
+        });
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
@@ -549,12 +624,11 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const next = [...pending];
-        next[index] = {
-          ...pending[index],
+        next[index] = acceptedReply(pending[index], {
           acknowledged: true,
           queued: true,
           queuedOnStream: true,
-        };
+        });
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
@@ -605,7 +679,10 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
           return s;
         }
         const next = [...pending];
-        next[index] = { ...pending[index], acknowledged: true, queued };
+        next[index] = acceptedReply(pending[index], {
+          acknowledged: true,
+          queued,
+        });
         return {
           pendingReplies: withPending(s.pendingReplies, conversationId, next),
         };
@@ -635,14 +712,43 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return true;
     },
 
-    stashFailedSend: (payload) => {
+    stashFailedSend: (payload, clientMessageId) => {
       set((s) => {
         const key = heldKey(payload.assistantId, payload.surfaceId);
-        const held = s.failedSends.get(key);
+        const held = s.failedSends.get(key) ?? [];
+        if (
+          clientMessageId !== undefined &&
+          held.some((entry) => entry.clientMessageId === clientMessageId)
+        ) {
+          return s;
+        }
         const next = new Map(s.failedSends);
-        next.set(key, held ? mergeFailedSends(held, payload) : payload);
+        next.set(key, [...held, { payload, clientMessageId }]);
         return { failedSends: next };
       });
+    },
+
+    dropFailedSend: (clientMessageId) => {
+      const match = [...get().failedSends].find(([, held]) =>
+        held.some((entry) => entry.clientMessageId === clientMessageId),
+      );
+      if (!match) {
+        return false;
+      }
+      const [key, held] = match;
+      set((s) => {
+        const next = new Map(s.failedSends);
+        const remaining = held.filter(
+          (entry) => entry.clientMessageId !== clientMessageId,
+        );
+        if (remaining.length === 0) {
+          next.delete(key);
+        } else {
+          next.set(key, remaining);
+        }
+        return { failedSends: next };
+      });
+      return true;
     },
 
     takeFailedSend: (assistantId, surfaceId) => {
@@ -656,7 +762,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         next.delete(key);
         return { failedSends: next };
       });
-      return held;
+      return mergeFailedSendList(held);
     },
 
     takeDetachedSend: (clientMessageId) => {
@@ -683,7 +789,12 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         const detachedSends = new Map(s.detachedSends);
         for (const pending of s.pendingReplies.values()) {
           for (const p of pending) {
-            if (!p.acknowledged && p.clientMessageId && p.payload) {
+            if (
+              !p.acknowledged &&
+              !p.recovering &&
+              p.clientMessageId &&
+              p.payload
+            ) {
               detachedSends.set(p.clientMessageId, p.payload);
             }
           }

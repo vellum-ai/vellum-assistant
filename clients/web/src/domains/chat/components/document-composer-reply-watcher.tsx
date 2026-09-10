@@ -146,6 +146,11 @@ export function DocumentComposerReplyWatcher() {
         return;
       }
       rekeyByNonce(event.conversationId, event.clientMessageId);
+      if (event.clientMessageId !== undefined) {
+        useDocumentComposerReplyStore
+          .getState()
+          .dropFailedSend(event.clientMessageId);
+      }
       useDocumentComposerReplyStore
         .getState()
         .markReplyRunning(event.conversationId, event.clientMessageId);
@@ -157,6 +162,11 @@ export function DocumentComposerReplyWatcher() {
     // response can return after the running turn has already handed off.
     if (event.type === "message_queued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
+      if (event.clientMessageId !== undefined) {
+        useDocumentComposerReplyStore
+          .getState()
+          .dropFailedSend(event.clientMessageId);
+      }
       useDocumentComposerReplyStore
         .getState()
         .markReplyQueued(event.conversationId, event.clientMessageId);
@@ -168,6 +178,11 @@ export function DocumentComposerReplyWatcher() {
     // that is queued again rather than whichever send is newest.
     if (event.type === "message_requeued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
+      if (event.clientMessageId !== undefined) {
+        useDocumentComposerReplyStore
+          .getState()
+          .dropFailedSend(event.clientMessageId);
+      }
       useDocumentComposerReplyStore
         .getState()
         .markReplyRequeued(event.conversationId, event.clientMessageId);
@@ -178,6 +193,11 @@ export function DocumentComposerReplyWatcher() {
     // the terminal that ends that turn is its reply.
     if (event.type === "message_dequeued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
+      if (event.clientMessageId !== undefined) {
+        useDocumentComposerReplyStore
+          .getState()
+          .dropFailedSend(event.clientMessageId);
+      }
       useDocumentComposerReplyStore
         .getState()
         .clearReplyQueued(event.conversationId, event.clientMessageId);
@@ -193,9 +213,9 @@ export function DocumentComposerReplyWatcher() {
         return;
       }
       rekeyByNonce(conversationId, clientMessageId);
-      useDocumentComposerReplyStore
-        .getState()
-        .stopAwaitingReply(conversationId, clientMessageId);
+      const replyStore = useDocumentComposerReplyStore.getState();
+      replyStore.dropFailedSend(clientMessageId);
+      replyStore.stopAwaitingReply(conversationId, clientMessageId);
       clearProcessingWhenSettled(conversationId);
       return;
     }
@@ -247,7 +267,7 @@ export function DocumentComposerReplyWatcher() {
       // message went out, and on the standalone document route no other
       // handler sees the error.
       toast.error(t("documentComposer.sendFailed"));
-      if (failed.payload) {
+      if (failed.payload && !failed.recovering) {
         replyStore.stashFailedSend(failed.payload);
       }
       return;

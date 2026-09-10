@@ -764,6 +764,27 @@ describe("DocumentComposerReplyWatcher", () => {
       });
     }
 
+    test("an echo retracts the recovery from an abandoned ambiguous request", () => {
+      const replyStore = useDocumentComposerReplyStore.getState();
+      replyStore.startAwaitingReply(
+        "conv-1",
+        "cm-1",
+        FAILED_SEND_PAYLOAD,
+      );
+      replyStore.markReplyRecovering("conv-1", "cm-1");
+      replyStore.stashFailedSend(FAILED_SEND_PAYLOAD, "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishUserMessageEcho("conv-1", "cm-1");
+
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(
+        useDocumentComposerReplyStore
+          .getState()
+          .pendingReplies.get("conv-1")?.[0]?.acknowledged,
+      ).toBe(true);
+    });
+
     test("the echo makes the send settleable by its own turn's terminal", () => {
       useDocumentComposerReplyStore
         .getState()
@@ -1452,6 +1473,24 @@ describe("DocumentComposerReplyWatcher", () => {
   });
 
   describe("a document send the daemon could not persist", () => {
+    test("a definitive failure keeps one ambiguous recovery copy", () => {
+      const replyStore = useDocumentComposerReplyStore.getState();
+      replyStore.startAwaitingReply(
+        "conv-1",
+        "cm-1",
+        FAILED_SEND_PAYLOAD,
+      );
+      replyStore.markReplyRecovering("conv-1", "cm-1");
+      replyStore.stashFailedSend(FAILED_SEND_PAYLOAD, "cm-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-1", "message");
+
+      expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+      expect(awaiting("conv-1")).toBe(false);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    });
+
     test("reports the failure and holds the message for its document", () => {
       // GIVEN a send running in the conversation, listed with the message it
       // carried, on a composer its own success path already cleared
