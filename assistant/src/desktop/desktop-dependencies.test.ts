@@ -41,6 +41,9 @@ function setup() {
     finish: () => finish(),
     fail: () => fail(new Error("download failed")),
     progress: () => progress("chrome"),
+    restoreComponents: () => {
+      ready = true;
+    },
     removeComponents: () => {
       ready = false;
     },
@@ -78,6 +81,7 @@ describe("desktop dependency installation", () => {
     const f = setup();
     f.installer.start();
     await flush();
+    f.restoreComponents();
     f.fail();
     await flush();
     expect(f.installer.getStatus().state).toBe("failed");

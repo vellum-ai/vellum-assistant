@@ -117,12 +117,10 @@ export class DesktopDependencyInstaller {
     if (!this.dependencies.supported()) {
       return { state: "unsupported" };
     }
-    if (this.dependencies.ready()) {
-      return { state: "ready" };
+    if (this.status?.state === "failed") {
+      return this.status;
     }
-    return this.status?.state === "failed"
-      ? this.status
-      : { state: "required" };
+    return { state: this.dependencies.ready() ? "ready" : "required" };
   }
 
   start(): DesktopSetupStatus {
@@ -199,6 +197,7 @@ async function installDesktopDependencies(
   onStage: (stage: NonNullable<DesktopSetupStatus["stage"]>) => void,
 ): Promise<void> {
   const chrome = CHROME_PACKAGES[process.arch as keyof typeof CHROME_PACKAGES];
+  await rm(desktopChromePath() + ".ready", { force: true });
   await run(["apt-get", "update"]);
   await run([
     "apt-get",
