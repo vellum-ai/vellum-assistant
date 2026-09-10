@@ -16,7 +16,7 @@ import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 import { healthzGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
-import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { t, useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useAuthStore } from "@/stores/auth-store";
@@ -82,7 +82,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
      hydrates after auth. Without this gate the request can go out headerless
      and be rejected. Ready immediately when there is no platform session, so
      self-hosted and gateway-only sessions are not held up by it. */
-  const isOrgReady = useIsOrgReady();
+  const orgReadiness = useOrgHeaderReadiness();
   /* Keyed on the active assistant rather than on the resolved record, so the
      two reads run side by side instead of nose to tail. Over a tunnel that
      serialization was a second full round trip before this one could start. */
@@ -92,13 +92,19 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   );
   const {
     data: healthz = null,
-    isLoading: healthzLoading,
+    isLoading: healthzQueryLoading,
     error: healthzError,
   } = useQuery({
     ...healthzQueryOptions,
-    enabled: isOrgReady,
+    enabled: orgReadiness === "ready",
     retry: false,
   });
+  /* A disabled query reports `isLoading: false`, so the wait for the org
+     header would otherwise read as a settled "no metrics" and the cards would
+     show their empty dashes on the way to loading. `"resolving"` is that wait
+     and belongs with loading; `"unavailable"` is a decided answer, and holding
+     a spinner on it would spin for as long as the page is open. */
+  const healthzLoading = healthzQueryLoading || orgReadiness === "resolving";
 
   const [healthzPolling, setHealthzPolling] = useState(false);
   // Bumped to supersede any in-flight resize poll (a new poll, or unmount).

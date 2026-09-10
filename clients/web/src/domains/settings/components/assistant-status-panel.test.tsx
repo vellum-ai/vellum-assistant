@@ -47,6 +47,7 @@ const healthzGetMock = mock(async () => {
   return { data: HEALTHZ, error: undefined, response: new Response(null) };
 });
 
+let orgReadiness: "ready" | "resolving" | "unavailable" = "ready";
 let assistantCalls = 0;
 /** Held open by default, so "healthz did not wait for it" is observable. */
 let releaseAssistant: (() => void) | null = null;
@@ -87,7 +88,7 @@ stubModule(
   "@/hooks/use-is-org-ready",
   await import("@/hooks/use-is-org-ready"),
   {
-    useIsOrgReady: () => true,
+    useOrgHeaderReadiness: () => orgReadiness,
   },
 );
 
@@ -123,6 +124,7 @@ beforeEach(() => {
   healthzCalls = 0;
   assistantCalls = 0;
   healthzFails = false;
+  orgReadiness = "ready";
   releaseAssistant = null;
   captureErrorMock.mockClear();
   toastErrorMock.mockClear();
@@ -172,6 +174,31 @@ describe("useAssistantWithHealthz", () => {
 
     await waitFor(() => expect(captureErrorMock).toHaveBeenCalledTimes(1));
     expect(toastErrorMock).toHaveBeenCalledTimes(1);
+    expect(result.current.healthz).toBeNull();
+  });
+
+  test("waits for the organization header rather than reporting no metrics", async () => {
+    // GIVEN a platform session whose organization header has not resolved yet
+    orgReadiness = "resolving";
+
+    const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
+
+    // THEN nothing is requested headerless, and the cards read as loading
+    // rather than falling through to their empty dashes
+    expect(healthzCalls).toBe(0);
+    expect(result.current.healthzLoading).toBe(true);
+  });
+
+  test("stops waiting once organization resolution has given up", async () => {
+    // GIVEN organization resolution that concluded with no usable id
+    orgReadiness = "unavailable";
+
+    const { result } = renderHook(() => useAssistantWithHealthz(), { wrapper });
+
+    // THEN the surface falls through to its empty state instead of holding a
+    // spinner for as long as the page is open
+    expect(healthzCalls).toBe(0);
+    expect(result.current.healthzLoading).toBe(false);
     expect(result.current.healthz).toBeNull();
   });
 
