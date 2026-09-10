@@ -161,6 +161,12 @@ function makeFakeContext(opts: {
       trustClass: "guardian" as const,
       guardianPrincipalId: "user-1",
     },
+    setTrustContext(
+      this: { trustContext?: TrustContext },
+      trustContext: TrustContext | null,
+    ) {
+      this.trustContext = trustContext ?? undefined;
+    },
     setTransportHints() {},
     applyHostEnvFromTransport() {},
     ensureHostProxiesForTurn() {},
@@ -409,8 +415,10 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       "U-contact",
     );
     expect(ctx.currentTurnTrustContext?.sourceChannel).toBe("slack");
-    // The slot itself is left alone; only the turn's view is corrected.
-    expect(ctx.trustContext?.trustClass).toBe("guardian");
+    // The drain is where a queued message commits to a run, so the resting
+    // slot names the sender too: history is scoped from it, and a slot still
+    // naming the guardian would hand the contact's turn the guardian's rows.
+    expect(ctx.trustContext).toBe(contactTrust);
   });
 
   test("buildPassthroughBatch refuses to coalesce two channel senders", async () => {

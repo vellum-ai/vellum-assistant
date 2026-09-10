@@ -1240,11 +1240,15 @@ export async function runAgentLoopImpl(
 
     // Unified `<turn_context>` actor input for this turn (model-facing grounding
     // metadata; the conversation runtime context remains the source for policy
-    // gating). Resolved once at turn start and frozen onto the conversation so
-    // the post-compaction hook re-emits this same value during in-loop recovery
+    // gating). Derived from the turn's own actor, so the block describes who
+    // is speaking now rather than who last touched the conversation. Resolved
+    // once at turn start and frozen onto the conversation so the
+    // post-compaction hook re-emits this same value during in-loop recovery
     // instead of re-resolving against contact/member registry state that may
     // have drifted mid-turn.
-    const actorContext = resolveTurnInboundActorContext(ctx.trustContext);
+    const actorContext = resolveTurnInboundActorContext(
+      turnOrRestingTrust(ctx),
+    );
     ctx.currentTurnInboundActorContext = actorContext;
 
     // Surface long gaps between user messages so the model can acknowledge
