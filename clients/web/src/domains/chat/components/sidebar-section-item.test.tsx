@@ -16,6 +16,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type * as SectionConversations from "@/domains/chat/use-section-conversations";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
+import { ASSISTANT_SECTION_LABEL } from "@/domains/chat/utils/sidebar-section-icon";
 import type { Conversation } from "@/types/conversation-types";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -51,7 +52,12 @@ function conv(conversationId: string, title: string): Conversation {
 }
 
 function assistantSection(): SidebarSection {
-  return { type: "assistant", key: "assistant", label: "On My Mind", all: [] };
+  return {
+    type: "assistant",
+    key: "assistant",
+    label: ASSISTANT_SECTION_LABEL,
+    all: [],
+  };
 }
 
 function chatsSection(): SidebarSection {
@@ -102,19 +108,25 @@ afterEach(() => {
 });
 
 describe("SidebarSectionItem — the assistant-initiated section", () => {
-  test("names the header after the assistant once it has a name", () => {
+  /* The section opens directly under the assistant's own pill, so a header
+     that repeated her name said it twice; it speaks in her voice instead. */
+  test("titles the header in the assistant's voice, named or not", () => {
     useAssistantIdentityStore.getState().setIdentity("Ada", "0.12.0", "asst-1");
-    renderSection(assistantSection());
+    const named = renderSection(assistantSection());
+    expect(screen.getByText("From me")).toBeTruthy();
+    expect(screen.queryByText(/Ada/)).toBeNull();
+    named.unmount();
 
-    expect(screen.getByText("From Ada")).toBeTruthy();
+    useAssistantIdentityStore.getState().clearIdentity();
+    renderSection(assistantSection());
+    expect(screen.getByText("From me")).toBeTruthy();
   });
 
-  test("falls back to the neutral header while the assistant is unnamed", () => {
-    // "From Your Assistant" reads as a settings row rather than a byline.
-    renderSection(assistantSection());
-
-    expect(screen.getByText("On My Mind")).toBeTruthy();
-    expect(screen.queryByText(/^From /)).toBeNull();
+  test("draws no glyph on its header", () => {
+    const { container } = renderSection(assistantSection());
+    expect(
+      container.querySelector('[data-slot="collapsible-nav-section-icon"]'),
+    ).toBeNull();
   });
 
   /* On the rail the header is its own accent pill, inset like the New Chat

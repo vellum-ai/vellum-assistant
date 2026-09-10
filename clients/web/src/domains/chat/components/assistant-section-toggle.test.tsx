@@ -46,7 +46,7 @@ const { AssistantSectionToggle } =
 const SECTION: SidebarSection = {
   type: "assistant",
   key: "assistant",
-  label: "On My Mind",
+  label: "From me",
   all: [],
   unread: 0,
 };

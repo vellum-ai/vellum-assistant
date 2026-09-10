@@ -21,8 +21,6 @@
 
 import type { ReactNode } from "react";
 
-import { Inbox } from "lucide-react";
-
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
 import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
@@ -33,18 +31,8 @@ import {
 } from "@/domains/chat/components/group-actions-menu";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
-import {
-  assistantSectionLabel,
-  sectionIcon,
-} from "@/domains/chat/utils/sidebar-section-icon";
-import {
-  SIDEBAR_MOBILE_CHIP_CLASSES,
-  SIDEBAR_MOBILE_GLYPH_CLASSES,
-} from "@/components/sidebar-nav-geometry";
-import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
-import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
 import type { Conversation } from "@/types/conversation-types";
-import { cn } from "@vellumai/design-library";
 
 /**
  * The assistant section shows at most five realizations before scrolling
@@ -98,20 +86,8 @@ export function SidebarSectionItem({
 }: SidebarSectionItemProps) {
   const { conversations, hasMore, loadMore, getAllRows } =
     useSectionConversations(assistantId, section);
-  /* Read here rather than threaded down from the side menu: only one section
-     wants the name, and the same store is what the layout above reads. */
-  const assistantName = useAssistantIdentityStore.use.name();
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
-  /* The accent hex, for inking the header glyph in the avatar's own color
-     (the New Chat treatment). Null keeps every other section off the avatar
-     query, and a null accent (still-loading avatar, or an image with no
-     colour to read) is the case where the glyph falls back to the tertiary
-     ink anyway. */
-  const { accentHex: avatarAccentHex } = useAssistantAvatar(
-    isAssistantSection ? assistantId : null,
-  );
-  const accentHex = isAssistantSection ? avatarAccentHex : null;
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -122,45 +98,16 @@ export function SidebarSectionItem({
      One predicate for membership and visibility, or the two drift and this
      recurs at the next section type. */
   const groupMenu = buildGroupMenu(conversations, getAllRows);
-  const label = isAssistantSection
-    ? assistantSectionLabel(assistantName)
-    : section.label;
   return (
     <SidebarSectionCard
       value={section.key}
-      icon={sectionIcon(section)}
-      /* The bare Inbox mark inked in the raw avatar accent: exactly the
-         treatment the assistant cluster's New Chat plus wears
-         (`--panel-item-icon-fg` = the accent hex, undarkened), so the
-         section reads as the same family without restating the cluster's
-         solid-disc avatar. NOT the eyes: those are the assistant herself
-         and stay exclusive to the cluster at the top of the rail. Sized and
-         boxed like every other section glyph (12px in the 14px slot), so it
-         sits at the same weight and on the same axis as Pinned's and
-         Chats'. With no accent (custom-image or still-loading avatar,
-         exactly when `accentHex` is null) it falls back to the tertiary ink
-         those glyphs wear. */
-      iconNode={
-        isAssistantSection ? (
-          <span
-            className={cn(
-              "flex h-[14px] w-[14px] shrink-0 items-center justify-center",
-              SIDEBAR_MOBILE_CHIP_CLASSES,
-            )}
-          >
-            <Inbox
-              size={12}
-              aria-hidden
-              className={cn(
-                SIDEBAR_MOBILE_GLYPH_CLASSES,
-                accentHex ? undefined : "text-[var(--content-tertiary)]",
-              )}
-              style={accentHex ? { color: accentHex } : undefined}
-            />
-          </span>
-        ) : undefined
-      }
-      label={label}
+      /* No glyph on the assistant's header: it opens directly under her
+         pill, which already carries her eyes, and the header is a byline in
+         her voice ("From me") rather than a category that needs a mark. The
+         collapsed rail, which draws no pill, keeps the section's Inbox tile
+         through `sectionIcon`. */
+      icon={isAssistantSection ? undefined : sectionIcon(section)}
+      label={section.label}
       /* The name in the emphasised ink rather than the shared header
          classes' tertiary gray: this header sits on its own tinted surface,
          where the section-family gray reads as disabled instead of quiet.
