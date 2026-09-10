@@ -2,6 +2,17 @@
 
 This file is the cross-system architecture index. Detailed designs live in domain docs close to code ownership.
 
+## Teleport storage
+
+The platform owns plan allowances and returns the managed destination's byte
+budget with the signed upload URL. The CLI passes that budget to the exporter
+and reconciles purchased storage after hatch. The platform checks the uploaded
+archive and passes the current allowance to the importer, which independently
+checks extracted bytes against free space before staging. Preflight validates
+archives as streams using the same byte and entry limits. Local transfers receive
+a signed download receipt at upload authorization; managed exports retain their
+platform job record and runtime compatibility checks.
+
 ## Architecture Docs
 
 | Domain                                      | Architecture Doc                                                                                   |

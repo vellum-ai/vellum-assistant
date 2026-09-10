@@ -51,6 +51,7 @@ import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { assertBundleFits } from "../migrations/bundle-capacity.js";
 import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
@@ -87,11 +88,7 @@ import {
   type ImportCommitResult,
 } from "../migrations/vbundle-importer.js";
 import { streamCommitImport } from "../migrations/vbundle-streaming-importer.js";
-import {
-  readAndValidateManifest,
-  StreamingValidationError,
-} from "../migrations/vbundle-streaming-validator.js";
-import { parseVBundleStream } from "../migrations/vbundle-tar-stream.js";
+import { preflightBundleStream } from "../migrations/vbundle-streaming-preflight.js";
 import { validateVBundle } from "../migrations/vbundle-validator.js";
 import {
   BadGatewayError,
@@ -481,9 +478,20 @@ export async function handleMigrationExport(
 /** 60 minutes — matches the URL-body import fetch deadline. */
 const EXPORT_TO_GCS_PUT_TIMEOUT_MS = 60 * 60 * 1000;
 
+const MigrationByteLimit = z
+  .number()
+  .int()
+  .nonnegative()
+  .safe()
+  .optional()
+  .describe(
+    "Maximum extracted bundle bytes allowed by the destination plan; free disk space can impose a lower limit.",
+  );
+
 const MigrationExportToGcsBody = z.object({
   upload_url: z.string().url(),
   description: z.string().optional(),
+  max_bundle_bytes: MigrationByteLimit,
 });
 
 /**
@@ -658,10 +666,14 @@ export async function handleMigrationExportToGcs({ body }: RouteHandlerArgs) {
           secretsRedacted,
           credentials: collected.credentials,
           checkpoint: checkpointDbsForExport,
+          maxBundleBytes: parsed.data.max_bundle_bytes,
         });
 
         cleanup = result.cleanup;
         const { tempPath, size, manifest } = result;
+        if (parsed.data.max_bundle_bytes !== undefined) {
+          assertBundleFits(size, parsed.data.max_bundle_bytes);
+        }
 
         // Stream the temp file to GCS via PUT. Using Node's ReadableStream
         // bridge keeps peak memory bounded — we do NOT load the archive
@@ -842,6 +854,11 @@ export async function handleMigrationImportPreflight({
 }: RouteHandlerArgs) {
   const contentType = headers?.["content-type"] ?? "";
   if (contentType.includes("application/json")) {
+    if (typeof body?.url === "string") {
+      return handleMigrationPreflightFromGcs({
+        body: { bundle_url: body.url, max_bundle_bytes: body.max_bundle_bytes },
+      });
+    }
     return handleMigrationPreflightFromPath(body);
   }
 
@@ -1034,11 +1051,20 @@ export async function handleMigrationImport(
 /** 60 minutes — matches the gateway's upstream fetch deadline. */
 const URL_FETCH_TIMEOUT_MS = 60 * 60 * 1000;
 
-const MigrationImportUrlBody = z.object({ url: z.string().min(1) });
+const MigrationImportUrlBody = z.object({
+  url: z.string().min(1),
+  max_bundle_bytes: MigrationByteLimit,
+});
 
-const MigrationImportPathBody = z.object({ path: z.string().min(1) });
+const MigrationImportPathBody = z.object({
+  path: z.string().min(1),
+  max_bundle_bytes: MigrationByteLimit,
+});
 
-const MigrationImportFromGcsBody = z.object({ bundle_url: z.string().url() });
+const MigrationImportFromGcsBody = z.object({
+  bundle_url: z.string().url(),
+  max_bundle_bytes: MigrationByteLimit,
+});
 
 /**
  * Marker attached to errors that originate from the upstream HTTP body
@@ -1280,6 +1306,7 @@ class GcsImportError extends Error {
 async function runGcsImport(
   url: string,
   _correlationId?: string,
+  maxBundleBytes?: number,
 ): Promise<ImportSummary> {
   // ── 1. Validate the URL (defense-in-depth; never log the raw URL).
   const validated = validateGcsSignedUrl(url, importValidatorOptions());
@@ -1471,6 +1498,7 @@ async function runGcsImport(
       source: taggedSource,
       pathResolver,
       workspaceDir: getWorkspaceDir(),
+      maxBundleBytes,
       importCredentials: async (bundleCredentials) => {
         // We can't mutate `result.report.warnings` in place here — the
         // streaming importer hasn't returned its report yet. Accumulate
@@ -1667,6 +1695,7 @@ async function handleMigrationImportFromPath(
       source,
       pathResolver,
       workspaceDir: getWorkspaceDir(),
+      maxBundleBytes: parsed.data.max_bundle_bytes,
       importCredentials: async (bundleCredentials) => {
         credentialsImported = await importBundleCredentialsIntoCes(
           bundleCredentials,
@@ -1719,67 +1748,12 @@ async function handleMigrationPreflightFromPath(
     throw err;
   }
 
-  const source = createReadStream(resolvedPath);
-  try {
-    const entries = parseVBundleStream(source);
-    const first = await entries.next();
-    if (first.done) {
-      return {
-        can_import: false,
-        validation: {
-          is_valid: false as const,
-          errors: [
-            {
-              code: "empty_archive",
-              message: "Bundle archive is empty",
-            },
-          ],
-        },
-      };
-    }
-
-    let manifest;
-    try {
-      ({ manifest } = await readAndValidateManifest(first.value));
-    } catch (err) {
-      if (err instanceof StreamingValidationError) {
-        return {
-          can_import: false,
-          validation: {
-            is_valid: false as const,
-            errors: [
-              {
-                code: err.code,
-                message: err.message,
-                ...(err.archivePath !== undefined && { path: err.archivePath }),
-              },
-            ],
-          },
-        };
-      }
-      throw err;
-    }
-
-    for await (const entry of entries) {
-      entry.body.resume();
-    }
-
-    const pathResolver = new DefaultPathResolver(
-      getWorkspaceDir(),
-      getWorkspaceHooksDir(),
-    );
-    return analyzeImport({ manifest, pathResolver });
-  } catch (err) {
-    if (err instanceof RouteError) {
-      throw err;
-    }
-    log.error({ err }, "Unexpected error during staged-path preflight");
-    throw new InternalError(
-      err instanceof Error ? err.message : "Unexpected import preflight error",
-    );
-  } finally {
-    source.destroy();
-  }
+  return preflightBundleStream(
+    createReadStream(resolvedPath),
+    new DefaultPathResolver(getWorkspaceDir(), getWorkspaceHooksDir()),
+    getWorkspaceDir(),
+    parsed.data.max_bundle_bytes,
+  );
 }
 
 /**
@@ -1800,7 +1774,11 @@ async function handleMigrationImportFromUrl(
   }
 
   try {
-    const summary = await runGcsImport(parsed.data.url);
+    const summary = await runGcsImport(
+      parsed.data.url,
+      undefined,
+      parsed.data.max_bundle_bytes,
+    );
     const { credentialsImported, ...report } = summary;
     return importCommitSuccessResult(report, credentialsImported);
   } catch (err) {
@@ -1899,7 +1877,7 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 
   try {
     const job = migrationJobs.startJob("import", async (jobRecord) =>
-      runGcsImport(bundle_url, jobRecord.id),
+      runGcsImport(bundle_url, jobRecord.id, parsed.data.max_bundle_bytes),
     );
     return {
       job_id: job.id,
@@ -1944,7 +1922,12 @@ export async function handleMigrationImportFromGcs({ body }: RouteHandlerArgs) {
 export async function handleMigrationPreflightFromGcs({
   body,
 }: RouteHandlerArgs) {
-  const parsed = z.object({ bundle_url: z.string().url() }).safeParse(body);
+  const parsed = z
+    .object({
+      bundle_url: z.string().url(),
+      max_bundle_bytes: MigrationByteLimit,
+    })
+    .safeParse(body);
   if (!parsed.success) {
     throw new BadRequestError(
       "Request body must be { bundle_url: string } with a valid URL",
@@ -2001,34 +1984,17 @@ export async function handleMigrationPreflightFromGcs({
     );
   }
 
-  const bytes = new Uint8Array(await upstream.arrayBuffer());
-  const validationResult = validateVBundle(bytes);
-
-  if (!validationResult.is_valid || !validationResult.manifest) {
-    return {
-      can_import: false,
-      validation: {
-        is_valid: false as const,
-        errors: validationResult.errors,
-      },
-    };
+  if (!upstream.body) {
+    throw new InternalError("Bundle response has no body");
   }
-
-  const pathResolver = new DefaultPathResolver(
+  return preflightBundleStream(
+    Readable.fromWeb(
+      upstream.body as unknown as import("node:stream/web").ReadableStream<Uint8Array>,
+    ),
+    new DefaultPathResolver(getWorkspaceDir(), getWorkspaceHooksDir()),
     getWorkspaceDir(),
-    getWorkspaceHooksDir(),
+    parsed.data.max_bundle_bytes,
   );
-
-  try {
-    return analyzeImport({ manifest: validationResult.manifest, pathResolver });
-  } catch (err) {
-    log.error({ err }, "Unexpected error during preflight-from-gcs analysis");
-    throw new InternalError(
-      err instanceof Error
-        ? err.message
-        : "Unexpected preflight-from-gcs error",
-    );
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2333,9 +2299,11 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Dry-run import analysis",
     description:
-      "Validate a .vbundle archive and return a report of what would change on import without modifying data. Accepts raw bytes, multipart form data, or JSON `{ path }` pointing at a file staged under the workspace `.restore-staging` directory.",
+      "Validate a .vbundle archive and return a report of what would change on import without modifying data. Accepts raw bytes, multipart form data, or JSON `{ url, max_bundle_bytes? }` for a signed download URL, or `{ path }` pointing at a file staged under the workspace `.restore-staging` directory.",
     tags: ["migrations"],
     requestBody: z.object({
+      url: z.string().url().optional(),
+      max_bundle_bytes: MigrationByteLimit,
       path: z
         .string()
         .min(1)
@@ -2366,6 +2334,7 @@ export const ROUTES: RouteDefinition[] = [
       "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, a JSON body with `{ url }` carrying a signed URL the daemon fetches, or a JSON body with `{ path }` pointing at a file staged under the workspace `.restore-staging` directory.",
     tags: ["migrations"],
     requestBody: z.object({
+      max_bundle_bytes: MigrationByteLimit,
       url: z
         .string()
         .url()
@@ -2408,6 +2377,7 @@ export const ROUTES: RouteDefinition[] = [
       "Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL. Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export job is already pending or running.",
     tags: ["migrations"],
     requestBody: z.object({
+      max_bundle_bytes: MigrationByteLimit,
       upload_url: z
         .string()
         .url()
@@ -2438,6 +2408,7 @@ export const ROUTES: RouteDefinition[] = [
       "Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import is already in flight.",
     tags: ["migrations"],
     requestBody: z.object({
+      max_bundle_bytes: MigrationByteLimit,
       bundle_url: z.string().url(),
     }),
     responseStatus: "202",
@@ -2466,6 +2437,7 @@ export const ROUTES: RouteDefinition[] = [
       "Fetch a .vbundle archive from a signed GCS download URL and return a preflight report — what would change if the bundle were imported — without writing anything to disk. Enables `vellum teleport --dry-run` against local and docker targets.",
     tags: ["migrations"],
     requestBody: z.object({
+      max_bundle_bytes: MigrationByteLimit,
       bundle_url: z
         .string()
         .url()

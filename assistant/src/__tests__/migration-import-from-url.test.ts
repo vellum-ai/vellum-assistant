@@ -104,6 +104,7 @@ import { buildVBundle } from "../runtime/migrations/vbundle-builder.js";
 import {
   _setUrlImportValidatorOptionsForTests,
   handleMigrationImport,
+  handleMigrationImportPreflight,
 } from "../runtime/routes/migration-routes.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { callHandler } from "./helpers/call-route-handler.js";
@@ -606,4 +607,37 @@ describe("handleMigrationImport — raw-bytes regression", () => {
     expect(body.success).toBe(true);
     expect(body.files.length).toBeGreaterThan(0);
   });
+});
+
+test("URL import and preflight enforce extracted plan bytes", async () => {
+  const bundlePath = makeSmallValidBundlePath(testParent);
+  const fixture = await startFixtureServer((_req, res) => {
+    res.writeHead(200, { "Content-Type": "application/octet-stream" });
+    createReadStream(bundlePath).pipe(res);
+  });
+  try {
+    for (const handler of [
+      handleMigrationImport,
+      handleMigrationImportPreflight,
+    ]) {
+      const response = await callHandler(
+        handler,
+        new Request("http://localhost/v1/migrations/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: makeFakeSignedUrl(fixture.port),
+            max_bundle_bytes: 1,
+          }),
+        }),
+      );
+      const body = await response.json();
+      expect(JSON.stringify(body)).toContain("bundle_too_large");
+      expect(
+        existsSync(join(testWorkspaceRoot, "data", "db", "assistant.db")),
+      ).toBe(false);
+    }
+  } finally {
+    await fixture.close();
+  }
 });

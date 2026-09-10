@@ -570,3 +570,33 @@ describe("handleMigrationExportToGcs — URL validation", () => {
     expect(body.error.message).toContain("path_traversal");
   });
 });
+
+test("plan limit rejects export before uploading any data", async () => {
+  let uploads = 0;
+  const fixture = await startFixtureServer((_req, res) => {
+    uploads += 1;
+    res.end();
+  });
+  try {
+    const response = await callHandler(
+      handleMigrationExportToGcs,
+      new Request("http://localhost/v1/migrations/export-to-gcs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          upload_url: makeFakeSignedUploadUrl(fixture.port),
+          max_bundle_bytes: 1,
+        }),
+      }),
+      undefined,
+      202,
+    );
+    const accepted = (await response.json()) as AcceptedResponse;
+    const job = await waitForJobTerminal(accepted.job_id);
+    expect(job.status).toBe("failed");
+    expect(job.error?.code).toBe("bundle_too_large");
+    expect(uploads).toBe(0);
+  } finally {
+    await fixture.close();
+  }
+});

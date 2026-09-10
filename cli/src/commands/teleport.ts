@@ -22,6 +22,7 @@ import {
   platformImportBundleFromGcs,
   platformImportPreflightFromGcs,
   platformRequestSignedUrl,
+  platformEnsureProvisioned,
   VersionMismatchError,
   ensureSelfHostedLocalRegistration,
   injectCredentialsIntoAssistant,
@@ -374,7 +375,8 @@ async function exportFromAssistant(
   entry: AssistantEntry,
   cloud: string,
   bundlePlatformUrl?: string,
-): Promise<{ bundleKey: string }> {
+  targetEnv: "platform" | "local" | "docker" = "platform",
+): Promise<{ bundleKey: string; downloadUrl?: string }> {
   const platformToken = readPlatformToken();
   if (!platformToken) {
     console.error(
@@ -416,9 +418,16 @@ async function exportFromAssistant(
     // is reachable; a docker daemon runs inside a container and reaches the
     // host the same way managed pods do, so its URL must be signed for the
     // runtime-reachable storage endpoint.
-    const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
+    const {
+      url: uploadUrl,
+      bundleKey,
+      maxContentLength,
+      downloadUrl,
+    } = await platformRequestSignedUrl(
       {
         operation: "upload",
+        purpose: targetEnv === "platform" ? "import" : "transfer",
+        downloadConsumer: targetEnv === "docker" ? "runtime" : "client",
         minRuntimeVersion: sourceRuntimeVersion,
         maxRuntimeVersion: null,
         ...(cloud === "docker" ? { consumer: "runtime" as const } : {}),
@@ -439,6 +448,8 @@ async function exportFromAssistant(
         const r = await localRuntimeExportToGcs(entry, token, {
           uploadUrl,
           description: "teleport export",
+          maxBundleBytes:
+            targetEnv === "platform" ? maxContentLength : undefined,
         });
         return { jobId: r.jobId, token };
       });
@@ -484,7 +495,7 @@ async function exportFromAssistant(
       process.exit(1);
     }
 
-    return { bundleKey };
+    return { bundleKey, downloadUrl };
   }
 
   if (cloud === "vellum") {
@@ -517,6 +528,7 @@ async function exportFromAssistant(
     const { url: uploadUrl, bundleKey } = await platformRequestSignedUrl(
       {
         operation: "upload",
+        purpose: "export",
         minRuntimeVersion: sourceRuntimeVersion,
         maxRuntimeVersion: null,
         // The managed pod PUTs the bundle, not this CLI — the URL must be
@@ -592,6 +604,7 @@ async function importToAssistant(
   bundleKey: string,
   dryRun: boolean,
   bundlePlatformUrl?: string,
+  transferDownloadUrl?: string,
 ): Promise<void> {
   const platformToken = readPlatformToken();
   if (!platformToken) {
@@ -676,7 +689,9 @@ async function importToAssistant(
     }
 
     if (importResult.statusCode !== 202 && importResult.statusCode !== 200) {
-      console.error(`Error: Import failed (${importResult.statusCode})`);
+      console.error(
+        `Error: Import failed (${importResult.statusCode}): ${JSON.stringify(importResult.body)}`,
+      );
       process.exit(1);
     }
 
@@ -719,62 +734,7 @@ async function importToAssistant(
   }
 
   if (cloud === "local" || cloud === "docker") {
-    if (dryRun) {
-      console.log("Running preflight analysis...\n");
-
-      // Query the target runtime's version before requesting a signed
-      // download URL — the platform uses it for the bundle compatibility check.
-      let targetRuntimeVersion: string;
-      try {
-        const identity = await callRuntimeWithAuthRetry(entry, (token) =>
-          localRuntimeIdentity(entry, token),
-        );
-        targetRuntimeVersion = identity.version;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(
-          `Error: Could not read target runtime version from '${entry.assistantId}': ${msg}`,
-        );
-        console.error(`Try: vellum wake ${entry.assistantId}`);
-        process.exit(1);
-      }
-
-      let bundleUrl: string;
-      try {
-        const result = await platformRequestSignedUrl(
-          { operation: "download", bundleKey, targetRuntimeVersion },
-          platformToken,
-          bundlePlatformUrl,
-        );
-        bundleUrl = result.url;
-      } catch (err) {
-        if (err instanceof VersionMismatchError) {
-          console.error(`Error: ${err.message}`);
-          process.exit(1);
-        }
-        throw err;
-      }
-
-      const preflightData = await callRuntimeWithAuthRetry(entry, (token) =>
-        localRuntimePreflightFromGcs(entry, token, { bundleUrl }),
-      );
-      printPreflightSummary(preflightData as unknown as PreflightResponse);
-      return;
-    }
-
-    // Ask the platform for a signed download URL and hand it to the local
-    // runtime. The runtime streams the bundle straight out of GCS — the CLI
-    // never touches the bytes. The URL must target the same platform the
-    // bundle was uploaded to; otherwise the object won't exist on this
-    // platform's GCS bucket.
-    //
-    // The platform's vbundle version gate compares the **target runtime's**
-    // version against the bundle's compatibility range. The CLI and the
-    // target assistant's daemon can diverge (assistants upgrade
-    // independently), so we MUST query the target runtime's `/v1/identity`
-    // for its version rather than sending `cliPkg.version`. Sending the CLI
-    // version here would falsely 422 a valid import (or pass a bundle the
-    // target can't actually load) whenever the two drift apart.
+    // Compatibility is checked against the target runtime's own version.
     let targetRuntimeVersion: string;
     try {
       const identity = await callRuntimeWithAuthRetry(entry, (token) =>
@@ -795,15 +755,18 @@ async function importToAssistant(
 
     let bundleUrl: string;
     try {
-      const result = await platformRequestSignedUrl(
-        {
-          operation: "download",
-          bundleKey,
-          targetRuntimeVersion,
-        },
-        platformToken,
-        bundlePlatformUrl,
-      );
+      const result = transferDownloadUrl
+        ? { url: transferDownloadUrl }
+        : await platformRequestSignedUrl(
+            {
+              operation: "download",
+              consumer: cloud === "docker" ? "runtime" : "client",
+              bundleKey,
+              targetRuntimeVersion,
+            },
+            platformToken,
+            bundlePlatformUrl,
+          );
       bundleUrl = result.url;
     } catch (err) {
       if (err instanceof VersionMismatchError) {
@@ -814,6 +777,15 @@ async function importToAssistant(
         process.exit(1);
       }
       throw err;
+    }
+
+    if (dryRun) {
+      console.log("Running preflight analysis...\n");
+      const preflightData = await callRuntimeWithAuthRetry(entry, (token) =>
+        localRuntimePreflightFromGcs(entry, token, { bundleUrl }),
+      );
+      printPreflightSummary(preflightData as unknown as PreflightResponse);
+      return;
     }
 
     console.log("Importing data...");
@@ -1312,10 +1284,11 @@ export async function teleport(): Promise<void> {
             : undefined;
 
       console.log(`Exporting from ${from} (${fromCloud})...`);
-      const { bundleKey } = await exportFromAssistant(
+      const { bundleKey, downloadUrl } = await exportFromAssistant(
         fromEntry,
         fromCloud,
         bundlePlatformUrl,
+        targetEnv,
       );
       console.log(`Importing to ${existingTarget.assistantId} (${toCloud})...`);
       await importToAssistant(
@@ -1324,6 +1297,7 @@ export async function teleport(): Promise<void> {
         bundleKey,
         true,
         bundlePlatformUrl,
+        downloadUrl,
       );
     } else {
       // No existing target — just describe what would happen
@@ -1401,15 +1375,23 @@ export async function teleport(): Promise<void> {
     // resolveOrHatchTarget writes to the new entry).
     console.log(`Exporting from ${from} (${fromCloud})...`);
     const bundlePlatformUrl = targetPlatformUrl ?? getPlatformUrl();
-    const { bundleKey } = await exportFromAssistant(
+    const { bundleKey, downloadUrl } = await exportFromAssistant(
       fromEntry,
       fromCloud,
       bundlePlatformUrl,
+      targetEnv,
     );
 
     // Hatch (export succeeded — safe to create the target)
     const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
     const toCloud = toEntry.cloud;
+
+    console.log("Preparing your plan storage...");
+    await pollJobUntilDone({
+      label: "plan storage provisioning",
+      timeoutMs: 15 * 60 * 1000,
+      poll: () => platformEnsureProvisioned(token, bundlePlatformUrl),
+    });
 
     // Import from GCS
     console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
@@ -1419,6 +1401,7 @@ export async function teleport(): Promise<void> {
       bundleKey,
       false,
       bundlePlatformUrl,
+      downloadUrl,
     );
 
     console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
@@ -1471,10 +1454,11 @@ export async function teleport(): Promise<void> {
 
   // Export from source (bundle lives in GCS after this returns).
   console.log(`Exporting from ${from} (${fromCloud})...`);
-  const { bundleKey } = await exportFromAssistant(
+  const { bundleKey, downloadUrl } = await exportFromAssistant(
     fromEntry,
     fromCloud,
     bundlePlatformUrl,
+    targetEnv,
   );
 
   if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
@@ -1554,6 +1538,7 @@ export async function teleport(): Promise<void> {
     bundleKey,
     false,
     bundlePlatformUrl,
+    downloadUrl,
   );
 
   // After successful import, inject fresh platform credentials if the

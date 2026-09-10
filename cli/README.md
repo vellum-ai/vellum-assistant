@@ -14,6 +14,25 @@ bun run ./src/index.ts <command> [options]
 
 ## Commands
 
+### `teleport`
+
+Move assistant data between local, Docker, and platform environments:
+
+```bash
+vellum teleport --from my-local --platform
+vellum teleport --from my-platform --local my-local
+```
+
+For a platform destination, Teleport uses the account's current storage tier,
+reserving space for runtime data. It checks both the archive and extracted data
+before upload, then waits for purchased storage to finish provisioning before
+importing. Import also checks free disk space because the existing workspace
+remains on disk until the replacement is verified. If the bundle is too large,
+reduce the exported data or increase the destination storage and retry.
+
+Local and Docker destinations use their available disk space. Bundles pass
+through object storage; the CLI does not buffer the data.
+
 ### Lifecycle: `ps`, `sleep`, `wake`
 
 Day-to-day process management for the assistant and gateway.

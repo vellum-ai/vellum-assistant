@@ -53,6 +53,11 @@ import { resetDb } from "../../persistence/db-connection.js";
 import { isGuardianPersonaCustomized } from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { APP_VERSION } from "../../version.js";
+import {
+  assertBundleFits,
+  getImportByteBudget,
+  MAX_BUNDLE_ENTRIES,
+} from "./bundle-capacity.js";
 import type { PathResolver } from "./vbundle-import-analyzer.js";
 import * as policy from "./vbundle-import-policy.js";
 import type {
@@ -79,23 +84,8 @@ const log = getLogger("vbundle-streaming-importer");
 // These cap the streaming importer's exposure to attacker-controlled bundle
 // inputs (e.g. a signed-URL migration from an untrusted source). Both caps
 // are exposed as optional `opts.maxBundleBytes` / `opts.maxBundleEntries`
-// parameters so tests can exercise the abort path with small fixtures —
-// production callers should omit the opts and rely on the defaults.
+// parameters. Managed imports also receive the platform's plan allowance.
 // ---------------------------------------------------------------------------
-
-/**
- * Byte ceiling for the cumulative size of all file data streamed from the
- * bundle. 16 GiB gives comfortable headroom over the 8 GB product limit
- * while still bounding worst-case disk use for the temp workspace.
- */
-const DEFAULT_MAX_BUNDLE_BYTES = 16 * 1024 * 1024 * 1024;
-
-/**
- * Entry-count ceiling for the bundle. 100k is well above the largest
- * workspace we ship; anything past that is almost certainly an attack or
- * a corrupted archive.
- */
-const DEFAULT_MAX_BUNDLE_ENTRIES = 100_000;
 
 /**
  * Prefixes used for scratch dirs the streaming importer creates INSIDE the
@@ -147,8 +137,7 @@ export interface StreamCommitArgs {
     credentials: Array<{ account: string; value: string }>,
   ) => Promise<void>;
   /**
-   * Test-only override for the bundle-size ceiling (bytes). Production
-   * callers should omit this and rely on the 16 GiB default.
+   * Plan allowance in bytes. Free space further bounds staging capacity.
    */
   maxBundleBytes?: number;
   /**
@@ -178,8 +167,8 @@ export async function streamCommitImport(
     maxBundleEntries,
   } = args;
 
-  const bundleByteCap = maxBundleBytes ?? DEFAULT_MAX_BUNDLE_BYTES;
-  const bundleEntryCap = maxBundleEntries ?? DEFAULT_MAX_BUNDLE_ENTRIES;
+  let bundleByteCap = maxBundleBytes ?? Number.MAX_SAFE_INTEGER;
+  const bundleEntryCap = maxBundleEntries ?? MAX_BUNDLE_ENTRIES;
 
   const realWorkspaceDir = resolve(workspaceDir);
 
@@ -303,6 +292,10 @@ export async function streamCommitImport(
   // the generator and lands in the catch block below.
   let entryIndex = 0;
   try {
+    bundleByteCap = Math.min(
+      bundleByteCap,
+      getImportByteBudget(realWorkspaceDir),
+    );
     const entries = parseVBundleStream(source);
     let expected: Map<
       string,
@@ -316,6 +309,10 @@ export async function streamCommitImport(
         const manifestResult = await readAndValidateManifest(entry);
         manifest = manifestResult.manifest;
         expected = manifestResult.expected;
+        assertBundleFits(
+          manifest.contents.reduce((total, file) => total + file.size_bytes, 0),
+          bundleByteCap,
+        );
 
         // Defense-in-depth: refuse to populate the temp tree when the
         // bundle's compat range excludes APP_VERSION. The version gate

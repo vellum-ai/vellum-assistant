@@ -594,6 +594,34 @@ export async function hatchAssistant(
 
 const PLATFORM_FETCH_TIMEOUT_MS = 10_000;
 
+/** Reconcile purchased resources and expose progress to the shared poller. */
+export async function platformEnsureProvisioned(
+  token: string,
+  platformUrl?: string,
+): Promise<UnifiedJobStatus> {
+  const response = await loopbackSafeFetch(
+    `${platformUrl || getPlatformUrl()}/v1/billing/subscription/onboarding/ensure-provisioned/`,
+    {
+      method: "POST",
+      headers: await authHeaders(token, platformUrl),
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Plan storage provisioning failed: ${response.status}`);
+  }
+  const body = (await response.json()) as { state?: string };
+  const job = { jobId: "plan-storage", type: "import" as const };
+  if (body.state === "already_done" || body.state === "not_applicable") {
+    return { ...job, status: "complete", result: {} };
+  }
+  if (body.state === "started" || body.state === "in_progress") {
+    return { ...job, status: "processing" };
+  }
+  throw new Error("Plan storage provisioning returned an unknown state");
+}
+
 /**
  * Lightweight pre-check: returns the first active managed assistant for the
  * authenticated user, or `null` if none exists. Calls `GET /v1/assistants/`
@@ -1089,6 +1117,8 @@ export async function platformRequestSignedUrl(
     // "client" server-side. No effect in production, where both endpoints
     // are the same.
     consumer?: "client" | "runtime";
+    purpose?: "import" | "export" | "transfer";
+    downloadConsumer?: "client" | "runtime";
   },
   token: string,
   platformUrl?: string,
@@ -1097,6 +1127,7 @@ export async function platformRequestSignedUrl(
   bundleKey: string;
   expiresAt: string;
   maxContentLength?: number;
+  downloadUrl?: string;
 }> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const body: Record<string, unknown> = { operation: params.operation };
@@ -1118,6 +1149,12 @@ export async function platformRequestSignedUrl(
   }
   if (params.consumer !== undefined) {
     body.consumer = params.consumer;
+  }
+  if (params.purpose !== undefined) {
+    body.purpose = params.purpose;
+  }
+  if (params.downloadConsumer !== undefined) {
+    body.download_consumer = params.downloadConsumer;
   }
 
   const doRequest = async (): Promise<Response> =>
@@ -1144,12 +1181,16 @@ export async function platformRequestSignedUrl(
       bundle_key: string;
       expires_at: string;
       max_content_length?: number;
+      download_url?: string;
     };
     return {
       url: json.url,
       bundleKey: json.bundle_key,
       expiresAt: json.expires_at,
       maxContentLength: json.max_content_length,
+      ...(json.download_url !== undefined && {
+        downloadUrl: json.download_url,
+      }),
     };
   }
 

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   platformPollJobStatus,
+  platformEnsureProvisioned,
   platformRequestSignedUrl,
   VersionMismatchError,
   type UnifiedJobStatus,
@@ -636,5 +637,35 @@ describe("platformPollJobStatus", () => {
     await expect(
       platformPollJobStatus("missing", VAK_TOKEN, PLATFORM_URL),
     ).rejects.toThrow(/Migration job not found/);
+  });
+});
+
+describe("plan provisioning", () => {
+  test.each(["already_done", "not_applicable", "started", "in_progress"])(
+    "maps %s to a poll status",
+    async (state) => {
+      const { calls, fetchMock } = captureFetch(() => Response.json({ state }));
+      globalThis.fetch = fetchMock;
+      const result = await platformEnsureProvisioned(VAK_TOKEN, PLATFORM_URL);
+      expect(result.status).toBe(
+        state === "already_done" || state === "not_applicable"
+          ? "complete"
+          : "processing",
+      );
+      expect(calls[0]?.url).toBe(
+        `${PLATFORM_URL}/v1/billing/subscription/onboarding/ensure-provisioned/`,
+      );
+      expect(calls[0]?.method).toBe("POST");
+    },
+  );
+
+  test("unknown state cannot silently permit an import", async () => {
+    const { fetchMock } = captureFetch(() =>
+      Response.json({ state: "unexpected" }),
+    );
+    globalThis.fetch = fetchMock;
+    await expect(
+      platformEnsureProvisioned(VAK_TOKEN, PLATFORM_URL),
+    ).rejects.toThrow("unknown state");
   });
 });

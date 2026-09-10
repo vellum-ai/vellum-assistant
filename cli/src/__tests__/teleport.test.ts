@@ -137,6 +137,9 @@ const platformRequestSignedUrlMock = mock<
   expiresAt: new Date(Date.now() + 3600_000).toISOString(),
 }));
 
+const platformEnsureProvisionedMock =
+  mock<typeof platformClient.platformEnsureProvisioned>();
+
 const platformImportBundleFromGcsMock = mock<
   typeof platformClient.platformImportBundleFromGcs
 >(async () => ({
@@ -216,6 +219,7 @@ mock.module("../lib/platform-client.js", () => ({
   hatchAssistant: hatchAssistantMock,
   platformPollJobStatus: platformPollJobStatusMock,
   platformRequestSignedUrl: platformRequestSignedUrlMock,
+  platformEnsureProvisioned: platformEnsureProvisionedMock,
   platformImportBundleFromGcs: platformImportBundleFromGcsMock,
   platformImportPreflightFromGcs: platformImportPreflightFromGcsMock,
   checkExistingPlatformAssistant: checkExistingPlatformAssistantMock,
@@ -454,6 +458,12 @@ beforeEach(() => {
     bundleKey: params.bundleKey ?? "bundle-key-123",
     expiresAt: new Date(Date.now() + 3600_000).toISOString(),
   }));
+  platformEnsureProvisionedMock.mockReset();
+  platformEnsureProvisionedMock.mockResolvedValue({
+    jobId: "storage",
+    type: "import",
+    status: "complete",
+  });
   platformImportBundleFromGcsMock.mockReset();
   platformImportBundleFromGcsMock.mockResolvedValue({
     statusCode: 200,
@@ -917,6 +927,68 @@ describe("resolveOrHatchTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("unified GCS flow — four directions", () => {
+  test("local to Docker uses the upload receipt without requiring a managed import job", async () => {
+    setArgv("--from", "my-local", "--docker", "my-docker", "--keep-source");
+    const source = makeEntry("my-local", { cloud: "local" });
+    const target = makeEntry("my-docker", { cloud: "docker" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? source : name === "my-docker" ? target : null,
+    );
+    platformRequestSignedUrlMock.mockResolvedValue({
+      url: "https://storage.googleapis.com/bucket/upload",
+      downloadUrl: "https://storage.googleapis.com/bucket/receipt",
+      bundleKey: "transfer-key",
+      expiresAt: "2030-01-01T00:00:00Z",
+    });
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+      expect(platformRequestSignedUrlMock).toHaveBeenCalledTimes(1);
+      expect(platformRequestSignedUrlMock.mock.calls[0]?.[0]).toMatchObject({
+        purpose: "transfer",
+        downloadConsumer: "runtime",
+      });
+      expect(localRuntimeImportFromGcsMock).toHaveBeenCalledWith(
+        target,
+        expect.any(String),
+        { bundleUrl: "https://storage.googleapis.com/bucket/receipt" },
+      );
+      expect(platformEnsureProvisionedMock).not.toHaveBeenCalled();
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  test("plan allowance is forwarded before upload and provisioning finishes before import", async () => {
+    setArgv("--from", "my-local", "--platform");
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) =>
+      name === "my-local" ? localEntry : null,
+    );
+    platformRequestSignedUrlMock.mockResolvedValue({
+      url: "https://storage.googleapis.com/bucket/upload",
+      bundleKey: "bundle-key",
+      expiresAt: "2030-01-01T00:00:00Z",
+      maxContentLength: 58 * 1024 ** 3,
+    });
+    platformEnsureProvisionedMock.mockImplementation(async () => {
+      expect(hatchAssistantMock).toHaveBeenCalled();
+      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+      return { jobId: "storage", type: "import", status: "complete" };
+    });
+    const restoreFetch = installTrackingFetch();
+    try {
+      await teleport();
+      expect(
+        localRuntimeExportToGcsMock.mock.calls[0]?.[2].maxBundleBytes,
+      ).toBe(58 * 1024 ** 3);
+      expect(platformEnsureProvisionedMock).toHaveBeenCalledTimes(1);
+      expect(platformImportBundleFromGcsMock).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreFetch();
+    }
+  });
+
   test("local → platform: requests upload URL, drives local runtime export, imports from GCS", async () => {
     setArgv("--from", "my-local", "--platform");
 

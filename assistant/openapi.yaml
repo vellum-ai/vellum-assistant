@@ -22948,6 +22948,11 @@ paths:
             schema:
               type: object
               properties:
+                max_bundle_bytes:
+                  description: Maximum extracted bundle bytes allowed by the destination plan; free disk space can impose a lower limit.
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                 upload_url:
                   type: string
                   format: uri
@@ -22996,6 +23001,11 @@ paths:
             schema:
               type: object
               properties:
+                max_bundle_bytes:
+                  description: Maximum extracted bundle bytes allowed by the destination plan; free disk space can impose a lower limit.
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                 url:
                   description: A signed GCS URL pointing to the .vbundle archive (JSON body path only).
                   type: string
@@ -23054,6 +23064,11 @@ paths:
             schema:
               type: object
               properties:
+                max_bundle_bytes:
+                  description: Maximum extracted bundle bytes allowed by the destination plan; free disk space can impose a lower limit.
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                 bundle_url:
                   type: string
                   format: uri
@@ -23088,8 +23103,8 @@ paths:
       summary: Dry-run import analysis
       description:
         Validate a .vbundle archive and return a report of what would change on import without modifying data.
-        Accepts raw bytes, multipart form data, or JSON `{ path }` pointing at a file staged under the workspace
-        `.restore-staging` directory.
+        Accepts raw bytes, multipart form data, or JSON `{ url, max_bundle_bytes? }` for a signed download URL, or `{
+        path }` pointing at a file staged under the workspace `.restore-staging` directory.
       tags:
         - migrations
       requestBody:
@@ -23099,6 +23114,14 @@ paths:
             schema:
               type: object
               properties:
+                url:
+                  type: string
+                  format: uri
+                max_bundle_bytes:
+                  description: Maximum extracted bundle bytes allowed by the destination plan; free disk space can impose a lower limit.
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                 path:
                   description: Workspace-relative or absolute path to a staged .vbundle under .restore-staging (JSON body path only).
                   type: string
@@ -23240,6 +23263,11 @@ paths:
             schema:
               type: object
               properties:
+                max_bundle_bytes:
+                  description: Maximum extracted bundle bytes allowed by the destination plan; free disk space can impose a lower limit.
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                 bundle_url:
                   type: string
                   format: uri

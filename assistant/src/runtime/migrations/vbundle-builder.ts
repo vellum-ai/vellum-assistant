@@ -27,8 +27,10 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip, gzipSync } from "node:zlib";
 
+import { writeUstarSizeField } from "../../archive/ustar-size.js";
 import { sanitizeConfigForTransfer } from "../../config/sanitize-for-transfer.js";
 import { getLogger } from "../../util/logger.js";
+import { assertBundleFits } from "./bundle-capacity.js";
 import type { VBundleOriginMode } from "./origin-mode.js";
 import type {
   ManifestFileEntryType,
@@ -228,7 +230,7 @@ function createPaxPathEntry(name: string): Uint8Array {
   writeOctal(header, 100, 8, 0o644);
   writeOctal(header, 108, 8, 0);
   writeOctal(header, 116, 8, 0);
-  writeOctal(header, 124, 12, paxData.length);
+  writeUstarSizeField(header, paxData.length);
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
 
   // Type flag 'x' = PAX extended header for the next entry
@@ -286,7 +288,7 @@ function createTarEntry(
   writeOctal(header, 116, 8, 0);
 
   // File size (124-135) — symlink entries always carry size 0
-  writeOctal(header, 124, 12, isSymlink ? 0 : data.length);
+  writeUstarSizeField(header, isSymlink ? 0 : data.length);
 
   // Modification time (136-147)
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
@@ -662,6 +664,8 @@ export function walkDirectory(
 // ---------------------------------------------------------------------------
 
 export interface BuildExportVBundleOptions {
+  /** Destination allowance, checked before hashing and building the archive. */
+  maxBundleBytes?: number;
   /** Identity of the assistant that produced this bundle. */
   assistant: VBundleAssistantInfo;
   /** Where this bundle was produced. */
@@ -971,7 +975,7 @@ function createTarHeaderBlock(
   writeOctal(header, 116, 8, 0);
 
   // File size (124-135) — symlink entries always declare size=0
-  writeOctal(header, 124, 12, linkTarget !== undefined ? 0 : size);
+  writeUstarSizeField(header, linkTarget !== undefined ? 0 : size);
 
   // Modification time (136-147)
   writeOctal(header, 136, 12, Math.floor(Date.now() / 1000));
@@ -1252,6 +1256,15 @@ export async function streamExportVBundle(
   // ------------------------------------------------------------------
   // Pass 1: Compute SHA-256 checksums to build the manifest
   // ------------------------------------------------------------------
+
+  if (options.maxBundleBytes !== undefined) {
+    const sizeBytes = [
+      ...allFileMetadata,
+      ...sanitizedConfigEntries,
+      ...inMemoryEntries,
+    ].reduce((total, file) => total + file.size, 0);
+    assertBundleFits(sizeBytes, options.maxBundleBytes);
+  }
 
   const fileEntries: ManifestFileEntryType[] = [];
   for (const file of allFileMetadata) {

@@ -382,6 +382,16 @@ export function createHashVerifier(expected: {
           typeof chunk === "string" ? Buffer.from(chunk, encoding) : chunk;
         hash.update(buf);
         bytes += buf.length;
+        if (bytes > expected.size) {
+          callback(
+            new StreamingValidationError(
+              "entry_size",
+              `Entry exceeds its declared size of ${expected.size} bytes`,
+              expected.archivePath,
+            ),
+          );
+          return;
+        }
         callback(null, buf);
       } catch (err) {
         callback(err instanceof Error ? err : new Error(String(err)));
