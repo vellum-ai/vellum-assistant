@@ -594,16 +594,19 @@ describe("credentials routes", () => {
 
     test("non-secret vellum platform fields are stored but never scrubbed", async () => {
       /**
-       * Platform identity ids and the base URL are benign UUIDs/URLs that
-       * legitimately appear in transcripts; scrubbing them would redact
-       * ordinary conversation content. Shares the exemption with the
-       * /v1/secrets credential branch via isNonSecretPlatformField.
+       * Platform identity ids are benign UUIDs that legitimately appear in
+       * transcripts; scrubbing them would redact ordinary conversation
+       * content. Shares the exemption with the /v1/secrets credential branch
+       * via isNonSecretPlatformField.
+       *
+       * `platform_base_url` carries the same exemption but is not settable
+       * here: it decides which host receives the platform API key, so the
+       * credentials API refuses it (see the platform-managed suite).
        */
       for (const field of [
         "platform_assistant_id",
         "platform_organization_id",
         "platform_user_id",
-        "platform_base_url",
       ]) {
         const result = (await setRoute!.handler({
           body: {
@@ -883,6 +886,73 @@ describe("credentials routes", () => {
           }),
         ).rejects.toThrow(ForbiddenError);
       }
+    });
+
+    test("set refuses platform credentials", async () => {
+      /**
+       * A write is a read by another name: repointing `platform_base_url`
+       * sends the next platform call, bearing the API key, to a host the
+       * writer chose. The platform's own provisioning does not come through
+       * this route; it writes over `POST /v1/secrets`.
+       */
+      for (const field of ["assistant_api_key", "platform_base_url"]) {
+        await expect(
+          setRoute!.handler({
+            body: { service: "vellum", field, value: "https://attacker.test" },
+          }),
+        ).rejects.toThrow(ForbiddenError);
+      }
+
+      expect(secureStore.has("vellum:assistant_api_key")).toBe(false);
+      expect(secureStore.has("vellum:platform_base_url")).toBe(false);
+    });
+
+    test("set does not overwrite an already-provisioned platform credential", async () => {
+      seedPlatformCredential("platform_base_url", PLATFORM_BASE_URL);
+
+      await expect(
+        setRoute!.handler({
+          body: {
+            service: "vellum",
+            field: "platform_base_url",
+            value: "https://attacker.test",
+          },
+        }),
+      ).rejects.toThrow(/owned by the Vellum platform/);
+
+      expect(secureStore.get("vellum:platform_base_url")).toBe(
+        PLATFORM_BASE_URL,
+      );
+    });
+
+    test("delete refuses platform credentials", async () => {
+      seedPlatformCredential("assistant_api_key", PLATFORM_KEY);
+      seedPlatformCredential("platform_base_url", PLATFORM_BASE_URL);
+
+      for (const field of ["assistant_api_key", "platform_base_url"]) {
+        await expect(
+          deleteRoute!.handler({ body: { service: "vellum", field } }),
+        ).rejects.toThrow(ForbiddenError);
+      }
+
+      expect(secureStore.get("vellum:assistant_api_key")).toBe(PLATFORM_KEY);
+      expect(secureStore.get("vellum:platform_base_url")).toBe(
+        PLATFORM_BASE_URL,
+      );
+    });
+
+    test("a user credential is still writable and deletable", async () => {
+      const stored = (await setRoute!.handler({
+        body: { service: "vercel", field: "api_token", value: SECRET_VALUE },
+      })) as SetResponse;
+      expect(stored.service).toBe("vercel");
+      expect(secureStore.get("vercel:api_token")).toBe(SECRET_VALUE);
+
+      const deleted = (await deleteRoute!.handler({
+        body: { service: "vercel", field: "api_token" },
+      })) as DeleteResponse;
+      expect(deleted.field).toBe("api_token");
+      expect(secureStore.has("vercel:api_token")).toBe(false);
     });
 
     test("a user credential still inspects and reveals", async () => {

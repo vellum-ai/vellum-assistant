@@ -62,6 +62,7 @@ import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
 import { BadRequestError, ForbiddenError, InternalError } from "./errors.js";
 import {
   isPlatformManagedCredential,
+  type PlatformManagedCredentialAction,
   platformManagedCredentialRefusal,
 } from "./platform-managed-credentials.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -178,7 +179,7 @@ function resolveCredentialLookup(
   };
 
   if (service && field) {
-    assertNotPlatformManaged(service, field);
+    assertNotPlatformManaged(service, field, "read");
     return {
       storageKey: credentialKey(service, field),
       metadata: getCredentialMetadata(service, field),
@@ -192,7 +193,7 @@ function resolveCredentialLookup(
     if (!metadata) {
       throw new BadRequestError("Credential not found");
     }
-    assertNotPlatformManaged(metadata.service, metadata.field);
+    assertNotPlatformManaged(metadata.service, metadata.field, "read");
     return {
       storageKey: credentialKey(metadata.service, metadata.field),
       metadata,
@@ -205,14 +206,25 @@ function resolveCredentialLookup(
 }
 
 /**
- * Refuse reads of a credential the platform provisions for itself, whatever
- * the calling principal. The assistant's own tool shell arrives as `local`
- * and Settings arrives as `user`, and neither has any business reading the
- * key the daemon bills inference with.
+ * Refuse any use of a credential the platform provisions for itself, whatever
+ * the calling principal. Reads are refused because the API key spends
+ * inference on Vellum's account. Writes are refused because they are a read
+ * by another name: repointing `vellum:platform_base_url` sends the next
+ * platform call, bearing that same key, to a host of the writer's choosing.
+ *
+ * The platform's own provisioning does not come through here. It writes over
+ * `POST /v1/secrets` (Django to vembda to the pod), as does the CLI and the
+ * local-mode connect flow in the web client.
  */
-function assertNotPlatformManaged(service: string, field: string): void {
+function assertNotPlatformManaged(
+  service: string,
+  field: string,
+  action: PlatformManagedCredentialAction,
+): void {
   if (isPlatformManagedCredential(service, field)) {
-    throw new ForbiddenError(platformManagedCredentialRefusal(service, field));
+    throw new ForbiddenError(
+      platformManagedCredentialRefusal(service, field, action),
+    );
   }
 }
 
@@ -480,6 +492,8 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     throw new BadRequestError("value is required");
   }
 
+  assertNotPlatformManaged(service, field, "change");
+
   try {
     return await storeCredentialValue({
       service,
@@ -522,6 +536,8 @@ async function handleCredentialsDelete({ body }: RouteHandlerArgs) {
   if (!field || typeof field !== "string") {
     throw new BadRequestError("field is required");
   }
+
+  assertNotPlatformManaged(service, field, "change");
 
   assertMetadataWritable();
 
