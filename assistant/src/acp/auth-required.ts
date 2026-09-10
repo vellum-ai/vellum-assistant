@@ -82,19 +82,27 @@ export function isClaudeAuthFailureMessage(
   );
 }
 
-/** The message `RequestError.internalError()` builds when given no text. */
-const BARE_INTERNAL_ERROR_MESSAGE = "Internal error";
+/** Messages the SDK's `RequestError` factories build when given no text. */
+const GENERIC_RPC_MESSAGES: ReadonlySet<string> = new Set([
+  "Parse error",
+  "Invalid request",
+  "Invalid params",
+  "Internal error",
+  "Request cancelled",
+  "Authentication required",
+  "Resource not found",
+]);
 
 /**
  * The sentence behind a JSON-RPC rejection. An adapter that throws a plain
  * Error reaches the client as a bare "Internal error" whose real text the
  * agent-side SDK moved into `data.details`, so that is read first. An adapter
  * that raises `RequestError.internalError(data, text)` keeps its words in the
- * message and only a kind in `data`, so the message comes next, and `data` is
- * serialized only behind the bare placeholder. Duck-typed like
- * {@link isAcpAuthRequired}: `message` is read as a property, so a rejection
- * that arrives as a plain object off the wire decodes the same as an `Error`
- * instance.
+ * message and only a kind in `data`, so the message comes next. Behind a
+ * generic message such as "Invalid params", `data` is the only reason given,
+ * so it is serialized instead. Duck-typed like {@link isAcpAuthRequired}:
+ * `message` is read as a property, so a rejection that arrives as a plain
+ * object off the wire decodes the same as an `Error` instance.
  */
 export function requestErrorReason(err: unknown): string {
   if (typeof err !== "object" || err === null) {
@@ -112,7 +120,7 @@ export function requestErrorReason(err: unknown): string {
   if (
     typeof message === "string" &&
     message.length > 0 &&
-    message !== BARE_INTERNAL_ERROR_MESSAGE
+    !GENERIC_RPC_MESSAGES.has(message)
   ) {
     return message;
   }

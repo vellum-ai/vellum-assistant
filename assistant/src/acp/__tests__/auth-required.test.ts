@@ -144,6 +144,15 @@ describe("requestErrorReason", () => {
     ).toBe('{"c":7}');
   });
 
+  test("serializes the payload behind a generic Invalid params", () => {
+    // How the agent-side SDK answers a request its schema rejects.
+    expect(
+      requestErrorReason(
+        RequestError.invalidParams({ _errors: ["model: Invalid option"] }),
+      ),
+    ).toBe('{"_errors":["model: Invalid option"]}');
+  });
+
   test("decodes claude-agent-acp's prompt-time 401 from its message", () => {
     // RequestError.internalError({ errorKind }, cliText) as the adapter raises
     // it: the CLI's text rides the message and the payload only names a kind.
