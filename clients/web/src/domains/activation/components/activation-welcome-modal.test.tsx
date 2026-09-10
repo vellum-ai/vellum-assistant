@@ -309,21 +309,18 @@ describe("ActivationWelcomeModal", () => {
   });
 
   test("a successful launch toasts a way into the conversation", async () => {
-    const success = mock(() => {});
+    const success = mock<typeof toast.success>((_message, _options) => "");
     const original = toast.success;
-    toast.success = success as typeof toast.success;
+    toast.success = success;
     try {
       const { getByText } = renderModal(ACTIVATION_PROGRESS_EMPTY);
       await act(async () => {
         fireEvent.click(getByText(starters[0]!.chip));
       });
       expect(success).toHaveBeenCalled();
-      const [message, options] = success.mock.calls[0] as [
-        string,
-        { action?: { label: string } },
-      ];
-      expect(message).toBe("Running in the sidebar");
-      expect(options.action?.label).toBe("Open");
+      const firstCall = success.mock.calls[0];
+      expect(firstCall?.[0]).toBe("Running in the sidebar");
+      expect(firstCall?.[1]?.action?.label).toBe("Open");
     } finally {
       toast.success = original;
     }

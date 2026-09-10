@@ -84,7 +84,9 @@ describe("ActivationTaskRow", () => {
   test("opening Custom focuses the field", () => {
     const view = render(<ActivationTaskRow task={TASK} expanded />);
     openCustom(view);
-    expect(view.getByLabelText("Custom:")).toBe(document.activeElement);
+    expect(document.activeElement === view.getByLabelText("Custom:")).toBe(
+      true,
+    );
   });
 
   test("the Custom field launches with what was typed", () => {
