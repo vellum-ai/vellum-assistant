@@ -1580,6 +1580,93 @@ paths:
                 required:
                   - published
                 additionalProperties: false
+  /v1/apps/{id}/refresh:
+    post:
+      operationId: apps_by_id_refresh_post
+      summary: Compile an app
+      description: Compile workspace or plugin app source into dist/ and refresh open surfaces.
+      tags:
+        - apps
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                  appId:
+                    type: string
+                  name:
+                    type: string
+                  compiled:
+                    type: boolean
+                  compile_duration_ms:
+                    type: number
+                  compile_errors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        location:
+                          type: object
+                          properties:
+                            file:
+                              type: string
+                            line:
+                              type: number
+                            column:
+                              type: number
+                          required:
+                            - file
+                            - line
+                            - column
+                          additionalProperties: false
+                      required:
+                        - text
+                      additionalProperties: false
+                  compile_warnings:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        location:
+                          type: object
+                          properties:
+                            file:
+                              type: string
+                            line:
+                              type: number
+                            column:
+                              type: number
+                          required:
+                            - file
+                            - line
+                            - column
+                          additionalProperties: false
+                      required:
+                        - text
+                      additionalProperties: false
+                required:
+                  - ok
+                  - appId
+                  - name
+                  - compiled
+                  - compile_duration_ms
+                additionalProperties: false
   /v1/apps/{id}/share-cloud:
     post:
       operationId: apps_by_id_sharecloud_post

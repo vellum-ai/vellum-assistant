@@ -25,7 +25,6 @@ import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
 import { getEnrichmentService } from "../workspace/commit-message-enrichment-service.js";
 import { commitAllPendingWorkspaceChanges } from "../workspace/heartbeat-service.js";
-import { stopAppSourceWatcher } from "./app-source-watcher.js";
 import { stopConfigWatcher } from "./config-watcher.js";
 import { stopConversationEvictor } from "./conversation-evictor.js";
 import { stopConversations } from "./conversation-store.js";
@@ -128,7 +127,6 @@ async function shutdown(): Promise<void> {
   disposeAcpSessionManager();
   stopConversationEvictor();
   stopConfigWatcher();
-  stopAppSourceWatcher();
   stopCliIpcServer();
   stopConversations();
   await stopCes();
