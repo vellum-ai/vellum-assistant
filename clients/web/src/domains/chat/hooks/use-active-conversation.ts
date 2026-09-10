@@ -9,6 +9,16 @@
  * read-state, and the SSE subscription (gated on `conversationExistsOnServer`)
  * without a row to work from.
  *
+ * The threads the assistant started on its own are a third case: under the
+ * `assistant-initiated-threads` flag the daemon withholds them from the
+ * foreground list so they render in their own sidebar section alone, so an
+ * open one is absent from the foreground cache *by design*, not because it
+ * hasn't loaded. Its section's cache is where it lives, and this reads that
+ * cache too; without it the single-row fetch below found the row already in
+ * the section cache, replaced it there, and this hook still answered
+ * `undefined` - so opening such a thread never marked it seen and its
+ * unread dot never cleared.
+ *
  * This hook reads the row from whichever list cache already holds it and,
  * when it is in none, fetches that single row into the cache. Fetching one
  * row keeps the active thread fully functional without pulling the entire
@@ -28,8 +38,17 @@ import {
   useBackgroundConversationListQuery,
   useConversationListQuery,
   useScheduledConversationListQuery,
+  useSectionConversationListQuery,
 } from "@/hooks/conversation-queries";
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
+import { SYSTEM_ASSISTANT_GROUP_ID } from "@/utils/conversation-list-fetchers";
+
+/**
+ * The assistant-initiated section's filter, exactly as `useSectionConversations`
+ * asks for it, so this subscribes to the same cache entry the section renders
+ * from rather than opening a second one.
+ */
+const ASSISTANT_SECTION_FILTER = { groupId: SYSTEM_ASSISTANT_GROUP_ID };
 
 export function useActiveConversation(
   assistantId: string | null,
@@ -57,6 +76,11 @@ export function useActiveConversation(
     assistantId,
     false,
   );
+  const { conversations: assistantInitiated } = useSectionConversationListQuery(
+    assistantId,
+    ASSISTANT_SECTION_FILTER,
+    false,
+  );
 
   const activeConversation = useMemo(() => {
     if (!conversationId) {
@@ -66,9 +90,17 @@ export function useActiveConversation(
       foreground.find((c) => c.conversationId === conversationId) ??
       background.find((c) => c.conversationId === conversationId) ??
       scheduled.find((c) => c.conversationId === conversationId) ??
-      archived.find((c) => c.conversationId === conversationId)
+      archived.find((c) => c.conversationId === conversationId) ??
+      assistantInitiated.find((c) => c.conversationId === conversationId)
     );
-  }, [foreground, background, scheduled, archived, conversationId]);
+  }, [
+    foreground,
+    background,
+    scheduled,
+    archived,
+    assistantInitiated,
+    conversationId,
+  ]);
 
   const fetchedConversationIdRef = useRef<string | null>(null);
   useEffect(() => {

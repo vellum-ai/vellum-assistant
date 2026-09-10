@@ -116,6 +116,7 @@ export function makeCtx(
       return true;
     }),
     lastActivityVersionRef: { current: new Map() },
+    lastCompletedToolNameRef: { current: undefined },
     currentAssistantMessageIdRef: { current: undefined },
     ...restOverrides,
   };

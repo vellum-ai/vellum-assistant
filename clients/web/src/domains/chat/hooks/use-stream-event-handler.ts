@@ -153,6 +153,7 @@ export function useStreamEventHandler(
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
+  const lastCompletedToolNameRef = useRef<string | undefined>(undefined);
 
   // --- Main event handler ---
 
@@ -241,6 +242,10 @@ export function useStreamEventHandler(
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setOptimisticSends: store.setOptimisticSends,
+        // Read live rather than closing over `store`: a queue ack can arrive
+        // after later sends have already changed the list.
+        getOptimisticSends: () =>
+          useChatSessionStore.getState().optimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -264,6 +269,7 @@ export function useStreamEventHandler(
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
         currentAssistantMessageIdRef,
+        lastCompletedToolNameRef,
       };
 
       switch (event.type) {

@@ -160,7 +160,29 @@ async function run(
   });
 }
 
+/**
+ * The recording emit mock. Re-registered in `beforeEach` because one case
+ * swaps in a throwing implementation to prove the producer swallows a pipeline
+ * failure, and `mock.module` is process-wide: without this, every test
+ * declared after that one would see the throwing version.
+ */
+function installRecordingEmitMock(): void {
+  mock.module("../emit-signal.js", () => ({
+    emitNotificationSignal: async (params: any) => {
+      emitCalls.push(params);
+      return {
+        signalId: "sig-1",
+        deduplicated: false,
+        dispatched: true,
+        reason: "ok",
+        deliveryResults: [],
+      };
+    },
+  }));
+}
+
 beforeEach(() => {
+  installRecordingEmitMock();
   emitCalls.length = 0;
   warnCalls.length = 0;
   infoCalls.length = 0;
@@ -408,5 +430,121 @@ describe("emitScheduleResultNotification", () => {
     expect((warnCalls[0] as any[])[0].err.message).toBe(
       "simulated pipeline failure",
     );
+  });
+});
+
+/**
+ * A scheduled run resolves the `mainAgent` call site, so it is gated like any
+ * app turn: its plain text is private working notes and the reply it delivered
+ * is inside a `send_user_message` call. Reading the terminal row raw either
+ * exposes the scratchpad or flattens to nothing and the user hears silence.
+ */
+describe("a gated schedule run", () => {
+  const PRIVATE = JSON.stringify({ assistantTextVisibility: "private" });
+
+  /** The row a gated turn ends on: wrap-up notes, nothing delivered. */
+  const wrapUpRow = (): MessageRow =>
+    makeAssistantRow(
+      [{ type: "text", text: "Told them about the mail." }] as ContentBlock[],
+      { metadata: PRIVATE },
+    );
+
+  /** The earlier row carrying the message the user actually read. */
+  const deliveredRow = (message: string): MessageRow =>
+    makeAssistantRow(
+      [
+        { type: "text", text: "checking the inbox" },
+        {
+          type: "tool_use",
+          id: "tu_send",
+          name: "send_user_message",
+          input: { message },
+        },
+      ] as ContentBlock[],
+      {
+        id: "msg-delivered",
+        createdAt: RUN_STARTED_AT + 100,
+        metadata: PRIVATE,
+      },
+    );
+
+  test("notifies with the delivered message, not the scratchpad", async () => {
+    turnRows = [deliveredRow("3 new emails and one calendar change.")];
+    assistantRow = wrapUpRow();
+
+    await run();
+
+    expect(emitCalls).toHaveLength(1);
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+      "3 new emails and one calendar change.",
+    );
+  });
+
+  test("never quotes the private text of the terminal row", async () => {
+    turnRows = [deliveredRow("3 new emails.")];
+    assistantRow = wrapUpRow();
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedMessage).not.toContain(
+      "Told them about the mail.",
+    );
+  });
+
+  test("reads the delivered message off the terminal row when it carries one", async () => {
+    assistantRow = makeAssistantRow(
+      [
+        { type: "text", text: "private notes" },
+        {
+          type: "tool_use",
+          id: "tu_send",
+          name: "send_user_message",
+          input: { message: "Nothing new today." },
+        },
+      ] as ContentBlock[],
+      { metadata: PRIVATE },
+    );
+
+    await run();
+
+    expect(emitCalls[0].contextPayload.requestedMessage).toBe(
+      "Nothing new today.",
+    );
+  });
+
+  test("stays silent when a gated run delivered nothing at all", async () => {
+    turnRows = [
+      makeAssistantRow(
+        [{ type: "text", text: "just notes" }] as ContentBlock[],
+        {
+          id: "msg-notes",
+          createdAt: RUN_STARTED_AT + 100,
+          metadata: PRIVATE,
+        },
+      ),
+    ];
+    assistantRow = wrapUpRow();
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
+  });
+
+  test("an ordinary run still reads only its last row", async () => {
+    // The documented "nothing to say" case: a run ending on tool calls with no
+    // prose stays silent rather than reaching back for earlier text.
+    turnRows = [
+      makeAssistantRow(
+        [{ type: "text", text: "earlier prose" }] as ContentBlock[],
+        { id: "msg-earlier", createdAt: RUN_STARTED_AT + 100 },
+      ),
+    ];
+    assistantRow = makeAssistantRow([
+      { type: "tool_use", id: "tu_x", name: "file_read", input: {} },
+    ] as ContentBlock[]);
+
+    await run();
+
+    expect(emitCalls).toHaveLength(0);
   });
 });

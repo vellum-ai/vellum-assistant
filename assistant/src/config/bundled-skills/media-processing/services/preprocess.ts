@@ -304,8 +304,12 @@ export function sampleFrameIndices(
  * Extract dominant colors from a frame image using ffmpeg's thumbnail and showinfo filters.
  * Returns hex color strings.
  */
-async function extractDominantColors(framePath: string): Promise<string[]> {
+async function extractDominantColors(
+  framePath: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
   // Use ffmpeg to extract a palette from the frame
+  signal?.throwIfAborted();
   const result = await spawnWithTimeout(
     [
       "ffmpeg",
@@ -318,6 +322,7 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
       "-",
     ],
     FFMPEG_PALETTE_TIMEOUT_MS,
+    signal,
   );
 
   // Fallback: return empty if analysis fails
@@ -339,6 +344,7 @@ async function extractDominantColors(framePath: string): Promise<string[]> {
  */
 async function buildSubjectRegistry(
   framePaths: string[],
+  signal?: AbortSignal,
 ): Promise<SubjectRegistry> {
   if (framePaths.length === 0) {
     return { groups: [] };
@@ -350,7 +356,7 @@ async function buildSubjectRegistry(
   // Collect all dominant colors across sampled frames
   const colorCounts = new Map<string, number>();
   for (const path of sampledPaths) {
-    const colors = await extractDominantColors(path);
+    const colors = await extractDominantColors(path, signal);
     for (const c of colors) {
       colorCounts.set(c, (colorCounts.get(c) || 0) + 1);
     }
@@ -378,7 +384,9 @@ export async function preprocessForAsset(
   assetId: string,
   options: PreprocessOptions = {},
   onProgress?: (msg: string) => void,
+  opts?: { signal?: AbortSignal },
 ): Promise<PreprocessManifest> {
+  const signal = opts?.signal;
   const config: PreprocessConfig = {
     intervalSeconds: options.intervalSeconds ?? 1,
     segmentDuration: options.segmentDuration ?? 15,
@@ -410,6 +418,10 @@ export async function preprocessForAsset(
   if (!stage) {
     stage = createProcessingStage({ assetId, stage: "preprocess" });
   }
+  // Recheck: the asset lookup and stage reads above are awaits, and this marks
+  // the asset as being processed by a run that is about to start spawning
+  // ffmpeg.
+  signal?.throwIfAborted();
   updateProcessingStage(stage.id, { status: "running", startedAt: Date.now() });
 
   const pipelineDir = join(dirname(asset.filePath), "pipeline", assetId);
@@ -423,6 +435,7 @@ export async function preprocessForAsset(
 
     if (detectDeadTime) {
       onProgress?.("Detecting dead time with mpdecimate filter...\n");
+      signal?.throwIfAborted();
       const mpdecimateResult = await spawnWithTimeout(
         [
           "ffmpeg",
@@ -437,6 +450,7 @@ export async function preprocessForAsset(
           "-",
         ],
         FFMPEG_PREPROCESS_TIMEOUT_MS,
+        signal,
       );
 
       const droppedTimestamps = parseDroppedFrameTimestamps(
@@ -465,6 +479,7 @@ export async function preprocessForAsset(
     // reason on the progress stream rather than killing the whole run.
     let transcriber: BatchTranscriber | null = null;
     if (options.includeAudio) {
+      signal?.throwIfAborted();
       try {
         transcriber = await resolveBatchTranscriber({ role: "batch" });
       } catch (err) {
@@ -477,6 +492,9 @@ export async function preprocessForAsset(
     const scaleFilter = `scale='if(gt(iw,ih),-1,${config.shortEdge})':'if(gt(iw,ih),${config.shortEdge},-1)'`;
 
     for (let i = 0; i < rawSegments.length; i++) {
+      // Each pass spawns ffmpeg and can transcribe audio, so a stop is
+      // honoured between segments as well as inside the spawn itself.
+      signal?.throwIfAborted();
       const seg = rawSegments[i];
       const segDuration = seg.endSeconds - seg.startSeconds;
       const effectiveInterval = computeEffectiveInterval(
@@ -511,6 +529,7 @@ export async function preprocessForAsset(
           join(segTempDir, "frame-%06d.jpg"),
         ],
         FFMPEG_PREPROCESS_TIMEOUT_MS,
+        signal,
       );
 
       if (result.exitCode !== 0) {
@@ -546,11 +565,14 @@ export async function preprocessForAsset(
       };
 
       if (options.includeAudio) {
+        // Transcription is a paid provider call per segment.
+        signal?.throwIfAborted();
         const transcript = await transcribeSegmentAudio(
           asset.filePath,
           seg.startSeconds,
           seg.endSeconds - seg.startSeconds,
           transcriber,
+          signal,
         );
         if (transcript) {
           segment.transcript = transcript;
@@ -576,15 +598,13 @@ export async function preprocessForAsset(
       `Extracted ${totalFrames} total frames across ${segments.length} segments.\n`,
     );
 
-    // Atomically swap temp dir to durable path
-    await rm(framesDir, { recursive: true, force: true });
-    await mkdir(dirname(framesDir), { recursive: true });
-    await rename(tempDir, framesDir);
-
     // Step 4: Subject registry
+    //
+    // Reads the frames where they still are, under the temp directory, so the
+    // destructive swap can wait for the commit step below. `segment.framePaths`
+    // are the durable paths those files acquire once the swap happens.
     onProgress?.("Building subject registry...\n");
-    const allExtractedPaths = segments.flatMap((s) => s.framePaths);
-    const subjectRegistry = await buildSubjectRegistry(allExtractedPaths);
+    const subjectRegistry = await buildSubjectRegistry(allFramePaths, signal);
     onProgress?.(
       `Identified ${subjectRegistry.groups.length} subject group(s).\n`,
     );
@@ -599,7 +619,21 @@ export async function preprocessForAsset(
       sectionBoundaries = createDefaultSections(durationSeconds);
     }
 
-    // Step 6: Register keyframes in DB
+    // Step 6: Commit
+    //
+    // Last checkpoint before the run becomes durable. Everything past here
+    // replaces the asset's frames on disk, replaces its keyframe rows, rewrites
+    // the manifest and marks the stage complete. Those have to move together:
+    // a cancel between the swap and the rows would leave new frames on disk
+    // described by the previous run's keyframes, and the asset looking
+    // preprocessed by a run the model was told never finished.
+    signal?.throwIfAborted();
+
+    // Atomically swap temp dir to durable path
+    await rm(framesDir, { recursive: true, force: true });
+    await mkdir(dirname(framesDir), { recursive: true });
+    await rename(tempDir, framesDir);
+
     onProgress?.("Registering keyframes in database...\n");
     deleteKeyframesForAsset(assetId);
 

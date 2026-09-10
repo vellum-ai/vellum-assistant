@@ -218,8 +218,8 @@ describe("computeSubagentCardData — step mapping", () => {
         events: [
           makeEvent({
             type: "tool_call",
-            toolName: "file_read",
-            toolUseId: "tu-file-1",
+            toolName: "some_unknown_tool",
+            toolUseId: "tu-tool-1",
             content: "src/foo.ts",
           }),
         ],
@@ -229,13 +229,13 @@ describe("computeSubagentCardData — step mapping", () => {
     const step = data.steps[0]!;
     expect(step.kind).toBe("tool");
     if (step.kind === "tool") {
-      // `file_read` isn't a known branch in `deriveStepLabelFromName`, so
-      // it falls through to the default "Running <Name>" path with the
-      // bolt icon.
-      expect(step.title).toBe("Running File Read");
+      // A tool with no branch in `deriveStepLabelFromName` falls through to
+      // the default "Running <Name>" path with the bolt icon, and the empty
+      // derived `info` falls back to the event's summary content.
+      expect(step.title).toBe("Running Some Unknown Tool");
       expect(step.info).toBe("src/foo.ts");
       expect(step.status).toBe("running");
-      expect(step.toolCallId).toBe("tu-file-1");
+      expect(step.toolCallId).toBe("tu-tool-1");
       expect(step.iconName).toBe("bolt");
     }
   });

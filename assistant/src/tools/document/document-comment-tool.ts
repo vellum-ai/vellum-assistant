@@ -6,6 +6,7 @@ import {
   listComments,
   resolveComment,
 } from "../../documents/document-comments-store.js";
+import { throwIfCancelled } from "../shared/abort.js";
 import { invalidToolInputResult } from "../shared/zod-tool-schema.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 import { canAccessDocument, documentNotFound } from "./document-tool.js";
@@ -80,6 +81,7 @@ export function executeCommentResolve(
   if (!parsedInput.success) {
     return invalidToolInputResult("comment_resolve", parsedInput.error);
   }
+  throwIfCancelled(context);
   const { surface_id: surfaceId, comment_id: commentId } = parsedInput.data;
 
   if (!canAccessDocument(surfaceId, context)) {
@@ -128,6 +130,7 @@ export function executeCommentReply(
   if (!parsedInput.success) {
     return invalidToolInputResult("comment_reply", parsedInput.error);
   }
+  throwIfCancelled(context);
   const {
     surface_id: surfaceId,
     comment_id: commentId,

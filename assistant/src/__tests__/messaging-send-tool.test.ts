@@ -50,8 +50,14 @@ const telegramProvider: MessagingProvider = {
 let provider: MessagingProvider = phoneProvider;
 let connection: OAuthConnection | undefined = undefined;
 
+/** Fires during provider resolution, the first await after the entry guard. */
+let onResolveProvider: (() => void) | null = null;
+
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
-  resolveProvider: () => provider,
+  resolveProvider: () => {
+    onResolveProvider?.();
+    return provider;
+  },
   getProviderConnection: () => connection,
   ok: (content: string) => ({ content, isError: false }),
   err: (content: string) => ({ content, isError: true }),
@@ -132,6 +138,7 @@ describe("messaging-send tool", () => {
     sendChannelTextMock.mockClear();
     mockOutlookCreateDraft.mockClear();
     mockOutlookCreateReplyDraft.mockClear();
+    onResolveProvider = null;
   });
 
   describe("a channel with a transport", () => {
@@ -209,6 +216,34 @@ describe("messaging-send tool", () => {
       );
       expect(result.isError).toBe(true);
       expect(result.content).toContain("Gmail and Outlook");
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+    });
+
+    test("refuses an account rather than sending from the channel's default identity", async () => {
+      const result = await run(
+        {
+          platform: "slack",
+          account: "workspace-b@example.com",
+          conversation_id: "C123",
+          text: "hi",
+        },
+        turn,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("account does not apply to slack");
+      expect(sendChannelTextMock).not.toHaveBeenCalled();
+    });
+
+    test("a turn cancelled during provider resolution sends nothing", async () => {
+      provider = telegramProvider;
+      const controller = new AbortController();
+      onResolveProvider = () => controller.abort();
+      await expect(
+        run(
+          { conversation_id: "123456789", text: "never sent" },
+          { ...turn, signal: controller.signal },
+        ),
+      ).rejects.toThrow();
       expect(sendChannelTextMock).not.toHaveBeenCalled();
     });
 
@@ -462,6 +497,69 @@ describe("messaging-send tool", () => {
       expect(result.isError).toBe(true);
       expect(result.content).toContain("OAuth connection");
       expect(mockOutlookCreateDraft).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * Provider and connection resolution and the attachment reads all sit
+   * between the tool's entry guard and the Graph call, so a turn stopped
+   * during them must not leave a draft in the user's mailbox. The stop lands
+   * inside provider resolution rather than before the call, which is what
+   * makes these exercise the recheck instead of the entry guard.
+   */
+  describe("a cancelled turn creates no Outlook draft", () => {
+    function abortedContext() {
+      const controller = new AbortController();
+      onResolveProvider = () => controller.abort();
+      return {
+        workingDir: "/tmp",
+        conversationId: "conv-1",
+        assistantId: "ast-alpha",
+        trustClass: "guardian" as const,
+        signal: controller.signal,
+      };
+    }
+
+    test("new message", async () => {
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
+
+      await expect(
+        run(
+          {
+            platform: "outlook",
+            conversation_id: "user@example.com",
+            text: "never sent",
+            subject: "Docs",
+          },
+          abortedContext(),
+        ),
+      ).rejects.toThrow();
+      expect(mockOutlookCreateDraft).not.toHaveBeenCalled();
+    });
+
+    test("reply", async () => {
+      provider = outlookProvider;
+      connection = {
+        id: "outlook-conn-1",
+        provider: "outlook",
+      } as OAuthConnection;
+
+      await expect(
+        run(
+          {
+            platform: "outlook",
+            conversation_id: "user@example.com",
+            text: "never sent",
+            in_reply_to: "msg-1",
+          },
+          abortedContext(),
+        ),
+      ).rejects.toThrow();
+      expect(mockOutlookCreateReplyDraft).not.toHaveBeenCalled();
     });
   });
 });

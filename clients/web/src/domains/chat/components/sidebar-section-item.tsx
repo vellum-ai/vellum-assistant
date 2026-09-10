@@ -25,6 +25,7 @@ import { Inbox } from "lucide-react";
 
 import type { CollapsibleNavSectionDrag } from "@/components/collapsible-nav-section";
 import { AssistantSectionEmptyState } from "@/domains/chat/components/assistant-section-empty-state";
+import { useConversationListContext } from "@/domains/chat/components/conversation-list-context";
 import { SidebarSectionCard } from "@/domains/chat/components/sidebar-section-card";
 import {
   GroupActionsMenu,
@@ -96,6 +97,7 @@ export function SidebarSectionItem({
      wants the name, and the same store is what the layout above reads. */
   const assistantName = useAssistantIdentityStore.use.name();
   const isAssistantSection = section.type === "assistant";
+  const { overlayCards } = useConversationListContext();
   /* The accent hex, for inking the header glyph in the avatar's own color
      (the New Chat treatment). Null keeps every other section off the avatar
      query, and a null accent (still-loading avatar, or an image with no
@@ -156,18 +158,26 @@ export function SidebarSectionItem({
       labelClassName={
         isAssistantSection ? "text-[var(--content-emphasised)]" : undefined
       }
-      /* The whole header on its own surface: the New Chat pill's exact wash
-         (PANEL_ITEM_WASH rest = a 15% accent mix into --surface-lift),
-         spanning glyph, label, unread dot, and chevron edge to edge - one
-         pill, not a pill with the controls stranded outside it. 36px stands it at the height of a collapsed side-menu item,
-         whose full roundness is likewise half of 36. The glyph keeps the
-         pill's own inset, not the flat headers': as a pill standing beside
-         the Preferences PanelItem (p-[8px]), its glyph has to start the
-         same 8px from the rounded edge, so the shared 12px title inset is
-         overridden down to pl-2. The title's vertical padding is zeroed so
-         the 36px is this class's to state. */
+      /* On the rail, the whole header on its own surface: the New Chat
+         pill's exact wash (PANEL_ITEM_WASH rest = a 15% accent mix into
+         --surface-lift), spanning glyph, label, unread dot, and chevron
+         edge to edge - one pill, not a pill with the controls stranded
+         outside it. 36px stands it at the height of a collapsed side-menu
+         item, whose full roundness is likewise half of 36. The glyph keeps
+         the pill's own inset, not the flat headers': as a pill standing
+         beside the Preferences PanelItem (p-[8px]), its glyph has to start
+         the same 8px from the rounded edge, so the shared 12px title inset
+         is overridden down to pl-2. The title's vertical padding is zeroed
+         so the 36px is this class's to state.
+
+         Not on the overlay. There every section is a card that already
+         owns its inset and its 20px header row, and this card is tinted
+         edge to edge (`cardClassName` below), so a pill of the same wash
+         inside it is invisible - all that survived of it was the `pl-2`,
+         which pushed this one header 8px right of every other section's,
+         and the 36px height, which stood it taller than theirs. */
       headerClassName={
-        isAssistantSection
+        isAssistantSection && !overlayCards
           ? "h-9 rounded-full bg-[color-mix(in_srgb,var(--avatar-accent,var(--surface-lift))_15%,var(--surface-lift))] [&_[data-slot=collapsible-nav-section-title]]:py-0! [&_[data-slot=collapsible-nav-section-title]]:pl-2!"
           : undefined
       }

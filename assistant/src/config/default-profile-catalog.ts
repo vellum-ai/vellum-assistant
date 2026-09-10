@@ -7,7 +7,6 @@ import { resolveModelIntent } from "../providers/model-intents.js";
 import { isCodexSubscriptionModel } from "../providers/openai/codex-models.js";
 import type { ModelIntent } from "../providers/types.js";
 import { getManagedUpstream } from "../providers/vellum-model-routing.js";
-import { getBalancedModelExperimentArm } from "./balanced-model-experiment.js";
 import {
   BACKUP_PROFILE_KEYS,
   type BackupProfileKey,
@@ -239,46 +238,6 @@ const BACKUP_PROFILE_IMPLS: Record<BackupProfileKey, DefaultProfileTemplate> = {
     },
   },
 };
-
-/**
- * Arm to managed model pin for the `experiment-balanced-model-2026-08-31` A/B
- * test (`balanced-model-experiment.ts` owns the flag read). An arm repoints
- * the model of the managed (`vellum`) implementation of `balanced` and nothing
- * else: effort, thinking, token budget, label and description all stay on the
- * shipped body, and the `chatgpt` and BYOK columns are untouched because those
- * installs run the provider their user chose and sit outside the experiment.
- *
- * An arm this build does not know, and an unset flag, both resolve to the
- * shipped body, so no LaunchDarkly value can strand an install on a model that
- * is not pinned here. A `Map` rather than an object literal keeps that true for
- * every string LaunchDarkly can send: the arm is remote input, and an object
- * lookup would resolve `constructor` or `toString` to an inherited
- * `Object.prototype` member instead of missing.
- *
- * `glm-5p3-flash` names the same model as the shipped pin and stays in the
- * table so the arm keeps its meaning if the shipped pin moves again.
- */
-const BALANCED_EXPERIMENT_MODELS = new Map<string, string>([
-  ["glm-5p3-flash", "accounts/fireworks/models/glm-5p3-flash"],
-  ["glm-5p3", "accounts/fireworks/models/glm-5p3"],
-  ["glm-5p2", "accounts/fireworks/models/glm-5p2"],
-]);
-
-/**
- * The managed (`vellum`) implementation of a default profile, carrying the
- * balanced-model experiment arm. Resolved per call rather than materialized
- * once: the gateway pushes flag changes to a running daemon, so the arm can
- * move under a live process.
- */
-function managedProfileImpl(key: DefaultProfileKey): DefaultProfileTemplate {
-  const impl = VELLUM_PROFILE_IMPLS[key];
-  if (key !== "balanced") {
-    return impl;
-  }
-  const arm = getBalancedModelExperimentArm();
-  const model = arm == null ? undefined : BALANCED_EXPERIMENT_MODELS.get(arm);
-  return model == null ? impl : { ...impl, model };
-}
 
 /**
  * The `chatgpt` column: ChatGPT-subscription implementations, stamped
@@ -619,26 +578,13 @@ for (const key of DEFAULT_PROFILE_KEYS) {
 // pinned model that no managed upstream serves would make the fallback route
 // undispatchable exactly when it is needed. The cross-provider rule (backup
 // upstream differs from the primary's) is asserted in
-// __tests__/default-profile-catalog-fallback.test.ts, arm pins included.
+// __tests__/default-profile-catalog-fallback.test.ts.
 for (const key of BACKUP_PROFILE_KEYS) {
   const impl = BACKUP_PROFILE_IMPLS[key];
   if (impl.model == null || getManagedUpstream(impl.model) === null) {
     throw new Error(
       `BACKUP_PROFILE_IMPLS[${key}] references model "${impl.model ?? ""}" ` +
         `which is not served by any managed upstream. ` +
-        `Update model-catalog.ts or default-profile-catalog.ts.`,
-    );
-  }
-}
-
-// The experiment arms substitute into the managed column at request time, so
-// they need the same routability guarantee as the pins validated above: a
-// LaunchDarkly arm must never select a model no managed upstream serves.
-for (const [arm, model] of BALANCED_EXPERIMENT_MODELS) {
-  if (getManagedUpstream(model) === null) {
-    throw new Error(
-      `BALANCED_EXPERIMENT_MODELS["${arm}"] references model "${model}" which ` +
-        `is not served by any managed upstream. ` +
         `Update model-catalog.ts or default-profile-catalog.ts.`,
     );
   }
@@ -687,13 +633,12 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
  * code-owned content a managed-source workspace entry resolves to. These are
  * the `vellum` column (the managed implementations).
  *
- * Materialized once at module load, so this is the shipped catalog: the
- * balanced-model experiment arm is applied by the provider-aware resolvers
- * (`resolveDefaultProfileForProvider`, `getEffectiveProfilesForProvider`),
- * which are what every runtime and client-facing reader of a default profile's
- * content goes through. The name-only readers that serve from this record
- * (`getEffectiveProfile`, `getEffectiveProfiles`) consume a profile's
- * existence and status, never its model.
+ * Materialized once at module load, so this is the shipped catalog. The
+ * provider-aware resolvers (`resolveDefaultProfileForProvider`,
+ * `getEffectiveProfilesForProvider`) are what every runtime and client-facing
+ * reader of a default profile's content goes through; the name-only readers
+ * that serve from this record (`getEffectiveProfile`, `getEffectiveProfiles`)
+ * consume a profile's existence and status, never its model.
  */
 export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
   Record<string, ProfileEntry>
@@ -817,9 +762,7 @@ export { isDefaultProfileKey } from "./default-profile-names.js";
 
 /**
  * The implementation of default profile `key` on `provider`: the named matrix
- * column when the provider has one, the shared BYOK template otherwise. The
- * managed column carries the balanced-model experiment arm, which is why the
- * lookup runs through here rather than reading `PROFILE_IMPLS` directly.
+ * column when the provider has one, the shared BYOK template otherwise.
  */
 function defaultProfileImplForProvider(
   key: DefaultProfileKey,
@@ -827,9 +770,6 @@ function defaultProfileImplForProvider(
 ): DefaultProfileTemplate {
   if (!isDefaultProfileProvider(provider)) {
     return { ...BYOK_PROFILE_IMPLS[key], provider };
-  }
-  if (provider === "vellum") {
-    return managedProfileImpl(key);
   }
   return PROFILE_IMPLS[key][provider];
 }
@@ -840,7 +780,7 @@ function defaultProfileImplForProvider(
  * becomes a concrete body, so every consumer (the runtime resolver through
  * `resolveDefaultProfileForProvider`, the client-facing listing through
  * `getEffectiveProfilesForProvider`) reports the same model the request runs
- * on, experiment arm included.
+ * on.
  */
 function defaultProfileBodyForProvider(
   name: string,
@@ -862,10 +802,9 @@ function defaultProfileBodyForProvider(
     return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
   if (defaultProvider == null) {
-    // The frozen `CODE_DEFAULT_PROFILE_ENTRIES` body, re-materialized so an
-    // install that predates `llm.defaultProvider` still sees the arm.
-    const managed = managedProfileImpl(name);
-    return materializeProfile(managed, managed.provider);
+    // An install that predates `llm.defaultProvider` resolves to the managed
+    // column, which is what the frozen bodies carry.
+    return CODE_DEFAULT_PROFILE_ENTRIES[name];
   }
   const { provider } = defaultProvider;
   const impl = defaultProfileImplForProvider(name, provider);

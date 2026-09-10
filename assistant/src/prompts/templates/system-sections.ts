@@ -277,11 +277,53 @@ Before emitting a single tool call, ask whether your next turn would be another 
 `,
   },
   {
+    // Sorts immediately before `01-parallel-tool-calls`, which makes the same
+    // point one level down: batch independent tool calls within a response.
+    //
+    // Deliberately about the SHAPE of your user's request, not about the
+    // subagent capability. The subagent skill's `activation-hints` cover the
+    // routing decision once a turn already looks like subagent work, but they
+    // reach the model only when the memory-v3 selector picks that card (a
+    // semantic match on topic) or after `skill_load`. "Several independent
+    // asks arrived at once" is not a topic, so nothing surfaces it, and an
+    // install with memory off never sees the hints at all.
+    id: "01-parallel-tasks",
+    body: `## Run Independent Tasks in Parallel
+
+When your user asks for several independent things at once, or adds new tasks while you are still working on earlier ones, hand each independent task to a subagent so they run in parallel rather than one after another. Keep small, quick requests inline, and keep anything that may need the user's approval on your own turn: a subagent runs unattended, so approval-gated work is denied there rather than prompted.
+`,
+    // Off for a turn that cannot spawn: a tool-disabled side-chain or a
+    // restricted-tool workflow leaf would otherwise be told to delegate work
+    // it can only do inline, and defer or refuse it instead. Off on an
+    // external channel too, where a subagent's answer reaches app clients
+    // through the conversation's event sink and never the channel. The
+    // conjunction is derived in `buildSystemPrompt`, which owns both inputs.
+    enabled: "delegateIndependentTasks",
+  },
+  {
     id: "01-progress-surface",
     body: `## Show Progress on Long Turns
 
 When a turn will take more than a few seconds — web searches, multi-step file work, research — show the user a progress card early: call ui_show with surface_type "card" and template "task_progress", then flip each step pending → in_progress → completed via ui_update as you go. Coarse steps are fine; a rough "Working on X" beats no signal at all. You can add or revise steps as the work takes shape — you are not committed to your first list. Skip the card when the turn is quick or you are already wrapping up; never let it get in the way of doing the actual work.
 `,
+  },
+  {
+    // Rendered only for a turn whose user-facing text goes through
+    // `send_user_message` (main agent, `send-user-message` flag on).
+    //
+    // Deliberately two sentences, and deliberately not the tool's contract:
+    // that the model's own plain text is invisible changes how it behaves
+    // everywhere, before it has read any tool description, and it supersedes
+    // the "talk before you work" line in SOUL.md, whose "your earlier text is
+    // already visible" does not hold here. How to write a message (length,
+    // no reasoning, one before and one after the work) is routing detail and
+    // lives only in the tool description.
+    id: "01-send-user-message",
+    body: `## Your Plain Text Is Private
+
+Everything you write as plain text is a private scratchpad the user never sees. Think and plan there freely. Only \`send_user_message\` reaches them, so "talk before you work" means every turn opens with a quick \`send_user_message\`: a short acknowledgement, or the answer itself when you already have it. Think and work after that, and send again only if there is more to say.
+`,
+    enabled: "sendUserMessageTool",
   },
   {
     id: "02-containerized",

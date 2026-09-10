@@ -1162,7 +1162,7 @@ function foregroundToolContendsWithContinuation(
 // SKIPPED (not run against stale history); see detachInterruptedTurn.
 function defaultDetachTeardownSettleTimeoutMs(): number {
   return resolveProcessingWaitMs(
-    getConfig().workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    getConfig().workspaceGit?.turnCommitMaxWaitMs,
     ABORT_WATCHDOG_MS,
   );
 }
