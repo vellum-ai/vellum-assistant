@@ -216,6 +216,10 @@ const BASELINE: Record<string, readonly string[]> = {
     // accounting imports it rather than re-deriving the bound. No
     // plugin-api equivalent.
     "../../../persistence/message-cursor.js",
+    // Named any-state `createdAt` lookup the cursor bookkeeping uses for
+    // forks and the timestamp backfill; the messages-read boundary guard
+    // requires the read to live in persistence. No plugin-api equivalent.
+    "../../../persistence/message-reads.js",
     "../../../persistence/raw-query.js",
     "../../../persistence/schema/index.js",
     "../../../prompts/persona-resolver.js",

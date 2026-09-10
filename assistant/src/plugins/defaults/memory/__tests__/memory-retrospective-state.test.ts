@@ -10,6 +10,7 @@ import { createConversation } from "../../../../persistence/conversation-crud.js
 import {
   getDb,
   getMemorySqlite,
+  resetDb,
 } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { messages } from "../../../../persistence/schema/index.js";
@@ -299,6 +300,28 @@ describe("memory-retrospective-state cursor timestamp", () => {
     expect(
       columns.filter((c) => c.name === "last_processed_created_at"),
     ).toHaveLength(1);
+  });
+
+  test("a replaced memory connection is probed again, so a restored database without the column gets it", () => {
+    expect(ensureRetrospectiveCursorColumn("test")).toBe(true);
+
+    // What a restore or import does: the stored connections are dropped and
+    // reopened. Strip the column on the reopened file to stand in for an
+    // older database.
+    resetDb();
+    const reopened = getMemorySqlite()!;
+    reopened.exec(
+      "ALTER TABLE memory_retrospective_state DROP COLUMN last_processed_created_at",
+    );
+
+    expect(getRetrospectiveState("conv-none")).toBeNull();
+    expect(ensureRetrospectiveCursorColumn("test")).toBe(true);
+    const columns = reopened
+      .query("PRAGMA table_info(memory_retrospective_state)")
+      .all() as Array<{ name: string }>;
+    expect(columns.some((c) => c.name === "last_processed_created_at")).toBe(
+      true,
+    );
   });
 });
 

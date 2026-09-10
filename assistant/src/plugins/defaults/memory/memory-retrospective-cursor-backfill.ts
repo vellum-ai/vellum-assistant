@@ -7,16 +7,14 @@
 // (see `memory-retrospective-state.ts`). This pass copies `createdAt` from
 // each such row's message while the message still exists. Rows whose message
 // is already gone stay NULL: nothing remains to recover, and they are counted
-// so the stall is visible in the log. Runs detached at memory-worker startup;
-// idempotent, chunked, and yielding between chunks.
+// so the stall is visible in the log. Runs detached at daemon init (ahead of
+// any client regenerating a reply) and again at memory-worker startup;
+// idempotent, keyset-paginated by conversation id, and yielding between pages.
 
-import { and, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, ne } from "drizzle-orm";
 
-import { getDb } from "../../../persistence/db-connection.js";
-import {
-  memoryRetrospectiveState,
-  messages,
-} from "../../../persistence/schema/index.js";
+import { messageCreatedAtByIds } from "../../../persistence/message-reads.js";
+import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
 import { withSqliteRetry } from "./host-utils.js";
 import { getLogger } from "./logging.js";
 import { memoryDbOrNull } from "./memory-db.js";
@@ -24,7 +22,7 @@ import { ensureRetrospectiveCursorColumn } from "./memory-retrospective-state.js
 
 const log = getLogger("memory-retrospective-cursor-backfill");
 
-const CHUNK_SIZE = 500;
+const DEFAULT_PAGE_SIZE = 500;
 
 export interface CursorBackfillResult {
   /** Rows with a cursor id but no timestamp. */
@@ -39,9 +37,13 @@ export interface CursorBackfillResult {
  * Fill `last_processed_created_at` on every state row that has a cursor id
  * but no timestamp. Best-effort: a missing memory connection or column is a
  * no-op, and a row the job rewrites mid-pass is skipped by the update's
- * `IS NULL` guard rather than stomped.
+ * `IS NULL` guard rather than stomped. Pages by conversation id so a large
+ * backlog never materializes at once or holds the event loop.
  */
-export async function backfillRetrospectiveCursorTimestamps(): Promise<CursorBackfillResult> {
+export async function backfillRetrospectiveCursorTimestamps(opts?: {
+  pageSize?: number;
+}): Promise<CursorBackfillResult> {
+  const pageSize = opts?.pageSize ?? DEFAULT_PAGE_SIZE;
   const result: CursorBackfillResult = {
     scanned: 0,
     backfilled: 0,
@@ -53,46 +55,38 @@ export async function backfillRetrospectiveCursorTimestamps(): Promise<CursorBac
     return result;
   }
 
-  const pending = mdb
-    .select({
-      conversationId: memoryRetrospectiveState.conversationId,
-      messageId: memoryRetrospectiveState.lastProcessedMessageId,
-    })
-    .from(memoryRetrospectiveState)
-    .where(
-      and(
-        isNull(memoryRetrospectiveState.lastProcessedCreatedAt),
-        ne(memoryRetrospectiveState.lastProcessedMessageId, ""),
-      ),
-    )
-    .all();
-  result.scanned = pending.length;
-  if (pending.length === 0) {
-    return result;
-  }
-
-  const db = getDb();
-  for (let offset = 0; offset < pending.length; offset += CHUNK_SIZE) {
-    const chunk = pending.slice(offset, offset + CHUNK_SIZE);
-    const createdAtById = new Map<string, number>();
-    const found = db
-      .select({ id: messages.id, createdAt: messages.createdAt })
-      .from(messages)
+  let afterConversationId = "";
+  for (;;) {
+    const page = mdb
+      .select({
+        conversationId: memoryRetrospectiveState.conversationId,
+        messageId: memoryRetrospectiveState.lastProcessedMessageId,
+      })
+      .from(memoryRetrospectiveState)
       .where(
-        inArray(
-          messages.id,
-          chunk.map((row) => row.messageId),
+        and(
+          isNull(memoryRetrospectiveState.lastProcessedCreatedAt),
+          ne(memoryRetrospectiveState.lastProcessedMessageId, ""),
+          gt(memoryRetrospectiveState.conversationId, afterConversationId),
         ),
       )
+      .orderBy(asc(memoryRetrospectiveState.conversationId))
+      .limit(pageSize)
       .all();
-    for (const row of found) {
-      createdAtById.set(row.id, row.createdAt);
+    if (page.length === 0) {
+      break;
     }
-    const recoverable = chunk.flatMap((row) => {
+    afterConversationId = page[page.length - 1]!.conversationId;
+    result.scanned += page.length;
+
+    const createdAtById = messageCreatedAtByIds(
+      page.map((row) => row.messageId),
+    );
+    const recoverable = page.flatMap((row) => {
       const createdAt = createdAtById.get(row.messageId);
       return createdAt === undefined ? [] : [{ ...row, createdAt }];
     });
-    result.unrecoverable += chunk.length - recoverable.length;
+    result.unrecoverable += page.length - recoverable.length;
 
     if (recoverable.length > 0) {
       await withSqliteRetry(
@@ -118,7 +112,7 @@ export async function backfillRetrospectiveCursorTimestamps(): Promise<CursorBac
             }
           });
         },
-        { op: context, context: { offset } },
+        { op: context, context: { afterConversationId } },
       );
       result.backfilled += recoverable.length;
     }

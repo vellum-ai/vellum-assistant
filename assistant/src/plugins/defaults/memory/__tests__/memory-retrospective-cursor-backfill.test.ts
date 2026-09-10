@@ -86,6 +86,28 @@ describe("backfillRetrospectiveCursorTimestamps", () => {
     expect(second).toEqual({ scanned: 1, backfilled: 0, unrecoverable: 1 });
   });
 
+  test("pages through the backlog by conversation id, advancing past unrecoverable rows", async () => {
+    for (const id of ["conv-1", "conv-2", "conv-3", "conv-4", "conv-5"]) {
+      createConversation({ id });
+    }
+    insertMessage("conv-1", "m-1", 1_000);
+    insertLegacyState("conv-1", "m-1");
+    insertLegacyState("conv-2", "gone-2");
+    insertMessage("conv-3", "m-3", 3_000);
+    insertLegacyState("conv-3", "m-3");
+    insertLegacyState("conv-4", "gone-4");
+    insertMessage("conv-5", "m-5", 5_000);
+    insertLegacyState("conv-5", "m-5");
+
+    const result = await backfillRetrospectiveCursorTimestamps({ pageSize: 2 });
+
+    expect(result).toEqual({ scanned: 5, backfilled: 3, unrecoverable: 2 });
+    expect(getRetrospectiveState("conv-1")?.lastProcessedCreatedAt).toBe(1_000);
+    expect(getRetrospectiveState("conv-3")?.lastProcessedCreatedAt).toBe(3_000);
+    expect(getRetrospectiveState("conv-5")?.lastProcessedCreatedAt).toBe(5_000);
+    expect(getRetrospectiveState("conv-4")?.lastProcessedCreatedAt).toBeNull();
+  });
+
   test("a table with nothing to fill is a clean no-op", async () => {
     expect(await backfillRetrospectiveCursorTimestamps()).toEqual({
       scanned: 0,

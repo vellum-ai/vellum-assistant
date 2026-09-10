@@ -34,16 +34,16 @@
 // `ensureRetrospectiveCursorColumn`: an idempotent, fail-open ALTER run lazily
 // on first use in each process (daemon, memory worker, CLI) rather than by the
 // global migration chain, which must not gate DB readiness on the memory
-// database. When the column cannot be added, reads and writes fall back to
-// the id-only cursor shape.
+// database. The probe is memoized per memory connection, so a connection
+// replaced by `resetDb()` (restores, imports) is probed again before its
+// first read. When the column cannot be added, reads and writes fall back to
+// the id-only cursor shape and the probe is retried after a short backoff.
 
 import { desc, eq } from "drizzle-orm";
 
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
-import {
-  memoryRetrospectiveState,
-  messages,
-} from "../../../persistence/schema/index.js";
+import { messageCreatedAtByIds } from "../../../persistence/message-reads.js";
+import { memoryRetrospectiveState } from "../../../persistence/schema/index.js";
 import { withSqliteRetry } from "./host-utils.js";
 import { getLogger } from "./logging.js";
 import { memoryDbOrNull, memorySqliteOrNull } from "./memory-db.js";
@@ -126,7 +126,13 @@ function serializeRememberedLog(log: string[]): string | null {
 // Cursor timestamp column
 // ---------------------------------------------------------------------------
 
-let cursorColumnState: "unknown" | "ready" | "unavailable" = "unknown";
+type MemorySqlite = NonNullable<ReturnType<typeof memorySqliteOrNull>>;
+
+/** The memory connection the column was confirmed on; any other re-probes. */
+let cursorColumnEnsuredOn: MemorySqlite | null = null;
+let lastCursorColumnFailureAt = 0;
+/** Backoff before re-probing after a failed ALTER: retried, not hammered. */
+const CURSOR_COLUMN_RETRY_MS = 60_000;
 
 function isDuplicateColumnError(err: unknown): boolean {
   return err instanceof Error && /duplicate column name/i.test(err.message);
@@ -134,17 +140,22 @@ function isDuplicateColumnError(err: unknown): boolean {
 
 /**
  * Add `last_processed_created_at` to the state table when it is missing.
- * Idempotent and memoized per process. Fail-open: when the ALTER cannot run,
- * the outcome is memoized, logged once, and every read and write falls back
- * to the id-only shape. A table the migration chain has not created yet is
- * not memoized, so a later call re-probes once it exists.
+ * Idempotent; memoized per memory connection, so a connection replaced by
+ * `resetDb()` is probed again and an imported database that lacks the column
+ * gets it before its first read. Fail-open: when the ALTER cannot run, the
+ * failure is logged, every read and write falls back to the id-only shape,
+ * and the probe is retried after {@link CURSOR_COLUMN_RETRY_MS}. A table the
+ * migration chain has not created yet is neither memoized nor a failure.
  */
 export function ensureRetrospectiveCursorColumn(context: string): boolean {
-  if (cursorColumnState !== "unknown") {
-    return cursorColumnState === "ready";
-  }
   const raw = memorySqliteOrNull(context);
   if (!raw) {
+    return false;
+  }
+  if (cursorColumnEnsuredOn === raw) {
+    return true;
+  }
+  if (Date.now() - lastCursorColumnFailureAt < CURSOR_COLUMN_RETRY_MS) {
     return false;
   }
   try {
@@ -159,19 +170,18 @@ export function ensureRetrospectiveCursorColumn(context: string): boolean {
         `ALTER TABLE ${TABLE} ADD COLUMN ${CURSOR_CREATED_AT_COLUMN} INTEGER`,
       );
     }
-    cursorColumnState = "ready";
   } catch (err) {
-    if (isDuplicateColumnError(err)) {
-      cursorColumnState = "ready";
-    } else {
-      cursorColumnState = "unavailable";
+    if (!isDuplicateColumnError(err)) {
+      lastCursorColumnFailureAt = Date.now();
       log.warn(
         { err, context },
-        "could not add the retrospective cursor timestamp column; cursors fall back to id-only",
+        "could not add the retrospective cursor timestamp column; cursors fall back to id-only until the next probe",
       );
+      return false;
     }
   }
-  return cursorColumnState === "ready";
+  cursorColumnEnsuredOn = raw;
+  return true;
 }
 
 /**
@@ -179,7 +189,8 @@ export function ensureRetrospectiveCursorColumn(context: string): boolean {
  * ONLY for tests that recreate the memory database mid-process.
  */
 export function _resetRetrospectiveCursorColumnForTests(): void {
-  cursorColumnState = "unknown";
+  cursorColumnEnsuredOn = null;
+  lastCursorColumnFailureAt = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,19 +361,6 @@ export async function upsertRetrospectiveState(
   );
 }
 
-/** `createdAt` of a message row on the main connection, or null when absent. */
-function lookupMessageCreatedAt(
-  database: DrizzleDb,
-  messageId: string,
-): number | null {
-  const row = database
-    .select({ createdAt: messages.createdAt })
-    .from(messages)
-    .where(eq(messages.id, messageId))
-    .get();
-  return row?.createdAt ?? null;
-}
-
 /**
  * Carry the source conversation's retrospective state into a forked child so
  * the fork doesn't re-process content the parent already covered. Synchronous
@@ -382,8 +380,8 @@ function lookupMessageCreatedAt(
  *     wait for new post-fork messages before its first retro fires.
  *
  * `lastProcessedCreatedAt` is read from the forked pointer's row through
- * `database`, the main-DB handle inside the fork transaction, which is the
- * only handle the freshly copied rows are visible through.
+ * `database`, the fork transaction's main-DB handle, which is the only handle
+ * the freshly copied rows are visible through.
  * `lastRunAt` is copied verbatim — the cooldown gate inherits from source.
  * `rememberedLog` is copied verbatim — the parent's saves remain the child's
  * dedup baseline.
@@ -450,7 +448,9 @@ export function forkRetrospectiveState(args: {
             lastProcessedCreatedAt:
               forkedPointer === ""
                 ? null
-                : lookupMessageCreatedAt(database, forkedPointer),
+                : (messageCreatedAtByIds([forkedPointer], {
+                    db: database,
+                  }).get(forkedPointer) ?? null),
           }
         : {}),
     };

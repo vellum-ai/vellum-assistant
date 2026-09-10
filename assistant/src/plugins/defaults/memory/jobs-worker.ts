@@ -260,10 +260,11 @@ export function startMemoryJobsWorkerLoop(): MemoryJobsWorker {
     );
   });
 
-  // Give retrospective state rows written before the cursor timestamp column
-  // existed their `createdAt`, so a later deletion of the row they point at
-  // (a regenerated reply) cannot stall the conversation's retrospectives.
-  // Detached and best-effort, same as the sweeps.
+  // Second chance for the cursor timestamp backfill the daemon's memory init
+  // hook starts at boot: rows written before the column existed get their
+  // `createdAt` so a later deletion of the row they point at (a regenerated
+  // reply) cannot stall the conversation's retrospectives. Idempotent,
+  // detached, and best-effort, same as the sweeps.
   void backfillRetrospectiveCursorTimestamps().catch((err: unknown) => {
     log.warn(
       { err },

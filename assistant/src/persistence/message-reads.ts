@@ -191,6 +191,32 @@ export function existingMessageIds(
 }
 
 /**
+ * `createdAt` of each of `messageIds` that exists as a row, keyed by id, in
+ * any state.
+ *
+ * Any-state deliberately: a row's `createdAt` is fixed at insert, so its
+ * completeness does not change the answer, and the callers (retrospective
+ * cursor bookkeeping) hold ids taken from rows they have already reviewed.
+ * An empty input returns an empty map without querying.
+ */
+export function messageCreatedAtByIds(
+  messageIds: readonly string[],
+  opts?: { db?: MessageReadHandle },
+): Map<string, number> {
+  if (messageIds.length === 0) {
+    return new Map();
+  }
+  return new Map(
+    (opts?.db ?? getDb())
+      .select({ id: messages.id, createdAt: messages.createdAt })
+      .from(messages)
+      .where(inArray(messages.id, [...messageIds]))
+      .all()
+      .map((r) => [r.id, r.createdAt] as const),
+  );
+}
+
+/**
  * The conversation that owns `messageId`, in any state, or null when the
  * message does not exist.
  *
