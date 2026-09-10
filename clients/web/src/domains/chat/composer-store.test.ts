@@ -954,6 +954,57 @@ describe("restoreAttachmentsIfEmpty", () => {
 // restoreFailedDraft: parking a failed send's text for its own thread
 // ---------------------------------------------------------------------------
 
+describe("clearRestoredDraft", () => {
+  test("takes back a restored draft that still reads exactly the sent text", () => {
+    useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
+    useComposerStore
+      .getState()
+      .restoreFailedDraft("assistant-1", "conv-1", "sent after all");
+
+    useComposerStore
+      .getState()
+      .clearRestoredDraft("assistant-1", "conv-1", "sent after all");
+
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-1" });
+    expect(useComposerStore.getState().input).toBe("");
+  });
+
+  test("leaves a draft the user has edited since", () => {
+    useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
+    useComposerStore
+      .getState()
+      .restoreFailedDraft("assistant-1", "conv-1", "edited since");
+
+    useComposerStore
+      .getState()
+      .clearRestoredDraft("assistant-1", "conv-1", "sent after all");
+
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-1" });
+    expect(useComposerStore.getState().input).toBe("edited since");
+  });
+
+  test("reaches another assistant's persisted drafts", () => {
+    useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
+    useComposerStore
+      .getState()
+      .restoreFailedDraft("assistant-2", "conv-9", "sent after all");
+
+    useComposerStore
+      .getState()
+      .clearRestoredDraft("assistant-2", "conv-9", "sent after all");
+
+    useComposerStore.getState().loadAssistantDrafts("assistant-2", null);
+    useComposerStore
+      .getState()
+      .handleConversationSwitch({ previousKey: "conv-0", nextKey: "conv-9" });
+    expect(useComposerStore.getState().input).toBe("");
+  });
+});
+
 describe("restoreFailedDraft", () => {
   /** What the composer would show on opening `key` under the loaded assistant. */
   function draftFor(key: string): string {

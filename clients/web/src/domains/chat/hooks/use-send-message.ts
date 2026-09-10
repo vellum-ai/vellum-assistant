@@ -932,6 +932,7 @@ export function useSendMessage({
         // A hidden send has no user text to hand back.
         if (!isHidden) {
           useComposerStore.getState().recordQueuedSend(clientMessageId, {
+            assistantId,
             conversationId: activeConversationId,
             content,
             attachments,
@@ -1095,7 +1096,14 @@ export function useSendMessage({
             revertQueuedMessage(userMessage.id);
             setError({ message: "Failed to queue message. Please try again." });
           }
-          if (!onScreenAtThrow && !isHidden) {
+          // The draft is the copy for a request the daemon never saw. One it
+          // did see is spoken for on the stream, whose echo has by then let
+          // the queued copy go and would find nothing to take back.
+          if (
+            !onScreenAtThrow &&
+            !isHidden &&
+            useComposerStore.getState().queuedSends.has(clientMessageId)
+          ) {
             useComposerStore
               .getState()
               .restoreFailedDraft(assistantId, activeConversationId, content);
@@ -1166,6 +1174,7 @@ export function useSendMessage({
         // to hand back.
         if (!isHidden) {
           useComposerStore.getState().recordQueuedSend(clientMessageId, {
+            assistantId,
             conversationId: activeConversationId,
             content,
             attachments,
@@ -1358,7 +1367,13 @@ export function useSendMessage({
           setError({ message: "Something went wrong. Please try again." });
           useTurnStore.getState().onStreamError();
         }
-        if (!onScreenAtThrow && !isHidden) {
+        // As on the queue branch: the draft is for a request the daemon never
+        // saw, and one its echo has already spoken for keeps no draft.
+        if (
+          !onScreenAtThrow &&
+          !isHidden &&
+          useComposerStore.getState().queuedSends.has(clientMessageId)
+        ) {
           useComposerStore
             .getState()
             .restoreFailedDraft(assistantId, activeConversationId, content);

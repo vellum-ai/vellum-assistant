@@ -388,6 +388,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
 
     expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
       {
+        assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
         content: "queue this one",
         attachments: [
@@ -418,6 +419,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
 
     expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
       {
+        assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
         content: "queued after all",
         attachments: [],
@@ -449,6 +451,7 @@ describe("useSendMessage: a stale send through the queue branch", () => {
     });
     expect([...useComposerStore.getState().queuedSends.values()]).toEqual([
       {
+        assistantId: "assistant-1",
         conversationId: SEND_CONVERSATION,
         content: "still in flight",
         attachments: [],

@@ -39,6 +39,7 @@ const attachment: DisplayAttachment = {
 
 function recordQueuedSend(clientMessageId: string, conversationId: string) {
   useComposerStore.getState().recordQueuedSend(clientMessageId, {
+    assistantId: "assistant-1",
     conversationId,
     content: "parked behind the running turn",
     attachments: [attachment],
@@ -139,6 +140,47 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(stillQueued("nonce-1")).toBe(false);
     // The message is persisted, so nothing is owed to that conversation.
     expect(heldFor("conv-left")).toBeUndefined();
+  });
+
+  test("the daemon's echo takes back the draft written for a request that looked lost", () => {
+    useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore
+      .getState()
+      .restoreFailedDraft(
+        "assistant-1",
+        "conv-left",
+        "parked behind the running turn",
+      );
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    // The message was taken, so the draft would only offer it a second time:
+    // opening the conversation finds no draft.
+    useComposerStore.getState().handleConversationSwitch({
+      previousKey: "conv-other",
+      nextKey: "conv-left",
+    });
+    expect(useComposerStore.getState().input).toBe("");
+    expect(stillQueued("nonce-1")).toBe(false);
+  });
+
+  test("the daemon's echo leaves a draft the user has edited since", () => {
+    useComposerStore.getState().loadAssistantDrafts("assistant-1", null);
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore
+      .getState()
+      .restoreFailedDraft("assistant-1", "conv-left", "edited since");
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    useComposerStore.getState().handleConversationSwitch({
+      previousKey: "conv-other",
+      nextKey: "conv-left",
+    });
+    expect(useComposerStore.getState().input).toBe("edited since");
   });
 
   test("a failure in a conversation the user has left hands the message back", () => {

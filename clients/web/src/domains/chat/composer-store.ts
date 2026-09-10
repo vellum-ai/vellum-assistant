@@ -107,6 +107,8 @@ export interface FailedSendPayload {
  *  conversation it went to, so the message can be handed back to that thread
  *  from anywhere if the daemon later refuses to persist it. */
 export interface QueuedSendPayload extends FailedSendPayload {
+  /** The assistant the send went to, whose drafts a restored copy lives in. */
+  assistantId: string;
   conversationId: string;
 }
 
@@ -313,6 +315,12 @@ export interface ComposerActions {
    * for it rather than being filed under a stranger.
    */
   restoreFailedDraft: (assistantId: string, key: string, text: string) => void;
+  /**
+   * Take back a draft `restoreFailedDraft` wrote, once the daemon turns out to
+   * have taken the message after all: the draft goes only while it still
+   * reads exactly `text`, so a draft the user has edited since stays.
+   */
+  clearRestoredDraft: (assistantId: string, key: string, text: string) => void;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -497,6 +505,16 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       return;
     }
     drafts.set(key, text);
+    persistDrafts(assistantId, drafts);
+  },
+
+  clearRestoredDraft: (assistantId, key, text) => {
+    const drafts =
+      assistantId === currentAssistantId ? draftsMap : loadDrafts(assistantId);
+    if (drafts.get(key) !== text) {
+      return;
+    }
+    drafts.delete(key);
     persistDrafts(assistantId, drafts);
   },
 

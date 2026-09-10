@@ -40,13 +40,32 @@ export function QueuedSendRecoveryWatcher() {
     const event = envelope.message;
 
     // The echo is the daemon speaking for the message: it is persisted, and
-    // the client copy has nothing left to answer for.
+    // the client copy has nothing left to answer for. A draft written back
+    // for it while its request looked lost goes too, while it still reads
+    // exactly the sent text, so a message the daemon took is never offered
+    // for sending twice.
     if (event.type === "user_message_echo") {
       const { clientMessageId } = event;
       if (clientMessageId === undefined) {
         return;
       }
-      useComposerStore.getState().dropQueuedSend(clientMessageId);
+      const composer = useComposerStore.getState();
+      const held = composer.takeQueuedSend(clientMessageId);
+      if (held === null) {
+        return;
+      }
+      composer.clearRestoredDraft(
+        held.assistantId,
+        held.conversationId,
+        held.content,
+      );
+      if (
+        useConversationStore.getState().activeConversationId ===
+          held.conversationId &&
+        composer.input === held.content
+      ) {
+        composer.setInput("");
+      }
       return;
     }
 
