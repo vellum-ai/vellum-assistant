@@ -3,12 +3,35 @@ import { describe, expect, test } from "bun:test";
 // transport's own operations read: the callback URL `channelForCallback`
 // resolves and the params `deliver` consumes. These tests import the
 // transports' modules, which pull in their provider-API senders, so the
-// senders' credential lookups are stubbed to keep the import inert.
+// senders' credential lookups are stubbed to keep the import inert, and the
+// DM-opening calls a person target makes are stubbed to answer a channel id.
 import { mock } from "bun:test";
 
+const actualSecureKeys = await import("../../../security/secure-keys.js");
 mock.module("../../../security/secure-keys.js", () => ({
+  ...actualSecureKeys,
   getSecureKeyAsync: async () => null,
   getSecureKeyResultAsync: async () => ({ value: null }),
+}));
+
+const actualDiscordApi = await import("../discord/api.js");
+mock.module("../discord/api.js", () => ({
+  ...actualDiscordApi,
+  openDiscordDmChannel: async (userId: string) => `dm-of-${userId}`,
+}));
+
+const actualSlackAuth = await import("../slack/auth.js");
+mock.module("../slack/auth.js", () => ({
+  ...actualSlackAuth,
+  resolveSlackAuth: async () => "xoxb-test",
+}));
+const actualSlackClient = await import("../slack/client.js");
+mock.module("../slack/client.js", () => ({
+  ...actualSlackClient,
+  conversationsOpen: async (_auth: unknown, userId: string) => ({
+    ok: true,
+    channel: { id: `D-of-${userId}` },
+  }),
 }));
 
 const { channelForCallback } = await import("../callback-routing.js");
@@ -18,13 +41,16 @@ const { telegramTransport } = await import("../telegram-bot/transport.js");
 const { whatsappTransport } = await import("../whatsapp/transport.js");
 
 describe("addressFor resolves to the channel's own routing state", () => {
-  test("slack: a chat, optionally under a thread; a person is not addressed", () => {
-    const room = slackTransport.addressFor!({ kind: "chat", chatId: "C123" });
+  test("slack: a chat, optionally under a thread; a person is the DM the bot opens", async () => {
+    const room = await slackTransport.addressFor!({
+      kind: "chat",
+      chatId: "C123",
+    });
     expect(room).toEqual({
       ctx: { callbackUrl: "/deliver/slack", params: {} },
       chatId: "C123",
     });
-    const thread = slackTransport.addressFor!({
+    const thread = await slackTransport.addressFor!({
       kind: "chat",
       chatId: "C123",
       threadId: "1690000000.000001",
@@ -38,14 +64,17 @@ describe("addressFor resolves to the channel's own routing state", () => {
       threadId: "1690000000.000001",
     });
     expect(
-      slackTransport.addressFor!({ kind: "person", userId: "U1" }),
-    ).toBeUndefined();
+      await slackTransport.addressFor!({ kind: "person", userId: "U1" }),
+    ).toEqual({
+      ctx: { callbackUrl: "/deliver/slack", params: {} },
+      chatId: "D-of-U1",
+    });
     expect(channelForCallback(thread!.ctx.callbackUrl)).toBe("slack");
   });
 
-  test("telegram: a chat with a topic; a person is their DM chat; binds on send", () => {
+  test("telegram: a chat with a topic; a person is their DM chat; binds on send", async () => {
     expect(
-      telegramTransport.addressFor!({
+      await telegramTransport.addressFor!({
         kind: "chat",
         chatId: "123",
         threadId: "42",
@@ -59,7 +88,7 @@ describe("addressFor resolves to the channel's own routing state", () => {
       threadId: "42",
     });
     expect(
-      telegramTransport.addressFor!({ kind: "person", userId: "777" }),
+      await telegramTransport.addressFor!({ kind: "person", userId: "777" }),
     ).toEqual({
       ctx: { callbackUrl: "/deliver/telegram", params: {} },
       chatId: "777",
@@ -67,9 +96,9 @@ describe("addressFor resolves to the channel's own routing state", () => {
     expect(telegramTransport.bindsChatOnProactiveSend).toBe(true);
   });
 
-  test("discord: a chat with a thread; a person is a DM the transport opens", () => {
+  test("discord: a chat with a thread; a person is the DM channel the transport opens", async () => {
     expect(
-      discordTransport.addressFor!({
+      await discordTransport.addressFor!({
         kind: "chat",
         chatId: "C1",
         threadId: "T1",
@@ -82,21 +111,21 @@ describe("addressFor resolves to the channel's own routing state", () => {
       chatId: "C1",
       threadId: "T1",
     });
-    const person = discordTransport.addressFor!({
+    const person = await discordTransport.addressFor!({
       kind: "person",
       userId: "U1",
     });
     expect(person).toEqual({
-      ctx: { callbackUrl: "/deliver/discord?dm=1", params: { dm: "1" } },
-      chatId: "U1",
+      ctx: { callbackUrl: "/deliver/discord", params: {} },
+      chatId: "dm-of-U1",
     });
     expect(channelForCallback(person!.ctx.callbackUrl)).toBe("discord");
     expect(discordTransport.bindsChatOnProactiveSend).toBeUndefined();
   });
 
-  test("whatsapp: a chat and a person are the same number; no threads; binds on send", () => {
+  test("whatsapp: a chat and a person are the same number; no threads; binds on send", async () => {
     expect(
-      whatsappTransport.addressFor!({
+      await whatsappTransport.addressFor!({
         kind: "chat",
         chatId: "12125550100",
         threadId: "ignored",
@@ -106,7 +135,10 @@ describe("addressFor resolves to the channel's own routing state", () => {
       chatId: "12125550100",
     });
     expect(
-      whatsappTransport.addressFor!({ kind: "person", userId: "12125550100" }),
+      await whatsappTransport.addressFor!({
+        kind: "person",
+        userId: "12125550100",
+      }),
     ).toEqual({
       ctx: { callbackUrl: "/deliver/whatsapp", params: {} },
       chatId: "12125550100",

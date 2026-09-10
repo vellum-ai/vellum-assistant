@@ -9,13 +9,15 @@
  * target, the transport resolves it into its own callback context, and
  * nothing here switches on a channel's name.
  *
- * The record is written only after the transport reports acknowledgement,
- * with every id the text became, so a failed send leaves no row that reads
- * as something the assistant said, and a reaction, edit, or delete naming
- * any chunk resolves to the row. A send into the sending turn's own chat and
- * thread writes no row: its tool call and result already sit in that
- * conversation's history, and a second assistant row beside the tool pair
- * would break history repair.
+ * Nothing is written before the channel acknowledges. The record carries
+ * every id the text became, so a failed send leaves no row that reads as
+ * something the assistant said, and a reaction, edit, or delete naming any
+ * chunk resolves to the row; the inbound binding a transport asks for is
+ * written after the same acknowledgement, so a failed send does not move
+ * where the chat's next message lands. A send into the sending turn's own
+ * chat and thread writes no row: its tool call and result already sit in
+ * that conversation's history, and a second assistant row beside the tool
+ * pair would break history repair.
  */
 
 import { type ChannelId, isChannelId } from "../channels/types.js";
@@ -35,6 +37,7 @@ import {
   upsertOutboundBinding,
 } from "../persistence/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
 
 const log = getLogger("channel-send");
 
@@ -69,10 +72,10 @@ export interface ChannelSendResult {
   readonly chatId: string;
   /** The thread the post landed in, absent when it is not in one. */
   readonly threadId?: string;
-  /** Every id the channel acknowledged for the text, in send order. */
+  /** Every id the channel acknowledged for the text, in send order; never empty. */
   readonly messageIds: readonly string[];
   /** The id of the final post, the one a later edit or withdrawal addresses. */
-  readonly lastMessageId?: string;
+  readonly lastMessageId: string;
   /** The conversation the post was recorded in, absent when it was not. */
   readonly recordedIn?: string;
 }
@@ -88,10 +91,17 @@ export class ChannelNotAddressableError extends Error {
   }
 }
 
-/** The transport ran but the channel did not acknowledge the send. */
+/**
+ * The transport ran but the channel did not acknowledge the send. A success
+ * that names no message id counts: an id is what makes the post addressable
+ * afterwards, and without one there is nothing to record.
+ */
 export class ChannelSendFailedError extends Error {
-  constructor(readonly channel: ChannelId) {
-    super(`Channel "${channel}" did not acknowledge the send.`);
+  constructor(
+    readonly channel: ChannelId,
+    reason = "did not acknowledge the send",
+  ) {
+    super(`Channel "${channel}" ${reason}.`);
     this.name = "ChannelSendFailedError";
   }
 }
@@ -111,8 +121,8 @@ export function isProactivelyAddressable(channel: string): boolean {
  * Throws {@link ChannelNotAddressableError} before any delivery when the
  * channel or the target shape cannot be addressed, and
  * {@link ChannelSendFailedError} when the transport reports no
- * acknowledgement. A recording failure never fails the send: the message
- * is already out.
+ * acknowledgement or no message id. A binding or recording failure never
+ * fails the send: the message is already out.
  */
 export async function sendChannelText(
   params: ChannelSendParams,
@@ -128,17 +138,12 @@ export async function sendChannelText(
       "cannot be addressed from a named chat",
     );
   }
-  const address = transport.addressFor(target);
+  const address = await transport.addressFor(target);
   if (!address) {
     throw new ChannelNotAddressableError(
       channel,
       `cannot be addressed by ${target.kind}`,
     );
-  }
-
-  const actsForSelf = !params.assistantId || params.assistantId === "self";
-  if (transport.bindsChatOnProactiveSend && actsForSelf) {
-    bindChatForNextInbound(channel, address.chatId);
   }
 
   const result = await transport.deliver(address.ctx, {
@@ -152,6 +157,15 @@ export async function sendChannelText(
   }
   const messageIds = result.messageIds ?? (result.ts ? [result.ts] : []);
   const lastMessageId = result.ts ?? messageIds[messageIds.length - 1];
+  if (!lastMessageId) {
+    throw new ChannelSendFailedError(channel, "acknowledged no message id");
+  }
+
+  const actsForSelf =
+    !params.assistantId || params.assistantId === DAEMON_INTERNAL_ASSISTANT_ID;
+  if (transport.bindsChatOnProactiveSend && actsForSelf) {
+    bindChatForNextInbound(channel, address);
+  }
 
   const recordedIn = await recordProactivePost({
     channel,
@@ -166,31 +180,43 @@ export async function sendChannelText(
     chatId: address.chatId,
     ...(address.threadId ? { threadId: address.threadId } : {}),
     messageIds,
-    ...(lastMessageId ? { lastMessageId } : {}),
+    lastMessageId,
     ...(recordedIn ? { recordedIn } : {}),
   };
 }
 
 /**
- * Bind the chat's inbound conversation to the chat, so the next message
- * from it resolves to the same conversation the post lives in. The key is
- * the one ingress uses for a chat-scoped conversation on this channel.
- * Best effort: a binding failure must not stop the send.
+ * Bind the chat's inbound conversation to the delivered chat and thread, so
+ * the next message from there resolves to the conversation ingress uses for
+ * it. The key is the one ingress builds, thread-scoped where the channel
+ * scopes conversations by thread, so a topic's replies continue the topic's
+ * conversation. Runs after acknowledgement: the message is out, so the
+ * binding it asks for is owed. Best effort: a binding failure must not fail
+ * the send.
  */
-function bindChatForNextInbound(channel: ChannelId, chatId: string): void {
+function bindChatForNextInbound(
+  channel: ChannelId,
+  address: ProactiveAddress,
+): void {
   try {
     const { conversationId } = getOrCreateConversation(
-      buildScopedConversationKey(channel, chatId),
+      buildScopedConversationKey(channel, address.chatId, address.threadId),
     );
     upsertOutboundBinding({
       conversationId,
       sourceChannel: channel,
-      externalChatId: chatId,
+      externalChatId: address.chatId,
+      externalThreadId: address.threadId ?? null,
     });
   } catch (e) {
     log.warn(
-      { err: e, channel, externalChatId: chatId },
-      "Failed to bind the chat's inbound conversation before the send",
+      {
+        err: e,
+        channel,
+        externalChatId: address.chatId,
+        externalThreadId: address.threadId,
+      },
+      "Failed to bind the chat's inbound conversation after the send",
     );
   }
 }
@@ -198,9 +224,10 @@ function bindChatForNextInbound(channel: ChannelId, chatId: string): void {
 /**
  * Record the acknowledged post where the chat's proactive posts live, so
  * the chat's own conversation and `recall` can see what was sent from
- * elsewhere. Returns the conversation it was recorded in, or `undefined`
- * when nothing was recorded: the channel acknowledged no id, the send went
- * into the sending turn's own chat and thread, or the home is the sender.
+ * elsewhere. The row names the thread the post landed in, as the transport
+ * resolved it. Returns the conversation it was recorded in, or `undefined`
+ * when nothing was recorded: the send went into the sending turn's own chat
+ * and thread, or the home is the sender.
  */
 async function recordProactivePost(params: {
   channel: ChannelId;
@@ -235,6 +262,7 @@ async function recordProactivePost(params: {
       conversationId: home.conversationId,
       channel,
       externalChatId: address.chatId,
+      ...(address.threadId ? { threadId: address.threadId } : {}),
       text: params.text,
       providerMessageId: firstId,
       ...(restIds.length > 0 ? { additionalProviderMessageIds: restIds } : {}),

@@ -48,20 +48,6 @@ const ChannelSendRequestSchema = z.object({
     .boolean()
     .optional()
     .describe("Ask the channel for its rich rendering, where it has one"),
-  sender: z
-    .object({
-      conversationId: z
-        .string()
-        .min(1)
-        .describe("Conversation the send is made for"),
-      executionChannel: z.string().optional(),
-      requesterChatId: z.string().optional(),
-      sourceThreadId: z.string().optional(),
-    })
-    .optional()
-    .describe(
-      "The turn the send is made from, so a send into its own chat is not recorded twice",
-    ),
 });
 
 const ChannelSendResponseSchema = z.object({
@@ -69,7 +55,7 @@ const ChannelSendResponseSchema = z.object({
   chatId: z.string(),
   threadId: z.string().optional(),
   messageIds: z.array(z.string()),
-  lastMessageId: z.string().optional(),
+  lastMessageId: z.string(),
   recordedIn: z.string().optional(),
 });
 

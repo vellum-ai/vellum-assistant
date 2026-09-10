@@ -29,7 +29,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   id: "telegram",
   displayName: "Telegram",
   credentialService: "telegram",
-  capabilities: new Set(["send"]),
+  capabilities: new Set(),
 
   async isConnected(): Promise<boolean> {
     const conn = getConnectionByProvider("telegram");

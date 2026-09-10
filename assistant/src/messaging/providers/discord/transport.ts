@@ -54,15 +54,16 @@ export const discordTransport: ChannelTransport = {
 
   /**
    * A chat is a channel id, with `threadId` naming the thread, which is its
-   * own channel. A person is a user snowflake reached in their DM: `dm=1`
-   * tells `sendTarget` to open that DM, since a user id and a channel id are
-   * both bare snowflakes and nothing in the value says which arrived.
+   * own channel. A person is reached in their DM, which is opened here so
+   * the address names the DM channel the post lands in: that is the id
+   * Discord's later events carry for it, so the record and the chat's home
+   * are found again by it.
    */
-  addressFor(target) {
+  async addressFor(target) {
     if (target.kind === "person") {
       return {
-        ctx: directDeliveryContext("discord", { dm: "1" }),
-        chatId: target.userId,
+        ctx: directDeliveryContext("discord"),
+        chatId: await openDiscordDmChannel(target.userId),
       };
     }
     const threadId = target.threadId?.trim();

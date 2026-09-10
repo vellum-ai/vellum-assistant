@@ -6,6 +6,8 @@ import { getLogger } from "../../../util/logger.js";
 import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
 import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
+import { resolveSlackAuth } from "./auth.js";
+import { conversationsOpen } from "./client.js";
 import {
   describeSlackReactionEmoji,
   sendSlackAgentSessionStatus,
@@ -28,13 +30,21 @@ export const slackTransport: ChannelTransport = {
 
   /**
    * A chat is a channel or DM id, with `threadTs` naming the thread to post
-   * under. A person is not addressed here: reaching one means opening the
-   * DM first (`conversations.open`), which is a call this resolution does
-   * not make, so the caller names the DM channel instead.
+   * under. A person is reached in their DM, opened here as the bot
+   * (`conversations.open`) so the address names the DM channel the post
+   * lands in, the id Slack's later events carry for it.
    */
-  addressFor(target) {
-    if (target.kind !== "chat") {
-      return undefined;
+  async addressFor(target) {
+    if (target.kind === "person") {
+      const auth = await resolveSlackAuth("bot");
+      if (!auth) {
+        throw new Error("Slack bot token not configured");
+      }
+      const opened = await conversationsOpen(auth, target.userId);
+      return {
+        ctx: directDeliveryContext("slack"),
+        chatId: opened.channel.id,
+      };
     }
     const threadTs = target.threadId?.trim();
     return {

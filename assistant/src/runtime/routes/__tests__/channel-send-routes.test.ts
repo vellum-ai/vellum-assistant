@@ -50,7 +50,6 @@ describe("POST channels/send", () => {
       target: { kind: "chat", chatId: "C123", threadId: "1690000000.000001" },
       text: "hello",
       renderRichly: true,
-      sender: { conversationId: "conv-A" },
     };
     const result = await route.handler({ body });
     expect(sendCalls).toEqual([body]);
@@ -59,6 +58,23 @@ describe("POST channels/send", () => {
       messageIds: ["1700000000.000100"],
       recordedIn: "home-1",
     });
+  });
+
+  test("names no sending turn, so a caller cannot claim a send was its own chat's", async () => {
+    await route.handler({
+      body: {
+        channel: "slack",
+        target: { kind: "chat", chatId: "C123" },
+        text: "hello",
+        sender: {
+          conversationId: "conv-A",
+          executionChannel: "slack",
+          requesterChatId: "C123",
+        },
+      },
+    });
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]).not.toHaveProperty("sender");
   });
 
   test("rejects a malformed body before calling the send function", async () => {

@@ -5065,22 +5065,6 @@ paths:
                 renderRichly:
                   description: Ask the channel for its rich rendering, where it has one
                   type: boolean
-                sender:
-                  description: The turn the send is made from, so a send into its own chat is not recorded twice
-                  type: object
-                  properties:
-                    conversationId:
-                      type: string
-                      minLength: 1
-                      description: Conversation the send is made for
-                    executionChannel:
-                      type: string
-                    requesterChatId:
-                      type: string
-                    sourceThreadId:
-                      type: string
-                  required:
-                    - conversationId
               required:
                 - channel
                 - target
@@ -5122,6 +5106,7 @@ paths:
                   - channel
                   - chatId
                   - messageIds
+                  - lastMessageId
                 additionalProperties: false
   /v1/clients:
     get:

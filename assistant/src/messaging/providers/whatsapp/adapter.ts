@@ -36,7 +36,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
   id: "whatsapp",
   displayName: "WhatsApp",
   credentialService: "whatsapp",
-  capabilities: new Set(["send"]),
+  capabilities: new Set(),
 
   async isConnected(): Promise<boolean> {
     return hasWhatsAppCredentials();

@@ -37,7 +37,8 @@ function fakeTransport(
     },
   };
   if (opts.addressable !== false) {
-    transport.addressFor = (target: ProactiveTarget) => {
+    // Asynchronous, as a transport that opens a DM to address a person is.
+    transport.addressFor = async (target: ProactiveTarget) => {
       if (target.kind === "person") {
         return undefined;
       }
@@ -93,8 +94,14 @@ mock.module("../../persistence/conversation-key-store.js", () => ({
   },
 }));
 mock.module("../../persistence/delivery-crud.js", () => ({
-  buildScopedConversationKey: (channel: string, chatId: string) =>
-    `asst:self:${channel}:${chatId}`,
+  buildScopedConversationKey: (
+    channel: string,
+    chatId: string,
+    threadId?: string | null,
+  ) =>
+    threadId
+      ? `asst:self:${channel}:${chatId}:thread:${threadId}`
+      : `asst:self:${channel}:${chatId}`,
 }));
 mock.module("../../persistence/external-conversation-store.js", () => ({
   normalizeExternalThreadId: (value: string | null | undefined) => {
@@ -210,7 +217,7 @@ describe("delivery through the transport", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
-  test("binds the chat's inbound conversation before the send only where the transport declares it", async () => {
+  test("binds the chat's inbound conversation after acknowledgement, only where the transport declares it", async () => {
     await sendChannelText({
       channel: "telegram",
       target: { kind: "chat", chatId: "123456789" },
@@ -222,6 +229,7 @@ describe("delivery through the transport", () => {
         conversationId: "conv-for-asst:self:telegram:123456789",
         sourceChannel: "telegram",
         externalChatId: "123456789",
+        externalThreadId: null,
       },
     ]);
 
@@ -231,6 +239,38 @@ describe("delivery through the transport", () => {
       target: { kind: "chat", chatId: "C123" },
       text: "hello",
     });
+    expect(bindCalls).toEqual([]);
+  });
+
+  test("a topic send binds the topic's own conversation, the one its replies resolve to", async () => {
+    await sendChannelText({
+      channel: "telegram",
+      target: { kind: "chat", chatId: "123456789", threadId: "42" },
+      text: "hello",
+    });
+    expect(getOrCreateCalls).toEqual([
+      "asst:self:telegram:123456789:thread:42",
+    ]);
+    expect(bindCalls).toEqual([
+      {
+        conversationId: "conv-for-asst:self:telegram:123456789:thread:42",
+        sourceChannel: "telegram",
+        externalChatId: "123456789",
+        externalThreadId: "42",
+      },
+    ]);
+  });
+
+  test("a failed send binds nothing, so it does not move where the next inbound lands", async () => {
+    deliverResult = { ok: false };
+    await expect(
+      sendChannelText({
+        channel: "telegram",
+        target: { kind: "chat", chatId: "123456789" },
+        text: "hello",
+      }),
+    ).rejects.toBeInstanceOf(ChannelSendFailedError);
+    expect(getOrCreateCalls).toEqual([]);
     expect(bindCalls).toEqual([]);
   });
 
@@ -276,15 +316,16 @@ describe("recording after acknowledgement", () => {
     });
   });
 
-  test("records nothing when the channel acknowledged no id", async () => {
+  test("a success that names no message id is not an acknowledgement", async () => {
     deliverResult = { ok: true, messageIds: [] };
-    const result = await sendChannelText({
-      channel: "slack",
-      target: { kind: "chat", chatId: "C123" },
-      text: "hello",
-    });
+    await expect(
+      sendChannelText({
+        channel: "slack",
+        target: { kind: "chat", chatId: "C123" },
+        text: "hello",
+      }),
+    ).rejects.toThrow("acknowledged no message id");
     expect(recordMock).not.toHaveBeenCalled();
-    expect(result.recordedIn).toBeUndefined();
   });
 
   test("records nothing when the post landed in the turn's own chat and thread", async () => {
@@ -298,7 +339,7 @@ describe("recording after acknowledgement", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
-  test("a send into the turn's chat but a different thread is a cross-post", async () => {
+  test("a send into the turn's chat but a different thread is a cross-post, recorded in that thread", async () => {
     await sendChannelText({
       channel: "slack",
       target: { kind: "chat", chatId: "C123", threadId: "1690000000.000009" },
@@ -306,6 +347,10 @@ describe("recording after acknowledgement", () => {
       sender,
     });
     expect(recordMock).toHaveBeenCalledTimes(1);
+    expect(recordMock.mock.calls[0]![0]).toMatchObject({
+      externalChatId: "C123",
+      threadId: "1690000000.000009",
+    });
   });
 
   test("a thread-less delivery never matches a turn that arrived in a thread", async () => {

@@ -148,7 +148,9 @@ export interface ChannelTransport {
    * name. Returning `undefined` for a target shape this channel cannot
    * address is the same answer for that shape alone.
    */
-  addressFor?(target: ProactiveTarget): ProactiveAddress | undefined;
+  addressFor?(
+    target: ProactiveTarget,
+  ): ProactiveAddress | undefined | Promise<ProactiveAddress | undefined>;
 
   /**
    * Whether a proactive send to a chat must also bind that chat's inbound
