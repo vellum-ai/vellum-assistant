@@ -32,13 +32,24 @@ export const SIDEBAR_CHIP_GAP = 6;
 export const SIDEBAR_CHIP_GAP_CLASSES = "gap-[6px] max-md:gap-2";
 
 /**
- * The leading chip on a touch viewport: the same {@link SIDEBAR_CHIP_SIZE}
- * box, stated as a class so a slot that is 14px wide on a pointer viewport
- * (a section header's) can grow to the chip on a phone. The 16px glyph
- * beside it is the size `PanelItem` draws its own leading icon at there.
+ * The leading chip on a touch viewport, as a class so a slot that is 14px
+ * wide on a pointer viewport (a section header's) can grow on a phone. 24px
+ * rather than {@link SIDEBAR_CHIP_SIZE}: the assistant row leads with a
+ * 32px disc inset 2px and its label 6px after it (Figma 8300:167392), so its
+ * label starts 40px in, and a row with 8px of padding and the pills' 8px gap
+ * needs a 24px-wide chip to start its label there too. The 16px glyph in it
+ * is the size `PanelItem` draws its own leading icon at there; centred in
+ * the chip it sits 2px right of the eyes' centre, which the eye cannot see,
+ * where a label 4px off the assistant's it can.
  */
-export const SIDEBAR_MOBILE_CHIP_CLASSES = "max-md:size-5";
+export const SIDEBAR_MOBILE_CHIP_CLASSES = "max-md:h-5 max-md:w-6";
 export const SIDEBAR_MOBILE_GLYPH_CLASSES = "max-md:size-4";
+
+/** The chip at both breakpoints, for a slot that is the chip on a pointer
+ * viewport as well (a pinned app's). */
+export const SIDEBAR_CHIP_CLASSES = `size-5 ${SIDEBAR_MOBILE_CHIP_CLASSES}`;
+/* Only the width grows: a 24px-tall chip would stand a pinned pill 4px past
+   the 44px overlay tile and a card's header row 4px past its 20px. */
 
 /**
  * Left indent applied to a collapsible section's content. Zero, so a

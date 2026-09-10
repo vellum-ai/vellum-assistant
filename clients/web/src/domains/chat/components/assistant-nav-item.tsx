@@ -1,12 +1,13 @@
 import { useTranslation } from "@/i18n";
 /**
  * The sidebar's assistant cluster: the "Your Assistant" nav row, dressed up
- * as the assistant (a standard-height row painted solid in the avatar's color
- * with the avatar's eyes sitting in the leading icon slot), and a "New Chat"
- * row directly beneath it: a plus glyph with a label beside it, on a wash of
- * the same color, the recipe the identity page's feature cards wear. The plus
- * centers on the same axis as the eyes, so the two rows' labels align. On the
- * collapsed rail both rows survive as icon-only tiles (Figma 7257:135811).
+ * as the assistant (Figma 8300:167392: a pill washed in the avatar's colour,
+ * leading with a 32px disc painted solid in that colour with the avatar's
+ * eyes in it, inset 2px from the pill's edge, and the name 6px after the
+ * disc in the emphasised ink), and a "New Chat" row directly beneath it: a
+ * plus glyph with a label beside it, on the same wash, the recipe the
+ * identity page's feature cards wear. On the collapsed rail both rows
+ * survive as icon-only tiles (Figma 7257:135811).
  *
  * The eyes hold their place in the leading slot and blink there periodically.
  * They do not travel: the pill is sized to the assistant's name, so there is
@@ -15,18 +16,18 @@ import { useTranslation } from "@/i18n";
  * The collapsed rail is the exception, and keeps its pulse: its tile centres
  * the eyes with nothing beside them, so growing has room there.
  *
- * The assistant name is never bolded and always renders white on the
- * avatar-colored row — except on light avatar colors (yellow), where it
- * flips dark for contrast.
+ * The assistant name renders in the emphasised content ink at the medium
+ * weight, on the wash; only the collapsed tile is painted solid, and there
+ * the eyes stand alone, so the contrast foreground matters on the tile only.
  *
- * The leading slot holds whichever avatar the assistant has: the character's
- * eyes, or an uploaded image in their place, both at the slot's full width so
- * the row's geometry does not change between them. An uploaded image wears the
- * plain pill rather than a tinted one, since a colour is read from a
- * character's palette and nothing derives one from an image.
+ * The leading disc holds whichever avatar the assistant has: the character's
+ * eyes on the solid colour, or an uploaded image filling the disc in their
+ * place, so the row's geometry does not change between them. An uploaded
+ * image wears the plain pill rather than a washed one, since a colour is read
+ * from a character's palette and nothing derives one from an image.
  *
  * With neither, the row falls back to a plain-toned one with a Brain icon in
- * that slot, so the cluster's labels stay aligned.
+ * a disc-sized slot, so the cluster's labels stay aligned.
  */
 
 import { SIDEBAR_STACK_GAP } from "@/components/sidebar-nav-geometry";
@@ -58,6 +59,30 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useInChatOnboardingStore } from "@/stores/in-chat-onboarding-store";
 import { eyeStyleBaseWidth } from "@/utils/assistant-eyes";
 import { contrastForeground } from "@/utils/avatar-tone";
+
+/**
+ * The pill's leading disc (Figma 8300:167392): 32px in the 36px pill, inset
+ * 2px from its edge (the `pl-[2px] py-[2px]` below), with the label
+ * {@link DISC_GAP} after it. The disc holds the eyes' {@link CHIP_SIZE} chip
+ * centred, so the eyes sit on the same axis they did in the bare chip and
+ * the section glyphs below still centre on them.
+ */
+const DISC_SIZE = 32;
+const DISC_GAP = 6;
+
+/**
+ * The pill's own geometry and type over `PanelItem`'s: the disc's inset in
+ * place of the pill's 8px padding on the leading edge and the vertical (the
+ * touch pill keeps its 44px by centring the disc in it), the name in the
+ * emphasised ink at the medium weight the design sets it in. `font-medium!`
+ * because the row's own `text-body-medium-lighter` pins a 400 weight that a
+ * plain utility loses to.
+ */
+const DISC_PILL_CLASSES =
+  "pl-[2px] py-[2px] max-md:py-[6px] font-medium! text-[var(--content-emphasised)]";
+const DISC_PILL_STYLE: CustomPropertyStyle = {
+  "--panel-item-gap": `${DISC_GAP}px`,
+};
 import { pathBBox, unionBBox } from "@/utils/eye-bbox";
 
 /** How far the collapsed rail's tile grows the eyes on a pulse. */
@@ -345,18 +370,35 @@ export function AssistantNavItem({
       <span
         aria-hidden="true"
         className="pointer-events-none flex shrink-0 items-center justify-center"
-        style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+        style={{ width: DISC_SIZE, height: DISC_SIZE }}
       >
         <img
           src={uploadedAvatarUrl}
           alt=""
-          width={CHIP_SIZE}
-          height={CHIP_SIZE}
+          width={DISC_SIZE}
+          height={DISC_SIZE}
           className="rounded-full object-cover"
-          style={{ width: CHIP_SIZE, height: CHIP_SIZE }}
+          style={{ width: DISC_SIZE, height: DISC_SIZE }}
         />
       </span>
     ) : null;
+
+  /* The Brain in a disc-sized slot rather than as the row's own 14px icon, so
+     the plain pill's label starts where the tinted one's does. */
+  const brainSlot = (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none flex shrink-0 items-center justify-center"
+      style={{ width: DISC_SIZE, height: DISC_SIZE }}
+    >
+      <Brain
+        className="h-3.5 w-3.5"
+        style={{
+          color: active ? "var(--content-default)" : "var(--content-tertiary)",
+        }}
+      />
+    </span>
+  );
 
   /* Saved traits outrank an uploaded image, as they do in ChatAvatar; an
      image displaces only the default creature. Decided from the traits, not
@@ -366,9 +408,8 @@ export function AssistantNavItem({
 
   if (!hex || wearsImage) {
     // No character to draw (an uploaded image, or an avatar not loaded yet):
-    // a plain-toned row that keeps the New Chat row's geometry. The uploaded
-    // image, or else the Brain icon, centers in the same CHIP_SIZE slot the
-    // plus chip and the eyes use, so both rows' labels stay on one axis.
+    // a plain-toned row with the tinted row's geometry. The uploaded image
+    // fills the disc; the Brain icon centres in a slot the disc's size.
     return (
       <div className={cn("flex flex-col", SIDEBAR_STACK_GAP)}>
         {collapsed ? (
@@ -424,13 +465,13 @@ export function AssistantNavItem({
           (activeExpansion ?? (
             <PanelItem
               shape="pill"
-              icon={Brain}
-              leadingSlot={avatarImage ?? undefined}
+              leadingSlot={avatarImage ?? brainSlot}
               label={label}
               active={active}
               onSelect={onSelect}
               trailingAction={pillTrailingAction}
-              className={pillGapClass}
+              className={cn(DISC_PILL_CLASSES, pillGapClass)}
+              style={DISC_PILL_STYLE}
               data-tour-id="assistant-page"
             />
           ))
@@ -466,25 +507,24 @@ export function AssistantNavItem({
     </svg>
   );
 
-  /* The assistant's own colour, declared as the pill's tint properties
-     rather than passed to `PanelItem` or written over its classes. Hover
-     lightens the same hue, which is what the bespoke row did with
-     `brightness-105`. While the tour owns the nav the colour drains away
-     entirely: nothing is declared, so the pill falls back to its plain
-     surface and the tour's flood is the only colour on screen. */
-  const tintStyle: CustomPropertyStyle | undefined =
-    !navTourActive && hex
-      ? {
-          "--panel-item-bg": hex,
-          "--panel-item-fg": fg,
-          "--panel-item-hover": `color-mix(in srgb, #fff 8%, ${hex})`,
-        }
-      : undefined;
+  /* The assistant's own colour as a wash under the pill, the same 15% mix
+     the New Chat row and the pinned apps wear, so the column's tinted rows
+     agree and the disc is the pill's one solid surface. Declared as the
+     pill's tint properties rather than written over `PanelItem`'s classes;
+     hover and current-page raise the wash a step. While the tour owns the
+     nav the colour drains away entirely: nothing is declared, so the pill
+     falls back to its plain surface and the tour's flood is the only colour
+     on screen. */
+  const tintStyle: CustomPropertyStyle = {
+    ...(!navTourActive && hex ? panelItemWashStyle(hex) : undefined),
+    ...DISC_PILL_STYLE,
+  };
 
-  /* The eyes, holding still in the pill's leading slot: centred in the same
-     chip-width box the plus glyph and the section icons use, so the cluster's
-     labels stay on one axis. They blink where they sit and go nowhere else,
-     which is what keeps them off the name beside them. */
+  /* The eyes, holding still in the pill's leading disc: centred in the same
+     chip-width box the section icons use, and that box centred in the disc,
+     so the eyes sit on the axis the glyphs below centre on. They blink where
+     they sit and go nowhere else, which is what keeps them off the name
+     beside them. */
   const eyesSlot = (
     <span
       aria-hidden="true"
@@ -514,6 +554,25 @@ export function AssistantNavItem({
           {eyesSvg}
         </span>
       )}
+    </span>
+  );
+
+  /* The disc: the pill's one solid surface, painted in the assistant's
+     colour with the eyes on it (Figma 8300:167394). While the tour owns the
+     nav it drains with the wash and the Brain stands in the slot on nothing,
+     as the plain pill's does. */
+  const eyesDisc = (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none flex shrink-0 items-center justify-center rounded-full"
+      style={{
+        width: DISC_SIZE,
+        height: DISC_SIZE,
+        backgroundColor: navTourActive ? undefined : hex,
+        color: fg,
+      }}
+    >
+      {eyesSlot}
     </span>
   );
 
@@ -564,12 +623,12 @@ export function AssistantNavItem({
     <span style={tintStyle}>
       <PanelItem
         shape="pill"
-        leadingSlot={eyesSlot}
+        leadingSlot={eyesDisc}
         label={label}
         active={active}
         onSelect={onSelect}
         trailingAction={pillTrailingAction}
-        className={pillGapClass}
+        className={cn(DISC_PILL_CLASSES, pillGapClass)}
         data-tour-id="assistant-page"
       />
     </span>

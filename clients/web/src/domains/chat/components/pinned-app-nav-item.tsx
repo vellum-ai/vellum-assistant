@@ -2,7 +2,7 @@ import { PinOff, Rocket } from "lucide-react";
 import { useMemo } from "react";
 
 import {
-  SIDEBAR_CHIP_SIZE,
+  SIDEBAR_CHIP_CLASSES,
   SIDEBAR_MOBILE_GLYPH_CLASSES,
 } from "@/components/sidebar-nav-geometry";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
@@ -163,18 +163,19 @@ export function PinnedAppNavItem({
     <PanelItem
       style={tintStyle}
       shape="pill"
-      /* The glyph in the same chip the assistant row keeps its eyes in, so
-         the pill's label starts where the assistant's name does and the glyph
-         centres on the eyes' axis. `icon` would draw the Lucide fallback at
-         its own width, 14px against the eyes' 20px chip, and put the label
-         6px left of the name above it. An app's icon is an emoji string on
-         its manifest; the Rocket stands in for an app with no emoji, at the
-         size and in the ink `PanelItem` gives a leading icon. */
+      /* The glyph in a chip rather than at its own width, so on a phone the
+         pill's label starts where the assistant's name does and the glyph
+         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`). An
+         app's icon is an emoji string on its manifest; the Rocket stands in
+         for an app with no emoji, at the size and in the ink `PanelItem`
+         gives a leading icon. */
       leadingSlot={
         <span
           aria-hidden
-          className="inline-flex shrink-0 items-center justify-center"
-          style={{ width: SIDEBAR_CHIP_SIZE, height: SIDEBAR_CHIP_SIZE }}
+          className={cn(
+            "inline-flex shrink-0 items-center justify-center",
+            SIDEBAR_CHIP_CLASSES,
+          )}
         >
           {typeof app.icon === "string" ? (
             <span className="text-[14px] leading-none max-md:text-[16px]">
