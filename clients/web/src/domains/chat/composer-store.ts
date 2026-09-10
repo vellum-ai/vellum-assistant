@@ -5,6 +5,7 @@
  * - Draft text input (per-conversation persistence to localStorage)
  * - File attachments (upload lifecycle, error state, blob URL management)
  * - "Draft restored" notice signal
+ * - Failed sends held for the conversation each was composed for
  *
  * Both `ActiveChatView` (orchestration) and `ChatMainPanel` (rendering)
  * access this store directly — eliminating the 14-prop relay that previously
@@ -94,6 +95,13 @@ export type ChatAttachment =
  * them would let typing in one clobber the other's in-progress draft.
  */
 export type ComposerSlot = "main" | "document";
+
+/** What a failed send carried: the text it was composed with and the
+ *  attachments that went up with it. */
+export interface FailedSendPayload {
+  content: string;
+  attachments: DisplayAttachment[];
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -238,6 +246,13 @@ export interface ComposerState {
   documentInput: string;
   documentAttachments: ChatAttachment[];
   documentAttachmentLastError: string | null;
+
+  /**
+   * The messages of failed sends, keyed by the conversation each was composed
+   * for, waiting for that conversation's composer to take one back. A
+   * conversation holding nothing has no entry.
+   */
+  failedSendsByConversation: ReadonlyMap<string, FailedSendPayload>;
 }
 
 export interface ComposerActions {
@@ -345,9 +360,26 @@ export interface ComposerActions {
    * created (e.g. on assistant switch), including the ones whose
    * attachments a previous `resetAttachments` already cleared into sent
    * message bubbles. The other slot's URLs are left alive, so resetting one
-   * slot never frees blob URLs the other is still rendering. */
+   * slot never frees blob URLs the other is still rendering. On the main slot
+   * this also drops every held failed send, whose attachments were uploaded
+   * against the assistant being left. */
   fullReset: (slot?: ComposerSlot) => void;
   dismissAttachmentError: (slot?: ComposerSlot) => void;
+
+  // --- Failed sends held for their own conversation ---
+  /**
+   * Hold the message of a failed send for the conversation it was composed
+   * for, until that conversation's composer takes it back. A conversation
+   * already holding one keeps both, oldest first: the two drafts are joined by
+   * a blank line and the attachments run one list after the other.
+   */
+  stashFailedSend: (conversationId: string, payload: FailedSendPayload) => void;
+  /**
+   * Take the message held for `conversationId`, removing it, so one thread's
+   * composer reclaims only what was composed there. Null when that
+   * conversation holds none.
+   */
+  takeFailedSend: (conversationId: string) => FailedSendPayload | null;
 }
 
 type ComposerStore = ComposerState & ComposerActions;
@@ -382,6 +414,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   documentInput: "",
   documentAttachments: [],
   documentAttachmentLastError: null,
+  failedSendsByConversation: new Map(),
 
   // --- Draft input actions ---
   setInput: (value, slot = "main") => {
@@ -754,9 +787,18 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
           cancelledUploads.add(att.localId);
         }
       }
-      return slot === "document"
-        ? { documentAttachments: [], documentAttachmentLastError: null }
-        : { attachments: [], attachmentLastError: null };
+      if (slot === "document") {
+        return { documentAttachments: [], documentAttachmentLastError: null };
+      }
+      // A held message belongs to a conversation of the assistant this reset
+      // is leaving, and its attachments were uploaded against that assistant,
+      // so they die with the previews revoked below rather than waiting for a
+      // composer under the next one.
+      return {
+        attachments: [],
+        attachmentLastError: null,
+        failedSendsByConversation: new Map(),
+      };
     });
     revokeSlotPreviews(slot);
   },
@@ -784,6 +826,31 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   dismissAttachmentError: (slot = "main") => {
     setAttachmentError(set, slot, null);
   },
+
+  stashFailedSend: (conversationId, payload) => {
+    set((s) => {
+      const held = s.failedSendsByConversation.get(conversationId);
+      const next = new Map(s.failedSendsByConversation);
+      next.set(
+        conversationId,
+        held ? mergeFailedSends(held, payload) : payload,
+      );
+      return { failedSendsByConversation: next };
+    });
+  },
+
+  takeFailedSend: (conversationId) => {
+    const held = get().failedSendsByConversation.get(conversationId);
+    if (held === undefined) {
+      return null;
+    }
+    set((s) => {
+      const next = new Map(s.failedSendsByConversation);
+      next.delete(conversationId);
+      return { failedSendsByConversation: next };
+    });
+    return held;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -791,6 +858,23 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
 // ---------------------------------------------------------------------------
 
 type ComposerSetFn = (fn: (s: ComposerState) => Partial<ComposerState>) => void;
+
+/**
+ * Two messages held for one conversation as a single message, `older` first:
+ * the drafts joined by a blank line when both carry text, and the attachments
+ * run one list after the other.
+ */
+function mergeFailedSends(
+  older: FailedSendPayload,
+  newer: FailedSendPayload,
+): FailedSendPayload {
+  return {
+    content: [older.content, newer.content]
+      .filter((content) => content !== "")
+      .join("\n\n"),
+    attachments: [...older.attachments, ...newer.attachments],
+  };
+}
 
 /** Read/write the attachment list belonging to `slot`, main or document. */
 function updateAttachments(

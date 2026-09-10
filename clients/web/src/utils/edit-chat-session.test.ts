@@ -80,7 +80,7 @@ describe("edit-chat-session", () => {
 
     resolveEditChatDraftConversationId("draft-1", "real-1");
 
-    expect(getEditChatDraftReplacement("draft-1", 0)).toBe("real-1");
+    expect(getEditChatDraftReplacement("draft-1")).toBe("real-1");
   });
 
   it("records the replacement even when no app entry named the draft", () => {
@@ -88,19 +88,21 @@ describe("edit-chat-session", () => {
     // mapping, and it has no edit-chat entry of its own.
     resolveEditChatDraftConversationId("draft-1", "real-1");
 
-    expect(getEditChatDraftReplacement("draft-1", 0)).toBe("real-1");
+    expect(getEditChatDraftReplacement("draft-1")).toBe("real-1");
   });
 
   it("returns null for a draft that was never replaced", () => {
     expect(getEditChatDraftReplacement("draft-1")).toBeNull();
   });
 
-  it("expires a replacement after the TTL", () => {
-    setEditChatDraftReplacement("draft-1", "real-1", 0);
+  it("keeps a replacement well past the app-entry TTL", () => {
+    setEditChatDraftReplacement(
+      "draft-1",
+      "real-1",
+      Date.now() - __TEST_ONLY__.TTL_MS * 10,
+    );
 
-    expect(
-      getEditChatDraftReplacement("draft-1", __TEST_ONLY__.TTL_MS + 1),
-    ).toBeNull();
+    expect(getEditChatDraftReplacement("draft-1")).toBe("real-1");
   });
 
   it("ignores corrupted JSON", () => {

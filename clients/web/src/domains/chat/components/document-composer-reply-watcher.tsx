@@ -102,8 +102,15 @@ export function DocumentComposerReplyWatcher() {
         const replyStore = useDocumentComposerReplyStore.getState();
         // The outgoing assistant's connection is detached, so no terminal
         // takes these markers down, and the incoming assistant's attention
-        // cleanup passes over conversations its own list does not name.
-        for (const conversationId of replyStore.pendingReplies.keys()) {
+        // cleanup passes over conversations its own list does not name. A
+        // conversation whose document send settled on a handoff keeps its
+        // marker up for the queued work the handoff announced, and that
+        // work's terminal rides the same detached connection.
+        const strandedConversationIds = new Set([
+          ...replyStore.pendingReplies.keys(),
+          ...replyStore.handedOffConversationIds,
+        ]);
+        for (const conversationId of strandedConversationIds) {
           useConversationStore
             .getState()
             .removeProcessingConversationId(conversationId);

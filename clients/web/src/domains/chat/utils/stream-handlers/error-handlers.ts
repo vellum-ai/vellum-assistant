@@ -125,8 +125,10 @@ function handleMessageScopedError(
   // and `restoreContent` is the rejected-POST affordance from
   // `use-send-message`: the user is told the send failed and gets the text back
   // in the composer when they acknowledge. The row is also the only client-side
-  // copy of the attachments it was sent with, so they ride along. It sets state
-  // only, so the reply streaming behind it is untouched.
+  // copy of the attachments it was sent with, so they ride along. The
+  // conversation the send belonged to rides along too, so the message goes
+  // back into that thread's composer rather than whichever one is on screen.
+  // It sets state only, so the reply streaming behind it is untouched.
   const failedAttachments = failedSend.attachments;
   ctx.setOptimisticSends((prev) =>
     prev.filter((m) => !messageMatchesKey(m, clientMessageId)),
@@ -140,6 +142,7 @@ function handleMessageScopedError(
     ...(failedAttachments && failedAttachments.length > 0
       ? { restoreAttachments: failedAttachments }
       : {}),
+    ...(event.conversationId ? { conversationId: event.conversationId } : {}),
   });
 }
 

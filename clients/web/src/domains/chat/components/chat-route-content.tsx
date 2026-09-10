@@ -351,8 +351,11 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   // Composer — `ChatComposer` and `ComposerDraftNotices` self-source every
   // composer-store slice they render (draft text, attachments, draft notices),
-  // so this orchestrator subscribes to NONE of it: typing or attaching never
-  // re-renders the transcript. The only composer-store touch left here is the
+  // so this orchestrator subscribes to none of the text or the attachment
+  // list: typing or attaching never re-renders the transcript. What it does
+  // subscribe to is whether the slot is empty at all, a boolean that flips
+  // twice per draft rather than once per keystroke, which the failed-send
+  // hand-off below needs. The other composer-store touch here is the
   // vision-gated *write* below (queueing dropped/attached files), which depends
   // on the active model and so can't move into the composer.
   // -------------------------------------------------------------------------
@@ -361,6 +364,43 @@ export function ChatMainPanel({
       useComposerStore.getState().addFiles(files, assistantId),
     [assistantId],
   );
+
+  // A send the daemon reports as failed is held under the conversation it was
+  // composed for, and the panel showing that conversation takes it once the
+  // whole main slot is empty: the failure can be acknowledged while its thread
+  // is on screen or long after the user has moved to another one, and the
+  // message waits either way. A draft typed or staged since is never replaced,
+  // and never carries half of the failed message into it; the slot empties
+  // when that draft is sent or cleared, and the message is taken then.
+  //
+  // Both reads collapse to a value that changes only when the answer changes,
+  // so typing still never re-renders this orchestrator: the emptiness flag
+  // flips on the first character and on the last one leaving.
+  const failedSend = useComposerStore((s) =>
+    activeConversationId
+      ? s.failedSendsByConversation.get(activeConversationId)
+      : undefined,
+  );
+  const mainSlotEmpty = useComposerStore(
+    (s) => s.input.trim() === "" && s.attachments.length === 0,
+  );
+  useEffect(() => {
+    if (!activeConversationId || failedSend === undefined || !mainSlotEmpty) {
+      return;
+    }
+    const composer = useComposerStore.getState();
+    // Re-read at effect time: the slot may have been filled since this render.
+    if (composer.input.trim() !== "" || composer.attachments.length > 0) {
+      return;
+    }
+    const payload = composer.takeFailedSend(activeConversationId);
+    if (payload === null) {
+      return;
+    }
+    composer.setInput(payload.content);
+    composer.restoreAttachmentsIfEmpty(payload.attachments);
+  }, [activeConversationId, failedSend, mainSlotEmpty]);
+
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const assistantName = useAssistantIdentityStore.use.name();
   const chatPullToRefreshEnabled =
@@ -954,23 +994,24 @@ export function ChatMainPanel({
         open
         message={error.message}
         onClose={() => {
-          // The modal can be acknowledged long after the send it reports (a
-          // queued message can fail while its batch runs on), by which time
-          // the composer may hold a newer draft. A draft typed or staged
-          // since is never replaced, and never receives half of the failed
-          // message, so the failed payload goes back only into a composer
-          // whose text and attachments are both empty.
-          const composer = useComposerStore.getState();
+          // The message is held for its own conversation and goes back into
+          // the composer once that conversation is on screen with an empty
+          // composer, so a draft typed or staged since is never replaced and
+          // never receives half of the failed message. Acknowledging the
+          // modal is the last moment the error carries the message, and it
+          // can be acknowledged long after the send it reports (a queued
+          // message can fail while its batch runs on) and from a different
+          // thread, so the hand-off happens here rather than in the composer
+          // that happens to be on screen.
           if (
-            composer.input.trim() === "" &&
-            composer.attachments.length === 0
+            error.conversationId &&
+            (typeof error.restoreContent === "string" ||
+              error.restoreAttachments)
           ) {
-            if (typeof error.restoreContent === "string") {
-              composer.setInput(error.restoreContent);
-            }
-            if (error.restoreAttachments) {
-              composer.restoreAttachmentsIfEmpty(error.restoreAttachments);
-            }
+            useComposerStore.getState().stashFailedSend(error.conversationId, {
+              content: error.restoreContent ?? "",
+              attachments: error.restoreAttachments ?? [],
+            });
           }
           useChatSessionStore.getState().setError(null);
         }}

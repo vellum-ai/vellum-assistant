@@ -283,6 +283,16 @@ function processing(conversationId: string): boolean {
     .processingConversationIds.has(conversationId);
 }
 
+function handedOff(conversationId: string): boolean {
+  return useDocumentComposerReplyStore
+    .getState()
+    .handedOffConversationIds.has(conversationId);
+}
+
+function handedOffCount(): number {
+  return useDocumentComposerReplyStore.getState().handedOffConversationIds.size;
+}
+
 /** The draft and the uploaded attachment a document send carried. */
 const FAILED_SEND_PAYLOAD = {
   surfaceId: "surf-1",
@@ -1580,6 +1590,28 @@ describe("DocumentComposerReplyWatcher", () => {
       publishMessageComplete("conv-1");
 
       expect(toastSuccessMock).not.toHaveBeenCalled();
+    });
+
+    test("switching drops the marker a handoff left up", () => {
+      useDocumentComposerReplyStore.getState().startAwaitingReply("conv-1");
+      acknowledgeRunning("conv-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishGenerationHandoff("conv-1");
+
+      // The handoff answered the only send and left the marker up for the
+      // queued work it announced, so nothing is pending under conv-1.
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(true);
+      expect(handedOff("conv-1")).toBe(true);
+
+      setActiveAssistant("assistant-2");
+
+      // The queued work's terminal rides the detached connection, so nothing
+      // is left to take the marker down.
+      expect(processing("conv-1")).toBe(false);
+      expect(handedOffCount()).toBe(0);
     });
 
     test("selecting the first assistant leaves the wait alone", () => {

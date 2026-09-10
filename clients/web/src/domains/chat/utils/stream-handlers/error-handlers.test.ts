@@ -147,6 +147,57 @@ describe("handleStreamError", () => {
     ).toBe(true);
   });
 
+  it("names the conversation the failed send belonged to", () => {
+    // The composer on screen when the modal is acknowledged can belong to
+    // another thread, so the message needs its own conversation named to go
+    // back to.
+    useChatSessionStore.setState({
+      optimisticSends: [optimisticSendWithAttachment],
+    });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+        conversationId: "conv-batched",
+      },
+      ctx,
+    );
+
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+      displayAs: "modal",
+      restoreContent: "the batched send",
+      restoreAttachments: [failedAttachment],
+      conversationId: "conv-batched",
+    });
+  });
+
+  it("names no conversation when the event carries none", () => {
+    useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
+    const ctx = makeCtx();
+
+    handleStreamError(
+      {
+        type: "error",
+        message: "Failed to persist message.",
+        scope: "message",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+
+    const setErrorArg = (
+      ctx.setError as unknown as Mock<(error: ChatError) => void>
+    ).mock.calls[0][0];
+    expect(setErrorArg).not.toHaveProperty("conversationId");
+  });
+
   it("offers no attachments back for a send that carried none", () => {
     useChatSessionStore.setState({ optimisticSends: [optimisticSend] });
     const ctx = makeCtx();

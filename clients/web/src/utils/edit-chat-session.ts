@@ -2,13 +2,16 @@
  * Per-app "edit conversation" memory.
  *
  * When the user clicks Edit on an opened app we want subsequent edit clicks
- * (same app, same browser session) to drop them back into the same chat — so
- * the assistant can iterate on the app without losing thread. After a TTL
- * elapses or the tab is closed, the next Edit click mints a fresh chat.
+ * (same app, same browser session) to drop them back into the same chat, so
+ * the assistant can iterate on the app without losing thread. An app entry
+ * ages out once a TTL elapses, and the next Edit click past that mints a
+ * fresh chat, as does the first click in a new tab.
  *
  * The same store holds each client draft conversation id the daemon replaced
  * with a row of its own, keyed by the retired draft, so a surface still open
- * against that draft can reach the row that replaced it.
+ * against that draft can reach the row that replaced it. Draft replacements
+ * carry no TTL: the id they replace can never be sent against again, so the
+ * mapping stays valid for the life of the tab.
  *
  * Storage: sessionStorage (per-tab). Each app has its own entry; entries are
  * never shared across apps or assistants.
@@ -105,8 +108,8 @@ export function setEditChatConversationId(
 
 /**
  * Record the row a client draft conversation id resolved to, so a surface
- * holding the retired draft can find it. Reads back through
- * {@link getEditChatDraftReplacement}.
+ * holding the retired draft can find it. The entry outlives the app-entry
+ * TTL and reads back through {@link getEditChatDraftReplacement}.
  */
 export function setEditChatDraftReplacement(
   draftConversationId: string,
@@ -121,13 +124,14 @@ export function setEditChatDraftReplacement(
 
 /**
  * The row that replaced a client draft conversation id in this tab, or `null`
- * when the draft was never replaced or the entry has aged out.
+ * when the draft was never replaced. The mapping does not expire: the draft id
+ * it replaces can never be sent against again, so the row it names stays the
+ * only handle a surface holding that draft has.
  */
 export function getEditChatDraftReplacement(
   draftConversationId: string,
-  now: number = Date.now(),
 ): string | null {
-  return readLiveConversationId(buildDraftKey(draftConversationId), now);
+  return readEntry(buildDraftKey(draftConversationId))?.conversationId ?? null;
 }
 
 /**

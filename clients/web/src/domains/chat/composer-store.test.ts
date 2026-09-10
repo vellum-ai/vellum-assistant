@@ -1272,3 +1272,129 @@ describe("ComposerSlot isolation", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Failed sends held for the conversation they were composed for
+// ---------------------------------------------------------------------------
+
+describe("stashFailedSend and takeFailedSend", () => {
+  const attachment: DisplayAttachment = {
+    id: "srv-failed",
+    filename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+    previewUrl: null,
+  };
+  const otherAttachment: DisplayAttachment = {
+    id: "srv-other",
+    filename: "notes.txt",
+    mimeType: "text/plain",
+    sizeBytes: 12,
+    previewUrl: null,
+  };
+
+  test("holds a message under the conversation it was composed for", () => {
+    getStore().stashFailedSend("conv-1", {
+      content: "the batched send",
+      attachments: [attachment],
+    });
+
+    expect(getStore().failedSendsByConversation.get("conv-1")).toEqual({
+      content: "the batched send",
+      attachments: [attachment],
+    });
+  });
+
+  test("keeps both messages when a conversation already holds one, oldest first", () => {
+    getStore().stashFailedSend("conv-1", {
+      content: "first",
+      attachments: [attachment],
+    });
+    getStore().stashFailedSend("conv-1", {
+      content: "second",
+      attachments: [otherAttachment],
+    });
+
+    expect(getStore().failedSendsByConversation.get("conv-1")).toEqual({
+      content: "first\n\nsecond",
+      attachments: [attachment, otherAttachment],
+    });
+  });
+
+  test("joins nothing onto a message the other of the pair carried no text for", () => {
+    getStore().stashFailedSend("conv-1", { content: "", attachments: [] });
+    getStore().stashFailedSend("conv-1", {
+      content: "only text",
+      attachments: [attachment],
+    });
+
+    expect(getStore().failedSendsByConversation.get("conv-1")).toEqual({
+      content: "only text",
+      attachments: [attachment],
+    });
+  });
+
+  test("take returns the held message and removes it", () => {
+    getStore().stashFailedSend("conv-1", {
+      content: "the batched send",
+      attachments: [attachment],
+    });
+
+    expect(getStore().takeFailedSend("conv-1")).toEqual({
+      content: "the batched send",
+      attachments: [attachment],
+    });
+    expect(getStore().failedSendsByConversation.has("conv-1")).toBe(false);
+    expect(getStore().takeFailedSend("conv-1")).toBeNull();
+  });
+
+  test("take is null for a conversation holding nothing", () => {
+    expect(getStore().takeFailedSend("conv-nothing")).toBeNull();
+  });
+
+  test("one conversation's take leaves another's message alone", () => {
+    getStore().stashFailedSend("conv-1", { content: "mine", attachments: [] });
+    getStore().stashFailedSend("conv-2", {
+      content: "theirs",
+      attachments: [otherAttachment],
+    });
+
+    getStore().takeFailedSend("conv-1");
+
+    expect(getStore().failedSendsByConversation.get("conv-2")).toEqual({
+      content: "theirs",
+      attachments: [otherAttachment],
+    });
+  });
+
+  test("a conversation switch within one assistant keeps every held message", () => {
+    getStore().stashFailedSend("conv-1", { content: "mine", attachments: [] });
+
+    getStore().resetAttachments();
+
+    expect(getStore().failedSendsByConversation.has("conv-1")).toBe(true);
+  });
+
+  test("the assistant switch's full reset drops every held message", () => {
+    getStore().stashFailedSend("conv-1", {
+      content: "the batched send",
+      attachments: [attachment],
+    });
+    getStore().stashFailedSend("conv-2", {
+      content: "another",
+      attachments: [],
+    });
+
+    getStore().fullReset();
+
+    expect(getStore().failedSendsByConversation.size).toBe(0);
+  });
+
+  test("resetting the document slot leaves the main slot's held messages alone", () => {
+    getStore().stashFailedSend("conv-1", { content: "mine", attachments: [] });
+
+    getStore().fullReset("document");
+
+    expect(getStore().failedSendsByConversation.has("conv-1")).toBe(true);
+  });
+});

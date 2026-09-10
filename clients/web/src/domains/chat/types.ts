@@ -51,6 +51,13 @@ export interface ChatError {
    */
   restoreAttachments?: DisplayAttachment[];
   /**
+   * The conversation the failed send belongs to, set alongside
+   * `restoreContent`. The message goes back into that conversation's composer
+   * and no other, since the composer on screen when the failure is
+   * acknowledged can belong to a different thread.
+   */
+  conversationId?: string;
+  /**
    * URL the banner offers to open via an action button. Set when an
    * automatic `window.open` was blocked (no user activation on SSE-driven
    * opens) — the button click is a real user gesture, so it succeeds.
