@@ -207,14 +207,18 @@ describe("handleAcpSessionModelUpdate", () => {
     expect(entry?.availableModels).toEqual([]);
   });
 
-  it("ignores a model update for an unknown session", () => {
+  it("buffers a model update for a session it has not seeded", () => {
     handleAcpSessionModelUpdate({
       type: "acp_session_model_update",
       acpSessionId: "acp-missing",
       model: "opus",
-      availableModels: [],
+      availableModels: [{ value: "opus", label: "Opus" }],
     });
     expect(getState().byId).toEqual({});
+    expect(getState().pendingModelUpdates.get("acp-missing")).toMatchObject({
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
   });
 });
 
