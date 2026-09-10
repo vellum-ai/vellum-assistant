@@ -41,6 +41,8 @@ mock.module("@/components/layout/chat-layout-slots-store", () => ({
 
 const { IntelligenceLayout } =
   await import("@/domains/intelligence/intelligence-layout");
+const { useIntelligenceLayoutSlotsStore } =
+  await import("@/components/layout/intelligence-layout-slots-store");
 
 const renderLayoutAt = (path: string) =>
   render(
@@ -58,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
 });
 
 describe("IntelligenceLayout — section pages", () => {
@@ -104,6 +107,19 @@ describe("IntelligenceLayout — section pages", () => {
     expect(container.querySelector("a")?.getAttribute("href")).toBe(
       "/assistant/identity",
     );
+  });
+
+  test("renders a registered header action on the heading row", () => {
+    useIntelligenceLayoutSlotsStore
+      .getState()
+      .setHeaderTrailing(<button type="button">Import</button>);
+    const { container } = renderLayoutAt("/assistant/library");
+
+    const heading = container.querySelector("h1")!;
+    const action = container.querySelector("button")!;
+    expect(action.textContent).toBe("Import");
+    // Same row as the title: the heading's own flex container holds it.
+    expect(heading.parentElement!.contains(action)).toBe(true);
   });
 
   test("on mobile, registers the section label as the top-bar title", () => {

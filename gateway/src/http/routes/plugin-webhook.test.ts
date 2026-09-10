@@ -93,6 +93,10 @@ beforeEach(() => {
   getGatewayDb().delete(inboundSeenEvents).run();
   gateCalls.events.length = 0;
   gateCalls.options.length = 0;
+  // A harness may replace the gate with one that never resolves (the
+  // dies-mid-handoff test does, deliberately). Restoring the default here is
+  // what lets any test that runs after one of those reach the gate at all.
+  admitImpl = async () => ADMIT_GUARDIAN;
 });
 
 /** An admitted delivery from a guardian, which clears every floor. */
@@ -1588,5 +1592,195 @@ describe("inbound delivery", () => {
         INBOUND_CLAIM_LEASE_MS,
       );
     });
+  });
+});
+
+describe("HMAC URL and form-encoded inbound", () => {
+  const TWILIO_AUTH_TOKEN = "twilio-auth-token";
+
+  /** An SMS-plugin-shaped route: HMAC verification over URL and form params. */
+  const FORM_HMAC_ROUTE: IngressRoute = {
+    ...ROUTE,
+    verification: {
+      kind: "hmac",
+      algorithm: "sha1",
+      secret: { field: "auth_token" },
+      signature: { header: "X-Twilio-Signature", encoding: "base64" },
+      payload: ["request-url", "form-params"],
+    },
+    inbound: IngressInboundSchema.parse({
+      identity: "phone",
+      fields: {
+        content: "Body",
+        conversationExternalId: "From",
+        externalMessageId: "MessageSid",
+        actorExternalId: "From",
+        chatType: { from: "From", default: "sms" },
+      },
+    }),
+  };
+
+  const TWILIO_CREDENTIALS = credentialsFor({
+    "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
+    "credential/vellum/webhook_secret": VELLUM_SECRET,
+    "credential/meeting-bot/auth_token": TWILIO_AUTH_TOKEN,
+  });
+
+  function twilioPost(
+    params: Record<string, string>,
+    opts: { url?: string; signature?: string; headers?: Record<string, string> } = {},
+  ): Request {
+    const url =
+      opts.url ?? "http://gateway/webhooks/plugins/meeting-bot/realtime";
+    const body = new URLSearchParams(params).toString();
+    const signature =
+      opts.signature ??
+      createHmac("sha1", TWILIO_AUTH_TOKEN)
+        .update(
+          `${url}${Object.keys(params)
+            .sort()
+            .map((key) => `${key}${params[key]}`)
+            .join("")}`,
+        )
+        .digest("base64");
+    return new Request(url, {
+      method: "POST",
+      body,
+      headers: {
+        "content-type": "application/x-www-form-urlencoded; charset=utf-8",
+        "X-Twilio-Signature": signature,
+        ...opts.headers,
+      },
+    });
+  }
+
+  it("gates a form-encoded delivery on its form params and forwards it", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: TWILIO_CREDENTIALS,
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      twilioPost({
+        MessageSid: "SM9001",
+        AccountSid: "AC01",
+        From: "+15555550101",
+        To: "+15555550102",
+        Body: "hello there",
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    // The gate read the sender and the message out of the form params, and
+    // classified the chat as sms — before anything was forwarded.
+    expect(gateCalls.events).toHaveLength(1);
+    const event = gateCalls.events[0]!;
+    expect(event.message.content).toBe("hello there");
+    // The external ids are namespaced to the plugin's directory name, which
+    // the gateway takes from the request path — never from the payload.
+    expect(event.actor.actorExternalId).toBe("meeting-bot:+15555550101");
+    expect(event.source.chatType).toBe("sms");
+    // The vendor got the acknowledgement, the plugin got the delivery.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).toContain("MessageSid=SM9001");
+  });
+
+  it("forwards a form delivery with no sender ungated", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: TWILIO_CREDENTIALS,
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
+      fetchImpl,
+    });
+
+    // A status callback carries no From on the wire in some shapes; with no
+    // sender there is nothing to admit and the plugin interprets it.
+    const res = await handle(
+      twilioPost({ MessageSid: "SM9002", MessageStatus: "delivered" }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(gateCalls.events).toHaveLength(0);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects a delivery signed with the wrong token", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: TWILIO_CREDENTIALS,
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      twilioPost(
+        {
+          MessageSid: "SM9003",
+          From: "+15555550101",
+          Body: "hello",
+        },
+        {
+          signature: createHmac("sha1", "wrong-token")
+            .update("http://gateway/webhooks/plugins/meeting-bot/realtime")
+            .digest("base64"),
+        },
+      ),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+    expect(gateCalls.events).toEqual([]);
+  });
+
+  it("verifies against the platform-injected URL when the raw URL differs", async () => {
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: TWILIO_CREDENTIALS,
+      resolve: () => approvedWith([FORM_HMAC_ROUTE]),
+      fetchImpl,
+    });
+
+    // Twilio signed the platform callback URL; the gateway sees localhost.
+    // The proxy injects the original URL it handed the vendor, and the
+    // signature covers that spelling rather than the one on the wire here.
+    const injected =
+      "https://platform.example.test/v1/gateway/callbacks/cb-1";
+    const params: Record<string, string> = {
+      MessageSid: "SM9004",
+      From: "+15555550101",
+      Body: "hi",
+    };
+    const signature = createHmac("sha1", TWILIO_AUTH_TOKEN)
+      .update(
+        `${injected}${Object.keys(params)
+          .sort()
+          .map((key) => `${key}${params[key]}`)
+          .join("")}`,
+      )
+      .digest("base64");
+
+    const res = await handle(
+      twilioPost(params, {
+        signature,
+        headers: { "X-Vellum-Ingress-Url": injected },
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
   });
 });

@@ -223,6 +223,8 @@ describe("PinnedAppNavItem", () => {
     expect(row).not.toBeNull();
     expect(row!.className).toContain("w-fit");
     expect(row!.className).toContain("rounded-full");
+    // At a phone width the pill fills the drawer, so its swipe box does too.
+    expect(row!.className).toContain("max-md:w-full");
     // Behind the pill until a swipe uncovers it: hidden, so nothing of it
     // shows at the pill's rounded edge.
     const layer = container.querySelector(

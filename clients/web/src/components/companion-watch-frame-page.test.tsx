@@ -435,6 +435,19 @@ describe("the frame around what is read", () => {
       pushState({ ...STATE, annotating: false });
       expect(inkOf(container)).toBeNull();
     });
+
+    /**
+     * The tool is read off the same push as the mode, so the one chosen on
+     * the pill and the one under the hand here are never two. A shell that
+     * names none has only the pencil.
+     */
+    test("draws with the tool main names, and the pencil when it names none", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true, annotationTool: "box" });
+      expect(inkOf(container)?.getAttribute("data-tool")).toBe("box");
+      pushState({ ...STATE, annotating: true });
+      expect(inkOf(container)?.getAttribute("data-tool")).toBe("freehand");
+    });
   });
 
   /**

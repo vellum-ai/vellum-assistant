@@ -111,7 +111,7 @@ const CHATS: Conversation[] = [
 ];
 
 function assistantSection(): SidebarSection {
-  return { type: "assistant", key: "assistant", label: "On My Mind", all: [] };
+  return { type: "assistant", key: "assistant", label: "From me", all: [] };
 }
 
 function chatsSection(): SidebarSection {

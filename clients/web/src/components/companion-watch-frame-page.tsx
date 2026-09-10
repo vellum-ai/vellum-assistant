@@ -297,7 +297,12 @@ export function CompanionWatchFramePage() {
           colour to the class when nothing resolves; ink on a canvas cannot,
           so the default the class carries is named for it. */}
       {annotating && (
-        <CompanionShareAnnotation ink={accentHex ?? COMPANION_DEFAULT_ACCENT} />
+        <CompanionShareAnnotation
+          ink={accentHex ?? COMPANION_DEFAULT_ACCENT}
+          // Read off the same push as the mode, so the tool chosen on the
+          // pill and the one under the hand here are never two.
+          tool={state?.annotationTool}
+        />
       )}
       {/* Above the user's own ink in the markup for the reason it is drawn at
           all: a mark says where to go next, and the user's marks are about

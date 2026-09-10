@@ -1,6 +1,10 @@
 import { PinOff, Rocket } from "lucide-react";
 import { useMemo } from "react";
 
+import {
+  SIDEBAR_CHIP_CLASSES,
+  SIDEBAR_MOBILE_GLYPH_CLASSES,
+} from "@/components/sidebar-nav-geometry";
 import { SwipeActionReveal } from "@/components/swipe-action-reveal";
 
 import { PinnedAppColorSwatches } from "@/domains/chat/components/pinned-app-color-swatches";
@@ -8,7 +12,7 @@ import { pinTintStyle } from "@/domains/chat/utils/pin-color-registry";
 import { useTranslation } from "@/i18n";
 import type { PinnedAppView } from "@/hooks/pinned-apps";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
-import { ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
+import { cn, ContextMenu, PanelItem, SideMenu } from "@vellumai/design-library";
 
 export interface PinnedAppNavItemProps {
   app: PinnedAppView;
@@ -52,6 +56,14 @@ export interface PinnedAppNavItemProps {
  * reveals the unpin behind it, in the pill's own size and shape, the way a
  * list cell reveals its actions. The wrapper takes the pill's `w-fit
  * rounded-full`, so nothing wider than the pill is ever painted.
+ *
+ * At a phone width the pill and its wrapper both go full width, the same
+ * band the conversation rows beneath it fill, so the unpin sits on the
+ * drawer's right edge rather than wherever the app's name happens to end.
+ * The unpin is drawn at the size the assistant pill's chevron and a row's
+ * ellipsis are drawn: a 24px box on desktop, a 36px touch target on a phone,
+ * with the same negative margin the chevron uses so the target never grows
+ * the pill past the height its label sets.
  */
 export function PinnedAppNavItem({
   app,
@@ -73,6 +85,10 @@ export function PinnedAppNavItem({
      property resolves on the element that declares it, so one mechanism
      covers both shapes. */
   const tintStyle = pinTintStyle(app.pinColor);
+
+  /* The Lucide fallback for an app whose manifest carries no emoji. */
+  const LeadingIcon =
+    typeof app.icon === "string" ? Rocket : (app.icon ?? Rocket);
 
   /* Memoised: the swipe hook keys its touch handlers on this list, so a fresh
      array each render would re-mint them each render. */
@@ -147,24 +163,42 @@ export function PinnedAppNavItem({
     <PanelItem
       style={tintStyle}
       shape="pill"
-      /* An app's icon is an emoji string on its manifest, so it goes in
-         `leadingSlot`; `icon` takes a Lucide component, which is the fallback
-         for an app with no emoji. Exactly one of the two is ever set. The
-         emoji box matches the one `SideMenu.Item` renders for the same value. */
-      icon={typeof app.icon === "string" ? undefined : (app.icon ?? Rocket)}
+      /* The glyph in a chip rather than at its own width, so on a phone the
+         pill's label starts where the assistant's name does and the glyph
+         centres on the eyes' axis (see `SIDEBAR_MOBILE_CHIP_CLASSES`). An
+         app's icon is an emoji string on its manifest; the Rocket stands in
+         for an app with no emoji, at the size and in the ink `PanelItem`
+         gives a leading icon. */
       leadingSlot={
-        typeof app.icon === "string" ? (
-          <span
-            aria-hidden
-            className="inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none"
-          >
-            {app.icon}
-          </span>
-        ) : undefined
+        <span
+          aria-hidden
+          className={cn(
+            "inline-flex shrink-0 items-center justify-center",
+            SIDEBAR_CHIP_CLASSES,
+          )}
+        >
+          {typeof app.icon === "string" ? (
+            <span className="text-[14px] leading-none max-md:text-[16px]">
+              {app.icon}
+            </span>
+          ) : (
+            <LeadingIcon
+              size={14}
+              aria-hidden
+              className={cn(
+                SIDEBAR_MOBILE_GLYPH_CLASSES,
+                "shrink-0 text-[color:var(--panel-item-icon-fg,var(--content-tertiary))]",
+                "[@media(hover:hover)]:group-hover:text-[color:var(--panel-item-icon-fg,var(--content-secondary))]",
+                "group-aria-[current=page]:text-[var(--content-default)]",
+              )}
+            />
+          )}
+        </span>
       }
       label={app.name}
       active={active}
       onSelect={onOpen ? () => onOpen(app.id) : undefined}
+      className="max-md:w-full"
       trailingAction={
         <button
           type="button"
@@ -173,9 +207,9 @@ export function PinnedAppNavItem({
             event.stopPropagation();
             onUnpin(app.id);
           }}
-          className="flex h-5 w-5 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)]"
+          className="flex size-6 shrink-0 items-center justify-center rounded-[4px] text-[var(--content-tertiary)] hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] max-md:-my-2 max-md:size-9 max-md:rounded-full"
         >
-          <PinOff size={12} aria-hidden />
+          <PinOff size={14} aria-hidden className="max-md:size-4" />
         </button>
       }
     />
@@ -185,7 +219,7 @@ export function PinnedAppNavItem({
     <ContextMenu.Root>
       <ContextMenu.Trigger>
         <SwipeActionReveal
-          className="w-fit rounded-full"
+          className="w-fit rounded-full max-md:w-full"
           trailingActions={trailingActions}
         >
           {item}
