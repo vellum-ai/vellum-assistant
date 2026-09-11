@@ -175,6 +175,7 @@ interface DesktopSessionManagerOptions {
   ) => Promise<Buffer | null>;
   /** Where the children's allowlisted env is read from. */
   readonly sourceEnv?: NodeJS.ProcessEnv;
+  readonly writeWindowManagerConfig?: (configDir: string) => string;
 }
 
 type DesktopBinaries = ReturnType<typeof resolveDesktopBinaries>;
@@ -220,6 +221,7 @@ export class DesktopSessionManager {
     DesktopSessionManagerOptions["renderWallpaper"]
   >;
   private readonly sourceEnv: NodeJS.ProcessEnv;
+  private readonly writeWindowManagerConfig: (configDir: string) => string;
 
   constructor(options: DesktopSessionManagerOptions = {}) {
     this.spawn = options.spawn ?? spawnDetached;
@@ -247,6 +249,10 @@ export class DesktopSessionManager {
     this.panelConfigDir =
       options.panelConfigDir ?? join(getDataDir(), "desktop-panel");
     this.sourceEnv = options.sourceEnv ?? process.env;
+    this.writeWindowManagerConfig =
+      options.writeWindowManagerConfig ??
+      ((configDir) =>
+        writeDesktopWindowManagerConfig(configDir, this.sourceEnv.HOME));
     this.renderWallpaper =
       options.renderWallpaper ?? renderCurrentDesktopWallpaper;
   }
@@ -331,7 +337,7 @@ export class DesktopSessionManager {
           `Desktop VNC server not ready on port ${DESKTOP_VNC_PORT} after ${this.readyDeadlineMs}ms`,
         );
       }
-      const windowManagerConfig = writeDesktopWindowManagerConfig(
+      const windowManagerConfig = this.writeWindowManagerConfig(
         this.panelConfigDir,
       );
       this.launch(
