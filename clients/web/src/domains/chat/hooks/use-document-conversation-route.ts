@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
-import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -21,7 +20,7 @@ import {
   showDocumentInConversation,
 } from "../document-conversation-navigation";
 import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
-import { waitForDocumentSaves } from "../api/document-save";
+import { loadDocumentContent } from "../api/document-load";
 
 function markOpenedDocumentViewed(
   assistantId: string | null,
@@ -82,15 +81,12 @@ export function useDocumentConversationRoute() {
     setStatus({ owner, kind: "loading" });
     void (async () => {
       try {
-        await waitForDocumentSaves({ assistantId, surfaceId });
-        if (!scope.isCurrent()) {
-          return;
-        }
-        const { data } = await documentsByIdGet({
-          path: { assistant_id: assistantId, id: surfaceId },
-          throwOnError: true,
+        const data = await loadDocumentContent({
+          assistantId,
+          surfaceId,
+          isCurrent: scope.isCurrent,
         });
-        if (!scope.isCurrent()) {
+        if (!data || !scope.isCurrent()) {
           return;
         }
         const linkedId = await resolveDocumentConversation({

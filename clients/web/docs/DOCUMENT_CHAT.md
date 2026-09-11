@@ -15,10 +15,12 @@ Library, chat cards and direct document links use the shared document-conversati
 entry helpers. The conversation URL records the document surface, its return
 destination and whether the document or conversation is visible. This intent
 survives refresh without a second chat page, event connection or composer store.
-Each document-session mount refetches the document after its pending local save
-drains settle. The retained viewer snapshot is not a freshness signal. Save waits
-are scoped by assistant and surface and retain no document content; presentation
-switches within the mounted session keep the existing editor without refetching.
+Both the document session and standalone recovery page read through
+`loadDocumentContent`, which refetches after pending local save drains settle
+and checks request ownership before and after fetching. The retained viewer
+snapshot is not a freshness signal. Save waits are scoped by assistant and surface
+and retain no document content; presentation switches within the mounted session
+keep the existing editor without refetching.
 The return destination accepts only supported in-app Library/chat paths,
 including the chat router's optional trailing slash.
 Conversation bootstrap leaves an explicit conversation URL intact, so it does not

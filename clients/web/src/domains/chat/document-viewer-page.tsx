@@ -4,7 +4,6 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
-import { documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -17,6 +16,7 @@ import type { DocumentContent } from "@/types/document-types";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { routes } from "@/utils/routes";
 
+import { loadDocumentContent } from "./api/document-load";
 import {
   DocumentViewerContainer,
   type DocumentViewerContainerHandle,
@@ -94,11 +94,12 @@ export function DocumentViewerPage() {
     requestRef.current = scope;
     void (async () => {
       try {
-        const { data } = await documentsByIdGet({
-          path: { assistant_id: assistantId, id: surfaceId },
-          throwOnError: true,
+        const data = await loadDocumentContent({
+          assistantId,
+          surfaceId,
+          isCurrent: scope.isCurrent,
         });
-        if (!scope.isCurrent()) {
+        if (!data || !scope.isCurrent()) {
           return;
         }
         if (entryMode === "conversation") {

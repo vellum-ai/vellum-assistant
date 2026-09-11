@@ -25,6 +25,7 @@ import type { DocumentContent } from "@/types/document-types";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import type * as OrgReadiness from "@/hooks/use-is-org-ready";
 import type * as ErrorCapture from "@/lib/sentry/capture-error";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
 
 import type * as Editor from "../components/tiptap-document-editor";
 import type { DocumentViewerContainerHandle } from "../components/document-viewer-container";
@@ -41,6 +42,18 @@ const original: DocumentContent = {
 };
 let saved: DocumentContent;
 let pendingWrite: Promise<void> | undefined;
+let finishPendingWrite: (() => void) | undefined;
+
+function holdWrite() {
+  let resolve!: () => void;
+  let reject!: (error: Error) => void;
+  pendingWrite = new Promise((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  finishPendingWrite = resolve;
+  return { resolve, reject };
+}
 const load = mock(async () => ({ data: { ...saved } }));
 const write = mock(
   async ({ body }: { body: { content: string; title: string } }) => {
@@ -84,6 +97,9 @@ const { useDocumentConversationRoute } =
   await import("./use-document-conversation-route");
 const { DocumentChatContent } =
   await import("../components/document-chat-content");
+const { DocumentViewerPage } = await import("../document-viewer-page");
+const viewport = viewportAxesStub();
+let entryMode: "conversation" | "recovery" | "standalone";
 
 function DocumentSession() {
   const route = useDocumentConversationRoute();
@@ -112,7 +128,14 @@ function DocumentSession() {
 
 function Library() {
   const navigate = useNavigate();
-  return <button onClick={() => navigate(-1)}>Back</button>;
+  return (
+    <>
+      <button onClick={() => navigate(-1)}>Back</button>
+      <button onClick={() => navigate("/assistant/documents/surface-1")}>
+        Open document
+      </button>
+    </>
+  );
 }
 
 const selection = useResolvedAssistantsStore.getState();
@@ -121,6 +144,8 @@ let queryClient: QueryClient;
 beforeEach(() => {
   saved = { ...original };
   pendingWrite = undefined;
+  finishPendingWrite = undefined;
+  entryMode = "conversation";
   load.mockClear();
   write.mockClear();
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
@@ -141,7 +166,9 @@ beforeEach(() => {
     if (options.url.endsWith("/conversations/{id}")) {
       return {
         data: { conversation: { id: "conv-1" } },
-        response: new Response(null, { status: 200 }),
+        response: new Response(null, {
+          status: entryMode === "recovery" ? 404 : 200,
+        }),
       };
     }
     throw new Error(`Unexpected request: ${options.url}`);
@@ -150,19 +177,32 @@ beforeEach(() => {
     write as typeof daemonClient.post,
   );
 });
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  await act(async () => {
+    finishPendingWrite?.();
+    cleanup();
+  });
+  viewport.restore();
   queryClient.clear();
   mock.restore();
   useResolvedAssistantsStore.setState(selection, true);
   useViewerStore.setState(viewer, true);
 });
 
-function renderSession() {
+function renderSession(mode: typeof entryMode = "conversation") {
+  entryMode = mode;
+  viewport.set({
+    narrow: mode !== "standalone",
+    coarsePointer: mode !== "standalone",
+  });
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter
-        initialEntries={["/assistant/conversations/conv-1?document=surface-1"]}
+        initialEntries={[
+          mode === "conversation"
+            ? "/assistant/conversations/conv-1?document=surface-1"
+            : "/assistant/documents/surface-1",
+        ]}
       >
         <Routes>
           <Route
@@ -170,6 +210,10 @@ function renderSession() {
             element={<DocumentSession />}
           />
           <Route path="/assistant/library" element={<Library />} />
+          <Route
+            path="/assistant/documents/:surfaceId"
+            element={<DocumentViewerPage />}
+          />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -177,11 +221,49 @@ function renderSession() {
 }
 
 describe("document editor history remount", () => {
+  test.each(["recovery", "standalone"] as const)(
+    "%s close and reopen waits for the detached save before editing again",
+    async (mode) => {
+      const { resolve: finishWrite } = holdWrite();
+      const page = renderSession(mode);
+      const first = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      if (mode === "recovery") {
+        expect(
+          screen.getByRole("button", { name: "Start a linked conversation" }),
+        ).toBeTruthy();
+      }
+      fireEvent.change(first, { target: { value: "Latest saved body" } });
+      fireEvent.click(screen.getByRole("button", { name: "Close document" }));
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole("button", { name: "Open document" }));
+      await act(async () => {});
+      expect(
+        screen.queryByRole("textbox", { name: "Document body" }),
+      ).toBeNull();
+      expect(load).toHaveBeenCalledTimes(1);
+      await act(async () => finishWrite());
+      const input = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      expect((input as HTMLTextAreaElement).value).toBe("Latest saved body");
+      expect(load).toHaveBeenCalledTimes(2);
+      fireEvent.change(input, {
+        target: {
+          value: `${(input as HTMLTextAreaElement).value} with another edit`,
+        },
+      });
+      page.unmount();
+      await waitFor(() =>
+        expect(saved.content).toBe("Latest saved body with another edit"),
+      );
+      expect(write).toHaveBeenCalledTimes(2);
+    },
+  );
+
   test("a failed pending save exposes retry instead of opening the retained body", async () => {
-    let failWrite!: (error: Error) => void;
-    pendingWrite = new Promise((_resolve, reject) => {
-      failWrite = reject;
-    });
+    const { reject: failWrite } = holdWrite();
     renderSession();
     fireEvent.change(
       await screen.findByRole("textbox", { name: "Document body" }),
@@ -206,10 +288,7 @@ describe("document editor history remount", () => {
   });
 
   test("leaving while waiting for a prior save cannot load or reopen the document", async () => {
-    let finishWrite!: () => void;
-    pendingWrite = new Promise((resolve) => {
-      finishWrite = resolve;
-    });
+    const { resolve: finishWrite } = holdWrite();
     renderSession();
     fireEvent.change(
       await screen.findByRole("textbox", { name: "Document body" }),
@@ -230,10 +309,7 @@ describe("document editor history remount", () => {
   test.each(["completed", "in flight"])(
     "returning after a %s save opens the latest body and preserves it on the next edit",
     async (outcome) => {
-      let finishWrite!: () => void;
-      pendingWrite = new Promise((resolve) => {
-        finishWrite = resolve;
-      });
+      const { resolve: finishWrite } = holdWrite();
       const page = renderSession();
       fireEvent.change(
         await screen.findByRole("textbox", { name: "Document body" }),
