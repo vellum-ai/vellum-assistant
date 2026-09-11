@@ -1,4 +1,5 @@
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
+import { tableExists } from "./schema-introspection.js";
 
 /**
  * Add a required contact_id column to assistant_ingress_invites.
@@ -10,8 +11,16 @@ import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
  *  1. Add the column as nullable.
  *  2. Delete legacy rows that have no contact binding (NULL).
  *  3. Rebuild the table to enforce NOT NULL (SQLite cannot ALTER COLUMN).
+ *
+ * The rebuild copies whichever session-id column is live:
+ * `source_conversation_id` (after migrateRenameCreatedBySessionIdColumns)
+ * or `created_by_session_id`.
  */
 export function migrateInviteContactId(database: DrizzleDb): void {
+  if (!tableExists(database, "assistant_ingress_invites")) {
+    return;
+  }
+
   const raw = getSqliteFrom(database);
 
   const cols = (
@@ -20,25 +29,28 @@ export function migrateInviteContactId(database: DrizzleDb): void {
       notnull: number;
     }>
   ).map((c) => ({ name: c.name, notnull: c.notnull }));
+  const colNames = new Set(cols.map((c) => c.name));
 
   const col = cols.find((c) => c.name === "contact_id");
 
-  // Step 1: Add the column as nullable
   if (!col) {
     raw.exec(
       /*sql*/ `ALTER TABLE assistant_ingress_invites ADD COLUMN contact_id TEXT`,
     );
   }
 
-  // Step 2: Delete legacy rows with no contact binding
   raw.exec(
     /*sql*/ `DELETE FROM assistant_ingress_invites WHERE contact_id IS NULL OR contact_id = ''`,
   );
 
-  // Step 3: Rebuild the table with NOT NULL on contact_id
   if (col && col.notnull === 1) {
     return;
-  } // already NOT NULL
+  }
+
+  const sessionCol = colNames.has("source_conversation_id")
+    ? "source_conversation_id"
+    : "created_by_session_id";
+  const sessionSelect = colNames.has(sessionCol) ? sessionCol : "NULL";
 
   raw.exec("PRAGMA foreign_keys = OFF");
   try {
@@ -49,7 +61,7 @@ export function migrateInviteContactId(database: DrizzleDb): void {
           id TEXT PRIMARY KEY,
           source_channel TEXT NOT NULL,
           token_hash TEXT NOT NULL,
-          created_by_session_id TEXT,
+          ${sessionCol} TEXT,
           note TEXT,
           max_uses INTEGER NOT NULL DEFAULT 1 CHECK (max_uses > 0),
           use_count INTEGER NOT NULL DEFAULT 0 CHECK (use_count >= 0),
@@ -70,7 +82,7 @@ export function migrateInviteContactId(database: DrizzleDb): void {
         );
 
         INSERT INTO assistant_ingress_invites_new
-        SELECT id, source_channel, token_hash, created_by_session_id, note,
+        SELECT id, source_channel, token_hash, ${sessionSelect}, note,
                max_uses, use_count, expires_at, status,
                redeemed_by_external_user_id, redeemed_by_external_chat_id,
                redeemed_at, expected_external_user_id, voice_code_hash,
