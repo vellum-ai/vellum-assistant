@@ -139,9 +139,10 @@ function abandonAttempt(
 /**
  * Hand an attempt nothing can retry back to its document. An ordinary
  * document close keeps the pending nonce correlated with the recovery copy,
- * so a later stream acknowledgment can retract it. An assistant switch has
- * already detached that nonce from the stream and keeps an ordinary recovery
- * copy instead. An acknowledged entry stays with the watcher.
+ * so a later stream acknowledgment can retract it. An assistant switch keeps
+ * the nonce in detached reconciliation storage because an ambiguous POST may
+ * still persist while its stream is detached. An acknowledged entry stays
+ * with the watcher.
  */
 function holdAbandonedMessage(
   attempt: Pick<
@@ -152,7 +153,12 @@ function holdAbandonedMessage(
   const replyStore = useDocumentComposerReplyStore.getState();
   const detached = replyStore.takeDetachedSend(attempt.clientMessageId);
   if (detached !== null) {
-    replyStore.stashFailedSend(attempt.payload);
+    replyStore.recordDetachedQueuedSend(
+      attempt.clientMessageId,
+      attempt.targetConversationId,
+      detached,
+    );
+    replyStore.stashFailedSend(detached, attempt.clientMessageId);
     return;
   }
   if (

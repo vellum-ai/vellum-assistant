@@ -3762,6 +3762,10 @@ describe("an attempt nothing can retry", () => {
       await result.current.submit();
     });
     expect(isAwaitingReply("conv-a")).toBe(true);
+    const clientMessageId = sentOptions(0).clientMessageId;
+    if (clientMessageId === undefined) {
+      throw new Error("expected the document send's nonce");
+    }
 
     // WHEN an assistant switch drops that entry, and the host then closes the
     // document, unmounting the composer that could have retried it.
@@ -3776,6 +3780,15 @@ describe("an attempt nothing can retry", () => {
       attachments: [],
     });
     expect(detachedSends().size).toBe(0);
+    expect(detachedQueuedSends().get(clientMessageId)).toEqual({
+      conversationId: "conv-a",
+      payload: {
+        assistantId: ASSISTANT_ID,
+        surfaceId: SURFACE_ID,
+        content: "about the doc",
+        attachments: [],
+      },
+    });
   });
 
   test("a send refused after the app left every assistant holds nothing", async () => {
