@@ -11,9 +11,18 @@ import {
 import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
 
+import { Button } from "@vellumai/design-library";
+import { MidlineDot } from "@/components/midline-dot";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { SurfaceContainer } from "@/domains/chat/components/surfaces/surface-container";
+import {
+  isWakeCardSurface,
+  wakeCardRecap,
+  wakeCardSource,
+  wakeCardTitleKey,
+} from "@/domains/chat/components/surfaces/wake-card-presentation";
+import { useViewerStore } from "@/stores/viewer-store";
 import { WatchRetroSurface } from "@/domains/chat/components/surfaces/watch-retro-surface";
 import { cn } from "@/utils/misc";
 import { useTranslation } from "@/i18n";
@@ -351,10 +360,7 @@ export function TaskProgressBody({ progress }: { progress: TaskProgress }) {
         <span className="min-w-0 truncate py-0.5 text-title-small leading-snug text-[var(--content-strong)]">
           {progress.title}
         </span>
-        <span
-          aria-hidden
-          className="size-[3px] shrink-0 rounded-full bg-[var(--content-tertiary)]"
-        />
+        <MidlineDot />
         <span className="shrink-0 whitespace-nowrap py-0.5 text-title-small font-normal! leading-snug text-[var(--content-tertiary)]">
           {t("progressRail.stepCounter", { current, total })}
         </span>
@@ -448,6 +454,17 @@ export function CardSurface({
     />
   );
 
+  if (isWakeCardSurface(surface)) {
+    return (
+      <WakeCard
+        surface={surface}
+        onAction={onAction}
+        body={data.body ?? ""}
+        metadata={data.metadata ?? []}
+      />
+    );
+  }
+
   return (
     <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
       <div>
@@ -493,6 +510,70 @@ export function CardSurface({
               <TaskProgressBar templateData={data.templateData!} />
             )}
           </>
+        )}
+      </div>
+    </SurfaceContainer>
+  );
+}
+
+/**
+ * A wake announcement: the conversation woke, and this is what woke it.
+ *
+ * The daemon's wake hint is a machine-written report (run ids, token counts, a
+ * JSON result tail), so the card keeps the recap and hands the rest to the
+ * side panel behind "View details". The source metadata goes with it: which
+ * wake fired is a detail to look up, not a line to read on every card.
+ *
+ * Borderless, unlike its sibling surfaces. A wake card is the conversation
+ * telling you why it started talking, so it reads as part of the transcript
+ * rather than as a thing handed to it.
+ */
+function WakeCard({
+  surface,
+  onAction,
+  body,
+  metadata,
+}: {
+  surface: Surface;
+  onAction: CardSurfaceProps["onAction"];
+  body: string;
+  metadata: Array<{ label: string; value: string }>;
+}) {
+  const { t } = useTranslation("chat");
+  const openWakeDetail = useViewerStore.use.openWakeDetail();
+  const recap = wakeCardRecap(body);
+  // The payload's own title is the daemon's "Conversation Woke" for every
+  // wake there is, so the trigger names the card instead.
+  const title = t(wakeCardTitleKey(wakeCardSource(metadata)));
+
+  return (
+    <SurfaceContainer
+      surface={surface}
+      onAction={onAction}
+      hideTitle
+      className="border-transparent"
+    >
+      <div className="flex flex-col items-start gap-2">
+        <h3 className="text-title-small text-[var(--content-strong)]">
+          {title}
+        </h3>
+
+        {recap && (
+          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+            {recap}
+          </p>
+        )}
+
+        {body && (
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() =>
+              openWakeDetail({ title, body, metadata })
+            }
+          >
+            {t("cardSurface.viewDetails")}
+          </Button>
         )}
       </div>
     </SurfaceContainer>

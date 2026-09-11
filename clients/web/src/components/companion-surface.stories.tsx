@@ -482,10 +482,78 @@ export const InCallWhileWatching: Story = {
 /**
  * Mid-call with the screen shared: Share held down beside Teach, since the
  * two are the same gesture aimed at different ends, and the call is being
- * shown what a Teach session would be reading.
+ * shown what a Teach session would be reading. The captions carry the keys
+ * the desktop app's helper answers for these four controls.
  */
 export const InCallSharing: Story = {
-  args: { phase: "call", shareEnabled: true, sharing: true, call: DEMO_CALL },
+  args: {
+    phase: "call",
+    shareEnabled: true,
+    sharing: true,
+    call: DEMO_CALL,
+    shortcuts: {
+      share: "⌥S",
+      draw: "⌥D",
+      muteMicrophone: "⌥M",
+      muteAssistant: "⌥A",
+    },
+  },
+};
+
+/**
+ * Drawing on what is shared, with the box tool current: the strip of tools
+ * stands off the Draw control on the card side of the pill.
+ */
+export const InCallDrawing: Story = {
+  args: {
+    phase: "call",
+    shareEnabled: true,
+    sharing: true,
+    annotating: true,
+    annotationTool: "box",
+    call: DEMO_CALL,
+  },
+};
+
+/** The same strip where the card grows down, so it stands under the pill. */
+export const InCallDrawingCardDown: Story = {
+  args: {
+    phase: "call",
+    shareEnabled: true,
+    sharing: true,
+    annotating: true,
+    annotationTool: "circle",
+    cardGrowth: "down",
+    call: DEMO_CALL,
+  },
+};
+
+/**
+ * Drawing on what is shared, with the box tool current: the strip of tools
+ * stands off the Draw control on the card side of the pill.
+ */
+export const InCallDrawing: Story = {
+  args: {
+    phase: "call",
+    shareEnabled: true,
+    sharing: true,
+    annotating: true,
+    annotationTool: "box",
+    call: DEMO_CALL,
+  },
+};
+
+/** The same strip where the card grows down, so it stands under the pill. */
+export const InCallDrawingCardDown: Story = {
+  args: {
+    phase: "call",
+    shareEnabled: true,
+    sharing: true,
+    annotating: true,
+    annotationTool: "circle",
+    cardGrowth: "down",
+    call: DEMO_CALL,
+  },
 };
 
 /**

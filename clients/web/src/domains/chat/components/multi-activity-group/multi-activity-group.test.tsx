@@ -47,6 +47,8 @@ const { MultiActivityGroup } =
 const { useViewerStore } = await import("@/stores/viewer-store");
 const { useChatSessionStore } =
   await import("@/domains/chat/chat-session-store");
+const { useAssistantFeatureFlagStore } =
+  await import("@/stores/assistant-feature-flag-store");
 
 afterEach(() => {
   cleanup();
@@ -61,6 +63,7 @@ afterEach(() => {
     expandedCardIds: new Map(),
     expandedToolCallIds: new Set(),
   });
+  useAssistantFeatureFlagStore.setState({ sendUserMessage: false });
 });
 
 function makeToolCall(
@@ -628,5 +631,44 @@ describe("MultiActivityGroup — header reflects the latest step", () => {
     // The leading thinking text is NOT promoted into the header (it's a
     // panel step only).
     expect(queryByText("Let me check the directory first.")).toBeNull();
+  });
+});
+
+describe("MultiActivityGroup - a web_fetch under the thinking gate", () => {
+  /**
+   * A fetch is projected as a synthesized reasoning step, so its header title
+   * is the word "Thinking" paired with the page read: "Thinking | Hacker
+   * News". With the transcript's thinking surface gone that is the last
+   * "Thinking" left on screen, and it never named a thought in the first
+   * place.
+   */
+  const fetchCall = (status: "running" | "completed") =>
+    makeToolCall({
+      id: "tc-fetch",
+      name: "web_fetch",
+      status,
+      input: { url: "https://news.ycombinator.com" },
+    });
+
+  test("says what it read, not that it thought", () => {
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByTestId, queryByText, getByText } = renderCard([
+      fetchCall("completed"),
+    ]);
+    expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
+    expect(getByText("Read the web")).toBeTruthy();
+    expect(queryByText("Thinking")).toBeNull();
+  });
+
+  test("keeps the present tense while the page is still loading", () => {
+    useAssistantFeatureFlagStore.setState({ sendUserMessage: true });
+    const { getByText, queryByText } = renderCard([fetchCall("running")]);
+    expect(getByText("Reading the web")).toBeTruthy();
+    expect(queryByText("Thinking")).toBeNull();
+  });
+
+  test("is unchanged with the gate off", () => {
+    const { getByText } = renderCard([fetchCall("completed")]);
+    expect(getByText("Thinking")).toBeTruthy();
   });
 });

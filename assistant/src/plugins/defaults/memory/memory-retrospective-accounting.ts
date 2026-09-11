@@ -31,7 +31,7 @@
 // accounting; once newer real messages arrive it is copied into the next
 // run's fork as inert prefix context.
 
-import { and, eq, gt, like, or } from "drizzle-orm";
+import { and, eq, like, or } from "drizzle-orm";
 
 import {
   countMessagesAfter,
@@ -43,6 +43,11 @@ import {
   SIGHT_FRAME_ATTACHMENT_IDS_KEY,
 } from "../../../persistence/conversation-types.js";
 import { getDb } from "../../../persistence/db-connection.js";
+import {
+  messagesAfterBoundFilter,
+  type MessagesAfterRef,
+  resolveMessagesAfterBound,
+} from "../../../persistence/message-cursor.js";
 import { messages } from "../../../persistence/schema/index.js";
 import { SKILL_CARD_MESSAGE_KIND } from "./memory-retrospective-constants.js";
 
@@ -98,9 +103,9 @@ export function isSkillCardMessage(row: { metadata: string | null }): boolean {
  */
 export function getRetrospectiveMessagesAfter(
   conversationId: string,
-  afterMessageId: string | null,
+  after: MessagesAfterRef,
 ): MessageRow[] {
-  const rows = getMessagesAfter(conversationId, afterMessageId);
+  const rows = getMessagesAfter(conversationId, after);
   const firstUnfinalized = rows.findIndex((row) => row.finalized !== 1);
   const bounded =
     firstUnfinalized === -1 ? rows : rows.slice(0, firstUnfinalized);
@@ -116,13 +121,13 @@ export function getRetrospectiveMessagesAfter(
  */
 export function countRetrospectiveMessagesAfter(
   conversationId: string,
-  afterMessageId: string | null,
+  after: MessagesAfterRef,
 ): number {
-  const total = countMessagesAfter(conversationId, afterMessageId);
+  const total = countMessagesAfter(conversationId, after);
   if (total === 0) {
     return 0;
   }
-  const excluded = countExcludedMessagesAfter(conversationId, afterMessageId);
+  const excluded = countExcludedMessagesAfter(conversationId, after);
   return Math.max(0, total - excluded);
 }
 
@@ -167,7 +172,8 @@ export function messagesHaveUserActivity(
  * a non-tool_result block. Powers the `memory.retrospective.requireUserActivity`
  * enqueue gate, so only user rows are loaded. Cursor semantics mirror
  * `countMessagesAfter`: a null/`""` reference scans the whole conversation,
- * and a vanished reference means no new work.
+ * a cursor whose row is gone falls back to the timestamp it carries, and a
+ * bare id whose row is gone means no new work.
  *
  * Operates on the raw `content` column: rows that do not parse to a block
  * array (file-backed `{ ref }` rows, legacy plain strings) count as
@@ -177,37 +183,15 @@ export function messagesHaveUserActivity(
  */
 export function hasQualifyingUserMessageAfter(
   conversationId: string,
-  afterMessageId: string | null,
+  after: MessagesAfterRef,
 ): boolean {
-  const cursorId =
-    afterMessageId === null || afterMessageId === "" ? null : afterMessageId;
-  const db = getDb();
-
-  let ref: { createdAt: number } | undefined;
-  if (cursorId !== null) {
-    ref = db
-      .select({ createdAt: messages.createdAt })
-      .from(messages)
-      .where(eq(messages.id, cursorId))
-      .get();
-    if (!ref) {
-      return false;
-    }
+  const start = resolveMessagesAfterBound(after);
+  if (start.kind === "vanished") {
+    return false;
   }
-
   const afterCursor =
-    cursorId !== null && ref
-      ? [
-          or(
-            gt(messages.createdAt, ref.createdAt),
-            and(
-              eq(messages.createdAt, ref.createdAt),
-              gt(messages.id, cursorId),
-            ),
-          ),
-        ]
-      : [];
-  const rows = db
+    start.kind === "after" ? [messagesAfterBoundFilter(start.bound)] : [];
+  const rows = getDb()
     .select({ content: messages.content, metadata: messages.metadata })
     .from(messages)
     .where(
@@ -248,18 +232,14 @@ function rawUserContentCarriesActivity(raw: string | null): boolean {
  * — at most one per successful retrospective run); each candidate is then
  * JSON-verified by {@link isSkillCardMessage} so an incidental substring
  * match in unrelated metadata can never exclude a real message from
- * accounting. The cursor comparison mirrors `countMessagesAfter`'s
- * tie-breaker semantics, including the null/`""` "count everything" cases
- * and the vanished-reference "no new work" case.
+ * accounting. The cursor resolves exactly as `countMessagesAfter`'s does,
+ * including the null/`""` "count everything" cases and the vanished-reference
+ * "no new work" case.
  */
 function countExcludedMessagesAfter(
   conversationId: string,
-  afterMessageId: string | null,
+  after: MessagesAfterRef,
 ): number {
-  // The `""` sentinel (failure-only state rows) counts everything, matching
-  // `countMessagesAfter`.
-  const cursorId =
-    afterMessageId === null || afterMessageId === "" ? null : afterMessageId;
   const db = getDb();
   const candidates = db
     .select({
@@ -282,18 +262,11 @@ function countExcludedMessagesAfter(
     return 0;
   }
 
-  let ref: { createdAt: number } | undefined;
-  if (cursorId !== null) {
-    ref = db
-      .select({ createdAt: messages.createdAt })
-      .from(messages)
-      .where(eq(messages.id, cursorId))
-      .get();
-    // Vanished reference: `countMessagesAfter` reported 0, so there is
-    // nothing to subtract from.
-    if (!ref) {
-      return 0;
-    }
+  const start = resolveMessagesAfterBound(after);
+  // Vanished reference: `countMessagesAfter` reported 0, so there is nothing
+  // to subtract from.
+  if (start.kind === "vanished") {
+    return 0;
   }
 
   let count = 0;
@@ -301,11 +274,12 @@ function countExcludedMessagesAfter(
     if (!isExcludedFromRetrospectiveAccounting(row)) {
       continue;
     }
-    if (cursorId !== null && ref) {
-      const after =
-        row.createdAt > ref.createdAt ||
-        (row.createdAt === ref.createdAt && row.id > cursorId);
-      if (!after) {
+    if (start.kind === "after") {
+      const { createdAt, id } = start.bound;
+      const isAfter =
+        row.createdAt > createdAt ||
+        (row.createdAt === createdAt && row.id > id);
+      if (!isAfter) {
         continue;
       }
     }

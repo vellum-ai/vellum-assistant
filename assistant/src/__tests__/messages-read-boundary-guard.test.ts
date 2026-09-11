@@ -52,7 +52,7 @@ const BASELINE: Readonly<Record<string, number>> = {
   "src/plugins/defaults/memory/context-search/sources/conversations.ts": 1,
   "src/plugins/defaults/memory/graph/image-ref-utils.ts": 1,
   "src/plugins/defaults/memory/indexer.ts": 2,
-  "src/plugins/defaults/memory/memory-retrospective-accounting.ts": 4,
+  "src/plugins/defaults/memory/memory-retrospective-accounting.ts": 2,
   "src/plugins/defaults/memory/substrate/sweep-job.ts": 1,
   "src/plugins/defaults/memory/v1/graph/extraction.ts": 3,
   "src/plugins/defaults/memory/v1/job-handlers/backfill.ts": 1,

@@ -14,16 +14,23 @@ import { useTranslation } from "@/i18n";
  * whole action row — this button included — for the `VoiceComposerBar`, whose
  * ✕ owns ending the session; in non-owning composers the button stays visible
  * but disabled, so this control never needs a stop affordance.
+ *
+ * The hover label says what the mode is *for* rather than repeating the
+ * control's name: the glyph alone does not tell a first-time user that this
+ * opens a spoken conversation rather than the dictation the mic beside it
+ * does. It rides the design library's `Tooltip`, which never mounts where the
+ * device cannot hover, so the accessible name stays on the control itself.
  */
 
 import { AudioLines } from "lucide-react";
 
 import {
+  ACCENT_FILL_CLASS,
   MOBILE_CONTROL_CLASS,
   MOBILE_GLYPH_CLASS,
   preventPressFocusTransfer,
 } from "@/domains/chat/components/chat-composer/composer-mobile-chrome";
-import { Button } from "@vellumai/design-library";
+import { Button, cn, Tooltip } from "@vellumai/design-library";
 
 interface LiveVoiceButtonProps {
   /**
@@ -59,12 +66,13 @@ export function LiveVoiceButton({
   holdComposerFocus = false,
 }: LiveVoiceButtonProps) {
   const { t } = useTranslation("chat");
-  return (
+  const button = (
     <Button
-      // Filled `primary` (black) so the voice entry point carries the same
-      // prominence as the send button it shares the composer's send slot with
-      // (both `Button variant="primary"` icon-only, so identical footprint +
-      // fill) — rather than a low-emphasis ghost that reads as secondary.
+      // Filled `primary`, in the assistant's accent, so the voice entry point
+      // carries the same prominence and the same colour as the send button it
+      // shares the composer's send slot with (both `Button variant="primary"`
+      // icon-only, so identical footprint + fill) rather than a low-emphasis
+      // ghost that reads as secondary.
       variant="primary"
       iconOnly={<AudioLines strokeWidth={2} />}
       // The row's own signal sizes the circle, so the primitive's mobile growth
@@ -72,7 +80,7 @@ export function LiveVoiceButton({
       // resolves to.
       iconOnlyGlyphClassName={mobileRow ? MOBILE_GLYPH_CLASS : undefined}
       expandOnMobile={!mobileRow}
-      className={mobileRow ? MOBILE_CONTROL_CLASS : undefined}
+      className={cn(ACCENT_FILL_CLASS, mobileRow && MOBILE_CONTROL_CLASS)}
       // Anchor for the in-chat tour's closing beat, which lands the assistant's
       // avatar on this control.
       data-tour-id="voice-mode"
@@ -90,7 +98,12 @@ export function LiveVoiceButton({
       }}
       disabled={disabled}
       aria-label={t("liveVoiceButton.startVoiceMode")}
-      title={t("liveVoiceButton.startVoiceMode")}
     />
+  );
+
+  return (
+    <Tooltip content={t("liveVoiceButton.tooltip")} side="top">
+      {button}
+    </Tooltip>
   );
 }

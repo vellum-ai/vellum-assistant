@@ -3,6 +3,7 @@
  * for the HTTP server's route table.
  */
 
+import { mapGatewayIpcConnectError } from "../../ipc/gateway-ipc-errors.js";
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
@@ -86,7 +87,12 @@ export function routeDefinitionsToHTTPRoutes(
           r.method === "PATCH" ||
           r.method === "DELETE"
         ) {
-          if (contentType.includes("application/json") || contentType === "") {
+          if (r.rawRequestBody) {
+            rawBody = new Uint8Array(await req.arrayBuffer());
+          } else if (
+            contentType.includes("application/json") ||
+            contentType === ""
+          ) {
             try {
               const parsed = (await req.json()) as Record<string, unknown>;
               if (parsed && typeof parsed === "object") {
@@ -106,8 +112,9 @@ export function routeDefinitionsToHTTPRoutes(
           headers[key] = value;
         });
 
-        // Strip any caller-supplied identity headers before deriving them
-        // from the verified AuthContext. On the HTTP path the actor identity
+        // Strip the caller-supplied actor-principal, principal-type, and
+        // subject headers before deriving them from the verified AuthContext.
+        // On the HTTP path the actor identity
         // always comes from the validated JWT — never from inbound headers —
         // so a request that carries these headers is either confused or
         // hostile. Without this, a caller whose token carries no
@@ -120,6 +127,7 @@ export function routeDefinitionsToHTTPRoutes(
         // the gateway IPC proxy (gateway/src/http/routes/ipc-runtime-proxy.ts).
         delete headers["x-vellum-actor-principal-id"];
         delete headers["x-vellum-principal-type"];
+        delete headers["x-vellum-subject"];
 
         // Inject auth context fields so transport-agnostic handlers can
         // resolve trust context without importing auth internals.
@@ -129,12 +137,16 @@ export function routeDefinitionsToHTTPRoutes(
         if (authContext?.principalType) {
           headers["x-vellum-principal-type"] = authContext.principalType;
         }
+        if (authContext?.subject) {
+          headers["x-vellum-subject"] = authContext.subject;
+        }
 
         const result = await r.handler({
           pathParams,
           queryParams,
           body,
           rawBody,
+          rawUrl: url,
           headers,
           abortSignal: req.signal,
         });
@@ -184,15 +196,16 @@ export function routeDefinitionsToHTTPRoutes(
           headers: responseHeaders,
         });
       } catch (err) {
-        if (err instanceof RouteError) {
+        const mapped = mapGatewayIpcConnectError(err);
+        if (mapped instanceof RouteError) {
           return httpError(
-            err.code as HttpErrorCode,
-            err.message,
-            err.statusCode,
-            err.details,
+            mapped.code as HttpErrorCode,
+            mapped.message,
+            mapped.statusCode,
+            mapped.details,
           );
         }
-        throw err;
+        throw mapped;
       }
     },
   }));

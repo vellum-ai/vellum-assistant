@@ -16,7 +16,7 @@ When you introduce a new env var that the assistant process needs to read at run
 
 **Default to including it.** If the var doesn't contain secrets (e.g. a URL, a feature flag, a path, a mode string), add it. Only omit it if it carries credential material (tokens, passwords, private keys) — those must stay isolated to CES.
 
-`CES_LOCAL_SOCKET` is intentionally included despite the socket exposing credential RPCs — assistant subprocesses are expected to reach CES. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`).
+`CES_LOCAL_SOCKET` is intentionally included despite the socket exposing credential RPCs: assistant subprocesses are expected to reach CES. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`). Do not forward `CES_SERVICE_TOKEN` or `CES_CREDENTIAL_URL`: the HTTP bearer is a vault secret and must stay in the assistant process.
 
 ## Daemon startup philosophy
 
@@ -30,7 +30,7 @@ DB migrations run asynchronously during startup: the HTTP server binds (so `/hea
 
 Existing enforcement, which new code must not bypass:
 
-- **HTTP** requests are gated per-route in `runtime/http-server.ts`; **IPC** methods in `ipc/assistant-server.ts`; both derive their exempt set from `DB_MIGRATION_READINESS_EXEMPT_OPERATIONS` in `daemon-readiness.ts` (health/liveness probes only — anything exempted must never touch the DB).
+- **HTTP** requests are gated per-route in `runtime/http-server.ts`; **IPC** methods in `ipc/assistant-server.ts`; both derive their exempt set from `DB_MIGRATION_READINESS_EXEMPT_OPERATIONS` in `daemon-readiness.ts` (health/liveness probes plus in-memory diagnostics such as `debug/database` — anything exempted must never touch the DB).
 - **Message sinks** (`processMessage`, `processMessageInBackground`) guard via `assertDbMigrationsReadyForTurn()`.
 - **Background sweeps** are started by lifecycle only after migrations settle (`startRuntimeHttpServerBackgroundSweeps`).
 - The **migration-repair surface** (`admin/rollback-migrations` plus all `migrations/import*` / preflight transports and their job-status route) is additionally allowed in the terminal `failed` state only — see `DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS`. Never widen this to the `running` state: a rollback or import would race the in-flight migration runner. A successful repair does not clear the failed latch — the daemon must be restarted to re-run migrations and become ready.
@@ -86,6 +86,10 @@ The module-level dependency-injection pattern (`registerFooDeps()`) used by some
 ## Telemetry wire contract
 
 Telemetry event types are defined by a platform-generated wire contract (`src/telemetry/telemetry-wire.generated.ts`) that `src/telemetry/types.ts` layers over, with pre-flush validation against it. Adding a new event type starts platform-side, not here. The mechanics, the drift guards, and the cross-repo ordering are documented next to the code they govern: see [`src/telemetry/AGENTS.md`](src/telemetry/AGENTS.md).
+
+## Daemon i18n
+
+User-facing copy the daemon generates as a hardcoded constant goes through `src/i18n/`. Persist the message key. Resolve with `t(key, locale)` at the HTTP/CLI/channel edge. Never persist a translated string, and never match stored display strings back to keys. See [`src/i18n/AGENTS.md`](src/i18n/AGENTS.md).
 
 ## Code comments
 

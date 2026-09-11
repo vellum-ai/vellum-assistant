@@ -17,6 +17,7 @@ import type { HookFunction, InitContext } from "@vellumai/plugin-api";
 import { getConfig } from "../../../../config/loader.js";
 import { registerMemoryPluginJobHandlers } from "../job-handler-registration.js";
 import { getLogger } from "../logging.js";
+import { backfillRetrospectiveCursorTimestamps } from "../memory-retrospective-cursor-backfill.js";
 import { runMemoryStartup } from "../startup.js";
 import { ensureMemoryV3PluginSchema } from "../v3/plugin-schema.js";
 
@@ -29,6 +30,15 @@ const init: HookFunction<InitContext> = async () => {
   // `runMemoryStartup` below — otherwise a queued job could be dispatched
   // against an empty table and failed as an unknown type.
   registerMemoryPluginJobHandlers();
+
+  // Retrospective cursors written before the timestamp column existed can
+  // only be completed while their message rows still exist, so start the
+  // fill at boot, ahead of any client regenerating a reply. Detached and
+  // fail-open like the rest of memory startup; the memory worker runs the
+  // same idempotent pass as a second chance.
+  void backfillRetrospectiveCursorTimestamps().catch((err) =>
+    log.warn({ err }, "Retrospective cursor timestamp backfill failed"),
+  );
 
   // The memory-v3 plugin-owned schema on the memory connection
   // (`v3/plugin-schema.ts`): the pools and injected-sections tables and the

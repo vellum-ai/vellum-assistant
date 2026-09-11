@@ -3,9 +3,11 @@ import { ChannelDeliveryError } from "@vellumai/gateway-client/http-delivery";
 
 import { extractThreadTsFromCallbackUrl } from "../../../channels/slack-callback-url.js";
 import { getLogger } from "../../../util/logger.js";
+import { directDeliveryContext } from "../callback-routing.js";
 import type { ChannelTransport } from "../channel-transport.js";
-import { SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
+import { openSlackDmChannel, SLACK_STREAM_MARKDOWN_LIMIT } from "./api.js";
 import {
+  describeSlackReactionEmoji,
   sendSlackAgentSessionStatus,
   sendSlackAttachments,
   sendSlackReaction,
@@ -23,6 +25,29 @@ function mutedBlocks(text: string): KnownBlock[] {
 
 export const slackTransport: ChannelTransport = {
   channel: "slack",
+
+  /**
+   * A chat is a channel or DM id, with `threadTs` naming the thread to post
+   * under. A person is reached in their DM, opened here as the bot
+   * (`conversations.open`) so the address names the DM channel the post
+   * lands in, the id Slack's later events carry for it.
+   */
+  async addressFor(target) {
+    if (target.kind === "person") {
+      return {
+        ctx: directDeliveryContext("slack"),
+        chatId: await openSlackDmChannel(target.userId),
+      };
+    }
+    const threadTs = target.threadId?.trim();
+    return {
+      ctx: directDeliveryContext("slack", threadTs ? { threadTs } : {}),
+      chatId: target.chatId,
+      ...(threadTs ? { threadId: threadTs } : {}),
+    };
+  },
+
+  describeReactionEmoji: describeSlackReactionEmoji,
 
   async react(target) {
     return sendSlackReaction(
@@ -66,7 +91,13 @@ export const slackTransport: ChannelTransport = {
     }
 
     log.info({ chatId, hasText: !!text }, "Slack reply delivered (direct)");
-    return { ok: true, ts: sentTs };
+    // Slack posts the text as one message, so the acknowledged ids are that
+    // one `ts`; file posts are not acknowledged here.
+    return {
+      ok: true,
+      ts: sentTs,
+      messageIds: sentTs !== undefined ? [sentTs] : [],
+    };
   },
 
   async edit(_ctx, target) {

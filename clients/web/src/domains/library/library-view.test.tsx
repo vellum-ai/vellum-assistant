@@ -18,6 +18,12 @@ import type { AppSummary } from "@/types/app-types";
 
 let apps: AppSummary[] = [];
 let pointerIsCoarse = false;
+const isMobileRef = { value: false };
+
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => isMobileRef.value,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
 
 mock.module("@/utils/pointer", () => ({
   isPointerCoarse: () => pointerIsCoarse,
@@ -71,6 +77,15 @@ mock.module("@/components/delete-app-dialog", () => ({
 }));
 
 const { LibraryView } = await import("./library-view");
+const { useIntelligenceLayoutSlotsStore } =
+  await import("@/components/layout/intelligence-layout-slots-store");
+
+/* The Import button lives on the layout's heading row, which the view
+   reaches through the slot store; this stands in for the layout so the
+   button lands in the same tree as the view's file input. */
+function HeaderTrailing() {
+  return <>{useIntelligenceLayoutSlotsStore.use.headerTrailing()}</>;
+}
 
 const APP: AppSummary = {
   id: "app-123",
@@ -88,6 +103,7 @@ function renderView() {
   });
   return render(
     <QueryClientProvider client={queryClient}>
+      <HeaderTrailing />
       <LibraryView assistantId="assistant-123" onOpenApp={() => {}} />
     </QueryClientProvider>,
   );
@@ -96,10 +112,12 @@ function renderView() {
 beforeEach(() => {
   apps = [];
   pointerIsCoarse = false;
+  isMobileRef.value = false;
 });
 
 afterEach(() => {
   cleanup();
+  useIntelligenceLayoutSlotsStore.getState().setHeaderTrailing(null);
 });
 
 describe("LibraryView import affordance", () => {
@@ -120,12 +138,65 @@ describe("LibraryView import affordance", () => {
     expect(container.querySelectorAll('input[type="file"]')).toHaveLength(1);
   });
 
+  test("hides app dates at mobile widths", () => {
+    apps = [APP];
+    renderView();
+
+    const appName = screen.getByText("Example App");
+    expect(appName.nextElementSibling?.className).toContain("max-md:hidden");
+  });
+
+  test("uses compact secondary app-name typography at mobile widths", () => {
+    apps = [APP];
+    renderView();
+
+    const appName = screen.getByText("Example App");
+    expect(appName.className).toContain("max-md:text-body-medium-lighter");
+    expect(appName.className).toContain(
+      "max-md:text-[color:var(--content-secondary)]",
+    );
+  });
+
+  test("uses an icon-only import action in the mobile top bar", () => {
+    isMobileRef.value = true;
+    renderView();
+
+    const importButton = screen.getByRole("button", { name: "Import" });
+    expect(importButton.textContent).toBe("");
+    expect(importButton.className).toContain(
+      "max-md:bg-[var(--surface-active)]",
+    );
+    expect(importButton.className).toContain("rounded-full");
+  });
+
   test("constrains the picker to .vellum on a fine-pointer device", () => {
     const { container } = renderView();
 
     expect(
       container.querySelector('input[type="file"]')?.getAttribute("accept"),
     ).toBe(".vellum");
+  });
+
+  test("the import button opens the view's own file input", () => {
+    const { container } = renderView();
+    const input =
+      container.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const click = mock(() => {});
+    input.click = click;
+
+    screen.getByRole("button", { name: /Import/ }).click();
+    expect(click).toHaveBeenCalledTimes(1);
+  });
+
+  test("clears the header slot on unmount", () => {
+    const { unmount } = renderView();
+    expect(
+      useIntelligenceLayoutSlotsStore.getState().headerTrailing,
+    ).not.toBeNull();
+    unmount();
+    expect(
+      useIntelligenceLayoutSlotsStore.getState().headerTrailing,
+    ).toBeNull();
   });
 
   test("leaves the picker unrestricted on a touch device", () => {

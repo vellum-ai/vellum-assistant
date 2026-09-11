@@ -76,6 +76,13 @@ export function KeyConceptsContent() {
           </div>
           <span className="docs-nav-card-arrow" aria-hidden="true">→</span>
         </a>
+        <a href="/docs/key-concepts/agentic-payments" className="docs-nav-card">
+          <div className="docs-nav-card-content">
+            <span className="docs-nav-card-title">Agentic Payments</span>
+            <span className="docs-nav-card-desc">Let your assistant buy things for you with a one-time card capped at an amount you approve.</span>
+          </div>
+          <span className="docs-nav-card-arrow" aria-hidden="true">→</span>
+        </a>
       </div>
 
       <p className="mb-0 text-zinc-600">

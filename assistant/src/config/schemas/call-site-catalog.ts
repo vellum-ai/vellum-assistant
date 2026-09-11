@@ -303,6 +303,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Fast front-door leg fronting live-voice turns under triage-and-escalate: leading-token verdict, holding phrase, or the direct answer.",
     domain: "agentLoop",
   },
+  voiceContinuationLabel: {
+    id: "voiceContinuationLabel",
+    displayName: "Voice Continuation Label",
+    description:
+      "Names the background task that finishes a live-voice reply the user interrupted.",
+    domain: "ui",
+  },
   homeGreeting: {
     id: "homeGreeting",
     displayName: "Home Greeting",

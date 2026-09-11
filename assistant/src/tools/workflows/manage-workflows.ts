@@ -20,6 +20,7 @@ import { loadConfig } from "../../config/loader.js";
 import { callerOwnsWorkflowRun } from "../../workflows/capabilities.js";
 import type { WorkflowRun } from "../../workflows/journal-store.js";
 import { getWorkflowRunManager } from "../../workflows/run-manager.js";
+import { isAbortLikeError, throwIfCancelled } from "../shared/abort.js";
 import {
   invalidToolInputResult,
   nullAsOmitted,
@@ -148,6 +149,7 @@ export async function executeManageWorkflows(
           isError: true,
         };
       }
+      throwIfCancelled(context);
       // Don't resume — or reveal — a run the caller doesn't own; mirror
       // resume()'s own not-found message.
       const run = manager.status(runId);
@@ -169,6 +171,11 @@ export async function executeManageWorkflows(
           isError: false,
         };
       } catch (err) {
+        // A cancelled turn is not a workflow failure: let it reach the executor's
+        // abort handling instead of being rendered as a tool error.
+        if (isAbortLikeError(err)) {
+          throw err;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         return { content: `Failed to resume workflow: ${msg}`, isError: true };
       }

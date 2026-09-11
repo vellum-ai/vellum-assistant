@@ -145,8 +145,18 @@ export interface SseEventConsumerDeps {
    * concurrent React (see module docstring).
    */
   activeConversationIdRef: { current: string | null };
-  /** Dispatch the event into the chat domain's reducer. */
-  handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
+  /**
+   * Dispatch the event into the chat domain's reducer.
+   *
+   * `envelopeConversationId` is the conversation the transport scoped the
+   * event to, which is the only attribution an event carrying no conversation
+   * of its own has.
+   */
+  handleStreamEvent: (
+    event: AssistantEvent,
+    epoch: number,
+    envelopeConversationId: string | undefined,
+  ) => void;
   /** Reconcile the active conversation when a seq gap is detected. */
   reconcileActive: () => Promise<unknown>;
   /**
@@ -323,7 +333,11 @@ export function createSseEventConsumer(
       // only mounts with an active persisted conversation, so they are
       // handled by the always-mounted `useOpenUrlDirectives` instead.
       if (!isConversationScopedStreamEvent(event)) {
-        deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
+        deps.handleStreamEvent(
+          event,
+          useStreamStore.getState().streamEpoch,
+          eventConversationId,
+        );
       } else if (
         eventConversationId !== undefined &&
         eventConversationId === deps.activeConversationIdRef.current
@@ -336,7 +350,11 @@ export function createSseEventConsumer(
         // a stale-generation anchor (see the guard below).
         const localSeq = getLocalSeq(eventConversationId);
         const applyAndAdvance = () => {
-          deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
+          deps.handleStreamEvent(
+            event,
+            useStreamStore.getState().streamEpoch,
+            eventConversationId,
+          );
           // Advance the per-conversation frontier once the event is
           // applied so the snapshot/stream merge knows how far the
           // stream has carried this conversation, and so a later replay

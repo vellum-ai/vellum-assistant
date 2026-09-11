@@ -5,11 +5,12 @@ import {
   MediaTurnDetector,
   type TurnDetectorConfig,
 } from "../calls/media-turn-detector.js";
-import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import {
-  isIncompleteControlMarkerTail,
-  stripInternalSpeechMarkers,
-} from "../calls/voice-control-protocol.js";
+  SPOKEN_REPLY_LENGTH_RULE,
+  SPOKEN_REPLY_PLAIN_TEXT_RULE,
+} from "../calls/spoken-reply-rules.js";
+import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
+import { createControlMarkerHoldback } from "../calls/voice-control-protocol.js";
 import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
@@ -20,13 +21,10 @@ import {
   waitForPriorTurnTeardown,
 } from "../calls/voice-session-bridge.js";
 import {
-  capEscalationBridge,
-  classifyFrontDoorLeading,
-  ESCALATE_VERDICT_TOKEN,
+  createFrontDoorVerdictMachine,
   ESCALATION_CONTINUATION_CONTENT,
   FALLBACK_ESCALATION_BRIDGE_BY_LANGUAGE,
   fallbackEscalationBridgeFor,
-  isEscalationBridgeComplete,
   MIN_SPOKEN_BRIDGE_CHARS,
   type VoiceRoutingLeg,
 } from "../calls/voice-triage-escalate.js";
@@ -97,6 +95,11 @@ import {
   dismissesUiSurface,
   revealsUiSurface,
 } from "./activity-label.js";
+import {
+  buildDuplexContinuationLabel,
+  createContinuationLabeler,
+  type LiveVoiceContinuationLabeler,
+} from "./continuation-label.js";
 import { LiveActivityReporter } from "./live-activity-reporter.js";
 import type {
   LiveVoiceAudioArchiveResult,
@@ -421,6 +424,12 @@ export interface LiveVoiceSessionOptions {
    * the real SubagentManager-backed implementation; tests inject a stub.
    */
   spawnBackgroundContinuation?: LiveVoiceBackgroundContinuationSpawner;
+  /**
+   * Names the background continuation from the interrupted transcript. The
+   * factory wires the provider-backed implementation; tests inject a stub.
+   * Absent, the continuation carries the deterministic transcript label.
+   */
+  labelBackgroundContinuation?: LiveVoiceContinuationLabeler;
   /**
    * Returns the pending teardown promise for a conversation's most recent
    * turn. The barge-in path awaits it before forking the background
@@ -790,6 +799,11 @@ interface ActiveAssistantTurn {
   // the hand-off idempotent.
   escalationHandedOff: boolean;
   ttsBuffer: string;
+  // What the caller actually hears this turn, summed over the model's own
+  // segments (acks and progress narration do not count). Logged at tts_done
+  // so a reply's spoken length can be read off the daemon log per turn.
+  spokenSegments: number;
+  spokenChars: number;
   // Strips inline <think> reasoning spans from the spoken stream. Stateful
   // per turn because spans and tags cross delta boundaries; display frames
   // keep the raw text.
@@ -809,61 +823,14 @@ interface ActiveAssistantTurn {
   assistantAudioSampleRate?: number;
 }
 
-/**
- * Control-marker hygiene for one model leg's delta stream, shared by the
- * front-door answer stage and the default/escalated leg. The returned flush
- * forwards the stripped (stripInternalSpeechMarkers) prefix of `raw` that has
- * not been emitted yet and cannot contain a still-streaming control marker:
- * the flush stops at the first "[" whose tail is an incomplete marker
- * (isIncompleteControlMarkerTail) and holds from there until a later delta
- * completes or disproves it; `force` (leg completion) emits the held tail so
- * real text that merely resembles a marker prefix is not dropped. The scan
- * runs forward from the emitted boundary — not from the last "[" — so
- * brackets INSIDE a streaming marker body (a JSON array or "]"-bearing string
- * in ASK_GUARDIAN_APPROVAL) can neither mask the marker's start nor pass as
- * its terminator.
- *
- * **Markers are stripped, never acted on.** Nothing the model can say
- * minimizes the room any more: that is decided by whether a ui tool ran (see
- * the `tool_use_start` handler), so the reveal cannot depend on the model
- * remembering a token, and a reply whose content happens to contain "[-1]" (an
- * array literal, a temperature) cannot move the room either. No prompt teaches
- * a marker, so this stripping is defense against a model that emits one
- * regardless: an unspoken, unpersisted "[-1]" is the correct handling of a
- * token that now means nothing.
- */
-function createControlMarkerHoldback(
-  turn: ActiveAssistantTurn,
-  emit: (chunk: string) => void,
-): (raw: string, opts?: { force?: boolean }) => void {
-  let emitted = 0;
-  return (raw, opts) => {
-    let safeEnd = raw.length;
-    if (opts?.force !== true) {
-      for (
-        let i = raw.indexOf("[", emitted);
-        i !== -1;
-        i = raw.indexOf("[", i + 1)
-      ) {
-        if (isIncompleteControlMarkerTail(raw.slice(i))) {
-          safeEnd = i;
-          break;
-        }
-      }
-    }
-    if (safeEnd > emitted) {
-      emit(stripInternalSpeechMarkers(raw.slice(emitted, safeEnd)));
-      emitted = safeEnd;
-    }
-  };
-}
-
-// Base control prompt for every live-voice turn. When a turn starts from a
-// barge-in, the interruption merge note is appended to it (see
-// buildInterruptionMergeNote) so the model reconciles the interrupted request
-// with the new utterance.
-const LIVE_VOICE_CONTROL_PROMPT_BASE =
-  "You are speaking in a local live voice session. Keep replies brief and conversational. Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. ";
+// Base control prompt for every live-voice turn. Opens with the spoken-reply
+// rules shared with the phone path (spoken-reply-rules.ts): this is the only
+// place the model learns that its text is spoken, since the system prompt has
+// no voice awareness and the prompt lands as a trailing block on the user
+// message. When a turn starts from a barge-in, the interruption merge note is
+// appended to it (see buildInterruptionMergeNote) so the model reconciles the
+// interrupted request with the new utterance.
+const LIVE_VOICE_CONTROL_PROMPT_BASE = `You are speaking in a local live voice session. ${SPOKEN_REPLY_LENGTH_RULE} ${SPOKEN_REPLY_PLAIN_TEXT_RULE} Speech is the main channel: say the answer, and do not narrate a surface instead of answering. You can also put something on screen when it genuinely helps (a form, a list to pick from, a progress card for long work); the call overlay minimizes by itself once you finish speaking, so the user sees it without doing anything. Never tell the user you cannot show them something. Reply in the language the caller is speaking; if they switch languages, switch with them. `;
 
 // Appended for the legs that can actually put something on screen: the main
 // leg and the escalated leg. The front-door (fast) leg never receives it, for
@@ -879,7 +846,7 @@ const LIVE_VOICE_CONTROL_PROMPT_BASE =
 // model can get right, which is speaking as though the thing is already in
 // front of the user, because by the time it stops talking it is.
 const LIVE_VOICE_SCREEN_REVEAL_TEACHING =
-  "The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
+  "When the complete answer would run past a few sentences, say the short version out loud and put the detail on screen instead of reading it out. The call renders as a full-screen overlay covering the app. Whenever you put something on screen, the overlay minimizes by itself as soon as you finish speaking, and the user is looking at what you made. So speak as if you are showing it to them right now (for example, close with something like: take a look), and never say you cannot show it, that this is a voice call, or that they should check it later. Never emit bracketed markers of any kind. ";
 
 // The setup-flow case, spelled out because it is the one the model gets wrong
 // on its own: connecting an account reads as something a call cannot do, so it
@@ -1140,7 +1107,7 @@ function foregroundToolContendsWithContinuation(
 // SKIPPED (not run against stale history); see detachInterruptedTurn.
 function defaultDetachTeardownSettleTimeoutMs(): number {
   return resolveProcessingWaitMs(
-    getConfig().workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+    getConfig().workspaceGit?.turnCommitMaxWaitMs,
     ABORT_WATCHDOG_MS,
   );
 }
@@ -1153,6 +1120,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly spawnBackgroundContinuation: LiveVoiceBackgroundContinuationSpawner | null;
+  private readonly labelBackgroundContinuation: LiveVoiceContinuationLabeler | null;
   // Reads the interrupted turn's teardown promise so the barge-in path can wait
   // for it to settle before forking the continuation.
   private readonly getTurnTeardown:
@@ -1440,6 +1408,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.archiveAudio = options.archiveAudio ?? null;
     this.spawnBackgroundContinuation =
       options.spawnBackgroundContinuation ?? null;
+    this.labelBackgroundContinuation =
+      options.labelBackgroundContinuation ?? null;
     this.getTurnTeardown = options.getTurnTeardown ?? null;
     this.detachTeardownSettleTimeoutMs =
       options.detachTeardownSettleTimeoutMs ??
@@ -3057,6 +3027,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const controller = new AbortController();
     this.detachControllers.add(controller);
     const detachStartedAtMs = Date.now();
+    // Start naming the continuation now so the model call overlaps the
+    // teardown wait below instead of adding to the handoff. `labelAbort`
+    // cancels it on every skip path (see the `finally`); a stop aborts it
+    // through the detach controller.
+    const labelAbort = new AbortController();
+    const labelPromise = this.requestContinuationLabel(
+      interruptedRequest,
+      AbortSignal.any([controller.signal, labelAbort.signal]),
+    );
     void (async () => {
       try {
         // Wait for the interrupted turn's teardown to settle its partial into
@@ -3112,11 +3091,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
           return;
         }
+        const forkReadyAtMs = Date.now();
+        const label =
+          (await labelPromise) ??
+          buildDuplexContinuationLabel(interruptedRequest);
         log.debug(
           {
             turnId: turn.turnId,
-            teardownWaitMs: Date.now() - detachStartedAtMs,
+            teardownWaitMs: forkReadyAtMs - detachStartedAtMs,
+            // Label latency past the teardown wait it overlapped.
+            labelWaitMs: Date.now() - forkReadyAtMs,
             interruptedRequest,
+            label,
           },
           "Voice duplex continuation starting",
         );
@@ -3127,7 +3113,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         const resultText = await spawn({
           parentConversationId: this.conversationId,
           objective: buildDuplexContinuationObjective(interruptedRequest),
-          label: `voice-continue-${turn.turnId}`,
+          label,
           signal: controller.signal,
         });
         // Route the completed continuation's answer. Re-check the stop guards
@@ -3201,9 +3187,43 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           );
         }
       } finally {
+        // No-op once the label resolved; cancels a still-running label call
+        // on every skip path above.
+        labelAbort.abort();
         this.detachControllers.delete(controller);
       }
     })();
+  }
+
+  // Resolves the model-phrased label for a continuation, or null when there
+  // is nothing to name it from, no labeler is wired, or the call missed
+  // (timeout, abort, provider error, model declined). Never rejects: the
+  // caller falls back to the deterministic transcript label on null.
+  private async requestContinuationLabel(
+    interruptedRequest: string,
+    signal: AbortSignal,
+  ): Promise<string | null> {
+    const labeler = this.labelBackgroundContinuation;
+    if (!labeler || interruptedRequest.length === 0) {
+      return null;
+    }
+    const startedAtMs = Date.now();
+    try {
+      const label = (
+        await labeler({
+          parentConversationId: this.conversationId,
+          interruptedRequest,
+          signal,
+        })
+      )?.trim();
+      return label && label.length > 0 ? label : null;
+    } catch (err) {
+      log.debug(
+        { err, aborted: signal.aborted, ranMs: Date.now() - startedAtMs },
+        "Voice duplex continuation label fell back to the transcript",
+      );
+      return null;
+    }
   }
 
   // Abort every background continuation this session started and drop its
@@ -5137,6 +5157,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       deltaEpoch: 0,
       escalationHandedOff: false,
       ttsBuffer: "",
+      spokenSegments: 0,
+      spokenChars: 0,
       ttsReasoningFilter: createReasoningTagFilter(),
       ttsSegmentEnqueued: false,
       ttsJobs: [],
@@ -5260,17 +5282,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const { token, utterance, turnId } = activeTurn;
 
-    // `rawText` accumulates this leg's full stream. A front-door leg starts
-    // in `deciding` until its leading tokens classify as hold / escalate /
-    // answer: an answer flushes through the shared marker holdback, while an
-    // escalation buffers the post-verdict stream into `bridgeRaw` until the
+    // `rawText` accumulates this leg's full stream. A front-door leg feeds
+    // every delta to the shared verdict machine and acts on its steps: an
+    // answer flushes through the shared marker holdback, while an escalation
+    // buffers the post-verdict stream inside the machine until the capped
     // bridge is complete, then hands off. A default/escalated leg flushes
     // every delta through the same holdback, so a stray control marker from
     // the main model is stripped instead of spoken.
     let rawText = "";
-    let frontDoorStage: "deciding" | "answer" | "bridging" | "handedOff" =
-      "deciding";
-    let bridgeRaw = "";
+    const verdict = createFrontDoorVerdictMachine(
+      activeTurn.speculativePending && activeTurn.speculativeHoldAllowed,
+    );
 
     const emitLegText = (chunk: string): void => {
       if (chunk.length === 0) {
@@ -5293,20 +5315,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.bufferAssistantTextForTts(token, chunk);
     };
 
-    const flushLegText = createControlMarkerHoldback(activeTurn, emitLegText);
-
-    // Hand off once enough of the post-verdict stream has arrived to cap
-    // the bridge (sentence terminator or hard cap). Until then nothing is
-    // spoken — the bridge goes out in one piece at hand-off, so the audio,
-    // the persisted row, and the phrase quoted to the escalated leg are all
-    // the same capped text.
-    const maybeHandOffBridge = (): void => {
-      if (!isEscalationBridgeComplete(bridgeRaw)) {
-        return;
-      }
-      frontDoorStage = "handedOff";
-      this.escalateTurn(activeTurn, capEscalationBridge(bridgeRaw));
-    };
+    const flushLegText = createControlMarkerHoldback(emitLegText);
 
     try {
       // Latched before the await, not after: this flag only decides whether the
@@ -5395,51 +5404,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             }
             if (leg.frontDoor) {
               rawText += msg.text;
-              if (frontDoorStage === "handedOff") {
-                return;
-              }
-              if (frontDoorStage === "bridging") {
-                bridgeRaw += msg.text;
-                maybeHandOffBridge();
-                return;
-              }
               // Verdict-first: the leg's leading tokens decide the turn's
               // fate. Hold discards a speculative turn (mid-thought pause,
               // keep listening); escalate and answer both commit it —
               // utterance release, thinking frame, and timers all happen
               // inside commitSpeculativeTurn. The hold branch is only
               // classifiable while the leg is speculative (its decision
-              // rule is the only one that teaches the hold token).
-              if (frontDoorStage === "deciding") {
-                const verdict = classifyFrontDoorLeading(
-                  rawText.trimStart(),
-                  activeTurn.speculativePending &&
-                    activeTurn.speculativeHoldAllowed,
-                );
-                if (verdict === "pending") {
-                  return;
-                }
-                if (verdict === "hold") {
-                  void this.holdSpeculativeTurn(activeTurn);
-                  return;
-                }
-                if (
-                  activeTurn.speculativePending &&
-                  !this.commitSpeculativeTurn(activeTurn)
-                ) {
-                  return;
-                }
-                if (verdict === "escalate") {
-                  frontDoorStage = "bridging";
-                  bridgeRaw = rawText
-                    .trimStart()
-                    .slice(ESCALATE_VERDICT_TOKEN.length);
-                  maybeHandOffBridge();
-                  return;
-                }
-                frontDoorStage = "answer";
+              // rule is the only one that teaches the hold token). The
+              // bridge hands off in one piece once the machine caps it, so
+              // the audio, the persisted row, and the phrase quoted to the
+              // escalated leg are all the same text.
+              const step = verdict.push(msg.text);
+              if (step.kind === "hold") {
+                void this.holdSpeculativeTurn(activeTurn);
+                return;
               }
-              flushLegText(rawText);
+              if (
+                (step.kind === "escalate" || step.kind === "answer") &&
+                activeTurn.speculativePending &&
+                !this.commitSpeculativeTurn(activeTurn)
+              ) {
+                return;
+              }
+              if (step.kind === "answer") {
+                flushLegText(rawText);
+                return;
+              }
+              if (
+                (step.kind === "escalate" || step.kind === "bridge") &&
+                step.bridge !== null
+              ) {
+                this.escalateTurn(activeTurn, step.bridge);
+              }
               return;
             }
             // Defensive: speculative legs are always front-door today, but a
@@ -5483,13 +5479,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             // turn must not spawn an escalated leg.
             if (
               leg.frontDoor &&
-              frontDoorStage === "bridging" &&
               msg.type === "message_complete" &&
               !current.escalationHandedOff
             ) {
-              frontDoorStage = "handedOff";
-              this.escalateTurn(current, capEscalationBridge(bridgeRaw));
-              return;
+              const step = verdict.finish();
+              if (step.kind === "bridge") {
+                this.escalateTurn(current, step.bridge);
+                return;
+              }
             }
             // A front-door leg that handed off is finished; the escalated leg
             // drives completion. The front-door leg's own trailing completion
@@ -5789,11 +5786,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
-    // No overrideProfile: the escalated leg runs on the call-site default —
-    // the exact profile an un-routed voice turn would use (see
-    // voice-triage-escalate.ts). The bridge phrase the caller just heard is
-    // handed along so the escalated continuation rule can quote it and ban
-    // a re-announcing echo ("Let me check…" twice in a row).
+    // No overrideProfile here: the bridge pins the escalated leg to the
+    // conversation's own profile, the model the caller's typed turns already
+    // run on (see voice-triage-escalate.ts). The bridge phrase the caller
+    // just heard is handed along so the escalated continuation rule can
+    // quote it and ban a re-announcing echo ("Let me check…" twice in a
+    // row).
     void this.startAssistantLeg(activeTurn, {
       content: ESCALATION_CONTINUATION_CONTENT,
       routingLeg: "escalated",
@@ -6196,6 +6194,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
 
         currentTurn.ttsDone = true;
+        log.info(
+          {
+            turnId: currentTurn.turnId,
+            escalated: currentTurn.escalationHandedOff,
+            spokenSegments: currentTurn.spokenSegments,
+            spokenChars: currentTurn.spokenChars,
+          },
+          "Voice reply length",
+        );
         await this.finalizeAssistantTurn(
           currentTurn,
           "completed",
@@ -6291,6 +6298,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // the model's real first segment.
     if (options.countsAsFirstSegment ?? true) {
       activeTurn.ttsSegmentEnqueued = true;
+      activeTurn.spokenSegments += 1;
+      activeTurn.spokenChars += segment.length;
     }
     const job: TtsSegmentJob = {
       text: segment,
@@ -7061,6 +7070,8 @@ export function createLiveVoiceSession(
         : options.streamTtsAudio,
     spawnBackgroundContinuation:
       options.spawnBackgroundContinuation ?? defaultSpawnBackgroundContinuation,
+    labelBackgroundContinuation:
+      options.labelBackgroundContinuation ?? createContinuationLabeler(),
     getTurnTeardown: options.getTurnTeardown ?? getConversationTurnTeardown,
     // Off by default (see the `liveVoice.archiveAudio` schema): voice turns
     // persist only their transcribed text, so the recorded audio never lands
@@ -7180,10 +7191,10 @@ export async function defaultSpawnBackgroundContinuation(args: {
     // spoken by a session turn, on the session's terms; it was never meant to
     // mean invisible.
     //
-    // NOT the conversation's own sender: the voice bridge resets that to a
-    // no-op at turn teardown (see voice-session-bridge's clientCallbackInstalled
-    // reset), and the detach deliberately waits for that teardown before
-    // spawning — so a sender-based route is guaranteed to be dead by the time
+    // NOT a per-turn sender: the conversation's event sink is fixed at
+    // construction (see "Conversation event delivery" in assistant/AGENTS.md),
+    // and the detach deliberately waits for the interrupted turn's bridge
+    // teardown before spawning, so nothing turn-scoped is alive by the time
     // these events fire. `broadcastMessage` is the same path the bridge itself
     // uses to reach an attached web client. The subagent events carry
     // `parentConversationId`, not `conversationId`, so scope explicitly.

@@ -478,11 +478,13 @@ describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
     orgId = VELAY_ORG_ID as string | null,
     token,
     managed = true,
+    velayBaseUrl,
   }: {
     bridgeProof?: boolean;
     orgId?: string | null;
     token?: string;
     managed?: boolean;
+    velayBaseUrl?: string;
   }) => {
     if (managed) {
       process.env.IS_PLATFORM = "true";
@@ -500,7 +502,9 @@ describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
     if (bridgeProof) {
       setVelayBridgeAuthHeader(headers);
     }
-    const handler = createSttStreamWebsocketHandler(makeConfig());
+    const handler = createSttStreamWebsocketHandler(
+      makeConfig(velayBaseUrl ? { velayBaseUrl } : {}),
+    );
     const query = token ? `&token=${token}` : "";
     const req = new Request(
       `http://localhost:7830/v1/stt/stream?mimeType=audio/pcm${query}`,
@@ -539,9 +543,31 @@ describe("createSttStreamWebsocketHandler: velay-attested managed auth", () => {
     expect(server.upgrade).toHaveBeenCalledTimes(1);
   });
 
-  /** The attestation means nothing off the platform: only the token does. */
-  test("ignores velay headers on a self-hosted gateway", () => {
+  /** With no velay tunnel there is no bridge to have come through. */
+  test("ignores velay headers on a gateway with no velay tunnel", () => {
     const { res, server } = managedUpgrade({ managed: false });
+
+    expect(res!.status).toBe(401);
+    expect(server.upgrade).not.toHaveBeenCalled();
+  });
+
+  /** A locally hosted gateway with a tunnel takes the velay path like a managed pod. */
+  test("admits an attested caller on a locally hosted gateway with a velay tunnel", () => {
+    const { res, server } = managedUpgrade({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+    });
+
+    expect(res).toBeUndefined();
+    expect(server.upgrade).toHaveBeenCalledTimes(1);
+  });
+
+  test("still ignores spoofed headers on a locally hosted gateway with a velay tunnel", () => {
+    const { res, server } = managedUpgrade({
+      managed: false,
+      velayBaseUrl: "https://velay.example.test",
+      bridgeProof: false,
+    });
 
     expect(res!.status).toBe(401);
     expect(server.upgrade).not.toHaveBeenCalled();

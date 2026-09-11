@@ -20,6 +20,7 @@ import {
   setLiveVoiceScreenShare,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import { reportCoachmarkPressed } from "@/domains/chat/voice/live-voice/coachmark-press-turn";
 import { useCallChords } from "@/domains/chat/voice/live-voice/use-call-chords";
 import {
   cancelPendingVoiceStart,
@@ -76,6 +77,7 @@ import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useCompanionMirror } from "@/domains/chat/hooks/use-companion-mirror";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
 import { useIslandAvatarSource } from "@/hooks/use-island-avatar-source";
+import { useNotificationAvatarSync } from "@/hooks/use-notification-avatar-sync";
 import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useLockfileIdentitySync } from "@/hooks/use-lockfile-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
@@ -222,6 +224,16 @@ export function RootLayout() {
   // the live connection status to the menu-bar dot. Both no-op off Electron.
   useElectronIconSync(
     avatar.customImageUrl,
+    avatar.components,
+    avatar.traits,
+    avatar.accentHex,
+  );
+  // The same avatar again, composited onto its accent disc, for the desktop
+  // notifications that show the assistant as the sender rather than the app.
+  useNotificationAvatarSync(
+    assistantId,
+    avatar.customImageUrl,
+    avatar.state?.image ?? null,
     avatar.components,
     avatar.traits,
     avatar.accentHex,
@@ -411,6 +423,15 @@ export function RootLayout() {
         return;
       }
       void answerDictationOffer(command.answer, command.offerId);
+    },
+    // The user pressed a control the assistant was pointing at. Handled here
+    // rather than beside the session's controls for the reason the dial's
+    // cancel is: this layout is mounted on every route the call can be on.
+    coachmarkPressed: (command) => {
+      if (command.kind !== "coachmarkPressed") {
+        return;
+      }
+      reportCoachmarkPressed(command.label);
     },
     // The flag gate and the toggle both live in `watch-command.ts`. This is the
     // one command registered here that can start reading the user's screen, so

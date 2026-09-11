@@ -92,7 +92,7 @@ function serveCompiledApp(
     );
     const body = isLegacySingleFileDir(appDir)
       ? UNSUPPORTED_LEGACY_APP_HTML
-      : `<p>App has not been compiled yet. Edit a source file to trigger a build.</p>`;
+      : `<p>App has not been compiled yet. Run <code>assistant apps refresh</code> to build.</p>`;
     return (
       `<!DOCTYPE html><html><head><title>${escapedName}</title></head>` +
       `<body>${body}</body></html>`

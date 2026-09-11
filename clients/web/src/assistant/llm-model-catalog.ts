@@ -1155,7 +1155,7 @@ export const MODELS_BY_PROVIDER = {
       contextWindowTokens: 32_768,
       defaultContextWindowTokens: 32_768,
       maxOutputTokens: 32_768,
-      featureFlag: "settings-developer-nav",
+      featureFlag: "vellum-hosted-inference",
     },
   ],
   "openai-compatible": [],
@@ -1356,30 +1356,34 @@ export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
   "gpt-5.6-terra",
   "gpt-5.6-luna",
   "gpt-5.5",
-  // OpenAI retires these two from ChatGPT sign-in on 2026-08-31; API-key
-  // auth is unaffected.
-  "gpt-5.4",
-  "gpt-5.4-mini",
 ]);
 
-export const DEVELOPER_MODE_CATALOG_FLAG = "settings-developer-nav";
+export const HOSTED_INFERENCE_CATALOG_FLAG = "vellum-hosted-inference";
+
+export function catalogEnabledFlags(args: {
+  hostedInference?: boolean;
+}): Record<string, boolean> {
+  return {
+    [HOSTED_INFERENCE_CATALOG_FLAG]: args.hostedInference === true,
+  };
+}
 
 export function isCatalogModelVisible(
   model: Pick<LlmCatalogModel, "featureFlag">,
-  developerMode: boolean,
+  enabledFlags: Readonly<Record<string, boolean>>,
 ): boolean {
   if (!model.featureFlag) {
     return true;
   }
-  return model.featureFlag === DEVELOPER_MODE_CATALOG_FLAG && developerMode;
+  return enabledFlags[model.featureFlag] === true;
 }
 
 export function getVisibleModelsForProvider(
   provider: string,
-  developerMode: boolean,
+  enabledFlags: Readonly<Record<string, boolean>>,
 ): readonly LlmCatalogModel[] {
   return getModelsForProvider(provider).filter((model) =>
-    isCatalogModelVisible(model, developerMode),
+    isCatalogModelVisible(model, enabledFlags),
   );
 }
 

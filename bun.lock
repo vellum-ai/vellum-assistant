@@ -7,7 +7,7 @@
     },
     "assistant": {
       "name": "@vellumai/assistant",
-      "version": "0.11.10",
+      "version": "0.12.0",
       "bin": {
         "assistant": "./src/index.ts",
       },
@@ -20,6 +20,7 @@
         "@qdrant/js-client-rest": "1.17.0",
         "@resvg/resvg-js": "2.6.2",
         "@slack/types": "2.22.0",
+        "@vellumai/app-icons": "workspace:*",
         "@vellumai/avatar-catalog": "workspace:*",
         "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/ces-client": "workspace:*",
@@ -96,7 +97,7 @@
     },
     "cli": {
       "name": "@vellumai/cli",
-      "version": "0.11.10",
+      "version": "0.12.0",
       "bin": {
         "vellum": "./src/index.ts",
       },
@@ -211,13 +212,15 @@
         "electron": "42.2.0",
         "electron-builder": "26.8.1",
         "electron-vite": "5.0.0",
+        "node-addon-api": "8.9.0",
+        "node-gyp": "12.4.0",
         "typescript": "5.9.3",
         "vite": "7.3.3",
       },
     },
     "clients/web": {
       "name": "@vellumai/web",
-      "version": "0.11.10",
+      "version": "0.12.0",
       "dependencies": {
         "@capacitor-community/camera-preview": "8.0.1",
         "@capacitor/android": "8.3.4",
@@ -259,6 +262,7 @@
         "@tiptap/pm": "3.23.5",
         "@tiptap/react": "3.23.5",
         "@tiptap/starter-kit": "3.23.5",
+        "@vellumai/app-icons": "workspace:*",
         "@vellumai/assistant-api": "workspace:*",
         "@vellumai/avatar-catalog": "workspace:*",
         "@vellumai/avatar-manifest": "workspace:*",
@@ -270,6 +274,8 @@
         "capacitor-plugin-safe-area": "5.0.0",
         "class-variance-authority": "0.7.1",
         "clsx": "2.1.1",
+        "emojibase": "17.0.0",
+        "emojibase-data": "17.0.0",
         "gradient-shimmer": "0.1.1",
         "i18next": "26.3.6",
         "i18next-icu": "2.4.4",
@@ -363,7 +369,7 @@
     },
     "credential-executor": {
       "name": "@vellumai/credential-executor",
-      "version": "0.11.10",
+      "version": "0.12.0",
       "bin": {
         "credential-executor": "./src/main.ts",
         "credential-executor-managed": "./src/managed-main.ts",
@@ -387,7 +393,7 @@
     },
     "gateway": {
       "name": "@vellumai/vellum-gateway",
-      "version": "0.11.10",
+      "version": "0.12.0",
       "bin": {
         "gateway": "./src/cli/index.ts",
       },
@@ -421,6 +427,14 @@
         "prettier": "3.8.1",
         "typescript": "5.9.3",
         "typescript-eslint": "8.56.0",
+      },
+    },
+    "packages/app-icons": {
+      "name": "@vellumai/app-icons",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@types/bun": "1.3.10",
+        "typescript": "5.9.3",
       },
     },
     "packages/assistant-client": {
@@ -621,6 +635,7 @@
       "name": "@vellumai/ipc-contract",
       "version": "0.0.1",
       "dependencies": {
+        "@vellumai/avatar-manifest": "workspace:*",
         "@vellumai/service-contracts": "workspace:*",
       },
       "devDependencies": {
@@ -681,8 +696,12 @@
     "packages/slack-text": {
       "name": "@vellumai/slack-text",
       "version": "0.0.1",
+      "dependencies": {
+        "emojibase-data": "17.0.0",
+      },
       "devDependencies": {
         "@types/bun": "1.3.10",
+        "emojibase": "17.0.0",
         "typescript": "5.9.3",
       },
     },
@@ -1901,6 +1920,8 @@
 
     "@valibot/to-json-schema": ["@valibot/to-json-schema@1.7.1", "", { "peerDependencies": { "valibot": "^1.4.0" } }, "sha512-3qkmU6KXWh8GIThEAW3kuRHPQBMjWkKy+Ppz3WkUucx53DTpOa6siMn4xDGSOhlVyMrDaJTCTMLYPZVAIk1P0A=="],
 
+    "@vellumai/app-icons": ["@vellumai/app-icons@workspace:packages/app-icons"],
+
     "@vellumai/assistant": ["@vellumai/assistant@workspace:assistant"],
 
     "@vellumai/assistant-api": ["@vellumai/assistant-api@workspace:assistant/src/api"],
@@ -2412,6 +2433,10 @@
     "elementtree": ["elementtree@0.1.7", "", { "dependencies": { "sax": "1.1.4" } }, "sha512-wkgGT6kugeQk/P6VZ/f4T+4HB41BVgNBq5CDIZVbQ02nvTVqAiVTbskxxu3eA/X96lMlfYOwnLQpN2v5E1zDEg=="],
 
     "emoji-regex": ["emoji-regex@9.2.2", "", {}, "sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg=="],
+
+    "emojibase": ["emojibase@17.0.0", "", {}, "sha512-bXdpf4HPY3p41zK5swVKZdC/VynsMZ4LoLxdYDE+GucqkFwzcM1GVc4ODfYAlwoKaf2U2oNNUoOO78N96ovpBA=="],
+
+    "emojibase-data": ["emojibase-data@17.0.0", "", { "peerDependencies": { "emojibase": "*" } }, "sha512-Yvgb5AWoHViHV/gq1qr5ZAarcBip+B27/ZLRsUJkbgAEaLlZ/fof9g882LTpmEpyhBNEC0m2SEmItljHsTygjA=="],
 
     "empathic": ["empathic@2.0.1", "", {}, "sha512-YGRs8knHhKHVShLkFET/rWAU8kmHbOV5LwN938RHI0pljAJ1Gf6SzXsSmRaEzcXTtOOmVqJ5+WtQPL5uigY50Q=="],
 

@@ -94,6 +94,10 @@
     "emptyTitle": "Nothing on my mind yet.",
     "emptyBody": "I'm always thinking. When something's worth your time, I'll start a thread here."
   },
+  "assistantSectionToggle": {
+    "hide": "Hide threads from {name}",
+    "show": "Show threads from {name}"
+  },
   "assistantSideMenu": {
     "bulkActionMembersFailed": "Couldn't load every conversation in this section. Try again.",
     "closeNavAria": "Close navigation",
@@ -137,6 +141,8 @@
     "closePreviewAria": "Close preview",
     "downloadAria": "Download {filename}",
     "downloadLabel": "Download",
+    "legacyUnavailable": "Preview unavailable. The file content was not preserved in chat history.",
+    "loadFailed": "Failed to load preview.",
     "nextAttachmentAria": "Next attachment",
     "pdfLoadFailed": "Couldn't display this PDF",
     "previewAria": "Preview of {filename}",
@@ -300,7 +306,8 @@
     "title": "Show"
   },
   "cardSurface": {
-    "tasksProgress": "{completed} / {total} tasks"
+    "tasksProgress": "{completed} / {total} tasks",
+    "viewDetails": "View details"
   },
   "channelReferenceChip": {
     "heading": "Referencing a {channel} message",
@@ -376,8 +383,27 @@
   },
   "chatConversationHeader": {
     "archived": "[Archived]",
-    "newChat": "New Chat",
-    "untitled": "Untitled"
+    "newChat": "New Chat"
+  },
+  "chatInfoPanel": {
+    "appsTitle": "Apps",
+    "backAria": "Back to chat info",
+    "backTooltip": "Chat info",
+    "closeAria": "Close chat info",
+    "empty": "No assets in this chat yet",
+    "filesTitle": "Documents & Images",
+    "framesTitle": "Camera Frames",
+    "loadFailed": "Assets could not be loaded",
+    "loadMore": "Load more",
+    "openAppAria": "Open {name}",
+    "openDocumentAria": "Open {name}",
+    "previewAttachmentAria": "Preview {filename}",
+    "previewFrameAria": "Preview camera frame",
+    "seeAll": "See All",
+    "seeAllAppsAria": "See all apps",
+    "seeAllFilesAria": "See all documents and images",
+    "seeAllFramesAria": "See all camera frames",
+    "title": "Chat Info"
   },
   "chatLayout": {
     "navigationAria": "Navigation"
@@ -440,6 +466,9 @@
     "timeoutTitle": "Cleanup is taking longer than expected",
     "title": "Cleaning up your assistant…",
     "warningAria": "warning"
+  },
+  "coachmarkPress": {
+    "turn": "I clicked {label}. Now what?"
   },
   "collapsedGroupIcon": {
     "noConversations": "No conversations"
@@ -616,12 +645,10 @@
   },
   "conversationAssets": {
     "ariaLabel": "Conversation assets, {count, plural, one {# item} other {# items}}",
+    "ariaLabelUnavailable": "Conversation assets, could not be loaded",
     "ariaLabelUnseen": "Conversation assets, {count, plural, one {# item} other {# items}} (unseen changes)",
-    "heading": "Assets",
-    "label": "{count, plural, one {# asset} other {# assets}}"
-  },
-  "conversationRow": {
-    "untitled": "Untitled"
+    "label": "{count, plural, one {# asset} other {# assets}}",
+    "labelUnavailable": "Assets could not be loaded"
   },
   "conversationStarterDock": {
     "caption": "Try some suggestions:"
@@ -668,8 +695,7 @@
     "cancel": "Cancel",
     "confirm": "Delete",
     "message": "Delete “{title}”? This permanently removes the conversation and its messages. Related assets and memories may still persist. This cannot be undone.",
-    "title": "Delete conversation",
-    "untitled": "Untitled"
+    "title": "Delete conversation"
   },
   "deletedMessageRow": {
     "label": "This message was deleted"
@@ -899,7 +925,8 @@
     "windows": "Voice is already active in the Windows app."
   },
   "liveVoiceButton": {
-    "startVoiceMode": "Start voice mode"
+    "startVoiceMode": "Start voice mode",
+    "tooltip": "Talk out loud with voice mode"
   },
   "liveVoiceStatus": {
     "askUnsupported": "This assistant can’t take a question this way yet. Update it and try again.",
@@ -1144,17 +1171,30 @@
     "bookmark": "Bookmark",
     "copied": "Copied",
     "copy": "Copy",
+    "copyFailed": "Couldn't copy the message.",
     "forkFromHere": "Fork from here",
     "inspect": "Inspect",
+    "loading": "Reading…",
     "openInSlack": "Open in Slack",
+    "playFailed": "Couldn't read this message.",
+    "readAloud": "Read aloud",
     "removeBookmark": "Remove bookmark",
     "retry": "Retry",
+    "stop": "Stop",
     "summarizeUpToHere": "Summarize up to here"
   },
   "messageLongPressActions": {
     "bookmark": "Bookmark",
     "copied": "Copied",
+    "copy": "Copy",
+    "copyFailed": "Couldn't copy the message.",
+    "forkFromHere": "Fork from here",
+    "inspect": "Inspect",
+    "openInSlack": "Open in Slack",
+    "readAloud": "Read aloud",
     "removeBookmark": "Remove bookmark",
+    "stop": "Stop",
+    "summarizeUpToHere": "Summarize up to here",
     "title": "Message actions"
   },
   "micPermissionPrimer": {
@@ -1326,7 +1366,8 @@
     "railAria": "Progress",
     "stepCounter": "{current} of {total}",
     "title": "Progress",
-    "titleFinished": "Finished"
+    "titleFinished": "Finished",
+    "titleStopped": "Stopped"
   },
   "promptSubmission": {
     "noActiveSession": "No active session. Please try again."
@@ -1669,11 +1710,14 @@
     "settings": "Settings"
   },
   "toolDetailPanel": {
+    "changes": "Changes",
     "closeAria": "Close tool details",
+    "command": "Command",
     "denied": "This tool call was not approved, so it did not run.",
     "emptyOutput": "The tool returned no output.",
+    "input": "Input",
     "output": "Output",
-    "riskLevel": "Risk Level",
+    "requestedChanges": "Requested changes",
     "running": "Running…"
   },
   "toolStepPill": {
@@ -1688,7 +1732,8 @@
     "stopWorkflow": "Stop workflow"
   },
   "transcriptRow": {
-    "thinking": "Thinking"
+    "thinking": "Thinking",
+    "working": "Working"
   },
   "useConversationLoader": {
     "authFailed": "Failed to authenticate user."
@@ -1697,9 +1742,6 @@
     "assistantBusy": "Your assistant is busy. Try again when it finishes replying.",
     "retryFailed": "Couldn't retry the response",
     "summarizeFailed": "Couldn't summarize the conversation"
-  },
-  "useNativeWidgetSnapshotSync": {
-    "untitled": "Untitled"
   },
   "useSendMessage": {
     "commandFailed": "Couldn't run that command. Please try again.",
@@ -1783,6 +1825,24 @@
   },
   "voiceSessionPillHost": {
     "muted": "Muted"
+  },
+  "wakeCard": {
+    "commandFinished": "Background command finished",
+    "incomingEvent": "Incoming event",
+    "memoryReview": "Memory review",
+    "ranOnItsOwn": "Ran on its own",
+    "resumed": "Resumed after an interruption",
+    "scheduledRun": "Scheduled run",
+    "watchReview": "Watch session review",
+    "workflowFinished": "Workflow finished"
+  },
+  "wakeDetailPanel": {
+    "close": "Close",
+    "details": "Details",
+    "result": "Result",
+    "runStatus": "Run status",
+    "title": "Conversation woke",
+    "workflow": "Workflow"
   },
   "weatherForecastDisplay": {
     "celsius": "°C",

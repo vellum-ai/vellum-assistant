@@ -12,6 +12,7 @@ import { isElectron } from "@/runtime/is-electron";
 import type {
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionContext,
@@ -160,6 +161,32 @@ export function toggleCompanionAnnotating(): void {
 }
 
 /**
+ * Take down everything on the shared surface without ending the share: the
+ * assistant's marks, and the user's own ink.
+ *
+ * Main's, for the reason the mode is: it holds the assistant's marks, and the
+ * ink is on a window it opened that this renderer cannot reach. What comes
+ * back is the marks gone from the pushed state and `marksCleared` stepped on
+ * it.
+ */
+export function clearCompanionMarks(): void {
+  bridge()?.clearMarks?.();
+}
+
+/**
+ * Choose what a press on the shared surface draws: the pointer's own path, or
+ * a line, box or circle stretched between press and release.
+ *
+ * Main's for the reason the mode is: the pill chooses and the frame draws, and
+ * what comes back is `annotationTool` on the pushed state.
+ */
+export function setCompanionAnnotationTool(
+  tool: CompanionAnnotationTool,
+): void {
+  bridge()?.setAnnotationTool?.(tool);
+}
+
+/**
  * A mark the user is drawing on the shared surface, from the frame's own
  * window: the hand still on it, or off it with the strokes it left.
  *
@@ -174,6 +201,20 @@ export function annotateCompanionShare(
   ink: string,
 ): void {
   bridge()?.annotateShare?.(phase, strokes, ink);
+}
+
+/**
+ * Tell main the user is scrolling the app under the frame, or has moved the
+ * pointer since, from the frame's own window while drawing is on.
+ *
+ * The frame takes the wheel along with the presses and cannot forward it, so
+ * main answers a scroll by making the frame click-through until the pointer
+ * moves: the rest of the scroll reaches the app underneath, and the first
+ * forwarded move is the frame's cue to take the mouse back. Main holds the
+ * state; this only reports the two events it cannot see.
+ */
+export function setCompanionFrameScrolling(scrolling: boolean): void {
+  bridge()?.setFrameScrolling?.(scrolling);
 }
 
 /**

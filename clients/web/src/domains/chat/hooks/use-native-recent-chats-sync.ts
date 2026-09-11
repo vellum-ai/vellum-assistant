@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { useTranslation } from "@/i18n";
 import {
   isRecentChatsSyncAvailable,
   syncRecentChats,
@@ -7,6 +8,7 @@ import {
 } from "@/runtime/recent-chats";
 import type { Conversation } from "@/types/conversation-types";
 import { activeConversationsByRecency } from "@/utils/conversation-order";
+import { displayConversationTitle } from "@/utils/conversation-title";
 
 /**
  * How many conversations the native cache gets. The Shortcuts picker is a
@@ -27,7 +29,7 @@ const MAX_SYNCED_CHATS = 50;
  * Syncs are deduped on the serialized payload, so re-renders and refetches
  * that change nothing the picker can see cost no bridge traffic. Archived
  * conversations are excluded to match the sidebar; titleless ones get the
- * sidebar's own "Untitled" fallback so every picker row has a label.
+ * localized untitled fallback so every picker row has a label.
  *
  * `listResolved` must be false until the conversation-list query has actually
  * SUCCEEDED. The query serves an `[]` fallback while pending (loading, or
@@ -45,6 +47,7 @@ export function useNativeRecentChatsSync(
   listResolved: boolean,
 ): void {
   const lastPayloadRef = useRef<string | null>(null);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!isRecentChatsSyncAvailable() || !listResolved) {
@@ -56,7 +59,7 @@ export function useNativeRecentChatsSync(
       .slice(0, MAX_SYNCED_CHATS)
       .map((conversation) => ({
         id: conversation.conversationId,
-        title: conversation.title ?? "Untitled",
+        title: displayConversationTitle(conversation.title, t),
       }));
     const serialized = JSON.stringify(chats);
     if (serialized === lastPayloadRef.current) {
@@ -64,5 +67,5 @@ export function useNativeRecentChatsSync(
     }
     lastPayloadRef.current = serialized;
     void syncRecentChats(chats);
-  }, [conversations, listResolved]);
+  }, [conversations, listResolved, t]);
 }

@@ -26,6 +26,7 @@ import {
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_SUPPORTS_PLATFORM_AUTH,
   getModelsForProvider,
+  catalogEnabledFlags,
   getVisibleModelsForProvider,
   getManagedUpstreamForModel,
   VELLUM_SERVED_PROVIDERS,
@@ -99,6 +100,8 @@ describe("chatgpt identity catalog", () => {
       expect(CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id)).toBe(true);
     }
     expect(models.some((m) => m.id === "gpt-5.4-nano")).toBe(false);
+    expect(models.some((m) => m.id === "gpt-5.4")).toBe(false);
+    expect(models.some((m) => m.id === "gpt-5.4-mini")).toBe(false);
   });
 
   test("defaults to the Balanced profile's model on the chatgpt column", () => {
@@ -160,19 +163,21 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     expect(getManagedUpstreamForModel("not-a-real-model")).toBeUndefined();
   });
 
-  test("vellum GPU models stay out of pickers and hide without developer mode", () => {
+  test("vellum GPU models stay out of pickers and hide without hosted inference", () => {
     expect(Object.keys(MODELS_BY_PROVIDER)).toContain("vellum");
     expect(INFERENCE_PROVIDERS).not.toContain("vellum");
     expect(CONNECTION_PROVIDERS).not.toContain("vellum");
     expect(
-      getVisibleModelsForProvider("vellum", false).some(
-        (model) => model.id === "qwen/qwen3-8b",
-      ),
+      getVisibleModelsForProvider(
+        "vellum",
+        catalogEnabledFlags({ hostedInference: false }),
+      ).some((model) => model.id === "qwen/qwen3-8b"),
     ).toBe(false);
     expect(
-      getVisibleModelsForProvider("vellum", true).some(
-        (model) => model.id === "qwen/qwen3-8b",
-      ),
+      getVisibleModelsForProvider(
+        "vellum",
+        catalogEnabledFlags({ hostedInference: true }),
+      ).some((model) => model.id === "qwen/qwen3-8b"),
     ).toBe(true);
   });
 

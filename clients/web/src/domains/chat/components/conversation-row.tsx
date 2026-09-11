@@ -42,6 +42,7 @@ import {
   canMarkUnread,
   isConversationPinned,
 } from "@/utils/conversation-predicates";
+import { useDisplayConversationTitle } from "@/utils/conversation-title";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useConversationMenuShortcuts } from "@/domains/chat/hooks/use-conversation-menu-shortcuts";
 import type { SwipeAction } from "@/hooks/use-swipe-to-reveal";
@@ -196,6 +197,7 @@ export function ConversationRow({
   const ctx = useConversationListContext();
   const { conversationId } = conversation;
   const { t } = useTranslation("chat");
+  const displayTitle = useDisplayConversationTitle();
 
   const isProcessing =
     conversationId === ctx.activeConversationId
@@ -237,11 +239,15 @@ export function ConversationRow({
 
   const panelItem = (
     <SwipeActionReveal
+      // The row's shape, which is `PanelItem`'s radius: the layer a swipe
+      // reveals behind the row inherits it, so no corner of the layer shows
+      // past the row's own.
+      className="rounded-[6px]"
       leadingActions={leadingActions}
       trailingActions={trailingActions}
     >
       <PanelItem
-        label={conversation.title ?? t("conversationRow.untitled")}
+        label={displayTitle(conversation.title)}
         marqueeOnHover={marquee}
         active={isActiveConversation}
         onSelect={() => select(conversationId)}

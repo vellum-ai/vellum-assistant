@@ -405,6 +405,47 @@ describe("handleHostAppControlResult — same-actor guard", () => {
     expect(resolveCalls).toHaveLength(1);
   });
 
+  test("non-targeted with recorded source actor: rejects a different principal", () => {
+    const requestId = "ac-req-untargeted-actor-mismatch";
+    const conversationId = "conv-untargeted-actor";
+    pending.set(requestId, {
+      conversationId,
+      kind: "host_app_control",
+      targetActorPrincipalId: "user-owner",
+    });
+    const resolveCalls: Array<{ requestId: string; payload: unknown }> = [];
+    setupConversation(conversationId, resolveCalls);
+
+    expect(() =>
+      handleHostAppControlResult({
+        body: { requestId, state: "running" },
+        headers: { "x-vellum-actor-principal-id": "user-attacker" },
+      }),
+    ).toThrow(ForbiddenError);
+    expect(resolveCalls).toHaveLength(0);
+    expect(pending.has(requestId)).toBe(true);
+  });
+
+  test("non-targeted with recorded source actor: accepts the matching principal", async () => {
+    const requestId = "ac-req-untargeted-actor-match";
+    const conversationId = "conv-untargeted-actor-match";
+    pending.set(requestId, {
+      conversationId,
+      kind: "host_app_control",
+      targetActorPrincipalId: "user-owner",
+    });
+    const resolveCalls: Array<{ requestId: string; payload: unknown }> = [];
+    setupConversation(conversationId, resolveCalls);
+
+    const result = await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+      headers: { "x-vellum-actor-principal-id": "user-owner" },
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(resolveCalls).toHaveLength(1);
+  });
+
   // ── Targeted + correct headers → 200 ─────────────────────────────────
 
   test("targeted + matching client id and actor principal: returns 200", async () => {

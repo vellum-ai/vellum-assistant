@@ -22,6 +22,7 @@ import type {
   BundleScanData,
   CompanionAnnotationPhase,
   CompanionAnnotationStroke,
+  CompanionAnnotationTool,
   CompanionCapturePick,
   CompanionCaptureSources,
   CompanionCharacter,
@@ -410,11 +411,14 @@ declare global {
         setScreenShare?(pick?: CompanionCapturePick): void;
         setAnnotating?(annotating: boolean): void;
         toggleAnnotating?(): void;
+        clearMarks?(): void;
+        setAnnotationTool?(tool: CompanionAnnotationTool): void;
         annotateShare?(
           phase: CompanionAnnotationPhase,
           strokes: readonly CompanionAnnotationStroke[],
           ink: string,
         ): void;
+        setFrameScrolling?(scrolling: boolean): void;
         sharedFrame?(target: WatchCaptureTarget): void;
         captureScreen?(
           target: WatchCaptureTarget,

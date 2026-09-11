@@ -24,6 +24,16 @@ on:
       # The xcconfigs name the icon bundle each environment builds against,
       # and the desktop shells keep their own per-environment icon manifests.
       - 'clients/ios/App/App/Config/**'
+      # The Communication Notifications guard pins the app entitlements and
+      # Info.plist to each other, and to the extension Info.plist that must not
+      # claim the intent.
+      - 'clients/ios/App/App/App.entitlements'
+      - 'clients/ios/App/App/App-Dev.entitlements'
+      - 'clients/ios/App/App/Info.plist'
+      - 'clients/ios/App/NotificationService/Info.plist'
+      # The same guard reads the NotificationService profile names out of the
+      # release workflow.
+      - '.github/workflows/release-ios.yaml'
       - 'clients/macos/build-resources/icons/**'
       - 'clients/linux/build-resources/icons/**'
       # Linux converts its ground at build time, and the drift guard runs that

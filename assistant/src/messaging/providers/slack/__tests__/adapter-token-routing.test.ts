@@ -162,10 +162,11 @@ describe("Slack adapter token routing", () => {
     globalThis.fetch = originalFetch;
   });
 
-  test("bot-token only: reads and writes both authenticate with the bot token (regression guard for pre-user-token behavior)", async () => {
+  test("bot-token only: reads authenticate with the bot token (regression guard for pre-user-token behavior)", async () => {
     // With only a bot token stored, reads must fall back to the bot token
     // so the adapter keeps working for installs that haven't re-consented
-    // the user scope. Writes stay on the bot token always.
+    // the user scope. Writes are not the adapter's: they go through the
+    // channel transport's senders, which always post as the bot.
     const resolved = await slackProvider.resolveConnection!();
     expect(resolved).toBeUndefined();
 
@@ -176,18 +177,12 @@ describe("Slack adapter token routing", () => {
     );
     expect(readCall).toBeDefined();
     expect(readCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
-
-    // Write path: sendMessage → /chat.postMessage must also use bot token.
-    await slackProvider.sendMessage(undefined, "C123", "hello");
-    const writeCall = captured.find((c) => c.url.includes("/chat.postMessage"));
-    expect(writeCall).toBeDefined();
-    expect(writeCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
   });
 
-  test("bot + user tokens: reads authenticate with the user token, writes with the bot token", async () => {
+  test("bot + user tokens: reads authenticate with the user token", async () => {
     // With both tokens stored, reads MUST flip to the user token so the
-    // adapter can see channels the user is in but the bot isn't. Writes
-    // MUST stay on the bot token so posts come from the bot identity.
+    // adapter can see channels the user is in but the bot isn't. Posts are
+    // the transport's and come from the bot identity there.
     getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
       if (key === credentialKey("slack_channel", "bot_token")) {
         return BOT_TOKEN;
@@ -216,12 +211,6 @@ describe("Slack adapter token routing", () => {
     );
     expect(historyCall).toBeDefined();
     expect(historyCall!.authorization).toBe(`Bearer ${USER_TOKEN}`);
-
-    // Writes: sendMessage → bot token.
-    await slackProvider.sendMessage(undefined, "C123", "hello");
-    const sendCall = captured.find((c) => c.url.includes("/chat.postMessage"));
-    expect(sendCall).toBeDefined();
-    expect(sendCall!.authorization).toBe(`Bearer ${BOT_TOKEN}`);
 
     // markRead → user token. conversations.mark sets the read cursor for
     // the authenticated identity, so it must use the same token whose unread

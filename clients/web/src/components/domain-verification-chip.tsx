@@ -50,7 +50,7 @@ export function DomainVerificationChip({
     );
   }
 
-  if (status === "pending" || status === "not_started") {
+  if (status === "pending") {
     return (
       <span
         className="inline-flex items-center gap-1 rounded-full bg-[var(--system-mid-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-mid-strong)]"
@@ -58,6 +58,18 @@ export function DomainVerificationChip({
       >
         <Clock className="h-3 w-3" />
         {t("domainVerificationChip.verifyingDomain")}
+      </span>
+    );
+  }
+
+  if (status === "not_started") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-[var(--system-negative-weak)] px-2.5 py-0.5 text-body-small-default text-[var(--system-negative-strong)]"
+        title={t("domainVerificationChip.setupRequiredTitle")}
+      >
+        <AlertCircle className="h-3 w-3" />
+        {t("domainVerificationChip.setupRequired")}
       </span>
     );
   }

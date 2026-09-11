@@ -75,10 +75,12 @@ import {
   newTurnId,
   resolvePostError,
   shouldCleanupSupersededInteractions,
+  shouldQueueSend,
 } from "@/domains/chat/utils/send-message-utils";
 import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { getSoundManager } from "@/lib/sounds/sound-manager";
+import { getInterruptOnSend } from "@/domains/chat/hooks/use-interrupt-on-send";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { confirmQueuedMessageDeletion } from "@/domains/chat/queue-cancellation";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
@@ -574,6 +576,15 @@ export function useSendMessage({
           resolvedConversationId: postResult.conversationId,
         };
       }
+      // Not queued, so no `message_queued` will register this. Recorded anyway
+      // because a send the daemon accepted can still fail afterwards (an
+      // `interrupt-on-send` handover whose queue fallback is refused), and the
+      // only handle that failure event carries is the request id.
+      if (clientMessageId && postResult.requestId) {
+        useChatSessionStore
+          .getState()
+          .setRequestIdMapping(postResult.requestId, clientMessageId);
+      }
       if (hasMatchingActiveStream) {
         return {
           status: "ok",
@@ -851,7 +862,13 @@ export function useSendMessage({
         }
       }
 
-      const willQueue = isSending(useTurnStore.getState().phase);
+      const phaseAtSend = useTurnStore.getState().phase;
+      const willQueue = shouldQueueSend(phaseAtSend, getInterruptOnSend());
+      // The same read decides the other half: a send that does not queue into
+      // a busy turn is replacing it, so the `generation_cancelled` that lands
+      // behind this send's 202 is that turn's handoff and must not idle the
+      // turn this one is starting.
+      const interruptsRunningTurn = isSending(phaseAtSend) && !willQueue;
       const clientMessageId = crypto.randomUUID();
       const userMessage: DisplayMessage = {
         id: clientMessageId,
@@ -1046,7 +1063,7 @@ export function useSendMessage({
       // behind it. The id still travels, so the send's own bookkeeping is
       // unchanged.
       if (sendScopeIsCurrent()) {
-        useTurnStore.getState().requestSend(turnId);
+        useTurnStore.getState().requestSend(turnId, { interruptsRunningTurn });
       }
 
       const currentConv = findConversation(

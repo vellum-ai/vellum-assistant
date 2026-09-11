@@ -10,7 +10,13 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 import { Download, Search } from "lucide-react";
-import { type ChangeEvent, useCallback, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { DeployDialogs } from "@/components/deploy-dialogs";
 import { DeleteAppDialog } from "@/components/delete-app-dialog";
@@ -18,10 +24,12 @@ import { LibraryDocumentCard } from "@/domains/library/components/library-docume
 import { LibraryEmptyState } from "@/domains/library/components/library-empty-state";
 import { LibraryGridSection } from "@/domains/library/components/library-grid-section";
 import { useLibraryData } from "@/domains/library/use-library-data";
+import { useIntelligenceLayoutSlotsStore } from "@/components/layout/intelligence-layout-slots-store";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAppDelete } from "@/hooks/use-app-delete";
 import { usePinnedApps } from "@/hooks/use-pinned-apps";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
@@ -46,6 +54,7 @@ export function LibraryView({
   onOpenApp,
 }: LibraryViewProps) {
   const { t } = useTranslation("library");
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { togglePin, pinnedAppIds } = usePinnedApps(assistantId);
   const isDeploying = useDeployStore.use.isDeploying();
@@ -140,6 +149,55 @@ export function LibraryView({
     [togglePin],
   );
 
+  // --- Header action ---
+  // Import is the only way a `.vellum` recipient gets their first app, so it
+  // stays reachable on the empty library as well as the populated one. It
+  // sits on the layout's heading row, to the right of the "Library" title,
+  // rather than on a row of its own above the search field; the file input
+  // it opens stays down in the body, so the click reaches a mounted input.
+  // Registered through the layout's slot store because the heading is the
+  // layout's, not this view's (see IntelligenceLayout).
+  const setHeaderTrailing =
+    useIntelligenceLayoutSlotsStore.use.setHeaderTrailing();
+  const showsImport = !loading && !error;
+  useEffect(() => {
+    if (!showsImport) {
+      setHeaderTrailing(null);
+      return;
+    }
+    const importIcon = isImporting ? (
+      <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+    ) : (
+      <Download aria-hidden />
+    );
+    setHeaderTrailing(
+      isMobile ? (
+        <Button
+          variant="ghost"
+          iconOnly={importIcon}
+          aria-label={t("libraryView.import")}
+          tooltip={t("libraryView.import")}
+          className="rounded-full max-md:bg-[var(--surface-active)]"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting}
+        />
+      ) : (
+        <Button
+          variant="outlined"
+          size="regular"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={isImporting}
+        >
+          {importIcon}
+          <span className="ml-1.5">{t("libraryView.import")}</span>
+        </Button>
+      ),
+    );
+    return () => {
+      setHeaderTrailing(null);
+    };
+  }, [isMobile, showsImport, isImporting, setHeaderTrailing, t]);
+
   // --- Render: loading ---
   if (loading) {
     return (
@@ -171,38 +229,20 @@ export function LibraryView({
     );
   }
 
-  // Import is the only way a `.vellum` recipient gets their first app, so the
-  // header control renders above the empty/populated split rather than inside
-  // the populated branch.
   const isEmpty = apps.length === 0 && documents.length === 0;
 
   // --- Render: library ---
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="mb-4 flex shrink-0 items-center justify-end gap-4">
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={bundleAccept}
-            className="hidden"
-            onChange={handleImportBundle}
-          />
-          <Button
-            variant="outlined"
-            size="regular"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
-          >
-            {isImporting ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : (
-              <Download size={14} />
-            )}
-            <span className="ml-1.5">{t("libraryView.import")}</span>
-          </Button>
-        </div>
-      </div>
+      {/* The picker the header's Import button opens. Outside the
+          empty/populated split so the button works on both. */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={bundleAccept}
+        className="hidden"
+        onChange={handleImportBundle}
+      />
 
       {isEmpty ? (
         <div className="min-h-0 flex-1">

@@ -7,6 +7,7 @@ import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { desktopClientName } from "../client-os.js";
+import { declareDaemonActivityField } from "../schema-transforms.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
 import type {
   ToolContext,
@@ -26,7 +27,7 @@ export const hostFileTransferTool = {
 
   defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema: {
+  input_schema: declareDaemonActivityField({
     type: "object",
     properties: {
       source_path: {
@@ -62,7 +63,7 @@ export const hostFileTransferTool = {
       },
     },
     required: ["source_path", "dest_path", "direction"],
-  },
+  }),
 
   async execute(
     input: Record<string, unknown>,

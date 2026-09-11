@@ -28,6 +28,7 @@ mock.module("@/runtime/companion-surface", () => ({
   // sends is `companion-share-annotation.test.tsx`'s subject, and this file
   // only cares whether the layer is on the page at all.
   annotateCompanionShare: () => undefined,
+  setCompanionFrameScrolling: () => undefined,
   getCompanionState: async () => STATE,
   subscribeCompanionState: (
     listener: (state: CompanionSurfaceState) => void,
@@ -53,6 +54,11 @@ const inkOf = (container: HTMLElement): HTMLElement | null =>
     "[data-testid='companion-share-annotation']",
   );
 
+const labelOf = (container: HTMLElement): HTMLElement | null =>
+  container.querySelector<HTMLElement>(
+    "[data-testid='companion-watch-frame-label']",
+  );
+
 const marksOf = (container: HTMLElement): HTMLElement[] =>
   Array.from(
     container.querySelectorAll<HTMLElement>(
@@ -60,7 +66,13 @@ const marksOf = (container: HTMLElement): HTMLElement[] =>
     ),
   );
 
-const MARK = { x: 0.1, y: 0.2, width: 0.2, height: 0.1 };
+const MARK = {
+  kind: "region" as const,
+  x: 0.1,
+  y: 0.2,
+  width: 0.2,
+  height: 0.1,
+};
 
 const LISTENING_CALL = {
   phase: "listening" as const,
@@ -266,6 +278,130 @@ describe("the frame around what is read", () => {
   });
 
   /**
+   * The words at the top of the framed surface. The edge says a surface is
+   * leaving the machine; these say which way and to whom, and they are up
+   * exactly as long as the edge is.
+   */
+  describe("the label on the frame", () => {
+    test("is absent with nothing running", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, call: LISTENING_CALL });
+      expect(labelOf(container)).toBeNull();
+    });
+
+    test("names the assistant a screen is shared with", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(labelOf(container)?.textContent).toBe(
+        "Sharing your screen with Ziggy",
+      );
+    });
+
+    /**
+     * A shared window is one thing and a shared screen is everything on it,
+     * which is the difference the user cares about.
+     */
+    test("tells a shared window from a shared screen", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "window", windowId: 42 },
+      });
+      expect(labelOf(container)?.textContent).toBe(
+        "Sharing a window with Ziggy",
+      );
+    });
+
+    test("says a session is being taught from the surface", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, watching: true });
+      expect(labelOf(container)?.textContent).toBe("Teaching Ziggy");
+    });
+
+    /**
+     * The shell frames the watched surface while both run (`framedTarget`),
+     * so a label naming the share would be about a surface this window is
+     * not on.
+     */
+    test("describes the watch while it outranks the share", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        watching: true,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(labelOf(container)?.textContent).toBe("Teaching Ziggy");
+    });
+
+    test("reads plainly before the app has said who the assistant is", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        assistantName: "",
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(labelOf(container)?.textContent).toBe("Sharing your screen");
+    });
+
+    test("is lit in the same accent as the edge", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-ring-accent"),
+      ).toBe("#5eead4");
+    });
+
+    /**
+     * A whole display is framed to its full bounds and the menu bar draws
+     * over the top of the window, so the shell says how far down the label
+     * has to start. Read as the inset it is; a shell that says nothing
+     * leaves the label against the edge.
+     */
+    test("starts below the menu bar the shell reports", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        screenShare: { kind: "display", displayId: 7 },
+        frameInsetTop: 25,
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-frame-inset"),
+      ).toBe("25px");
+    });
+
+    test("sits against the edge when the shell reports no inset", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        screenShare: { kind: "window", windowId: 42 },
+      });
+      expect(
+        labelOf(container)?.style.getPropertyValue("--companion-frame-inset"),
+      ).toBe("");
+    });
+
+    test("comes down with the share", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({
+        ...STATE,
+        call: LISTENING_CALL,
+        screenShare: { kind: "display", displayId: 7 },
+      });
+      pushState({ ...STATE, call: LISTENING_CALL });
+      expect(labelOf(container)).toBeNull();
+    });
+  });
+
+  /**
    * The one exception to that, and the reason it is drawn off the pushed
    * state rather than off the share: main is what makes the window take mouse
    * events, so a layer mounted on any other signal would be a layer
@@ -298,6 +434,32 @@ describe("the frame around what is read", () => {
       pushState({ ...STATE, annotating: true });
       pushState({ ...STATE, annotating: false });
       expect(inkOf(container)).toBeNull();
+    });
+
+    /**
+     * The pill's Clear reaches the layer as the count main steps on the
+     * pushed state, read off the same push as the mode. A shell that has no
+     * Clear names no count, which is no clears.
+     */
+    test("hands the layer the count of clears", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true, marksCleared: 2 });
+      expect(inkOf(container)?.getAttribute("data-cleared")).toBe("2");
+      pushState({ ...STATE, annotating: true });
+      expect(inkOf(container)?.getAttribute("data-cleared")).toBe("0");
+    });
+
+    /**
+     * The tool is read off the same push as the mode, so the one chosen on
+     * the pill and the one under the hand here are never two. A shell that
+     * names none has only the pencil.
+     */
+    test("draws with the tool main names, and the pencil when it names none", () => {
+      const { container } = render(<CompanionWatchFramePage />);
+      pushState({ ...STATE, annotating: true, annotationTool: "box" });
+      expect(inkOf(container)?.getAttribute("data-tool")).toBe("box");
+      pushState({ ...STATE, annotating: true });
+      expect(inkOf(container)?.getAttribute("data-tool")).toBe("freehand");
     });
   });
 

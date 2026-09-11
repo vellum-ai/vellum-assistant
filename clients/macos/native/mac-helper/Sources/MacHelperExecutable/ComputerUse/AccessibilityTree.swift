@@ -825,4 +825,37 @@ final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked 
         }
         return result
     }
+
+    /// Roles that show a window on part of their contents and hide the rest.
+    ///
+    /// A scrolled-away row keeps the frame it would have if it were on screen,
+    /// so its position reads as real while nothing is drawn there. Anything
+    /// deciding where a thing is has to know which ancestors are cropping it.
+    static let clippingRoles: Set<String> = ["AXScrollArea"]
+
+    /// Every element in the tree, each with the rectangle its ancestors leave
+    /// it, which is what a caller pointing at one has to measure against.
+    ///
+    /// A clipping ancestor narrows the rectangle to its own frame, so a row
+    /// scrolled out of a pane comes back with a rectangle its frame does not
+    /// meet. `visible` is nil where nothing is cropping, which is most of a
+    /// tree and every tree from an app that scrolls nothing.
+    ///
+    /// See `AXClip` for what each ancestor leaves.
+    static func flattenClipped(
+        _ elements: [AXElement],
+        within clip: CGRect? = nil
+    ) -> [(element: AXElement, visible: CGRect?)] {
+        var result: [(element: AXElement, visible: CGRect?)] = []
+        for element in elements {
+            result.append((element: element, visible: clip))
+            let inner = AXClip.narrowed(
+                clip,
+                by: element.frame,
+                clips: clippingRoles.contains(element.role)
+            )
+            result.append(contentsOf: flattenClipped(element.children, within: inner))
+        }
+        return result
+    }
 }

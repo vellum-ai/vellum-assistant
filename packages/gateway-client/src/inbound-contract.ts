@@ -85,6 +85,12 @@ export const SourceMetadataSchema = z
     commandIntent: CommandIntentSchema.optional(),
     /** Slack-specific: whether the bot was @-mentioned. */
     slackBotMentioned: z.boolean().optional(),
+    /**
+     * Slack-specific: the `edited.ts` float-string from a `message_changed`
+     * event. Used by the daemon to reject out-of-order edit deliveries whose
+     * edit timestamp is older than the one already stored.
+     */
+    slackEditedTs: z.string().optional(),
     /** Slack workspace/team ID. */
     account: z.string().optional(),
     /**

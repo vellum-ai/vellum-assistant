@@ -29,5 +29,9 @@ export async function run(
       marks: [],
     },
     context,
+    // Teardown: it takes marks down. Refusing it on a cancelled turn would
+    // leave arrows drawn on the screen the user is sharing, with nothing left
+    // to remove them.
+    { teardown: true },
   );
 }

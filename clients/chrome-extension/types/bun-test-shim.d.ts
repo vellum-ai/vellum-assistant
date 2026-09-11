@@ -68,4 +68,14 @@ declare module 'bun:test' {
   }
 
   export const expect: ExpectFunction;
+
+  export const mock: {
+    module(id: string, factory: () => unknown): void;
+  };
+
+  export const jest: {
+    useFakeTimers(): void;
+    useRealTimers(): void;
+    advanceTimersByTime(ms: number): void;
+  };
 }

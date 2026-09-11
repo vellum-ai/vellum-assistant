@@ -143,7 +143,7 @@ Older routes were written with a second `context` argument (`context.assistantEv
 
 ## Key rules
 
-- Always create the route handler files via `file_write` before calling `app_refresh`
+- Always create the route handler files via `file_write` before compiling (`app_refresh` or `assistant apps refresh`)
 - Export an optional `description` string for CLI discoverability (`assistant routes list`)
 - Handlers have full Node.js API access — `fs`, `path`, `crypto`, etc.
 - Handlers get a 30-second timeout per request

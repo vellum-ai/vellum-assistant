@@ -16,6 +16,8 @@ import {
 
 import type { CommandPaletteSection } from "@/components/command-palette/command-palette";
 import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
+import { t, type TFunction } from "@/i18n";
+import { displayConversationTitle } from "@/utils/conversation-title";
 
 /**
  * Accelerators for the actions bound on this host. Resolved by the caller so
@@ -68,6 +70,7 @@ export function buildActionsSection(
 export function buildServerResultSections(
   results: GlobalSearchResponse,
   recentConversationIds: Set<string>,
+  translate: TFunction = t,
 ): CommandPaletteSection[] {
   const sections: CommandPaletteSection[] = [];
 
@@ -76,7 +79,7 @@ export function buildServerResultSections(
     .map((c) => ({
       id: `search-conv-${c.id}`,
       icon: MessageSquare,
-      title: c.title ?? "Untitled",
+      title: displayConversationTitle(c.title, translate),
       snippet: c.excerpt || undefined,
     }));
   if (serverConvItems.length > 0) {

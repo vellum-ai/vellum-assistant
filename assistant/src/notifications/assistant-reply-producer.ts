@@ -22,12 +22,14 @@ import {
   getMessageById,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
 import {
   isDesktopOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
   resolveConversationKind,
 } from "../persistence/conversation-types.js";
 import { stringifyMessageContent } from "../persistence/message-content.js";
+import { projectPersistedAssistantContent } from "../persistence/user-facing-content.js";
 import { isDesktopAttended } from "../runtime/desktop-presence.js";
 import { isWebConversationFocused } from "../runtime/web-presence.js";
 import { safeParseRecord } from "../util/json.js";
@@ -225,7 +227,15 @@ export async function emitAssistantReplyNotification(params: {
     // first: a lock screen renders none of it, and an embed-only reply has to
     // reduce to empty for the fallback to be reachable. A reply with neither
     // text nor media stays silent.
-    const text = stringifyMessageContent(assistantRow.content);
+    // The push preview quotes what the user reads, so it walks the same
+    // user-facing projection the transcript does, keyed on the row's own
+    // marker: a `send_user_message` turn's plain text is private working notes.
+    const text = stringifyMessageContent(
+      projectPersistedAssistantContent(
+        assistantRow.content,
+        assistantRow.metadata,
+      ),
+    );
     const preview =
       sanitizeMultilineMessagePreview(stripMarkdownForPreview(text)) ||
       sanitizeMessagePreview(describeReplyMedia(text, assistantMessageId));
@@ -238,9 +248,13 @@ export async function emitAssistantReplyNotification(params: {
     // lock screen. Absent `requestedTitle` lets the decision branch derive a
     // title from the body, which reads better than an empty or placeholder
     // conversation title.
-    const requestedTitle = sanitizeNotificationTitle(
-      flattenTitleWhitespace(conversation.title ?? ""),
-    );
+    //
+    // Placeholder titles are plausible non-empty strings and survive
+    // sanitizing. They count as absent so the body supplies the title instead.
+    const storedTitle = conversation.title?.trim() ?? "";
+    const requestedTitle = isReplaceableTitle(storedTitle)
+      ? ""
+      : sanitizeNotificationTitle(flattenTitleWhitespace(storedTitle));
 
     // Read as close to the emit as possible: nothing short-circuits on it.
     // Presence only speaks for a turn the desktop itself opened, on that row's

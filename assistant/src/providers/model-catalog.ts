@@ -75,6 +75,14 @@ export interface CatalogModel {
    */
   supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
+  supportsEffort?: boolean;
+  /**
+   * Whether this provider/model serving surface accepts a forced OpenAI
+   * chat-completions tool choice while thinking is enabled. Omit unless the
+   * combination is known incompatible. Daemon-only: not projected into the
+   * client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsForcedToolChoiceWithThinking?: boolean;
   pricing?: CatalogModelPricing;
   /**
    * Upper bound for `reasoning_effort` accepted by this model's upstream API.
@@ -340,6 +348,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         maxOutputTokens: 64000,
         supportsThinking: true,
         adaptiveThinkingUnsupported: true,
+        supportsEffort: false,
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
@@ -1814,6 +1823,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsForcedToolChoiceWithThinking: false,
         pricing: {
           inputPer1mTokens: 0.95,
           outputPer1mTokens: 4.0,
@@ -2521,7 +2531,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     setupMode: "api-key",
     setupHint:
       "Uses the assistant API key through the Vellum managed connection. These models cannot use a bring-your-own key.",
-    featureFlag: "settings-developer-nav",
+    featureFlag: "vellum-hosted-inference",
     models: [
       {
         id: "qwen/qwen3-8b",
@@ -2533,7 +2543,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsVision: false,
         supportsToolUse: true,
         pricing: { inputPer1mTokens: 0.3, outputPer1mTokens: 0.3 },
-        featureFlag: "settings-developer-nav",
+        featureFlag: "vellum-hosted-inference",
       },
     ],
     defaultModel: "qwen/qwen3-8b",
@@ -2627,6 +2637,30 @@ export function modelSupportedEfforts(
 }
 
 /**
+ * Whether a provider/model serving surface accepts a forced OpenAI
+ * chat-completions tool choice while thinking is enabled. Unknown providers
+ * and models fail open so custom routes retain their existing request shape
+ * and can rely on the bounded provider-error retry if needed.
+ */
+export function supportsForcedToolChoiceWithThinking(
+  providerId: string,
+  modelId: string,
+): boolean {
+  const provider = PROVIDER_CATALOG.find((entry) => entry.id === providerId);
+  if (!provider) {
+    return true;
+  }
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalizedModelId = stripDateSuffix(modelId);
+  return !provider.models.some(
+    (model) =>
+      model.supportsForcedToolChoiceWithThinking === false &&
+      (model.id === modelId ||
+        stripDateSuffix(model.id) === normalizedModelId),
+  );
+}
+
+/**
  * Return the catalog provider that owns a model ID, if known. When multiple
  * providers list the same ID (e.g. OpenRouter and the Vercel AI Gateway share
  * `anthropic/*` IDs), the earliest entry in PROVIDER_CATALOG order wins.
@@ -2682,6 +2716,24 @@ export function isAdaptiveThinkingUnsupportedModel(modelId: string): boolean {
       (m) =>
         m.adaptiveThinkingUnsupported === true &&
         (m.id === modelId || stripDateSuffix(m.id) === normalized),
+    ),
+  );
+}
+
+/** Whether the model accepts `output_config.effort` on the native Anthropic Messages wire (Haiku family and `supportsEffort: false` models do not; OpenRouter dotted ids normalized). */
+export function isEffortSupported(modelId: string): boolean {
+  if (modelId.includes("haiku")) {
+    return false;
+  }
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalize = (id: string): string =>
+    stripDateSuffix(id.replace(/^[^/]*\//, "").replace(/\./g, "-"));
+  const normalized = normalize(modelId);
+  return !PROVIDER_CATALOG.some((p) =>
+    p.models.some(
+      (m) =>
+        m.supportsEffort === false &&
+        (m.id === modelId || normalize(m.id) === normalized),
     ),
   );
 }

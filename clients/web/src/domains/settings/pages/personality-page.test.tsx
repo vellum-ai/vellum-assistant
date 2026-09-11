@@ -46,13 +46,13 @@ mock.module("@/assistant/use-active-assistant-id", () => ({
   useActiveAssistantId: () => "asst-test",
 }));
 
-let settingsDeveloperNav = true;
+let vellumHostedInference = true;
 let hasHydrated = true;
 
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {
-    settingsDeveloperNav: () => settingsDeveloperNav,
+    vellumHostedInference: () => vellumHostedInference,
     hasHydrated: () => hasHydrated,
   };
   return { useAssistantFeatureFlagStore: store };
@@ -85,7 +85,7 @@ function renderPage() {
 describe("SettingsPersonalityPage", () => {
   beforeEach(() => {
     mock.clearAllMocks();
-    settingsDeveloperNav = true;
+    vellumHostedInference = true;
     hasHydrated = true;
     fetchPersonalitySliders.mockImplementation(async () => {
       return Object.fromEntries(
@@ -148,8 +148,8 @@ describe("SettingsPersonalityPage", () => {
     });
   });
 
-  test("redirects to General when developer nav is off", () => {
-    settingsDeveloperNav = false;
+  test("redirects to General when hosted inference is off", () => {
+    vellumHostedInference = false;
     renderPage();
     expect(screen.getByText("General settings")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();

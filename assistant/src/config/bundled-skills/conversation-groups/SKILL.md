@@ -21,6 +21,7 @@ Organize the user's conversations into sidebar groups. Groups are the sections s
 
 ## Usage
 
+- When mentioning a conversation in Vellum chat, link it as `[Title](/assistant/conversations/<id>)`. Use that path only in Vellum chat. Do not use it in Slack, Telegram, Discord, email, or notifications.
 - `conversation_move_to_group` defaults to the **current** conversation, so "file this chat under Work" needs no conversation id.
 - Groups can be referenced by name (case-insensitive) or id. Prefer names; fall back to ids when names are ambiguous.
 - When the user asks to organize their conversations, check the existing groups first (`conversation_group_list`) and reuse a fitting group rather than creating near-duplicates ("Work" vs "Work stuff").
