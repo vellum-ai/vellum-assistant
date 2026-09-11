@@ -113,6 +113,8 @@ export interface CuObservationResult {
   executionResult?: string;
   executionError?: string;
   userGuidance?: string;
+  /** Per-phase helper timings in milliseconds, absent on older helpers. */
+  timings?: Record<string, number>;
 }
 
 export interface ActionRecord {
@@ -172,8 +174,15 @@ export class HostCuProxy {
   private _previousAXTree: string | undefined;
   private _consecutiveUnchangedSteps = 0;
   private _actionHistory: ActionRecord[] = [];
-  /** Owned request IDs mapped to whether their observation is scoped. */
-  private _ownedRequests = new Map<string, boolean>();
+  /**
+   * Owned request IDs mapped to whether their observation is scoped and when
+   * the request was dispatched. The dispatch time gives the round trip, which
+   * is the part of a step the helper's own timings cannot see.
+   */
+  private _ownedRequests = new Map<
+    string,
+    { scoped: boolean; dispatchedAt: number }
+  >();
 
   constructor(maxSteps = loadConfig().maxStepsPerSession) {
     this._maxSteps = maxSteps;
@@ -351,7 +360,10 @@ export class HostCuProxy {
         detachAbort = () => signal.removeEventListener("abort", onAbort);
       }
 
-      this._ownedRequests.set(requestId, scopedObservation);
+      this._ownedRequests.set(requestId, {
+        scoped: scopedObservation,
+        dispatchedAt: Date.now(),
+      });
 
       pendingInteractions.register(requestId, {
         conversationId,
@@ -403,13 +415,25 @@ export class HostCuProxy {
     requestId: string,
     observation: CuObservationResult,
   ): ToolExecutionResult | undefined {
-    const scopedObservation = this._ownedRequests.get(requestId) ?? false;
+    const owned = this._ownedRequests.get(requestId);
+    const scopedObservation = owned?.scoped ?? false;
     this._ownedRequests.delete(requestId);
     const interaction = pendingInteractions.resolve(requestId, "answered");
     if (!interaction?.rpcResolve) {
       log.warn({ requestId }, "No pending host CU request for response");
       return undefined;
     }
+
+    log.info(
+      {
+        requestId,
+        toolName: this._actionHistory.at(-1)?.toolName,
+        step: this._stepCount,
+        ...(owned ? { roundTripMs: Date.now() - owned.dispatchedAt } : {}),
+        ...(observation.timings ? { helper: observation.timings } : {}),
+      },
+      "Host CU step timings",
+    );
 
     // A targeted snapshot has no comparable action/diff baseline; neither it
     // nor the first desktop observation after it can imply "no visible effect".

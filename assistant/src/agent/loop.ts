@@ -2485,6 +2485,7 @@ export class AgentLoop {
             contentBlocks: response.content.length,
             toolUseCount: modelToolUseBlocks.length,
             durationMs: providerDurationMs,
+            cacheReadInputTokens: response.usage.cacheReadInputTokens,
           },
           "LLM call complete",
         );
