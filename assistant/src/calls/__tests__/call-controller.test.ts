@@ -3101,7 +3101,7 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("synthesized provider: stays 'processing' during synthesis latency, so barge-in cannot abort an inaudible turn", async () => {
+  test("synthesized provider: stays 'processing' during synthesis latency until the play URL is sent", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";

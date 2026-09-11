@@ -524,11 +524,12 @@ export class CallController {
   }
 
   /**
-   * Handle caller interrupting the assistant's speech.
+   * Handle caller interrupting the assistant's turn.
    *
    * This is the hard interrupt path used for explicit teardown and
    * internal abort scenarios. For barge-in from inbound audio, prefer
-   * {@link handleBargeIn} which gates on the speaking state.
+   * {@link handleBargeIn}, which ignores an idle controller and relies on
+   * the transport's sustained-speech guard to vouch for the interruption.
    */
   handleInterrupt(): void {
     const wasSpeaking = this.state === "speaking";
@@ -1908,9 +1909,11 @@ export class CallController {
   /**
    * Flip from the pre-speech `processing` phase to `speaking` at the moment the
    * first real outbound audio/token is emitted. Guarded so a superseded or
-   * aborted (idle) turn never (re)enters `speaking`, and so barge-in
-   * (handleBargeIn, gated on `speaking`) can't abort a turn that is still
-   * waiting for the processing lock or generating with no audio yet.
+   * aborted (idle) turn never (re)enters `speaking`. The state tells the
+   * transport whether audio is audible (it decides what a barge-in has to
+   * clear and whether an end-of-turn mark is owed); a barge-in itself may
+   * abort a turn in either phase once the transport's sustained-speech
+   * guard has vouched for it.
    */
   private beginSpeaking(runVersion: number): void {
     if (!this.isCurrentRun(runVersion)) {
