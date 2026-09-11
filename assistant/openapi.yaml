@@ -18377,7 +18377,7 @@ paths:
     get:
       operationId: internal_mcp_list_get
       summary: List MCP servers with health status
-      description: Returns configured MCP servers with live health-check results (connected, needs auth, error).
+      description: Returns configured MCP servers and recorded runtime state without opening connections.
       tags:
         - internal
       responses:
@@ -18397,6 +18397,41 @@ paths:
                           type: string
                         status:
                           type: string
+                        lifecycleState:
+                          type: string
+                          enum:
+                            - not-started
+                            - connecting
+                            - connected
+                            - needs-auth
+                            - error
+                            - declared
+                        source:
+                          type: string
+                          enum:
+                            - workspace
+                            - plugin
+                        pluginName:
+                          type: string
+                        supportedActions:
+                          type: array
+                          items:
+                            type: string
+                            enum:
+                              - configure
+                              - authenticate
+                              - remove
+                              - manage-plugin
+                        hasStaticAuth:
+                          type: boolean
+                        authType:
+                          type: string
+                          enum:
+                            - none
+                            - bearer
+                            - api-key
+                        authHeaderName:
+                          type: string
                         transport:
                           type: object
                           properties:
@@ -18414,6 +18449,11 @@ paths:
                       required:
                         - id
                         - status
+                        - lifecycleState
+                        - source
+                        - supportedActions
+                        - hasStaticAuth
+                        - authType
                         - transport
                         - hasOAuth
                       additionalProperties: false

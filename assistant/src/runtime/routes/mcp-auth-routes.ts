@@ -18,7 +18,6 @@ import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { McpConfig, McpServerConfig } from "../../config/schemas/mcp.js";
 import { estimateToolDefinitionTokens } from "../../context/token-estimator.js";
 import { reloadMcpServers } from "../../daemon/mcp-reload-service.js";
-import { McpClient } from "../../mcp/client.js";
 import { getMcpServerManager } from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
@@ -157,59 +156,22 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 }
 
 // ---------------------------------------------------------------------------
-// Health check helper
-// ---------------------------------------------------------------------------
-
-const HEALTH_CHECK_TIMEOUT_MS = 10_000;
-
-async function checkMachineReadableHealth(
-  serverId: string,
-  config: McpServerConfig,
-  timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
-): Promise<string> {
-  const client = new McpClient(serverId);
-  try {
-    await Promise.race([
-      client.connect(config.transport),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-        if (typeof t === "object" && "unref" in t) {
-          t.unref();
-        }
-      }),
-    ]);
-
-    if (client.isConnected) {
-      await client.disconnect();
-      return "connected";
-    }
-
-    const err = client.lastError;
-    if (err) {
-      if (err.message.includes("timeout")) {
-        return "error";
-      }
-      return "error";
-    }
-
-    return "needs-auth";
-  } catch {
-    try {
-      await client.disconnect();
-    } catch {
-      /* ignore */
-    }
-    return "error";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // List
 // ---------------------------------------------------------------------------
 
 interface McpServerEntry {
   id: string;
   status: string;
+  lifecycleState:
+    | "not-started"
+    | "connecting"
+    | "connected"
+    | "needs-auth"
+    | "error"
+    | "declared";
+  supportedActions: Array<
+    "configure" | "authenticate" | "remove" | "manage-plugin"
+  >;
   transport: Omit<McpServerConfig["transport"], "headers"> & { type: string };
   hasOAuth: boolean;
   hasStaticAuth: boolean;
@@ -225,22 +187,6 @@ interface McpServerEntry {
   /** Plugin that declared this server. Present only when `source` is `plugin`. */
   pluginName?: string;
 }
-
-/**
- * Status reported for a plugin-declared server the MCP manager holds no
- * live client for — it has not been started yet, or its connection failed.
- *
- * A plugin server is never health-checked the way a workspace server is.
- * `checkMachineReadableHealth` constructs its own `McpClient`, which
- * resolves `mcp:<serverId>:headers` and `mcp:<serverId>:tokens` from the
- * credential store, and a plugin controls both its server key and its URL,
- * so probing one would send workspace-owned credentials to an endpoint the
- * plugin chose whenever an id happens to match a stored key. Skipping the
- * probe also avoids spawning a plugin's declared stdio command as a side
- * effect of listing. The manager's own client — started with credentials
- * isolated — is the only thing consulted instead.
- */
-const PLUGIN_SERVER_STATUS = "declared";
 
 function detectAuthType(headers: Record<string, string>): "bearer" | "api-key" {
   const authValue = headers["Authorization"] ?? headers["authorization"];
@@ -261,8 +207,13 @@ async function handleMcpList(_args: {
   ).filter(([, config]) => config && typeof config === "object");
 
   const workspaceEntries: McpServerEntry[] = await Promise.all(
-    configEntries.map(async ([id, config]) => {
-      const status = await checkMachineReadableHealth(id, config);
+    configEntries.map(async ([id, config]): Promise<McpServerEntry> => {
+      const lifecycleState =
+        getMcpServerManager().getServerState(id, "workspace") ?? "not-started";
+      const status =
+        lifecycleState === "connected" || lifecycleState === "needs-auth"
+          ? lifecycleState
+          : "error";
       const hasOAuth =
         config.transport.type !== "stdio" ? await hasMcpOAuthTokens(id) : false;
 
@@ -293,6 +244,14 @@ async function handleMcpList(_args: {
       return {
         id,
         status,
+        lifecycleState,
+        supportedActions: [
+          "configure",
+          "remove",
+          ...(config.transport.type === "stdio"
+            ? []
+            : ["authenticate" as const]),
+        ],
         transport: safeTransport as McpServerEntry["transport"],
         hasOAuth,
         hasStaticAuth,
@@ -313,8 +272,7 @@ async function handleMcpList(_args: {
  *
  * Nothing here touches the credential store or the network: a plugin
  * server carries no auth state the assistant owns, and its status comes
- * from the manager's in-memory client rather than a probe (see
- * {@link PLUGIN_SERVER_STATUS}).
+ * from the manager's recorded connection state.
  */
 function listPluginServerEntries(
   configEntries: [string, McpServerConfig][],
@@ -351,11 +309,13 @@ function listPluginServerEntries(
     .map((server) => {
       const { headers: _stripped, ...safeTransport } = server.config
         .transport as Record<string, unknown>;
+      const lifecycleState =
+        manager.getServerState(server.id, "plugin") ?? "declared";
       return {
         id: server.id,
-        status: manager.getClient(server.id)?.isConnected
-          ? "connected"
-          : PLUGIN_SERVER_STATUS,
+        status: lifecycleState === "connected" ? "connected" : "declared",
+        lifecycleState,
+        supportedActions: ["configure", "manage-plugin"],
         transport: safeTransport as McpServerEntry["transport"],
         // A plugin server has no assistant-owned credentials. Resolving
         // these against `mcp:<id>:*` would report, and could disclose, a
@@ -695,13 +655,29 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List MCP servers with health status",
     description:
-      "Returns configured MCP servers with live health-check results (connected, needs auth, error).",
+      "Returns configured MCP servers and recorded runtime state without opening connections.",
     tags: ["internal"],
     responseBody: z.object({
       servers: z.array(
         z.object({
           id: z.string(),
           status: z.string(),
+          lifecycleState: z.enum([
+            "not-started",
+            "connecting",
+            "connected",
+            "needs-auth",
+            "error",
+            "declared",
+          ]),
+          source: z.enum(["workspace", "plugin"]),
+          pluginName: z.string().optional(),
+          supportedActions: z.array(
+            z.enum(["configure", "authenticate", "remove", "manage-plugin"]),
+          ),
+          hasStaticAuth: z.boolean(),
+          authType: z.enum(["none", "bearer", "api-key"]),
+          authHeaderName: z.string().optional(),
           transport: z
             .object({
               type: z.enum(["stdio", "sse", "streamable-http"]),

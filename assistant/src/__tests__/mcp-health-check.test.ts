@@ -4,6 +4,10 @@ const mockConnect = jest.fn();
 const mockDisconnect = jest.fn();
 let mockIsConnected = true;
 let mockLastError: Error | null = null;
+let runtimeState: string | undefined;
+mock.module("../mcp/manager.js", () => ({
+  getMcpServerManager: () => ({ getServerState: () => runtimeState }),
+}));
 
 mock.module("../mcp/client.js", () => ({
   McpClient: class {
@@ -44,10 +48,6 @@ mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
   }),
 }));
 
-mock.module("../mcp/mcp-auth-state.js", () => ({
-  getMcpAuthState: () => null,
-}));
-
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
   hasMcpOAuthTokens: async () => false,
   deleteMcpOAuthCredentials: async () => ({ ok: true, failedKeys: [] }),
@@ -59,15 +59,17 @@ const listHandler = ROUTES.find(
   (r: { operationId: string }) => r.operationId === "internal_mcp_list",
 )!.handler;
 
-describe("checkServerHealth (via internal_mcp_list route)", () => {
+describe("passive runtime state (via internal_mcp_list route)", () => {
   beforeEach(() => {
     mockConnect.mockReset();
     mockDisconnect.mockReset();
     mockIsConnected = true;
     mockLastError = null;
+    runtimeState = undefined;
   });
 
-  test("returns connected when server connects successfully", async () => {
+  test("returns connected only when runtime reports connected", async () => {
+    runtimeState = "connected";
     mockConnect.mockResolvedValue(undefined);
     mockDisconnect.mockResolvedValue(undefined);
 
@@ -75,10 +77,12 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
       servers: { status: string }[];
     };
     expect(result.servers[0].status).toBe("connected");
-    expect(mockDisconnect).toHaveBeenCalled();
+    expect(mockDisconnect).not.toHaveBeenCalled();
+    expect(mockConnect).not.toHaveBeenCalled();
   });
 
-  test("returns needs-auth when isConnected is false and no lastError", async () => {
+  test("returns recorded needs-auth state", async () => {
+    runtimeState = "needs-auth";
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
 
@@ -88,7 +92,8 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
     expect(result.servers[0].status).toBe("needs-auth");
   });
 
-  test("returns error when connect fails with lastError", async () => {
+  test("returns recorded error state", async () => {
+    runtimeState = "error";
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
     mockLastError = new Error("Connection refused");
@@ -98,5 +103,27 @@ describe("checkServerHealth (via internal_mcp_list route)", () => {
       servers: { status: string }[];
     };
     expect(result.servers[0].status).toBe("error");
+  });
+  test("repeated reads never connect unstarted remote or stdio servers", async () => {
+    const result = (await listHandler({})) as {
+      servers: { status: string; lifecycleState: string }[];
+    };
+    await listHandler({});
+    expect(result.servers[0]).toMatchObject({
+      status: "error",
+      lifecycleState: "not-started",
+    });
+    expect(mockConnect).not.toHaveBeenCalled();
+    expect(mockDisconnect).not.toHaveBeenCalled();
+  });
+  test("connecting is distinct from connected and uses a legacy status", async () => {
+    runtimeState = "connecting";
+    const result = (await listHandler({})) as {
+      servers: { status: string; lifecycleState: string }[];
+    };
+    expect(result.servers[0]).toMatchObject({
+      status: "error",
+      lifecycleState: "connecting",
+    });
   });
 });

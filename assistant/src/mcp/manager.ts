@@ -15,9 +15,18 @@ export interface McpServerToolInfo {
   tools: McpToolInfo[];
 }
 
+export type McpConnectionState =
+  | "connecting"
+  | "connected"
+  | "needs-auth"
+  | "error";
+
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
-  private serverConfigs = new Map<string, ResolvedMcpServerConfig>();
+  private connectionStates = new Map<
+    string,
+    { source: ResolvedMcpServerConfig["source"]; state: McpConnectionState }
+  >();
 
   async start(config: ResolvedMcpConfig): Promise<McpServerToolInfo[]> {
     const results: McpServerToolInfo[] = [];
@@ -26,6 +35,10 @@ export class McpServerManager {
       `[MCP] Starting ${Object.keys(config.servers).length} server(s)...`,
     );
     for (const [serverId, serverConfig] of Object.entries(config.servers)) {
+      this.connectionStates.set(serverId, {
+        source: serverConfig.source,
+        state: "connecting",
+      });
       try {
         console.log(
           `[MCP] Starting server "${serverId}" (transport: ${serverConfig.transport.type})`,
@@ -45,12 +58,14 @@ export class McpServerManager {
         await client.connect(serverConfig.transport);
 
         if (!client.isConnected) {
-          // Server requires authentication — connect() logged guidance
+          this.connectionStates.set(serverId, {
+            source: serverConfig.source,
+            state: client.lastError ? "error" : "needs-auth",
+          });
           continue;
         }
 
         this.clients.set(serverId, client);
-        this.serverConfigs.set(serverId, serverConfig);
 
         let tools = await client.listTools();
         log.info(
@@ -71,7 +86,15 @@ export class McpServerManager {
         }
 
         results.push({ serverId, serverConfig, tools });
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: "connected",
+        });
       } catch (err) {
+        this.connectionStates.set(serverId, {
+          source: serverConfig.source,
+          state: "error",
+        });
         console.error(`[MCP] Failed to connect to server "${serverId}":`, err);
         log.error({ err, serverId }, "Failed to connect to MCP server");
         // Clean up any partially-connected client
@@ -83,7 +106,6 @@ export class McpServerManager {
             /* ignore */
           }
           this.clients.delete(serverId);
-          this.serverConfigs.delete(serverId);
         }
       }
     }
@@ -119,7 +141,7 @@ export class McpServerManager {
     );
     await Promise.all(disconnects);
     this.clients.clear();
-    this.serverConfigs.clear();
+    this.connectionStates.clear();
     log.info("All MCP servers disconnected");
   }
 
@@ -138,6 +160,23 @@ export class McpServerManager {
 
   getClient(serverId: string): McpClient | undefined {
     return this.clients.get(serverId);
+  }
+
+  getServerState(
+    serverId: string,
+    source: ResolvedMcpServerConfig["source"],
+  ): McpConnectionState | undefined {
+    const entry = this.connectionStates.get(serverId);
+    if (entry?.source !== source) {
+      return undefined;
+    }
+    if (
+      entry.state === "connected" &&
+      !this.clients.get(serverId)?.isConnected
+    ) {
+      return "error";
+    }
+    return entry.state;
   }
 }
 
