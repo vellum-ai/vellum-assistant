@@ -101,6 +101,21 @@ public class AndroidSenderNotificationPluginTest {
             AndroidSenderNotificationPlugin.deliveryKey(" ", "delivery-1", "request-1")
         );
         assertNull(AndroidSenderNotificationPlugin.deliveryKey(null, null, "x".repeat(513)));
+        assertNull(
+            AndroidSenderNotificationPlugin.deliveryKey(
+                "x".repeat(513),
+                "delivery-1",
+                "request-1"
+            )
+        );
+        assertEquals(
+            "delivery-1",
+            AndroidSenderNotificationPlugin.deliveryKey(
+                "\u00A0\uFEFFdelivery-1\u3000",
+                null,
+                null
+            )
+        );
     }
 
     @Test

@@ -16,6 +16,7 @@ import type {
   ShowNotificationPayload,
 } from "@vellumai/ipc-contract";
 import type { SenderNotificationPostRequest } from "@/runtime/sender-notification";
+import type { AndroidSenderNotificationPostRequest } from "@/runtime/android-sender-notification";
 
 import * as daemonSdk from "@/generated/daemon/sdk.gen";
 import * as i18nRuntime from "@/i18n";
@@ -24,6 +25,7 @@ import * as nativeAuthRuntime from "@/runtime/native-auth";
 import * as platformDetection from "@/runtime/platform-detection";
 import * as pushRegistration from "@/runtime/push-registration";
 import type { NotificationTapPayload } from "@/runtime/notification-taps";
+import { useConversationStore } from "@/stores/conversation-store";
 
 // ── host platform guards ─────────────────────────────────────────────────────
 //
@@ -53,8 +55,41 @@ mock.module("@/runtime/push-registration", () => ({
   ...pushRegistration,
   hasSessionConfirmedRemotePushRegistration: (assistantId: string) =>
     sessionConfirmedAssistantId === assistantId,
-  extractPushConversationId: (data: Record<string, unknown>) =>
-    typeof data.conversationId === "string" ? data.conversationId : undefined,
+  extractPushConversationId: (data: Record<string, unknown>) => {
+    const deepLink = data.deep_link as Record<string, unknown> | undefined;
+    return typeof deepLink?.conversationId === "string"
+      ? deepLink.conversationId
+      : typeof data.conversationId === "string"
+        ? data.conversationId
+        : undefined;
+  },
+  extractScopedPushTapPayload: (data: Record<string, unknown>) => {
+    let identity = data.identity;
+    if (typeof identity === "string") {
+      try {
+        identity = JSON.parse(identity) as unknown;
+      } catch {
+        return null;
+      }
+    }
+    if (typeof identity !== "object" || identity === null) {
+      return null;
+    }
+    const record = identity as Record<string, unknown>;
+    const scopeId =
+      typeof record.scopeId === "string" ? record.scopeId.trim() : "";
+    const assistantId =
+      typeof record.assistantId === "string"
+        ? record.assistantId.trim()
+        : "";
+    const nativeSenderId =
+      typeof record.nativeSenderId === "string"
+        ? record.nativeSenderId.trim()
+        : "";
+    return scopeId && assistantId && nativeSenderId
+      ? { identity: { scopeId, assistantId, nativeSenderId } }
+      : null;
+  },
 }));
 
 const ensureAndroidAlertsChannelMock = mock(async () => {});
@@ -78,6 +113,28 @@ const postSenderNotificationMock = mock(
 mock.module("@/runtime/sender-notification", () => ({
   postSenderNotification: postSenderNotificationMock,
   allowsLegacyNotificationFallback: (result: NotificationDeliveryResult) =>
+    result.status === "unavailable" ||
+    (result.status === "failed" && !result.postingMayHaveBegun),
+}));
+
+let androidNotificationOwnership = false;
+let androidSenderNotificationResult: NotificationDeliveryResult = {
+  status: "posted",
+};
+const postAndroidSenderNotificationMock = mock(
+  async (_payload: AndroidSenderNotificationPostRequest) =>
+    androidNotificationOwnership
+      ? androidSenderNotificationResult
+      : {
+          status: "unavailable" as const,
+          reason: "android_notification_ownership_inactive",
+        },
+);
+mock.module("@/runtime/android-sender-notification", () => ({
+  postAndroidSenderNotification: postAndroidSenderNotificationMock,
+  allowsLegacyAndroidNotificationFallback: (
+    result: NotificationDeliveryResult,
+  ) =>
     result.status === "unavailable" ||
     (result.status === "failed" && !result.postingMayHaveBegun),
 }));
@@ -144,9 +201,11 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 const {
   NOTIFICATION_INTENT_ACTION_TYPE_ID,
   NOTIFICATION_INTENT_VIEW_ACTION_ID,
+  isFocusedNotificationConversation,
   postForegroundRemotePush,
   postLocalNotification,
   setNotificationTapHandler,
+  shouldSuppressFocusedNotificationDelivery,
   __resetNotificationsStateForTests,
 } = await import("@/runtime/notifications");
 const {
@@ -252,6 +311,9 @@ beforeEach(() => {
   ensureAndroidAlertsChannelMock.mockClear();
   postSenderNotificationMock.mockClear();
   senderNotificationResult = { status: "posted" };
+  androidNotificationOwnership = false;
+  postAndroidSenderNotificationMock.mockClear();
+  androidSenderNotificationResult = { status: "posted" };
   localActionListener = null;
   addLocalListenerMock.mockReset();
   addLocalListenerMock.mockImplementation(
@@ -268,6 +330,7 @@ beforeEach(() => {
   __resetNotificationsStateForTests();
   delete (window as unknown as { vellum?: unknown }).vellum;
   setVisibility("visible");
+  useConversationStore.getState().reset();
 });
 
 describe("postLocalNotification remote-push dedup (native branch)", () => {
@@ -431,6 +494,69 @@ describe("postLocalNotification remote-push dedup (native branch)", () => {
     expect(scheduleMock.mock.calls[0]?.[0].notifications[0]?.channelId).toBe(
       "vellum-alerts",
     );
+  });
+
+  test("legacy Android scheduling owns channel sound", async () => {
+    nativeAndroid = true;
+
+    expect(await postLocalNotification(baseArgs)).toBe("native-owned");
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("enable and disable transitions keep sound with the selected Android route", async () => {
+    nativeAndroid = true;
+    expect(
+      await postLocalNotification({ ...baseArgs, deliveryId: "delivery-before" }),
+    ).toBe("native-owned");
+
+    androidNotificationOwnership = true;
+    expect(
+      await postLocalNotification({ ...baseArgs, deliveryId: "delivery-during" }),
+    ).toBe("native-owned");
+
+    androidNotificationOwnership = false;
+    expect(
+      await postLocalNotification({ ...baseArgs, deliveryId: "delivery-after" }),
+    ).toBe("native-owned");
+    expect(scheduleMock).toHaveBeenCalledTimes(2);
+    expect(postAndroidSenderNotificationMock).toHaveBeenCalledTimes(3);
+  });
+
+  test("FCM-first and SSE-first focused delivery both suppress before posting", async () => {
+    nativeAndroid = true;
+    androidNotificationOwnership = true;
+    useConversationStore.setState({ activeConversationId: "conv-1" });
+    const pathname = "/assistant/conversations/conv-1";
+    const notification = {
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "delivery-shared",
+        conversationId: "conv-1",
+      },
+    };
+    const context = {
+      shouldSuppressConversation: (conversationId: string) =>
+        isFocusedNotificationConversation(conversationId, pathname),
+    };
+    const receiveSse = async () => {
+      if (!isFocusedNotificationConversation("conv-1", pathname)) {
+        await postLocalNotification({
+          ...baseArgs,
+          deepLinkMetadata: { conversationId: "conv-1" },
+        });
+      }
+    };
+
+    postForegroundRemotePush(notification, context);
+    await receiveSse();
+    await receiveSse();
+    postForegroundRemotePush(notification, context);
+    await Promise.resolve();
+
+    expect(postAndroidSenderNotificationMock).not.toHaveBeenCalled();
+    expect(scheduleMock).not.toHaveBeenCalled();
   });
 
   test("a foreground data-only push reads its title and body from data", async () => {
@@ -853,6 +979,408 @@ describe("postLocalNotification local-surface presentation flags", () => {
         },
       });
     }
+  });
+
+  test("uses the negotiated Android owner across all flag combinations", async () => {
+    nativeAndroid = true;
+    androidNotificationOwnership = true;
+    const identity = testIdentity();
+    const publication = beginNotificationIdentityPublication(identity);
+    publishPreparedNotificationIdentity(publication, {
+      name: "Prepared Assistant",
+      nameProvenance: "identity-store",
+      avatar: {
+        avatarBase64: "iVBORw==",
+        avatarHash: "a".repeat(64),
+      },
+    });
+    const combinations = [
+      { pushAvatarSender: false, localNotificationAvatar: false },
+      { pushAvatarSender: true, localNotificationAvatar: false },
+      { pushAvatarSender: false, localNotificationAvatar: true },
+      { pushAvatarSender: true, localNotificationAvatar: true },
+    ];
+
+    for (const combination of combinations) {
+      useClientFeatureFlagStore.setState(combination);
+      await postLocalNotification({
+        ...baseArgs,
+        deliveryId: `delivery-${combination.pushAvatarSender}-${combination.localNotificationAvatar}`,
+        identity,
+        assistantName: "Event Name",
+      });
+    }
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(postAndroidSenderNotificationMock).toHaveBeenCalledTimes(4);
+    expect(
+      postAndroidSenderNotificationMock.mock.calls.map(
+        ([request]) => request.presentation,
+      ),
+    ).toEqual(["app", "app", "assistant", "assistant"]);
+  });
+});
+
+describe("postLocalNotification Android coordinator owner", () => {
+  beforeEach(() => {
+    nativeAndroid = true;
+    androidNotificationOwnership = true;
+  });
+
+  test("preserves full delivery and tap metadata while trimming only the coordinator key", async () => {
+    const identity = testIdentity();
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    const disposition = await postLocalNotification({
+      ...baseArgs,
+      deliveryId: " delivery-1 ",
+      correlationId: " correlation-1 ",
+      identity,
+      assistantName: "Assistant",
+      deepLinkMetadata: { conversationId: "conv-1", route: "thread" },
+    });
+
+    expect(disposition).toBe("native-owned");
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(postAndroidSenderNotificationMock).toHaveBeenCalledTimes(1);
+    expect(postAndroidSenderNotificationMock.mock.calls[0]?.[0]).toMatchObject({
+      correlationId: "correlation-1",
+      deliveryId: "delivery-1",
+      requestKey: "correlation-1",
+      channelId: "vellum-alerts",
+      category: NOTIFICATION_INTENT_ACTION_TYPE_ID,
+      conversationId: "conv-1",
+      deepLinkMetadata: { conversationId: "conv-1", route: "thread" },
+      presentation: "assistant",
+      identity,
+      extra: {
+        conversationId: "conv-1",
+        sourceEventName: "reminder.fired",
+        deliveryId: " delivery-1 ",
+        identity,
+      },
+    });
+    expect(ackArgs[0]?.body.deliveryId).toBe(" delivery-1 ");
+  });
+
+  test("lets native prepared memory supply an avatar missing from the renderer", async () => {
+    const identity = testIdentity();
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    await postLocalNotification({
+      ...baseArgs,
+      identity,
+      assistantName: "Assistant",
+    });
+
+    const payload = postAndroidSenderNotificationMock.mock.calls[0]?.[0];
+    expect(payload).toMatchObject({
+      presentation: "assistant",
+      identity,
+      name: "Assistant",
+      nameProvenance: "event",
+    });
+    expect(payload).not.toHaveProperty("sender");
+  });
+
+  test("does not fall back or request web sound for blocked and ambiguous ownership", async () => {
+    for (const result of [
+      { status: "blocked" as const, reason: "authorization_denied" },
+      {
+        status: "unknown" as const,
+        errorMessage: "android_sender_notification_watchdog_expired",
+      },
+      {
+        status: "failed" as const,
+        postingMayHaveBegun: true,
+        errorMessage: "post_unconfirmed",
+      },
+    ]) {
+      androidSenderNotificationResult = result;
+      expect(
+        await postLocalNotification({
+          ...baseArgs,
+          deliveryId: `delivery-${result.status}`,
+        }),
+      ).toBe("native-owned");
+    }
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs.map(({ body }) => body.success)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("SSE-first, FCM-first, and simultaneous coordinator outcomes all own sound", async () => {
+    for (const result of [
+      { status: "posted" as const },
+      { status: "duplicate" as const },
+      {
+        status: "unknown" as const,
+        errorMessage: "delivery_in_flight",
+      },
+    ]) {
+      androidSenderNotificationResult = result;
+      expect(
+        await postLocalNotification({
+          ...baseArgs,
+          deliveryId: `delivery-${result.status}`,
+        }),
+      ).toBe("native-owned");
+    }
+
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("uses legacy scheduling only after an explicit pre-post failure", async () => {
+    androidSenderNotificationResult = {
+      status: "failed",
+      postingMayHaveBegun: false,
+      errorMessage: "invalid_notification_content",
+    };
+
+    expect(await postLocalNotification(baseArgs)).toBe("native-owned");
+
+    expect(scheduleMock).toHaveBeenCalledTimes(1);
+    expect(ackArgs[0]?.body.success).toBe(true);
+  });
+
+  test("fails closed on an oversized higher-precedence key and preserves the ack id", async () => {
+    const oversized = `\u00A0${"x".repeat(513)}\u3000`;
+
+    expect(await postLocalNotification({
+      ...baseArgs,
+      correlationId: oversized,
+      deliveryId: " original-delivery ",
+    })).toBe("silent");
+
+    expect(postAndroidSenderNotificationMock).not.toHaveBeenCalled();
+    expect(scheduleMock).not.toHaveBeenCalled();
+    expect(ackArgs[0]?.body.deliveryId).toBe(" original-delivery ");
+    expect(ackArgs[0]?.body.success).toBe(false);
+  });
+
+  test("foreground FCM does not fall through an oversized delivery id", async () => {
+    postForegroundRemotePush({
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "x".repeat(513),
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postAndroidSenderNotificationMock).not.toHaveBeenCalled();
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("FCM-first and SSE-first both submit one full coordinator key", async () => {
+    postForegroundRemotePush({
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "delivery-shared",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await postLocalNotification({
+      ...baseArgs,
+      deliveryId: "delivery-sse",
+      correlationId: "delivery-shared",
+    });
+
+    expect(postAndroidSenderNotificationMock).toHaveBeenCalledTimes(2);
+    expect(
+      postAndroidSenderNotificationMock.mock.calls.map(
+        ([request]) => request.correlationId,
+      ),
+    ).toEqual(["delivery-shared", "delivery-shared"]);
+    expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("foreground FCM preserves scoped tap identity and deep-link metadata", async () => {
+    const identity = testIdentity();
+    useClientFeatureFlagStore.setState({ localNotificationAvatar: true });
+
+    postForegroundRemotePush({
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "delivery-shared",
+        sender_name: "Assistant",
+        identity,
+        deep_link: { conversationId: "conv-1", route: "thread" },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postAndroidSenderNotificationMock.mock.calls[0]?.[0]).toMatchObject({
+      correlationId: "delivery-shared",
+      identity,
+      deepLinkMetadata: { conversationId: "conv-1", route: "thread" },
+      extra: {
+        identity,
+        conversationId: "conv-1",
+        deliveryId: "delivery-shared",
+      },
+    });
+  });
+
+  test("foreground FCM preserves a malformed present identity for strict tap rejection", async () => {
+    postForegroundRemotePush({
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "delivery-strict",
+        conversationId: "conv-1",
+        identity: "malformed",
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postAndroidSenderNotificationMock.mock.calls[0]?.[0]).toMatchObject({
+      extra: {
+        conversationId: "conv-1",
+        identity: {},
+      },
+    });
+    expect(postAndroidSenderNotificationMock.mock.calls[0]?.[0]).not.toHaveProperty(
+      "identity",
+    );
+  });
+
+  test("foreground FCM keeps a normalized valid JSON identity for tap routing", async () => {
+    const identity = testIdentity();
+    postForegroundRemotePush({
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "delivery-json-identity",
+        conversationId: "conv-1",
+        identity: JSON.stringify({
+          scopeId: ` ${identity.scopeId} `,
+          assistantId: ` ${identity.assistantId} `,
+          nativeSenderId: ` ${identity.nativeSenderId} `,
+        }),
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postAndroidSenderNotificationMock.mock.calls[0]?.[0]).toMatchObject({
+      identity,
+      extra: {
+        conversationId: "conv-1",
+        identity,
+      },
+    });
+  });
+
+  test("merges top-level conversation fallback into parsed deep-link metadata", async () => {
+    postForegroundRemotePush({
+      id: "message-1",
+      data: {
+        title: "Reminder",
+        body: "Stand up",
+        delivery_id: "delivery-deep-link",
+        conversationId: "conv-fallback",
+        deep_link: { conversationId: 42, route: "thread" },
+      },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postAndroidSenderNotificationMock.mock.calls[0]?.[0]).toMatchObject({
+      conversationId: "conv-fallback",
+      deepLinkMetadata: {
+        conversationId: "conv-fallback",
+        route: "thread",
+      },
+      extra: { conversationId: "conv-fallback" },
+    });
+  });
+
+  test("FCM-first focus suppression survives navigation before SSE", async () => {
+    postForegroundRemotePush(
+      {
+        id: "message-1",
+        data: {
+          title: "Reminder",
+          body: "Stand up",
+          delivery_id: "delivery-focused-fcm",
+          conversationId: "conv-1",
+        },
+      },
+      { shouldSuppressConversation: () => true },
+    );
+
+    expect(
+      shouldSuppressFocusedNotificationDelivery(
+        "delivery-focused-fcm",
+        "delivery-sse-original",
+        false,
+      ),
+    ).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(postAndroidSenderNotificationMock).not.toHaveBeenCalled();
+  });
+
+  test("SSE-first focus suppression survives navigation before FCM", async () => {
+    expect(
+      shouldSuppressFocusedNotificationDelivery(
+        "delivery-focused-sse",
+        "delivery-sse-original",
+        true,
+      ),
+    ).toBe(true);
+
+    postForegroundRemotePush(
+      {
+        id: "message-1",
+        data: {
+          title: "Reminder",
+          body: "Stand up",
+          delivery_id: "delivery-focused-sse",
+          conversationId: "conv-1",
+        },
+      },
+      { shouldSuppressConversation: () => false },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(postAndroidSenderNotificationMock).not.toHaveBeenCalled();
+  });
+
+  test("focus suppression tombstones stay bounded", () => {
+    for (let index = 0; index < 129; index += 1) {
+      expect(
+        shouldSuppressFocusedNotificationDelivery(
+          `delivery-focused-${index}`,
+          undefined,
+          true,
+        ),
+      ).toBe(true);
+    }
+
+    expect(
+      shouldSuppressFocusedNotificationDelivery(
+        "delivery-focused-0",
+        undefined,
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      shouldSuppressFocusedNotificationDelivery(
+        "delivery-focused-128",
+        undefined,
+        false,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -1358,6 +1886,45 @@ describe("notification tap listener adapters", () => {
 
     expect(received).toEqual([tapPayload]);
     expect(scheduleMock).not.toHaveBeenCalled();
+  });
+
+  test("legacy Android taps keep falsey malformed identity on the strict route", async () => {
+    nativeAndroid = true;
+    const received: NotificationTapPayload[] = [];
+    setNotificationTapHandler((payload) => {
+      received.push(payload);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const listener = localActionListener;
+    if (!listener) {
+      throw new Error("expected Capacitor action listener");
+    }
+
+    for (const [index, identity] of ["", false, null].entries()) {
+      postForegroundRemotePush({
+        id: `message-${index}`,
+        data: {
+          title: "Reminder",
+          body: "Stand up",
+          delivery_id: `delivery-falsey-${index}`,
+          conversationId: "conv-legacy",
+          identity,
+        },
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const extra = scheduleMock.mock.calls.at(-1)?.[0].notifications[0]?.extra;
+      expect(extra?.identity).toEqual({});
+      listener({ notification: { extra } });
+      await flushTapQueue();
+    }
+
+    expect(scheduleMock).toHaveBeenCalledTimes(3);
+    expect(received).toHaveLength(3);
+    for (const payload of received) {
+      expect(payload.conversationId).toBe("conv-legacy");
+      expect(payload.identity as unknown).toEqual({});
+      expect(payload.identity).toBeTruthy();
+    }
   });
 
   test("retries Capacitor action registration after a bridge failure", async () => {

@@ -10,6 +10,7 @@ import java.util.Map;
 public final class PushDataMessage {
     /** Marks the shortcuts this renderer owns so pruning leaves the launcher's alone. */
     static final String SHORTCUT_ID_PREFIX = "vellum-conversation:";
+    public static final int DELIVERY_KEY_MAX_CHARACTERS = 512;
 
     private static final String DEFAULT_SOURCE_EVENT_NAME = "remote_push";
     private static final String DEFAULT_TITLE = "Vellum";
@@ -63,6 +64,7 @@ public final class PushDataMessage {
     private final String messageId;
     @Nullable
     private final String deliveryKey;
+    private final boolean hasInvalidDeliveryKeyCandidate;
     private final boolean hasNotificationBlock;
 
     private PushDataMessage(
@@ -81,8 +83,11 @@ public final class PushDataMessage {
             : channel;
         String source = trimmed(data.get(KEY_SOURCE_EVENT_NAME));
         sourceEventName = source == null ? DEFAULT_SOURCE_EVENT_NAME : source;
-        deliveryId = trimmed(data.get(KEY_DELIVERY_ID));
-        this.deliveryKey = trimmed(deliveryKey);
+        String dataDeliveryId = data.get(KEY_DELIVERY_ID);
+        deliveryId = canonicalDeliveryPart(dataDeliveryId);
+        this.deliveryKey = canonicalDeliveryPart(deliveryKey);
+        hasInvalidDeliveryKeyCandidate = isInvalidDeliveryPart(dataDeliveryId)
+            || isInvalidDeliveryPart(deliveryKey);
         conversationId = trimmed(data.get(KEY_CONVERSATION_ID));
         unreadCount = count(data.get(KEY_UNREAD_COUNT));
         sender = sender(data);
@@ -107,10 +112,10 @@ public final class PushDataMessage {
         @Nullable String stableRequestKey
     ) {
         Map<String, String> resolvedData = data == null ? Collections.emptyMap() : data;
-        String resolvedDeliveryId = trimmed(deliveryId);
-        if (resolvedDeliveryId == null) {
-            resolvedDeliveryId = trimmed(resolvedData.get(KEY_DELIVERY_ID));
-        }
+        String resolvedDeliveryId = firstSemanticallyPresent(
+            deliveryId,
+            resolvedData.get(KEY_DELIVERY_ID)
+        );
         String resolvedDeliveryKey = deliveryKey(
             correlationId,
             resolvedDeliveryId,
@@ -146,6 +151,11 @@ public final class PushDataMessage {
         return deliveryKey == null ? deliveryId : deliveryKey;
     }
 
+    /** True when a selected delivery-key candidate exceeded the shared bound. */
+    public boolean hasInvalidDeliveryKeyCandidate() {
+        return hasInvalidDeliveryKeyCandidate;
+    }
+
     /** Message id carried into Capacitor's push-tap callback. */
     @Nullable
     public String tapMessageId() {
@@ -155,17 +165,6 @@ public final class PushDataMessage {
     /** True when Firebase rendered nothing and this process owns the notification. */
     public boolean isDataOnly() {
         return !hasNotificationBlock && title != null;
-    }
-
-    /**
-     * True when this process posts the notification itself. The web layer owns
-     * every other push, and the two paths never both run: a second banner would
-     * otherwise land beside or on top of this one. A data-only push the web
-     * layer cannot render, because no screen is in front of the user or the
-     * bridge is not up yet, still belongs here.
-     */
-    public boolean rendersNatively(boolean webWillRender) {
-        return isDataOnly() && !webWillRender;
     }
 
     /**
@@ -192,12 +191,18 @@ public final class PushDataMessage {
         @Nullable String deliveryId,
         @Nullable String stableRequestKey
     ) {
-        String key = trimmed(correlationId);
-        if (key != null) {
+        String[] candidates = { correlationId, deliveryId, stableRequestKey };
+        for (String candidate : candidates) {
+            String key = trimmedDeliveryPart(candidate);
+            if (key == null) {
+                continue;
+            }
+            if (key.length() > DELIVERY_KEY_MAX_CHARACTERS) {
+                return null;
+            }
             return key;
         }
-        key = trimmed(deliveryId);
-        return key == null ? trimmed(stableRequestKey) : key;
+        return null;
     }
 
     /**
@@ -214,8 +219,79 @@ public final class PushDataMessage {
         if (existingId != null) {
             return existingId;
         }
-        String request = trimmed(stableRequestKey);
+        String request = canonicalDeliveryPart(stableRequestKey);
         return request == null ? null : LOCAL_MESSAGE_ID_PREFIX + request;
+    }
+
+    /**
+     * Applies JavaScript {@code String.trim()} whitespace semantics and the
+     * shared UTF-16 code-unit bound used by both Android delivery routes.
+     */
+    @Nullable
+    public static String canonicalDeliveryPart(@Nullable String value) {
+        String canonical = trimmedDeliveryPart(value);
+        return canonical == null || canonical.length() > DELIVERY_KEY_MAX_CHARACTERS
+            ? null
+            : canonical;
+    }
+
+    /** Preserves message-id presence while producing the FCM coordinator rung. */
+    @Nullable
+    public static String fcmMessageDeliveryKeyCandidate(@Nullable String messageId) {
+        String canonical = trimmedDeliveryPart(messageId);
+        return canonical == null ? null : "fcm-message:" + canonical;
+    }
+
+    @Nullable
+    private static String trimmedDeliveryPart(@Nullable String value) {
+        if (value == null) {
+            return null;
+        }
+        int start = 0;
+        int end = value.length();
+        while (start < end) {
+            int point = value.codePointAt(start);
+            if (!isJavaScriptWhitespace(point)) {
+                break;
+            }
+            start += Character.charCount(point);
+        }
+        while (end > start) {
+            int point = value.codePointBefore(end);
+            if (!isJavaScriptWhitespace(point)) {
+                break;
+            }
+            end -= Character.charCount(point);
+        }
+        String canonical = value.substring(start, end);
+        return canonical.isEmpty() ? null : canonical;
+    }
+
+    private static boolean isInvalidDeliveryPart(@Nullable String value) {
+        String canonical = trimmedDeliveryPart(value);
+        return canonical != null && canonical.length() > DELIVERY_KEY_MAX_CHARACTERS;
+    }
+
+    @Nullable
+    private static String firstSemanticallyPresent(
+        @Nullable String preferred,
+        @Nullable String fallback
+    ) {
+        return trimmedDeliveryPart(preferred) == null ? fallback : preferred;
+    }
+
+    private static boolean isJavaScriptWhitespace(int point) {
+        return point >= 0x0009 && point <= 0x000D
+            || point == 0x0020
+            || point == 0x00A0
+            || point == 0x1680
+            || point >= 0x2000 && point <= 0x200A
+            || point == 0x2028
+            || point == 0x2029
+            || point == 0x202F
+            || point == 0x205F
+            || point == 0x3000
+            || point == 0xFEFF;
     }
 
     /**

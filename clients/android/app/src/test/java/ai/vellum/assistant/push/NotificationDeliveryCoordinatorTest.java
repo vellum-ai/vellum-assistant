@@ -455,6 +455,88 @@ public class NotificationDeliveryCoordinatorTest {
     }
 
     @Test
+    public void preparationAssertionFallsBackAndRetainsThePlainResult() throws Exception {
+        TestClock clock = new TestClock();
+        NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
+        AtomicInteger preparations = new AtomicInteger();
+        AtomicInteger writes = new AtomicInteger();
+
+        DeliveryResult first = coordinator
+            .deliver(
+                "delivery-preparation-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                () -> {
+                    preparations.incrementAndGet();
+                    throw new AssertionError("preparation failed");
+                },
+                posted(writes)
+            )
+            .get(1, TimeUnit.SECONDS);
+        DeliveryResult second = coordinator
+            .deliver(
+                "delivery-preparation-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                posted(writes)
+            )
+            .get(1, TimeUnit.SECONDS);
+
+        assertEquals(DeliveryStatus.POSTED, first.status);
+        assertEquals(DeliveryStatus.DUPLICATE, second.status);
+        assertEquals(1, preparations.get());
+        assertEquals(1, writes.get());
+        assertEquals(0, coordinator.inFlightCount());
+    }
+
+    @Test
+    public void schedulingAssertionFallsBackAndRetainsThePlainResult() throws Exception {
+        NotificationDeliveryCoordinator.Clock clock =
+            new NotificationDeliveryCoordinator.Clock() {
+                @Override
+                public long nowMillis() {
+                    return 0;
+                }
+
+                @Override
+                public NotificationDeliveryCoordinator.Cancellation schedule(
+                    long delayMillis,
+                    Runnable task
+                ) {
+                    throw new AssertionError("scheduling failed");
+                }
+            };
+        AtomicInteger writes = new AtomicInteger();
+        NotificationDeliveryCoordinator coordinator =
+            new NotificationDeliveryCoordinator(clock, Runnable::run, 8);
+
+        DeliveryResult first = coordinator
+            .deliver(
+                "delivery-scheduling-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                posted(writes)
+            )
+            .get(1, TimeUnit.SECONDS);
+        DeliveryResult second = coordinator
+            .deliver(
+                "delivery-scheduling-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                posted(writes)
+            )
+            .get(1, TimeUnit.SECONDS);
+
+        assertEquals(DeliveryStatus.POSTED, first.status);
+        assertEquals(DeliveryStatus.DUPLICATE, second.status);
+        assertEquals(1, writes.get());
+        assertEquals(0, coordinator.inFlightCount());
+    }
+
+    @Test
     public void returnsBlockedWithoutInventingSuccess() {
         DeliveryResult blocked = terminalResult(
             DeliveryResult.blocked("Notifications are disabled")
@@ -501,6 +583,44 @@ public class NotificationDeliveryCoordinatorTest {
         assertEquals("IllegalStateException", first.error);
         assertSame(first, second);
         assertEquals(1, writes.get());
+    }
+
+    @Test
+    public void writerAssertionBecomesARetainedUnknownResult() throws Exception {
+        TestClock clock = new TestClock();
+        NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
+        AtomicInteger writes = new AtomicInteger();
+        NotificationDeliveryCoordinator.NotificationWriter<Object> writer =
+            (notificationId, avatar) -> {
+                writes.incrementAndGet();
+                throw new AssertionError("writer failed");
+            };
+
+        DeliveryResult first = coordinator
+            .deliver(
+                "delivery-writer-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                writer
+            )
+            .get(1, TimeUnit.SECONDS);
+        DeliveryResult second = coordinator
+            .deliver(
+                "delivery-writer-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                writer
+            )
+            .get(1, TimeUnit.SECONDS);
+
+        assertEquals(DeliveryStatus.UNKNOWN, first.status);
+        assertTrue(first.postingMayHaveBegun);
+        assertEquals("AssertionError", first.error);
+        assertSame(first, second);
+        assertEquals(1, writes.get());
+        assertEquals(0, coordinator.inFlightCount());
     }
 
     @Test
@@ -555,6 +675,45 @@ public class NotificationDeliveryCoordinatorTest {
         assertEquals("Notification writer execution was not accepted", result.reason);
         assertEquals("RejectedExecutionException", result.error);
         assertEquals(0, writes.get());
+    }
+
+    @Test
+    public void executorAssertionIsUnknownBeforePostingAndRetained() throws Exception {
+        TestClock clock = new TestClock();
+        AtomicInteger writes = new AtomicInteger();
+        NotificationDeliveryCoordinator coordinator = new NotificationDeliveryCoordinator(
+            clock,
+            operation -> {
+                throw new AssertionError("executor failed");
+            },
+            8
+        );
+
+        DeliveryResult first = coordinator
+            .deliver(
+                "delivery-executor-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                posted(writes)
+            )
+            .get(1, TimeUnit.SECONDS);
+        DeliveryResult second = coordinator
+            .deliver(
+                "delivery-executor-assertion",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                posted(writes)
+            )
+            .get(1, TimeUnit.SECONDS);
+
+        assertEquals(DeliveryStatus.UNKNOWN, first.status);
+        assertFalse(first.postingMayHaveBegun);
+        assertEquals("AssertionError", first.error);
+        assertSame(first, second);
+        assertEquals(0, writes.get());
+        assertEquals(0, coordinator.inFlightCount());
     }
 
     @Test
@@ -679,6 +838,29 @@ public class NotificationDeliveryCoordinatorTest {
         assertEquals(DeliveryStatus.POSTED, first.status);
         assertEquals(DeliveryStatus.DUPLICATE, second.status);
         assertEquals(1, writes.get());
+    }
+
+    @Test
+    public void bridgeReloadRetainsOwnershipButProcessRestartDoesNot() {
+        TestClock clock = new TestClock();
+        NotificationDeliveryCoordinator process = coordinator(clock, 8);
+        AtomicInteger writes = new AtomicInteger();
+
+        DeliveryResult fcm = process
+            .deliver("delivery-reload", NOTIFICATION_ID, DEADLINE_MILLIS, noAvatar(), posted(writes))
+            .join();
+        DeliveryResult afterBridgeReload = process
+            .deliver("delivery-reload", NOTIFICATION_ID, DEADLINE_MILLIS, noAvatar(), posted(writes))
+            .join();
+        NotificationDeliveryCoordinator restartedProcess = coordinator(clock, 8);
+        DeliveryResult afterProcessRestart = restartedProcess
+            .deliver("delivery-reload", NOTIFICATION_ID, DEADLINE_MILLIS, noAvatar(), posted(writes))
+            .join();
+
+        assertEquals(DeliveryStatus.POSTED, fcm.status);
+        assertEquals(DeliveryStatus.DUPLICATE, afterBridgeReload.status);
+        assertEquals(DeliveryStatus.POSTED, afterProcessRestart.status);
+        assertEquals(2, writes.get());
     }
 
     @Test

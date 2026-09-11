@@ -36,16 +36,15 @@ import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { createNotificationIdentity } from "@/runtime/notification-avatar";
 import {
   extractConversationId,
+  isFocusedNotificationConversation,
   postLocalNotification,
   sendNotificationIntentAck,
+  shouldSuppressFocusedNotificationDelivery,
 } from "@/runtime/notifications";
-import { isVisibleToUser } from "@/runtime/window-attention";
 import { useAuthStore } from "@/stores/auth-store";
-import { useConversationStore } from "@/stores/conversation-store";
 import { useRequestOrganizationId } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
-import { isConversationChatPath } from "@/utils/routes";
 
 /**
  * Subscribes to `notification_intent` SSE events via the event bus
@@ -138,12 +137,15 @@ export function useNotificationIntentSync(assistantId: string | null): void {
     const metadataConversationId = extractConversationId(
       event.deepLinkMetadata,
     );
+    const focused =
+      metadataConversationId !== undefined &&
+      isFocusedNotificationConversation(metadataConversationId, pathname);
     if (
-      metadataConversationId &&
-      metadataConversationId ===
-        useConversationStore.getState().activeConversationId &&
-      isConversationChatPath(pathname) &&
-      isVisibleToUser()
+      shouldSuppressFocusedNotificationDelivery(
+        event.correlationId,
+        event.deliveryId,
+        focused,
+      )
     ) {
       if (originatingAssistantId && event.deliveryId) {
         void sendNotificationIntentAck(
@@ -155,20 +157,24 @@ export function useNotificationIntentSync(assistantId: string | null): void {
       return;
     }
 
-    void getSoundManager().play("notification");
-    void postLocalNotification({
-      title: event.title,
-      body: event.body,
-      sourceEventName: event.sourceEventName,
-      assistantName: event.assistantName,
-      deliveryId: event.deliveryId,
-      correlationId: event.correlationId,
-      deepLinkMetadata: event.deepLinkMetadata,
-      assistantId: originatingAssistantId ?? undefined,
-      identity: originatingIdentity ?? undefined,
-      identityStoreName,
-      remotePushDispatched: event.remotePushDispatched,
-      remotePushPlatforms: event.remotePushPlatforms,
-    });
+    void (async () => {
+      const soundDisposition = await postLocalNotification({
+        title: event.title,
+        body: event.body,
+        sourceEventName: event.sourceEventName,
+        assistantName: event.assistantName,
+        deliveryId: event.deliveryId,
+        correlationId: event.correlationId,
+        deepLinkMetadata: event.deepLinkMetadata,
+        assistantId: originatingAssistantId ?? undefined,
+        identity: originatingIdentity ?? undefined,
+        identityStoreName,
+        remotePushDispatched: event.remotePushDispatched,
+        remotePushPlatforms: event.remotePushPlatforms,
+      });
+      if (soundDisposition === "web-sound") {
+        await getSoundManager().play("notification");
+      }
+    })();
   });
 }

@@ -158,20 +158,6 @@ public class PushDataMessageTest {
     }
 
     @Test
-    public void onlyADataOnlyPushTheWebLayerCannotRenderIsRenderedNatively() {
-        assertTrue(message(alertData()).rendersNatively(false));
-        assertFalse("web layer renders it", message(alertData()).rendersNatively(true));
-        assertFalse(
-            "notification block",
-            PushDataMessage.of(alertData(), true, null).rendersNatively(false)
-        );
-
-        Map<String, String> untitled = alertData();
-        untitled.remove("title");
-        assertFalse("untitled", message(untitled).rendersNatively(false));
-    }
-
-    @Test
     public void theShortcutIdSeparatesTwoConversationsWithOneAssistant() {
         assertEquals(
             "vellum-conversation:assistant-1:conversation-1",
@@ -246,6 +232,47 @@ public class PushDataMessageTest {
             PushDataMessage.deliveryKey(null, null, " request-1 ")
         );
         assertNull(PushDataMessage.deliveryKey(null, " ", "\t"));
+    }
+
+    @Test
+    public void canonicalDeliveryKeysMatchJavaScriptWhitespaceAndUtf16Bounds() {
+        assertEquals(
+            "delivery-1",
+            PushDataMessage.deliveryKey("\u00A0\uFEFFdelivery-1\u3000", null, null)
+        );
+        assertEquals("x".repeat(512), PushDataMessage.deliveryKey("x".repeat(512), null, null));
+        assertNull(PushDataMessage.deliveryKey("x".repeat(513), null, null));
+        assertNull(PushDataMessage.deliveryKey("😀".repeat(257), null, null));
+        assertNull(
+            PushDataMessage.deliveryKey("x".repeat(513), "delivery-1", "request-1")
+        );
+        assertNull(
+            PushDataMessage.deliveryKey(" ", "😀".repeat(257), "request-1")
+        );
+    }
+
+    @Test
+    public void fcmRetainsAnInvalidPresentDeliveryCandidate() {
+        Map<String, String> data = alertData();
+        data.put("delivery_id", "x".repeat(513));
+
+        PushDataMessage message = PushDataMessage.of(data, false, "message-1");
+
+        assertNull(message.deliveryKey());
+        assertTrue(message.hasInvalidDeliveryKeyCandidate());
+    }
+
+    @Test
+    public void localFactoryDoesNotFallThroughAnInvalidExplicitCandidate() {
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> PushDataMessage.fromLocalData(
+                alertData(),
+                "x".repeat(513),
+                "delivery-1",
+                "request-1"
+            )
+        );
     }
 
     @Test

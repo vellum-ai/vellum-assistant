@@ -50,8 +50,19 @@ import { publish } from "@/lib/event-bus";
 import { resolvePlatformAssistantId } from "@/lib/platform-assistant-id";
 import { captureError } from "@/lib/sentry/capture-error";
 import { ensureAndroidAlertsChannel } from "@/runtime/android-notification-channels";
+import {
+  beginAndroidNotificationOwnershipEnable,
+  disableAndroidNotificationOwnership,
+  enableAndroidNotificationOwnership,
+  installAndroidSenderNotificationIdentityAdapter,
+  type AndroidNotificationOwnershipBridge,
+} from "@/runtime/android-sender-notification";
 import { resolveSignedApnsEnvironment } from "@/runtime/apns-environment";
 import { isNativePlatform } from "@/runtime/native-auth";
+import {
+  dispatchNotificationTap,
+  type NotificationTapPayload,
+} from "@/runtime/notification-taps";
 import { createStorageAccessor } from "@/utils/typed-storage";
 
 /** Token registration we last upserted, retained so logout can delete it. */
@@ -64,7 +75,8 @@ interface RegisteredToken {
   runtimeAssistantId: string;
 }
 
-interface AndroidPushRegistrationPlugin {
+interface AndroidPushRegistrationPlugin
+  extends AndroidNotificationOwnershipBridge {
   register(): Promise<void>;
   unregister(): Promise<void>;
   getCapabilities(): Promise<{ capabilities: string[] }>;
@@ -124,6 +136,7 @@ let lastRegistered: RegisteredToken | null = null;
 let foregroundPushHandler: ((push: PushNotificationSchema) => void) | null =
   null;
 let foregroundHandlerQueue = Promise.resolve();
+let foregroundHandlerOperation = 0;
 let foregroundHandlerFailureReported = false;
 const pendingUpserts = new Set<Promise<void>>();
 let androidUpsertQueue = Promise.resolve();
@@ -294,13 +307,78 @@ export function extractPushConversationId(data: unknown): string | undefined {
   }
   if (typeof deepLink === "object" && deepLink !== null) {
     const conversationId = (deepLink as Record<string, unknown>).conversationId;
-    if (typeof conversationId === "string") {
-      return conversationId;
+    const resolvedConversationId = trimmedField(conversationId);
+    if (resolvedConversationId) {
+      return resolvedConversationId;
     }
   }
-  return typeof record.conversationId === "string"
-    ? record.conversationId
-    : undefined;
+  return trimmedField(record.conversationId);
+}
+
+function objectField(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function trimmedField(value: unknown): string | undefined {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  return trimmed || undefined;
+}
+
+/** Parse only additive local identity metadata into the shared tap route. */
+export function extractScopedPushTapPayload(
+  data: unknown,
+): NotificationTapPayload | null {
+  const record = objectField(data);
+  const identity = objectField(record?.identity);
+  if (!record || !identity) {
+    return null;
+  }
+  const scopeId = trimmedField(identity.scopeId);
+  const assistantId = trimmedField(identity.assistantId);
+  const nativeSenderId = trimmedField(identity.nativeSenderId);
+  if (!scopeId || !assistantId || !nativeSenderId) {
+    return null;
+  }
+
+  const presentation =
+    record.presentation === "assistant" || record.presentation === "app"
+      ? record.presentation
+      : undefined;
+  const nameProvenance =
+    record.nameProvenance === "event" ||
+    record.nameProvenance === "identity-store" ||
+    record.nameProvenance === "verified-memory" ||
+    record.nameProvenance === "title"
+      ? record.nameProvenance
+      : undefined;
+  const conversationId = extractPushConversationId(record);
+  const sourceEventName =
+    trimmedField(record.sourceEventName) ??
+    trimmedField(record.source_event_name) ??
+    "remote_push";
+  const deliveryId =
+    trimmedField(record.deliveryId) ?? trimmedField(record.delivery_id);
+
+  return {
+    conversationId,
+    sourceEventName,
+    deliveryId,
+    identity: { scopeId, assistantId, nativeSenderId },
+    ...(presentation ? { presentation } : {}),
+    ...(nameProvenance ? { nameProvenance } : {}),
+    ...(record.suppressGroupTitle === true
+      ? { suppressGroupTitle: true }
+      : {}),
+  };
 }
 
 async function deleteRegisteredToken(
@@ -370,16 +448,46 @@ async function announceForegroundHandler(active: boolean): Promise<boolean> {
 export function setForegroundPushHandler(
   handler: ((push: PushNotificationSchema) => void) | null,
 ): void {
-  foregroundHandlerQueue = foregroundHandlerQueue.then(async () => {
-    if (handler !== null) {
-      foregroundPushHandler = handler;
-      await announceForegroundHandler(true);
-      return;
-    }
-    if (await announceForegroundHandler(false)) {
+  const operation = ++foregroundHandlerOperation;
+  if (handler !== null) {
+    foregroundPushHandler = handler;
+    installAndroidSenderNotificationIdentityAdapter();
+    beginAndroidNotificationOwnershipEnable();
+  }
+  foregroundHandlerQueue = foregroundHandlerQueue
+    .catch(() => {})
+    .then(async () => {
+      if (handler === null && operation !== foregroundHandlerOperation) {
+        return;
+      }
+      if (handler !== null) {
+        await announceForegroundHandler(true);
+        await enableAndroidNotificationOwnership(AndroidPushRegistration);
+        return;
+      }
+      if (!(await announceForegroundHandler(false))) {
+        return;
+      }
+      if (operation !== foregroundHandlerOperation) {
+        return;
+      }
+      if (
+        !(await disableAndroidNotificationOwnership(AndroidPushRegistration))
+      ) {
+        return;
+      }
+      if (operation !== foregroundHandlerOperation) {
+        return;
+      }
       foregroundPushHandler = null;
-    }
-  });
+    })
+    .catch((error: unknown) => {
+      captureError(error, {
+        context: "push_notification_ownership",
+        level: "warning",
+        bestEffort: true,
+      });
+    });
 }
 
 /**
@@ -418,9 +526,16 @@ async function ensureListeners(): Promise<void> {
     await PushNotifications.addListener(
       "pushNotificationActionPerformed",
       (action) => {
-        const conversationId = extractPushConversationId(
-          action.notification.data,
-        );
+        const data = action.notification.data;
+        const dataRecord = objectField(data);
+        if (dataRecord && "identity" in dataRecord) {
+          const scopedPayload = extractScopedPushTapPayload(dataRecord);
+          if (scopedPayload) {
+            dispatchNotificationTap(scopedPayload);
+          }
+          return;
+        }
+        const conversationId = extractPushConversationId(data);
         if (conversationId) {
           publish("deeplink.openThread", { threadId: conversationId });
         }
@@ -588,6 +703,7 @@ export function __resetPushRegistrationStateForTests(): void {
   currentAssistantId = null;
   lastRegistered = null;
   foregroundPushHandler = null;
+  foregroundHandlerOperation += 1;
   foregroundHandlerQueue = Promise.resolve();
   foregroundHandlerFailureReported = false;
   pendingUpserts.clear();

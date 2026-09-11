@@ -339,9 +339,15 @@ public class AndroidSenderNotificationPlugin extends Plugin {
                 : explicitName
             : null;
         InlineSender inlineSender = inlineSender(call);
-        String deliveryId = identityString(call.getString("deliveryId"));
-        String correlationId = identityString(call.getString("correlationId"));
-        String requestKey = identityString(call.getString("requestKey"));
+        String deliveryId = PushDataMessage.canonicalDeliveryPart(
+            call.getString("deliveryId")
+        );
+        String correlationId = PushDataMessage.canonicalDeliveryPart(
+            call.getString("correlationId")
+        );
+        String requestKey = PushDataMessage.canonicalDeliveryPart(
+            call.getString("requestKey")
+        );
         Map<String, String> data = notificationData(call, title, body);
         PushDataMessage message = PushDataMessage.fromLocalData(
             data,
@@ -409,13 +415,7 @@ public class AndroidSenderNotificationPlugin extends Plugin {
         @Nullable String deliveryId,
         @Nullable String requestKey
     ) {
-        for (String candidate : new String[] { correlationId, deliveryId, requestKey }) {
-            String value = identityString(candidate);
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
+        return PushDataMessage.deliveryKey(correlationId, deliveryId, requestKey);
     }
 
     @Nullable

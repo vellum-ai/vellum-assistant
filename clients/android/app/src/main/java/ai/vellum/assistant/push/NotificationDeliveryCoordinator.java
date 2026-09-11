@@ -237,14 +237,26 @@ public final class NotificationDeliveryCoordinator {
             inFlight.put(deliveryKey, claim);
         }
 
-        startOwner(
-            deliveryKey,
-            notificationId,
-            avatarDeadlineMillis,
-            avatarPreparation,
-            writer,
-            claim
-        );
+        try {
+            startOwner(
+                deliveryKey,
+                notificationId,
+                avatarDeadlineMillis,
+                avatarPreparation,
+                writer,
+                claim
+            );
+        } catch (Throwable throwable) {
+            finish(
+                deliveryKey,
+                claim,
+                DeliveryResult.unknown(
+                    false,
+                    "Notification delivery setup failed",
+                    safeError(throwable)
+                )
+            );
+        }
         return view(claim);
     }
 
@@ -302,7 +314,7 @@ public final class NotificationDeliveryCoordinator {
                 avatarDeadlineMillis,
                 () -> selection.select(null)
             );
-        } catch (RuntimeException exception) {
+        } catch (Throwable throwable) {
             selection.select(null);
             return;
         }
@@ -318,7 +330,7 @@ public final class NotificationDeliveryCoordinator {
         CompletionStage<A> prepared;
         try {
             prepared = avatarPreparation.prepare();
-        } catch (RuntimeException exception) {
+        } catch (Throwable throwable) {
             selection.select(null);
             return;
         }
@@ -326,13 +338,28 @@ public final class NotificationDeliveryCoordinator {
             selection.select(null);
             return;
         }
-        prepared.whenComplete((avatar, exception) -> {
-            if (exception != null || avatar == null || clock.nowMillis() >= deadlineAt) {
+        try {
+            prepared.whenComplete((avatar, exception) -> {
+                if (exception != null || avatar == null) {
+                    selection.select(null);
+                    return;
+                }
+                try {
+                    if (clock.nowMillis() >= deadlineAt) {
+                        selection.select(null);
+                        return;
+                    }
+                } catch (Throwable throwable) {
+                    selection.select(null);
+                    return;
+                }
+                selection.select(avatar);
+            });
+        } catch (Throwable throwable) {
+            if (!selection.isSelected()) {
                 selection.select(null);
-                return;
             }
-            selection.select(avatar);
-        });
+        }
     }
 
     private <A> void write(
@@ -352,8 +379,8 @@ public final class NotificationDeliveryCoordinator {
                     null
                 );
             }
-        } catch (RuntimeException exception) {
-            result = DeliveryResult.unknown(true, null, safeError(exception));
+        } catch (Throwable throwable) {
+            result = DeliveryResult.unknown(true, null, safeError(throwable));
         }
         finish(deliveryKey, claim, result);
     }
@@ -391,8 +418,8 @@ public final class NotificationDeliveryCoordinator {
         return deadlineAt;
     }
 
-    private static String safeError(RuntimeException exception) {
-        return exception.getClass().getSimpleName();
+    private static String safeError(Throwable throwable) {
+        return throwable.getClass().getSimpleName();
     }
 
     int completedCount() {
@@ -419,12 +446,12 @@ public final class NotificationDeliveryCoordinator {
             new AtomicReference<>();
         private final Executor writerExecutor;
         private final SelectionWriter<A> writer;
-        private final Consumer<RuntimeException> rejected;
+        private final Consumer<Throwable> rejected;
 
         Selection(
             Executor writerExecutor,
             SelectionWriter<A> writer,
-            Consumer<RuntimeException> rejected
+            Consumer<Throwable> rejected
         ) {
             this.writerExecutor = writerExecutor;
             this.writer = writer;
@@ -434,7 +461,7 @@ public final class NotificationDeliveryCoordinator {
         void setDeadlineCancellation(Cancellation cancellation) {
             deadlineCancellation.set(cancellation);
             if (selected.get()) {
-                cancellation.cancel();
+                cancelSafely(cancellation);
             }
         }
 
@@ -448,12 +475,20 @@ public final class NotificationDeliveryCoordinator {
             }
             Cancellation cancellation = deadlineCancellation.get();
             if (cancellation != null) {
-                cancellation.cancel();
+                cancelSafely(cancellation);
             }
             try {
                 writerExecutor.execute(() -> writer.write(avatar));
-            } catch (RuntimeException exception) {
-                rejected.accept(exception);
+            } catch (Throwable throwable) {
+                rejected.accept(throwable);
+            }
+        }
+
+        private static void cancelSafely(Cancellation cancellation) {
+            try {
+                cancellation.cancel();
+            } catch (Throwable throwable) {
+                // Cancellation is best-effort after a delivery path has been selected.
             }
         }
     }

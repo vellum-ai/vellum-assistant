@@ -31,7 +31,8 @@ import {
   type ResolvedAssistant,
 } from "@/stores/resolved-assistants-store";
 import type { PostLocalNotificationArgs } from "@/runtime/notifications";
-import { routes } from "@/utils/routes";
+import { isVisibleToUser } from "@/runtime/window-attention";
+import { isConversationChatPath, routes } from "@/utils/routes";
 
 const CONVERSATION_ID = "conv-1";
 const PLATFORM_ASSISTANT_ID = "123e4567-e89b-12d3-a456-426614174000";
@@ -44,12 +45,31 @@ const PLATFORM_ASSISTANT: ResolvedAssistant = {
 };
 
 const postedArgs: PostLocalNotificationArgs[] = [];
+let soundDisposition: "web-sound" | "native-owned" = "web-sound";
 const postLocalNotificationMock = mock(
   async (args: PostLocalNotificationArgs) => {
     postedArgs.push(args);
+    return soundDisposition;
   },
 );
 const sendAckMock = mock(async () => {});
+const focusedDeliveryKeys = new Set<string>();
+const shouldSuppressFocusedNotificationDeliveryMock = mock(
+  (
+    correlationId: string | undefined,
+    deliveryId: string | undefined,
+    focused: boolean,
+  ) => {
+    const key = correlationId?.trim() || deliveryId?.trim();
+    if (key && focusedDeliveryKeys.has(key)) {
+      return true;
+    }
+    if (key && focused) {
+      focusedDeliveryKeys.add(key);
+    }
+    return focused;
+  },
+);
 mock.module("@/runtime/notifications", () => ({
   postLocalNotification: postLocalNotificationMock,
   sendNotificationIntentAck: sendAckMock,
@@ -57,10 +77,20 @@ mock.module("@/runtime/notifications", () => ({
     typeof metadata?.conversationId === "string"
       ? metadata.conversationId
       : undefined,
+  isFocusedNotificationConversation: (
+    conversationId: string,
+    pathname: string,
+  ) =>
+    conversationId === useConversationStore.getState().activeConversationId &&
+    isConversationChatPath(pathname) &&
+    isVisibleToUser(),
+  shouldSuppressFocusedNotificationDelivery:
+    shouldSuppressFocusedNotificationDeliveryMock,
 }));
 
+const playSoundMock = mock(async () => {});
 mock.module("@/lib/sounds/sound-manager", () => ({
-  getSoundManager: () => ({ play: async () => {} }),
+  getSoundManager: () => ({ play: playSoundMock }),
 }));
 
 const { useNotificationIntentSync } =
@@ -172,6 +202,7 @@ function publishForActiveConversation() {
 
 function expectSuppressed() {
   expect(postedArgs).toHaveLength(0);
+  expect(playSoundMock).not.toHaveBeenCalled();
   expect(sendAckMock).toHaveBeenCalledTimes(1);
   expect(sendAckMock).toHaveBeenLastCalledWith(
     "assistant-1",
@@ -233,8 +264,12 @@ beforeEach(() => {
   useConversationStore.getState().reset();
   setVisibilityState("visible");
   postedArgs.length = 0;
+  soundDisposition = "web-sound";
   postLocalNotificationMock.mockClear();
+  playSoundMock.mockClear();
   sendAckMock.mockClear();
+  focusedDeliveryKeys.clear();
+  shouldSuppressFocusedNotificationDeliveryMock.mockClear();
 });
 
 afterEach(() => {
@@ -280,6 +315,54 @@ describe("useNotificationIntentSync", () => {
     });
     expect(postedArgs[0]?.identity?.scopeId).not.toContain("account-1");
     expect(postedArgs[0]?.identity?.scopeId).not.toContain("org-1");
+  });
+
+  test("plays web sound only when the display route leaves sound to web", async () => {
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({});
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(playSoundMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not add sound after the Android coordinator owns delivery", async () => {
+    soundDisposition = "native-owned";
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({});
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(playSoundMock).not.toHaveBeenCalled();
+  });
+
+  test("a slow native-owned result never triggers an early web sound", async () => {
+    let finishPost!: (value: "native-owned") => void;
+    postLocalNotificationMock.mockImplementationOnce(
+      async (args: PostLocalNotificationArgs) => {
+        postedArgs.push(args);
+        return new Promise<"native-owned">((resolve) => {
+          finishPost = resolve;
+        });
+      },
+    );
+    mountAt(routes.assistant);
+
+    publishNotificationIntent({});
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(playSoundMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      finishPost("native-owned");
+      await Promise.resolve();
+    });
+    expect(playSoundMock).not.toHaveBeenCalled();
   });
 
   test("leaves remotePushDispatched undefined when the daemon omits it", () => {
@@ -399,6 +482,20 @@ describe("useNotificationIntentSync already-watching skip", () => {
     publishForActiveConversation();
 
     expectSuppressed();
+  });
+
+  test("retained FCM focus suppression keeps the original SSE ack id", () => {
+    focusedDeliveryKeys.add("signal-1");
+    mountAt(routes.settings.root);
+
+    publishNotificationIntent({});
+
+    expectSuppressed();
+    expect(sendAckMock).toHaveBeenLastCalledWith(
+      "assistant-1",
+      "delivery-1",
+      true,
+    );
   });
 
   // A hidden tab shows nothing, and the web has no push fallback to deliver
