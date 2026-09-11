@@ -122,6 +122,32 @@ function isPendingReply(
   );
 }
 
+/** Resolve a nonce-less event through the server id retained for its send. */
+function correlatedDocumentReplyClientMessageId(
+  conversationId: string,
+  clientMessageId: string | undefined,
+  serverMessageId: string | undefined,
+): string | undefined {
+  if (clientMessageId !== undefined) {
+    return clientMessageId;
+  }
+  if (serverMessageId === undefined) {
+    return undefined;
+  }
+  const replyStore = useDocumentComposerReplyStore.getState();
+  const pending = replyStore.pendingReplies
+    .get(conversationId)
+    ?.find((reply) => reply.serverMessageId === serverMessageId);
+  if (pending?.clientMessageId !== undefined) {
+    return pending.clientMessageId;
+  }
+  return [...replyStore.detachedQueuedSends].find(
+    ([, send]) =>
+      send.conversationId === conversationId &&
+      send.serverMessageId === serverMessageId,
+  )?.[0];
+}
+
 /**
  * Fires the document composer's "Assistant replied" toast once the daemon
  * reports a turn complete for a send `useDocumentComposerSubmit` flagged as
@@ -403,7 +429,12 @@ export function DocumentComposerReplyWatcher() {
     // coming for it. Only the nonce names which send that is, and ending a
     // wait on another client's deletion would end the wrong one.
     if (event.type === "message_queued_deleted") {
-      const { conversationId, clientMessageId } = event;
+      const { conversationId } = event;
+      const clientMessageId = correlatedDocumentReplyClientMessageId(
+        conversationId,
+        event.clientMessageId,
+        event.requestId,
+      );
       if (!clientMessageId) {
         return;
       }

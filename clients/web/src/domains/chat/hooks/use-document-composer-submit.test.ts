@@ -3640,6 +3640,44 @@ describe("an attempt nothing can retry", () => {
     });
   });
 
+  test("an accepted send survives a switch away and back before its response", async () => {
+    const settle = deferPostChatMessage();
+    useComposerStore.getState().setInput("for the first assistant", "document");
+    const { result, rerender } = renderSubmitForAssistant(ASSISTANT_ID);
+
+    let submitted: Promise<void> = Promise.resolve();
+    await act(async () => {
+      submitted = result.current.submit();
+    });
+    await waitFor(() => expect(postChatMessageMock).toHaveBeenCalledTimes(1));
+    const clientMessageId = sentOptions(0).clientMessageId;
+    if (clientMessageId === undefined) {
+      throw new Error("expected the document send's nonce");
+    }
+
+    switchAssistantAway();
+    rerender({ assistantId: "assistant-2" });
+    useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
+    rerender({ assistantId: ASSISTANT_ID });
+    await act(async () => {
+      settle(sentResult("conv-a"));
+      await submitted;
+    });
+
+    expect(isAwaitingReply("conv-a")).toBe(false);
+    expect(detachedSends().size).toBe(0);
+    expect(detachedQueuedSends().get(clientMessageId)).toEqual({
+      conversationId: "conv-a",
+      serverMessageId: "msg-1",
+      payload: {
+        assistantId: ASSISTANT_ID,
+        surfaceId: SURFACE_ID,
+        content: "for the first assistant",
+        attachments: [],
+      },
+    });
+  });
+
   test("a queued response after an assistant switch keeps the send for reconciliation", async () => {
     const settle = deferPostChatMessage();
     useComposerStore.getState().setInput("for the first assistant", "document");

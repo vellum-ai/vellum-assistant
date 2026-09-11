@@ -683,7 +683,11 @@ export function useDocumentComposerSubmit({
       // either onto the row the daemon answered with would leave it on a
       // connection nothing is listening to. A move to another document moves
       // both, since the reply toast is meant to outlive closing the document.
-      const sameAssistant = !assistantChanged();
+      // A switch away detaches the recovery copy from the stream immediately.
+      // The user may return to this assistant before the POST answers, so the
+      // current assistant id alone cannot prove this send stayed attached.
+      const sameAssistant =
+        !assistantChanged() && detachedPayload === null;
       if (!sameAssistant) {
         const replyStore = useDocumentComposerReplyStore.getState();
         const retainedPayload =

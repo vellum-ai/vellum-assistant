@@ -144,8 +144,8 @@ export function QueuedSendRecoveryWatcher() {
           const message = snapshot?.messages.find(
             (candidate) =>
               candidate.clientMessageId === clientMessageId ||
-              (send.serverMessageId !== undefined &&
-                candidate.id === send.serverMessageId),
+              (current.serverMessageId !== undefined &&
+                candidate.id === current.serverMessageId),
           );
           if (message?.queueStatus === "queued") {
             continue;

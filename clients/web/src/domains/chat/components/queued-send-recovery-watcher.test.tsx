@@ -255,8 +255,27 @@ describe("QueuedSendRecoveryWatcher", () => {
 
   test("switching back recognizes a persisted send without a client nonce", async () => {
     isOrgReady = true;
+    let resolveSnapshot: (snapshot: ConversationSnapshot) => void = () => {};
     fetchConversationMessagesMock = mock(
-      async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+      async (..._args: unknown[]): Promise<ConversationSnapshot> =>
+        new Promise((resolve) => {
+          resolveSnapshot = resolve;
+        }),
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    recordQueuedSend("nonce-1", "conv-left");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+    await waitFor(() =>
+      expect(fetchConversationMessagesMock).toHaveBeenCalledTimes(1),
+    );
+
+    recordQueuedSend("nonce-1", "conv-left", "msg-1");
+    await act(async () => {
+      resolveSnapshot({
         messages: [
           {
             id: "msg-1",
@@ -266,14 +285,7 @@ describe("QueuedSendRecoveryWatcher", () => {
           },
         ],
         processing: false,
-      }),
-    );
-    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
-    recordQueuedSend("nonce-1", "conv-left", "msg-1");
-    render(<QueuedSendRecoveryWatcher />);
-
-    act(() => {
-      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+      });
     });
 
     await waitFor(() => expect(stillQueued("nonce-1")).toBe(false));

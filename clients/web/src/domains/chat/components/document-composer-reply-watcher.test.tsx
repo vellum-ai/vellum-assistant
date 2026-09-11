@@ -1389,6 +1389,26 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(awaiting("conv-1")).toBe(true);
     });
 
+    test("a nonce-less queued deletion settles by its server request id", () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .recordReplyServerMessageId("conv-1", "cm-1", "req-conv-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      useConversationStore.getState().addProcessingConversationId("conv-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishMessageQueuedDeleted("conv-1");
+
+      expect(toastSuccessMock).not.toHaveBeenCalled();
+      expect(awaiting("conv-1")).toBe(false);
+      expect(processing("conv-1")).toBe(false);
+    });
+
     test("the queue ack flags the wait ahead of the running turn's handoff", () => {
       useDocumentComposerReplyStore
         .getState()
