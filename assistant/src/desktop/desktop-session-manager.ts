@@ -19,12 +19,15 @@ import {
   desktopChromePath,
   resolveDesktopBinaries,
 } from "./desktop-dependencies.js";
+import {
+  DESKTOP_DISPLAY,
+  DESKTOP_OVERRIDABLE_PARAMETERS,
+} from "./desktop-display.js";
 import { writeDesktopPanelConfig } from "./desktop-panel-config.js";
 import { renderCurrentDesktopWallpaper } from "./desktop-wallpaper.js";
 
 const log = getLogger("desktop-session");
 
-const DESKTOP_DISPLAY = ":99";
 export const DESKTOP_VNC_PORT = 5999;
 const DESKTOP_WIDTH = 1440;
 const DESKTOP_HEIGHT = 900;
@@ -144,8 +147,7 @@ export interface DesktopTcpHandlers {
 type DesktopSignal = "SIGTERM" | "SIGKILL";
 
 type ViewerSlotResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly loss: DesktopLoss };
+  { readonly ok: true } | { readonly ok: false; readonly loss: DesktopLoss };
 
 interface DesktopSessionManagerOptions {
   readonly spawn?: (
@@ -187,6 +189,7 @@ export class DesktopSessionManager {
   /** Bumped on every teardown so an in-flight start notices it lost its tree. */
   private generation = 0;
   private viewer: DesktopViewer | null = null;
+  private automation: DesktopViewer | null = null;
   private lingerTimer: ReturnType<typeof setTimeout> | null = null;
   private ingressClosed = false;
   private browserExitsAt: number[] = [];
@@ -273,7 +276,29 @@ export class DesktopSessionManager {
       return;
     }
     this.viewer = null;
-    if (this.running || this.starting) {
+    if (!this.automation && (this.running || this.starting)) {
+      this.armLinger();
+    }
+  }
+
+  acquireAutomationSlot(owner: DesktopViewer): ViewerSlotResult {
+    if (this.ingressClosed) {
+      return { ok: false, loss: SHUTTING_DOWN_LOSS };
+    }
+    if (this.automation) {
+      return { ok: false, loss: BUSY_LOSS };
+    }
+    this.automation = owner;
+    this.clearLinger();
+    return { ok: true };
+  }
+
+  releaseAutomationSlot(owner: DesktopViewer): void {
+    if (this.automation !== owner) {
+      return;
+    }
+    this.automation = null;
+    if (!this.viewer && (this.running || this.starting)) {
       this.armLinger();
     }
   }
@@ -529,13 +554,9 @@ export class DesktopSessionManager {
     });
   }
 
-  /**
-   * A closed browser is normal use when nobody is watching; the next viewer
-   * gets a fresh window. Under a viewer it is relaunched so they are not
-   * stranded on an empty desktop, unless it keeps dying.
-   */
+  /** Relaunch Chrome while a viewer or automation is using the desktop. */
   private onBrowserExit(): void {
-    if (!this.viewer || !this.running) {
+    if ((!this.viewer && !this.automation) || !this.running) {
       return;
     }
     const now = Date.now();
@@ -568,7 +589,12 @@ export class DesktopSessionManager {
     const children = new Map(this.children);
     this.children.clear();
     const viewer = this.viewer;
+    const automation = this.automation;
     this.viewer = null;
+    this.automation = null;
+    if (automation && loss) {
+      automation.onDesktopLost(loss);
+    }
     if (viewer && loss) {
       viewer.onDesktopLost(loss);
     }
@@ -685,6 +711,8 @@ function xServerCommand(executable: string): string[] {
     "None",
     "-rfbport",
     String(DESKTOP_VNC_PORT),
+    "-AllowOverride",
+    DESKTOP_OVERRIDABLE_PARAMETERS.join(","),
     "-geometry",
     DESKTOP_GEOMETRY,
     "-depth",
