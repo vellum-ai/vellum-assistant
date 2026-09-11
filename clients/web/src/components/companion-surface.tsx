@@ -474,11 +474,25 @@ export const FALLBACK_WIDTHS: Record<
 };
 
 /**
- * What a column is drawn at until its body has been measured: one control
- * wide, and the five controls of the handlebar tall. The line is not in the
- * column, since it stands beside it; see {@link CallLine}.
+ * The width of the activity line at the top of a column.
+ *
+ * One width whatever the session is saying, for the reason
+ * {@link CALL_LINE_WIDTH} is one: a column that grew with its words would
+ * breathe on every phase. Narrower than the row's, since the column is one
+ * control wide below it and a line the row's width would make the whole
+ * column a slab; the words are centred and cut short where they run past.
  */
-const FALLBACK_COLUMN = { width: 28, height: 5 * 28 + 4 * 4 };
+const CALL_COLUMN_LINE_WIDTH = 96;
+
+/**
+ * What a column is drawn at until its body has been measured: the line's
+ * width, and the line and the five controls of the handlebar tall, with the
+ * gaps between them.
+ */
+const FALLBACK_COLUMN = {
+  width: CALL_COLUMN_LINE_WIDTH,
+  height: 16 + 5 * 28 + 5 * 4,
+};
 
 /**
  * The keys that make the call row's presses from anywhere on the desktop, as
@@ -2270,25 +2284,25 @@ function CallBody({
  * What the session is doing, in the bar.
  *
  * On a row it is the first thing in the row, one width whatever it says (see
- * {@link CALL_LINE_WIDTH}). On a column the words do not fit across, so they
- * stand beside it as a caption of the controls' kind, held up rather than
- * revealed by the pointer: it is what the bar is saying, not the name of a
- * control. Beside the column's top, which is the end the creature stands at,
- * so the bar reads down from the creature: who is on the call, what they are
- * doing, then the controls. It escapes the column's clipping the way the
- * controls' captions do, by standing absolute in a box that is not
- * positioned, and takes no room in the column's measure.
+ * {@link CALL_LINE_WIDTH}). On a column it is the first thing down the
+ * column, centred over the controls at its own one width (see
+ * {@link CALL_COLUMN_LINE_WIDTH}), so the bar reads down from the creature:
+ * what they are doing, then the controls. In the column rather than beside
+ * it, because it is what the bar is saying and belongs in the bar; the
+ * captions that stand beside a column are the controls' names, revealed by
+ * the pointer, and a line that stood with them would read as one more of
+ * those.
  */
 function CallLine({ vertical, text }: { vertical: boolean; text: string }) {
-  const side = useContext(CaptionSideContext);
-  if (vertical && side !== "above") {
+  if (vertical) {
     return (
-      <Caption
-        label={text}
-        className={`opacity-100 ${CONTROL_CAPTION_BESIDE[side]}`}
-        beak={side === "right" ? "left" : "right"}
+      <span
+        className="shrink-0 truncate text-center text-[12px] text-white/85"
+        style={{ width: CALL_COLUMN_LINE_WIDTH }}
         data-label="line"
-      />
+      >
+        {text}
+      </span>
     );
   }
   return (

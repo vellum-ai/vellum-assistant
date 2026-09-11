@@ -1318,7 +1318,11 @@ describe("the companion surface's call bar docked to a side", () => {
     }
   });
 
-  test("stands the activity line beside the column, held up", () => {
+  /**
+   * In the column, not beside it: the line is what the bar is saying, and the
+   * captions that stand beside a column are the controls' names.
+   */
+  test("keeps the activity line in the column, centred over the controls", () => {
     const { container } = render(
       <CompanionSurface
         phase="call"
@@ -1328,8 +1332,10 @@ describe("the companion surface's call bar docked to a side", () => {
     );
     const line = lineOf(container);
     expect(line?.textContent).toContain("Thinking\u2026");
-    expect(line?.className).toContain("translate-x-[calc(50%+22px)]");
-    expect(line?.className).toContain("opacity-100");
+    expect(columnOf(container).contains(line)).toBe(true);
+    expect(line?.className).toContain("text-center");
+    expect(line?.className).not.toContain("translate-x-");
+    expect(line?.style.width).toBe("96px");
   });
 
   test("keeps the activity line in the row on the top and bottom", () => {
