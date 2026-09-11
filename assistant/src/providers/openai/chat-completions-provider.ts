@@ -17,6 +17,7 @@ import {
   mediaSourceByteLength,
   resolveMediaReferences,
 } from "../media-resolve.js";
+import { supportsForcedToolChoiceWithThinking } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -976,7 +977,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
           const skipAllChoices = thinkingOn && this.omitToolChoiceWhenReasoning;
-          if (!skipAutoDefault && !skipAllChoices) {
+          const skipIncompatibleForcedChoice =
+            thinkingOn &&
+            !supportsForcedToolChoiceWithThinking(
+              this.name,
+              modelOverride ?? this.model,
+            ) &&
+            (toolChoice === "required" || typeof toolChoice === "object");
+          if (
+            !skipAutoDefault &&
+            !skipAllChoices &&
+            !skipIncompatibleForcedChoice
+          ) {
             params.tool_choice = toolChoice;
           }
         }

@@ -39,7 +39,7 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
-import { OpenAIChatCompletionsProvider } from "../../../../../providers/openai/chat-completions-provider.js";
+import { OpenRouterProvider } from "../../../../../providers/openrouter/client.js";
 import { ProviderError } from "../../../../../util/errors.js";
 import { sectionHeadLine } from "../sections.js";
 import type { MemoryRoutingTurn, Section } from "../types.js";
@@ -846,31 +846,24 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
 });
 
 // ---------------------------------------------------------------------------
-// selectPool — thinking-mode tool_choice rejection on an OpenAI-compatible
-// profile (ATL-1346: Kimi 400s a forced `select_pages` while thinking is on).
+// selectPool: cataloged thinking and forced-tool compatibility.
 // ---------------------------------------------------------------------------
 
-describe("selectPool — thinking-mode tool_choice rejection on an OpenAI-compatible profile", () => {
-  test("the captured Kimi 400 retries inside the provider and still yields a structured selection", async () => {
-    // A real OpenAI chat-completions provider stands in for a thinking-enabled
-    // Kimi profile; the SDK client is swapped for a stub that 400s the first
-    // create with the captured wording, then streams a select_pages tool call.
+describe("selectPool: cataloged thinking and forced-tool compatibility", () => {
+  test("OpenRouter Kimi K2.6 omits the forced choice and yields a structured selection", async () => {
+    // A real OpenAI chat-completions provider stands in for the cataloged
+    // OpenRouter Kimi profile. The request succeeds without a reactive retry
+    // because the forced select_pages choice is omitted before dispatch.
     const wireRequests: unknown[] = [];
-    const kimi = new OpenAIChatCompletionsProvider("test-key", "kimi-model");
+    const kimi = new OpenRouterProvider(
+      "test-key",
+      "moonshotai/kimi-k2.6-20260420",
+    );
     (kimi as unknown as { client: unknown }).client = {
       chat: {
         completions: {
           create: async (params: unknown) => {
-            // Snapshot: the provider fallback mutates params between attempts.
             wireRequests.push(JSON.parse(JSON.stringify(params)));
-            if (wireRequests.length === 1) {
-              throw Object.assign(
-                new Error(
-                  "tool_choice 'specified' is incompatible with thinking enabled",
-                ),
-                { status: 400 },
-              );
-            }
             return {
               async *[Symbol.asyncIterator]() {
                 yield {
@@ -908,30 +901,28 @@ describe("selectPool — thinking-mode tool_choice rejection on an OpenAI-compat
       sendMessage: (messages: Message[], options?: SendMessageOptions) =>
         kimi.sendMessage(messages, {
           ...options,
-          config: { ...options?.config, effort: "high" },
+          config: {
+            ...options?.config,
+            effort: "high",
+            thinking: { enabled: true },
+          },
         }),
     };
 
     const selection = await selectPool(makePool(), makeTurn("rollout?"));
 
-    // The provider-level one-retry absorbed the 400: exactly two wire
-    // requests, and the pool-level re-prompt loop never engaged.
-    expect(wireRequests).toHaveLength(2);
+    // The preflight path avoids an incompatible first request, and the
+    // pool-level re-prompt loop never engages.
+    expect(wireRequests).toHaveLength(1);
     const first = wireRequests[0] as {
-      tool_choice?: { type: string; function: { name: string } };
-      reasoning_effort?: string;
-    };
-    const second = wireRequests[1] as {
       tool_choice?: unknown;
-      reasoning_effort?: string;
+      reasoning?: { effort?: string; summary?: string };
     };
-    expect(first.tool_choice).toEqual({
-      type: "function",
-      function: { name: "select_pages" },
+    expect(first.tool_choice).toBeUndefined();
+    expect(first.reasoning).toMatchObject({
+      effort: "high",
+      summary: "detailed",
     });
-    expect(first.reasoning_effort).toBe("high");
-    expect(second.tool_choice).toBeUndefined();
-    expect(second.reasoning_effort).toBe("high");
     expect(
       warnPayloads().filter((p) => p.reason === "provider_error"),
     ).toEqual([]);
