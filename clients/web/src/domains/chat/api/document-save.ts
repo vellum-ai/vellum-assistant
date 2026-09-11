@@ -6,6 +6,7 @@
  */
 
 import { documentsPost } from "@/generated/daemon/sdk.gen";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 /** A document surface saved through the documents API. */
 export interface DocumentSaveTarget {
@@ -17,38 +18,79 @@ export interface DocumentSaveTarget {
 }
 
 type DocumentIdentity = Pick<DocumentSaveTarget, "assistantId" | "surfaceId">;
-const pendingSaves = new Map<string, Set<Promise<unknown>>>();
+type RetrySave = () => Promise<unknown>;
+interface SaveDrain {
+  save: Promise<unknown>;
+  retry?: RetrySave;
+  failed: boolean;
+}
+const pendingSaves = new Map<
+  string,
+  Map<RetrySave | Promise<unknown>, SaveDrain>
+>();
+let sessionGeneration = 0;
+
+useResolvedAssistantsStore.subscribe((state, previous) => {
+  if (state.activeAssistantId === null && previous.activeAssistantId !== null) {
+    sessionGeneration += 1;
+    pendingSaves.clear();
+  }
+});
+
+/** Detached editors cannot save or register retries after the session ends. */
+export function captureDocumentSaveSession(): () => boolean {
+  const generation = sessionGeneration;
+  return () => generation === sessionGeneration;
+}
 
 function documentSaveKey(target: DocumentIdentity): string {
   return JSON.stringify([target.assistantId, target.surfaceId]);
 }
 
-/** Tracks a complete editor drain, including revisions queued during a write. */
+/** Retains failed editor drains until a retry saves their latest revision. */
 export function trackDocumentSave(
   target: DocumentIdentity,
   save: Promise<unknown>,
+  retry?: RetrySave,
 ): void {
   const key = documentSaveKey(target);
-  const saves = pendingSaves.get(key) ?? new Set<Promise<unknown>>();
-  saves.add(save);
+  const saves =
+    pendingSaves.get(key) ?? new Map<RetrySave | Promise<unknown>, SaveDrain>();
+  const owner = retry ?? save;
+  const drain: SaveDrain = { save, retry, failed: false };
+  saves.set(owner, drain);
   pendingSaves.set(key, saves);
   const release = () => {
-    saves.delete(save);
+    if (saves.get(owner) === drain) {
+      saves.delete(owner);
+    }
     if (saves.size === 0 && pendingSaves.get(key) === saves) {
       pendingSaves.delete(key);
     }
   };
-  void save.then(release, release);
+  void save.then(release, () => {
+    if (retry) {
+      drain.failed = true;
+    } else {
+      release();
+    }
+  });
 }
 
 /** A remounted editor reads only after this document's local writes settle. */
 export async function waitForDocumentSaves(
   target: DocumentIdentity,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
   const key = documentSaveKey(target);
   let saves = pendingSaves.get(key);
-  while (saves) {
-    await Promise.all(saves);
+  while (saves && isCurrent()) {
+    await Promise.all(
+      [...saves.values()].map((drain) => {
+        // The editor's retry registers a new drain under the same owner.
+        return drain.failed && drain.retry ? drain.retry() : drain.save;
+      }),
+    );
     saves = pendingSaves.get(key);
   }
 }

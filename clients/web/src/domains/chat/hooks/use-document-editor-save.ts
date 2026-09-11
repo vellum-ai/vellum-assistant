@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 import {
+  captureDocumentSaveSession,
   saveDocumentContent,
   trackDocumentSave,
   type DocumentSaveTarget,
@@ -39,6 +40,7 @@ export function useDocumentEditorSave({
   onRenameSaved,
   onRenameFailed,
 }: UseDocumentEditorSaveOptions) {
+  const [isSaveSessionCurrent] = useState(captureDocumentSaveSession);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
     "idle",
   );
@@ -129,76 +131,92 @@ export function useDocumentEditorSave({
     }
   }, []);
 
-  const flushSave = useCallback((): Promise<DocumentEditorSnapshot> => {
-    clearTimers();
-    if (activeSaveRef.current !== null) {
-      return activeSaveRef.current;
-    }
-    const drain = async () => {
-      let wrote = false;
-      while (savedRevisionRef.current !== revisionRef.current) {
-        const revision = revisionRef.current;
-        const snapshot = latestRef.current;
-        const renameRevision = renameRevisionRef.current;
-        const saveTarget = { ...targetRef.current, title: snapshot.title };
-        try {
-          await saveDocumentContent(saveTarget, snapshot.content);
-          wrote = true;
-        } catch (error) {
-          if (
-            renameRevision !== null &&
-            renameRevisionRef.current === renameRevision
-          ) {
-            renameRevisionRef.current = null;
-            latestRef.current = {
-              ...latestRef.current,
-              title: persistedRef.current.title,
-            };
-            if (mountedRef.current) {
+  const flushSave = useCallback(
+    function flushEditorSave(): Promise<DocumentEditorSnapshot> {
+      clearTimers();
+      if (!isSaveSessionCurrent()) {
+        return Promise.reject(new Error("Document editor session has ended"));
+      }
+      if (activeSaveRef.current !== null) {
+        return activeSaveRef.current;
+      }
+      const drain = async () => {
+        let wrote = false;
+        while (savedRevisionRef.current !== revisionRef.current) {
+          if (!isSaveSessionCurrent()) {
+            throw new Error("Document editor session has ended");
+          }
+          const revision = revisionRef.current;
+          const snapshot = latestRef.current;
+          const renameRevision = renameRevisionRef.current;
+          const saveTarget = { ...targetRef.current, title: snapshot.title };
+          try {
+            await saveDocumentContent(saveTarget, snapshot.content);
+            wrote = true;
+          } catch (error) {
+            if (!isSaveSessionCurrent()) {
+              throw error;
+            }
+            if (
+              mountedRef.current &&
+              renameRevision !== null &&
+              renameRevisionRef.current === renameRevision
+            ) {
+              renameRevisionRef.current = null;
+              latestRef.current = {
+                ...latestRef.current,
+                title: persistedRef.current.title,
+              };
               setTitle(persistedRef.current.title);
               callbacksRef.current.onRenamed?.(persistedRef.current.title);
               callbacksRef.current.onRenameFailed(error);
             }
+            if (revisionRef.current !== revision) {
+              captureError(error, {
+                context: "documentSaveSupersededRevision",
+              });
+              continue;
+            }
+            if (mountedRef.current) {
+              setSaveStatus("idle");
+            }
+            throw error;
           }
-          if (revisionRef.current !== revision) {
-            captureError(error, { context: "documentSaveSupersededRevision" });
-            continue;
+          if (!isSaveSessionCurrent()) {
+            throw new Error("Document editor session has ended");
           }
-          if (mountedRef.current) {
-            setSaveStatus("idle");
+          persistedRef.current = snapshot;
+          savedRevisionRef.current = revision;
+          if (renameRevision !== null) {
+            if (renameRevisionRef.current === renameRevision) {
+              renameRevisionRef.current = null;
+            }
+            callbacksRef.current.onRenameSaved(saveTarget);
           }
-          throw error;
         }
-        persistedRef.current = snapshot;
-        savedRevisionRef.current = revision;
-        if (renameRevision !== null) {
-          if (renameRevisionRef.current === renameRevision) {
-            renameRevisionRef.current = null;
+        clearTimers();
+        if (mountedRef.current && wrote) {
+          setSaveStatus("saved");
+          fadeTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+        }
+        return { ...latestRef.current };
+      };
+      // Start on a microtask so concurrent flushes share this exact promise,
+      // including a drain with no pending writes.
+      const save = Promise.resolve()
+        .then(drain)
+        .finally(() => {
+          if (activeSaveRef.current === save) {
+            activeSaveRef.current = null;
+            applyDeferredSnapshot();
           }
-          callbacksRef.current.onRenameSaved(saveTarget);
-        }
-      }
-      clearTimers();
-      if (mountedRef.current && wrote) {
-        setSaveStatus("saved");
-        fadeTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
-      }
-      return { ...latestRef.current };
-    };
-    // Start on a microtask so concurrent flushes share this exact promise,
-    // including a drain with no pending writes.
-    const save = Promise.resolve()
-      .then(drain)
-      .finally(() => {
-        if (activeSaveRef.current === save) {
-          activeSaveRef.current = null;
-          applyDeferredSnapshot();
-        }
-      });
-    activeSaveRef.current = save;
-    trackDocumentSave(targetRef.current, save);
-    return save;
-  }, [clearTimers, applyDeferredSnapshot]);
+        });
+      activeSaveRef.current = save;
+      trackDocumentSave(targetRef.current, save, flushEditorSave);
+      return save;
+    },
+    [clearTimers, applyDeferredSnapshot, isSaveSessionCurrent],
+  );
 
   const flushPendingSave = useCallback(async () => {
     if (!mountedRef.current) {

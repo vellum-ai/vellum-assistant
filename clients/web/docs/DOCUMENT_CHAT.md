@@ -19,9 +19,14 @@ survives refresh without a second chat page, event connection or composer store.
 Fresh chat entry, the document session and standalone recovery page read through
 `loadDocumentContent`, which refetches after pending local save drains settle
 and checks request ownership before and after fetching. The retained viewer
-snapshot is not a freshness signal. Save waits are scoped by assistant and surface
-and retain no document content; presentation switches within the mounted session
-keep the existing editor without refetching.
+snapshot is not a freshness signal. Save waits are scoped by assistant and surface.
+A failed drain retains the original editor's save callback and dirty revision in
+memory. Retry or reopening reattempts that drain before fetching, so the server's
+older body cannot replace an unsaved edit. Success releases the callback; ending
+the assistant session clears retained drains and invalidates old editor callbacks,
+including late completions. This is not durable recovery across page reloads.
+Presentation switches within the mounted session keep the existing editor without
+refetching.
 Reopening the associated document from Chat Info or a chat card uses that same
 presentation action, retaining the editor, original return destination and history
 state on both viewport layouts. An in-progress session load remains owned by the route.
@@ -145,8 +150,8 @@ existing global event bus and document-comment event hook. Export, comments and
 rename remain owned by `DocumentViewerContainer`.
 Crossing the mobile breakpoint invalidates the document host's load state before
 the incoming editor mounts. The outgoing editor flushes on unmount, and the shared
-route waits for that drain before refetching; failures show Retry and Close instead
-of an editable retained snapshot. The desktop drawer releases its editor before
+route waits for that drain before refetching; failures show Retry and Close while
+retaining the failed drain for retry. The desktop drawer releases its editor before
 the mobile load rather than retaining it through the closing animation. A document
 opened on desktop without URL intent enters the existing mobile document adapter
 when the viewport narrows, preserving the current chat as its return destination.

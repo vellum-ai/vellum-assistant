@@ -496,22 +496,46 @@ describe("document viewport handoff", () => {
     ).toBe(false);
   });
 
-  test("a failed handoff save exposes an error instead of editing the stale snapshot", async () => {
-    renderLayout(true);
-    fireEvent.change(
-      await screen.findByRole("textbox", { name: "Document body" }),
-      { target: { value: "Unsaved local body" } },
-    );
-    act(() => resizeViewport(false));
-    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
-    await act(async () => failWrite(new Error("offline")));
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-    expect(
-      Boolean(screen.queryByRole("textbox", { name: "Document body" })),
-    ).toBe(false);
-    expect(load).toHaveBeenCalledTimes(1);
-  });
+  test.each([
+    { mobile: true, stage: "debouncing" },
+    { mobile: true, stage: "in flight" },
+    { mobile: false, stage: "debouncing" },
+    { mobile: false, stage: "in flight" },
+  ])(
+    "retry retains edits after a failed handoff from mobile=$mobile, save=$stage",
+    async ({ mobile, stage }) => {
+      renderLayout(mobile);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        { target: { value: "Unsaved local body" } },
+      );
+      if (stage === "in flight") {
+        await waitFor(() => expect(write).toHaveBeenCalledTimes(1), {
+          timeout: 2000,
+        });
+      }
+      act(() => resizeViewport(!mobile));
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      await act(async () => failWrite(new Error("offline")));
+      expect(await screen.findByRole("alert")).toBeTruthy();
+      expect(
+        Boolean(screen.queryByRole("textbox", { name: "Document body" })),
+      ).toBe(false);
+      expect(load).toHaveBeenCalledTimes(1);
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(2));
+      expect(await screen.findByRole("alert")).toBeTruthy();
+      expect(load).toHaveBeenCalledTimes(1);
+      pendingWrite = undefined;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      const input = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      expect((input as HTMLTextAreaElement).value).toBe("Unsaved local body");
+      expect(saved.content).toBe("Unsaved local body");
+      expect(write).toHaveBeenCalledTimes(3);
+    },
+  );
 
   test("a desktop document with a deleted link reaches explicit mobile recovery", async () => {
     renderLayout(false, false);

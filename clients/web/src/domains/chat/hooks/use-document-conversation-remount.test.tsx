@@ -128,12 +128,10 @@ function DocumentSession() {
       <button onClick={route.viewConversation}>View conversation</button>
       <button
         onClick={() => {
-          useViewerStore
-            .getState()
-            .openChatInfo({
-              assistantId: "assistant-1",
-              conversationId: "conv-1",
-            });
+          useViewerStore.getState().openChatInfo({
+            assistantId: "assistant-1",
+            conversationId: "conv-1",
+          });
           void openDocument("surface-1");
         }}
       >
@@ -336,30 +334,52 @@ describe("document editor history remount", () => {
     },
   );
 
-  test("a failed pending save exposes retry instead of opening the retained body", async () => {
-    const { reject: failWrite } = holdWrite();
-    renderSession();
-    fireEvent.change(
-      await screen.findByRole("textbox", { name: "Document body" }),
-      {
-        target: { value: "Unsaved edit" },
-      },
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Leave session" }));
-    await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
-    await act(async () => failWrite(new Error("offline")));
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(screen.queryByRole("textbox", { name: "Document body" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Close document" })).toBeTruthy();
-    expect(load).toHaveBeenCalledTimes(1);
-    pendingWrite = undefined;
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    const input = await screen.findByRole("textbox", { name: "Document body" });
-    expect((input as HTMLTextAreaElement).value).toBe(original.content);
-    expect(load).toHaveBeenCalledTimes(2);
-    expect(write).toHaveBeenCalledTimes(1);
-  });
+  test.each(["conversation", "recovery", "standalone"] as const)(
+    "%s retry saves the dirty body retained by a failed unmounted editor",
+    async (mode) => {
+      const { reject: failWrite } = holdWrite();
+      renderSession(mode);
+      fireEvent.change(
+        await screen.findByRole("textbox", { name: "Document body" }),
+        {
+          target: { value: "Unsaved edit" },
+        },
+      );
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: mode === "conversation" ? "Leave session" : "Close document",
+        }),
+      );
+      await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: mode === "conversation" ? "Back" : "Open document",
+        }),
+      );
+      await act(async () => failWrite(new Error("offline")));
+      const retry = await screen.findByRole("button", {
+        name: mode === "conversation" ? "Retry" : "Try again",
+      });
+      expect(
+        screen.queryByRole("textbox", { name: "Document body" }),
+      ).toBeNull();
+      expect(
+        screen.getByRole("button", {
+          name: mode === "conversation" ? "Close document" : "Go back",
+        }),
+      ).toBeTruthy();
+      expect(load).toHaveBeenCalledTimes(1);
+      pendingWrite = undefined;
+      fireEvent.click(retry);
+      const input = await screen.findByRole("textbox", {
+        name: "Document body",
+      });
+      expect((input as HTMLTextAreaElement).value).toBe("Unsaved edit");
+      expect(saved.content).toBe("Unsaved edit");
+      expect(load).toHaveBeenCalledTimes(2);
+      expect(write).toHaveBeenCalledTimes(2);
+    },
+  );
 
   test("leaving while waiting for a prior save cannot load or reopen the document", async () => {
     const { resolve: finishWrite } = holdWrite();

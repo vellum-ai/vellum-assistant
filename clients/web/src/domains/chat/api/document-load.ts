@@ -15,7 +15,7 @@ export async function loadDocumentContent({
   surfaceId,
   isCurrent,
 }: DocumentLoadOptions) {
-  await waitForDocumentSaves({ assistantId, surfaceId });
+  await waitForDocumentSaves({ assistantId, surfaceId }, isCurrent);
   if (!isCurrent()) {
     return null;
   }

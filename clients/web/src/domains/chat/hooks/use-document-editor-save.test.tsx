@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 
 import type * as DocumentSave from "@/domains/chat/api/document-save";
 import type { DocumentSaveTarget } from "@/domains/chat/api/document-save";
@@ -23,6 +24,8 @@ mock.module(
 );
 
 const { useDocumentEditorSave } = await import("./use-document-editor-save");
+const { waitForDocumentSaves } = documentSave;
+const selection = useResolvedAssistantsStore.getState();
 
 const TARGET: DocumentSaveTarget = {
   source: "document",
@@ -61,6 +64,7 @@ function renderSave() {
 }
 
 beforeEach(() => {
+  useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   saveDocumentContent.mockReset();
   saveDocumentContent.mockImplementation(async () => {});
   captureError.mockClear();
@@ -69,9 +73,117 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   await act(async () => {});
+  useResolvedAssistantsStore.setState({ activeAssistantId: null });
+  useResolvedAssistantsStore.setState(selection, true);
 });
 
 describe("useDocumentEditorSave", () => {
+  test("a detached failed drain retains its latest body and title for retry", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, unmount, onRenameSaved, onRenameFailed } = renderSave();
+    act(() => {
+      result.current.changeContent("Latest body");
+      result.current.rename("Latest title");
+    });
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    unmount();
+    const waiting = waitForDocumentSaves(TARGET).catch((error) => error);
+    write.reject(new Error("offline"));
+    expect(await waiting).toBeInstanceOf(Error);
+    expect(onRenameFailed).not.toHaveBeenCalled();
+    await waitForDocumentSaves(TARGET);
+    expect(saveDocumentContent.mock.calls[1]).toEqual([
+      { ...TARGET, title: "Latest title" },
+      "Latest body",
+    ]);
+    expect(onRenameSaved).toHaveBeenCalledWith({
+      ...TARGET,
+      title: "Latest title",
+    });
+    await waitForDocumentSaves(TARGET);
+    expect(saveDocumentContent).toHaveBeenCalledTimes(2);
+  });
+
+  test("repeated failure retains the drain and concurrent retries share one write", async () => {
+    saveDocumentContent.mockRejectedValueOnce(new Error("offline"));
+    const { result, unmount } = renderSave();
+    act(() => result.current.changeContent("Retained body"));
+    unmount();
+    await expect(waitForDocumentSaves(TARGET)).rejects.toThrow("offline");
+    saveDocumentContent.mockRejectedValueOnce(new Error("still offline"));
+    await expect(waitForDocumentSaves(TARGET)).rejects.toThrow("still offline");
+    expect(saveDocumentContent).toHaveBeenCalledTimes(2);
+    const retry = deferred();
+    saveDocumentContent.mockImplementationOnce(() => retry.promise);
+    const waiting = Promise.all([
+      waitForDocumentSaves(TARGET),
+      waitForDocumentSaves(TARGET),
+    ]);
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(3));
+    retry.resolve();
+    await waiting;
+    await waitForDocumentSaves(TARGET);
+    expect(saveDocumentContent.mock.calls.map((call) => call[1])).toEqual([
+      "Retained body",
+      "Retained body",
+      "Retained body",
+    ]);
+  });
+
+  test("failed drains stay scoped across assistant switches and cancelled loads", async () => {
+    saveDocumentContent.mockRejectedValueOnce(new Error("offline"));
+    const { result, unmount } = renderSave();
+    act(() => result.current.changeContent("Assistant one's body"));
+    unmount();
+    await expect(waitForDocumentSaves(TARGET)).rejects.toThrow("offline");
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    await waitForDocumentSaves({ ...TARGET, assistantId: "assistant-2" });
+    await waitForDocumentSaves({ ...TARGET, surfaceId: "surface-2" });
+    await waitForDocumentSaves(TARGET, () => false);
+    expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    await waitForDocumentSaves(TARGET);
+    expect(saveDocumentContent.mock.calls[1]).toEqual([
+      TARGET,
+      "Assistant one's body",
+    ]);
+  });
+
+  test.each(["before unmount", "pending", "failed"])(
+    "logout with a %s save discards retained edits and invalidates old callbacks",
+    async (stage) => {
+      const write = deferred();
+      saveDocumentContent.mockImplementationOnce(() => write.promise);
+      const { result, unmount } = renderSave();
+      act(() => result.current.changeContent("Departing user's body"));
+      if (stage !== "before unmount") {
+        unmount();
+        await waitFor(() =>
+          expect(saveDocumentContent).toHaveBeenCalledTimes(1),
+        );
+      }
+      if (stage === "failed") {
+        write.reject(new Error("offline"));
+        await expect(waitForDocumentSaves(TARGET)).rejects.toThrow("offline");
+      }
+      useResolvedAssistantsStore.setState({ activeAssistantId: null });
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+      if (stage === "before unmount") {
+        await expect(result.current.flushPendingSave()).rejects.toThrow(
+          "session has ended",
+        );
+        unmount();
+      } else if (stage === "pending") {
+        await act(async () => write.reject(new Error("late failure")));
+      }
+      await waitForDocumentSaves(TARGET);
+      expect(saveDocumentContent).toHaveBeenCalledTimes(
+        stage === "before unmount" ? 0 : 1,
+      );
+    },
+  );
+
   test.each(["success", "failure"])(
     "a detached rename reports only cache-safe %s callbacks",
     async (outcome) => {
