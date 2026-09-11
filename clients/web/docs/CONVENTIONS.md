@@ -962,8 +962,9 @@ automatically through Vite and [npm lifecycle hooks](https://docs.npmjs.com/cli/
   never reproduce in CI.
 - **Vite development server**: regenerates before serving, including when
   Vite is launched directly. Changes to the committed OpenAPI specs or
-  generator configuration restart the server and regenerate clients before
-  the browser reloads. This keeps imports valid across branch switches.
+  generator configuration queue regeneration on the same watcher, then reload
+  the browser. This keeps imports valid across branch switches and successive
+  schema edits.
 - **`pretypecheck`**: runs before every `bun run typecheck`; regenerates
   for the same reason. A bare `bunx tsc --noEmit` bypasses this hook, so
   prefer `bun run typecheck`.

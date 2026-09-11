@@ -43,7 +43,7 @@ async function setup() {
     configFile: false as const,
     logLevel: "silent" as const,
     plugins: [openApiCodegenPlugin()],
-    server: { host: "127.0.0.1", port: 0, strictPort: true },
+    server: { host: "127.0.0.1" },
     optimizeDeps: { noDiscovery: true, include: [] },
   };
 }
@@ -51,15 +51,19 @@ async function setup() {
 test("regenerates before serving and after either service schema changes", async () => {
   const config = await setup();
   server = await createServer(config);
-  await server.listen(0);
-  const client = async () => (await server!.transformRequest("/client.js"))?.code;
+  await server.listen();
+  const client = async () =>
+    (await server!.transformRequest("/client.js"))?.code;
   expect(await client()).toContain('"initial"');
 
   for (const service of ["assistant", "gateway"]) {
     await writeFile(path.join(fixture, service, "openapi.yaml"), service);
-    await waitFor(async () => expect(await client()).toContain(`"${service}"`), {
-      timeout: 10_000,
-    });
+    await waitFor(
+      async () => expect(await client()).toContain(`"${service}"`),
+      {
+        timeout: 10_000,
+      },
+    );
   }
   expect(await client()).toContain('"assistant"');
   expect(await client()).toContain('"gateway"');
@@ -67,7 +71,10 @@ test("regenerates before serving and after either service schema changes", async
 
 test("fails startup when generation fails instead of serving stale clients", async () => {
   const config = await setup();
-  await writeFile(path.join(config.root, "client.js"), "export const stale = true");
+  await writeFile(
+    path.join(config.root, "client.js"),
+    "export const stale = true",
+  );
   await writeFile(path.join(config.root, "generate.ts"), "process.exit(1)");
   await expect(createServer(config)).rejects.toThrow();
 });
