@@ -105,27 +105,33 @@ export function destinationLabel(destination: TeleportDestination): string {
   }
 }
 
+const DOCKER_DESCRIPTION_KEYS = {
+  macos: "teleportCard.dockerDescriptionMacos",
+  windows: "teleportCard.dockerDescriptionWindows",
+  linux: "teleportCard.dockerDescriptionLinux",
+} as const;
+
+const LOCAL_DESCRIPTION_KEYS = {
+  macos: "teleportCard.localDescriptionMacos",
+  windows: "teleportCard.localDescriptionWindows",
+  linux: "teleportCard.localDescriptionLinux",
+} as const;
+
 /** Catalog key for a destination description, mirroring Swift `description`. */
 export function destinationDescriptionKey(
   destination: TeleportDestination,
   hostOS: ElectronHostOS = "macos",
 ):
-  | "teleportCard.dockerDescriptionMacos"
-  | "teleportCard.dockerDescriptionWindows"
+  | (typeof DOCKER_DESCRIPTION_KEYS)[ElectronHostOS]
   | "teleportCard.platformDescription"
-  | "teleportCard.localDescriptionMacos"
-  | "teleportCard.localDescriptionWindows" {
+  | (typeof LOCAL_DESCRIPTION_KEYS)[ElectronHostOS] {
   switch (destination) {
     case "docker":
-      return hostOS === "windows"
-        ? "teleportCard.dockerDescriptionWindows"
-        : "teleportCard.dockerDescriptionMacos";
+      return DOCKER_DESCRIPTION_KEYS[hostOS];
     case "platform":
       return "teleportCard.platformDescription";
     case "local":
-      return hostOS === "windows"
-        ? "teleportCard.localDescriptionWindows"
-        : "teleportCard.localDescriptionMacos";
+      return LOCAL_DESCRIPTION_KEYS[hostOS];
   }
 }
 

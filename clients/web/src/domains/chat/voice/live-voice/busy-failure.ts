@@ -24,6 +24,7 @@ const HOLDER_MESSAGE_KEYS: Readonly<Record<string, ParseKeys<"chat">>> = {
   ios: "liveVoiceBusy.ios",
   macos: "liveVoiceBusy.macos",
   windows: "liveVoiceBusy.windows",
+  linux: "liveVoiceBusy.linux",
   android: "liveVoiceBusy.android",
 };
 

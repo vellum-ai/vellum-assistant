@@ -1,5 +1,5 @@
 import { isElectron } from "@/runtime/is-electron";
-import { detectElectronHostOS } from "@/runtime/platform-detection";
+import { resolveDesktopHostOS } from "@/runtime/platform-detection";
 
 /**
  * Per-capability wrapper for the Electron host's Dock integration. Matches
@@ -30,8 +30,20 @@ export function setDockBadge(count: number): void {
   window.vellum?.dock.setBadge(count);
 }
 
+/**
+ * Name of the shell surface that carries the unread badge on this host.
+ * Values mirror the `systemPermissionsCard.{dockIcon,taskbarIcon,launcherIcon}`
+ * catalog strings the permissions card renders them through.
+ */
 export function getUnreadBadgeSurface(): string {
-  return detectElectronHostOS() === "windows" ? "taskbar icon" : "Dock icon";
+  switch (resolveDesktopHostOS()) {
+    case "windows":
+      return "taskbar icon";
+    case "linux":
+      return "app launcher icon";
+    case "macos":
+      return "Dock icon";
+  }
 }
 
 export function supportsUnreadBadges(): boolean {

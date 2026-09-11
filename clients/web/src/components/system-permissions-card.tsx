@@ -22,6 +22,18 @@ import {
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+/**
+ * Catalog key per badge surface named by `getUnreadBadgeSurface()`. macOS is
+ * the default arm, so it is absent here.
+ */
+const BADGE_SURFACE_KEYS: Record<
+  string,
+  "systemPermissionsCard.taskbarIcon" | "systemPermissionsCard.launcherIcon"
+> = {
+  "taskbar icon": "systemPermissionsCard.taskbarIcon",
+  "app launcher icon": "systemPermissionsCard.launcherIcon",
+};
+
 type LocalPermissionRowId = "notificationBadges";
 type PermissionRowId = SystemPermissionKind | LocalPermissionRowId;
 
@@ -284,10 +296,10 @@ export function SystemPermissionsCard({
       })
       .filter(Boolean) as PermissionRowViewModel[];
 
-    const badgeSurface =
-      getUnreadBadgeSurface() === "taskbar icon"
-        ? t("systemPermissionsCard.taskbarIcon")
-        : t("systemPermissionsCard.dockIcon");
+    const badgeSurfaceKey =
+      BADGE_SURFACE_KEYS[getUnreadBadgeSurface()] ??
+      "systemPermissionsCard.dockIcon";
+    const badgeSurface = t(badgeSurfaceKey);
 
     const localRows = supportsUnreadBadges()
       ? LOCAL_PERMISSION_ROWS.map((meta) => ({

@@ -30,9 +30,9 @@ mock.module("@/runtime/downloads", () => ({
   revealDownload: revealDownloadMock,
 }));
 
-let hostOS: "macos" | "windows" | null = "macos";
+let hostOS: "macos" | "windows" | "linux" = "macos";
 mock.module("@/runtime/platform-detection", () => ({
-  detectElectronHostOS: () => hostOS,
+  resolveDesktopHostOS: () => hostOS,
 }));
 
 const { useDownloadFeedback } = await import("@/hooks/use-download-feedback");
@@ -91,6 +91,19 @@ describe("useDownloadFeedback", () => {
     });
 
     expect(toastCalls[0]!.options?.action?.label).toBe("Show in File Explorer");
+  });
+
+  test("labels the reveal action for the file manager on a Linux host", () => {
+    hostOS = "linux";
+    renderHook(() => useDownloadFeedback());
+
+    publish("download.done", {
+      id: "dl-3",
+      filename: "report.pdf",
+      state: "completed",
+    });
+
+    expect(toastCalls[0]!.options?.action?.label).toBe("Show in file manager");
   });
 
   test("reports an interrupted download as a failure with no reveal action", () => {

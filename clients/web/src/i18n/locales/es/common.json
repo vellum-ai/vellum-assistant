@@ -322,6 +322,7 @@
   },
   "downloadFeedback": {
     "failed": "No se pudo descargar el archivo",
+    "revealLinux": "Mostrar en el gestor de archivos",
     "revealMac": "Mostrar en Finder",
     "revealWindows": "Mostrar en el Explorador de archivos",
     "saved": "Guardado en Descargas",
@@ -631,6 +632,7 @@
     "accessibilityLabel": "Accesibilidad",
     "checking": "Comprobando permisos...",
     "dockIcon": "icono del Dock",
+    "launcherIcon": "icono del lanzador de aplicaciones",
     "microphoneDescription": "Permite que tu asistente capture audio para entrada de voz y grabaciones.",
     "microphoneLabel": "Micrófono",
     "notificationBadgesDescription": "Permite que tu asistente muestre el recuento de conversaciones no vistas en el {surface}.",
