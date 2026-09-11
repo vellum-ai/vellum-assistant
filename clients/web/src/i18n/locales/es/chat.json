@@ -1,4 +1,13 @@
 {
+  "documentChat": {
+    "saving": "Guardando documento…",
+    "saveFailed": "No se pudo guardar el documento. Tu mensaje sigue aquí. Intenta enviarlo de nuevo.",
+    "needsInput": "Necesita tu respuesta",
+    "working": "El asistente está trabajando",
+    "repliesInConversation": "Las respuestas aparecen en la conversación",
+    "viewConversation": "Ver conversación",
+    "reopenDocument": "Reabrir documento"
+  },
   "acpChatPlanBlock": {
     "plan": "Plan"
   },

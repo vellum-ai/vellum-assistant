@@ -1,4 +1,13 @@
 {
+  "documentChat": {
+    "saving": "Saving document…",
+    "saveFailed": "Couldn't save the document. Your message is still here. Try sending again.",
+    "needsInput": "Needs your input",
+    "working": "Assistant is working",
+    "repliesInConversation": "Replies appear in the conversation",
+    "viewConversation": "View conversation",
+    "reopenDocument": "Reopen document"
+  },
   "acpChatPlanBlock": {
     "plan": "Plan"
   },

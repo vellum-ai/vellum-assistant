@@ -1,4 +1,13 @@
 {
+  "documentChat": {
+    "saving": "正在保存文档…",
+    "saveFailed": "无法保存文档。你的消息仍在这里。请重新发送。",
+    "needsInput": "需要你的回复",
+    "working": "助手正在处理",
+    "repliesInConversation": "回复会显示在对话中",
+    "viewConversation": "查看对话",
+    "reopenDocument": "重新打开文档"
+  },
   "acpChatPlanBlock": {
     "plan": "计划"
   },

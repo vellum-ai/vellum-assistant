@@ -1,4 +1,13 @@
 {
+  "documentChat": {
+    "saving": "Сохранение документа…",
+    "saveFailed": "Не удалось сохранить документ. Ваше сообщение сохранено здесь. Попробуйте отправить ещё раз.",
+    "needsInput": "Нужен ваш ответ",
+    "working": "Ассистент работает",
+    "repliesInConversation": "Ответы появляются в беседе",
+    "viewConversation": "Открыть беседу",
+    "reopenDocument": "Открыть документ"
+  },
   "acpConnectAffordance": {
     "title": "Подключить Claude Code",
     "subtitleIdle": "Использование подписки Claude Code",

@@ -175,6 +175,36 @@ function withEmptyState(overrides: Partial<ChatBodyProps> = {}): ChatBodyProps {
   });
 }
 
+describe("shared document presentation", () => {
+  test("preserves the same focused composer and transcript across presentation switches", () => {
+    const props = baseProps({
+      scrollAreaProps: { ...baseProps().scrollAreaProps, messageCount: 1 },
+      composerSlot: (
+        <textarea aria-label="Message" defaultValue="Keep this draft" />
+      ),
+      queuedDrawerSlot: <div data-testid="queue">Queued message</div>,
+      genericChatError: { message: "Please retry" },
+    });
+    const view = render(<ChatBody {...props} />);
+    const input = view.getByRole("textbox");
+    input.focus();
+    const transcript = view.getByTestId("transcript");
+    view.rerender(
+      <ChatBody {...props} documentSlot={<div>Document editor</div>} />,
+    );
+    expect(view.getByRole("textbox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(view.getByTestId("transcript")).toBe(transcript);
+    expect(transcript.closest("[hidden]")).not.toBeNull();
+    expect(view.getByTestId("queue")).not.toBeNull();
+    expect(view.getByText("Please retry")).not.toBeNull();
+    view.rerender(<ChatBody {...props} />);
+    expect(view.getByRole("textbox")).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(transcript.closest("[hidden]")).toBeNull();
+  });
+});
+
 describe("ChatBody — empty-state centering (LUM-1566)", () => {
   test("applies safe_center and overflow-y-auto when empty state is visible", () => {
     const html = renderToStaticMarkup(<ChatBody {...withEmptyState()} />);
