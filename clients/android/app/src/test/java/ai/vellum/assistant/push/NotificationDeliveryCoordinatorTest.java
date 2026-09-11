@@ -2,8 +2,10 @@ package ai.vellum.assistant.push;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import ai.vellum.assistant.push.NotificationDeliveryCoordinator.DeliveryResult;
@@ -16,6 +18,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -102,14 +105,15 @@ public class NotificationDeliveryCoordinatorTest {
             CompletableFuture<DeliveryResult> first = firstCall.get(1, TimeUnit.SECONDS);
             CompletableFuture<DeliveryResult> second = secondCall.get(1, TimeUnit.SECONDS);
 
-            assertSame(first, second);
+            assertNotSame(first, second);
             assertEquals(1, preparations.get());
             assertFalse(first.isDone());
 
             avatar.complete("avatar");
 
-            assertEquals(DeliveryStatus.POSTED, first.join().status);
-            assertEquals(DeliveryStatus.POSTED, second.join().status);
+            DeliveryResult firstResult = first.join();
+            assertEquals(DeliveryStatus.POSTED, firstResult.status);
+            assertSame(firstResult, second.join());
             assertEquals(1, writes.get());
         } finally {
             callers.shutdownNow();
@@ -248,6 +252,72 @@ public class NotificationDeliveryCoordinatorTest {
     }
 
     @Test
+    public void capacityOneCannotEvictAKeyWhileItsResultIsBeingPublished() throws Exception {
+        TestClock clock = new TestClock();
+        ExecutorService writers = Executors.newCachedThreadPool();
+        NotificationDeliveryCoordinator coordinator = new NotificationDeliveryCoordinator(
+            clock,
+            writers,
+            1
+        );
+        CompletableFuture<String> firstAvatar = new CompletableFuture<>();
+        CompletableFuture<String> secondAvatar = new CompletableFuture<>();
+        AtomicInteger writes = new AtomicInteger();
+        CountDownLatch firstPublicationEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstPublication = new CountDownLatch(1);
+        try {
+            CompletableFuture<DeliveryResult> first = coordinator.deliver(
+                "delivery-1",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                () -> firstAvatar,
+                posted(writes)
+            );
+            CompletableFuture<DeliveryResult> firstPublication = first.whenComplete(
+                (result, exception) -> {
+                    firstPublicationEntered.countDown();
+                    awaitLatch(releaseFirstPublication);
+                }
+            );
+            CompletableFuture<DeliveryResult> second = coordinator.deliver(
+                "delivery-2",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                () -> secondAvatar,
+                posted(writes)
+            );
+
+            firstAvatar.complete("first");
+            assertTrue(firstPublicationEntered.await(1, TimeUnit.SECONDS));
+            secondAvatar.complete("second");
+            assertEquals(DeliveryStatus.POSTED, second.get(1, TimeUnit.SECONDS).status);
+            awaitCompletedResult(coordinator, "delivery-2");
+
+            DeliveryResult repeatedFirst = coordinator
+                .deliver(
+                    "delivery-1",
+                    NOTIFICATION_ID,
+                    DEADLINE_MILLIS,
+                    noAvatar(),
+                    posted(writes)
+                )
+                .get(1, TimeUnit.SECONDS);
+
+            assertEquals(DeliveryStatus.POSTED, repeatedFirst.status);
+            assertEquals("no second owner was started", 2, writes.get());
+
+            releaseFirstPublication.countDown();
+            assertEquals(
+                DeliveryStatus.POSTED,
+                firstPublication.get(1, TimeUnit.SECONDS).status
+            );
+        } finally {
+            releaseFirstPublication.countDown();
+            writers.shutdownNow();
+        }
+    }
+
+    @Test
     public void slowAvatarSelectsPlainOnceAndLatePreparationCannotPost() {
         TestClock clock = new TestClock();
         NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
@@ -274,6 +344,57 @@ public class NotificationDeliveryCoordinatorTest {
         avatar.complete("late-avatar");
         assertEquals(1, writes.get());
         assertNull(writtenAvatar.get());
+    }
+
+    @Test
+    public void blockedTimeoutWriterDoesNotDelayAnotherKeysDeadline() throws Exception {
+        TestClock clock = new TestClock();
+        ExecutorService writers = Executors.newCachedThreadPool();
+        ExecutorService deadlineCaller = Executors.newSingleThreadExecutor();
+        NotificationDeliveryCoordinator coordinator = new NotificationDeliveryCoordinator(
+            clock,
+            writers,
+            8
+        );
+        CompletableFuture<String> firstAvatar = new CompletableFuture<>();
+        CompletableFuture<String> secondAvatar = new CompletableFuture<>();
+        CountDownLatch firstWriterEntered = new CountDownLatch(1);
+        CountDownLatch releaseFirstWriter = new CountDownLatch(1);
+        try {
+            CompletableFuture<DeliveryResult> first = coordinator.deliver(
+                "delivery-1",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                () -> firstAvatar,
+                (notificationId, avatar) -> {
+                    firstWriterEntered.countDown();
+                    awaitLatch(releaseFirstWriter);
+                    return DeliveryResult.posted();
+                }
+            );
+            CompletableFuture<DeliveryResult> second = coordinator.deliver(
+                "delivery-2",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                () -> secondAvatar,
+                (notificationId, avatar) -> DeliveryResult.posted()
+            );
+
+            Future<?> deadlineAdvance = deadlineCaller.submit(() ->
+                clock.advanceBy(DEADLINE_MILLIS)
+            );
+            assertTrue(firstWriterEntered.await(1, TimeUnit.SECONDS));
+            assertEquals(DeliveryStatus.POSTED, second.get(1, TimeUnit.SECONDS).status);
+            assertFalse(first.isDone());
+
+            releaseFirstWriter.countDown();
+            assertEquals(DeliveryStatus.POSTED, first.get(1, TimeUnit.SECONDS).status);
+            deadlineAdvance.get(1, TimeUnit.SECONDS);
+        } finally {
+            releaseFirstWriter.countDown();
+            deadlineCaller.shutdownNow();
+            writers.shutdownNow();
+        }
     }
 
     @Test
@@ -358,7 +479,7 @@ public class NotificationDeliveryCoordinatorTest {
     }
 
     @Test
-    public void writerExceptionBecomesARetainedConfirmedFailure() {
+    public void writerExceptionBecomesARetainedUnknownResult() {
         TestClock clock = new TestClock();
         NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
         AtomicInteger writes = new AtomicInteger();
@@ -375,11 +496,65 @@ public class NotificationDeliveryCoordinatorTest {
             .deliver("delivery-1", NOTIFICATION_ID, DEADLINE_MILLIS, noAvatar(), writer)
             .join();
 
-        assertEquals(DeliveryStatus.FAILED, first.status);
+        assertEquals(DeliveryStatus.UNKNOWN, first.status);
         assertTrue(first.postingMayHaveBegun);
         assertEquals("IllegalStateException", first.error);
         assertSame(first, second);
         assertEquals(1, writes.get());
+    }
+
+    @Test
+    public void nullWriterResultBecomesARetainedUnknownResult() {
+        TestClock clock = new TestClock();
+        NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
+        AtomicInteger writes = new AtomicInteger();
+        NotificationDeliveryCoordinator.NotificationWriter<Object> writer =
+            (notificationId, avatar) -> {
+                writes.incrementAndGet();
+                return null;
+            };
+
+        DeliveryResult first = coordinator
+            .deliver("delivery-1", NOTIFICATION_ID, DEADLINE_MILLIS, noAvatar(), writer)
+            .join();
+        DeliveryResult second = coordinator
+            .deliver("delivery-1", NOTIFICATION_ID, DEADLINE_MILLIS, noAvatar(), writer)
+            .join();
+
+        assertEquals(DeliveryStatus.UNKNOWN, first.status);
+        assertTrue(first.postingMayHaveBegun);
+        assertEquals("Notification writer returned no result", first.reason);
+        assertSame(first, second);
+        assertEquals(1, writes.get());
+    }
+
+    @Test
+    public void rejectedWriterExecutionIsUnknownBeforePostingBegins() {
+        TestClock clock = new TestClock();
+        AtomicInteger writes = new AtomicInteger();
+        NotificationDeliveryCoordinator coordinator = new NotificationDeliveryCoordinator(
+            clock,
+            operation -> {
+                throw new RejectedExecutionException("worker unavailable");
+            },
+            8
+        );
+
+        DeliveryResult result = coordinator
+            .deliver(
+                "delivery-1",
+                NOTIFICATION_ID,
+                DEADLINE_MILLIS,
+                noAvatar(),
+                posted(writes)
+            )
+            .join();
+
+        assertEquals(DeliveryStatus.UNKNOWN, result.status);
+        assertFalse(result.postingMayHaveBegun);
+        assertEquals("Notification writer execution was not accepted", result.reason);
+        assertEquals("RejectedExecutionException", result.error);
+        assertEquals(0, writes.get());
     }
 
     @Test
@@ -435,6 +610,49 @@ public class NotificationDeliveryCoordinatorTest {
     }
 
     @Test
+    public void callerCancellationAndForgedCompletionCannotChangeOwnership() {
+        TestClock clock = new TestClock();
+        NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
+        CompletableFuture<String> avatar = new CompletableFuture<>();
+        AtomicInteger writes = new AtomicInteger();
+
+        CompletableFuture<DeliveryResult> cancelled = coordinator.deliver(
+            "delivery-1",
+            NOTIFICATION_ID,
+            DEADLINE_MILLIS,
+            () -> avatar,
+            posted(writes)
+        );
+        CompletableFuture<DeliveryResult> forged = coordinator.deliver(
+            "delivery-1",
+            NOTIFICATION_ID,
+            DEADLINE_MILLIS,
+            () -> avatar,
+            posted(writes)
+        );
+
+        assertTrue(cancelled.cancel(false));
+        assertTrue(
+            forged.complete(DeliveryResult.failed(false, "caller-forged result"))
+        );
+        CompletableFuture<DeliveryResult> authoritativeView = coordinator.deliver(
+            "delivery-1",
+            NOTIFICATION_ID,
+            DEADLINE_MILLIS,
+            () -> avatar,
+            posted(writes)
+        );
+
+        avatar.complete("avatar");
+
+        assertTrue(cancelled.isCancelled());
+        assertEquals(DeliveryStatus.FAILED, forged.join().status);
+        assertEquals(DeliveryStatus.POSTED, authoritativeView.join().status);
+        assertEquals(DeliveryStatus.POSTED, coordinator.status("delivery-1").join().status);
+        assertEquals(1, writes.get());
+    }
+
+    @Test
     public void bridgeReloadUsesTheSameProcessSharedOwner() {
         NotificationDeliveryCoordinator beforeReload = NotificationDeliveryCoordinator.shared();
         NotificationDeliveryCoordinator afterReload = NotificationDeliveryCoordinator.shared();
@@ -478,8 +696,10 @@ public class NotificationDeliveryCoordinatorTest {
             posted(writes)
         );
 
-        assertSame(delivery, coordinator.status("delivery-1"));
+        CompletableFuture<DeliveryResult> status = coordinator.status("delivery-1");
+        assertNotSame(delivery, status);
         avatar.complete("avatar");
+        assertSame(delivery.join(), status.join());
         assertEquals(DeliveryStatus.POSTED, coordinator.status("delivery-1").join().status);
         assertEquals(
             DeliveryStatus.UNAVAILABLE,
@@ -488,8 +708,34 @@ public class NotificationDeliveryCoordinatorTest {
         assertEquals(1, writes.get());
     }
 
+    @Test
+    public void rejectsAnUnboundedAvatarDeadlineBeforeClaiming() {
+        TestClock clock = new TestClock();
+        NotificationDeliveryCoordinator coordinator = coordinator(clock, 8);
+        AtomicInteger preparations = new AtomicInteger();
+        AtomicInteger writes = new AtomicInteger();
+
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> coordinator.deliver(
+                "delivery-1",
+                NOTIFICATION_ID,
+                NotificationDeliveryCoordinator.MAX_AVATAR_DEADLINE_MILLIS + 1,
+                () -> {
+                    preparations.incrementAndGet();
+                    return CompletableFuture.completedFuture("avatar");
+                },
+                posted(writes)
+            )
+        );
+
+        assertEquals(0, preparations.get());
+        assertEquals(0, writes.get());
+        assertEquals(0, coordinator.inFlightCount());
+    }
+
     private static NotificationDeliveryCoordinator coordinator(TestClock clock, int capacity) {
-        return new NotificationDeliveryCoordinator(clock, capacity);
+        return new NotificationDeliveryCoordinator(clock, Runnable::run, capacity);
     }
 
     private static NotificationDeliveryCoordinator.AvatarPreparation<Object> noAvatar() {
@@ -545,6 +791,28 @@ public class NotificationDeliveryCoordinatorTest {
                 (notificationId, avatar) -> writerResult
             )
             .join();
+    }
+
+    private static void awaitLatch(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(exception);
+        }
+    }
+
+    private static void awaitCompletedResult(
+        NotificationDeliveryCoordinator coordinator,
+        String deliveryKey
+    ) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+        while (!coordinator.hasCompletedResult(deliveryKey)) {
+            if (System.nanoTime() >= deadline) {
+                throw new AssertionError("Timed out waiting for completed result");
+            }
+            Thread.sleep(1);
+        }
     }
 
     private static final class TestClock implements NotificationDeliveryCoordinator.Clock {

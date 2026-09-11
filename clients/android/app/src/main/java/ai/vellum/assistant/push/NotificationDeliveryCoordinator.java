@@ -6,12 +6,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * Process-local owner for Android notification delivery. Delivery ownership is
@@ -20,10 +24,25 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public final class NotificationDeliveryCoordinator {
     public static final long DEFAULT_AVATAR_DEADLINE_MILLIS = 1_000;
+    public static final long MAX_AVATAR_DEADLINE_MILLIS = 5_000;
     private static final int DEFAULT_COMPLETED_CAPACITY = 128;
+    private static final AtomicInteger PROCESS_WRITER_INDEX = new AtomicInteger();
+    private static final ExecutorService PROCESS_WRITER_EXECUTOR =
+        Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(
+                runnable,
+                "notification-delivery-writer-" + PROCESS_WRITER_INDEX.incrementAndGet()
+            );
+            thread.setDaemon(true);
+            return thread;
+        });
 
     private static final NotificationDeliveryCoordinator PROCESS_SHARED =
-        new NotificationDeliveryCoordinator(new SystemClock(), DEFAULT_COMPLETED_CAPACITY);
+        new NotificationDeliveryCoordinator(
+            new SystemClock(),
+            PROCESS_WRITER_EXECUTOR,
+            DEFAULT_COMPLETED_CAPACITY
+        );
 
     /** Terminal result returned to FCM and local callers. */
     public enum DeliveryStatus {
@@ -79,7 +98,20 @@ public final class NotificationDeliveryCoordinator {
         }
 
         public static DeliveryResult unknown(String reason) {
-            return new DeliveryResult(DeliveryStatus.UNKNOWN, true, reason, null);
+            return unknown(true, reason, null);
+        }
+
+        public static DeliveryResult unknown(
+            boolean postingMayHaveBegun,
+            String reason,
+            String error
+        ) {
+            return new DeliveryResult(
+                DeliveryStatus.UNKNOWN,
+                postingMayHaveBegun,
+                reason,
+                error
+            );
         }
 
         public static DeliveryResult unavailable(String reason) {
@@ -124,6 +156,7 @@ public final class NotificationDeliveryCoordinator {
 
     private final Object ownershipLock = new Object();
     private final Clock clock;
+    private final Executor writerExecutor;
     private final int completedCapacity;
     private final Map<String, InFlight> inFlight = new HashMap<>();
     private final LinkedHashMap<String, DeliveryResult> completed = new LinkedHashMap<>(
@@ -137,8 +170,13 @@ public final class NotificationDeliveryCoordinator {
         return PROCESS_SHARED;
     }
 
-    NotificationDeliveryCoordinator(Clock clock, int completedCapacity) {
+    NotificationDeliveryCoordinator(
+        Clock clock,
+        Executor writerExecutor,
+        int completedCapacity
+    ) {
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.writerExecutor = Objects.requireNonNull(writerExecutor, "writerExecutor");
         if (completedCapacity <= 0) {
             throw new IllegalArgumentException("completedCapacity must be positive");
         }
@@ -177,6 +215,11 @@ public final class NotificationDeliveryCoordinator {
         if (avatarDeadlineMillis < 0) {
             throw new IllegalArgumentException("avatarDeadlineMillis must not be negative");
         }
+        if (avatarDeadlineMillis > MAX_AVATAR_DEADLINE_MILLIS) {
+            throw new IllegalArgumentException(
+                "avatarDeadlineMillis must not exceed " + MAX_AVATAR_DEADLINE_MILLIS
+            );
+        }
         Objects.requireNonNull(avatarPreparation, "avatarPreparation");
         Objects.requireNonNull(writer, "writer");
 
@@ -184,11 +227,11 @@ public final class NotificationDeliveryCoordinator {
         synchronized (ownershipLock) {
             DeliveryResult retained = completed.get(deliveryKey);
             if (retained != null) {
-                return CompletableFuture.completedFuture(retained.asRetainedResult());
+                return completedView(retained.asRetainedResult());
             }
             claim = inFlight.get(deliveryKey);
             if (claim != null) {
-                return claim.result;
+                return view(claim);
             }
             claim = new InFlight();
             inFlight.put(deliveryKey, claim);
@@ -202,7 +245,7 @@ public final class NotificationDeliveryCoordinator {
             writer,
             claim
         );
-        return claim.result;
+        return view(claim);
     }
 
     /**
@@ -217,14 +260,14 @@ public final class NotificationDeliveryCoordinator {
         synchronized (ownershipLock) {
             DeliveryResult retained = completed.get(deliveryKey);
             if (retained != null) {
-                return CompletableFuture.completedFuture(retained);
+                return completedView(retained);
             }
             InFlight claim = inFlight.get(deliveryKey);
             if (claim != null) {
-                return claim.result;
+                return view(claim);
             }
         }
-        return CompletableFuture.completedFuture(
+        return completedView(
             DeliveryResult.unavailable("No delivery is owned in this process")
         );
     }
@@ -240,7 +283,17 @@ public final class NotificationDeliveryCoordinator {
         long startedAt = clock.nowMillis();
         long deadlineAt = deadline(startedAt, avatarDeadlineMillis);
         Selection<A> selection = new Selection<>(
-            avatar -> write(deliveryKey, notificationId, avatar, writer, claim)
+            writerExecutor,
+            avatar -> write(deliveryKey, notificationId, avatar, writer, claim),
+            exception -> finish(
+                deliveryKey,
+                claim,
+                DeliveryResult.unknown(
+                    false,
+                    "Notification writer execution was not accepted",
+                    safeError(exception)
+                )
+            )
         );
 
         Cancellation cancellation;
@@ -293,18 +346,22 @@ public final class NotificationDeliveryCoordinator {
         try {
             result = writer.post(notificationId, avatar);
             if (result == null) {
-                result = DeliveryResult.failed(
+                result = DeliveryResult.unknown(
                     true,
-                    "Notification writer returned no result"
+                    "Notification writer returned no result",
+                    null
                 );
             }
         } catch (RuntimeException exception) {
-            result = DeliveryResult.failed(true, safeError(exception));
+            result = DeliveryResult.unknown(true, null, safeError(exception));
         }
         finish(deliveryKey, claim, result);
     }
 
     private void finish(String deliveryKey, InFlight claim, DeliveryResult result) {
+        if (!claim.result.complete(result)) {
+            return;
+        }
         synchronized (ownershipLock) {
             if (inFlight.get(deliveryKey) != claim) {
                 return;
@@ -316,7 +373,14 @@ public final class NotificationDeliveryCoordinator {
                 completed.remove(eldest);
             }
         }
-        claim.result.complete(result);
+    }
+
+    private static CompletableFuture<DeliveryResult> view(InFlight claim) {
+        return claim.result.thenApply(result -> result);
+    }
+
+    private static CompletableFuture<DeliveryResult> completedView(DeliveryResult result) {
+        return CompletableFuture.completedFuture(result);
     }
 
     private static long deadline(long startedAt, long durationMillis) {
@@ -343,14 +407,28 @@ public final class NotificationDeliveryCoordinator {
         }
     }
 
+    boolean hasCompletedResult(String deliveryKey) {
+        synchronized (ownershipLock) {
+            return completed.containsKey(deliveryKey);
+        }
+    }
+
     private static final class Selection<A> {
         private final AtomicBoolean selected = new AtomicBoolean();
         private final AtomicReference<Cancellation> deadlineCancellation =
             new AtomicReference<>();
+        private final Executor writerExecutor;
         private final SelectionWriter<A> writer;
+        private final Consumer<RuntimeException> rejected;
 
-        Selection(SelectionWriter<A> writer) {
+        Selection(
+            Executor writerExecutor,
+            SelectionWriter<A> writer,
+            Consumer<RuntimeException> rejected
+        ) {
+            this.writerExecutor = writerExecutor;
             this.writer = writer;
+            this.rejected = rejected;
         }
 
         void setDeadlineCancellation(Cancellation cancellation) {
@@ -372,7 +450,11 @@ public final class NotificationDeliveryCoordinator {
             if (cancellation != null) {
                 cancellation.cancel();
             }
-            writer.write(avatar);
+            try {
+                writerExecutor.execute(() -> writer.write(avatar));
+            } catch (RuntimeException exception) {
+                rejected.accept(exception);
+            }
         }
     }
 
@@ -382,12 +464,17 @@ public final class NotificationDeliveryCoordinator {
     }
 
     private static final class SystemClock implements Clock {
-        private final ScheduledExecutorService scheduler =
-            Executors.newSingleThreadScheduledExecutor(runnable -> {
+        private final ScheduledThreadPoolExecutor scheduler;
+
+        SystemClock() {
+            scheduler = new ScheduledThreadPoolExecutor(1, runnable -> {
                 Thread thread = new Thread(runnable, "notification-delivery-deadline");
                 thread.setDaemon(true);
                 return thread;
             });
+            scheduler.setRemoveOnCancelPolicy(true);
+            scheduler.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        }
 
         @Override
         public long nowMillis() {
