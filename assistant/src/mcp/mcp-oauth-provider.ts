@@ -29,6 +29,7 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 
 import { getPlatformAssistantId } from "../config/env.js";
+import type { McpConfig } from "../config/schemas/mcp.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import {
   deleteSecureKeyAsync,
@@ -38,6 +39,8 @@ import {
 import { openInHostBrowser } from "../util/browser.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";
+import type { McpCredentialFence } from "./credential-coordination.js";
+import { createMcpCredentialFence } from "./credential-coordination.js";
 
 const log = getLogger("mcp-oauth");
 
@@ -91,10 +94,13 @@ export interface McpOAuthProviderOptions {
    * URL to the IPC caller (CLI / web client).
    */
   onAuthorizationUrl?: (url: string) => void;
+  requireConfigured?: boolean;
 }
 
 export class McpOAuthProvider implements OAuthClientProvider {
   private readonly serverId: string;
+  private readonly credentialFence: McpCredentialFence;
+  private cancelRegisteredCallback: (() => void) | undefined;
   private readonly serverUrl: string;
   private readonly interactive: boolean;
   private _codeVerifier: string | undefined;
@@ -118,6 +124,22 @@ export class McpOAuthProvider implements OAuthClientProvider {
     options: McpOAuthProviderOptions = {},
   ) {
     this.serverId = serverId;
+    this.credentialFence = createMcpCredentialFence(
+      serverId,
+      options.requireConfigured
+        ? async () => {
+            const { loadRawConfig } = await import("../config/loader.js");
+            const raw = loadRawConfig();
+            const mcp = raw.mcp as Partial<McpConfig> | undefined;
+            const transport = mcp?.servers?.[serverId]?.transport;
+            return (
+              !!transport &&
+              transport.type !== "stdio" &&
+              transport.url === serverUrl
+            );
+          }
+        : undefined,
+    );
     this.serverUrl = serverUrl;
     this.interactive = interactive;
     this._onAuthorizationUrl = options.onAuthorizationUrl;
@@ -183,38 +205,40 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveTokens(tokens: OAuthTokens): Promise<void> {
-    // RFC 6749 §6 lets a token endpoint rotate the refresh_token, omit
-    // it, or leave it unchanged. Many MCP servers issue a fresh
-    // access_token without a new refresh_token on every refresh grant;
-    // overwriting storage verbatim would then drop the refresh_token
-    // we still need to send on the next silent refresh. Carry forward
-    // the previous refresh_token when the incoming response omits one.
-    let toPersist: OAuthTokens = tokens;
-    if (!tokens.refresh_token) {
-      const previous = await getSecureKeyAsync(tokensKey(this.serverId));
-      if (previous) {
-        try {
-          const parsed = JSON.parse(previous) as OAuthTokens;
-          if (parsed.refresh_token) {
-            toPersist = { ...tokens, refresh_token: parsed.refresh_token };
+    await this.credentialFence.write(async () => {
+      // RFC 6749 §6 lets a token endpoint rotate the refresh_token, omit
+      // it, or leave it unchanged. Many MCP servers issue a fresh
+      // access_token without a new refresh_token on every refresh grant;
+      // overwriting storage verbatim would then drop the refresh_token
+      // we still need to send on the next silent refresh. Carry forward
+      // the previous refresh_token when the incoming response omits one.
+      let toPersist: OAuthTokens = tokens;
+      if (!tokens.refresh_token) {
+        const previous = await getSecureKeyAsync(tokensKey(this.serverId));
+        if (previous) {
+          try {
+            const parsed = JSON.parse(previous) as OAuthTokens;
+            if (parsed.refresh_token) {
+              toPersist = { ...tokens, refresh_token: parsed.refresh_token };
+            }
+          } catch {
+            // Existing payload is malformed; fall through and save as-is.
           }
-        } catch {
-          // Existing payload is malformed; fall through and save as-is.
         }
       }
-    }
-    const ok = await setSecureKeyAsync(
-      tokensKey(this.serverId),
-      JSON.stringify(toPersist),
-    );
-    if (!ok) {
-      log.warn(
-        { serverId: this.serverId },
-        "Failed to persist OAuth tokens to secure storage",
+      const ok = await setSecureKeyAsync(
+        tokensKey(this.serverId),
+        JSON.stringify(toPersist),
       );
-      return;
-    }
-    log.info({ serverId: this.serverId }, "OAuth tokens saved");
+      if (!ok) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to persist OAuth tokens to secure storage",
+        );
+        throw new Error("Failed to save OAuth credentials; retry connecting");
+      }
+      log.info({ serverId: this.serverId }, "OAuth tokens saved");
+    });
   }
 
   // --- Refresh-Token Grant ---
@@ -293,38 +317,45 @@ export class McpOAuthProvider implements OAuthClientProvider {
   async saveClientInformation(
     info: OAuthClientInformationMixed,
   ): Promise<void> {
-    const ok = await setSecureKeyAsync(
-      clientInfoKey(this.serverId),
-      JSON.stringify(info),
-    );
-    if (!ok) {
-      log.warn(
-        { serverId: this.serverId },
-        "Failed to persist OAuth client information to secure storage",
+    await this.credentialFence.write(async () => {
+      const ok = await setSecureKeyAsync(
+        clientInfoKey(this.serverId),
+        JSON.stringify(info),
       );
-      return;
-    }
-
-    // Record what the registration was made against, so a later run can tell
-    // whether reusing it is still valid.
-    if (this._redirectUrl) {
-      const binding: ClientRegistrationBinding = {
-        issuer: await this.currentIssuer(),
-        redirectUri: this._redirectUrl,
-      };
-      const boundOk = await setSecureKeyAsync(
-        clientBindingKey(this.serverId),
-        JSON.stringify(binding),
-      );
-      if (!boundOk) {
+      if (!ok) {
         log.warn(
           { serverId: this.serverId },
-          "Failed to persist OAuth client binding; the registration will be remade on the next flow",
+          "Failed to persist OAuth client information to secure storage",
+        );
+        throw new Error(
+          "Failed to save OAuth client information; retry connecting",
         );
       }
-    }
 
-    log.info({ serverId: this.serverId }, "OAuth client information saved");
+      // Record what the registration was made against, so a later run can tell
+      // whether reusing it is still valid.
+      if (this._redirectUrl) {
+        const binding: ClientRegistrationBinding = {
+          issuer: await this.currentIssuer(),
+          redirectUri: this._redirectUrl,
+        };
+        const boundOk = await setSecureKeyAsync(
+          clientBindingKey(this.serverId),
+          JSON.stringify(binding),
+        );
+        if (!boundOk) {
+          log.warn(
+            { serverId: this.serverId },
+            "Failed to persist OAuth client binding; the registration will be remade on the next flow",
+          );
+          throw new Error(
+            "Failed to save OAuth client binding; retry connecting",
+          );
+        }
+      }
+
+      log.info({ serverId: this.serverId }, "OAuth client information saved");
+    });
   }
 
   /** Issuer of the authorization server currently in play, when known. */
@@ -422,16 +453,19 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 
   async saveDiscoveryState(state: OAuthDiscoveryState): Promise<void> {
-    const ok = await setSecureKeyAsync(
-      discoveryKey(this.serverId),
-      JSON.stringify(state),
-    );
-    if (!ok) {
-      log.warn(
-        { serverId: this.serverId },
-        "Failed to persist OAuth discovery state to secure storage",
+    await this.credentialFence.write(async () => {
+      const ok = await setSecureKeyAsync(
+        discoveryKey(this.serverId),
+        JSON.stringify(state),
       );
-    }
+      if (!ok) {
+        log.warn(
+          { serverId: this.serverId },
+          "Failed to persist OAuth discovery state to secure storage",
+        );
+        throw new Error("Failed to save OAuth discovery; retry connecting");
+      }
+    });
   }
 
   // --- Redirect to Authorization ---
@@ -446,9 +480,12 @@ export class McpOAuthProvider implements OAuthClientProvider {
       const sdkState = authorizationUrl.searchParams.get("state");
       if (sdkState) {
         // Dynamic import to avoid circular deps
-        const { registerPendingCallback } =
+        const { registerPendingCallback, consumeCallbackError } =
           await import("../security/oauth-callback-registry.js");
         registerPendingCallback(sdkState, this._codeResolve, this._codeReject);
+        this.cancelRegisteredCallback = () => {
+          consumeCallbackError(sdkState, "MCP OAuth callback cancelled");
+        };
         log.info(
           { serverId: this.serverId, state: sdkState },
           "MCP OAuth callback registered with SDK state",
@@ -492,61 +529,63 @@ export class McpOAuthProvider implements OAuthClientProvider {
   async invalidateCredentials(
     scope: "all" | "client" | "tokens" | "verifier" | "discovery",
   ): Promise<void> {
-    log.info(
-      { serverId: this.serverId, scope },
-      "Invalidating OAuth credentials",
-    );
+    await this.credentialFence.write(async () => {
+      log.info(
+        { serverId: this.serverId, scope },
+        "Invalidating OAuth credentials",
+      );
 
-    if (scope === "all" || scope === "tokens") {
-      const result = await deleteSecureKeyAsync(tokensKey(this.serverId));
-      if (result === "error") {
-        log.warn(
-          { serverId: this.serverId },
-          "Failed to delete OAuth tokens from secure storage",
-        );
-      } else if (result === "not-found") {
-        log.debug(
-          { serverId: this.serverId },
-          "OAuth tokens key not found in secure storage (already removed)",
-        );
+      if (scope === "all" || scope === "tokens") {
+        const result = await deleteSecureKeyAsync(tokensKey(this.serverId));
+        if (result === "error") {
+          log.warn(
+            { serverId: this.serverId },
+            "Failed to delete OAuth tokens from secure storage",
+          );
+        } else if (result === "not-found") {
+          log.debug(
+            { serverId: this.serverId },
+            "OAuth tokens key not found in secure storage (already removed)",
+          );
+        }
       }
-    }
-    if (scope === "all" || scope === "client") {
-      const result = await deleteSecureKeyAsync(clientInfoKey(this.serverId));
-      if (result === "error") {
-        log.warn(
-          { serverId: this.serverId },
-          "Failed to delete OAuth client information from secure storage",
-        );
-      } else if (result === "not-found") {
-        log.debug(
-          { serverId: this.serverId },
-          "OAuth client information key not found in secure storage (already removed)",
-        );
+      if (scope === "all" || scope === "client") {
+        const result = await deleteSecureKeyAsync(clientInfoKey(this.serverId));
+        if (result === "error") {
+          log.warn(
+            { serverId: this.serverId },
+            "Failed to delete OAuth client information from secure storage",
+          );
+        } else if (result === "not-found") {
+          log.debug(
+            { serverId: this.serverId },
+            "OAuth client information key not found in secure storage (already removed)",
+          );
+        }
+        // The binding describes the registration being dropped, so it goes
+        // with it. Leaving it would let a later registration inherit the
+        // previous one's issuer and redirect URI.
+        await deleteSecureKeyAsync(clientBindingKey(this.serverId));
       }
-      // The binding describes the registration being dropped, so it goes
-      // with it. Leaving it would let a later registration inherit the
-      // previous one's issuer and redirect URI.
-      await deleteSecureKeyAsync(clientBindingKey(this.serverId));
-    }
-    if (scope === "all" || scope === "verifier") {
-      this._codeVerifier = undefined;
-      this._state = undefined;
-    }
-    if (scope === "all" || scope === "discovery") {
-      const result = await deleteSecureKeyAsync(discoveryKey(this.serverId));
-      if (result === "error") {
-        log.warn(
-          { serverId: this.serverId },
-          "Failed to delete OAuth discovery state from secure storage",
-        );
-      } else if (result === "not-found") {
-        log.debug(
-          { serverId: this.serverId },
-          "OAuth discovery state key not found in secure storage (already removed)",
-        );
+      if (scope === "all" || scope === "verifier") {
+        this._codeVerifier = undefined;
+        this._state = undefined;
       }
-    }
+      if (scope === "all" || scope === "discovery") {
+        const result = await deleteSecureKeyAsync(discoveryKey(this.serverId));
+        if (result === "error") {
+          log.warn(
+            { serverId: this.serverId },
+            "Failed to delete OAuth discovery state from secure storage",
+          );
+        } else if (result === "not-found") {
+          log.debug(
+            { serverId: this.serverId },
+            "OAuth discovery state key not found in secure storage (already removed)",
+          );
+        }
+      }
+    });
   }
 
   // --- Callback ---
@@ -599,11 +638,15 @@ export class McpOAuthProvider implements OAuthClientProvider {
     return this._codePromise;
   }
 
-  /**
-   * Abandon a prepared callback. Rejects the deferred promise so callers
-   * awaiting the code do not hang until the registry's own TTL fires.
-   */
+  close(): void {
+    this.credentialFence.close();
+    this.stopCallbackServer();
+  }
+
+  /** Reject the pending callback and remove its registry entry. */
   stopCallbackServer(): void {
+    this.cancelRegisteredCallback?.();
+    this.cancelRegisteredCallback = undefined;
     if (this._codeReject) {
       this._codeReject(new Error("MCP OAuth callback cancelled"));
       this._codeResolve = undefined;
@@ -630,7 +673,7 @@ export async function deleteMcpOAuthCredentials(
   serverId: string,
 ): Promise<{ ok: boolean; failedKeys: string[] }> {
   const [tokensResult, clientResult, bindingResult, discoveryResult] =
-    await Promise.all([
+    await Promise.allSettled([
       deleteSecureKeyAsync(tokensKey(serverId)),
       deleteSecureKeyAsync(clientInfoKey(serverId)),
       deleteSecureKeyAsync(clientBindingKey(serverId)),
@@ -643,7 +686,7 @@ export async function deleteMcpOAuthCredentials(
     { key: "discovery", result: discoveryResult },
   ];
   const failedKeys = results
-    .filter((r) => r.result === "error")
+    .filter((r) => r.result.status === "rejected" || r.result.value === "error")
     .map((r) => r.key);
   if (failedKeys.length > 0) {
     log.warn(

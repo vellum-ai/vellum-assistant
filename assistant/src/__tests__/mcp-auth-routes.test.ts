@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede imports) ───────────────────────────────────────
 
-const mockReloadMcpServers = mock(async () => {});
+const mockReloadMcpServers = mock(async () => ({ success: true }));
 
 mock.module("../daemon/mcp-reload-service.js", () => ({
   reloadMcpServers: () => mockReloadMcpServers(),
@@ -11,6 +11,7 @@ mock.module("../daemon/mcp-reload-service.js", () => ({
 const mockOrchestrateConnect = mock(
   async (_args: { serverId: string; transport: unknown }) => ({
     auth_url: "https://provider.example.com/authorize?state=abc",
+    attempt_id: "test-attempt",
   }),
 );
 
@@ -21,6 +22,7 @@ mock.module("../mcp/mcp-auth-orchestrator.js", () => ({
 const mockGetMcpAuthState = mock((_serverId: string) => null as unknown);
 
 mock.module("../mcp/mcp-auth-state.js", () => ({
+  cancelCurrentMcpAuth: () => {},
   getMcpAuthState: mockGetMcpAuthState,
 }));
 
@@ -69,6 +71,7 @@ describe("mcp-auth-routes", () => {
 
       expect(result).toEqual({
         auth_url: "https://provider.example.com/authorize?state=abc",
+        attempt_id: "test-attempt",
         state: "my-server",
       });
     });
@@ -105,6 +108,7 @@ describe("mcp-auth-routes", () => {
       mockGetMcpAuthState.mockImplementation(() => ({
         status: "pending",
         authUrl: "https://auth.example.com",
+        attemptId: "test-attempt",
         expiresAt: Date.now() + 300_000,
       }));
 
@@ -116,12 +120,14 @@ describe("mcp-auth-routes", () => {
       expect(result).toEqual({
         status: "pending",
         auth_url: "https://auth.example.com",
+        attempt_id: "test-attempt",
       });
     });
 
     test("returns complete state", async () => {
       mockGetMcpAuthState.mockImplementation(() => ({
         status: "complete",
+        attemptId: "test-attempt",
         serverId: "my-server",
         completedAt: Date.now(),
       }));
@@ -131,12 +137,16 @@ describe("mcp-auth-routes", () => {
         pathParams: { serverId: "my-server" },
       });
 
-      expect(result).toEqual({ status: "complete" });
+      expect(result).toEqual({
+        status: "complete",
+        attempt_id: "test-attempt",
+      });
     });
 
     test("returns error state", async () => {
       mockGetMcpAuthState.mockImplementation(() => ({
         status: "error",
+        attemptId: "test-attempt",
         error: "access_denied",
         failedAt: Date.now(),
       }));
@@ -146,7 +156,11 @@ describe("mcp-auth-routes", () => {
         pathParams: { serverId: "my-server" },
       });
 
-      expect(result).toEqual({ status: "error", error: "access_denied" });
+      expect(result).toEqual({
+        status: "error",
+        attempt_id: "test-attempt",
+        error: "access_denied",
+      });
     });
 
     test("throws NotFoundError for unknown serverId", async () => {

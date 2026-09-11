@@ -31,6 +31,7 @@ mock.module("../mcp-oauth-provider.js", () => ({
     invalidateCredentials = mockInvalidateCredentials;
     startCallbackServer = mockStartCallbackServer;
     stopCallbackServer = mockStopCallbackServer;
+    close = mockStopCallbackServer;
   },
 }));
 
@@ -46,7 +47,16 @@ const mockSetMcpAuthError = mock(
   (_serverId: string, _error: string, _attemptId: string): boolean => true,
 );
 
+mock.module("../mcp-header-store.js", () => ({
+  getMcpHeaders: async () => undefined,
+}));
+mock.module("../connection-lifecycle.js", () => ({
+  beginMcpConnection: async () => {},
+}));
 mock.module("../mcp-auth-state.js", () => ({
+  cancelCurrentMcpAuth: () => {},
+  clearMcpAuthCancellation: () => {},
+  registerMcpAuthCancellation: () => {},
   setMcpAuthPending: (...args: unknown[]) =>
     mockSetMcpAuthPending(...(args as [string, string, string])),
   setMcpAuthComplete: (...args: unknown[]) =>
@@ -56,7 +66,7 @@ mock.module("../mcp-auth-state.js", () => ({
 }));
 
 const mockReloadMcpServers = mock(async () => ({
-  ok: true,
+  success: true,
   reloaded: 0,
   servers: [],
 }));
@@ -163,7 +173,7 @@ describe("orchestrateMcpOAuthConnect", () => {
     });
 
     expect(result.auth_url).toBe("https://auth.example.com/oauth");
-    expect(mockSetMcpAuthPending.mock.calls[0]).toEqual([
+    expect(mockSetMcpAuthPending.mock.calls[1]).toEqual([
       "test-server",
       "https://auth.example.com/oauth",
       expect.any(String) as unknown as string, // attemptId UUID
@@ -251,12 +261,12 @@ describe("orchestrateMcpOAuthConnect", () => {
       transport: { url: "https://example.com", type: "sse" },
     });
 
-    expect(mockSetMcpAuthPending.mock.calls).toHaveLength(2);
+    expect(mockSetMcpAuthPending.mock.calls).toHaveLength(4);
     expect(mockSetMcpAuthPending.mock.calls[0][0]).toBe("srv");
     expect(mockSetMcpAuthPending.mock.calls[1][0]).toBe("srv");
     // Each attempt gets a distinct UUID so superseded tails can be detected.
     const firstAttemptId = mockSetMcpAuthPending.mock.calls[0][2];
-    const secondAttemptId = mockSetMcpAuthPending.mock.calls[1][2];
+    const secondAttemptId = mockSetMcpAuthPending.mock.calls[2][2];
     expect(firstAttemptId).not.toBe(secondAttemptId);
   });
 

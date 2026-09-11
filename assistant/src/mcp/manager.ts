@@ -23,6 +23,7 @@ export type McpConnectionState =
 
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
+  private pendingDisconnects = new Set<McpClient>();
   private connectionStates = new Map<
     string,
     { source: ResolvedMcpServerConfig["source"]; state: McpConnectionState }
@@ -62,6 +63,11 @@ export class McpServerManager {
             source: serverConfig.source,
             state: client.lastError ? "error" : "needs-auth",
           });
+          try {
+            await client.disconnect({ requireCleanup: true });
+          } catch {
+            this.pendingDisconnects.add(client);
+          }
           continue;
         }
 
@@ -101,9 +107,9 @@ export class McpServerManager {
         const staleClient = this.clients.get(serverId);
         if (staleClient) {
           try {
-            await staleClient.disconnect();
+            await staleClient.disconnect({ requireCleanup: true });
           } catch {
-            /* ignore */
+            this.pendingDisconnects.add(staleClient);
           }
           this.clients.delete(serverId);
         }
@@ -130,18 +136,32 @@ export class McpServerManager {
     return results;
   }
 
-  async stop(): Promise<void> {
-    const disconnects = Array.from(this.clients.values()).map((client) =>
-      client.disconnect().catch((err) => {
-        log.warn(
-          { err, serverId: client.serverId },
-          "Error disconnecting MCP server",
-        );
-      }),
-    );
-    await Promise.all(disconnects);
+  async stop(options: { requireCleanup?: boolean } = {}): Promise<void> {
+    const clients = new Set([
+      ...this.clients.values(),
+      ...this.pendingDisconnects,
+    ]);
     this.clients.clear();
     this.connectionStates.clear();
+    await Promise.all(
+      Array.from(clients, async (client) => {
+        try {
+          await client.disconnect({ requireCleanup: true });
+          this.pendingDisconnects.delete(client);
+        } catch (err) {
+          this.pendingDisconnects.add(client);
+          log.warn(
+            { err, serverId: client.serverId },
+            "Error disconnecting MCP server",
+          );
+        }
+      }),
+    );
+    if (options.requireCleanup && this.pendingDisconnects.size > 0) {
+      throw new Error(
+        "MCP connections could not be closed; retry disconnecting",
+      );
+    }
     log.info("All MCP servers disconnected");
   }
 
@@ -160,6 +180,16 @@ export class McpServerManager {
 
   getClient(serverId: string): McpClient | undefined {
     return this.clients.get(serverId);
+  }
+
+  hasWorkspaceConnection(serverId: string): boolean {
+    return (
+      this.clients.get(serverId)?.source === "workspace" ||
+      Array.from(this.pendingDisconnects).some(
+        (client) =>
+          client.serverId === serverId && client.source === "workspace",
+      )
+    );
   }
 
   getServerState(

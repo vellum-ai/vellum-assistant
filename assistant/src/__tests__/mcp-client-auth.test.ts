@@ -147,3 +147,28 @@ describe("McpOAuthProvider redirectUrl", () => {
     expect(interactive.redirectUrl).toBeUndefined();
   });
 });
+
+describe("McpClient cleanup failures", () => {
+  test("strict cleanup reports a failed SDK close and remains retryable", async () => {
+    const client = new McpClient("cleanup-server");
+    const internals = client as unknown as {
+      client: { close: () => Promise<void> };
+      connected: boolean;
+    };
+    let fails = true;
+    internals.connected = true;
+    internals.client = {
+      close: async () => {
+        if (fails) {
+          throw new Error("socket close failed");
+        }
+      },
+    };
+    await expect(client.disconnect({ requireCleanup: true })).rejects.toThrow(
+      "socket close failed",
+    );
+    expect(client.isConnected).toBe(false);
+    fails = false;
+    await client.disconnect({ requireCleanup: true });
+  });
+});

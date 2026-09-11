@@ -36,21 +36,33 @@ export interface McpReloadResult {
 }
 
 let reloadInProgress: Promise<McpReloadResult> | null = null;
+let reloadQueued = false;
+let requireCleanup = false;
 
 /**
  * Stop all MCP servers, reload configuration from disk, and restart
  * servers with the updated config. Returns a summary of the reload.
  *
- * Concurrent calls are serialized — if a reload is already in progress
- * the caller receives the same promise instead of starting a second one.
+ * Concurrent callers wait for the final queued configuration snapshot.
  */
-export function reloadMcpServers(): Promise<McpReloadResult> {
+export function reloadMcpServers(
+  options: { requireCleanup?: boolean } = {},
+): Promise<McpReloadResult> {
+  requireCleanup ||= options.requireCleanup ?? false;
   if (reloadInProgress) {
-    log.info("MCP reload already in progress, awaiting existing operation");
+    reloadQueued = true;
     return reloadInProgress;
   }
-  reloadInProgress = doReload().finally(() => {
+  reloadInProgress = (async () => {
+    let result: McpReloadResult;
+    do {
+      reloadQueued = false;
+      result = await doReload(requireCleanup);
+    } while (reloadQueued);
+    return result;
+  })().finally(() => {
     reloadInProgress = null;
+    requireCleanup = false;
   });
   return reloadInProgress;
 }
@@ -78,7 +90,7 @@ export async function reconcilePluginMcpServers(): Promise<void> {
   await reloadMcpServers();
 }
 
-async function doReload(): Promise<McpReloadResult> {
+async function doReload(requireCleanup: boolean): Promise<McpReloadResult> {
   try {
     const manager = getMcpServerManager();
 
@@ -98,8 +110,11 @@ async function doReload(): Promise<McpReloadResult> {
     const config = getConfig();
 
     // 2. Stop existing MCP servers + unregister their tools
-    await manager.stop();
-    unregisterAllMcpTools();
+    try {
+      await manager.stop({ requireCleanup });
+    } finally {
+      unregisterAllMcpTools();
+    }
 
     // Plugins are re-read here too: installing or removing one changes the
     // server set exactly like editing config.json does, and both arrive

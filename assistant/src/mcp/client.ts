@@ -96,6 +96,10 @@ export class McpClient {
         "MCP SDK transport error (non-fatal)",
       );
     };
+    this.client.onclose = () => {
+      this.connected = false;
+      this.oauthProvider?.close();
+    };
   }
 
   async connect(transportConfig: McpTransport): Promise<void> {
@@ -121,6 +125,7 @@ export class McpClient {
           this.serverId,
           transportConfig.url,
           /* interactive */ false,
+          { requireConfigured: true },
         );
       }
     }
@@ -273,17 +278,18 @@ export class McpClient {
     };
   }
 
-  async disconnect(): Promise<void> {
-    if (!this.connected) {
-      return;
-    }
+  async disconnect(options: { requireCleanup?: boolean } = {}): Promise<void> {
+    this.oauthProvider?.close();
+    this.connected = false;
 
     try {
       await this.client.close();
     } catch (err) {
       log.warn({ err, serverId: this.serverId }, "Error closing MCP client");
+      if (options.requireCleanup) {
+        throw err;
+      }
     }
-    this.connected = false;
     this.transport = null;
     log.info({ serverId: this.serverId }, "MCP client disconnected");
   }

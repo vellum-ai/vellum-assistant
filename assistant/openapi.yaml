@@ -18303,6 +18303,42 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/internal/mcp/auth/cancel:
+    post:
+      operationId: internal_mcp_auth_cancel_post
+      summary: Cancel an MCP authorization attempt
+      description: Cancels only the pending attempt matching the supplied attempt ID and clears its OAuth credentials.
+      tags:
+        - internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                serverId:
+                  type: string
+                  minLength: 1
+                attemptId:
+                  type: string
+                  minLength: 1
+              required:
+                - serverId
+                - attemptId
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled:
+                    type: boolean
+                required:
+                  - cancelled
+                additionalProperties: false
   /v1/internal/mcp/auth/revoke:
     post:
       operationId: internal_mcp_auth_revoke_post
@@ -18319,6 +18355,7 @@ paths:
               properties:
                 serverId:
                   type: string
+                  minLength: 1
               required:
                 - serverId
       responses:
@@ -18350,11 +18387,30 @@ paths:
               properties:
                 serverId:
                   type: string
+                  minLength: 1
               required:
                 - serverId
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth_url:
+                    type: string
+                  state:
+                    type: string
+                  attempt_id:
+                    type: string
+                  already_authenticated:
+                    type: boolean
+                required:
+                  - auth_url
+                  - state
+                  - attempt_id
+                additionalProperties: false
   /v1/internal/mcp/auth/status/{serverId}:
     get:
       operationId: internal_mcp_auth_status_by_serverId_get
@@ -18371,6 +18427,50 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        const: pending
+                      auth_url:
+                        type: string
+                      attempt_id:
+                        type: string
+                    required:
+                      - status
+                      - auth_url
+                      - attempt_id
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        const: complete
+                      attempt_id:
+                        type: string
+                    required:
+                      - status
+                      - attempt_id
+                    additionalProperties: false
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        const: error
+                      error:
+                        type: string
+                      attempt_id:
+                        type: string
+                    required:
+                      - status
+                      - error
+                      - attempt_id
+                    additionalProperties: false
+                type: object
         "404":
           description: No active OAuth flow for the given serverId
   /v1/internal/mcp/list:

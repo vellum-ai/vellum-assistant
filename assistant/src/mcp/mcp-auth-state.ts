@@ -25,6 +25,37 @@ type McpAuthState =
   | { status: "error"; error: string; attemptId: string; failedAt: number };
 
 const activeMcpAuthFlows = new Map<string, McpAuthState>();
+const cancellations = new Map<
+  string,
+  { attemptId: string; cancel: () => void }
+>();
+
+export function registerMcpAuthCancellation(
+  serverId: string,
+  attemptId: string,
+  cancel: () => void,
+): void {
+  cancellations.set(serverId, { attemptId, cancel });
+}
+
+export function clearMcpAuthCancellation(
+  serverId: string,
+  attemptId: string,
+): void {
+  if (cancellations.get(serverId)?.attemptId === attemptId) {
+    cancellations.delete(serverId);
+  }
+}
+
+export function cancelCurrentMcpAuth(serverId: string): void {
+  const current = activeMcpAuthFlows.get(serverId);
+  if (current?.status !== "pending") {
+    return;
+  }
+  setMcpAuthError(serverId, "Connection cancelled", current.attemptId);
+  cancellations.get(serverId)?.cancel();
+  cancellations.delete(serverId);
+}
 
 const PENDING_TTL_MS = 5 * 60 * 1000; // 5 min — matches oauth-callback-registry.ts
 const COMPLETION_GRACE_MS = 60 * 1000; // 60s so the polling CLI gets one final read
@@ -61,7 +92,7 @@ export function setMcpAuthComplete(
   attemptId: string,
 ): boolean {
   const current = activeMcpAuthFlows.get(serverId);
-  if (current && current.attemptId !== attemptId) {
+  if (current?.status !== "pending" || current.attemptId !== attemptId) {
     return false; // superseded
   }
   activeMcpAuthFlows.set(serverId, {
@@ -83,7 +114,7 @@ export function setMcpAuthError(
   attemptId: string,
 ): boolean {
   const current = activeMcpAuthFlows.get(serverId);
-  if (current && current.attemptId !== attemptId) {
+  if (current?.status !== "pending" || current.attemptId !== attemptId) {
     return false; // superseded
   }
   activeMcpAuthFlows.set(serverId, {
@@ -104,6 +135,8 @@ export function getMcpAuthState(serverId: string): McpAuthState | null {
   const now = Date.now();
   for (const [id, state] of activeMcpAuthFlows) {
     if (state.status === "pending" && now > state.expiresAt) {
+      cancellations.get(id)?.cancel();
+      cancellations.delete(id);
       activeMcpAuthFlows.delete(id);
     } else if (
       state.status === "complete" &&

@@ -32,6 +32,14 @@ describe("mcp-auth route body validation", () => {
     ).rejects.toThrow(BadRequestError);
   });
 
+  test("internal_mcp_auth_cancel requires an attempt ID", async () => {
+    await expect(
+      routeFor("internal_mcp_auth_cancel").handler({
+        body: { serverId: "example" },
+      }),
+    ).rejects.toThrow(BadRequestError);
+  });
+
   test("internal_mcp_auth_revoke rejects a non-string serverId", async () => {
     await expect(
       routeFor("internal_mcp_auth_revoke").handler({

@@ -1,0 +1,85 @@
+# MCP connection lifecycle
+
+Workspace MCP mutations use a per-server operation mutex. Add, update, removal,
+and legacy-header migration also serialize asynchronous configuration writes.
+Existing server IDs and credential keys remain unchanged. Plugin-owned
+servers cannot authorize workspace credential operations.
+
+`internal_mcp_remove` and `internal_mcp_auth_revoke` share
+`teardownMcpConnection`. Removal clears OAuth tokens, client registration,
+client binding, discovery metadata, and static headers before removing the
+saved server. Legacy revoke clears only OAuth records and retains the server
+and static headers. Missing keys count as successful cleanup; failed deletion
+retains configuration for retry. If runtime reload fails after removal is
+saved, repeating remove retries runtime cleanup without looking up credentials
+for an absent configuration.
+
+```mermaid
+sequenceDiagram
+    participant UI as Client
+    participant Route as MCP route
+    participant Lock as Credential coordination
+    participant Store as CES
+    participant Runtime as MCP manager
+    UI->>Route: Remove workspace server
+    Route->>Lock: Drain credential writes and advance generation
+    Route->>Store: Delete OAuth records and static headers
+    alt Cleanup acknowledged
+        Route->>Route: Save configuration removal
+        Route->>Lock: Advance generation and release
+        Route->>Runtime: Reload through final queued snapshot
+        Runtime-->>Route: Local cleanup result
+        Route-->>UI: Removed, or saved removal with retryable runtime error
+    else Credential cleanup fails
+        Route->>Lock: Advance generation and release
+        Route-->>UI: Retryable error, configuration retained
+    end
+```
+
+Each OAuth provider captures a random credential generation. Its persistence
+operations obtain a process-shared lock, check that generation and the current
+configured endpoint, then write through the existing credential backend.
+Tokens, client registration/binding, discovery, and invalidation all use this
+boundary. Closing a provider also rejects queued writes. This covers silent
+refresh in the schedule worker as well as browser authorization in the main
+process.
+
+The coordination file is `signals/mcp-credential-coordination.sqlite`. It holds
+only hashed server IDs, random generations, and lock owner PID/token metadata.
+It contains no credentials, server definitions, or enable/disable state. Its
+local schema is initialized idempotently; no application database migration or
+existing plugin conversion is required. SQLite transactions arbitrate lock
+ownership without holding a SQL transaction across network I/O. A dead PID can
+be reclaimed atomically; a live owner is never stolen on timeout. PID reuse can
+conservatively block an operation, which fails with a retryable error. Handles
+are closed after each operation.
+
+A scoped credential-completion context prevents the secure-key wrapper's outer
+deadline from releasing a mutation lock while its underlying promise still
+runs. Lock acquisition is bounded, so a blocked writer prevents a later remove
+from claiming successful cleanup.
+
+Auth start returns an additive `attempt_id`. Status retains the existing
+pending/complete/error vocabulary and also returns `attempt_id`. Cancel takes
+`{serverId, attemptId}` and only cancels a matching pending attempt. It closes
+the callback, fences writes, clears that attempt's OAuth records, and keeps
+configuration for retry. A stale cancellation returns `{cancelled: false}`.
+
+## Acknowledgement boundaries
+
+Explicit teardown requests strict local cleanup. The manager retains client
+handles whose SDK close failed, unregisters their tools, and reports failure;
+a later remove retries those handles. Ordinary shutdown remains tolerant.
+Queued reloads retain a strict request and converge to the last requested
+configuration snapshot.
+
+The worker reload signal does not acknowledge worker shutdown. Other processes
+can retain a connection briefly while handling the notification, although their
+older provider generation cannot persist credentials.
+
+The persistence guarantee covers local storage and normally acknowledged CES
+operations. CES HTTP and RPC transports can lose an acknowledgement for an
+already-sent write. A client-side generation check cannot prove that remote
+write's final outcome after a transport timeout or process crash. Strong fencing
+across that failure requires CES-side generation/compare-and-set support. No
+provider-side OAuth grant revocation is performed.
