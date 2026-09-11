@@ -63,6 +63,8 @@ beforeEach(() => {
   mockOk = true;
   mockSessions = [];
   lastQuery = undefined;
+  mockGetImpl = undefined;
+  __resetAcpSnapshotGenerationsForTests();
   useAcpRunStore.getState().reset();
 });
 
@@ -403,6 +405,84 @@ describe("useAcpRunRehydration: re-reading once a Connect flow settles", () => {
 
 describe("useAcpRunRehydration: a snapshot in flight cannot roll back a model", () => {
   const flush = () => new Promise((r) => setTimeout(r, 5));
+
+  test("a superseded response cannot veto the newer process snapshot", async () => {
+    useAcpRunStore.getState().spawnRun({
+      acpSessionId: "run-A",
+      agent: "claude",
+      parentConversationId: "conv-A",
+      startedAt: 0,
+    });
+    useAcpRunStore.getState().setModel({
+      acpSessionId: "run-A",
+      modelRevisionEpoch: "old-process",
+      modelRevision: 10,
+      model: "opus",
+      availableModels: [{ value: "opus", label: "Opus" }],
+    });
+
+    let releaseOlder = () => {};
+    const olderHeld = new Promise<void>((resolve) => {
+      releaseOlder = resolve;
+    });
+    let releaseNewer = () => {};
+    const newerHeld = new Promise<void>((resolve) => {
+      releaseNewer = resolve;
+    });
+    const response = (
+      model: string,
+      modelRevisionEpoch: string,
+      modelRevision: number,
+    ) => ({
+      data: {
+        sessions: [
+          {
+            id: "run-A",
+            agentId: "claude",
+            acpSessionId: "run-A",
+            parentConversationId: "conv-A",
+            status: "running",
+            startedAt: 0,
+            model,
+            modelRevisionEpoch,
+            modelRevision,
+            availableModels: [{ value: model, label: model }],
+          },
+        ],
+      },
+      response: { ok: true },
+    });
+    let call = 0;
+    mockGetImpl = async () => {
+      call += 1;
+      if (call === 1) {
+        await olderHeld;
+        return response("haiku", "old-process", 11);
+      }
+      await newerHeld;
+      return response("sonnet", "new-process", 1);
+    };
+
+    renderHook(() => useAcpRunRehydration("asst-1", "conv-A"));
+    await waitFor(() => expect(getCalls).toBe(1));
+    publish("sse.event", {
+      assistantId: "asst-1",
+      message: { type: "sync_changed", tags: [SYNC_TAGS.acpAuthRecovery] },
+    } as never);
+    await waitFor(() => expect(getCalls).toBe(2));
+
+    releaseOlder();
+    await flush();
+    expect(useAcpRunStore.getState().byId["run-A"]!.model).toBe("opus");
+
+    releaseNewer();
+    await waitFor(() => {
+      expect(useAcpRunStore.getState().byId["run-A"]!.model).toBe("sonnet");
+    });
+    expect(
+      useAcpRunStore.getState().byId["run-A"]!.modelRevisionEpoch,
+    ).toBe("new-process");
+  });
 
   test("accepts a new process epoch even when its UUID sorts lower", async () => {
     useAcpRunStore.getState().spawnRun({

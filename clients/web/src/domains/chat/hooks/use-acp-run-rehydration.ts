@@ -432,7 +432,20 @@ function applyAcpSnapshot(
     isNewestAcpSnapshot(snapshotConversationId, generation);
   const store = useAcpRunStore.getState();
   if (entries.length > 0) {
-    store.seedFromHistory(entries, modelRevisionsAtFetch);
+    // Superseded responses still contribute status, usage, and event history.
+    // Their model state cannot update the baseline captured by a newer request,
+    // because that would make the newer process epoch look like a live update
+    // that arrived while its request was open.
+    const entriesToSeed = newest
+      ? entries
+      : entries.map((entry) => ({
+          ...entry,
+          model: undefined,
+          availableModels: undefined,
+          modelRevisionEpoch: undefined,
+          modelRevision: undefined,
+        }));
+    store.seedFromHistory(entriesToSeed, modelRevisionsAtFetch);
   }
   // Outside the length check: a conversation whose only marked run was cleared
   // can come back empty, and that emptiness is exactly the signal that the
