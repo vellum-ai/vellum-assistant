@@ -10,6 +10,7 @@
 import { documentsByIdConversationsPost } from "@/generated/daemon/sdk.gen";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import {
   getEditChatConversationId,
@@ -236,6 +237,7 @@ export async function rekeyOpenedDocumentConversation(
   }
   const current = useViewerStore.getState().openedDocumentState;
   if (
+    useResolvedAssistantsStore.getState().activeAssistantId !== assistantId ||
     current?.source !== "document" ||
     current.surfaceId !== opened.surfaceId ||
     current.conversationId !== oldConversationId

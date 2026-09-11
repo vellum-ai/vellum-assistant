@@ -917,10 +917,7 @@ describe("host-proxy preactivation across an interrupt", () => {
     const reported = await waitFor(() => {
       for (const envelope of events) {
         const message = envelope.message as Record<string, unknown> | undefined;
-        if (
-          message?.type === "message_failed" &&
-          message.code === "QUEUE_FULL"
-        ) {
+        if (message?.type === "error" && message.code === "QUEUE_FULL") {
           return message;
         }
       }
@@ -931,6 +928,7 @@ describe("host-proxy preactivation across an interrupt", () => {
     // must not mint an id of its own: the client was told this one.
     expect(reported.requestId).toBe(accepted.requestId);
     expect(reported.category).toBe("queue_drain_failed");
+    expect(reported.scope).toBe("message");
     // This one message's failure, not the turn's: the turn it tried to
     // interrupt runs on. The nonce the send came with names the message for a
     // client that lists its sends by nonce.
@@ -1070,10 +1068,7 @@ describe("host-proxy preactivation across an interrupt", () => {
     const reported = await waitFor(() => {
       for (const envelope of events) {
         const message = envelope.message as Record<string, unknown> | undefined;
-        if (
-          message?.type === "message_failed" &&
-          message.code === "QUEUE_FULL"
-        ) {
+        if (message?.type === "error" && message.code === "QUEUE_FULL") {
           return message;
         }
       }

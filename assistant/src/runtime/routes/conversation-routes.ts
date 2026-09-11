@@ -2485,9 +2485,10 @@ export async function handleSendMessage(
       "Queue fallback for an accepted send was rejected; telling the sender",
     );
     broadcastMessage({
-      type: "message_failed",
+      type: "error",
       conversationId: mapping.conversationId,
       requestId: sendRequestId,
+      scope: "message",
       ...(clientMessageId ? { clientMessageId } : {}),
       code: "QUEUE_FULL",
       category: "queue_drain_failed",

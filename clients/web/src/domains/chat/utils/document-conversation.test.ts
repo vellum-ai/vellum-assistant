@@ -25,6 +25,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
 const { getEditChatConversationId, setEditChatDraftReplacement } =
   await import("@/utils/edit-chat-session");
 const { useConversationStore } = await import("@/stores/conversation-store");
+const { useResolvedAssistantsStore } =
+  await import("@/stores/resolved-assistants-store");
 const { useViewerStore } = await import("@/stores/viewer-store");
 const {
   linkDocumentConversationIfNeeded,
@@ -50,6 +52,7 @@ beforeEach(() => {
   window.sessionStorage.clear();
   documentsByIdConversationsPostMock.mockClear();
   useConversationStore.setState({ draftConversationIds: new Set() });
+  useResolvedAssistantsStore.setState({ activeAssistantId: ASSISTANT_ID });
   useViewerStore.setState({ openedDocumentState: null });
 });
 
@@ -470,6 +473,33 @@ describe("rekeyOpenedDocumentConversation", () => {
 
     await expect(rekeying).resolves.toBe(false);
     expect(useViewerStore.getState().openedDocumentState).toBe(reopened);
+  });
+
+  test("leaves the store alone when the active assistant changes mid-link", async () => {
+    let settleLink: () => void = () => {};
+    const pendingLink = new Promise<{ data: { success: boolean } }>(
+      (resolve) => {
+        settleLink = () => resolve({ data: { success: true } });
+      },
+    );
+    documentsByIdConversationsPostMock.mockImplementationOnce(
+      async () => pendingLink,
+    );
+    useViewerStore.setState({ openedDocumentState: OPENED_DOC });
+
+    const rekeying = rekeyOpenedDocumentConversation(
+      ASSISTANT_ID,
+      "conv-draft",
+      "conv-minted",
+    );
+
+    useResolvedAssistantsStore.setState({
+      activeAssistantId: "assistant-2",
+    });
+    settleLink();
+
+    await expect(rekeying).resolves.toBe(false);
+    expect(useViewerStore.getState().openedDocumentState).toBe(OPENED_DOC);
   });
 });
 
