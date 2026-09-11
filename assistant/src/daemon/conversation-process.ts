@@ -69,6 +69,24 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 
 const log = getLogger("conversation-process");
 
+/** Report one queued message's persistence failure without ending its turn. */
+function reportQueuedMessagePersistenceFailure(
+  conversationId: string,
+  queued: QueuedMessage,
+  message: string,
+): void {
+  queued.onEvent({
+    type: "error",
+    conversationId,
+    requestId: queued.requestId,
+    message,
+    scope: "message",
+    ...(queued.clientMessageId
+      ? { clientMessageId: queued.clientMessageId }
+      : {}),
+  });
+}
+
 /** Locale-formatted count for the user-facing context stats cards. */
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
 
@@ -1176,18 +1194,11 @@ async function drainSingleMessage(
       },
       "Failed to persist queued message",
     );
-    // The failure is this one message's. Its event has a distinct discriminator
-    // and, when the sender supplied one, the nonce it tracks its send by, so a
-    // client listing its sends by nonce fails the right one.
-    next.onEvent({
-      type: "message_failed",
-      conversationId: conversation.conversationId,
-      requestId: next.requestId,
+    reportQueuedMessagePersistenceFailure(
+      conversation.conversationId,
+      next,
       message,
-      ...(next.clientMessageId
-        ? { clientMessageId: next.clientMessageId }
-        : {}),
-    });
+    );
     // Continue draining — don't strand remaining messages
     const closed = await drainQueue(conversation);
     // A message failure leaves a client's turn open for the turn that runs on.
@@ -1605,16 +1616,11 @@ async function drainBatch(
         },
         "Failed to persist batched queued message",
       );
-      // The failure belongs to this one batch member, not the turn, so its
-      // event has a distinct discriminator and, when the sender supplied one,
-      // the nonce it tracks its send by.
-      qm.onEvent({
-        type: "message_failed",
-        conversationId: conversation.conversationId,
-        requestId: qm.requestId,
+      reportQueuedMessagePersistenceFailure(
+        conversation.conversationId,
+        qm,
         message,
-        ...(qm.clientMessageId ? { clientMessageId: qm.clientMessageId } : {}),
-      });
+      );
 
       if (i === 0) {
         // Head persist failed — processing is not set yet, no in-flight turn
