@@ -170,9 +170,10 @@ enum HostCuActionRunner {
                     executionResult: nil,
                     executionError: ExecutorError.userIsActive.errorDescription,
                     stepNumber: stepNumber,
-                    conversationId: conversationId
+                    conversationId: conversationId,
+                    timer: timer
                 )
-                return buildResultPayload(requestId: requestId, conversationId: conversationId, observation: obs)
+                return finish(obs)
             }
             let takesOver = ActionExecutor.takesOverFromUser(agentAction.type)
 
