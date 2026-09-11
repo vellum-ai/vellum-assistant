@@ -32,7 +32,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
-import { ConversationListProvider } from "@/domains/chat/components/conversation-list-context";
+import {
+  ConversationListProvider,
+  type ConversationListContextValue,
+} from "@/domains/chat/components/conversation-list-context";
 import { SidebarSectionItem } from "@/domains/chat/components/sidebar-section-item";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { avatarQueryKey, type AvatarData } from "@/hooks/use-assistant-avatar";
@@ -176,9 +179,10 @@ function openGate(name: string | null): void {
   });
 }
 
-const LIST_CONTEXT: React.ComponentProps<
-  typeof ConversationListProvider
->["value"] = {
+/* Typed as the value itself rather than the provider's `value` prop, which
+   admits `null`: spreading that union would make every property optional and
+   lose `onSelect`. */
+const LIST_CONTEXT: ConversationListContextValue = {
   overlayCards: false,
   processingConversationIds: new Set<string>(),
   attentionConversationIds: new Set<string>(),
