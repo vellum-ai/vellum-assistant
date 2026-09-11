@@ -88,11 +88,7 @@ export function useMcpConnect(assistantId: string) {
       return;
     }
     const status = authStatus.data;
-    if (
-      attempt.attemptId &&
-      status.attempt_id &&
-      status.attempt_id !== attempt.attemptId
-    ) {
+    if (attempt.attemptId && status.attempt_id !== attempt.attemptId) {
       setAttempt({
         ...attempt,
         phase: "error",

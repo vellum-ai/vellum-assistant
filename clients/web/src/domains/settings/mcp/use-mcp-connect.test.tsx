@@ -288,6 +288,32 @@ describe("useMcpConnect", () => {
     expect(result.current.attempt?.error).toBeTruthy();
   });
 
+  test("completion without an attempt ID cannot complete a verified UI attempt", async () => {
+    status = { status: "complete" };
+    const { result } = renderConnect();
+    act(() => result.current.connect("example-integration"));
+    await waitFor(() => expect(result.current.attempt?.phase).toBe("error"));
+    expect(list).not.toHaveBeenCalled();
+    expect(result.current.attempt?.error).toBeTruthy();
+  });
+
+  test("legacy authorization without attempt IDs still waits for runtime readiness", async () => {
+    start.mockImplementationOnce(async () => ({
+      state: "oauth-state",
+      auth_url: "https://example.com/authorize",
+    }));
+    status = { status: "complete" };
+    const { result } = renderConnect();
+    act(() => result.current.connect("example-integration"));
+    await waitFor(() =>
+      expect(result.current.attempt?.phase).toBe("connecting"),
+    );
+    expect(result.current.canCancel).toBe(false);
+    servers = [mcpServer({ lifecycleState: "connected" })];
+    act(() => browserFinished?.());
+    await waitFor(() => expect(result.current.attempt).toBeNull());
+  });
+
   test("unmount closes the blank popup and ignores a late start response", async () => {
     const pending = deferred<StartResult>();
     start.mockImplementationOnce(() => pending.promise);
