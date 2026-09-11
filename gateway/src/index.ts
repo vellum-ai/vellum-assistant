@@ -55,6 +55,11 @@ import {
   type WatchStreamSocketData,
 } from "./http/routes/watch-stream-websocket.js";
 import {
+  createDesktopStreamWebsocketHandler,
+  getDesktopStreamWebsocketHandlers,
+  type DesktopStreamSocketData,
+} from "./http/routes/desktop-stream-websocket.js";
+import {
   createSpeechRelayUpgradeHandler,
   getSpeechRelayWebsocketHandlers,
   type SpeechRelaySocketData,
@@ -136,6 +141,7 @@ import {
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
+import { createDesktopSetupProxyHandler } from "./http/routes/desktop-setup-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
 import { createLogTailHandler } from "./http/routes/log-tail.js";
@@ -329,6 +335,16 @@ function isWatchStreamSocketData(data: unknown): data is WatchStreamSocketData {
     !!data &&
     typeof data === "object" &&
     (data as { wsType?: unknown }).wsType === "watch-stream"
+  );
+}
+
+function isDesktopStreamSocketData(
+  data: unknown,
+): data is DesktopStreamSocketData {
+  return (
+    !!data &&
+    typeof data === "object" &&
+    (data as { wsType?: unknown }).wsType === "desktop-stream"
   );
 }
 
@@ -575,6 +591,7 @@ async function main() {
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleWatchStreamWs = createWatchStreamWebsocketHandler(config);
+  const handleDesktopStreamWs = createDesktopStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
   const handleSpeechRelaySttWs = createSpeechRelayUpgradeHandler(
     config,
@@ -599,6 +616,7 @@ async function main() {
   const pluginWebhookWebsocketHandlers = getPluginWebhookWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const watchStreamWebsocketHandlers = getWatchStreamWebsocketHandlers();
+  const desktopStreamWebsocketHandlers = getDesktopStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
   const speechRelayWebsocketHandlers = getSpeechRelayWebsocketHandlers();
   const { handler: handleWhatsAppWebhook, dedupCache: whatsappDedupCache } =
@@ -656,6 +674,7 @@ async function main() {
   const migrationJobStatusProxy = createMigrationJobStatusProxyHandler(config);
   const migrationRollbackProxy = createMigrationRollbackProxyHandler(config);
   const workspaceCommitProxy = createWorkspaceCommitProxyHandler(config);
+  const desktopSetupProxy = createDesktopSetupProxyHandler(config);
   const brainGraphProxy = createBrainGraphProxyHandler(config);
   const handleLogExport = createLogExportHandler(config);
   const handleLogTail = createLogTailHandler(config);
@@ -1933,6 +1952,18 @@ async function main() {
     handler: (req) => handleCreateToken(req, server, config.trustProxy),
   });
 
+  for (const method of ["GET", "POST"] as const) {
+    const setupRoute = {
+      method,
+      auth: "edge-guardian" as const,
+      handler: desktopSetupProxy,
+    };
+    routes.push(
+      { path: /^\/v1\/desktop\/setup\/?$/, ...setupRoute },
+      { path: /^\/v1\/assistants\/[^/]+\/desktop\/setup\/?$/, ...setupRoute },
+    );
+  }
+
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
     path: /^\//, // match everything
@@ -1976,6 +2007,10 @@ async function main() {
           watchStreamWebsocketHandlers.open(ws as never);
           return;
         }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.open(ws as never);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
@@ -2003,6 +2038,10 @@ async function main() {
           watchStreamWebsocketHandlers.message(ws as never, message);
           return;
         }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.message(ws as never, message);
+          return;
+        }
         if (isLiveVoiceSocketData(ws.data)) {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
@@ -2028,6 +2067,10 @@ async function main() {
         }
         if (isWatchStreamSocketData(ws.data)) {
           watchStreamWebsocketHandlers.close(ws as never, code, reason);
+          return;
+        }
+        if (isDesktopStreamSocketData(ws.data)) {
+          desktopStreamWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
         if (isLiveVoiceSocketData(ws.data)) {
@@ -2259,6 +2302,15 @@ async function main() {
     // assistant has no transport at all and never reaches here.
     if (url.pathname === "/v1/watch/stream") {
       const upgradeResult = await handleWatchStreamWs(req, server);
+      if (upgradeResult !== undefined) {
+        return upgradeResult;
+      }
+      return undefined as unknown as Response;
+    }
+
+    // Guardian-only through the same gate as the watch stream.
+    if (url.pathname === "/v1/desktop/stream") {
+      const upgradeResult = await handleDesktopStreamWs(req, server);
       if (upgradeResult !== undefined) {
         return upgradeResult;
       }

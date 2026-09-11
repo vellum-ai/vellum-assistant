@@ -1,11 +1,10 @@
 /**
  * Tests for the browser live-voice WebSocket client.
  *
- * `mintVelayWsToken` is mocked at module scope so no real HTTP/SDK call
- * happens; `buildLiveVoiceWsUrl` is kept real so we exercise the genuine
- * connection.ts URL builder (no hardcoded host in the client). The WebSocket is
- * a hand-rolled fake injected via the client's `webSocketFactory` option — no
- * global patching needed.
+ * `resolveLiveVoiceWsUrl` is mocked at module scope to compose the velay URL
+ * the client would dial, so no real HTTP/SDK call happens. The WebSocket is a
+ * hand-rolled fake injected via the client's `webSocketFactory` option, so no
+ * global patching is needed.
  *
  * Coverage: start-frame on open, every server frame -> typed event, binary
  * audio passthrough, connect timeout when no `ready`, `busy` handling, mint

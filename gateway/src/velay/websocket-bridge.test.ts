@@ -104,6 +104,66 @@ describe("VelayWebSocketBridge", () => {
     ]);
   });
 
+  test("desktop bytes and closure stay isolated from existing tunnel streams", async () => {
+    const routes = [
+      "/v1/desktop/stream",
+      "/v1/live-voice",
+      "/v1/stt/stream",
+      "/v1/watch/stream",
+      "/webhooks/twilio/media-stream",
+      "/webhooks/twilio/speech-relay",
+    ];
+    const sockets = routes.map(() => new FakeWebSocket());
+    let nextSocket = 0;
+    WebSocketMock.mockImplementation(() => sockets[nextSocket++]!);
+    for (const [index, path] of routes.entries()) {
+      bridge.open(makeOpenFrame({ connection_id: `stream-${index}`, path }));
+      sockets[index]!.readyState = WS_OPEN;
+      sockets[index]!.emit("open");
+    }
+    expect(bridge.getConnectionCount()).toBe(routes.length);
+    sentFrames.length = 0;
+
+    const desktopBytes = new Uint8Array([0, 128, 255, 13, 10]);
+    sockets[0]!.emit("message", { data: desktopBytes });
+    sockets[1]!.emit("message", { data: '{"type":"ready"}' });
+    await flushPromises();
+    expect(sentFrames).toHaveLength(2);
+    expect(sentFrames).toContainEqual({
+      type: VELAY_FRAME_TYPES.websocketMessage,
+      connection_id: "stream-0",
+      message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.binary,
+      body_base64: base64(desktopBytes),
+    });
+    expect(sentFrames).toContainEqual({
+      type: VELAY_FRAME_TYPES.websocketMessage,
+      connection_id: "stream-1",
+      message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
+      body_base64: base64('{"type":"ready"}'),
+    });
+
+    bridge.close({
+      type: VELAY_FRAME_TYPES.websocketClose,
+      connection_id: "stream-0",
+      code: 4011,
+      reason: "Viewer too slow",
+    });
+    expect(bridge.getConnectionCount()).toBe(routes.length - 1);
+    expect(sockets[0]!.closes).toEqual([
+      { code: 4011, reason: "Viewer too slow" },
+    ]);
+    for (let index = 1; index < routes.length; index++) {
+      bridge.message({
+        type: VELAY_FRAME_TYPES.websocketMessage,
+        connection_id: `stream-${index}`,
+        message_type: VELAY_WEBSOCKET_MESSAGE_TYPES.text,
+        body_base64: base64("still connected"),
+      });
+      expect(sockets[index]!.closes).toEqual([]);
+      expect(sockets[index]!.sent).toEqual(["still connected"]);
+    }
+  });
+
   test("sends websocket_open_error when the local upgrade fails before open", () => {
     bridge.open(makeOpenFrame());
 
