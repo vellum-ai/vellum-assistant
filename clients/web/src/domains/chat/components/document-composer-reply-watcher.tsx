@@ -39,6 +39,19 @@ function clearProcessingWhenSettled(conversationId: string): void {
     .removeProcessingConversationId(conversationId);
 }
 
+/** Raise the processing marker when a stream event revives a recovery. */
+function markProcessingWhenPending(conversationId: string): void {
+  if (
+    !keepsProcessingMarker(
+      useDocumentComposerReplyStore.getState(),
+      conversationId,
+    )
+  ) {
+    return;
+  }
+  useConversationStore.getState().addProcessingConversationId(conversationId);
+}
+
 /**
  * Move the send carrying the event's nonce under the conversation the event
  * arrived for, and its processing marker with it. On the legacy
@@ -209,7 +222,10 @@ export function DocumentComposerReplyWatcher() {
             continue;
           }
           const message = snapshot?.messages.find(
-            (candidate) => candidate.clientMessageId === clientMessageId,
+            (candidate) =>
+              candidate.clientMessageId === clientMessageId ||
+              (send.serverMessageId !== undefined &&
+                candidate.id === send.serverMessageId),
           );
           if (message?.queueStatus === "queued") {
             continue;
@@ -225,11 +241,19 @@ export function DocumentComposerReplyWatcher() {
             // so keep the nonce attached. Offer a correlated recovery in case
             // its failure event was missed while the stream was detached; a
             // later echo retracts that exact copy.
-            if (
-              snapshot?.processing === false &&
-              replyStore.stashFailedSend(send.payload, clientMessageId)
-            ) {
-              toast.error(t("documentComposer.sendFailed"));
+            if (snapshot?.processing === false) {
+              const stashed = replyStore.stashFailedSend(
+                send.payload,
+                clientMessageId,
+              );
+              replyStore.markAcceptedReplyRecovering(
+                conversationId,
+                clientMessageId,
+              );
+              clearProcessingWhenSettled(conversationId);
+              if (stashed) {
+                toast.error(t("documentComposer.sendFailed"));
+              }
             }
             continue;
           }
@@ -311,6 +335,7 @@ export function DocumentComposerReplyWatcher() {
       useDocumentComposerReplyStore
         .getState()
         .markReplyRunning(event.conversationId, event.clientMessageId);
+      markProcessingWhenPending(event.conversationId);
       return;
     }
 
@@ -328,6 +353,7 @@ export function DocumentComposerReplyWatcher() {
       useDocumentComposerReplyStore
         .getState()
         .markReplyQueued(event.conversationId, event.clientMessageId);
+      markProcessingWhenPending(event.conversationId);
       return;
     }
 
@@ -345,6 +371,7 @@ export function DocumentComposerReplyWatcher() {
       useDocumentComposerReplyStore
         .getState()
         .markReplyRequeued(event.conversationId, event.clientMessageId);
+      markProcessingWhenPending(event.conversationId);
       return;
     }
 
@@ -361,6 +388,7 @@ export function DocumentComposerReplyWatcher() {
       useDocumentComposerReplyStore
         .getState()
         .clearReplyQueued(event.conversationId, event.clientMessageId);
+      markProcessingWhenPending(event.conversationId);
       return;
     }
 

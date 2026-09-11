@@ -3258,6 +3258,7 @@ describe("an attempt nothing can retry", () => {
         acknowledged: false,
         queued: false,
         queuedOnStream: false,
+        serverMessageId: "msg-1",
         payload: {
           assistantId: ASSISTANT_ID,
           surfaceId: SURFACE_ID,
@@ -3609,6 +3610,9 @@ describe("an attempt nothing can retry", () => {
     if (clientMessageId === undefined) {
       throw new Error("expected the document send's nonce");
     }
+    useDocumentComposerReplyStore
+      .getState()
+      .markReplyQueued("conv-a", clientMessageId);
 
     // WHEN the user switches assistants and only then does the daemon accept
     // the message.
@@ -3626,6 +3630,7 @@ describe("an attempt nothing can retry", () => {
     expect(detachedSends().size).toBe(0);
     expect(detachedQueuedSends().get(clientMessageId)).toEqual({
       conversationId: "conv-a",
+      serverMessageId: "msg-1",
       payload: {
         assistantId: ASSISTANT_ID,
         surfaceId: SURFACE_ID,
@@ -3658,6 +3663,7 @@ describe("an attempt nothing can retry", () => {
         queued: true,
         assistantId: ASSISTANT_ID,
         conversationId: "conv-a",
+        requestId: "req-1",
       });
       await submitted;
     });
@@ -3665,6 +3671,7 @@ describe("an attempt nothing can retry", () => {
     expect(detachedSends().size).toBe(0);
     expect(detachedQueuedSends().get(clientMessageId)).toEqual({
       conversationId: "conv-a",
+      serverMessageId: "req-1",
       payload: {
         assistantId: ASSISTANT_ID,
         surfaceId: SURFACE_ID,

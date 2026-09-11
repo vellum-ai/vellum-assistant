@@ -325,6 +325,21 @@ describe("markReplyRecovering", () => {
   });
 });
 
+describe("markAcceptedReplyRecovering", () => {
+  test("keeps an accepted send correlated without keeping its marker up", () => {
+    getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
+    getState().markReplyQueued("conv-1", "cm-1");
+
+    expect(
+      getState().markAcceptedReplyRecovering("conv-1", "cm-1"),
+    ).toBe(true);
+
+    expect(pendingFor("conv-1")[0]?.recovering).toBe(true);
+    expect(keepsProcessingMarker(getState(), "conv-1")).toBe(false);
+    expect(getState().settleRunningReplies("conv-1")).toBe(0);
+  });
+});
+
 describe("settleRunningReplies", () => {
   test("settles nothing in a conversation with nothing pending", () => {
     expect(getState().settleRunningReplies("conv-1")).toBe(0);
@@ -1014,12 +1029,14 @@ describe("clearAwaitingReplies", () => {
   test("retains an acknowledged queued send for switch-back reconciliation", () => {
     getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
     getState().markReplyQueued("conv-1", "cm-1");
+    getState().recordReplyServerMessageId("conv-1", "cm-1", "req-1");
 
     getState().clearAwaitingReplies();
 
     expect(getState().detachedQueuedSends.get("cm-1")).toEqual({
       conversationId: "conv-1",
       payload: SENT_PAYLOAD,
+      serverMessageId: "req-1",
     });
     expect(getState().detachedSends.size).toBe(0);
   });
@@ -1316,11 +1333,17 @@ describe("takeDetachedSend", () => {
 
 describe("dropDetachedQueuedSend", () => {
   test("records a queued send under its nonce while its stream is detached", () => {
-    getState().recordDetachedQueuedSend("cm-1", "conv-1", SENT_PAYLOAD);
+    getState().recordDetachedQueuedSend(
+      "cm-1",
+      "conv-1",
+      SENT_PAYLOAD,
+      "req-1",
+    );
 
     expect(getState().detachedQueuedSends.get("cm-1")).toEqual({
       conversationId: "conv-1",
       payload: SENT_PAYLOAD,
+      serverMessageId: "req-1",
     });
   });
 

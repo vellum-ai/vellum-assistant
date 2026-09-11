@@ -1933,6 +1933,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(detachedQueuedFor("cm-1")).toBeDefined();
       expect(awaiting("conv-1")).toBe(true);
       expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
+      expect(processing("conv-1")).toBe(false);
       expect(toastErrorMock).toHaveBeenCalledTimes(1);
 
       publishUserMessageEcho("conv-1", "cm-1");
@@ -1940,6 +1941,7 @@ describe("DocumentComposerReplyWatcher", () => {
       expect(detachedQueuedFor("cm-1")).toBeUndefined();
       expect(heldFor("surf-1")).toBeUndefined();
       expect(awaiting("conv-1")).toBe(true);
+      expect(processing("conv-1")).toBe(true);
     });
 
     test("a late failure from the detached stream recovers its queued send", () => {
@@ -2004,6 +2006,41 @@ describe("DocumentComposerReplyWatcher", () => {
       await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
       expect(awaiting("conv-1")).toBe(false);
       expect(heldFor("surf-1")).toBeUndefined();
+      expect(toastErrorMock).not.toHaveBeenCalled();
+    });
+
+    test("switching back recognizes a persisted send without a client nonce", async () => {
+      fetchConversationMessagesMock = mock(
+        async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+          messages: [
+            {
+              id: "req-1",
+              role: "user",
+              timestamp: new Date().toISOString(),
+              attachments: [],
+            },
+          ],
+          processing: false,
+        }),
+      );
+      useDocumentComposerReplyStore
+        .getState()
+        .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
+      useDocumentComposerReplyStore
+        .getState()
+        .markReplyQueued("conv-1", "cm-1");
+      useDocumentComposerReplyStore
+        .getState()
+        .recordReplyServerMessageId("conv-1", "cm-1", "req-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      setActiveAssistant("assistant-2");
+      setActiveAssistant("assistant-1");
+
+      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
+      expect(awaiting("conv-1")).toBe(false);
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(processing("conv-1")).toBe(false);
       expect(toastErrorMock).not.toHaveBeenCalled();
     });
 

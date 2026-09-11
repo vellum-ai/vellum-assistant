@@ -676,20 +676,27 @@ export function useDocumentComposerSubmit({
       releaseClientMessageId();
 
       const conversationId = result.conversationId;
+      const serverMessageId =
+        result.queued === true ? result.requestId : result.messageId;
       // A reply wait and a processing mark both watch the assistant's own SSE
       // connection, which a switch to another assistant replaced: moving
       // either onto the row the daemon answered with would leave it on a
       // connection nothing is listening to. A move to another document moves
       // both, since the reply toast is meant to outlive closing the document.
       const sameAssistant = !assistantChanged();
-      if (!sameAssistant && detachedPayload) {
-        useDocumentComposerReplyStore
-          .getState()
-          .recordDetachedQueuedSend(
+      if (!sameAssistant) {
+        const replyStore = useDocumentComposerReplyStore.getState();
+        const retainedPayload =
+          detachedPayload ??
+          replyStore.detachedQueuedSends.get(clientMessageId)?.payload;
+        if (retainedPayload) {
+          replyStore.recordDetachedQueuedSend(
             clientMessageId,
             conversationId,
-            detachedPayload,
+            retainedPayload,
+            serverMessageId,
           );
+        }
       }
       // The assistant is the source of truth for the id: a legacy
       // `conversationKey` send for a fresh draft comes back with the row the
@@ -739,6 +746,15 @@ export function useDocumentComposerSubmit({
               conversationId,
             );
         }
+      }
+      if (sameAssistant && serverMessageId !== undefined) {
+        useDocumentComposerReplyStore
+          .getState()
+          .recordReplyServerMessageId(
+            conversationId,
+            clientMessageId,
+            serverMessageId,
+          );
       }
       if (sameAssistant && result.queued === true) {
         // The queue is the only thing the response speaks for. It reaches the

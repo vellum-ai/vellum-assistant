@@ -60,6 +60,8 @@ export interface PendingDocumentReply {
    * matched to this send rather than to any message in the conversation.
    */
   clientMessageId?: string;
+  /** The persisted row id, or queued request id before that row is written. */
+  serverMessageId?: string;
   /**
    * The daemon has taken the send in: it echoed the message back as running,
    * or acked it as queued. Until then nothing on the stream speaks for the
@@ -108,6 +110,8 @@ export interface ClaimedDocumentSendTransition {
 export interface DetachedQueuedDocumentSend {
   conversationId: string;
   payload: PendingDocumentReplyPayload;
+  /** Matches persisted and queued snapshot rows on nonce-less assistants. */
+  serverMessageId?: string;
 }
 
 export interface DocumentComposerReplyState {
@@ -196,6 +200,11 @@ export interface DocumentComposerReplyActions {
     conversationId: string,
     clientMessageId: string,
   ) => boolean;
+  /** Mark an accepted send as a non-processing provisional recovery. */
+  markAcceptedReplyRecovering: (
+    conversationId: string,
+    clientMessageId: string,
+  ) => boolean;
   /**
    * A terminal stream event arrived for `conversationId`: settle every send
    * running there, since one turn answers all of them, and report how many
@@ -265,6 +274,12 @@ export interface DocumentComposerReplyActions {
     clientMessageId: string,
     queued: boolean,
   ) => void;
+  /** Attach the assistant's row or request id to a pending send. */
+  recordReplyServerMessageId: (
+    conversationId: string,
+    clientMessageId: string,
+    serverMessageId: string,
+  ) => void;
   /**
    * Name `conversationId` as handed off: a handoff settled its running sends
    * with more messages queued behind them, so the marker it left up answers
@@ -331,6 +346,7 @@ export interface DocumentComposerReplyActions {
     clientMessageId: string,
     conversationId: string,
     payload: PendingDocumentReplyPayload,
+    serverMessageId?: string,
   ) => void;
   /**
    * Drop every pending send and every handed-off conversation, for an
@@ -553,12 +569,34 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return true;
     },
 
+    markAcceptedReplyRecovering: (conversationId, clientMessageId) => {
+      const pending = get().pendingReplies.get(conversationId);
+      const index =
+        pending?.findIndex((p) => carriesNonce(p, clientMessageId)) ?? -1;
+      if (!pending || index === -1 || !pending[index].acknowledged) {
+        return false;
+      }
+      if (pending[index].recovering) {
+        return true;
+      }
+      set((s) => {
+        const next = [...pending];
+        next[index] = { ...pending[index], recovering: true };
+        return {
+          pendingReplies: withPending(s.pendingReplies, conversationId, next),
+        };
+      });
+      return true;
+    },
+
     settleRunningReplies: (conversationId) => {
       const pending = get().pendingReplies.get(conversationId);
       if (!pending) {
         return 0;
       }
-      const notRunning = pending.filter((p) => !p.acknowledged || p.queued);
+      const notRunning = pending.filter(
+        (p) => p.recovering || !p.acknowledged || p.queued,
+      );
       const settled = pending.length - notRunning.length;
       if (settled === 0) {
         return 0;
@@ -742,6 +780,33 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       });
     },
 
+    recordReplyServerMessageId: (
+      conversationId,
+      clientMessageId,
+      serverMessageId,
+    ) => {
+      set((s) => {
+        const pending = s.pendingReplies.get(conversationId);
+        if (!pending) {
+          return s;
+        }
+        const index = pending.findIndex((p) =>
+          carriesNonce(p, clientMessageId),
+        );
+        if (
+          index === -1 ||
+          pending[index].serverMessageId === serverMessageId
+        ) {
+          return s;
+        }
+        const next = [...pending];
+        next[index] = { ...pending[index], serverMessageId };
+        return {
+          pendingReplies: withPending(s.pendingReplies, conversationId, next),
+        };
+      });
+    },
+
     markHandedOff: (conversationId) => {
       set((s) => {
         if (s.handedOffConversationIds.has(conversationId)) {
@@ -904,10 +969,15 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       clientMessageId,
       conversationId,
       payload,
+      serverMessageId,
     ) => {
       set((s) => {
         const next = new Map(s.detachedQueuedSends);
-        next.set(clientMessageId, { conversationId, payload });
+        next.set(clientMessageId, {
+          conversationId,
+          payload,
+          ...(serverMessageId === undefined ? {} : { serverMessageId }),
+        });
         return { detachedQueuedSends: next };
       });
     },
@@ -936,6 +1006,9 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
               detachedQueuedSends.set(p.clientMessageId, {
                 conversationId,
                 payload: p.payload,
+                ...(p.serverMessageId === undefined
+                  ? {}
+                  : { serverMessageId: p.serverMessageId }),
               });
             }
           }
