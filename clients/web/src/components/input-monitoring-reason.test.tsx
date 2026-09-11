@@ -24,7 +24,7 @@ mock.module(
 );
 
 const { InputMonitoringReason } =
-  await import("@/domains/chat/voice/input-monitoring-reason");
+  await import("@/components/input-monitoring-reason");
 
 describe("the Input Monitoring reason", () => {
   beforeEach(() => {

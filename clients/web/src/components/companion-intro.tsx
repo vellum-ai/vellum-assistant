@@ -6,15 +6,24 @@ import type {
   CompanionIntroAction,
   CompanionIntroBeat,
 } from "@vellumai/ipc-contract";
-import { useEffect, type CSSProperties, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type Ref,
+} from "react";
 
 import { useTranslation } from "@/i18n";
-import { useHoldProofDeadline } from "@/hooks/use-hold-proof-deadline";
+import { askForInputMonitoring } from "@/utils/input-monitoring-ask";
 import { modifierLabel } from "@/utils/ptt-activator";
 import { useVoiceKey } from "@/utils/voice-key";
+import { createVoiceKeyArrivalDetector } from "@/utils/voice-key-arrival";
 
 import { CompanionIntroHoldHelp } from "@/components/companion-intro-hold-help";
 import { companionLayoutFor } from "@/components/companion-layout";
+import { InputMonitoringReason } from "@/components/input-monitoring-reason";
 import type {
   CompanionSurfaceCardGrowth,
   CompanionSurfaceGrowth,
@@ -132,6 +141,85 @@ export const introPhase = (
   return "hover";
 };
 
+/**
+ * Where the hold beat stands: macOS being asked for Input Monitoring, the key
+ * being waited on, or the wait run out with nothing arriving.
+ */
+type HoldPhase = "asking" | "waiting" | "unreached";
+
+/**
+ * The hold beat's own side of proof by doing.
+ *
+ * The edge lands elsewhere: the app's window owns the key, reports the edge
+ * to main as `holdProven`, and main moves the beat on and pushes the new one
+ * down, which is how an arrival reaches this surface. So there is no press to
+ * feed the detector here, and what it is armed for is the other outcome: the
+ * wait running out, which is the cue to say the key never reached the app.
+ *
+ * Before the wait, the ask. The helper cannot see the key without Input
+ * Monitoring, and the system prompt names the app and nothing else, so the
+ * question is put here, beside the reason for it, right before the user is
+ * asked to hold the key. A refusal skips the wait, since no edge can come; a
+ * host with no permissions to ask for has no helper, and the beat is walked
+ * past the way it is for a key set to Off.
+ */
+function useHoldProof({
+  active,
+  onWalkPast,
+}: {
+  active: boolean;
+  onWalkPast: () => void;
+}): { phase: HoldPhase; tryAgain: () => void } {
+  const [attempt, setAttempt] = useState(0);
+  const [phase, setPhase] = useState<HoldPhase>("asking");
+  // Read at the moment it is needed rather than depended on: the caller's
+  // handler is not what starts the wait over.
+  const walkPast = useRef(onWalkPast);
+  useEffect(() => {
+    walkPast.current = onWalkPast;
+  }, [onWalkPast]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    let stale = false;
+    const detector = createVoiceKeyArrivalDetector({
+      onOutcome: (outcome) => {
+        if (outcome === "neverArrived") {
+          setPhase("unreached");
+        }
+      },
+    });
+    void askForInputMonitoring().then((status) => {
+      if (stale) {
+        return;
+      }
+      if (status === null) {
+        walkPast.current();
+        return;
+      }
+      if (status === "granted") {
+        setPhase("waiting");
+        detector.arm();
+        return;
+      }
+      setPhase("unreached");
+    });
+    return () => {
+      stale = true;
+      detector.cancel();
+    };
+  }, [active, attempt]);
+
+  const tryAgain = useCallback(() => {
+    setPhase("asking");
+    setAttempt((count) => count + 1);
+  }, []);
+
+  return { phase, tryAgain };
+}
+
 export interface CompanionIntroProps {
   /** The beat being shown. The caller renders nothing when there is none. */
   beat: CompanionIntroBeat;
@@ -172,8 +260,6 @@ export interface CompanionIntroProps {
   /** Advance or end the run. Absent leaves the controls inert, which is what
    *  Storybook wants. */
   onAdvance?: (action: CompanionIntroAction) => void;
-  /** Open macOS's Keyboard settings, offered when the voice key never came. */
-  onOpenKeyboardSettings?: () => void;
 }
 
 export function CompanionIntro({
@@ -186,7 +272,6 @@ export function CompanionIntro({
   assistantName,
   cardRef,
   onAdvance,
-  onOpenKeyboardSettings,
 }: CompanionIntroProps) {
   const { t } = useTranslation();
   const index = COMPANION_INTRO_BEATS.indexOf(beat);
@@ -196,13 +281,22 @@ export function CompanionIntro({
   // The `hold` beat is proof by doing: it has no Next, and is walked past only
   // when a real edge of the voice key reaches the app's window, which reports
   // it to main (see `useCompanionIntroHoldProof`). What this side holds is the
-  // wait, and the reading the card takes once the wait runs out.
+  // ask, the wait, and the reading the card takes once the wait runs out.
   const voiceKey = useVoiceKey();
   const asksForHold = beat === "hold" && voiceKey.kind !== "off";
-  const { unproven, tryAgain } = useHoldProofDeadline({ active: asksForHold });
+  // A host with no helper is walked past the way a key set to Off is, below:
+  // nothing there could prove the key. Main resolves the press against its
+  // own beat, so a stale one cannot walk anything else.
+  const walkPast = useCallback(() => {
+    onAdvance?.("next");
+  }, [onAdvance]);
+  const { phase, tryAgain } = useHoldProof({
+    active: asksForHold,
+    onWalkPast: walkPast,
+  });
+  const unproven = asksForHold && phase === "unreached";
   // A key switched off has nothing to prove and nothing that could prove it,
-  // so the beat is walked past rather than waited on. Main resolves the press
-  // against its own beat, so a stale one cannot walk anything else.
+  // so the beat is walked past rather than waited on.
   useEffect(() => {
     if (beat === "hold" && voiceKey.kind === "off") {
       onAdvance?.("next");
@@ -280,10 +374,14 @@ export function CompanionIntro({
       <p className="line-clamp-2 text-[13px] leading-tight font-medium text-white">
         {title()}
       </p>
-      {beat === "hold" && unproven ? (
-        <CompanionIntroHoldHelp
-          onOpenKeyboardSettings={onOpenKeyboardSettings}
-        />
+      {unproven ? (
+        <CompanionIntroHoldHelp />
+      ) : asksForHold && phase === "asking" ? (
+        // The reason for the prompt macOS is about to show, in place of the
+        // invitation: a hold before the grant reaches nothing. Draws nothing
+        // once the grant is given, which lasts the one round trip that reads
+        // it.
+        <InputMonitoringReason className="text-[12px] leading-[1.45] text-white/70" />
       ) : (
         <p className="text-[12px] leading-[1.45] text-white/70">
           {t(copy.body)}

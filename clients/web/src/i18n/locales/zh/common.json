@@ -140,7 +140,7 @@
     "done": "知道了",
     "hold": {
       "body": "现在试试。按键传到我这里就会继续。",
-      "openKeyboardSettings": "打开键盘设置",
+      "claimedBody": "可能被 {apps} 先截获了。",
       "title": "按住 {key} 开始听写",
       "tryAgain": "重试",
       "unreachedBody": "可能已被重新映射、被其他应用占用，或未授予输入监控权限。",

@@ -19,9 +19,10 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
-import type {
-  KeyboardModifier,
-  SystemPermissionStatus,
+import {
+  FN_USAGE_START_DICTATION,
+  type KeyboardModifier,
+  type SystemPermissionStatus,
 } from "@vellumai/ipc-contract";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -61,9 +62,6 @@ const warningClasses =
  * for each of those would be a key nobody kept.
  */
 const MIN_CUSTOM_MODIFIERS = 2;
-
-/** `AppleFnUsageType` for "Start Dictation (press Globe twice)". */
-const FN_USAGE_START_DICTATION = 3;
 
 function heldModifiers(
   event: ReactKeyboardEvent<HTMLElement>,

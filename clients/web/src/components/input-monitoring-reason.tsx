@@ -22,7 +22,7 @@ interface InputMonitoringReasonProps {
 export function InputMonitoringReason({
   className,
 }: InputMonitoringReasonProps) {
-  const { t } = useTranslation("chat");
+  const { t } = useTranslation();
   const { state } = useSystemPermissionsState();
   const status = state?.inputMonitoring.status ?? null;
   if (status === null || status === "granted") {

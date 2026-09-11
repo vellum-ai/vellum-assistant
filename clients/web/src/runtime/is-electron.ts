@@ -439,7 +439,6 @@ declare global {
         activate?(): void;
         setContext?(context: CompanionContext): void;
         advanceIntro?(action: CompanionIntroAction): void;
-        openKeyboardSettings?(): void;
         showContextMenu?(): void;
       };
     };
