@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "fathom",
+  "version": "1.0.0",
+  "description": "Search meeting transcripts and summaries.",
+  "homepage": "https://developers.fathom.ai/mcp-docs",
+  "license": "MIT"
+}

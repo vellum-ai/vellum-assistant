@@ -1,6 +1,6 @@
 # Integration logo attribution
 
-Logos for OAuth providers, drawn by
+Logos for integration providers, drawn by
 `clients/web/src/components/integrations/integration-icon.tsx`. They are
 vendored rather than fetched so that an upstream removal can't blank an
 integration's icon, so the Integrations tab works offline, and so opening it
@@ -11,12 +11,12 @@ doesn't tell a third party which providers a user is looking at.
 Downloaded from the URL each one replaces, so the bytes match the source
 exactly (except where noted).
 
-| Assets                                                                                                | Source                                                        | Licence                                                          |
-| ----------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons)   | CC0-1.0 (public domain, no attribution required)                  |
-| `eventbrite`, `salesforce`                                                                            | [glincker/thesvg](https://github.com/glincker/thesvg)          | MIT (notice below)                                                |
-| `monday`                                                                                              | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1)   | Trademark of monday.com; no software licence granted (see Trademark, below) |
-| `stripe-link`                                                                                         | [link.com](https://link.com)                                   | Trademark of Stripe; no software licence granted (see Trademark, below) |
+| Assets                                                                                                            | Source                                                       | Licence                                                                     |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `airtable`, `asana`, `calendly`, `discord`, `dropbox`, `hubspot`, `sanity`, `spotify`, `telegram`, `todoist`, `x` | [Simple Icons](https://github.com/simple-icons/simple-icons) | CC0-1.0 (public domain, no attribution required)                            |
+| `eventbrite`, `salesforce`                                                                                        | [glincker/thesvg](https://github.com/glincker/thesvg)        | MIT (notice below)                                                          |
+| `monday`                                                                                                          | [WorldVectorLogo](https://worldvectorlogo.com/logo/monday-1) | Trademark of monday.com; no software licence granted (see Trademark, below) |
+| `stripe-link`                                                                                                     | [link.com](https://link.com)                                 | Trademark of Stripe; no software licence granted (see Trademark, below)     |
 
 `monday`'s path data and fill colours are byte-identical to the source. Only
 the outer `viewBox` and a wrapping group transform were changed, to fit the
@@ -26,6 +26,20 @@ source's wide mark into a square icon slot.
 the site's CSS custom properties resolved to the brand colours they carry there
 (`#00D66F` circle, `#011E0F` mark). Link is a Stripe product with its own mark,
 so the parent Stripe `S` is not a stand-in for it.
+
+## MCP catalog additions
+
+Reviewed on 2026-09-10:
+
+| Assets                                                  | Source                                                                                                                                                                                 | Licence and treatment                                                                            |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `brex.svg`, `sentry.svg`, `stripe.svg`, `atlassian.svg` | [Simple Icons, commit 5d5d4d1d28cbb00b21770bb69d8112da52211a95](https://github.com/simple-icons/simple-icons/tree/5d5d4d1d28cbb00b21770bb69d8112da52211a95/icons)                      | CC0-1.0; original paths, catalog brand colors, and an added white background for theme contrast. |
+| `fathom.png`                                            | [Fathom's official 48px favicon](https://cdn.prod.website-files.com/6899da9beccbdbe92be49b5d/6a4283d54cfdfb8a454f218b_fathom_favicon.png), linked from [fathom.ai](https://fathom.ai/) | Unmodified provider asset, trademark of Fathom; used only to identify this integration.          |
+| `ramp.ico`                                              | [Ramp's official favicon](https://ramp.com/favicon.ico)                                                                                                                                | Unmodified provider asset, trademark of Ramp; used only to identify this integration.            |
+
+Simple Icons records the logo sources as [Brex press](https://www.brex.com/journal/press), [Sentry branding](https://sentry.io/branding/), [Stripe newsroom](https://stripe.com/newsroom/information), and [Atlassian logo resources](https://atlassian.design/resources/logo-library). Linear and Notion reuse the existing bundled assets. Notion has an added white background for dark theme contrast; its original source remains unverified as recorded below. Stripe uses its own mark, separate from the existing Stripe Link product icon.
+
+These assets are curated application branding. They are not plugin-supplied images, and they do not change the PNG-only marketplace plugin icon contract.
 
 ## Unrecorded provenance
 

@@ -1,4 +1,157 @@
 {
   "version": 1,
-  "entries": []
+  "entries": [
+    {
+      "id": "fathom",
+      "packagePath": "plugins/mcp-catalog/fathom",
+      "serverKey": "fathom",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Fathom",
+      "description": "Search meeting transcripts and summaries.",
+      "documentationUrl": "https://developers.fathom.ai/mcp-docs",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in with the Fathom account whose meetings you want to use."
+      },
+      "icon": "fathom"
+    },
+    {
+      "id": "brex",
+      "packagePath": "plugins/mcp-catalog/brex",
+      "serverKey": "brex",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Brex",
+      "description": "Review expenses, cards, and company spending.",
+      "documentationUrl": "https://www.brex.com/support/using-brex-in-ai-apps",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "A Brex admin must enable AI assistant access and accept the Developer API agreement."
+      },
+      "icon": "brex"
+    },
+    {
+      "id": "ramp",
+      "packagePath": "plugins/mcp-catalog/ramp",
+      "serverKey": "ramp",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Ramp",
+      "description": "Explore expenses, bills, and company spending.",
+      "documentationUrl": "https://agents.ramp.com/docs/guides/connecting",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "manual",
+        "instructions": "Ask Ramp to allowlist this client or gateway's exact OAuth redirect URI before connecting."
+      },
+      "icon": "ramp"
+    },
+    {
+      "id": "linear",
+      "packagePath": "plugins/mcp-catalog/linear",
+      "serverKey": "linear",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Linear",
+      "description": "Find issues, projects, and team updates.",
+      "documentationUrl": "https://linear.app/docs/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Choose the Linear workspace to authorize; access follows your account permissions."
+      },
+      "icon": "linear",
+      "oauthProvider": "linear"
+    },
+    {
+      "id": "notion",
+      "packagePath": "plugins/mcp-catalog/notion",
+      "serverKey": "notion",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Notion",
+      "description": "Search and work with workspace pages and databases.",
+      "documentationUrl": "https://developers.notion.com/guides/mcp/get-started-with-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the Notion workspace and content you want to use."
+      },
+      "icon": "notion",
+      "oauthProvider": "notion"
+    },
+    {
+      "id": "sentry",
+      "packagePath": "plugins/mcp-catalog/sentry",
+      "serverKey": "sentry",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Sentry",
+      "description": "Investigate errors, issues, and application performance.",
+      "documentationUrl": "https://github.com/getsentry/sentry-mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Sign in to Sentry and authorize the organizations you want to use."
+      },
+      "icon": "sentry"
+    },
+    {
+      "id": "stripe",
+      "packagePath": "plugins/mcp-catalog/stripe",
+      "serverKey": "stripe",
+      "source": {
+        "kind": "local"
+      },
+      "displayName": "Stripe",
+      "description": "Explore payments, customers, and account activity.",
+      "documentationUrl": "https://docs.stripe.com/mcp",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Authorize the intended Stripe account and environment; your administrator may need to enable MCP access."
+      },
+      "icon": "stripe"
+    },
+    {
+      "id": "atlassian",
+      "packagePath": "plugins/mcp-catalog/atlassian",
+      "serverKey": "atlassian",
+      "source": {
+        "kind": "github",
+        "repository": {
+          "source": "github",
+          "repo": "atlassian/atlassian-mcp-server",
+          "ref": "9de1ab435251042efbb6839a1ca748eacecf4727"
+        },
+        "definitionDigest": "69a5e8cba9ce87f28be5fb3528cf52bc261ce9cbaa210b87a882fba1838c2501"
+      },
+      "displayName": "Atlassian",
+      "description": "Search Jira, Confluence, and connected Atlassian products.",
+      "documentationUrl": "https://atlassian.github.io/atlassian-mcp-server/",
+      "verifiedAt": "2026-09-10",
+      "verification": "documentation-only",
+      "setup": {
+        "mode": "oauth",
+        "instructions": "Requires an Atlassian Cloud site and access allowed by your organization."
+      },
+      "icon": "atlassian"
+    }
+  ]
 }
