@@ -20,6 +20,11 @@ import {
 import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import { createControlMarkerHoldback } from "../calls/voice-control-protocol.js";
 import {
+  createFrontDoorLegCoordinator,
+  type FrontDoorLegCoordinator,
+  type SpokenEscalationBridge,
+} from "../calls/voice-leg-coordinator.js";
+import {
   createProgressCadence,
   type ProgressCadence,
 } from "../calls/voice-progress-cadence.js";
@@ -32,12 +37,7 @@ import {
   resolveProcessingWaitMs,
   waitForPriorTurnTeardown,
 } from "../calls/voice-session-bridge.js";
-import {
-  createFrontDoorVerdictMachine,
-  ESCALATION_CONTINUATION_CONTENT,
-  resolveSpokenEscalationBridge,
-  type VoiceRoutingLeg,
-} from "../calls/voice-triage-escalate.js";
+import { type VoiceRoutingLeg } from "../calls/voice-triage-escalate.js";
 import { getConfig } from "../config/loader.js";
 import {
   type LiveVoiceFluxConfig,
@@ -736,7 +736,9 @@ interface ActiveAssistantTurn {
   // Guards the
   // front-door leg's trailing completion from finalizing the turn, and makes
   // the hand-off idempotent.
-  escalationHandedOff: boolean;
+  // The front-door leg's coordinator: whether it handed the turn off to the
+  // escalated leg. Null until the front-door leg starts.
+  frontDoor: FrontDoorLegCoordinator | null;
   ttsBuffer: string;
   // What the caller actually hears this turn, summed over the model's own
   // segments (acks and progress narration do not count). Logged at tts_done
@@ -5111,7 +5113,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       continuationDelivery: opts?.continuationDelivery ?? null,
       hiddenPrompt: opts?.hiddenPrompt === true,
       deltaEpoch: 0,
-      escalationHandedOff: false,
+      frontDoor: null,
       ttsBuffer: "",
       spokenSegments: 0,
       spokenChars: 0,
@@ -5233,17 +5235,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
     const { token, utterance, turnId } = activeTurn;
 
-    // `rawText` accumulates this leg's full stream. A front-door leg feeds
-    // every delta to the shared verdict machine and acts on its steps: an
-    // answer flushes through the shared marker holdback, while an escalation
-    // buffers the post-verdict stream inside the machine until the capped
-    // bridge is complete, then hands off. A default/escalated leg flushes
-    // every delta through the same holdback, so a stray control marker from
-    // the main model is stripped instead of spoken.
+    // `rawText` accumulates this leg's spoken stream. A front-door leg runs
+    // through the shared coordinator, which reads its stream through the
+    // verdict machine: released answer text flushes through the shared
+    // marker holdback, while an escalation buffers the post-verdict stream
+    // until the capped bridge is complete, then hands off. A default or
+    // escalated leg flushes every delta through the same holdback, so a
+    // stray control marker from the main model is stripped instead of
+    // spoken.
     let rawText = "";
-    const verdict = createFrontDoorVerdictMachine(
-      activeTurn.speculativePending && activeTurn.speculativeHoldAllowed,
-    );
 
     const emitLegText = (chunk: string): void => {
       if (chunk.length === 0) {
@@ -5267,6 +5267,53 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     };
 
     const flushLegText = createControlMarkerHoldback(emitLegText);
+
+    const coordinator = leg.frontDoor
+      ? createFrontDoorLegCoordinator({
+          // The hold branch is only classifiable while the leg is
+          // speculative: its decision rule is the only one that teaches the
+          // hold token.
+          holdEnabled:
+            activeTurn.speculativePending && activeTurn.speculativeHoldAllowed,
+          host: {
+            isLive: () => !activeTurn.finalized,
+            language: () => activeTurn.language,
+            progress: {
+              // The verdict deadline goes with the narration timer: the
+              // hand-off settles the verdict.
+              clear: () => this.clearFillerTimers(activeTurn),
+              noteFloorHolder: () => activeTurn.progress.noteFloorHolder(),
+              arm: () => activeTurn.progress.arm(),
+            },
+            // Hold discards a speculative turn (mid-thought pause, keep
+            // listening); escalate and answer both commit it: utterance
+            // release, thinking frame, and timers all happen inside
+            // commitSpeculativeTurn.
+            onHold: () => {
+              void this.holdSpeculativeTurn(activeTurn);
+            },
+            commit: () =>
+              !activeTurn.speculativePending ||
+              this.commitSpeculativeTurn(activeTurn),
+            onAnswerText: (text) => {
+              rawText += text;
+              flushLegText(rawText);
+            },
+            abortLeg: () => {
+              activeTurn.handle?.abort();
+              activeTurn.handle = null;
+            },
+            speakBridge: (bridge) =>
+              this.speakEscalationBridge(activeTurn, bridge),
+            startEscalatedLeg: (escalated) => {
+              void this.startAssistantLeg(activeTurn, escalated);
+            },
+          },
+        })
+      : null;
+    if (coordinator !== null) {
+      activeTurn.frontDoor = coordinator;
+    }
 
     try {
       // Latched before the await, not after: this flag only decides whether the
@@ -5353,40 +5400,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (!this.isForwardingAssistantText(token)) {
               return;
             }
-            if (leg.frontDoor) {
-              rawText += msg.text;
+            if (coordinator !== null) {
               // Verdict-first: the leg's leading tokens decide the turn's
-              // fate. Hold discards a speculative turn (mid-thought pause,
-              // keep listening); escalate and answer both commit it —
-              // utterance release, thinking frame, and timers all happen
-              // inside commitSpeculativeTurn. The hold branch is only
-              // classifiable while the leg is speculative (its decision
-              // rule is the only one that teaches the hold token). The
-              // bridge hands off in one piece once the machine caps it, so
-              // the audio, the persisted row, and the phrase quoted to the
-              // escalated leg are all the same text.
-              const step = verdict.push(msg.text);
-              if (step.kind === "hold") {
-                void this.holdSpeculativeTurn(activeTurn);
-                return;
-              }
-              if (
-                (step.kind === "escalate" || step.kind === "answer") &&
-                activeTurn.speculativePending &&
-                !this.commitSpeculativeTurn(activeTurn)
-              ) {
-                return;
-              }
-              if (step.kind === "answer") {
-                flushLegText(rawText);
-                return;
-              }
-              if (
-                (step.kind === "escalate" || step.kind === "bridge") &&
-                step.bridge !== null
-              ) {
-                this.escalateTurn(activeTurn, step.bridge);
-              }
+              // fate, and the coordinator acts on them. The bridge hands
+              // off in one piece once the machine caps it, so the audio,
+              // the persisted row, and the phrase quoted to the escalated
+              // leg are all the same text.
+              coordinator.push(msg.text);
               return;
             }
             // Defensive: speculative legs are always front-door today, but a
@@ -5422,28 +5442,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (current.speculativePending) {
               this.commitSpeculativeTurn(current);
             }
-            // A front-door leg that stopped mid-bridge (a bare escalate
-            // verdict, or a holding phrase with no sentence terminator)
-            // hands off now with whatever arrived; the canned fallback
-            // covers an empty bridge. A cancellation mid-bridge falls
-            // through to normal cancelled finalization instead — a dead
-            // turn must not spawn an escalated leg.
-            if (
-              leg.frontDoor &&
-              msg.type === "message_complete" &&
-              !current.escalationHandedOff
-            ) {
-              const step = verdict.finish();
-              if (step.kind === "bridge") {
-                this.escalateTurn(current, step.bridge);
+            // A front-door leg that stopped mid-bridge hands off now with
+            // whatever arrived. A cancellation mid-bridge falls through to
+            // normal cancelled finalization instead: a dead turn must not
+            // spawn an escalated leg. A front-door leg that handed off is
+            // finished; the escalated leg drives completion, so this leg's
+            // own trailing completion (including the generation_cancelled
+            // from its abort) is a no-op.
+            if (coordinator !== null) {
+              if (msg.type === "message_complete") {
+                coordinator.complete();
+              }
+              if (coordinator.handedOff) {
                 return;
               }
-            }
-            // A front-door leg that handed off is finished; the escalated leg
-            // drives completion. The front-door leg's own trailing completion
-            // (including the generation_cancelled from its abort) is a no-op.
-            if (leg.frontDoor && current.escalationHandedOff) {
-              return;
             }
             // A held "[…"-tail that never completed a marker is real text —
             // force-flush it before assistantCompleted closes the TTS buffer
@@ -5610,7 +5622,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
       // The front-door leg may have handed off before its handle resolved;
       // abort it rather than exposing it as the turn's live handle.
-      if (leg.frontDoor && current.escalationHandedOff) {
+      if (coordinator?.handedOff === true) {
         handle.abort();
         return true;
       }
@@ -5638,38 +5650,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   /**
-   * Hand the turn from the front-door leg to the strong "escalated" leg after
-   * the escalate verdict. Speaks the capped bridge (the leg's own post-verdict
-   * holding phrase, or the canned fallback when that was too short) in one
-   * piece and force-flushes it so it plays during the strong-model call, then
-   * starts the escalated leg on the same ActiveAssistantTurn. Idempotent.
+   * Speak the escalation bridge so the strong-model call has no dead air.
+   * The model's own bridge is real assistant speech (captions + TTS); the
+   * canned fallback stays audio-only, matching the persisted-row hygiene (a
+   * deleted row for a bridge the model never produced).
    */
-  private escalateTurn(
+  private speakEscalationBridge(
     activeTurn: ActiveAssistantTurn,
-    cappedBridge: string,
+    bridge: SpokenEscalationBridge,
   ): void {
-    if (activeTurn.escalationHandedOff || activeTurn.finalized) {
-      return;
-    }
-    activeTurn.escalationHandedOff = true;
-    // The escalation bridge below holds the floor, so pending progress
-    // narration would only stack a second filler on top of it.
-    this.clearFillerTimers(activeTurn);
-    // Abort the front-door leg so a model that keeps generating past the
-    // bridge cap adds no latency before the escalated leg starts.
-    activeTurn.handle?.abort();
-    activeTurn.handle = null;
-
-    // Speak the bridge so the strong-model call has no dead air. The model's
-    // own bridge is real assistant speech (captions + TTS); the canned
-    // fallback stays audio-only, matching the persisted-row hygiene (a
-    // deleted row for a bridge the model never produced).
-    const {
-      spokenBridge,
-      usesFallback: usesFallbackBridge,
-      language: bridgeLanguage,
-    } = resolveSpokenEscalationBridge(cappedBridge, activeTurn.language);
-    if (!usesFallbackBridge) {
+    const { spokenBridge, usesFallback, language } = bridge;
+    if (!usesFallback) {
       this.markFirstAssistantDelta(activeTurn.utterance, activeTurn.turnId);
       this.markAssistantDelta(activeTurn);
       void this.sendFrame(
@@ -5681,42 +5672,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       // otherwise sit buffered until a sentence boundary and leave the
       // caller in silence during the escalated model's call.
       this.flushTtsBuffer(activeTurn.token, true);
-    } else {
-      // The canned bridge is a fixed localized-table phrase, enqueued
-      // directly (it is already one complete sentence) so the segment can
-      // carry the "en" override when the table lacks the turn's language.
-      const speakable = sanitizeForTts(spokenBridge).trim();
-      if (speakable.length > 0) {
-        this.enqueueTtsSegment(activeTurn.token, speakable, {
-          language: bridgeLanguage,
-        });
-      }
+      return;
     }
-
-    // The bridge is the turn's spoken acknowledgement: narration keeps
-    // `minGapMs` from it rather than following it back to back.
-    activeTurn.progress.noteFloorHolder();
-
-    // No overrideProfile here: the bridge pins the escalated leg to the
-    // conversation's own profile, the model the caller's typed turns already
-    // run on (see voice-triage-escalate.ts). The bridge phrase the caller
-    // just heard is handed along so the escalated continuation rule can
-    // quote it and ban a re-announcing echo ("Let me check…" twice in a
-    // row).
-    void this.startAssistantLeg(activeTurn, {
-      content: ESCALATION_CONTINUATION_CONTENT,
-      routingLeg: "escalated",
-      spokenEscalationBridge: spokenBridge,
-    });
-
-    // Escalated legs run the slowest work in the system (strong-model
-    // thinking + tool loops), and the bridge only covers the first couple of
-    // seconds of it — exactly the dead air progress narration exists for.
-    // Re-arm the idle narration timer (cleared above with the ack): its
-    // audible-silence gating means nothing speaks until the bridge audio has
-    // fully drained plus a whole idle interval. Acks stay suppressed
-    // post-handoff — the bridge already served that role.
-    activeTurn.progress.arm();
+    // The canned bridge is a fixed localized-table phrase, enqueued
+    // directly (it is already one complete sentence) so the segment can
+    // carry the "en" override when the table lacks the turn's language.
+    const speakable = sanitizeForTts(spokenBridge).trim();
+    if (speakable.length > 0) {
+      this.enqueueTtsSegment(activeTurn.token, speakable, { language });
+    }
   }
 
   private async cancelAssistantTurn(reason: string): Promise<void> {
@@ -5883,7 +5847,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         log.info(
           {
             turnId: currentTurn.turnId,
-            escalated: currentTurn.escalationHandedOff,
+            escalated: currentTurn.frontDoor?.handedOff ?? false,
             spokenSegments: currentTurn.spokenSegments,
             spokenChars: currentTurn.spokenChars,
           },
