@@ -32,7 +32,10 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { invalidateMcpQueries } from "@/domains/settings/mcp/mcp-query-keys";
+import {
+  invalidateMcpQueries,
+  mcpQueryKeys,
+} from "@/domains/settings/mcp/mcp-query-keys";
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
@@ -320,6 +323,10 @@ function refreshAssistantResources(
     refetchType,
   });
   invalidateMcpQueries(queryClient, assistantId, refetchType);
+  void queryClient.invalidateQueries({
+    queryKey: mcpQueryKeys.catalog(assistantId),
+    refetchType,
+  });
   invalidateAvatarQueries(queryClient, assistantId, refetchType);
   invalidateMemoryQueries(queryClient, assistantId, refetchType);
   void queryClient.invalidateQueries({

@@ -2391,7 +2391,8 @@
     "timedOut": "连接耗时过长。你可以重试或停止等待。",
     "waitingForAuthorization": "请在浏览器中完成 {name} 的授权，然后返回此处。",
     "waitingForRuntime": "正在等待 {name} 就绪...",
-    "runtimeFailed": "授权已完成，但集成无法连接。请重试或打开配置。"
+    "runtimeFailed": "授权已完成，但集成无法连接。请重试或打开配置。",
+    "authorizationWindowClosed": "请完成 {name} 的登录，或重试以重新打开登录窗口。我们会继续检查授权是否完成。"
   },
   "mcpCatalog": {
     "setUp": "设置",

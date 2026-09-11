@@ -82,6 +82,50 @@ describe("McpServerCard", () => {
     expect(screen.queryByLabelText("Revoke")).toBeNull();
   });
 
+  test("a remote OAuth transport error offers Reconnect with Configure in the menu", async () => {
+    render(
+      <McpServerCard
+        {...handlers}
+        server={server({
+          source: "workspace",
+          lifecycleState: "error",
+          hasOAuth: true,
+        })}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(handlers.onAuthenticate).toHaveBeenCalledWith(
+      "example-meeting-notes",
+    );
+    expect(screen.queryByRole("button", { name: "Configure" })).toBeNull();
+    fireEvent.pointerDown(
+      screen.getByRole("button", {
+        name: "More actions for example-meeting-notes",
+      }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Configure" }));
+    expect(handlers.onConfigure).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    { hasStaticAuth: true },
+    { transport: { type: "stdio" as const } },
+    { supportedActions: ["configure"] as McpServerEntry["supportedActions"] },
+  ])(
+    "OAuth transport recovery respects static credentials, transport and capabilities: %j",
+    (overrides) => {
+      render(
+        <McpServerCard
+          {...handlers}
+          server={server({ lifecycleState: "error", hasOAuth: true, ...overrides })}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Configure" }));
+      expect(handlers.onAuthenticate).not.toHaveBeenCalled();
+    },
+  );
+
   test("a local server opens Configure instead of starting OAuth", () => {
     render(
       <McpServerCard

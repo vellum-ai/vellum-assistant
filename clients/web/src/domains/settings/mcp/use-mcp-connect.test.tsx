@@ -71,6 +71,7 @@ const { useMcpConnect } = await import("./use-mcp-connect");
 
 let popup: {
   opener: unknown;
+  closed: boolean;
   close: ReturnType<typeof mock>;
   location: { replace: ReturnType<typeof mock> };
 };
@@ -118,6 +119,7 @@ beforeEach(() => {
   capture.mockClear();
   popup = {
     opener: {},
+    closed: false,
     close: mock(() => {}),
     location: { replace: mock(() => {}) },
   };
@@ -187,6 +189,68 @@ describe("useMcpConnect", () => {
     servers = [mcpServer({ lifecycleState: "connected" })];
     act(() => browserFinished?.());
     await waitFor(() => expect(result.current.attempt).toBeNull());
+    expect(popup.close).toHaveBeenCalledTimes(1);
+  });
+
+  test("desktop popup closure offers retry promptly and still accepts late authorization", async () => {
+    const { result } = renderConnect();
+    act(() => result.current.connect("example-integration"));
+    await waitFor(() =>
+      expect(result.current.attempt?.phase).toBe("authorizing"),
+    );
+    popup.closed = true;
+    await waitFor(() => expect(result.current.attempt?.phase).toBe("waiting"));
+    expect(result.current.isBusy).toBe(false);
+    expect(result.current.canCancel).toBe(true);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(popup.close).not.toHaveBeenCalled();
+
+    status = { status: "complete", attempt_id: "attempt-1" };
+    servers = [mcpServer({ lifecycleState: "connected" })];
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(result.current.attempt).toBeNull());
+    expect(popup.close).toHaveBeenCalledTimes(1);
+  });
+
+  test("retry cleans up its prior popup and ignores that operation's late browser event", async () => {
+    const { result } = renderConnect();
+    act(() => result.current.connect("example-integration"));
+    await waitFor(() =>
+      expect(result.current.attempt?.phase).toBe("authorizing"),
+    );
+    const previousFinished = browserFinished;
+    popup.closed = true;
+    await waitFor(() => expect(result.current.attempt?.phase).toBe("waiting"));
+    const previousPopup = popup;
+    popup = {
+      opener: null,
+      closed: false,
+      close: mock(() => {}),
+      location: { replace: mock(() => {}) },
+    };
+    status = { status: "pending", attempt_id: "attempt-2" };
+    start.mockImplementationOnce(async () => ({
+      state: "oauth-state-2",
+      auth_url: "https://example.com/authorize",
+      attempt_id: "attempt-2",
+    }));
+    act(() => {
+      result.current.retry();
+      result.current.retry();
+    });
+    await waitFor(() =>
+      expect(result.current.attempt?.attemptId).toBe("attempt-2"),
+    );
+    expect(start).toHaveBeenCalledTimes(2);
+    expect(previousPopup.close).toHaveBeenCalledTimes(1);
+    expect(popup.close).not.toHaveBeenCalled();
+    act(() => previousFinished?.());
+    expect(result.current.attempt?.phase).toBe("authorizing");
+    expect(result.current.attempt?.attemptId).toBe("attempt-2");
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   test("runtime failure after authorization offers recovery without a false Connected state", async () => {
@@ -212,6 +276,9 @@ describe("useMcpConnect", () => {
     await waitFor(() =>
       expect(poll.mock.calls.length).toBeGreaterThan(beforeClose),
     );
+    expect(result.current.attempt?.phase).toBe("waiting");
+    expect(result.current.isBusy).toBe(false);
+    expect(cancel).not.toHaveBeenCalled();
     status = { status: "complete", attempt_id: "attempt-1" };
     servers = [mcpServer({ lifecycleState: "connected" })];
     act(() => {
@@ -219,6 +286,7 @@ describe("useMcpConnect", () => {
       focusManager.setFocused(true);
     });
     await waitFor(() => expect(result.current.attempt).toBeNull());
+    expect(popup.close).not.toHaveBeenCalled();
   });
 
   test("Electron opens authorization through the shell without a renderer popup", async () => {
@@ -250,6 +318,7 @@ describe("useMcpConnect", () => {
     expect(result.current.attempt).not.toBeNull();
     act(() => pending.resolve({ cancelled: true }));
     await waitFor(() => expect(result.current.attempt).toBeNull());
+    expect(popup.close).toHaveBeenCalledTimes(1);
   });
 
   test("old assistants stop local waiting without calling cancellation", async () => {
@@ -286,6 +355,11 @@ describe("useMcpConnect", () => {
     await waitFor(() => expect(result.current.attempt?.phase).toBe("error"));
     expect(list).not.toHaveBeenCalled();
     expect(result.current.attempt?.error).toBeTruthy();
+    expect(result.current.canCancel).toBe(false);
+    expect(result.current.attempt?.attemptId).toBeUndefined();
+    await act(() => result.current.dismiss());
+    expect(cancel).not.toHaveBeenCalled();
+    expect(result.current.attempt).toBeNull();
   });
 
   test("completion without an attempt ID cannot complete a verified UI attempt", async () => {
@@ -295,6 +369,11 @@ describe("useMcpConnect", () => {
     await waitFor(() => expect(result.current.attempt?.phase).toBe("error"));
     expect(list).not.toHaveBeenCalled();
     expect(result.current.attempt?.error).toBeTruthy();
+    expect(result.current.canCancel).toBe(false);
+    expect(result.current.attempt?.attemptId).toBeUndefined();
+    await act(() => result.current.dismiss());
+    expect(cancel).not.toHaveBeenCalled();
+    expect(result.current.attempt).toBeNull();
   });
 
   test("legacy authorization without attempt IDs still waits for runtime readiness", async () => {
@@ -353,5 +432,19 @@ describe("useMcpConnect", () => {
     expect(result.current.attempt?.phase).toBe("error");
     expect(popup.location.replace).not.toHaveBeenCalled();
     expect(poll).not.toHaveBeenCalled();
+  });
+
+  test("an authorization timeout closes only the popup owned by the attempt", async () => {
+    const { result } = renderConnect();
+    act(() => result.current.connect("example-integration"));
+    await waitFor(() =>
+      expect(result.current.attempt?.phase).toBe("authorizing"),
+    );
+    expect(popup.close).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.attempt?.phase).toBe("error"), {
+      timeout: 2_500,
+    });
+    expect(popup.close).toHaveBeenCalledTimes(1);
+    expect(cancel).not.toHaveBeenCalled();
   });
 });

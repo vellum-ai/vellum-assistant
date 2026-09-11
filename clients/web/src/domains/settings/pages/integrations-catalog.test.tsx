@@ -30,9 +30,11 @@ let accounts: ReturnType<typeof oauthConnection>[];
 let catalogFails = false;
 let removeFails = false;
 let authStatus = "pending";
+let authAttemptId: string | undefined = "attempt-example";
 let browserFinished: (() => void) | undefined;
 let popup: {
   opener: unknown;
+  closed: boolean;
   close: ReturnType<typeof mock>;
   location: { replace: ReturnType<typeof mock> };
 };
@@ -161,7 +163,7 @@ mock.module("../mcp/mcp-api", () => ({
   startMcpAuth: start,
   pollMcpAuthStatus: async () => ({
     status: authStatus,
-    attempt_id: "attempt-example",
+    attempt_id: authAttemptId,
   }),
   cancelMcpAuth: cancel,
   removeMcpServer: remove,
@@ -185,8 +187,10 @@ beforeEach(() => {
   catalogFails = false;
   removeFails = false;
   authStatus = "pending";
+  authAttemptId = "attempt-example";
   popup = {
     opener: {},
+    closed: false,
     close: mock(() => {}),
     location: { replace: mock(() => {}) },
   };
@@ -383,6 +387,33 @@ describe("catalog discovery and connection UI", () => {
     );
     await waitFor(() => expect(start).toHaveBeenCalledTimes(2));
     expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  test("closing the owned popup exposes Retry and can finish after a late callback", async () => {
+    await beginFathom();
+    popup.closed = true;
+    await screen.findByRole("button", { name: "Retry" });
+    screen.getByText(
+      "Finish signing in to Fathom, or retry to open sign-in again. We will keep checking for completed authorization.",
+    );
+    row("Fathom").getByRole("button", { name: "Finish connecting" });
+    expect(cancel).not.toHaveBeenCalled();
+    await completeFathom();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    await waitFor(() => expect(client.isFetching()).toBe(0));
+  });
+
+  test("superseded authorization offers Stop waiting without stale cancellation", async () => {
+    authAttemptId = undefined;
+    await beginFathom();
+    const dismiss = await screen.findByRole("button", { name: "Stop waiting" });
+    expect(
+      screen.queryByRole("button", { name: "Cancel connection" }),
+    ).toBeNull();
+    await act(async () => fireEvent.click(dismiss));
+    expect(cancel).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Stop waiting" })).toBeNull();
+    await waitFor(() => expect(client.isFetching()).toBe(0));
   });
 
   test("a failed authorization start retries the saved ID without creating another connection", async () => {

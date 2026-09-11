@@ -38,12 +38,16 @@ export function McpConnectionDialogs({
                   ? t("mcpConnect.waitingForRuntime", {
                       name: auth.attempt.displayName,
                     })
-                  : t("mcpConnect.waitingForAuthorization", {
-                      name: auth.attempt.displayName,
-                    }))}
+                  : t(
+                      auth.attempt.phase === "waiting"
+                        ? "mcpConnect.authorizationWindowClosed"
+                        : "mcpConnect.waitingForAuthorization",
+                      { name: auth.attempt.displayName },
+                    ))}
             </p>
             <div className="flex flex-wrap gap-2">
-              {auth.attempt.phase === "error" ? (
+              {auth.attempt.phase === "error" ||
+              auth.attempt.phase === "waiting" ? (
                 <Button
                   variant="outlined"
                   onClick={auth.retry}

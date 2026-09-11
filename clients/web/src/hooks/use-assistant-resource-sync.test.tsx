@@ -397,6 +397,7 @@ describe("useAssistantResourceSync", () => {
       for (const assistantId of ["asst-1", "asst-2"]) {
         queryClient.setQueryData(mcpQueryKeys.list(assistantId), []);
         queryClient.setQueryData(mcpQueryKeys.details(assistantId), []);
+        queryClient.setQueryData(mcpQueryKeys.catalog(assistantId), []);
       }
       renderHook(() => useAssistantResourceSync("asst-1", true), { wrapper: createWrapper(queryClient) });
       emit(syncEvent([tag]) as unknown as AssistantEvent);
@@ -406,6 +407,11 @@ describe("useAssistantResourceSync", () => {
       });
       expect(queryClient.getQueryState(mcpQueryKeys.list("asst-2"))?.isInvalidated).toBe(false);
       expect(queryClient.getQueryState(mcpQueryKeys.details("asst-2"))?.isInvalidated).toBe(false);
+      for (const assistantId of ["asst-1", "asst-2"]) {
+        expect(
+          queryClient.getQueryState(mcpQueryKeys.catalog(assistantId))?.isInvalidated,
+        ).toBe(false);
+      }
     });
   }
 
@@ -444,6 +450,32 @@ describe("useAssistantResourceSync", () => {
       });
       emit(syncEvent([SYNC_TAGS.mcpList]) as unknown as AssistantEvent);
       await waitFor(() => expect(fetchTools).toHaveBeenCalledTimes(2));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("reconnect refetches only the active assistant's mounted MCP catalog", async () => {
+    const queryClient = freshQueryClient();
+    const fetchCatalog = mock(async () => ({ entries: [] }));
+    const observer = new QueryObserver(queryClient, {
+      queryKey: mcpQueryKeys.catalog("asst-1"),
+      queryFn: fetchCatalog,
+      staleTime: Infinity,
+    });
+    queryClient.setQueryData(mcpQueryKeys.catalog("asst-2"), { entries: [] });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(1));
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+      publish("sse.opened", { assistantId: "asst-1", cause: "error" });
+      await flushReconnectSweep();
+      await waitFor(() => expect(fetchCatalog).toHaveBeenCalledTimes(2));
+      expect(
+        queryClient.getQueryState(mcpQueryKeys.catalog("asst-2"))?.isInvalidated,
+      ).toBe(false);
     } finally {
       unsubscribe();
     }
@@ -671,9 +703,14 @@ describe("useAssistantResourceSync", () => {
     expect(avatarSweeps.length).toBe(1);
     expect(avatarSweeps[0]?.refetchType).toBe("none");
 
+    const catalogSweeps = sweepsFor(calls, mcpQueryKeys.catalog("asst-1"));
+    expect(catalogSweeps.length).toBe(1);
+    expect(catalogSweeps[0]?.refetchType).toBe("none");
+
     // The flush consumed the pending timer, so the debounce never fires again.
     await flushReconnectSweep();
     expect(sweepsFor(calls, avatarQueryKey("asst-1")).length).toBe(1);
+    expect(sweepsFor(calls, mcpQueryKeys.catalog("asst-1")).length).toBe(1);
   });
 
   // A queued sweep closes over the assistant that was active when it was

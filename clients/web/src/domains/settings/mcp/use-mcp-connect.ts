@@ -26,7 +26,7 @@ interface McpConnectAttempt {
   serverId: string;
   displayName: string;
   startedAt: number;
-  phase: "starting" | "authorizing" | "connecting" | "error";
+  phase: "starting" | "authorizing" | "waiting" | "connecting" | "error";
   attemptId?: string;
   error?: string;
 }
@@ -37,7 +37,7 @@ export function useMcpConnect(assistantId: string) {
   const [attempt, setAttempt] = useState<McpConnectAttempt | null>(null);
   const [isCancelling, setIsCancelling] = useState(false);
   const activeOperation = useRef<string | null>(null);
-  const blankPopup = useRef<Window | null>(null);
+  const ownedPopup = useRef<Window | null>(null);
   const pendingPreparation = useRef<{
     operationId: string;
     run: () => Promise<string | void>;
@@ -46,8 +46,8 @@ export function useMcpConnect(assistantId: string) {
   const stopWaiting = useCallback(() => {
     activeOperation.current = null;
     pendingPreparation.current = null;
-    blankPopup.current?.close();
-    blankPopup.current = null;
+    ownedPopup.current?.close();
+    ownedPopup.current = null;
     setAttempt(null);
     setIsCancelling(false);
   }, []);
@@ -57,17 +57,18 @@ export function useMcpConnect(assistantId: string) {
     return () => {
       activeOperation.current = null;
       pendingPreparation.current = null;
-      blankPopup.current?.close();
-      blankPopup.current = null;
+      ownedPopup.current?.close();
+      ownedPopup.current = null;
     };
   }, [assistantId, stopWaiting]);
 
+  const awaitingAuthorization =
+    attempt?.phase === "authorizing" || attempt?.phase === "waiting";
   const authStatus = useQuery({
     queryKey: mcpQueryKeys.auth(assistantId, attempt?.operationId ?? ""),
     queryFn: () => pollMcpAuthStatus(assistantId, attempt!.serverId),
-    enabled: attempt?.phase === "authorizing",
-    refetchInterval:
-      attempt?.phase === "authorizing" ? CONNECTION_POLL_INTERVAL_MS : false,
+    enabled: awaitingAuthorization,
+    refetchInterval: awaitingAuthorization ? CONNECTION_POLL_INTERVAL_MS : false,
     staleTime: 0,
     gcTime: 0,
     retry: 1,
@@ -84,17 +85,25 @@ export function useMcpConnect(assistantId: string) {
   });
 
   useEffect(() => {
-    if (!attempt || attempt.phase !== "authorizing" || !authStatus.data) {
+    if (
+      !attempt ||
+      !awaitingAuthorization ||
+      activeOperation.current !== attempt.operationId ||
+      !authStatus.data
+    ) {
       return;
     }
     const status = authStatus.data;
     if (attempt.attemptId && status.attempt_id !== attempt.attemptId) {
       setAttempt({
         ...attempt,
+        attemptId: undefined,
         phase: "error",
         error: t("mcpConnect.superseded"),
       });
     } else if (status.status === "complete") {
+      ownedPopup.current?.close();
+      ownedPopup.current = null;
       setAttempt({ ...attempt, attemptId: undefined, phase: "connecting" });
       void queryClient.invalidateQueries({
         queryKey: mcpQueryKeys.list(assistantId),
@@ -108,7 +117,14 @@ export function useMcpConnect(assistantId: string) {
           t("mcpConnect.authorizationFailed"),
       });
     }
-  }, [assistantId, attempt, authStatus.data, queryClient, t]);
+  }, [
+    assistantId,
+    attempt,
+    authStatus.data,
+    awaitingAuthorization,
+    queryClient,
+    t,
+  ]);
 
   useEffect(() => {
     if (
@@ -147,12 +163,11 @@ export function useMcpConnect(assistantId: string) {
     if (!attempt || attempt.phase === "error") {
       return;
     }
-    const error =
-      attempt.phase === "authorizing"
-        ? authStatus.error
-        : attempt.phase === "connecting"
-          ? runtime.error
-          : null;
+    const error = awaitingAuthorization
+      ? authStatus.error
+      : attempt.phase === "connecting"
+        ? runtime.error
+        : null;
     if (error) {
       captureError(error, { context: "mcp.connect.poll" });
       setAttempt({
@@ -161,7 +176,7 @@ export function useMcpConnect(assistantId: string) {
         error: t("mcpConnect.pollFailed"),
       });
     }
-  }, [attempt, authStatus.error, runtime.error, t]);
+  }, [attempt, authStatus.error, awaitingAuthorization, runtime.error, t]);
 
   useEffect(() => {
     if (!attempt || attempt.phase === "error") {
@@ -172,8 +187,8 @@ export function useMcpConnect(assistantId: string) {
         if (activeOperation.current !== attempt.operationId) {
           return;
         }
-        blankPopup.current?.close();
-        blankPopup.current = null;
+        ownedPopup.current?.close();
+        ownedPopup.current = null;
         setAttempt(
           (current) =>
             current && {
@@ -188,21 +203,50 @@ export function useMcpConnect(assistantId: string) {
     return () => clearTimeout(timer);
   }, [attempt, t]);
 
-  // TQ's focus manager handles app resume. Closing the native browser is an
-  // additional signal; the MCP callback itself has no deep-link payload.
-  useEffect(() => {
-    if (!attempt) {
-      return;
-    }
-    return openUrlFinishedListener(() => {
+  const handleBrowserFinished = useCallback(
+    (operationId: string) => {
+      if (activeOperation.current !== operationId) {
+        return;
+      }
+      setAttempt((current) =>
+        current?.operationId === operationId && current.phase === "authorizing"
+          ? { ...current, phase: "waiting" }
+          : current,
+      );
       void queryClient.invalidateQueries({
-        queryKey: mcpQueryKeys.auth(assistantId, attempt.operationId),
+        queryKey: mcpQueryKeys.auth(assistantId, operationId),
       });
       void queryClient.invalidateQueries({
         queryKey: mcpQueryKeys.list(assistantId),
       });
-    });
-  }, [assistantId, attempt, queryClient]);
+    },
+    [assistantId, queryClient],
+  );
+
+  useEffect(() => {
+    const popup = ownedPopup.current;
+    if (attempt?.phase !== "authorizing" || !popup) {
+      return;
+    }
+    const checkClosed = () => {
+      if (popup.closed && activeOperation.current === attempt.operationId) {
+        // COOP can sever the handle before authorization finishes. Keep polling.
+        handleBrowserFinished(attempt.operationId);
+      }
+    };
+    checkClosed();
+    const interval = setInterval(checkClosed, 500);
+    return () => clearInterval(interval);
+  }, [attempt?.operationId, attempt?.phase, handleBrowserFinished]);
+
+  // TQ's focus manager handles app resume; native browser closure also refetches.
+  useEffect(() => {
+    const operationId = attempt?.operationId;
+    if (!operationId) {
+      return;
+    }
+    return openUrlFinishedListener(() => handleBrowserFinished(operationId));
+  }, [attempt?.operationId, handleBrowserFinished]);
 
   const connect = useCallback(
     (
@@ -212,13 +256,15 @@ export function useMcpConnect(assistantId: string) {
     ) => {
       if (
         activeOperation.current &&
-        (attempt?.phase !== "error" ||
+        ((attempt?.phase !== "error" && attempt?.phase !== "waiting") ||
           activeOperation.current !== attempt.operationId)
       ) {
         return;
       }
       const operationId = crypto.randomUUID();
       activeOperation.current = operationId;
+      ownedPopup.current?.close();
+      ownedPopup.current = null;
       setIsCancelling(false);
       pendingPreparation.current = prepare
         ? { operationId, run: prepare }
@@ -245,7 +291,7 @@ export function useMcpConnect(assistantId: string) {
       }
       if (popup) {
         popup.opener = null;
-        blankPopup.current = popup;
+        ownedPopup.current = popup;
       }
       const stillCurrent = () =>
         activeOperation.current === operationId &&
@@ -270,7 +316,7 @@ export function useMcpConnect(assistantId: string) {
           const attemptId = mcpCancellationAttemptId(result);
           if (result.already_authenticated) {
             popup?.close();
-            blankPopup.current = null;
+            ownedPopup.current = null;
             setAttempt({ ...next, phase: "connecting" });
             return;
           }
@@ -280,15 +326,16 @@ export function useMcpConnect(assistantId: string) {
           }
           setAttempt({ ...next, attemptId, phase: "authorizing" });
           if (popup) {
-            popup.location.replace(url.href);
-            blankPopup.current = null;
+            if (!popup.closed) {
+              popup.location.replace(url.href);
+            }
           } else if (!(await openUrlInNewTab(url.href))) {
             throw new Error("MCP authorization window was blocked");
           }
         } catch (error) {
           popup?.close();
           if (stillCurrent()) {
-            blankPopup.current = null;
+            ownedPopup.current = null;
             captureError(error, { context: "mcp.connect.start" });
             setAttempt(
               (current) =>
@@ -348,7 +395,9 @@ export function useMcpConnect(assistantId: string) {
 
   return {
     attempt,
-    isBusy: Boolean(attempt && attempt.phase !== "error"),
+    isBusy: Boolean(
+      attempt && attempt.phase !== "error" && attempt.phase !== "waiting",
+    ),
     connect,
     retry: () => {
       if (attempt) {

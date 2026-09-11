@@ -2391,7 +2391,8 @@
     "timedOut": "連線耗時過長。你可以重試或停止等待。",
     "waitingForAuthorization": "請在瀏覽器中完成 {name} 的授權，然後返回此處。",
     "waitingForRuntime": "正在等待 {name} 就緒...",
-    "runtimeFailed": "授權已完成，但整合無法連線。請重試或開啟設定。"
+    "runtimeFailed": "授權已完成，但整合無法連線。請重試或開啟設定。",
+    "authorizationWindowClosed": "請完成 {name} 的登入，或重試以重新開啟登入視窗。我們會繼續檢查授權是否完成。"
   },
   "mcpCatalog": {
     "setUp": "設定",

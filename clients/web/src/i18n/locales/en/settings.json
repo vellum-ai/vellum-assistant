@@ -2401,7 +2401,8 @@
     "timedOut": "The connection is taking too long. You can retry or stop waiting.",
     "waitingForAuthorization": "Complete authorization for {name} in the browser, then return here.",
     "waitingForRuntime": "Waiting for {name} to become ready...",
-    "runtimeFailed": "Authorization finished, but the integration could not connect. Retry or open Configure."
+    "runtimeFailed": "Authorization finished, but the integration could not connect. Retry or open Configure.",
+    "authorizationWindowClosed": "Finish signing in to {name}, or retry to open sign-in again. We will keep checking for completed authorization."
   },
   "mcpCatalog": {
     "setUp": "Set up",

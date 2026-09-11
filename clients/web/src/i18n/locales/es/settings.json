@@ -2343,7 +2343,8 @@
     "timedOut": "La conexión está tardando demasiado. Puedes reintentar o dejar de esperar.",
     "waitingForAuthorization": "Completa la autorización de {name} en el navegador y vuelve aquí.",
     "waitingForRuntime": "Esperando a que {name} esté listo...",
-    "runtimeFailed": "La autorización terminó, pero la integración no pudo conectarse. Reintenta o abre Configurar."
+    "runtimeFailed": "La autorización terminó, pero la integración no pudo conectarse. Reintenta o abre Configurar.",
+    "authorizationWindowClosed": "Termina de iniciar sesión en {name} o reintenta para abrir el inicio de sesión de nuevo. Seguiremos comprobando si se completó la autorización."
   },
   "mcpCatalog": {
     "setUp": "Configurar",

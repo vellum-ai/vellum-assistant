@@ -42,7 +42,8 @@ export function McpServerCard({
   const state = isAuthenticating ? "connecting" : mcpLifecycleState(server);
   const pluginOwned = server.source === "plugin";
   const needsAuth =
-    state === "needs-auth" &&
+    (state === "needs-auth" || (state === "error" && server.hasOAuth)) &&
+    server.transport.type !== "stdio" &&
     !server.hasStaticAuth &&
     supportsMcpAction(server, "authenticate");
   const isConnected = state === "connected";
