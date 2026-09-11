@@ -113,6 +113,42 @@ afterEach(() => {
 });
 
 describe("context preparation", () => {
+  test.each(["handoff", "before-queue"])(
+    "releases a prepared send once when %s throws and allows retry",
+    async (failure) => {
+      useComposerStore.getState().setInput("Revise the paragraph");
+      const release = mock(() => {});
+      const prepareSend = mock(async () => ({
+        isCurrent: () => true,
+        release,
+      }));
+      const scrollToLatest = mock(() => {});
+      const { result, sendMessage } = renderSubmit({
+        prepareSend,
+        scrollToLatest,
+      });
+      const error = new Error("send failed");
+      if (failure === "handoff") {
+        sendMessage.mockImplementationOnce(() => {
+          expect(release).not.toHaveBeenCalled();
+          throw error;
+        });
+      } else {
+        scrollToLatest.mockImplementationOnce(() => {
+          expect(release).not.toHaveBeenCalled();
+          throw error;
+        });
+      }
+      await expect(result.current.submitMessage()).rejects.toBe(error);
+      expect(release).toHaveBeenCalledTimes(1);
+      useComposerStore.getState().setInput("Try again");
+      await submit(result);
+      expect(prepareSend).toHaveBeenCalledTimes(2);
+      expect(release).toHaveBeenCalledTimes(2);
+      expect(sendMessage.mock.calls.at(-1)?.[0]).toBe("Try again");
+    },
+  );
+
   test("flushes before clearing text and attachments, then uses the shared send once", async () => {
     useComposerStore.getState().setInput("Revise the paragraph");
     useComposerStore.setState({ attachments: [uploadedAttachment] });

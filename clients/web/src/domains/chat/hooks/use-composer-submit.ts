@@ -238,11 +238,19 @@ export function useComposerSubmit({
         return;
       }
 
-      if (prepareSend) {
-        const attempt = Symbol();
-        preparingRef.current = attempt;
-        let preparation: ComposerSendPreparation | null = null;
-        try {
+      const attempt = Symbol();
+      let preparation: ComposerSendPreparation | null = null;
+      const releasePreparation = () => {
+        const current = preparation;
+        preparation = null;
+        current?.release();
+        if (preparingRef.current === attempt) {
+          preparingRef.current = null;
+        }
+      };
+      try {
+        if (prepareSend) {
+          preparingRef.current = attempt;
           preparation = await prepareSend();
           const owner = ownerRef.current;
           if (
@@ -261,95 +269,100 @@ export function useComposerSubmit({
           ) {
             return;
           }
-        } finally {
-          preparation?.release();
-          if (preparingRef.current === attempt) {
-            preparingRef.current = null;
+        }
+
+        const attachmentsToSend: DisplayAttachment[] = chatAttachments
+          .filter(
+            (att): att is Extract<typeof att, { kind: "uploaded" }> =>
+              att.kind === "uploaded",
+          )
+          .map((att) => ({
+            id: att.id,
+            filename: att.filename,
+            mimeType: att.mimeType,
+            sizeBytes: att.sizeBytes,
+            previewUrl: att.previewUrl ?? null,
+            thumbnailUrl: att.thumbnailUrl ?? null,
+          }));
+
+        useComposerStore.getState().setInput("");
+        if (activeConversationId) {
+          useComposerStore.getState().clearDraft(activeConversationId);
+        }
+        if (inputRef.current) {
+          inputRef.current.style.height = "auto";
+        }
+        useComposerStore.getState().resetAttachments();
+        useQuoteReplyStore.getState().clearStagedQuotes();
+        useChannelReferenceStore.getState().clearReference();
+
+        if (!isPointerCoarse()) {
+          shouldFocusInputRef.current = true;
+        }
+        haptic.medium();
+
+        // Engage the auto-pin window so the new turn lands at the bottom.
+        scrollToLatest({ behavior: "auto" });
+
+        if (
+          isEditing &&
+          editingMessageId &&
+          assistantId &&
+          activeConversationId &&
+          canUndoEdit
+        ) {
+          cancelEditing();
+          try {
+            await conversationsByIdUndoPost({
+              path: { assistant_id: assistantId, id: activeConversationId },
+            });
+          } catch {
+            // If undo fails, still send the message as a new one
           }
         }
-      }
 
-      const attachmentsToSend: DisplayAttachment[] = chatAttachments
-        .filter(
-          (att): att is Extract<typeof att, { kind: "uploaded" }> =>
-            att.kind === "uploaded",
-        )
-        .map((att) => ({
-          id: att.id,
-          filename: att.filename,
-          mimeType: att.mimeType,
-          sizeBytes: att.sizeBytes,
-          previewUrl: att.previewUrl ?? null,
-          thumbnailUrl: att.thumbnailUrl ?? null,
-        }));
+        const deliver = async () => {
+          // Forward the secret-check override only when this send explicitly
+          // carries it (the Send-anyway path); ordinary sends never set it.
+          let delivery: Promise<void>;
+          try {
+            delivery = sendMessage(
+              finalContent,
+              attachmentsToSend,
+              opts?.bypassSecretCheck === true
+                ? { bypassSecretCheck: true }
+                : undefined,
+            );
+          } finally {
+            // Keep the saved context locked through the queue wait, until chat
+            // takes ownership of this message. Delivery completion does not hold it.
+            releasePreparation();
+          }
+          await delivery;
+        };
 
-      useComposerStore.getState().setInput("");
-      if (activeConversationId) {
-        useComposerStore.getState().clearDraft(activeConversationId);
-      }
-      if (inputRef.current) {
-        inputRef.current.style.height = "auto";
-      }
-      useComposerStore.getState().resetAttachments();
-      useQuoteReplyStore.getState().clearStagedQuotes();
-      useChannelReferenceStore.getState().clearReference();
-
-      if (!isPointerCoarse()) {
-        shouldFocusInputRef.current = true;
-      }
-      haptic.medium();
-
-      // Engage the auto-pin window so the new turn lands at the bottom.
-      scrollToLatest({ behavior: "auto" });
-
-      if (
-        isEditing &&
-        editingMessageId &&
-        assistantId &&
-        activeConversationId &&
-        canUndoEdit
-      ) {
-        cancelEditing();
-        try {
-          await conversationsByIdUndoPost({
-            path: { assistant_id: assistantId, id: activeConversationId },
-          });
-        } catch {
-          // If undo fails, still send the message as a new one
-        }
-      }
-
-      const deliver = async () => {
-        // Forward the secret-check override only when this send explicitly
-        // carries it (the Send-anyway path); ordinary sends never set it.
-        await sendMessage(
-          finalContent,
-          attachmentsToSend,
-          opts?.bypassSecretCheck === true
-            ? { bypassSecretCheck: true }
-            : undefined,
+        // Deliveries run one after another, in the order they were submitted.
+        //
+        // The composer is cleared and re-enabled above, ahead of the send
+        // `deliver` runs, so a second message can be written and sent while the
+        // first is still in flight. Whichever send settles first would otherwise
+        // reach the assistant first, and the send treats a message arriving while
+        // a turn is starting as one to queue behind it: the two land in the
+        // assistant's history the wrong way round.
+        //
+        // The link runs whether the previous one resolved or rejected, and the
+        // chain is advanced with a continuation that cannot reject, so one failed
+        // send does not wedge every send after it. The first submit of a quiet
+        // composer awaits an already-resolved promise, which costs it a microtask.
+        const link = sendChainRef.current.then(deliver, deliver);
+        sendChainRef.current = link.then(
+          () => {},
+          () => {},
         );
-      };
-
-      // Deliveries run one after another, in the order they were submitted.
-      //
-      // The composer is cleared and re-enabled above, ahead of the send
-      // `deliver` runs, so a second message can be written and sent while the
-      // first is still in flight. Whichever send settles first would otherwise
-      // reach the assistant first, and the send treats a message arriving while
-      // a turn is starting as one to queue behind it: the two land in the
-      // assistant's history the wrong way round.
-      //
-      // The link runs whether the previous one resolved or rejected, and the
-      // chain is advanced with a continuation that cannot reject, so one failed
-      // send does not wedge every send after it. The first submit of a quiet
-      // composer awaits an already-resolved promise, which costs it a microtask.
-      const link = sendChainRef.current.then(deliver, deliver);
-      sendChainRef.current = link.then(
-        () => {},
-        () => {},
-      );
-      await link;
+        await link;
+      } finally {
+        releasePreparation();
+      }
     },
     [
       sendDisabled,

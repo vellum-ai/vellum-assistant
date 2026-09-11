@@ -82,6 +82,9 @@ and save indicators remain scoped to the mounted editor.
 `beginSendPreparation` takes a short editing lease, drains pending writes and
 returns the current saved title/content. The chat submit hook awaits preparation
 before clearing its ordinary draft and attachments, in either presentation.
+The editing lease remains active while the message waits in the ordinary send
+chain, then releases as its send handler takes ownership, without waiting for the
+delivery response. Cancellation or a thrown handoff also releases the lease.
 A failed save, changed owner,
 closed editor or changed draft cancels preparation without taking the message.
 Feedback uses the saved title. Mobile and desktop feedback share the preparation

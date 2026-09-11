@@ -100,6 +100,52 @@ afterEach(() => {
 });
 
 describe("shared document preparation and composer submit", () => {
+  test.each(["sent", "rejected"])(
+    "holds a queued document lease until delivery starts after the previous send is %s",
+    async (outcome) => {
+      const firstDelivery = deferred<void>();
+      const secondDelivery = deferred<void>();
+      const { result, flush, begin, release, sendMessage } = renderPreparedComposer();
+      sendMessage.mockImplementationOnce(() => firstDelivery.promise);
+      sendMessage.mockImplementationOnce(() => {
+        expect(release).toHaveBeenCalledTimes(1);
+        return secondDelivery.promise;
+      });
+      let firstPending!: Promise<void>;
+      act(() => { firstPending = result.current.submitMessage().catch(() => {}); });
+      await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+      expect(release).toHaveBeenCalledTimes(1);
+
+      act(() => useComposerStore.getState().setInput("Revise the next paragraph"));
+      let secondPending!: Promise<void>;
+      act(() => { secondPending = result.current.submitMessage(); });
+      await waitFor(() => expect(flush).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(useComposerStore.getState().input).toBe(""));
+      expect(sendMessage).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+      expect(result.current.preparing).toBe(true);
+      act(() => useComposerStore.getState().setInput("Keep the next draft"));
+      await act(async () => result.current.submitMessage());
+      expect(begin).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        if (outcome === "rejected") {
+          firstDelivery.reject(new Error("send failed"));
+        } else {
+          firstDelivery.resolve();
+        }
+        await firstPending;
+      });
+      await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+      expect(sendMessage.mock.calls[1]?.[0]).toBe("Revise the next paragraph");
+      expect(release).toHaveBeenCalledTimes(2);
+      expect(result.current.preparing).toBe(false);
+      expect(useComposerStore.getState().input).toBe("Keep the next draft");
+      await act(async () => { secondDelivery.resolve(); await secondPending; });
+      expect(release).toHaveBeenCalledTimes(2);
+    },
+  );
+
   test("awaits the editor before clearing text or attachments and sends exactly once", async () => {
     const saving = deferred<DocumentEditorSnapshot>();
     const { result, flush, begin, release, sendMessage } = renderPreparedComposer();
