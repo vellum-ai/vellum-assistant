@@ -439,6 +439,8 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    claimedFailedSendBatches: new Map(),
+    activeDocumentComposer: null,
     detachedSends: new Map(),
     detachedQueuedSends: new Map(),
   });
@@ -469,6 +471,8 @@ afterEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    claimedFailedSendBatches: new Map(),
+    activeDocumentComposer: null,
     detachedSends: new Map(),
     detachedQueuedSends: new Map(),
   });

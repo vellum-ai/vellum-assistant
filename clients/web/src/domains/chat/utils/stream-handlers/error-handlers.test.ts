@@ -53,6 +53,7 @@ describe("handleStreamError", () => {
     useComposerStore.setState({
       failedSendsByConversation: new Map(),
       queuedSends: new Map(),
+      claimedQueuedSendIds: new Set(),
     });
   });
   afterEach(() => {
@@ -60,6 +61,7 @@ describe("handleStreamError", () => {
     useComposerStore.setState({
       failedSendsByConversation: new Map(),
       queuedSends: new Map(),
+      claimedQueuedSendIds: new Set(),
     });
   });
 
@@ -362,6 +364,55 @@ describe("handleStreamError", () => {
     expect(ctx.setNotice).not.toHaveBeenCalled();
     // No row means nothing to take out of the transcript.
     expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
+  it("does not hold a queued recovery a second time after it was restored", () => {
+    const payload = {
+      content: "parked behind the running turn",
+      attachments: [failedAttachment],
+    };
+    const composer = useComposerStore.getState();
+    composer.recordQueuedSend("client-1", {
+      assistantId: "assistant-1",
+      conversationId: "conv-queued",
+      ...payload,
+    });
+    composer.stashFailedSend(
+      "assistant-1",
+      "conv-queued",
+      payload,
+      "client-1",
+    );
+    expect(composer.takeFailedSend("assistant-1", "conv-queued")).toEqual(
+      payload,
+    );
+    const ctx = makeCtx();
+
+    handleMessageFailed(
+      {
+        type: "message_failed",
+        message: "Failed to persist message.",
+        requestId: "request-1",
+        clientMessageId: "client-1",
+        conversationId: "conv-queued",
+      },
+      ctx,
+    );
+
+    expect(
+      failedSendFor(useComposerStore.getState(), "assistant-1", "conv-queued"),
+    ).toBeUndefined();
+    expect(useComposerStore.getState().queuedSends.has("client-1")).toBe(false);
+    expect(
+      useComposerStore.getState().claimedQueuedSendIds.has("client-1"),
+    ).toBe(false);
+    expect(ctx.setError).toHaveBeenCalledWith({
+      message: "Failed to persist message.",
+      code: undefined,
+      errorCategory: undefined,
+      displayAs: "modal",
+      conversationId: "conv-queued",
+    });
   });
 
   it("puts no message back on the modal itself", () => {

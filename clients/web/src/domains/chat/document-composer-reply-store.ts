@@ -93,6 +93,18 @@ interface FailedDocumentSend {
   clientMessageId?: string;
 }
 
+interface ClaimedDocumentSendBatch {
+  entries: readonly FailedDocumentSend[];
+}
+
+export interface ClaimedDocumentSendTransition {
+  assistantId: string;
+  surfaceId: string;
+  before: PendingDocumentReplyPayload;
+  after: PendingDocumentReplyPayload | null;
+  wasActiveBatch: boolean;
+}
+
 /** A queued send retained while its assistant's event stream is detached. */
 export interface DetachedQueuedDocumentSend {
   conversationId: string;
@@ -112,6 +124,20 @@ export interface DocumentComposerReplyState {
    * pair holding nothing has no entry.
    */
   failedSends: ReadonlyMap<string, readonly FailedDocumentSend[]>;
+  /**
+   * Recovery batches already copied into a document composer, keyed by the
+   * same assistant-and-surface key as `failedSends`. Entries remain here only
+   * while a nonce can still retract accepted content from the shown batch.
+   */
+  claimedFailedSendBatches: ReadonlyMap<
+    string,
+    readonly ClaimedDocumentSendBatch[]
+  >;
+  /** The document composer currently mounted in the shared document slot. */
+  activeDocumentComposer: {
+    assistantId: string;
+    surfaceId: string;
+  } | null;
   /**
    * The messages of pending sends an assistant switch cleared before the
    * daemon spoke for them, keyed by the nonce each send went out with. A send
@@ -265,6 +291,13 @@ export interface DocumentComposerReplyActions {
   /** Drop the recovery copy correlated with `clientMessageId`. */
   dropFailedSend: (clientMessageId: string) => boolean;
   /**
+   * Resolve a recovery already copied into a composer. The returned before
+   * and after payloads let the watcher retract only an unchanged shown batch.
+   */
+  settleClaimedFailedSend: (
+    clientMessageId: string,
+  ) => ClaimedDocumentSendTransition | null;
+  /**
    * Take the message held for `surfaceId` under `assistantId`, removing it,
    * so one document's composer reclaims only what was composed there for its
    * own assistant. Null when that pair holds none.
@@ -273,6 +306,16 @@ export interface DocumentComposerReplyActions {
     assistantId: string,
     surfaceId: string,
   ) => PendingDocumentReplyPayload | null;
+  /** Register the document composer that currently owns the shared slot. */
+  setActiveDocumentComposer: (
+    assistantId: string,
+    surfaceId: string,
+  ) => void;
+  /** Clear the active composer only when it still matches this owner. */
+  clearActiveDocumentComposer: (
+    assistantId: string,
+    surfaceId: string,
+  ) => void;
   /**
    * Take the message an assistant switch detached from the send carrying
    * `clientMessageId`, removing it. Null when that send has none detached.
@@ -437,6 +480,8 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
   (set, get) => ({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    claimedFailedSendBatches: new Map(),
+    activeDocumentComposer: null,
     detachedSends: new Map(),
     detachedQueuedSends: new Map(),
     handedOffConversationIds: new Set(),
@@ -767,6 +812,55 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       return true;
     },
 
+    settleClaimedFailedSend: (clientMessageId) => {
+      const match = [...get().claimedFailedSendBatches].find(([, batches]) =>
+        batches.some((batch) =>
+          batch.entries.some(
+            (entry) => entry.clientMessageId === clientMessageId,
+          ),
+        ),
+      );
+      if (!match) {
+        return null;
+      }
+      const [key, batches] = match;
+      const batchIndex = batches.findIndex((batch) =>
+        batch.entries.some(
+          (entry) => entry.clientMessageId === clientMessageId,
+        ),
+      );
+      const batch = batches[batchIndex];
+      const before = mergeFailedSendList(batch.entries);
+      const remaining = batch.entries.filter(
+        (entry) => entry.clientMessageId !== clientMessageId,
+      );
+      const after =
+        remaining.length === 0 ? null : mergeFailedSendList(remaining);
+      const transition: ClaimedDocumentSendTransition = {
+        assistantId: before.assistantId,
+        surfaceId: before.surfaceId,
+        before,
+        after,
+        wasActiveBatch: batchIndex === batches.length - 1,
+      };
+      set((s) => {
+        const next = new Map(s.claimedFailedSendBatches);
+        const nextBatches = [...batches];
+        if (remaining.some((entry) => entry.clientMessageId !== undefined)) {
+          nextBatches[batchIndex] = { entries: remaining };
+        } else {
+          nextBatches.splice(batchIndex, 1);
+        }
+        if (nextBatches.length === 0) {
+          next.delete(key);
+        } else {
+          next.set(key, nextBatches);
+        }
+        return { claimedFailedSendBatches: next };
+      });
+      return transition;
+    },
+
     takeFailedSend: (assistantId, surfaceId) => {
       const key = heldKey(assistantId, surfaceId);
       const held = get().failedSends.get(key);
@@ -776,9 +870,40 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       set((s) => {
         const next = new Map(s.failedSends);
         next.delete(key);
-        return { failedSends: next };
+        if (!held.some((entry) => entry.clientMessageId !== undefined)) {
+          return { failedSends: next };
+        }
+        const claimed = new Map(s.claimedFailedSendBatches);
+        const batches = claimed.get(key) ?? [];
+        claimed.set(key, [...batches, { entries: held }]);
+        return {
+          failedSends: next,
+          claimedFailedSendBatches: claimed,
+        };
       });
       return mergeFailedSendList(held);
+    },
+
+    setActiveDocumentComposer: (assistantId, surfaceId) => {
+      const active = get().activeDocumentComposer;
+      if (
+        active?.assistantId === assistantId &&
+        active.surfaceId === surfaceId
+      ) {
+        return;
+      }
+      set({ activeDocumentComposer: { assistantId, surfaceId } });
+    },
+
+    clearActiveDocumentComposer: (assistantId, surfaceId) => {
+      const active = get().activeDocumentComposer;
+      if (
+        active?.assistantId !== assistantId ||
+        active.surfaceId !== surfaceId
+      ) {
+        return;
+      }
+      set({ activeDocumentComposer: null });
     },
 
     takeDetachedSend: (clientMessageId) => {
@@ -852,6 +977,8 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
       set((s) => {
         if (
           s.failedSends.size === 0 &&
+          s.claimedFailedSendBatches.size === 0 &&
+          s.activeDocumentComposer === null &&
           s.detachedSends.size === 0 &&
           s.detachedQueuedSends.size === 0
         ) {
@@ -859,6 +986,8 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         }
         return {
           failedSends: new Map(),
+          claimedFailedSendBatches: new Map(),
+          activeDocumentComposer: null,
           detachedSends: new Map(),
           detachedQueuedSends: new Map(),
         };

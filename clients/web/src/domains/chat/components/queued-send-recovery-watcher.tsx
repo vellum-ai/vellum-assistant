@@ -69,21 +69,11 @@ export function QueuedSendRecoveryWatcher() {
         useResolvedAssistantsStore.getState().activeAssistantId;
       const activeConversationId =
         useConversationStore.getState().activeConversationId;
-      const restoredAttachmentsAreCurrent =
-        composer.attachments.length === held.attachments.length &&
-        composer.attachments.every(
-          (attachment, index) =>
-            attachment.kind === "uploaded" &&
-            attachment.id === held.attachments[index]?.id,
-        );
       if (
         activeAssistantId === held.assistantId &&
-        activeConversationId === held.conversationId &&
-        composer.input === held.content &&
-        restoredAttachmentsAreCurrent
+        activeConversationId === held.conversationId
       ) {
-        composer.setInput("");
-        composer.resetAttachments();
+        composer.replaceRecoveredPayload(payload);
       }
       return;
     }
@@ -128,11 +118,15 @@ export function QueuedSendRecoveryWatcher() {
     ) {
       return;
     }
+    const recoveryWasClaimed =
+      composer.claimedQueuedSendIds.has(clientMessageId);
     composer.takeQueuedSend(clientMessageId);
-    composer.stashFailedSend(held.assistantId, held.conversationId, {
-      content: held.content,
-      attachments: held.attachments,
-    });
+    if (!recoveryWasClaimed) {
+      composer.stashFailedSend(held.assistantId, held.conversationId, {
+        content: held.content,
+        attachments: held.attachments,
+      });
+    }
     toast.error(t("queuedSendRecovery.heldForConversation"));
   });
 

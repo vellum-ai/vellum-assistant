@@ -130,6 +130,7 @@ beforeEach(() => {
   useComposerStore.setState({
     queuedSends: new Map(),
     failedSendsByConversation: new Map(),
+    claimedQueuedSendIds: new Set(),
   });
   useConversationStore.getState().reset();
   useConversationStore.getState().setActiveConversationId("conv-open");
@@ -142,6 +143,7 @@ afterEach(() => {
   useComposerStore.setState({
     queuedSends: new Map(),
     failedSendsByConversation: new Map(),
+    claimedQueuedSendIds: new Set(),
   });
 });
 
@@ -256,6 +258,27 @@ describe("QueuedSendRecoveryWatcher", () => {
     expect(toastErrorMock.mock.calls[0]?.[0]).toBe(
       "A message couldn't be sent. It's back in that conversation's composer.",
     );
+  });
+
+  test("a failure does not hold a recovery that was already reclaimed", () => {
+    recordQueuedSend("nonce-1", "conv-left");
+    useComposerStore.getState().stashFailedSend(
+      "assistant-1",
+      "conv-left",
+      {
+        content: "parked behind the running turn",
+        attachments: [attachment],
+      },
+      "nonce-1",
+    );
+    useComposerStore.getState().takeFailedSend("assistant-1", "conv-left");
+    render(<QueuedSendRecoveryWatcher />);
+
+    publishStreamError("conv-left", "nonce-1");
+
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(stillQueued("nonce-1")).toBe(false);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
   });
 
   test("the conversation a mounted chat view handles keeps its held send for that view", () => {

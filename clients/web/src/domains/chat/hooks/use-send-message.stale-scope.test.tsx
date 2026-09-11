@@ -239,6 +239,7 @@ beforeEach(() => {
   useComposerStore.setState({
     input: "",
     queuedSends: new Map(),
+    claimedQueuedSendIds: new Set(),
     failedSendsByConversation: new Map(),
   });
 
@@ -841,6 +842,20 @@ describe("useSendMessage: a send whose POST throws", () => {
       attachments: [FAILED_ATTACHMENT],
     });
     expect(useComposerStore.getState().queuedSends.size).toBe(1);
+    const clientMessageId = [
+      ...useComposerStore.getState().queuedSends.keys(),
+    ][0];
+    if (clientMessageId === undefined) {
+      throw new Error("expected the ambiguous send's queued copy");
+    }
+    useComposerStore
+      .getState()
+      .takeFailedSend("assistant-1", SEND_CONVERSATION);
+    expect(
+      useComposerStore
+        .getState()
+        .claimedQueuedSendIds.has(clientMessageId),
+    ).toBe(true);
   });
 
   test("on screen it behaves as it always has", async () => {
@@ -899,6 +914,20 @@ describe("useSendMessage: a send whose POST throws", () => {
       attachments: [FAILED_ATTACHMENT],
     });
     expect(useComposerStore.getState().queuedSends.size).toBe(1);
+    const clientMessageId = [
+      ...useComposerStore.getState().queuedSends.keys(),
+    ][0];
+    if (clientMessageId === undefined) {
+      throw new Error("expected the ambiguous send's queued copy");
+    }
+    useComposerStore
+      .getState()
+      .takeFailedSend("assistant-1", SEND_CONVERSATION);
+    expect(
+      useComposerStore
+        .getState()
+        .claimedQueuedSendIds.has(clientMessageId),
+    ).toBe(true);
   });
 });
 

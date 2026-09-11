@@ -127,14 +127,17 @@ function handleMessageScopedError(
   // composed for, so the message goes back to that thread whatever this stream
   // is showing now.
   if (clientMessageId && !failedSend) {
-    const held = useComposerStore.getState().takeQueuedSend(clientMessageId);
+    const composer = useComposerStore.getState();
+    const recoveryWasClaimed =
+      composer.claimedQueuedSendIds.has(clientMessageId);
+    const held = composer.takeQueuedSend(clientMessageId);
     if (held) {
-      useComposerStore
-        .getState()
-        .stashFailedSend(held.assistantId, held.conversationId, {
+      if (!recoveryWasClaimed) {
+        composer.stashFailedSend(held.assistantId, held.conversationId, {
           content: held.content,
           attachments: held.attachments,
         });
+      }
       ctx.setError({
         message: detail,
         code: event.code,

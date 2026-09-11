@@ -78,7 +78,11 @@ function resetComposerDocumentSlot() {
 
 afterEach(() => {
   cleanup();
-  useDocumentComposerReplyStore.setState({ failedSends: new Map() });
+  useDocumentComposerReplyStore.setState({
+    failedSends: new Map(),
+    claimedFailedSendBatches: new Map(),
+    activeDocumentComposer: null,
+  });
   useConversationStore.setState({ draftConversationIds: new Set() });
   window.sessionStorage.clear();
   hookStatus = "idle";
@@ -357,6 +361,22 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
 });
 
 describe("DocumentComposerPanel: document-slot lifecycle", () => {
+  test("registers the assistant and document that own the shared slot", () => {
+    const { unmount } = render(
+      <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,
+    );
+
+    expect(
+      useDocumentComposerReplyStore.getState().activeDocumentComposer,
+    ).toEqual({ assistantId: "assistant-1", surfaceId: "surf-1" });
+
+    unmount();
+
+    expect(
+      useDocumentComposerReplyStore.getState().activeDocumentComposer,
+    ).toBeNull();
+  });
+
   test("clears the staged document draft when the panel unmounts", () => {
     const { unmount } = render(
       <DocumentComposerPanel assistantId="assistant-1" doc={DOC} />,

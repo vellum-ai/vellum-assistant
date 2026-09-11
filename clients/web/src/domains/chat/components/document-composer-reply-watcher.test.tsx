@@ -379,6 +379,8 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    claimedFailedSendBatches: new Map(),
+    activeDocumentComposer: null,
     detachedSends: new Map(),
     detachedQueuedSends: new Map(),
     handedOffConversationIds: new Set(),
@@ -815,16 +817,85 @@ describe("DocumentComposerReplyWatcher", () => {
       );
       replyStore.markReplyRecovering("conv-1", "cm-1");
       replyStore.stashFailedSend(FAILED_SEND_PAYLOAD, "cm-1");
+      const recovered = replyStore.takeFailedSend("assistant-1", "surf-1");
+      if (recovered === null) {
+        throw new Error("expected a recovered document send");
+      }
+      useComposerStore.getState().setInput(recovered.content, "document");
+      useComposerStore
+        .getState()
+        .restoreAttachmentsIfEmpty(recovered.attachments, "document");
+      replyStore.setActiveDocumentComposer("assistant-1", "surf-1");
       render(<DocumentComposerReplyWatcher />);
 
       publishUserMessageEcho("conv-1", "cm-1");
 
       expect(heldFor("surf-1")).toBeUndefined();
+      expect(documentInput()).toBe("");
+      expect(documentAttachments()).toEqual([]);
+      expect(
+        useDocumentComposerReplyStore.getState().claimedFailedSendBatches.size,
+      ).toBe(0);
       expect(
         useDocumentComposerReplyStore
           .getState()
           .pendingReplies.get("conv-1")?.[0]?.acknowledged,
       ).toBe(true);
+    });
+
+    test("a late echo leaves a recovered document payload the user edited", () => {
+      const replyStore = useDocumentComposerReplyStore.getState();
+      replyStore.startAwaitingReply(
+        "conv-1",
+        "cm-1",
+        FAILED_SEND_PAYLOAD,
+      );
+      replyStore.markReplyRecovering("conv-1", "cm-1");
+      replyStore.stashFailedSend(FAILED_SEND_PAYLOAD, "cm-1");
+      replyStore.takeFailedSend("assistant-1", "surf-1");
+      useComposerStore
+        .getState()
+        .setInput("edited recovered note", "document");
+      replyStore.setActiveDocumentComposer("assistant-1", "surf-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishUserMessageEcho("conv-1", "cm-1");
+
+      expect(documentInput()).toBe("edited recovered note");
+      expect(
+        useDocumentComposerReplyStore.getState().claimedFailedSendBatches.size,
+      ).toBe(0);
+    });
+
+    test("a definitive failure does not hold a shown recovery a second time", () => {
+      const replyStore = useDocumentComposerReplyStore.getState();
+      replyStore.startAwaitingReply(
+        "conv-1",
+        "cm-1",
+        FAILED_SEND_PAYLOAD,
+      );
+      replyStore.markReplyRecovering("conv-1", "cm-1");
+      replyStore.stashFailedSend(FAILED_SEND_PAYLOAD, "cm-1");
+      const recovered = replyStore.takeFailedSend("assistant-1", "surf-1");
+      if (recovered === null) {
+        throw new Error("expected a recovered document send");
+      }
+      useComposerStore.getState().setInput(recovered.content, "document");
+      useComposerStore
+        .getState()
+        .restoreAttachmentsIfEmpty(recovered.attachments, "document");
+      replyStore.setActiveDocumentComposer("assistant-1", "surf-1");
+      render(<DocumentComposerReplyWatcher />);
+
+      publishStreamError("conv-1", "cm-1", "message");
+
+      expect(documentInput()).toBe(FAILED_SEND_PAYLOAD.content);
+      expect(documentAttachments()).toHaveLength(1);
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(
+        useDocumentComposerReplyStore.getState().claimedFailedSendBatches.size,
+      ).toBe(0);
+      expect(toastErrorMock).toHaveBeenCalledTimes(1);
     });
 
     test("the echo makes the send settleable by its own turn's terminal", () => {

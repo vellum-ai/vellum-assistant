@@ -77,6 +77,22 @@ export function DocumentComposerPanel({
     };
   }, [surfaceId]);
 
+  // The document slot is shared by both document hosts. Register its current
+  // owner so a delayed acceptance can retract only a recovery still shown in
+  // the same assistant's same document.
+  useEffect(() => {
+    if (assistantId === null || surfaceId === null) {
+      return;
+    }
+    const replyStore = useDocumentComposerReplyStore.getState();
+    replyStore.setActiveDocumentComposer(assistantId, surfaceId);
+    return () => {
+      useDocumentComposerReplyStore
+        .getState()
+        .clearActiveDocumentComposer(assistantId, surfaceId);
+    };
+  }, [assistantId, surfaceId]);
+
   // A send the daemon reports as failed is held under the assistant it went to
   // and the surface it was composed for, and the panel showing that document
   // for that assistant takes it once the whole document slot is empty: the

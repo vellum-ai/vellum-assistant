@@ -103,6 +103,11 @@ export interface FailedSendPayload {
   attachments: DisplayAttachment[];
 }
 
+interface HeldFailedSend extends FailedSendPayload {
+  /** The ambiguous queued send this recovery belongs to, when one exists. */
+  clientMessageId?: string;
+}
+
 /** What a send the daemon accepted onto its queue carried, plus the
  *  conversation it went to, so the message can be handed back to that thread
  *  from anywhere if the daemon later refuses to persist it. */
@@ -263,7 +268,7 @@ export interface ComposerState {
    */
   failedSendsByConversation: ReadonlyMap<
     string,
-    readonly FailedSendPayload[]
+    readonly HeldFailedSend[]
   >;
 
   /**
@@ -274,6 +279,8 @@ export interface ComposerState {
    * typed into is not: leaving that conversation clears the optimistic row.
    */
   queuedSends: ReadonlyMap<string, QueuedSendPayload>;
+  /** Queued sends whose recovery payload is already visible in its composer. */
+  claimedQueuedSendIds: ReadonlySet<string>;
 }
 
 export interface ComposerActions {
@@ -324,6 +331,15 @@ export interface ComposerActions {
    * reads exactly `text`, so a draft the user has edited since stays.
    */
   clearRestoredDraft: (assistantId: string, key: string, text: string) => void;
+  /**
+   * Replace a recovered payload only while `slot` still contains it exactly.
+   * User edits or newly staged attachments always win.
+   */
+  replaceRecoveredPayload: (
+    current: FailedSendPayload,
+    replacement?: FailedSendPayload,
+    slot?: ComposerSlot,
+  ) => boolean;
 
   // --- Draft lifecycle (called by chat-session-store.switchToConversation) ---
   /**
@@ -402,6 +418,7 @@ export interface ComposerActions {
     assistantId: string,
     conversationId: string,
     payload: FailedSendPayload,
+    clientMessageId?: string,
   ) => void;
   /**
    * Take the message held for the assistant and `conversationId`, removing it,
@@ -492,6 +509,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
   documentAttachmentLastError: null,
   failedSendsByConversation: new Map(),
   queuedSends: new Map(),
+  claimedQueuedSendIds: new Set(),
 
   // --- Draft input actions ---
   setInput: (value, slot = "main") => {
@@ -551,6 +569,22 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     }
     drafts.delete(key);
     persistDrafts(assistantId, drafts);
+  },
+
+  replaceRecoveredPayload: (current, replacement, slot = "main") => {
+    const state = get();
+    const input = slot === "document" ? state.documentInput : state.input;
+    const attachments =
+      slot === "document" ? state.documentAttachments : state.attachments;
+    if (!composerMatchesFailedSend(input, attachments, current)) {
+      return false;
+    }
+    state.setInput(replacement?.content ?? "", slot);
+    state.resetAttachments(slot);
+    if (replacement) {
+      state.restoreAttachmentsIfEmpty(replacement.attachments, slot);
+    }
+    return true;
   },
 
   handleConversationSwitch: ({ previousKey, nextKey }) => {
@@ -913,12 +947,23 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     setAttachmentError(set, slot, null);
   },
 
-  stashFailedSend: (assistantId, conversationId, payload) => {
+  stashFailedSend: (
+    assistantId,
+    conversationId,
+    payload,
+    clientMessageId,
+  ) => {
     set((s) => {
       const key = failedSendKey(assistantId, conversationId);
       const held = s.failedSendsByConversation.get(key) ?? [];
+      if (
+        clientMessageId !== undefined &&
+        held.some((entry) => entry.clientMessageId === clientMessageId)
+      ) {
+        return s;
+      }
       const next = new Map(s.failedSendsByConversation);
-      next.set(key, [...held, payload]);
+      next.set(key, [...held, { ...payload, clientMessageId }]);
       return { failedSendsByConversation: next };
     });
   },
@@ -932,7 +977,16 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     set((s) => {
       const next = new Map(s.failedSendsByConversation);
       next.delete(key);
-      return { failedSendsByConversation: next };
+      const claimed = new Set(s.claimedQueuedSendIds);
+      for (const entry of held) {
+        if (entry.clientMessageId !== undefined) {
+          claimed.add(entry.clientMessageId);
+        }
+      }
+      return {
+        failedSendsByConversation: next,
+        claimedQueuedSendIds: claimed,
+      };
     });
     return mergeFailedSendList(held);
   },
@@ -964,7 +1018,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     set((s) => {
       const next = new Map(s.queuedSends);
       next.set(clientMessageId, payload);
-      return { queuedSends: next };
+      const claimed = new Set(s.claimedQueuedSendIds);
+      claimed.delete(clientMessageId);
+      return { queuedSends: next, claimedQueuedSendIds: claimed };
     });
   },
 
@@ -976,7 +1032,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     set((s) => {
       const next = new Map(s.queuedSends);
       next.delete(clientMessageId);
-      return { queuedSends: next };
+      const claimed = new Set(s.claimedQueuedSendIds);
+      claimed.delete(clientMessageId);
+      return { queuedSends: next, claimedQueuedSendIds: claimed };
     });
     return held;
   },
@@ -988,7 +1046,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     set((s) => {
       const next = new Map(s.queuedSends);
       next.delete(clientMessageId);
-      return { queuedSends: next };
+      const claimed = new Set(s.claimedQueuedSendIds);
+      claimed.delete(clientMessageId);
+      return { queuedSends: next, claimedQueuedSendIds: claimed };
     });
   },
 }));
@@ -1037,6 +1097,23 @@ function sameFailedSend(
     left.attachments.length === right.attachments.length &&
     left.attachments.every(
       (attachment, index) => attachment.id === right.attachments[index]?.id,
+    )
+  );
+}
+
+/** Whether one composer slot still displays exactly `payload`. */
+function composerMatchesFailedSend(
+  input: string,
+  attachments: readonly ChatAttachment[],
+  payload: FailedSendPayload,
+): boolean {
+  return (
+    input === payload.content &&
+    attachments.length === payload.attachments.length &&
+    attachments.every(
+      (attachment, index) =>
+        attachment.kind === "uploaded" &&
+        attachment.id === payload.attachments[index]?.id,
     )
   );
 }

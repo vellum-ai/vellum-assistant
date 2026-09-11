@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
+import { useComposerStore } from "@/domains/chat/composer-store";
 import {
   keepsProcessingMarker,
   useDocumentComposerReplyStore,
@@ -63,11 +64,35 @@ function rekeyByNonce(
     .transferProcessingConversationId(previousConversationId, conversationId);
 }
 
-/** Drop every recovery copy correlated with an accepted or deleted send. */
-function dropCorrelatedRecovery(clientMessageId: string): void {
+/** Retract every recovery copy correlated with an accepted or deleted send. */
+function acceptCorrelatedRecovery(
+  clientMessageId: string,
+  dropDetachedQueued = true,
+): void {
   const replyStore = useDocumentComposerReplyStore.getState();
+  const claimed = replyStore.settleClaimedFailedSend(clientMessageId);
   replyStore.dropFailedSend(clientMessageId);
-  replyStore.dropDetachedQueuedSend(clientMessageId);
+  if (dropDetachedQueued) {
+    replyStore.dropDetachedQueuedSend(clientMessageId);
+  }
+  if (!claimed?.wasActiveBatch) {
+    return;
+  }
+  const active =
+    useDocumentComposerReplyStore.getState().activeDocumentComposer;
+  if (
+    active?.assistantId !== claimed.assistantId ||
+    active.surfaceId !== claimed.surfaceId
+  ) {
+    return;
+  }
+  useComposerStore
+    .getState()
+    .replaceRecoveredPayload(
+      claimed.before,
+      claimed.after ?? undefined,
+      "document",
+    );
 }
 
 /** Whether the active stream still owns the pending send carrying `nonce`. */
@@ -270,7 +295,7 @@ export function DocumentComposerReplyWatcher() {
       }
       rekeyByNonce(event.conversationId, event.clientMessageId);
       if (event.clientMessageId !== undefined) {
-        dropCorrelatedRecovery(event.clientMessageId);
+        acceptCorrelatedRecovery(event.clientMessageId);
       }
       useDocumentComposerReplyStore
         .getState()
@@ -284,14 +309,10 @@ export function DocumentComposerReplyWatcher() {
     if (event.type === "message_queued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
       if (event.clientMessageId !== undefined) {
-        useDocumentComposerReplyStore
-          .getState()
-          .dropFailedSend(event.clientMessageId);
-        if (isPendingReply(event.conversationId, event.clientMessageId)) {
-          useDocumentComposerReplyStore
-            .getState()
-            .dropDetachedQueuedSend(event.clientMessageId);
-        }
+        acceptCorrelatedRecovery(
+          event.clientMessageId,
+          isPendingReply(event.conversationId, event.clientMessageId),
+        );
       }
       useDocumentComposerReplyStore
         .getState()
@@ -305,14 +326,10 @@ export function DocumentComposerReplyWatcher() {
     if (event.type === "message_requeued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
       if (event.clientMessageId !== undefined) {
-        useDocumentComposerReplyStore
-          .getState()
-          .dropFailedSend(event.clientMessageId);
-        if (isPendingReply(event.conversationId, event.clientMessageId)) {
-          useDocumentComposerReplyStore
-            .getState()
-            .dropDetachedQueuedSend(event.clientMessageId);
-        }
+        acceptCorrelatedRecovery(
+          event.clientMessageId,
+          isPendingReply(event.conversationId, event.clientMessageId),
+        );
       }
       useDocumentComposerReplyStore
         .getState()
@@ -325,14 +342,10 @@ export function DocumentComposerReplyWatcher() {
     if (event.type === "message_dequeued") {
       rekeyByNonce(event.conversationId, event.clientMessageId);
       if (event.clientMessageId !== undefined) {
-        useDocumentComposerReplyStore
-          .getState()
-          .dropFailedSend(event.clientMessageId);
-        if (isPendingReply(event.conversationId, event.clientMessageId)) {
-          useDocumentComposerReplyStore
-            .getState()
-            .dropDetachedQueuedSend(event.clientMessageId);
-        }
+        acceptCorrelatedRecovery(
+          event.clientMessageId,
+          isPendingReply(event.conversationId, event.clientMessageId),
+        );
       }
       useDocumentComposerReplyStore
         .getState()
@@ -350,8 +363,7 @@ export function DocumentComposerReplyWatcher() {
       }
       rekeyByNonce(conversationId, clientMessageId);
       const replyStore = useDocumentComposerReplyStore.getState();
-      replyStore.dropFailedSend(clientMessageId);
-      replyStore.dropDetachedQueuedSend(clientMessageId);
+      acceptCorrelatedRecovery(clientMessageId);
       replyStore.stopAwaitingReply(conversationId, clientMessageId);
       clearProcessingWhenSettled(conversationId);
       return;
@@ -396,7 +408,8 @@ export function DocumentComposerReplyWatcher() {
       // another client's message, and the sends listed here are still owed
       // their own terminals.
       const failed = pending.find((p) => p.clientMessageId === clientMessageId);
-      if (!failed && !detached) {
+      const claimed = replyStore.settleClaimedFailedSend(clientMessageId);
+      if (!failed && !detached && !claimed) {
         return;
       }
       replyStore.dropDetachedQueuedSend(clientMessageId);

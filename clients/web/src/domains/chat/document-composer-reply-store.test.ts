@@ -65,6 +65,8 @@ beforeEach(() => {
   useDocumentComposerReplyStore.setState({
     pendingReplies: new Map(),
     failedSends: new Map(),
+    claimedFailedSendBatches: new Map(),
+    activeDocumentComposer: null,
     detachedSends: new Map(),
     detachedQueuedSends: new Map(),
     handedOffConversationIds: new Set(),
@@ -1228,6 +1230,58 @@ describe("takeFailedSend", () => {
     expect(heldFor("surf-1")).toEqual(SENT_PAYLOAD);
     expect(heldFor("surf-1", "assistant-2")).toBeUndefined();
   });
+
+  test("keeps a taken recovery correlated with its send nonce", () => {
+    getState().stashFailedSend(SENT_PAYLOAD, "cm-1");
+
+    expect(getState().takeFailedSend("assistant-1", "surf-1")).toEqual(
+      SENT_PAYLOAD,
+    );
+
+    const settled = getState().settleClaimedFailedSend("cm-1");
+    expect(settled).toEqual({
+      assistantId: "assistant-1",
+      surfaceId: "surf-1",
+      before: SENT_PAYLOAD,
+      after: null,
+      wasActiveBatch: true,
+    });
+    expect(getState().claimedFailedSendBatches.size).toBe(0);
+  });
+
+  test("settling one send leaves the rest of its recovered batch", () => {
+    const second = {
+      ...SENT_PAYLOAD,
+      content: "a second note",
+      attachments: [],
+    };
+    getState().stashFailedSend(SENT_PAYLOAD, "cm-1");
+    getState().stashFailedSend(second, "cm-2");
+    getState().takeFailedSend("assistant-1", "surf-1");
+
+    const settled = getState().settleClaimedFailedSend("cm-1");
+
+    expect(settled?.before.content).toBe(
+      "a note on the draft\n\na second note",
+    );
+    expect(settled?.after).toEqual(second);
+    expect(getState().settleClaimedFailedSend("cm-2")?.before).toEqual(
+      second,
+    );
+  });
+
+  test("tracks the active document composer by assistant and surface", () => {
+    getState().setActiveDocumentComposer("assistant-1", "surf-1");
+
+    getState().clearActiveDocumentComposer("assistant-2", "surf-1");
+    expect(getState().activeDocumentComposer).toEqual({
+      assistantId: "assistant-1",
+      surfaceId: "surf-1",
+    });
+
+    getState().clearActiveDocumentComposer("assistant-1", "surf-1");
+    expect(getState().activeDocumentComposer).toBeNull();
+  });
 });
 
 describe("takeDetachedSend", () => {
@@ -1274,10 +1328,14 @@ describe("clearHeldMessages", () => {
     getState().startAwaitingReply("conv-2", "cm-2", SENT_PAYLOAD);
     getState().markReplyQueued("conv-2", "cm-2");
     getState().clearAwaitingReplies();
+    getState().takeFailedSend("assistant-1", "surf-1");
+    getState().setActiveDocumentComposer("assistant-1", "surf-1");
 
     getState().clearHeldMessages();
 
     expect(getState().failedSends.size).toBe(0);
+    expect(getState().claimedFailedSendBatches.size).toBe(0);
+    expect(getState().activeDocumentComposer).toBeNull();
     expect(getState().detachedSends.size).toBe(0);
     expect(getState().detachedQueuedSends.size).toBe(0);
   });

@@ -1107,10 +1107,12 @@ export function useSendMessage({
           ) {
             useComposerStore
               .getState()
-              .stashFailedSend(assistantId, activeConversationId, {
-                content,
-                attachments,
-              });
+              .stashFailedSend(
+                assistantId,
+                activeConversationId,
+                { content, attachments },
+                clientMessageId,
+              );
           }
         }
         return;
@@ -1385,10 +1387,12 @@ export function useSendMessage({
         ) {
           useComposerStore
             .getState()
-            .stashFailedSend(assistantId, activeConversationId, {
-              content,
-              attachments,
-            });
+            .stashFailedSend(
+              assistantId,
+              activeConversationId,
+              { content, attachments },
+              clientMessageId,
+            );
         }
         // Multi-key processing-key cleanup: when a send is retargeted
         // (e.g. draft → new conversation), both the original active key

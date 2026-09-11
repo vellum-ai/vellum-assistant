@@ -99,6 +99,7 @@ beforeEach(() => {
   useComposerStore.setState({
     failedSendsByConversation: new Map(),
     queuedSends: new Map(),
+    claimedQueuedSendIds: new Set(),
   });
   localSettingsStore.clear();
   uploadChatAttachmentMock.mockClear();
@@ -111,6 +112,7 @@ afterEach(() => {
   useComposerStore.setState({
     failedSendsByConversation: new Map(),
     queuedSends: new Map(),
+    claimedQueuedSendIds: new Set(),
   });
   localSettingsStore.clear();
 });
@@ -1430,6 +1432,28 @@ describe("stashFailedSend and takeFailedSend", () => {
     expect(getStore().takeFailedSend("assistant-1", "conv-1")).toBeNull();
   });
 
+  test("taking a queued recovery keeps its nonce correlated until settlement", () => {
+    const payload = {
+      content: "the batched send",
+      attachments: [attachment],
+    };
+    getStore().recordQueuedSend("nonce-1", {
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      ...payload,
+    });
+    getStore().stashFailedSend("assistant-1", "conv-1", payload, "nonce-1");
+
+    expect(getStore().takeFailedSend("assistant-1", "conv-1")).toEqual(
+      payload,
+    );
+    expect(getStore().claimedQueuedSendIds.has("nonce-1")).toBe(true);
+
+    getStore().takeQueuedSend("nonce-1");
+
+    expect(getStore().claimedQueuedSendIds.has("nonce-1")).toBe(false);
+  });
+
   test("take is null for a conversation holding nothing", () => {
     expect(getStore().takeFailedSend("assistant-1", "conv-nothing")).toBeNull();
   });
@@ -1505,6 +1529,71 @@ describe("stashFailedSend and takeFailedSend", () => {
     getStore().fullReset("document");
 
     expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toBeDefined();
+  });
+});
+
+describe("replaceRecoveredPayload", () => {
+  const attachment: DisplayAttachment = {
+    id: "srv-recovered",
+    filename: "spec.pdf",
+    mimeType: "application/pdf",
+    sizeBytes: 2048,
+    previewUrl: null,
+  };
+
+  test("retracts an exact recovered document payload", () => {
+    getStore().setInput("persisted after all", "document");
+    getStore().restoreAttachmentsIfEmpty([attachment], "document");
+
+    expect(
+      getStore().replaceRecoveredPayload(
+        { content: "persisted after all", attachments: [attachment] },
+        undefined,
+        "document",
+      ),
+    ).toBe(true);
+    expect(getStore().documentInput).toBe("");
+    expect(getStore().documentAttachments).toEqual([]);
+  });
+
+  test("leaves a recovered payload the user edited", () => {
+    getStore().setInput("edited recovery", "document");
+    getStore().restoreAttachmentsIfEmpty([attachment], "document");
+
+    expect(
+      getStore().replaceRecoveredPayload(
+        { content: "persisted after all", attachments: [attachment] },
+        undefined,
+        "document",
+      ),
+    ).toBe(false);
+    expect(getStore().documentInput).toBe("edited recovery");
+    expect(getStore().documentAttachments).toHaveLength(1);
+  });
+
+  test("leaves the unaccepted messages from a recovered batch", () => {
+    const secondAttachment = { ...attachment, id: "srv-second" };
+    getStore().setInput("first\n\nsecond", "document");
+    getStore().restoreAttachmentsIfEmpty(
+      [attachment, secondAttachment],
+      "document",
+    );
+
+    expect(
+      getStore().replaceRecoveredPayload(
+        {
+          content: "first\n\nsecond",
+          attachments: [attachment, secondAttachment],
+        },
+        { content: "second", attachments: [secondAttachment] },
+        "document",
+      ),
+    ).toBe(true);
+    expect(getStore().documentInput).toBe("second");
+    expect(getStore().documentAttachments[0]).toMatchObject({
+      kind: "uploaded",
+      id: "srv-second",
+    });
   });
 });
 
