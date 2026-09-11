@@ -261,11 +261,15 @@ describe("resolveNotificationSender", () => {
   });
 
   test("rejects same-key memory carrying another native sender id", () => {
-    const owner = identity("assistant-a");
+    const owner = identity(
+      "assistant-a",
+      "connection:one",
+      "11111111-1111-4111-8111-111111111111",
+    );
     const staleMapping = identity(
       "assistant-a",
       owner.scopeId,
-      "old-platform-assistant-a",
+      "22222222-2222-4222-8222-222222222222",
     );
     const result = resolve({
       identity: owner,
