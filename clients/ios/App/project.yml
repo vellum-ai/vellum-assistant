@@ -70,6 +70,12 @@ targetTemplates:
           - "Shared/AvatarCache.swift"
           - "Shared/CommunicationContent.swift"
           - "Shared/SenderPayload.swift"
+          - "LocalNotificationCoordinator.swift"
+          - "SenderNotificationPlugin.swift"
+      # The local sender owner is app-only. Listing its files here keeps both
+      # the coordinator and Capacitor plugin out of every extension target.
+      - path: App/LocalNotificationCoordinator.swift
+      - path: App/SenderNotificationPlugin.swift
       # Notification communication helpers are listed file by file so their
       # membership stays explicit across the app and extension targets.
       - path: App/Shared/AvatarCache.swift
@@ -337,6 +343,7 @@ targets:
       - path: AppTests
       - path: App/Attribution.swift
       - path: App/NotificationCategories.swift
+      - path: App/LocalNotificationCoordinator.swift
       # The Foundation-only notification helpers. The Intents rewrite stays
       # out: donating an interaction needs a
       # real notification, which a host-less bundle has no way to produce.

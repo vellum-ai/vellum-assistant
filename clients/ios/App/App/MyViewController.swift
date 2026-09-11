@@ -8,7 +8,8 @@ import WebKit
 ///    `VoiceAudioSessionPlugin`, `VoiceLiveActivityPlugin`,
 ///    `ApnsEnvironmentPlugin`, `SelfHostedServersPlugin`,
 ///    `RecentChatsPlugin`, `WidgetSnapshotPlugin`, `AppIconPlugin`, and
-///    `ShareInboxPlugin` as local plugin instances at bridge init time.
+///    `ShareInboxPlugin`, and `SenderNotificationPlugin` as local plugin
+///    instances at bridge init time.
 ///    These plugins live inside the App target (no SPM module) so the bridge
 ///    won't discover them automatically.
 ///
@@ -201,6 +202,7 @@ class MyViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(WidgetSnapshotPlugin())
         bridge?.registerPluginInstance(AppIconPlugin())
         bridge?.registerPluginInstance(ShareInboxPlugin())
+        bridge?.registerPluginInstance(SenderNotificationPlugin())
         installNavigationDelegateProxy()
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
