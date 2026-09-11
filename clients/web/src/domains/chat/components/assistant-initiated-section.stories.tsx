@@ -190,6 +190,7 @@ function Scene({
   assistantName,
   withNeighbour = true,
   withCharacterAvatar = true,
+  activeConversationId,
 }: {
   threads: Conversation[];
   assistantName: string | null;
@@ -199,11 +200,15 @@ function Scene({
    * and no published accent var, exactly as `useAvatarAccentVar` leaves it.
    */
   withCharacterAvatar?: boolean;
+  /** The open thread, painted in the card's raised wash like a hovered row. */
+  activeConversationId?: string;
 }) {
   openGate(assistantName);
   return (
     <QueryClientProvider client={seededClient(threads, withCharacterAvatar)}>
-      <ConversationListProvider value={LIST_CONTEXT}>
+      <ConversationListProvider
+        value={{ ...LIST_CONTEXT, activeConversationId }}
+      >
         {/* The rail's real width, so title truncation reads truthfully. */}
         <div
           style={{
@@ -258,6 +263,19 @@ export const InContext: Story = {
 /** Named assistant, alone, for a closer look at the tint and header. */
 export const Alone: Story = {
   args: { threads: THREADS, assistantName: "Ada", withNeighbour: false },
+};
+
+/**
+ * One of her threads open. The current row wears the same raised wash a
+ * hovered row does, not the neutral active surface, so it stays part of the
+ * tinted card rather than punching a white cell through it.
+ */
+export const WithOpenThread: Story = {
+  args: {
+    threads: THREADS,
+    assistantName: "Ada",
+    activeConversationId: THREADS[1]!.conversationId,
+  },
 };
 
 /**
