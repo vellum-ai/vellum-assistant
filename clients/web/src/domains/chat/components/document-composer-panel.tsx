@@ -190,6 +190,7 @@ export function DocumentComposerPanel({
                   : t("composerAttachments.imageNotSupported"),
             });
           }
+          return allowed;
         }}
       />
     </div>

@@ -237,25 +237,28 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
   const image = new File([pngBytes], "photo.png", { type: "image/png" });
   const note = new File(["notes"], "note.txt", { type: "text/plain" });
 
-  function addFiles(files: File[]) {
+  function addFiles(files: File[]): File[] | void {
     const onAddAttachmentFiles = lastComposerProps.onAddAttachmentFiles as (
       files: File[],
-    ) => void;
+    ) => File[] | void;
+    let accepted: File[] | void = undefined;
     act(() => {
-      onAddAttachmentFiles(files);
+      accepted = onAddAttachmentFiles(files);
     });
+    return accepted;
   }
 
   test("stages every file while the target model can see images", () => {
     render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
 
-    addFiles([image, note]);
+    const accepted = addFiles([image, note]);
 
     expect(
       useComposerStore
         .getState()
         .documentAttachments.map((att) => att.filename),
     ).toEqual(["photo.png", "note.txt"]);
+    expect(accepted).toEqual([image, note]);
     expect(useComposerStore.getState().documentAttachmentLastError).toBeNull();
   });
 
@@ -266,13 +269,14 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
     imageAttachmentsAllowed = false;
     render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
 
-    addFiles([image, note]);
+    const accepted = addFiles([image, note]);
 
     expect(
       useComposerStore
         .getState()
         .documentAttachments.map((att) => att.filename),
     ).toEqual(["note.txt"]);
+    expect(accepted).toEqual([note]);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
       chatEn.composerAttachments.imageNotSupported,
     );
@@ -285,13 +289,14 @@ describe("DocumentComposerPanel: attachment vision gate", () => {
     imageAttachmentsAllowed = null;
     render(<DocumentComposerPanel assistantId="assistant-1" doc={DOC} />);
 
-    addFiles([image, note]);
+    const accepted = addFiles([image, note]);
 
     expect(
       useComposerStore
         .getState()
         .documentAttachments.map((att) => att.filename),
     ).toEqual(["note.txt"]);
+    expect(accepted).toEqual([note]);
     expect(useComposerStore.getState().documentAttachmentLastError).toBe(
       chatEn.composerAttachments.imageGateResolving,
     );
