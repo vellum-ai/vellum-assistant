@@ -2,7 +2,7 @@
 
 Make a route reachable from the public internet. A plugin is a channel because it declares ingress: `channels/ingress.json` is the list of routes the outside world may reach it on.
 
-The gateway owns the public surface: it validates the declaration, signature-checks every request, and holds `plugin`-signed routes behind a guardian's approval. Plugins that declare a channel ingress are considered themselves a channel in all contexts where channels are viewed.
+The gateway owns the public surface: it validates the declaration, verifies every request, and holds plugin-owned ingress behind a guardian's approval. Plugins that declare a channel ingress are considered themselves a channel in all contexts where channels are viewed.
 
 ## When to declare ingress
 
@@ -34,12 +34,12 @@ That route is served at `/webhooks/plugins/<plugin-name>/events` and handled by 
 | `kind`         | yes      |                    | `"http"` or `"websocket"`. The gateway bridges the two differently, so the kind has to be known before a connection arrives.                                                                                                                  |
 | `description`  | yes      |                    | Human-readable purpose, surfaced in gateway logs and the approval UI.                                                                                                                                                                         |
 | `handshake`    | no       | `"signed-headers"` | Where the caller carries its signature. `"signed-headers"` (default) puts it in request headers. `"signed-query"` puts the same HMAC in the URL, WebSocket only, for a caller that is handed a URL and nothing else.                          |
-| `verification` | no       | vendor HMAC        | How a third-party caller's signature is checked. HTTP only. `hmac` (parts as data) or `standard-webhooks` (the complete spec).                                                                                                                |
+| `verification` | no       | vendor HMAC        | How an outside caller is verified. HTTP only. `hmac` (parts as data), `standard-webhooks` (the complete spec), or `bearer` (a static `Authorization` token).                                                                                  |
 | `inbound`      | no       | webhook only       | That this route's replies carry inbound messages, and how to read them. HTTP only.                                                                                                                                                            |
 
 Duplicate paths in one file fail the whole declaration. A malformed file disables ingress for that plugin only; sibling plugins keep theirs.
 
-## Approval and signatures
+## Approval and verification
 
 Every public plugin route is signature-checked. An unsigned plugin route does not exist. A route whose signing secret is missing is refused rather than served unsigned, and an unauthenticated probe sees `404` whether the route is undeclared, pending, or missing a secret.
 
@@ -47,7 +47,7 @@ A guardian has to approve the declaration before the gateway serves it. The appr
 
 Ask the user to approve pending ingress from the channels settings once the plugin is installed. A plugin must not approve its own ingress.
 
-## Third-party verification
+## Ingress verification
 
 A vendor that signs `X-Example-Signature` has its own scheme. Declare `verification` so the gateway checks it. Most vendors fit `kind: "hmac"`: one engine, vendor specifics as data:
 
@@ -88,6 +88,24 @@ A vendor that adopted [Standard Webhooks](https://www.standardwebhooks.com/) (`w
   }
 }
 ```
+
+An automation client that cannot calculate an HMAC, such as an iOS Shortcut, can use a static bearer token. The gateway verifies the `Authorization` header before it forwards the request:
+
+```json
+{
+  "path": "shortcuts/health",
+  "kind": "http",
+  "description": "Health data submitted by an automation shortcut",
+  "verification": {
+    "kind": "bearer",
+    "secret": { "field": "shortcut_ingress_token" }
+  }
+}
+```
+
+Store `shortcut_ingress_token` through `assistant credentials prompt` or `storeCredential`, then configure the client to send exactly one token in `Authorization: Bearer <shortcut_ingress_token>`. The scheme name is case-insensitive, but the token is not. Do not put the token in a URL or query string. URLs can be retained in browser history, logs, and referrer data, and the gateway accepts bearer credentials only in `Authorization`.
+
+A static bearer token does not provide replay protection. Prefer `hmac` with `freshness` when a vendor supports signed timestamps, and rotate the token after any suspected disclosure.
 
 Rules that stay gateway-side:
 
