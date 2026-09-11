@@ -81,26 +81,30 @@ export function isMemoryV3Live(config: AssistantConfig): boolean {
  * FEATURE asks this predicate; only the injection-suppression checks that must
  * mirror the raw `memory.v3.live` key ask {@link isMemoryV3Live} directly.
  *
- * The two features gated on it, and why they must agree:
+ * The memory concept graph is gated on it: both `GET /memory-graph`
+ * (`supported`) and the cheap `graph_supported` bit on `GET /memory/stats`
+ * must agree with whether the graph can build from the v3 concept-page
+ * substrate.
  *
- * - The memory concept graph — the single source of truth for both
- *   `GET /memory-graph` (`supported`) and the cheap `graph_supported` bit on
- *   `GET /memory/stats`, so the advertised capability and the actual build can
- *   never drift. The graph builds off the v3 concept-page substrate.
- * - Procedural-memory-as-skills — the retrospective's skill-authoring step and
- *   its permission grant. Scoped to the v3 tier because skill retrieval rides
- *   the v3 lanes and the usage-prune stage lives in the v3 maintain job. That
- *   prune ships observe-first: with `memory.maintenance.skillPruneDays` at its
- *   default (`null`) it reports stale assistant-authored skills
- *   (`prunableSkills`) but deletes none — so a v3-tier assistant authors skills
- *   without an automatic retirement bound until a positive `skillPruneDays` is
- *   configured.
- *
- * Both write into memory on the user's behalf, so both honor the Memory
- * opt-out identically: one predicate, one answer.
+ * Retrospective skill improvement is a separate optional v3-tier feature.
+ * Ask {@link isSkillImprovementActive} for it so an operator can stop managed
+ * skill authoring without turning off ordinary retrospective memory capture.
  */
 export function isV3TierActive(config: AssistantConfig): boolean {
   return isMemoryEnabled(config) && isMemoryV3Live(config);
+}
+
+/**
+ * Whether a retrospective may turn observed procedures into managed skills.
+ * This requires the v3 tier because skills are retrieved through its memory
+ * substrate, and it honors the retrospective-specific opt-out without
+ * disabling ordinary retrospective fact retention.
+ */
+export function isSkillImprovementActive(config: AssistantConfig): boolean {
+  return (
+    isV3TierActive(config) &&
+    config.memory?.retrospective?.skillImprovement !== false
+  );
 }
 
 /**

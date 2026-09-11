@@ -854,6 +854,38 @@ describe("MediaStreamOutput", () => {
       // Initially empty
       expect(output.getPlaybackQueueLength()).toBe(0);
     });
+
+    test("isPlaybackIdle tracks buffered text, the queue, and the sent-audio tail", async () => {
+      const samples = Array.from({ length: 4000 }, (_, i) =>
+        Math.round(Math.sin(i * 0.1) * 10000),
+      );
+      mockSynthesize.mockResolvedValue({
+        audio: makeWavBuffer(samples),
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "stream-1");
+      expect(output.isPlaybackIdle()).toBe(true);
+      expect(output.playbackTailUntilMs()).toBe(0);
+
+      // Text buffered toward a sentence boundary is pending speech.
+      output.sendTextToken("Still thinking", false);
+      expect(output.isPlaybackIdle()).toBe(false);
+
+      output.sendTextToken(" about it.", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // Frames left faster than real time: the tail estimate still covers
+      // the audio Twilio is playing out.
+      expect(output.playbackTailUntilMs()).toBeGreaterThan(Date.now());
+      expect(output.isPlaybackIdle()).toBe(false);
+
+      // A barge-in clear drops Twilio's buffer, so nothing is audible.
+      output.clearAudio();
+      expect(output.playbackTailUntilMs()).toBe(0);
+      expect(output.isPlaybackIdle()).toBe(true);
+    });
   });
 
   // ---------------------------------------------------------------------------

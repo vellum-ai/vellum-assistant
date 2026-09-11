@@ -202,18 +202,20 @@ export function getCesHttpConfig():
  * Activated when `CES_CREDENTIAL_URL` is set (e.g. `http://ces-host:8090`).
  * Requires `CES_SERVICE_TOKEN` for bearer auth.
  *
- * Returns `undefined` if the env vars are not set, the CES is unreachable,
- * or the credential doesn't exist (404).
+ * Returns `undefined` when CES HTTP is not configured. When it is configured,
+ * `unreachable` is true on transport/5xx failures so callers can distinguish
+ * an outage from a missing credential.
  */
-async function readCesCredential(account: string): Promise<string | undefined> {
+async function readCesCredential(
+  account: string,
+): Promise<{ value: string | undefined; unreachable: boolean } | undefined> {
   const config = getCesHttpConfig();
   if (!config) {
     return undefined;
   }
 
   const client = createCesHttpCredentialClient(config, log);
-  const result = await client.get(account);
-  return result.value;
+  return client.get(account);
 }
 
 export type ServiceCredentialSpec = {
@@ -251,21 +253,49 @@ async function requiredCesMetadataPresent(
 // ---------------------------------------------------------------------------
 
 /**
- * Read a single credential by account key.
+ * Read a single credential by account key, distinguishing a vault outage
+ * from a missing value.
  *
  * Resolution order:
  * 1. CES HTTP API (when CES_CREDENTIAL_URL is set)
- * 2. Encrypted-at-rest store (keys.enc)
+ * 2. Encrypted-at-rest store (keys.enc), only when CES is not configured
+ *    or CES answered that the account is absent
+ *
+ * A configured CES that is unreachable does not fall through to keys.enc.
+ * On a containerized pod that store is empty, and falling through would
+ * report every credential as missing.
+ */
+export async function readCredentialResult(
+  account: string,
+): Promise<{ value: string | undefined; unreachable: boolean }> {
+  const ces = await readCesCredential(account);
+  if (ces) {
+    if (ces.unreachable) {
+      return { value: undefined, unreachable: true };
+    }
+    if (ces.value !== undefined) {
+      return { value: ces.value, unreachable: false };
+    }
+  }
+
+  return {
+    value: await readEncryptedCredential(account),
+    unreachable: false,
+  };
+}
+
+/**
+ * Read a single credential by account key.
+ *
+ * Convenience wrapper over `readCredentialResult` that returns only the
+ * value. Callers that must distinguish "not stored" from "vault down"
+ * should use `readCredentialResult`.
  */
 export async function readCredential(
   account: string,
 ): Promise<string | undefined> {
-  // CES HTTP backend (containerized mode)
-  const cesValue = await readCesCredential(account);
-  if (cesValue !== undefined) return cesValue;
-
-  // Encrypted file fallback
-  return readEncryptedCredential(account);
+  const result = await readCredentialResult(account);
+  return result.value;
 }
 
 /**

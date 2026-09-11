@@ -224,7 +224,6 @@ function renderMenu(props: {
   collapsed?: boolean;
   variant?: "rail" | "overlay";
   includeFooterAction?: boolean;
-  includeTipCard?: boolean;
   isLoadingConversations?: boolean;
   conversationsFailed?: boolean;
   onRetryConversations?: () => void;
@@ -249,9 +248,6 @@ function renderMenu(props: {
       onSelectConversation: () => {},
       footerAction: includeFooterAction
         ? createElement("span", null, "Preferences")
-        : undefined,
-      tipCard: props.includeTipCard
-        ? createElement("span", null, "TipSentinel")
         : undefined,
       notificationsAction: props.includeNotificationsAction
         ? createElement("span", { "data-testid": "bell-stub" }, "Bell")
@@ -608,91 +604,32 @@ describe("AssistantSideMenu · footer slot behavior", () => {
     expect(html).not.toContain("Preferences");
     expect(html).not.toContain('data-slot="side-menu-footer"');
   });
-});
 
-describe("AssistantSideMenu · tipCard slot", () => {
-  const conversations = [
-    makeConversation({ conversationId: "a", title: "Alpha" }),
-  ];
+  test("renders the footer action on the collapsed rail", () => {
+    const conversations = [
+      makeConversation({ conversationId: "a", title: "Alpha" }),
+    ];
 
-  test("renders the rail footer as tip card, then footer action", () => {
-    const html = renderMenu({ conversations, includeTipCard: true });
+    const html = renderMenu({ conversations, collapsed: true });
 
-    const footerIndex = html.indexOf('data-slot="side-menu-footer"');
-    const tipIndex = html.indexOf("TipSentinel");
-    const actionIndex = html.indexOf("Preferences");
-    expect(footerIndex).toBeGreaterThanOrEqual(0);
-    expect(tipIndex).toBeGreaterThan(footerIndex);
-    expect(actionIndex).toBeGreaterThan(tipIndex);
+    expect(html).toContain("Preferences");
   });
 
-  /* The footer carries no rule, in either direction: not over the tip card
-     and not between it and the action. Scoped to the footer rather than the
-     whole tree so a separator elsewhere in the sidebar cannot mask a rule
-     reappearing here. */
   test("the rail footer carries no separator", () => {
-    const container = parse(
-      renderMenu({ conversations, includeTipCard: true }),
-    );
-
+    const conversations = [
+      makeConversation({ conversationId: "a", title: "Alpha" }),
+    ];
+    const container = parse(renderMenu({ conversations }));
     const footer = container.querySelector<HTMLElement>(
       '[data-slot="side-menu-footer"]',
     );
+
     if (!footer) {
       throw new Error("expected the rail footer");
     }
     expect(
       footer.querySelectorAll('[data-slot="side-menu-separator"]'),
     ).toHaveLength(0);
-  });
-
-  test("hides the tip card on the collapsed rail", () => {
-    const html = renderMenu({
-      conversations,
-      collapsed: true,
-      includeTipCard: true,
-    });
-
-    expect(html).not.toContain("TipSentinel");
-    // The footer action still renders when collapsed.
-    expect(html).toContain("Preferences");
-  });
-
-  test("renders the footer when only the tip card is provided", () => {
-    const html = renderMenu({
-      conversations,
-      includeFooterAction: false,
-      includeTipCard: true,
-    });
-
-    expect(html).toContain('data-slot="side-menu-footer"');
-    expect(html).toContain("TipSentinel");
-    expect(html).not.toContain("Preferences");
-  });
-
-  test("renders the tip card in the overlay floating container above the action pills", () => {
-    const html = renderMenu({
-      conversations,
-      variant: "overlay",
-      includeTipCard: true,
-    });
-
-    const tipIndex = html.indexOf("TipSentinel");
-    const actionIndex = html.indexOf("Preferences");
-    expect(tipIndex).toBeGreaterThanOrEqual(0);
-    expect(actionIndex).toBeGreaterThan(tipIndex);
-    // The wrapper re-enables pointer events inside the pointer-events-none
-    // container and collapses when the tip card renders null.
-    const wrapperOpen = html.lastIndexOf("<div", tipIndex);
-    const wrapper = html.slice(wrapperOpen, tipIndex);
-    expect(wrapper).toContain("pointer-events-auto");
-    expect(wrapper).toContain("empty:hidden");
-  });
-
-  test("omits the tip wrapper from the overlay when no tip card is provided", () => {
-    const html = renderMenu({ conversations, variant: "overlay" });
-
-    expect(html).not.toContain('data-slot="tip-card-wrapper"');
   });
 });
 
@@ -748,11 +685,13 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
     let measuredHeight = 132;
     let resizeCallback: ResizeObserverCallback | null = null;
 
-    // Only the floating-column ref is measured by the reserve effect, so
-    // matching by tip descendant is safe — ancestors are never measured.
+    const floatingColumnSelector =
+      '[data-slot="side-menu-overlay-bottom-column"]';
+
+    // Only the floating action column is measured by the reserve effect.
     HTMLElement.prototype.getBoundingClientRect =
       function getBoundingClientRect() {
-        if (this.querySelector('[data-testid="overlay-tip"]')) {
+        if (this.matches(floatingColumnSelector)) {
           return {
             bottom: measuredHeight,
             height: measuredHeight,
@@ -776,7 +715,7 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
         this.callback = callback;
       }
       observe(target: Element) {
-        if (target.querySelector('[data-testid="overlay-tip"]')) {
+        if (target.matches(floatingColumnSelector)) {
           resizeCallback = this.callback;
         }
       }
@@ -794,11 +733,6 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
           onSelectConversation: () => {},
           onStartNewConversation: () => {},
           footerAction: createElement("span", null, "Preferences"),
-          tipCard: createElement(
-            "span",
-            { "data-testid": "overlay-tip" },
-            "TipSentinel",
-          ),
         }),
       );
 
@@ -817,8 +751,8 @@ describe("AssistantSideMenu · overlay bottom scroll reserve", () => {
         expect(measuredReserve()).toBe("132px");
       });
 
-      // Tip dismissal / copy-length changes resize the column; the
-      // reserve tracks the new height through the ResizeObserver.
+      // Changes to the action row resize the column; the reserve tracks the
+      // new height through the ResizeObserver.
       measuredHeight = 56;
       act(() => {
         resizeCallback?.([], {} as ResizeObserver);

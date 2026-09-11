@@ -1,6 +1,6 @@
 /**
  * `evictConversationsForReload` drops in-memory conversations after a
- * config/prompt/skills reload so the next turn rebuilds them against the new
+ * config/prompt reload so the next turn rebuilds them against the new
  * config. Queued messages live only on the instance being disposed, so the
  * same "not idle while a queue is pending" rule the periodic evictor applies
  * has to hold here: `isProcessing()` reads false in the window between a turn

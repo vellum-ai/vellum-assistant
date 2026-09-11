@@ -17,6 +17,7 @@ import {
   mediaSourceByteLength,
   resolveMediaReferences,
 } from "../media-resolve.js";
+import { supportsForcedToolChoiceWithThinking } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { recordProviderRequestDiagnostics } from "../request-diagnostics.js";
 import { createStreamTimeout } from "../stream-timeout.js";
@@ -404,9 +405,15 @@ export function isThinkingEnabledOnWire(params: unknown): boolean {
  * rejected it because thinking/reasoning mode forbids that parameter.
  * DeepSeek thinking mode 400s with `Thinking mode does not support this
  * tool_choice` for any explicit value, including `"auto"` and `"none"`.
- * One retry without `tool_choice` lets the same provider succeed instead of
- * failing over to a different backend.
+ * Kimi 400s with `tool_choice 'specified' is incompatible with thinking
+ * enabled`. One retry without `tool_choice` lets the same provider succeed
+ * instead of failing over to a different backend.
  */
+const THINKING_MODE_TOOL_CHOICE_REJECTION_PATTERNS: RegExp[] = [
+  /does not support this tool_choice/i,
+  /tool_choice\s+'specified'\s+is incompatible with thinking/i,
+];
+
 function isThinkingModeToolChoiceRejection(
   error: unknown,
   params: unknown,
@@ -418,8 +425,9 @@ function isThinkingModeToolChoiceRejection(
   if (!isClientErrorStatus(error)) {
     return false;
   }
-  return /does not support this tool_choice/i.test(
-    openaiCompatErrorHaystack(error),
+  const haystack = openaiCompatErrorHaystack(error);
+  return THINKING_MODE_TOOL_CHOICE_REJECTION_PATTERNS.some((pattern) =>
+    pattern.test(haystack),
   );
 }
 
@@ -969,7 +977,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
           const thinkingOn = isThinkingEnabledOnWire(params);
           const skipAutoDefault = thinkingOn && toolChoice === "auto";
           const skipAllChoices = thinkingOn && this.omitToolChoiceWhenReasoning;
-          if (!skipAutoDefault && !skipAllChoices) {
+          const skipIncompatibleForcedChoice =
+            thinkingOn &&
+            !supportsForcedToolChoiceWithThinking(
+              this.name,
+              modelOverride ?? this.model,
+            ) &&
+            (toolChoice === "required" || typeof toolChoice === "object");
+          if (
+            !skipAutoDefault &&
+            !skipAllChoices &&
+            !skipIncompatibleForcedChoice
+          ) {
             params.tool_choice = toolChoice;
           }
         }

@@ -287,5 +287,8 @@
     "title": "您已準備就緒",
     "setupNote": "我已根據您的資訊設定了外掛程式。",
     "letsChat": "開始聊天"
+  },
+  "googleCalendar": {
+    "providerLabel": "Google 日曆"
   }
 }

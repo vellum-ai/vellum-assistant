@@ -227,7 +227,7 @@ describe("ResourcePressureBannerSlot", () => {
   test("a cooldown lapsing while mounted re-enables the banner", async () => {
     // A short synthetic deadline stands in for the 7-day cooldown; bun's
     // setSystemTime does not advance setTimeout, so the test rides a real
-    // timer (same approach as use-tip-card.test).
+    // timer, matching the other deadline-driven hook tests.
     localStorage.setItem(DISMISSED_UNTIL_KEY, String(Date.now() + 60));
     render(slot(elevatedStatus));
 

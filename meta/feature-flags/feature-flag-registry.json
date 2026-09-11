@@ -30,18 +30,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "proactive-tips",
-      "scope": "client",
-      "key": "proactive-tips",
-      "label": "Proactive Tips",
-      "description": "Gates the dismissible proactive tip card in the web sidebar. String-valued so future A/B arms can be added as new values.",
-      "defaultEnabled": "off",
-      "values": [
-        "off",
-        "on"
-      ]
-    },
-    {
       "id": "vision-mode",
       "scope": "client",
       "key": "vision-mode",
@@ -211,7 +199,7 @@
       "scope": "client",
       "key": "internal-thread-actions",
       "label": "Internal Thread Actions",
-      "description": "Show the internal thread affordances: 'Fork from here', 'Summarize up to here', and 'Read aloud' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. The flag is the sole gate: any session that enables it gets the affordances, including local sessions with no platform identity.",
+      "description": "Show the internal thread affordances: 'Fork from here' and 'Summarize up to here' on messages, 'Fork Conversation', 'Analyze Conversation', and 'Copy conversation ID' in the thread menu, plus the LLM inspector surfaces. The flag is the sole gate: any session that enables it gets the affordances, including local sessions with no platform identity.",
       "defaultEnabled": false
     },
     {

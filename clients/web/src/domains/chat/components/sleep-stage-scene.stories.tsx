@@ -5,7 +5,10 @@
  * and only on an arrival, so this is where the animation itself gets watched:
  * pick an eye style and a color, switch scenes, and see the lids move. The
  * `Waking up` story runs the real sequence end to end on a loop, which is the
- * one thing a static scene cannot show.
+ * one thing a static scene cannot show. `Light and dark` puts the two themes
+ * side by side: the stage is dark in both, since the eyes' whites are a
+ * near-white and so is the light surface, and this is where that holds or
+ * does not. `Every color` runs the palette against that ground.
  *
  * The eye art comes from the bundled character catalog through the same
  * `resolveSleepStageEyes` the app uses, so what renders here is what ships.
@@ -48,6 +51,24 @@ interface StoryArgs {
   eyeStyle: string;
   color: string;
   line: string;
+}
+
+/** A frame pinned to one theme, for the stories that show more than one. */
+function ThemedStage({
+  theme,
+  children,
+}: {
+  theme: "light" | "dark";
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      data-theme={theme}
+      className="relative h-[560px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--surface-base)] p-6"
+    >
+      {children}
+    </div>
+  );
 }
 
 /** The stage is an inset layer, so the frame stands in for the chat `<main>`. */
@@ -122,6 +143,56 @@ export const EveryEyeStyle: Story = {
             scene={scene}
             eyes={eyesFor(eyeStyle, color)}
             line={eyeStyle}
+            dismissLabel="Hide the sleep screen"
+          />
+        </div>
+      ))}
+    </div>
+  ),
+};
+
+/**
+ * The same scene in both themes at once. The app's surface is near-white in
+ * light and near-black in dark, and the eyes' whites are near-white in both,
+ * so the stage keeps its own dark ground in either: this is where that is
+ * checked, with the frame around the stage showing the theme it sits in.
+ */
+export const LightAndDark: Story = {
+  name: "Light and dark",
+  render: ({ scene, eyeStyle, color, line }) => (
+    <div className="flex flex-col gap-4 p-4 md:flex-row">
+      {(["light", "dark"] as const).map((theme) => (
+        <ThemedStage key={theme} theme={theme}>
+          <SleepStageView
+            scene={scene}
+            eyes={eyesFor(eyeStyle, color)}
+            line={line}
+            dismissLabel="Hide the sleep screen"
+          />
+        </ThemedStage>
+      ))}
+    </div>
+  ),
+};
+
+/**
+ * Every palette color asleep at once. The lid is the avatar's color and the
+ * whites of the eyes are fixed, so the lightest color (yellow) is the one to
+ * watch against the stage's dark ground.
+ */
+export const EveryColor: Story = {
+  name: "Every color",
+  render: ({ eyeStyle, scene }) => (
+    <div className="grid grid-cols-3 gap-4 bg-[var(--surface-base)] p-4">
+      {COLORS.map((color) => (
+        <div
+          key={color}
+          className="relative h-[320px] overflow-hidden rounded-xl border border-[var(--border-base)]"
+        >
+          <SleepStageView
+            scene={scene}
+            eyes={eyesFor(eyeStyle, color)}
+            line={color}
             dismissLabel="Hide the sleep screen"
           />
         </div>

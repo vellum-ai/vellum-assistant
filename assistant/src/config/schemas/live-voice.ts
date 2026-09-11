@@ -77,149 +77,6 @@ export const LiveVoiceVadConfigSchema = z
     "Voice-activity-detection tuning for live voice sessions (open-mic turn segmentation)",
   );
 
-export const LiveVoiceProgressConfigSchema = z
-  .object({
-    enabled: z
-      .boolean({
-        error: "liveVoice.frontModel.progress.enabled must be a boolean",
-      })
-      .default(true)
-      .describe(
-        "Speak short progress updates during long-running tool-heavy turns; the opt-out for progress narration",
-      ),
-    opsThreshold: z
-      .number({
-        error: "liveVoice.frontModel.progress.opsThreshold must be a number",
-      })
-      .int("liveVoice.frontModel.progress.opsThreshold must be an integer")
-      .positive(
-        "liveVoice.frontModel.progress.opsThreshold must be a positive integer",
-      )
-      .default(3)
-      .describe(
-        "Narrate after this many tool operations since the last narration",
-      ),
-    idleIntervalMs: z
-      .number({
-        error: "liveVoice.frontModel.progress.idleIntervalMs must be a number",
-      })
-      .int("liveVoice.frontModel.progress.idleIntervalMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.progress.idleIntervalMs must be a positive integer",
-      )
-      .default(5_000)
-      .describe(
-        "How often (ms) a running turn's silence is checked, and so the soonest new tool activity is narrated",
-      ),
-    maxSilenceMs: z
-      .number({
-        error: "liveVoice.frontModel.progress.maxSilenceMs must be a number",
-      })
-      .int("liveVoice.frontModel.progress.maxSilenceMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.progress.maxSilenceMs must be a positive integer",
-      )
-      .default(35_000)
-      .describe(
-        "Heartbeat ceiling (ms): narrate after this much unbroken silence even when nothing new has happened. Evaluated on the idle tick, so its resolution is idleIntervalMs and it must be at least that long",
-      ),
-    longOpMs: z
-      .number({
-        error: "liveVoice.frontModel.progress.longOpMs must be a number",
-      })
-      .int("liveVoice.frontModel.progress.longOpMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.progress.longOpMs must be a positive integer",
-      )
-      .default(15_000)
-      .describe(
-        "A tool operation that ran at least this long (ms) narrates the moment it completes, without waiting for opsThreshold",
-      ),
-    minGapMs: z
-      .number({
-        error: "liveVoice.frontModel.progress.minGapMs must be a number",
-      })
-      .int("liveVoice.frontModel.progress.minGapMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.progress.minGapMs must be a positive integer",
-      )
-      .default(6_000)
-      .describe(
-        "Minimum spacing (ms) from any spoken floor-holder — ack or narration",
-      ),
-    generationTimeoutMs: z
-      .number({
-        error:
-          "liveVoice.frontModel.progress.generationTimeoutMs must be a number",
-      })
-      .int(
-        "liveVoice.frontModel.progress.generationTimeoutMs must be an integer",
-      )
-      .positive(
-        "liveVoice.frontModel.progress.generationTimeoutMs must be a positive integer",
-      )
-      .default(1_500)
-      .describe(
-        "Budget (ms) for LLM-generated progress text — not latency-critical: it speaks into dead air",
-      ),
-  })
-  // The heartbeat is checked when the idle tick finds the turn silent, so a
-  // ceiling shorter than the tick interval would be missed by up to a full
-  // interval — a promise the cadence cannot keep. Rejecting the combination
-  // beats silently overshooting it.
-  .refine((progress) => progress.maxSilenceMs >= progress.idleIntervalMs, {
-    error:
-      "liveVoice.frontModel.progress.maxSilenceMs must be at least idleIntervalMs — the heartbeat is evaluated on the idle tick",
-  })
-  .describe(
-    "Progress-narration tuning for live voice sessions (spoken updates during long-running turns)",
-  );
-
-export const LiveVoiceFrontModelConfigSchema = z
-  .object({
-    endpointDecisionTimeoutMs: z
-      .number({
-        error:
-          "liveVoice.frontModel.endpointDecisionTimeoutMs must be a number",
-      })
-      .int("liveVoice.frontModel.endpointDecisionTimeoutMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.endpointDecisionTimeoutMs must be a positive integer",
-      )
-      .default(1200)
-      .describe(
-        "Hard budget (ms) for the endpoint decision LLM call. This adds to end-of-turn latency when semantic endpointing is on, so keep it as tight as the decider model's real roundtrip allows — measured Haiku roundtrips through the managed proxy run ~670-1130ms (dev), so tighter budgets turn the feature into a fail-open no-op.",
-      ),
-    endpointExtensionMs: z
-      .number({
-        error: "liveVoice.frontModel.endpointExtensionMs must be a number",
-      })
-      .int("liveVoice.frontModel.endpointExtensionMs must be an integer")
-      .positive(
-        "liveVoice.frontModel.endpointExtensionMs must be a positive integer",
-      )
-      .default(1500)
-      .describe(
-        "How long (ms) a 'hold' decision keeps the turn open before turn-end replays",
-      ),
-    endpointMaxExtensions: z
-      .number({
-        error: "liveVoice.frontModel.endpointMaxExtensions must be a number",
-      })
-      .int("liveVoice.frontModel.endpointMaxExtensions must be an integer")
-      .nonnegative(
-        "liveVoice.frontModel.endpointMaxExtensions must be a nonnegative integer",
-      )
-      .default(2)
-      .describe("Cap on consecutive 'hold' extensions per utterance"),
-    progress: LiveVoiceProgressConfigSchema.default(
-      LiveVoiceProgressConfigSchema.parse({}),
-    ),
-  })
-  .describe(
-    "Voice front-door endpointing and long-turn progress narration tuning",
-  );
-
 const LiveVoiceFluxTurnEndConfigSchema = z
   .object({
     enabled: z
@@ -284,9 +141,6 @@ export const LiveVoiceFluxConfigSchema = z
 export const LiveVoiceConfigSchema = z
   .object({
     vad: LiveVoiceVadConfigSchema.default(LiveVoiceVadConfigSchema.parse({})),
-    frontModel: LiveVoiceFrontModelConfigSchema.default(
-      LiveVoiceFrontModelConfigSchema.parse({}),
-    ),
     flux: LiveVoiceFluxConfigSchema.default(
       LiveVoiceFluxConfigSchema.parse({}),
     ),
@@ -298,15 +152,9 @@ export const LiveVoiceConfigSchema = z
       ),
   })
   .describe(
-    "Live voice (in-app duplex audio) configuration: VAD tuning, front-model routing, Flux turn detection, and audio archiving",
+    "Live voice (in-app duplex audio) configuration: VAD tuning, Flux turn detection, and audio archiving",
   );
 
 export type LiveVoiceConfig = z.infer<typeof LiveVoiceConfigSchema>;
 export type LiveVoiceVadConfig = z.infer<typeof LiveVoiceVadConfigSchema>;
-export type LiveVoiceFrontModelConfig = z.infer<
-  typeof LiveVoiceFrontModelConfigSchema
->;
-export type LiveVoiceProgressConfig = z.infer<
-  typeof LiveVoiceProgressConfigSchema
->;
 export type LiveVoiceFluxConfig = z.infer<typeof LiveVoiceFluxConfigSchema>;

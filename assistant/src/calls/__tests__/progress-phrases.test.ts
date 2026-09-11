@@ -8,7 +8,6 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { BRIDGE_SENTENCE_END_REGEX } from "../../calls/voice-triage-escalate.js";
 import { DEEPGRAM_MULTI_LANGUAGE_CODES } from "../../providers/speech-to-text/deepgram.js";
 import {
   APPROVAL_PENDING_PHRASE,
@@ -18,6 +17,7 @@ import {
   PROGRESS_FALLBACK_PHRASES,
   PROGRESS_FALLBACK_PHRASES_BY_LANGUAGE,
 } from "../progress-phrases.js";
+import { BRIDGE_SENTENCE_END_REGEX } from "../voice-triage-escalate.js";
 
 // Scripts without space-delimited words, where a word budget is
 // meaningless and length is asserted instead.

@@ -99,17 +99,20 @@ export interface ReactionTarget {
 
 /**
  * Where a proactive send goes, in the caller's vocabulary rather than any
- * channel's: a chat the caller already knows, optionally a thread within it,
- * or a person to reach in their DM. How a thread is spelled and how a person
- * becomes a DM is each channel's own business.
+ * channel's: a chat the caller already knows, optionally a thread within it.
+ * How a thread is spelled is each channel's own business.
+ *
+ * Tagged with its kind so a second way of naming a destination is additive
+ * rather than a reinterpretation of `chatId`. Reaching a person who has not
+ * been named as a chat is deliberately not a kind here: on Slack and Discord
+ * it costs a platform call whose result must be resolved at send time rather
+ * than stored, and nothing asks for it yet.
  */
-export type ProactiveTarget =
-  | {
-      readonly kind: "chat";
-      readonly chatId: string;
-      readonly threadId?: string;
-    }
-  | { readonly kind: "person"; readonly userId: string };
+export type ProactiveTarget = {
+  readonly kind: "chat";
+  readonly chatId: string;
+  readonly threadId?: string;
+};
 
 /**
  * A proactive target resolved into what this channel's operations read: the
@@ -142,15 +145,18 @@ export interface ChannelTransport {
    * for a send that no inbound message brought a callback for.
    *
    * Implementing it is the whole of declaring that the channel can be
-   * addressed from a named chat or person. A transport that can only answer
-   * on the callback an inbound message carried omits it, and a caller reads
-   * the omission as "not addressable" rather than switching on the channel's
-   * name. Returning `undefined` for a target shape this channel cannot
-   * address is the same answer for that shape alone.
+   * addressed from a named chat. A transport that can only answer on the
+   * callback an inbound message carried omits it, and a caller reads the
+   * omission as "not addressable" rather than switching on the channel's
+   * name. Returning `undefined` for a target this channel cannot address is
+   * the same answer for that target alone.
+   *
+   * Resolution is local: it reads the target and the channel's own
+   * vocabulary, and makes no platform call. A destination that has to be
+   * resolved over the network belongs behind its own capability, so this one
+   * stays cheap enough to call on every send.
    */
-  addressFor?(
-    target: ProactiveTarget,
-  ): ProactiveAddress | undefined | Promise<ProactiveAddress | undefined>;
+  addressFor?(target: ProactiveTarget): ProactiveAddress | undefined;
 
   /**
    * Whether a proactive send to a chat must also bind that chat's inbound

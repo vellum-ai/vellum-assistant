@@ -842,6 +842,42 @@ describe("startVoiceTurn triage-and-escalate control prompt", () => {
     expect(installed()).toContain(escalatedContinuationRule());
   });
 
+  test("the auto-built phone prompt carries the front-door rule anchored to the caller's words", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      content: "what time is it",
+      routingLeg: "front-door",
+    });
+    expect(installed()).toContain("<voice_call_control>");
+    expect(installed()).toContain(
+      `13. ${frontDoorDecisionRule({ callerUtterance: "what time is it" })}`,
+    );
+  });
+
+  test("a phone sentinel anchors the front-door rule on its persisted form", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({ ...makeTurnOptions(), routingLeg: "front-door" });
+    expect(installed()).toContain(
+      frontDoorDecisionRule({
+        callerUtterance: "(call connected — deliver opening greeting)",
+      }),
+    );
+    expect(installed()).not.toContain(JSON.stringify(CALL_OPENING_MARKER));
+  });
+
+  test("the auto-built phone prompt carries the escalated continuation rule", async () => {
+    const installed = captureInstalledPrompt();
+    await startVoiceTurn({
+      ...makeTurnOptions(),
+      routingLeg: "escalated",
+      spokenEscalationBridge: "One moment.",
+    });
+    expect(installed()).toContain(
+      `13. ${escalatedContinuationRule("One moment.")}`,
+    );
+  });
+
   test("leaves a caller-supplied prompt verbatim when no routing leg is set", async () => {
     const installed = captureInstalledPrompt();
     await startVoiceTurn({

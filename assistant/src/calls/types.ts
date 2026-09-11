@@ -11,6 +11,8 @@ export type CallEventType =
   | "call_connected"
   | "caller_spoke"
   | "assistant_spoke"
+  | "tool_use_started"
+  | "tool_use_completed"
   | "user_question_asked"
   | "user_answered"
   | "user_instruction_relayed"

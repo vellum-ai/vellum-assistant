@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { useTranslation } from "@/i18n";
+
 import { organizationsBillingSubscriptionChangePackageCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import type { PackageChangeResponse } from "@/generated/api/types.gen";
 
@@ -15,6 +17,7 @@ import { extractMutationError } from "@/domains/settings/components/adjust-plan-
  */
 export function useChangePackage() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation("settings");
   const mutation = useMutation(
     organizationsBillingSubscriptionChangePackageCreateMutation(),
   );
@@ -30,10 +33,7 @@ export function useChangePackage() {
       return result;
     } catch (error) {
       toast.error(
-        extractMutationError(
-          error,
-          "Failed to change your plan. Please try again.",
-        ),
+        extractMutationError(error, t("customPlanModal.changeFailed")),
       );
       return null;
     }

@@ -20,6 +20,7 @@ import {
 } from "@vellumai/credential-storage";
 import type { CredentialRecord } from "@vellumai/service-contracts/credential-rpc";
 
+import { createCesHttpRecordBackendIfConfigured } from "../../security/ces-http-record-backend.js";
 import type { CredentialRecordBackend } from "../../security/ces-rpc-record-backend.js";
 import { getLogger } from "../../util/logger.js";
 import type { CredentialInjectionTemplate } from "./policy-types.js";
@@ -55,6 +56,11 @@ const CES_MEMORY_PATH = "ces-in-memory-credential-metadata";
 let _store: StaticCredentialMetadataStore | undefined;
 let _overridePath: string | null = null;
 let _recordBackend: CredentialRecordBackend | undefined;
+/**
+ * Test override for the CES HTTP listing fallback. `undefined` uses the
+ * production factory. `null` disables HTTP fallback.
+ */
+let _httpRecordBackendOverride: CredentialRecordBackend | null | undefined;
 let _cesRecordsLoaded = false;
 let _cesLoad: Promise<void> | undefined;
 let _cesLoadGeneration = 0;
@@ -255,6 +261,93 @@ export function listCredentialMetadata(): CredentialMetadata[] {
   return getStore().list() as CredentialMetadata[];
 }
 
+export type CredentialRecordListResult = {
+  records: CredentialMetadata[];
+  unreachable: boolean;
+};
+
+type ListedCredentialRecords = Array<{
+  account: string;
+  record: CredentialRecord;
+}>;
+
+function backendIsAvailable(backend: CredentialRecordBackend): boolean {
+  try {
+    return backend.isAvailable();
+  } catch {
+    return false;
+  }
+}
+
+async function listFromRecordBackend(
+  backend: CredentialRecordBackend,
+): Promise<ListedCredentialRecords | null> {
+  if (!backendIsAvailable(backend)) {
+    return null;
+  }
+  return backend.list();
+}
+
+function resolveHttpRecordBackend(): CredentialRecordBackend | null {
+  if (_httpRecordBackendOverride !== undefined) {
+    return _httpRecordBackendOverride;
+  }
+  return createCesHttpRecordBackendIfConfigured();
+}
+
+async function listFromHttpFallback(): Promise<ListedCredentialRecords | null> {
+  const httpBackend = resolveHttpRecordBackend();
+  if (!httpBackend) {
+    return null;
+  }
+  return listFromRecordBackend(httpBackend);
+}
+
+/**
+ * Live catalog from the credential record backend. Does not read the
+ * daemon in-process cache, so an outage cannot be mistaken for an empty
+ * vault. `unreachable` is true when the backend is missing, down, or
+ * the list RPC fails, and CES HTTP failover is also unavailable.
+ *
+ * When the attached backend is CES RPC (or none is attached), listing
+ * fails over to CES HTTP in containerized deployments so a down RPC
+ * socket does not hide a healthy vault sidecar. A successful empty
+ * catalog (`[]`) does not fall through to HTTP.
+ *
+ * The file-backed test store is the catalog when a test override path is set.
+ */
+export async function listCredentialRecordsLive(): Promise<CredentialRecordListResult> {
+  if (_overridePath) {
+    return {
+      records: getStore().list() as CredentialMetadata[],
+      unreachable: false,
+    };
+  }
+  if (_recordBackend) {
+    const remote = await listFromRecordBackend(_recordBackend);
+    if (remote !== null) {
+      return {
+        records: remote.map((entry) => entry.record as CredentialMetadata),
+        unreachable: false,
+      };
+    }
+    if (_recordBackend.name !== "ces-rpc") {
+      return { records: [], unreachable: true };
+    }
+  }
+  const httpRemote = await listFromHttpFallback();
+  if (httpRemote !== null) {
+    log.warn(
+      "CES RPC credential record list unavailable. Failing over to CES HTTP.",
+    );
+    return {
+      records: httpRemote.map((entry) => entry.record as CredentialMetadata),
+      unreachable: false,
+    };
+  }
+  return { records: [], unreachable: true };
+}
+
 /**
  * Delete metadata for a credential.
  */
@@ -286,4 +379,11 @@ export function _setMetadataPath(path: string | null): void {
       _store = undefined;
     }
   }
+}
+
+/** @internal Test-only: override the CES HTTP listing fallback. */
+export function _setHttpRecordBackendForTests(
+  backend: CredentialRecordBackend | null | undefined,
+): void {
+  _httpRecordBackendOverride = backend;
 }

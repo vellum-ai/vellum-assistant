@@ -32,6 +32,7 @@ import { useBillingBalanceStatus } from "@/hooks/use-billing-balance-status";
 import { useTouchMobile } from "@/hooks/use-touch-mobile";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { displayedCreditsUsd } from "@/lib/billing/displayed-credits";
+import { prefetchRoute } from "@/lib/prefetch-route";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useIsAuthenticated } from "@/stores/auth-store";
 import { openUrl } from "@/runtime/browser";
@@ -117,16 +118,20 @@ export function PreferencesMenu({
      opens the checkout. */
   const [isAddCreditsOpen, setIsAddCreditsOpen] = useState(false);
 
-  /* Warm the feedback chunk as the menu opens rather than on the click that
-     needs it, so the dialog is usually already there by the time it is asked
-     for. Once per mount: the chunk is cached after the first fetch. */
-  const hasPrefetchedFeedback = useRef(false);
+  /* Warm the chunks this menu leads to as it opens rather than on the click
+     that needs them, so they are usually already there by the time they are
+     asked for. Settings is the expensive one: it is two lazy chunks, the
+     layout and its landing page, and the router resolves both before it will
+     commit, holding the previous screen with no feedback for the whole wait.
+     Once per mount: chunks are module-cached after the first fetch. */
+  const hasPrefetchedMenuTargets = useRef(false);
   useEffect(() => {
-    if (!isOpen || hasPrefetchedFeedback.current) {
+    if (!isOpen || hasPrefetchedMenuTargets.current) {
       return;
     }
-    hasPrefetchedFeedback.current = true;
+    hasPrefetchedMenuTargets.current = true;
     prefetchShareFeedbackModal();
+    prefetchRoute(routes.settings.root);
   }, [isOpen]);
 
   if (!isAuthenticated) {

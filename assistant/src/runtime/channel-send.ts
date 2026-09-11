@@ -109,8 +109,8 @@ export class ChannelSendFailedError extends Error {
 
 /**
  * Whether a channel's transport declares it can be addressed from a named
- * chat or person. A channel with no transport, or one that only answers on
- * an inbound callback, is not.
+ * chat. A channel with no transport, or one that only answers on an inbound
+ * callback, is not.
  */
 export function isProactivelyAddressable(channel: string): boolean {
   return getTransportForChannel(channel)?.addressFor !== undefined;
@@ -139,12 +139,9 @@ export async function sendChannelText(
       "cannot be addressed from a named chat",
     );
   }
-  const address = await transport.addressFor(target);
+  const address = transport.addressFor(target);
   if (!address) {
-    throw new ChannelNotAddressableError(
-      channel,
-      `cannot be addressed by ${target.kind}`,
-    );
+    throw new ChannelNotAddressableError(channel, "cannot address that chat");
   }
 
   const result = await transport.deliver(address.ctx, {

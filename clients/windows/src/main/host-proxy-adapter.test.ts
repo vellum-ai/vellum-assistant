@@ -4,7 +4,11 @@ import { createWindowsHostProxyRuntime } from "./host-proxy-adapter";
 
 test("creates a Windows runtime with only the committed portable executors", () => {
   const runtime = createWindowsHostProxyRuntime({
-    acquireGuardianToken: async () => null,
+    acquireGuardianToken: async () => ({
+      ok: false,
+      status: 404,
+      error: "unused",
+    }),
     getSessionToken: () => null,
     getLockfile: () => ({ assistants: [], activeAssistant: null }),
     onLockfileChange: () => () => undefined,
@@ -47,7 +51,11 @@ test("adds host_cu when the computer-use capability is installed", () => {
 
   // WHEN the Windows host-proxy runtime is created with them
   const runtime = createWindowsHostProxyRuntime({
-    acquireGuardianToken: async () => null,
+    acquireGuardianToken: async () => ({
+      ok: false,
+      status: 404,
+      error: "unused",
+    }),
     getSessionToken: () => null,
     getLockfile: () => ({ assistants: [], activeAssistant: null }),
     onLockfileChange: () => () => undefined,
