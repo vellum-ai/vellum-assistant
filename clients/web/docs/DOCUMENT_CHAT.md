@@ -39,6 +39,9 @@ flush before the explicit repair action links a replacement conversation.
 If an older write fails while newer edits are pending, the same save drain attempts
 the latest revision, including during close. A failed latest revision rejects
 without repeatedly retrying itself.
+Successful rename writes invalidate the saved assistant's document-list caches,
+even after the editor unmounts or a newer rename supersedes the write. UI callbacks
+and save indicators remain scoped to the mounted editor.
 `beginSendPreparation` takes a short editing lease, drains pending writes and
 returns the current saved title/content. The chat submit hook awaits preparation
 before clearing its ordinary draft and attachments, in either presentation.

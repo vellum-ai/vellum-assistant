@@ -40,7 +40,7 @@ function deferred() {
 
 function renderSave() {
   const onRenamed = mock((_title: string) => {});
-  const onRenameSaved = mock(() => {});
+  const onRenameSaved = mock((_target: DocumentSaveTarget) => {});
   const onRenameFailed = mock((_error: unknown) => {});
   const hook = renderHook(
     ({ target, content }) =>
@@ -68,6 +68,75 @@ afterEach(async () => {
 });
 
 describe("useDocumentEditorSave", () => {
+  test.each(["success", "failure"])(
+    "a detached rename reports only cache-safe %s callbacks",
+    async (outcome) => {
+      const write = deferred();
+      saveDocumentContent.mockImplementationOnce(() => write.promise);
+      const { result, unmount, onRenamed, onRenameSaved, onRenameFailed } =
+        renderSave();
+      act(() => result.current.rename("Renamed notes"));
+      await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+      unmount();
+      await act(async () => {
+        if (outcome === "success") {
+          write.resolve();
+        } else {
+          write.reject(new Error("offline"));
+        }
+      });
+      if (outcome === "success") {
+        expect(onRenameSaved).toHaveBeenCalledWith({
+          ...TARGET,
+          title: "Renamed notes",
+        });
+      } else {
+        expect(onRenameSaved).not.toHaveBeenCalled();
+        expect(captureError).toHaveBeenCalled();
+      }
+      expect(onRenamed.mock.calls).toEqual([["Renamed notes"]]);
+      expect(onRenameFailed).not.toHaveBeenCalled();
+      expect(saveDocumentContent).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test("rename completion identifies the write target even after the link changes", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender, onRenameSaved } = renderSave();
+    act(() => result.current.rename("Renamed notes"));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({
+      target: { ...TARGET, conversationId: "conversation-2" },
+      content: "Original body",
+    });
+    await act(async () => write.resolve());
+    expect(onRenameSaved).toHaveBeenCalledWith({
+      ...TARGET,
+      title: "Renamed notes",
+    });
+  });
+
+  test("a superseded rename still refreshes caches if its newer replacement fails", async () => {
+    const first = deferred();
+    const second = deferred();
+    saveDocumentContent
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+    const { result, onRenameSaved } = renderSave();
+    act(() => result.current.rename("First title"));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    act(() => result.current.rename("Second title"));
+    await act(async () => first.resolve());
+    expect(onRenameSaved).toHaveBeenCalledWith({
+      ...TARGET,
+      title: "First title",
+    });
+    await act(async () => second.reject(new Error("offline")));
+    expect(onRenameSaved).toHaveBeenCalledTimes(1);
+    expect(result.current.title).toBe("First title");
+  });
+
   test("flush returns the current snapshot without writing an unchanged document", async () => {
     const { result } = renderSave();
     await act(async () => {

@@ -21,7 +21,8 @@ interface UseDocumentEditorSaveOptions {
   target: DocumentSaveTarget;
   content: string;
   onRenamed?: (title: string) => void;
-  onRenameSaved: () => void;
+  /** Cache updates for a completed write, including after the editor unmounts. */
+  onRenameSaved: (target: DocumentSaveTarget) => void;
   onRenameFailed: (error: unknown) => void;
 }
 
@@ -145,14 +146,11 @@ export function useDocumentEditorSave({
         }
         persistedRef.current = snapshot;
         savedRevisionRef.current = revision;
-        if (
-          renameRevision !== null &&
-          renameRevisionRef.current === renameRevision
-        ) {
-          renameRevisionRef.current = null;
-          if (mountedRef.current) {
-            callbacksRef.current.onRenameSaved();
+        if (renameRevision !== null) {
+          if (renameRevisionRef.current === renameRevision) {
+            renameRevisionRef.current = null;
           }
+          callbacksRef.current.onRenameSaved(saveTarget);
         }
       }
       clearTimers();

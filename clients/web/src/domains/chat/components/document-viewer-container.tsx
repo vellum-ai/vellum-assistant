@@ -188,16 +188,16 @@ function DocumentViewerContent({
     target: saveTarget,
     content,
     onRenamed,
-    onRenameSaved: () => {
+    onRenameSaved: (savedTarget) => {
       void queryClient.invalidateQueries({
         queryKey: documentsGetQueryKey({
-          path: { assistant_id: assistantId },
-          query: { conversationId },
+          path: { assistant_id: savedTarget.assistantId },
+          query: { conversationId: savedTarget.conversationId },
         }),
       });
       void queryClient.invalidateQueries({
         queryKey: documentsGetQueryKey({
-          path: { assistant_id: assistantId },
+          path: { assistant_id: savedTarget.assistantId },
         }),
       });
     },
