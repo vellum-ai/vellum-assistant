@@ -9,6 +9,7 @@ import {
 } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -20,10 +21,12 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigate,
   useNavigationType,
 } from "react-router";
 
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
+import type * as OrgReadiness from "@/hooks/use-is-org-ready";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -43,9 +46,13 @@ const documentData = {
   updatedAt: 1,
 };
 const load = mock(async () => ({ data: documentData }));
-mock.module("@/hooks/use-is-org-ready", () => ({
-  useOrgHeaderReadiness: () => "ready",
-}));
+let readiness: ReturnType<typeof OrgReadiness.useOrgHeaderReadiness> = "ready";
+mock.module(
+  "@/hooks/use-is-org-ready",
+  (): Partial<typeof OrgReadiness> => ({
+    useOrgHeaderReadiness: () => readiness,
+  }),
+);
 mock.module("./chat-route-content", () => ({
   ChatMainPanel: () => {
     const location = useLocation();
@@ -74,18 +81,33 @@ const selection = useResolvedAssistantsStore.getState();
 const viewer = useViewerStore.getState();
 const conversation = useConversationStore.getState();
 
-function renderLayout(url: string) {
+function HistoryControls() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => navigate(-1)}>Browser Back</button>
+      <button onClick={() => navigate(1)}>Browser Forward</button>
+      <button onClick={() => navigate("/assistant/conversations/conv-2")}>
+        Open another conversation
+      </button>
+    </>
+  );
+}
+
+function renderLayout(url: string, previousEntries: string[] = []) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   const page = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[url]}>
+      <MemoryRouter initialEntries={[...previousEntries, url]}>
+        <HistoryControls />
         <Routes>
           <Route
             path="/assistant/conversations/:conversationId"
             element={<ChatContentLayout {...({} as ChatMainPanelProps)} />}
           />
+          <Route path="/assistant/library" element={<div>Library</div>} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -94,6 +116,7 @@ function renderLayout(url: string) {
 }
 
 beforeEach(() => {
+  readiness = "ready";
   viewport.set({ narrow: false, coarsePointer: false });
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
   useConversationStore.setState({ activeConversationId: "conv-1" });
@@ -102,7 +125,8 @@ beforeEach(() => {
     openedDocumentState: null,
     activeDocumentTarget: null,
   });
-  load.mockClear();
+  load.mockReset();
+  load.mockImplementation(async () => ({ data: documentData }));
   spyOn(daemonClient, "get").mockImplementation((async (options: {
     url: string;
   }) => {
@@ -129,6 +153,121 @@ afterEach(() => {
 });
 
 describe("desktop document drawer dismissal", () => {
+  test.each([
+    "ready",
+    "loading",
+    "resolving organization",
+    "unavailable organization",
+  ])(
+    "browser Back clears the %s document before another conversation mounts",
+    async (phase) => {
+      if (phase === "resolving organization") {
+        readiness = "resolving";
+      } else if (phase === "unavailable organization") {
+        readiness = "unavailable";
+      }
+      let finishLoad: (() => void) | undefined;
+      if (phase === "loading") {
+        load.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              finishLoad = () => resolve({ data: documentData });
+            }),
+        );
+      }
+      const page = renderLayout(
+        "/assistant/conversations/conv-1?document=surface-1",
+        ["/assistant/library"],
+      );
+      if (phase === "ready") {
+        await screen.findByTestId("editor");
+      } else if (phase === "loading") {
+        await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Browser Back" }));
+      await screen.findByText("Library");
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      expect(useViewerStore.getState().openedDocumentState).toBeNull();
+      expect(useViewerStore.getState().activeDocumentTarget).toBeNull();
+      await act(async () => finishLoad?.());
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open another conversation" }),
+      );
+      expect(screen.getByTestId("url").textContent).toBe(
+        "/assistant/conversations/conv-2",
+      );
+      expect(Boolean(screen.queryByTestId("editor"))).toBe(false);
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      expect(load).toHaveBeenCalledTimes(readiness === "ready" ? 1 : 0);
+      page.unmount();
+      page.queryClient.clear();
+    },
+  );
+
+  test("browser Forward restores a document after route-exit cleanup", async () => {
+    const page = renderLayout(
+      "/assistant/conversations/conv-1?document=surface-1",
+      ["/assistant/library"],
+    );
+    await screen.findByTestId("editor");
+    fireEvent.click(screen.getByRole("button", { name: "Browser Back" }));
+    await screen.findByText("Library");
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Browser Forward" }));
+    await screen.findByTestId("editor");
+    expect(useViewerStore.getState().mainView).toBe("document");
+    expect(load).toHaveBeenCalledTimes(2);
+    page.unmount();
+    page.queryClient.clear();
+  });
+
+  test.each([
+    "same document",
+    "other assistant",
+    "other surface",
+    "workspace preview",
+  ])("route-exit cleanup preserves a newer owner: %s", async (replacement) => {
+    const page = renderLayout(
+      "/assistant/conversations/conv-1?document=surface-1",
+    );
+    await screen.findByTestId("editor");
+    act(() => {
+      if (replacement === "workspace preview") {
+        useViewerStore.getState().openWorkspaceFilePreview("notes.txt", "text");
+      } else {
+        showDocumentInConversation(
+          {
+            ...documentData,
+            surfaceId:
+              replacement === "other surface" ? "surface-2" : "surface-1",
+          },
+          "conv-1",
+          replacement === "other assistant" ? "assistant-2" : "assistant-1",
+        );
+      }
+    });
+    const nextOwner = useViewerStore.getState().openedDocumentState;
+    const nextTarget = useViewerStore.getState().activeDocumentTarget;
+    page.unmount();
+    expect(useViewerStore.getState().openedDocumentState).toBe(nextOwner);
+    expect(useViewerStore.getState().activeDocumentTarget).toBe(nextTarget);
+    expect(useViewerStore.getState().mainView).toBe("document");
+    page.queryClient.clear();
+  });
+
+  test("route-exit cleanup clears its document without dismissing another panel", async () => {
+    const page = renderLayout(
+      "/assistant/conversations/conv-1?document=surface-1",
+    );
+    await screen.findByTestId("editor");
+    act(() => useViewerStore.getState().openApp("app-1"));
+    page.unmount();
+    expect(useViewerStore.getState().mainView).toBe("app");
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    expect(useViewerStore.getState().activeDocumentTarget).toBeNull();
+    page.queryClient.clear();
+  });
+
   test.each(["button", "Escape"])(
     "%s clears document URL intent and stays closed on reload",
     async (dismissal) => {

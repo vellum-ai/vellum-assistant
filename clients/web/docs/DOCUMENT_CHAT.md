@@ -47,6 +47,10 @@ or Android Back through the same return action as its close button. Other active
 overlays and controls that claim Escape take priority. Loading and failed mobile
 document loads offer Close document; errors also offer Retry. Close cancels the
 pending load and uses the same return destination as a loaded editor.
+Route exit, including browser Back to Library, clears the route-owned document
+target and snapshot. Cleanup checks target reference identity so it preserves a
+newer entry, including one for the same surface, and leaves other active panels
+alone. Browser Forward reloads the document through the ordinary save-aware path.
 
 Documents normally have a conversation: the document upsert API requires a
 nonempty `conversationId`. Opening a document validates that existing link. A
@@ -69,6 +73,9 @@ Changed incoming document fields are retained during a save or preparation lease
 and applied after the drain and final lease release. Unchanged props cannot replay
 an old body during a title refresh, and failed local writes keep their draft until
 a successful retry. Deferred updates belong only to the mounted editor.
+A later accepted local edit discards the older deferred value for that field only.
+Body edits preserve deferred title changes, renames preserve deferred body changes,
+and edits rejected by a preparation lease leave deferred updates intact.
 Successful rename writes invalidate the saved assistant's document-list caches,
 even after the editor unmounts or a newer rename supersedes the write. UI callbacks
 and save indicators remain scoped to the mounted editor.

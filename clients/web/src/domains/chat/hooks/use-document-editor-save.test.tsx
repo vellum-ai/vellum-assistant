@@ -460,6 +460,91 @@ describe("useDocumentEditorSave", () => {
     expect(saveDocumentContent).toHaveBeenCalledTimes(2);
   });
 
+  test.each(["debouncing", "in flight", "failed"])(
+    "a newer local body supersedes deferred content while the save is %s",
+    async (stage) => {
+      const write = deferred();
+      const { result, rerender } = renderSave();
+      act(() => result.current.changeContent("First local edit"));
+      let pending: Promise<unknown> | undefined;
+      if (stage !== "debouncing") {
+        saveDocumentContent.mockImplementationOnce(() => write.promise);
+        pending = result.current.flushPendingSave().catch(() => {});
+        await waitFor(() =>
+          expect(saveDocumentContent).toHaveBeenCalledTimes(1),
+        );
+      }
+      rerender({
+        target: { ...TARGET, title: "Assistant title" },
+        content: "Older assistant body",
+      });
+      if (stage === "failed") {
+        await act(async () => {
+          write.reject(new Error("offline"));
+          await pending;
+        });
+      }
+      act(() => result.current.changeContent("Newer local body"));
+      await act(async () => {
+        write.resolve();
+        await pending;
+        expect(await result.current.flushPendingSave()).toEqual({
+          title: "Assistant title",
+          content: "Newer local body",
+        });
+      });
+      expect(result.current.editorContent).not.toBe("Older assistant body");
+      act(() => result.current.rename("Next local title"));
+      await act(async () => result.current.flushPendingSave());
+      expect(saveDocumentContent.mock.calls.at(-1)).toEqual([
+        { ...TARGET, title: "Next local title" },
+        "Newer local body",
+      ]);
+    },
+  );
+
+  test("a newer local rename supersedes only the deferred title", async () => {
+    const write = deferred();
+    saveDocumentContent.mockImplementationOnce(() => write.promise);
+    const { result, rerender } = renderSave();
+    act(() => result.current.rename("First local title"));
+    await waitFor(() => expect(saveDocumentContent).toHaveBeenCalledTimes(1));
+    rerender({
+      target: { ...TARGET, title: "Older assistant title" },
+      content: "Assistant body",
+    });
+    act(() => result.current.rename("Newer local title"));
+    await act(async () => {
+      write.resolve();
+      expect(await result.current.flushPendingSave()).toEqual({
+        title: "Newer local title",
+        content: "Assistant body",
+      });
+    });
+    expect(result.current.title).toBe("Newer local title");
+    expect(result.current.editorContent).toBe("Assistant body");
+  });
+
+  test("rejected edits during preparation do not discard deferred fields", () => {
+    const { result, rerender } = renderSave();
+    let lease!: ReturnType<typeof result.current.beginSendPreparation>;
+    act(() => {
+      lease = result.current.beginSendPreparation();
+    });
+    rerender({
+      target: { ...TARGET, title: "Assistant title" },
+      content: "Assistant body",
+    });
+    act(() => {
+      expect(result.current.changeContent("Rejected body")).toBe(false);
+      result.current.rename("Rejected title");
+      lease.release();
+    });
+    expect(result.current.title).toBe("Assistant title");
+    expect(result.current.editorContent).toBe("Assistant body");
+    expect(saveDocumentContent).not.toHaveBeenCalled();
+  });
+
   test("holds server updates until the last preparation lease releases", async () => {
     const { result, rerender } = renderSave();
     let first!: ReturnType<typeof result.current.beginSendPreparation>;

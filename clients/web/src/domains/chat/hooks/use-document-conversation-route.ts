@@ -6,7 +6,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useViewerStore } from "@/stores/viewer-store";
+import { useViewerStore, type DocumentTarget } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 import {
@@ -39,6 +39,7 @@ export function useDocumentConversationRoute() {
   const { surfaceId, showingDocument, returnTo } =
     getDocumentConversationRoute(search);
   const lastSurfaceRef = useRef<string | null>(null);
+  const ownedTargetRef = useRef<DocumentTarget | null>(null);
   const scopeRef = useRef<ReturnType<typeof documentRequestScope> | null>(null);
   const showingDocumentRef = useRef(showingDocument);
   useEffect(() => {
@@ -52,6 +53,26 @@ export function useDocumentConversationRoute() {
   >(null);
   const owner = `${assistantId}:${conversationId}:${surfaceId}:${isMobile}`;
   const wasMobileRef = useRef(isMobile);
+
+  const clearOwnedDocument = useCallback(() => {
+    const target = ownedTargetRef.current;
+    ownedTargetRef.current = null;
+    const viewer = useViewerStore.getState();
+    // Reference identity protects a newer entry, even for the same surface.
+    if (target === null || viewer.activeDocumentTarget !== target) {
+      return;
+    }
+    useViewerStore.setState({
+      mainView:
+        viewer.mainView === "document"
+          ? viewer.viewBeforeDocument
+          : viewer.mainView,
+      openedDocumentState: null,
+      activeDocumentTarget: null,
+    });
+  }, []);
+
+  useEffect(() => clearOwnedDocument, [clearOwnedDocument]);
 
   useEffect(() => {
     const wasMobile = wasMobileRef.current;
@@ -80,6 +101,9 @@ export function useDocumentConversationRoute() {
     if (!surfaceId || !assistantId || !conversationId) {
       return;
     }
+    const target: DocumentTarget = { source: "document", surfaceId };
+    ownedTargetRef.current = target;
+    useViewerStore.setState({ activeDocumentTarget: target });
     if (readiness === "resolving") {
       return;
     }
@@ -129,6 +153,7 @@ export function useDocumentConversationRoute() {
           assistantId,
           showingDocumentRef.current ? "document" : "chat",
         );
+        ownedTargetRef.current = useViewerStore.getState().activeDocumentTarget;
         setStatus({ owner, kind: "ready" });
       } catch (error) {
         if (scope.isCurrent()) {
@@ -164,10 +189,10 @@ export function useDocumentConversationRoute() {
         markOpenedDocumentViewed(assistantId, surfaceId);
       }
     } else if (lastSurfaceRef.current) {
-      useViewerStore.getState().closeDocument();
+      clearOwnedDocument();
     }
     lastSurfaceRef.current = surfaceId;
-  }, [surfaceId, showingDocument, assistantId]);
+  }, [surfaceId, showingDocument, assistantId, clearOwnedDocument]);
 
   const closeDocument = useCallback(() => {
     scopeRef.current?.dispose();

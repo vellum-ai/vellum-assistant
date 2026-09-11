@@ -246,6 +246,7 @@ export function useDocumentEditorSave({
         return false;
       }
       clearTimers();
+      delete deferredSnapshotRef.current?.content;
       latestRef.current = { ...latestRef.current, content: markdown };
       revisionRef.current += 1;
       setSaveStatus("saving");
@@ -272,6 +273,7 @@ export function useDocumentEditorSave({
         return;
       }
       clearTimers();
+      delete deferredSnapshotRef.current?.title;
       latestRef.current = { ...latestRef.current, title: next };
       revisionRef.current += 1;
       renameRevisionRef.current = revisionRef.current;
