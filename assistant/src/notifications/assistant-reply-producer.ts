@@ -22,6 +22,7 @@ import {
   getMessageById,
   parseMessageMetadata,
 } from "../persistence/conversation-crud.js";
+import { isReplaceableTitle } from "../persistence/conversation-title-placeholders.js";
 import {
   isDesktopOriginatedUserMessage,
   isReplyPushIneligibleUserMessage,
@@ -247,9 +248,13 @@ export async function emitAssistantReplyNotification(params: {
     // lock screen. Absent `requestedTitle` lets the decision branch derive a
     // title from the body, which reads better than an empty or placeholder
     // conversation title.
-    const requestedTitle = sanitizeNotificationTitle(
-      flattenTitleWhitespace(conversation.title ?? ""),
-    );
+    //
+    // Placeholder titles are plausible non-empty strings and survive
+    // sanitizing. They count as absent so the body supplies the title instead.
+    const storedTitle = conversation.title?.trim() ?? "";
+    const requestedTitle = isReplaceableTitle(storedTitle)
+      ? ""
+      : sanitizeNotificationTitle(flattenTitleWhitespace(storedTitle));
 
     // Read as close to the emit as possible: nothing short-circuits on it.
     // Presence only speaks for a turn the desktop itself opened, on that row's

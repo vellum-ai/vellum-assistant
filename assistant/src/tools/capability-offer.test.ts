@@ -71,6 +71,7 @@ describe("formatLoggedInBrowserOffer", () => {
     });
     expect(offer).toContain("no in-app browser");
     expect(offer).toContain("Do not describe a browser panel");
+    expect(offer).toContain("Mac or Windows PC");
     expect(offer).toContain(DESKTOP_APP_DOWNLOAD_URL);
     expect(offer).toContain(CHROME_WEB_STORE_INSTALL_URL);
   });

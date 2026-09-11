@@ -19,7 +19,7 @@ describe("isConnectionCompatibleWithModel", () => {
     expect(
       isConnectionCompatibleWithModel(
         { auth: { type: "oauth_subscription" } as never },
-        "gpt-5.4",
+        "gpt-5.5",
       ),
     ).toBe(true);
   });
@@ -79,7 +79,7 @@ describe("describeSubscriptionModelIncompatibility", () => {
 
   test("returns null when model is Codex-compatible", () => {
     expect(
-      describeSubscriptionModelIncompatibility([subscriptionConn], "gpt-5.4"),
+      describeSubscriptionModelIncompatibility([subscriptionConn], "gpt-5.5"),
     ).toBeNull();
   });
 });
