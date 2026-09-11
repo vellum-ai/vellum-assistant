@@ -495,6 +495,44 @@ describe("useComposerSubmit during dictation", () => {
     );
   });
 
+  test("an edit cancelled during the wait cancels the send and never undoes", async () => {
+    // Escape is live again once the recording reaches processing, so the user
+    // can back out of the edit while the transcript is still on its way. The
+    // send pressed inside that edit must not go on to undo the original
+    // message and deliver the transcript in its place.
+    useComposerStore.getState().setInput("");
+    recordingWithTranscript("a rewrite the user backed out of");
+    const cancelEditing = mock(() => {});
+
+    const { result, sendMessage, rerenderWith } = renderSubmit({
+      isEditing: true,
+      editingMessageId: "msg-1",
+      canUndoEdit: true,
+      cancelEditing,
+    });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.submitMessage();
+    });
+    act(() => {
+      rerenderWith({
+        isEditing: false,
+        editingMessageId: null,
+        canUndoEdit: true,
+        cancelEditing,
+      });
+    });
+    await act(async () => {
+      await pending;
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(cancelEditing).not.toHaveBeenCalled();
+    expect(useComposerStore.getState().input).toBe(
+      "a rewrite the user backed out of",
+    );
+  });
+
   test("a prompt that blocks sending during the wait wins over the press", async () => {
     // A confirmation or secret prompt flips `sendDisabled` while the
     // transcript is still on its way; the send pressed before it existed

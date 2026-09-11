@@ -116,17 +116,23 @@ export function useComposerSubmit({
    */
   const sendChainRef = useRef<Promise<void>>(Promise.resolve());
   /**
-   * Live copies of the two values a mid-dictation send has to re-read after
-   * it has waited: `submitMessage` awaits the transcript for up to several
-   * seconds, and the closure it started in remembers the conversation and
-   * the blocking state as they were at the press, not as they are now.
+   * Live copies of the values a mid-dictation send has to re-read after it
+   * has waited: `submitMessage` awaits the transcript for up to several
+   * seconds, and the closure it started in remembers the conversation, the
+   * blocking state and the edit in progress as they were at the press, not
+   * as they are now. The edit is tracked by the message it targets, null
+   * when nothing is being edited, so a cancelled or swapped edit reads as a
+   * change.
    */
   const activeConversationIdRef = useRef(activeConversationId);
   const sendDisabledRef = useRef(sendDisabled);
+  const editingTarget = isEditing ? editingMessageId : null;
+  const editingTargetRef = useRef(editingTarget);
   useEffect(() => {
     activeConversationIdRef.current = activeConversationId;
     sendDisabledRef.current = sendDisabled;
-  }, [activeConversationId, sendDisabled]);
+    editingTargetRef.current = editingTarget;
+  }, [activeConversationId, sendDisabled, editingTarget]);
 
   // --- Focus effect -------------------------------------------------------
   useEffect(() => {
@@ -151,6 +157,7 @@ export function useComposerSubmit({
       // does not wait.
       if (inputOverride === undefined) {
         const conversationAtPress = activeConversationIdRef.current;
+        const editingAtPress = editingTargetRef.current;
         const outcome = await finishActiveDictation();
         if (outcome === "no-transcript") {
           // The spoken words did not survive. The draft sitting in the
@@ -165,10 +172,15 @@ export function useComposerSubmit({
         // thread's draft and deliver it to another. A confirmation or secret
         // prompt arriving during the wait flips `sendDisabled` for the same
         // reason, and the prompt gate must win over a send pressed before it
-        // existed. Either way the words stay in the draft for the user.
+        // existed. An edit cancelled during the wait (Escape is live again
+        // once the recording has moved to processing) would otherwise still
+        // be undone and re-sent by this closure, which remembers the edit as
+        // it stood at the press. Either way the words stay in the draft for
+        // the user.
         if (
           activeConversationIdRef.current !== conversationAtPress ||
-          sendDisabledRef.current
+          sendDisabledRef.current ||
+          editingTargetRef.current !== editingAtPress
         ) {
           return;
         }
