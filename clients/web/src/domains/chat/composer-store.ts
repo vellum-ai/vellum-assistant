@@ -108,9 +108,9 @@ interface HeldFailedSend extends FailedSendPayload {
   clientMessageId?: string;
 }
 
-/** What a send the daemon accepted onto its queue carried, plus the
- *  conversation it went to, so the message can be handed back to that thread
- *  from anywhere if the daemon later refuses to persist it. */
+/** What an accepted send carried, plus the conversation it went to, so the
+ *  message can be handed back to that thread from anywhere if persistence
+ *  later fails. */
 export interface QueuedSendPayload extends FailedSendPayload {
   /** The assistant the send went to, whose drafts a restored copy lives in. */
   assistantId: string;
@@ -272,11 +272,11 @@ export interface ComposerState {
   >;
 
   /**
-   * The sends the daemon has taken onto its queue and not yet spoken for,
-   * keyed by the nonce each went out with. The composer is cleared the moment
-   * a send is handed off, so until the daemon persists the message or refuses
-   * it this is the only copy of it the client holds, and the transcript it was
-   * typed into is not: leaving that conversation clears the optimistic row.
+   * Accepted sends not yet confirmed as persisted, keyed by the nonce each
+   * went out with. The composer is cleared the moment a send is handed off,
+   * so until the assistant persists the message or refuses it this is the only
+   * copy the client holds, and the transcript it was typed into is not:
+   * leaving that conversation clears the optimistic row.
    */
   queuedSends: ReadonlyMap<string, QueuedSendPayload>;
   /** Queued sends whose recovery payload is already visible in its composer. */
@@ -419,7 +419,7 @@ export interface ComposerActions {
     conversationId: string,
     payload: FailedSendPayload,
     clientMessageId?: string,
-  ) => void;
+  ) => boolean;
   /**
    * Take the message held for the assistant and `conversationId`, removing it,
    * so one composer reclaims only what was composed there. Null when that
@@ -439,11 +439,13 @@ export interface ComposerActions {
     conversationId: string,
     payload: FailedSendPayload,
   ) => boolean;
+  /** Drop the provisional recovery correlated with `clientMessageId`. */
+  dropFailedSendByClientMessageId: (clientMessageId: string) => boolean;
 
-  // --- Sends the daemon holds on its queue ---
+  // --- Accepted sends awaiting authoritative persistence ---
   /**
-   * Keep what a queued send carried, under the nonce it went out with, for as
-   * long as the daemon owes an answer for it.
+   * Keep what an accepted send carried, under the nonce it went out with, for
+   * as long as the assistant owes an authoritative persistence outcome.
    */
   recordQueuedSend: (
     clientMessageId: string,
@@ -953,6 +955,7 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
     payload,
     clientMessageId,
   ) => {
+    let stashed = false;
     set((s) => {
       const key = failedSendKey(assistantId, conversationId);
       const held = s.failedSendsByConversation.get(key) ?? [];
@@ -962,10 +965,12 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
       ) {
         return s;
       }
+      stashed = true;
       const next = new Map(s.failedSendsByConversation);
       next.set(key, [...held, { ...payload, clientMessageId }]);
       return { failedSendsByConversation: next };
     });
+    return stashed;
   },
 
   takeFailedSend: (assistantId, conversationId) => {
@@ -1004,6 +1009,29 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
         ...held.slice(0, index),
         ...held.slice(index + 1),
       ];
+      if (remaining.length === 0) {
+        next.delete(key);
+      } else {
+        next.set(key, remaining);
+      }
+      return { failedSendsByConversation: next };
+    });
+    return true;
+  },
+
+  dropFailedSendByClientMessageId: (clientMessageId) => {
+    const match = [...get().failedSendsByConversation].find(([, held]) =>
+      held.some((entry) => entry.clientMessageId === clientMessageId),
+    );
+    if (!match) {
+      return false;
+    }
+    const [key, held] = match;
+    set((s) => {
+      const next = new Map(s.failedSendsByConversation);
+      const remaining = held.filter(
+        (entry) => entry.clientMessageId !== clientMessageId,
+      );
       if (remaining.length === 0) {
         next.delete(key);
       } else {

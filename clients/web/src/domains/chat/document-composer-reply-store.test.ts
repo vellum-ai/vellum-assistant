@@ -1024,13 +1024,16 @@ describe("clearAwaitingReplies", () => {
     expect(getState().detachedSends.size).toBe(0);
   });
 
-  test("does not retain an acknowledged running send for recovery", () => {
+  test("retains an acknowledged running send for switch-back reconciliation", () => {
     getState().startAwaitingReply("conv-1", "cm-1", SENT_PAYLOAD);
     getState().markReplyRunning("conv-1", "cm-1");
 
     getState().clearAwaitingReplies();
 
-    expect(getState().detachedQueuedSends.size).toBe(0);
+    expect(getState().detachedQueuedSends.get("cm-1")).toEqual({
+      conversationId: "conv-1",
+      payload: SENT_PAYLOAD,
+    });
   });
 
   test("detaches nothing from a send listed without a message or a nonce", () => {
@@ -1149,6 +1152,11 @@ describe("stashFailedSend", () => {
 
     expect(getState().dropFailedSend("cm-2")).toBe(true);
     expect(heldFor("surf-1")).toEqual(SENT_PAYLOAD);
+  });
+
+  test("reports whether a nonce added a new recovery", () => {
+    expect(getState().stashFailedSend(SENT_PAYLOAD, "cm-1")).toBe(true);
+    expect(getState().stashFailedSend(SENT_PAYLOAD, "cm-1")).toBe(false);
   });
 
   test("a message with no text joins by the text there is", () => {

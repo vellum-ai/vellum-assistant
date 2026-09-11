@@ -10,7 +10,7 @@
  * `useConversationStore` are real; only the toast surface is mocked.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 
 const toastErrorMock = mock((..._args: unknown[]) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -19,6 +19,35 @@ mock.module("@vellumai/design-library/components/toast", () => ({
     success: (..._args: unknown[]) => {},
     error: (...args: unknown[]) => toastErrorMock(...args),
   },
+}));
+
+let isOrgReady = false;
+mock.module("@/hooks/use-is-org-ready", () => ({
+  useIsOrgReady: () => isOrgReady,
+}));
+
+const realMessages = await import("@/domains/chat/api/messages");
+interface ConversationSnapshot {
+  messages: Array<{
+    id: string;
+    clientMessageId?: string;
+    role: "user" | "assistant";
+    timestamp: string;
+    attachments: never[];
+    queueStatus?: "queued" | "processing";
+  }>;
+  processing?: boolean;
+}
+let fetchConversationMessagesMock = mock(
+  async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+    messages: [],
+    processing: true,
+  }),
+);
+mock.module("@/domains/chat/api/messages", () => ({
+  ...realMessages,
+  fetchConversationMessages: (...args: unknown[]) =>
+    fetchConversationMessagesMock(...args),
 }));
 
 const { failedSendFor, useComposerStore } =
@@ -135,6 +164,13 @@ beforeEach(() => {
   useConversationStore.getState().reset();
   useConversationStore.getState().setActiveConversationId("conv-open");
   useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+  isOrgReady = false;
+  fetchConversationMessagesMock = mock(
+    async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+      messages: [],
+      processing: true,
+    }),
+  );
   toastErrorMock.mockClear();
 });
 
@@ -148,6 +184,70 @@ afterEach(() => {
 });
 
 describe("QueuedSendRecoveryWatcher", () => {
+  test("switching back exposes a correlated recovery for a missed failure", async () => {
+    isOrgReady = true;
+    fetchConversationMessagesMock = mock(
+      async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+        messages: [],
+        processing: false,
+      }),
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    recordQueuedSend("nonce-1", "conv-left");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+
+    await waitFor(() => expect(heldFor("conv-left")).toBeDefined());
+    expect(stillQueued("nonce-1")).toBe(true);
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+    await waitFor(() =>
+      expect(fetchConversationMessagesMock).toHaveBeenCalledTimes(2),
+    );
+    expect(toastErrorMock).toHaveBeenCalledTimes(1);
+
+    publishUserMessageEcho("conv-left", "nonce-1");
+
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(stillQueued("nonce-1")).toBe(false);
+  });
+
+  test("switching back drops recovery when history contains the send", async () => {
+    isOrgReady = true;
+    fetchConversationMessagesMock = mock(
+      async (..._args: unknown[]): Promise<ConversationSnapshot> => ({
+        messages: [
+          {
+            id: "msg-1",
+            clientMessageId: "nonce-1",
+            role: "user",
+            timestamp: new Date().toISOString(),
+            attachments: [],
+          },
+        ],
+        processing: false,
+      }),
+    );
+    useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-2" });
+    recordQueuedSend("nonce-1", "conv-left");
+    render(<QueuedSendRecoveryWatcher />);
+
+    act(() => {
+      useResolvedAssistantsStore.setState({ activeAssistantId: "assistant-1" });
+    });
+
+    await waitFor(() => expect(stillQueued("nonce-1")).toBe(false));
+    expect(heldFor("conv-left")).toBeUndefined();
+    expect(toastErrorMock).not.toHaveBeenCalled();
+  });
+
   test("the daemon's echo lets the client copy go", () => {
     recordQueuedSend("nonce-1", "conv-left");
     render(<QueuedSendRecoveryWatcher />);

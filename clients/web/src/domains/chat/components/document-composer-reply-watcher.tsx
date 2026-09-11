@@ -6,6 +6,7 @@ import { toast } from "@vellumai/design-library/components/toast";
 import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import {
+  failedDocumentSendForClientMessageId,
   keepsProcessingMarker,
   useDocumentComposerReplyStore,
 } from "@/domains/chat/document-composer-reply-store";
@@ -218,18 +219,23 @@ export function DocumentComposerReplyWatcher() {
             replyStore.markReplyRunning(conversationId, clientMessageId);
             continue;
           }
-          if (message === undefined && snapshot?.processing !== false) {
-            // The send can be between dequeue and persistence. Only an idle
-            // snapshot with neither a queued nor persisted row proves it died.
+          if (message === undefined) {
+            // An accepted interrupt can answer before its detached handoff
+            // persists. An idle snapshot in that gap is not proof of failure,
+            // so keep the nonce attached. Offer a correlated recovery in case
+            // its failure event was missed while the stream was detached; a
+            // later echo retracts that exact copy.
+            if (
+              snapshot?.processing === false &&
+              replyStore.stashFailedSend(send.payload, clientMessageId)
+            ) {
+              toast.error(t("documentComposer.sendFailed"));
+            }
             continue;
           }
 
           replyStore.dropDetachedQueuedSend(clientMessageId);
           replyStore.stopAwaitingReply(conversationId, clientMessageId);
-          if (message === undefined) {
-            replyStore.stashFailedSend(send.payload);
-            toast.error(t("documentComposer.sendFailed"));
-          }
           clearProcessingWhenSettled(conversationId);
         }
       }
@@ -413,10 +419,15 @@ export function DocumentComposerReplyWatcher() {
       // another client's message, and the sends listed here are still owed
       // their own terminals.
       const failed = pending.find((p) => p.clientMessageId === clientMessageId);
+      const provisional = failedDocumentSendForClientMessageId(
+        replyStore,
+        clientMessageId,
+      );
       const claimed = replyStore.settleClaimedFailedSend(clientMessageId);
-      if (!failed && !detached && !claimed) {
+      if (!failed && !detached && !provisional && !claimed) {
         return;
       }
+      replyStore.dropFailedSend(clientMessageId);
       replyStore.dropDetachedQueuedSend(clientMessageId);
       replyStore.stopAwaitingReply(conversationId, clientMessageId);
       clearProcessingWhenSettled(conversationId);
@@ -425,10 +436,12 @@ export function DocumentComposerReplyWatcher() {
       // message went out, and on the standalone document route no other
       // handler sees the error.
       toast.error(t("documentComposer.sendFailed"));
-      if (failed?.payload && !failed.recovering) {
+      if (!claimed && failed?.payload && !failed.recovering) {
         replyStore.stashFailedSend(failed.payload);
-      } else if (detached) {
+      } else if (!claimed && detached) {
         replyStore.stashFailedSend(detached.payload);
+      } else if (!claimed && provisional) {
+        replyStore.stashFailedSend(provisional);
       }
       return;
     }

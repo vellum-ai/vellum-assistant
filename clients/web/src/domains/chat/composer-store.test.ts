@@ -1454,6 +1454,33 @@ describe("stashFailedSend and takeFailedSend", () => {
     expect(getStore().claimedQueuedSendIds.has("nonce-1")).toBe(false);
   });
 
+  test("a provisional recovery is unique by nonce and can be retracted by it", () => {
+    const payload = {
+      content: "the batched send",
+      attachments: [attachment],
+    };
+
+    expect(
+      getStore().stashFailedSend(
+        "assistant-1",
+        "conv-1",
+        payload,
+        "nonce-1",
+      ),
+    ).toBe(true);
+    expect(
+      getStore().stashFailedSend(
+        "assistant-1",
+        "conv-1",
+        payload,
+        "nonce-1",
+      ),
+    ).toBe(false);
+
+    expect(getStore().dropFailedSendByClientMessageId("nonce-1")).toBe(true);
+    expect(failedSendFor(getStore(), "assistant-1", "conv-1")).toBeUndefined();
+  });
+
   test("take is null for a conversation holding nothing", () => {
     expect(getStore().takeFailedSend("assistant-1", "conv-nothing")).toBeNull();
   });

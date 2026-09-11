@@ -1907,7 +1907,7 @@ describe("DocumentComposerReplyWatcher", () => {
       });
     });
 
-    test("switching back recovers a queued send missing from an idle snapshot", async () => {
+    test("an idle snapshot keeps an accepted send retractable through its handoff gap", async () => {
       useDocumentComposerReplyStore
         .getState()
         .startAwaitingReply("conv-1", "cm-1", FAILED_SEND_PAYLOAD);
@@ -1924,10 +1924,22 @@ describe("DocumentComposerReplyWatcher", () => {
 
       setActiveAssistant("assistant-1");
 
-      await waitFor(() => expect(detachedQueuedFor("cm-1")).toBeUndefined());
-      expect(awaiting("conv-1")).toBe(false);
+      await waitFor(() =>
+        expect(fetchConversationMessagesMock).toHaveBeenCalledWith(
+          "assistant-1",
+          "conv-1",
+        ),
+      );
+      expect(detachedQueuedFor("cm-1")).toBeDefined();
+      expect(awaiting("conv-1")).toBe(true);
       expect(heldFor("surf-1")).toEqual(FAILED_SEND_PAYLOAD);
       expect(toastErrorMock).toHaveBeenCalledTimes(1);
+
+      publishUserMessageEcho("conv-1", "cm-1");
+
+      expect(detachedQueuedFor("cm-1")).toBeUndefined();
+      expect(heldFor("surf-1")).toBeUndefined();
+      expect(awaiting("conv-1")).toBe(true);
     });
 
     test("a late failure from the detached stream recovers its queued send", () => {

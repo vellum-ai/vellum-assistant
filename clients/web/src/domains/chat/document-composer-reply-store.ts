@@ -105,7 +105,7 @@ export interface ClaimedDocumentSendTransition {
   wasActiveBatch: boolean;
 }
 
-/** A queued send retained while its assistant's event stream is detached. */
+/** An accepted send retained while its assistant's event stream is detached. */
 export interface DetachedQueuedDocumentSend {
   conversationId: string;
   payload: PendingDocumentReplyPayload;
@@ -146,9 +146,10 @@ export interface DocumentComposerReplyState {
    */
   detachedSends: ReadonlyMap<string, PendingDocumentReplyPayload>;
   /**
-   * Queued sends retained across assistant switches, keyed by nonce. When the
-   * owner becomes active again, the reply watcher checks the authoritative
-   * conversation snapshot before either discarding or recovering the payload.
+   * Accepted sends retained across assistant switches, keyed by nonce. When
+   * the owner becomes active again, the reply watcher checks the authoritative
+   * conversation snapshot while keeping any recovery correlated for a late
+   * echo or failure.
    */
   detachedQueuedSends: ReadonlyMap<string, DetachedQueuedDocumentSend>;
   /**
@@ -287,7 +288,7 @@ export interface DocumentComposerReplyActions {
   stashFailedSend: (
     payload: PendingDocumentReplyPayload,
     clientMessageId?: string,
-  ) => void;
+  ) => boolean;
   /** Drop the recovery copy correlated with `clientMessageId`. */
   dropFailedSend: (clientMessageId: string) => boolean;
   /**
@@ -323,9 +324,9 @@ export interface DocumentComposerReplyActions {
   takeDetachedSend: (
     clientMessageId: string,
   ) => PendingDocumentReplyPayload | null;
-  /** Forget a queued send retained across an assistant switch. */
+  /** Forget an accepted send retained across an assistant switch. */
   dropDetachedQueuedSend: (clientMessageId: string) => boolean;
-  /** Keep an accepted queued send while its assistant stream is detached. */
+  /** Keep an accepted send while its assistant stream is detached. */
   recordDetachedQueuedSend: (
     clientMessageId: string,
     conversationId: string,
@@ -335,11 +336,11 @@ export interface DocumentComposerReplyActions {
    * Drop every pending send and every handed-off conversation, for an
    * assistant switch no reply can arrive across. The message of a send the
    * daemon has not spoken for is kept in `detachedSends` under its nonce. An
-   * acknowledged queued send stays in `detachedQueuedSends` until its owner
-   * becomes active and the authoritative history says whether it remains
-   * queued, was persisted, or failed. Held messages stay, since each is keyed
-   * by the assistant it went to as well as its document's surface, and only
-   * that document's composer under that assistant takes it back.
+   * acknowledged send stays in `detachedQueuedSends` until its owner becomes
+   * active and the authoritative history says whether it was persisted or
+   * remains in flight. Held messages stay, since each is keyed by the assistant
+   * it went to as well as its document's surface, and only that document's
+   * composer under that assistant takes it back.
    */
   clearAwaitingReplies: () => void;
   /**
@@ -391,6 +392,22 @@ export function heldMessageFor(
   return held === undefined
     ? undefined
     : mergeFailedSendList(held);
+}
+
+/** The unclaimed recovery copy correlated with `clientMessageId`, if any. */
+export function failedDocumentSendForClientMessageId(
+  state: Pick<DocumentComposerReplyState, "failedSends">,
+  clientMessageId: string,
+): PendingDocumentReplyPayload | undefined {
+  for (const held of state.failedSends.values()) {
+    const match = held.find(
+      (entry) => entry.clientMessageId === clientMessageId,
+    );
+    if (match !== undefined) {
+      return match.payload;
+    }
+  }
+  return undefined;
 }
 
 export type DocumentComposerReplyStore = DocumentComposerReplyState &
@@ -780,6 +797,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
     },
 
     stashFailedSend: (payload, clientMessageId) => {
+      let stashed = false;
       set((s) => {
         const key = heldKey(payload.assistantId, payload.surfaceId);
         const held = s.failedSends.get(key) ?? [];
@@ -789,10 +807,12 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
         ) {
           return s;
         }
+        stashed = true;
         const next = new Map(s.failedSends);
         next.set(key, [...held, { payload, clientMessageId }]);
         return { failedSends: next };
       });
+      return stashed;
     },
 
     dropFailedSend: (clientMessageId) => {
@@ -969,12 +989,7 @@ const useDocumentComposerReplyStoreBase = create<DocumentComposerReplyStore>(
             ) {
               detachedSends.set(p.clientMessageId, p.payload);
             }
-            if (
-              p.acknowledged &&
-              p.queued &&
-              p.clientMessageId &&
-              p.payload
-            ) {
+            if (p.acknowledged && p.clientMessageId && p.payload) {
               detachedQueuedSends.set(p.clientMessageId, {
                 conversationId,
                 payload: p.payload,

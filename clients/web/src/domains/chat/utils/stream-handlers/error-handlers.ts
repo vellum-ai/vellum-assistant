@@ -133,6 +133,7 @@ function handleMessageScopedError(
     const held = composer.takeQueuedSend(clientMessageId);
     if (held) {
       if (!recoveryWasClaimed) {
+        composer.dropFailedSendByClientMessageId(clientMessageId);
         composer.stashFailedSend(held.assistantId, held.conversationId, {
           content: held.content,
           attachments: held.attachments,

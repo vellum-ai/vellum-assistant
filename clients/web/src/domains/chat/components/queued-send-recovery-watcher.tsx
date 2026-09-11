@@ -1,11 +1,46 @@
+import { useCallback, useEffect } from "react";
+
 import { toast } from "@vellumai/design-library/components/toast";
 
+import { fetchConversationMessages } from "@/domains/chat/api/messages";
 import { useComposerStore } from "@/domains/chat/composer-store";
 import { isMessageScopedError } from "@/domains/chat/utils/message-scoped-error";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useTranslation } from "@/i18n";
+
+/** Settle every local recovery copy after history or the stream finds the row. */
+function acceptQueuedSend(clientMessageId: string): void {
+  const composer = useComposerStore.getState();
+  const held = composer.takeQueuedSend(clientMessageId);
+  if (held === null) {
+    return;
+  }
+  const payload = {
+    content: held.content,
+    attachments: held.attachments,
+  };
+  if (!composer.dropFailedSendByClientMessageId(clientMessageId)) {
+    composer.dropFailedSend(held.assistantId, held.conversationId, payload);
+  }
+  composer.clearRestoredDraft(
+    held.assistantId,
+    held.conversationId,
+    held.content,
+  );
+  const activeAssistantId =
+    useResolvedAssistantsStore.getState().activeAssistantId;
+  const activeConversationId =
+    useConversationStore.getState().activeConversationId;
+  if (
+    activeAssistantId === held.assistantId &&
+    activeConversationId === held.conversationId
+  ) {
+    composer.replaceRecoveredPayload(payload);
+  }
+}
 
 /**
  * Hands a queued send's message back to the conversation it was written in
@@ -36,6 +71,103 @@ import { useTranslation } from "@/i18n";
  */
 export function QueuedSendRecoveryWatcher() {
   const { t } = useTranslation("chat");
+  const isOrgReady = useIsOrgReady();
+
+  const reconcileQueuedSends = useCallback(
+    async (assistantId: string): Promise<void> => {
+      if (!isOrgReady) {
+        return;
+      }
+      const retained = [...useComposerStore.getState().queuedSends].filter(
+        ([, send]) => send.assistantId === assistantId,
+      );
+      const byConversation = new Map<string, typeof retained>();
+      for (const entry of retained) {
+        const entries = byConversation.get(entry[1].conversationId) ?? [];
+        entries.push(entry);
+        byConversation.set(entry[1].conversationId, entries);
+      }
+
+      for (const [conversationId, entries] of byConversation) {
+        let snapshot: Awaited<ReturnType<typeof fetchConversationMessages>>;
+        try {
+          snapshot = await fetchConversationMessages(
+            assistantId,
+            conversationId,
+          );
+        } catch {
+          continue;
+        }
+        if (
+          useResolvedAssistantsStore.getState().activeAssistantId !==
+          assistantId
+        ) {
+          return;
+        }
+
+        for (const [clientMessageId, send] of entries) {
+          const composer = useComposerStore.getState();
+          const current = composer.queuedSends.get(clientMessageId);
+          if (
+            current?.assistantId !== assistantId ||
+            current.conversationId !== conversationId
+          ) {
+            continue;
+          }
+          const message = snapshot?.messages.find(
+            (candidate) => candidate.clientMessageId === clientMessageId,
+          );
+          if (message?.queueStatus === "queued") {
+            continue;
+          }
+          if (message !== undefined) {
+            acceptQueuedSend(clientMessageId);
+            continue;
+          }
+          if (snapshot?.processing !== false) {
+            continue;
+          }
+
+          // A failure event can be missed while another assistant owns the
+          // stream. Keep the accepted-send nonce alive, but expose a recovery
+          // correlated with it so a late echo can retract the exact draft.
+          if (
+            !composer.claimedQueuedSendIds.has(clientMessageId) &&
+            composer.stashFailedSend(
+              send.assistantId,
+              send.conversationId,
+              {
+                content: send.content,
+                attachments: send.attachments,
+              },
+              clientMessageId,
+            )
+          ) {
+            toast.error(t("queuedSendRecovery.heldForConversation"));
+          }
+        }
+      }
+    },
+    [isOrgReady, t],
+  );
+
+  useEffect(() => {
+    let ownerAssistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    if (ownerAssistantId !== null) {
+      void reconcileQueuedSends(ownerAssistantId);
+    }
+    return useResolvedAssistantsStore.subscribe((state) => {
+      const { activeAssistantId } = state;
+      if (activeAssistantId === ownerAssistantId) {
+        return;
+      }
+      ownerAssistantId = activeAssistantId;
+      if (activeAssistantId !== null) {
+        void reconcileQueuedSends(activeAssistantId);
+      }
+    });
+  }, [reconcileQueuedSends]);
 
   useBusSubscription("sse.event", (envelope) => {
     const event = envelope.message;
@@ -50,31 +182,7 @@ export function QueuedSendRecoveryWatcher() {
       if (clientMessageId === undefined) {
         return;
       }
-      const composer = useComposerStore.getState();
-      const held = composer.takeQueuedSend(clientMessageId);
-      if (held === null) {
-        return;
-      }
-      const payload = {
-        content: held.content,
-        attachments: held.attachments,
-      };
-      composer.dropFailedSend(held.assistantId, held.conversationId, payload);
-      composer.clearRestoredDraft(
-        held.assistantId,
-        held.conversationId,
-        held.content,
-      );
-      const activeAssistantId =
-        useResolvedAssistantsStore.getState().activeAssistantId;
-      const activeConversationId =
-        useConversationStore.getState().activeConversationId;
-      if (
-        activeAssistantId === held.assistantId &&
-        activeConversationId === held.conversationId
-      ) {
-        composer.replaceRecoveredPayload(payload);
-      }
+      acceptQueuedSend(clientMessageId);
       return;
     }
 
@@ -122,6 +230,7 @@ export function QueuedSendRecoveryWatcher() {
       composer.claimedQueuedSendIds.has(clientMessageId);
     composer.takeQueuedSend(clientMessageId);
     if (!recoveryWasClaimed) {
+      composer.dropFailedSendByClientMessageId(clientMessageId);
       composer.stashFailedSend(held.assistantId, held.conversationId, {
         content: held.content,
         attachments: held.attachments,
