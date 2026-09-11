@@ -4,9 +4,9 @@ import { memoryTier } from "./memory-tier.js";
 import {
   isMemoryEnabled,
   isMemoryV1Active,
-  isSkillImprovementActive,
   isMemoryV2ExplicitlyDisabled,
   isMemoryV3Live,
+  isSkillImprovementActive,
   isV2InjectionEngineActive,
   isV3TierActive,
   usesConceptPageMemory,
