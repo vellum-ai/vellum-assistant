@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { useOrgHeaderReadiness } from "@/hooks/use-is-org-ready";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -21,6 +22,7 @@ import {
 } from "../document-conversation-navigation";
 import { useUnseenDocumentChangesStore } from "../unseen-document-changes-store";
 import { loadDocumentContent } from "../api/document-load";
+import { useOverlayEscape } from "./use-overlay-escape";
 
 function markOpenedDocumentViewed(
   assistantId: string | null,
@@ -44,6 +46,7 @@ export function useDocumentConversationRoute() {
   const { search } = useLocation();
   const navigate = useNavigate();
   const readiness = useOrgHeaderReadiness();
+  const isMobile = useIsMobile();
   const { surfaceId, showingDocument, returnTo } =
     getDocumentConversationRoute(search);
   const lastSurfaceRef = useRef<string | null>(null);
@@ -164,6 +167,14 @@ export function useDocumentConversationRoute() {
       void navigate(returnTo, { replace: true });
     }
   }, [navigate, returnTo]);
+
+  useOverlayEscape(isMobile && !!surfaceId && showingDocument, () => {
+    if (useViewerStore.getState().mainView !== "document") {
+      return false;
+    }
+    closeDocument();
+    return true;
+  });
 
   const setPresentation = useCallback(
     (view: "document" | "chat") => {

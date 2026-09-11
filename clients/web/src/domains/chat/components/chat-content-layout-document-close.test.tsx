@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -16,6 +24,7 @@ import {
 } from "react-router";
 
 import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -34,16 +43,7 @@ const documentData = {
   createdAt: 1,
   updatedAt: 1,
 };
-const sdk = await import("@/generated/daemon/sdk.gen");
 const load = mock(async () => ({ data: documentData }));
-mock.module("@/generated/daemon/sdk.gen", () => ({
-  ...sdk,
-  documentsByIdGet: load,
-  conversationsByIdGet: async () => ({
-    data: { conversation: { id: "conv-1" } },
-    response: new Response(null, { status: 200 }),
-  }),
-}));
 mock.module("@/hooks/use-is-org-ready", () => ({
   useOrgHeaderReadiness: () => "ready",
 }));
@@ -105,10 +105,25 @@ beforeEach(() => {
     activeDocumentTarget: null,
   });
   load.mockClear();
+  spyOn(daemonClient, "get").mockImplementation((async (options: {
+    url: string;
+  }) => {
+    if (options.url.endsWith("/documents/{id}")) {
+      return load();
+    }
+    if (options.url.endsWith("/conversations/{id}")) {
+      return {
+        data: { conversation: { id: "conv-1" } },
+        response: new Response(null, { status: 200 }),
+      };
+    }
+    throw new Error(`Unexpected request: ${options.url}`);
+  }) as typeof daemonClient.get);
 });
 
 afterEach(() => {
   cleanup();
+  mock.restore();
   viewport.restore();
   useResolvedAssistantsStore.setState(selection, true);
   useConversationStore.setState(conversation, true);
@@ -116,30 +131,42 @@ afterEach(() => {
 });
 
 describe("desktop document drawer dismissal", () => {
-  test("the real drawer close clears document URL intent and stays closed on reload", async () => {
-    const page = renderLayout(
-      "/assistant/conversations/conv-1?document=surface-1&documentReturn=%2Fassistant%2Flibrary&documentView=document&keep=1#message-1",
-    );
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Close document" }),
-    );
-    const expected = "/assistant/conversations/conv-1?keep=1#message-1";
-    await waitFor(() =>
-      expect(screen.getByTestId("url").textContent).toBe(expected),
-    );
-    expect(screen.getByTestId("url").dataset.navigationType).toBe("REPLACE");
-    expect(useViewerStore.getState().mainView).toBe("chat");
-    expect(useViewerStore.getState().openedDocumentState).toBeNull();
-    expect(useViewerStore.getState().activeDocumentTarget).toBeNull();
-    expect(useConversationStore.getState().activeConversationId).toBe("conv-1");
-    page.unmount();
-    page.queryClient.clear();
-    const refreshed = renderLayout(expected);
-    expect(screen.queryByRole("button", { name: "Close document" })).toBeNull();
-    expect(load).toHaveBeenCalledTimes(1);
-    refreshed.unmount();
-    refreshed.queryClient.clear();
-  });
+  test.each(["button", "Escape"])(
+    "%s clears document URL intent and stays closed on reload",
+    async (dismissal) => {
+      const page = renderLayout(
+        "/assistant/conversations/conv-1?document=surface-1&documentReturn=%2Fassistant%2Flibrary&documentView=document&keep=1#message-1",
+      );
+      const close = await screen.findByRole("button", {
+        name: "Close document",
+      });
+      if (dismissal === "button") {
+        fireEvent.click(close);
+      } else {
+        fireEvent.keyDown(window, { key: "Escape" });
+      }
+      const expected = "/assistant/conversations/conv-1?keep=1#message-1";
+      await waitFor(() =>
+        expect(screen.getByTestId("url").textContent).toBe(expected),
+      );
+      expect(screen.getByTestId("url").dataset.navigationType).toBe("REPLACE");
+      expect(useViewerStore.getState().mainView).toBe("chat");
+      expect(useViewerStore.getState().openedDocumentState).toBeNull();
+      expect(useViewerStore.getState().activeDocumentTarget).toBeNull();
+      expect(useConversationStore.getState().activeConversationId).toBe(
+        "conv-1",
+      );
+      page.unmount();
+      page.queryClient.clear();
+      const refreshed = renderLayout(expected);
+      expect(
+        screen.queryByRole("button", { name: "Close document" }),
+      ).toBeNull();
+      expect(load).toHaveBeenCalledTimes(1);
+      refreshed.unmount();
+      refreshed.queryClient.clear();
+    },
+  );
 
   test("a drawer opened without document URL intent closes without navigation", async () => {
     showDocumentInConversation(documentData, "conv-1", "assistant-1");

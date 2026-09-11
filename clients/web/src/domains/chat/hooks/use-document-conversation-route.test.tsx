@@ -1,4 +1,14 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
+import { Capacitor } from "@capacitor/core";
+import type { BackButtonListener } from "@capacitor/app";
 import {
   act,
   cleanup,
@@ -19,6 +29,9 @@ import {
 } from "react-router";
 
 import type * as ConversationQueries from "@/hooks/conversation-queries";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { viewportAxesStub } from "@/hooks/viewport-axes.test-helper";
+import { subscribeAndroidBackButtonSource } from "@/runtime/event-sources/android-back-button";
 import type { DocumentContent } from "@/types/document-types";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
@@ -30,6 +43,24 @@ import type * as ConversationHistory from "./use-conversation-history";
 import type * as TurnTimeout from "./use-turn-timeout";
 import { DocumentChatContent } from "../components/document-chat-content";
 import type { DocumentViewerContainerHandle } from "../components/document-viewer-container";
+import { trackDocumentSave } from "../api/document-save";
+
+const nativeApp = await import("@capacitor/app");
+let backButtonHandler: BackButtonListener | undefined;
+const minimizeApp = mock(async () => {});
+mock.module(
+  "@capacitor/app",
+  (): Partial<typeof nativeApp> => ({
+    App: {
+      ...nativeApp.App,
+      addListener: async (_name, handler) => {
+        backButtonHandler = handler as BackButtonListener;
+        return { remove: async () => {} };
+      },
+      minimizeApp,
+    },
+  }),
+);
 
 const documentData: DocumentContent = {
   success: true,
@@ -41,16 +72,13 @@ const documentData: DocumentContent = {
   createdAt: 1,
   updatedAt: 1,
 };
-const sdk = await import("@/generated/daemon/sdk.gen");
 const load = mock(async () => ({ data: documentData }));
-mock.module("@/generated/daemon/sdk.gen", () => ({
-  ...sdk,
-  documentsByIdGet: load,
-  conversationsByIdGet: async ({ path }: { path: { id: string } }) => ({
+const resolveConversation = mock(
+  async ({ path }: { path: { id: string } }) => ({
     data: { conversation: { id: path.id } },
     response: new Response(null, { status: 200 }),
   }),
-}));
+);
 mock.module("@/hooks/use-is-org-ready", () => ({
   useOrgHeaderReadiness: () => "ready",
 }));
@@ -128,7 +156,7 @@ function Harness() {
   const editorRef = useRef<DocumentViewerContainerHandle>(null);
   const location = useLocation();
   return (
-    <>
+    <div data-slot="active-chat-view">
       <div data-testid="url">
         {location.pathname}
         {location.search}
@@ -136,7 +164,7 @@ function Harness() {
       <div data-testid="status">
         {session.isLoading ? "loading" : (session.error ?? "ready")}
       </div>
-      {session.error ? (
+      {session.error || session.isLoading ? (
         <DocumentChatContent
           assistantId="assistant-1"
           surfaceId={session.surfaceId}
@@ -156,7 +184,7 @@ function Harness() {
       )}
       <button onClick={session.viewConversation}>View conversation</button>
       <button onClick={session.reopenDocument}>Reopen document</button>
-    </>
+    </div>
   );
 }
 
@@ -219,7 +247,11 @@ function renderRoute(
 let selection: ReturnType<typeof useResolvedAssistantsStore.getState>;
 let viewer: ReturnType<typeof useViewerStore.getState>;
 let conversation: ReturnType<typeof useConversationStore.getState>;
+const viewport = viewportAxesStub();
 beforeEach(() => {
+  backButtonHandler = undefined;
+  minimizeApp.mockClear();
+  viewport.set({ narrow: true, coarsePointer: true });
   selection = useResolvedAssistantsStore.getState();
   viewer = useViewerStore.getState();
   conversation = useConversationStore.getState();
@@ -233,15 +265,171 @@ beforeEach(() => {
   });
   load.mockReset();
   load.mockImplementation(async () => ({ data: documentData }));
+  resolveConversation.mockReset();
+  resolveConversation.mockImplementation(async ({ path }) => ({
+    data: { conversation: { id: path.id } },
+    response: new Response(null, { status: 200 }),
+  }));
+  spyOn(daemonClient, "get").mockImplementation((async (options: {
+    url: string;
+    path: { id: string };
+  }) => {
+    if (options.url.endsWith("/documents/{id}")) {
+      return load();
+    }
+    if (options.url.endsWith("/conversations/{id}")) {
+      return resolveConversation({ path: options.path });
+    }
+    throw new Error(`Unexpected request: ${options.url}`);
+  }) as typeof daemonClient.get);
 });
 afterEach(() => {
   cleanup();
+  viewport.restore();
+  mock.restore();
   useResolvedAssistantsStore.setState(selection, true);
   useViewerStore.setState(viewer, true);
   useConversationStore.setState(conversation, true);
 });
 
 describe("document conversation route", () => {
+  test.each(["ready", "loading", "stacked overlay"])(
+    "Android Back closes the %s document session through its return route",
+    async (state) => {
+      let resolveLoad!: (value: { data: DocumentContent }) => void;
+      if (state === "loading") {
+        load.mockImplementation(
+          () =>
+            new Promise((resolve) => {
+              resolveLoad = resolve;
+            }),
+        );
+      }
+      spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+      spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+      const historyBack = spyOn(window.history, "back").mockImplementation(
+        () => {},
+      );
+      const unsubscribe = subscribeAndroidBackButtonSource();
+      try {
+        const page = renderRoute();
+        await waitFor(() => expect(typeof backButtonHandler).toBe("function"));
+        await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+        if (state !== "loading") {
+          await waitFor(() =>
+            expect(page.getByTestId("status").textContent).toBe("ready"),
+          );
+        }
+        if (state === "stacked overlay") {
+          const dialog = document.createElement("div");
+          dialog.setAttribute("role", "dialog");
+          dialog.addEventListener("keydown", (event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              dialog.remove();
+            }
+          });
+          page.container.append(dialog);
+          await act(async () => backButtonHandler!({ canGoBack: false }));
+          expect(dialog.isConnected).toBe(false);
+          expect(useViewerStore.getState().mainView).toBe("document");
+          expect(page.getByTestId("url").textContent).toContain(
+            "document=surface-1",
+          );
+        }
+        await act(async () => backButtonHandler!({ canGoBack: false }));
+        await page.findByTestId("library");
+        if (state === "loading") {
+          await act(async () => resolveLoad({ data: documentData }));
+        }
+        expect(useViewerStore.getState().openedDocumentState).toBeNull();
+        expect(useViewerStore.getState().mainView).toBe("chat");
+        expect(minimizeApp).not.toHaveBeenCalled();
+        expect(historyBack).not.toHaveBeenCalled();
+      } finally {
+        unsubscribe();
+      }
+    },
+  );
+
+  test("Escape claimed by a child or used for IME cannot dismiss the document", async () => {
+    const page = renderRoute();
+    await waitFor(() =>
+      expect(page.getByTestId("status").textContent).toBe("ready"),
+    );
+    const claimed = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    claimed.preventDefault();
+    fireEvent(window, claimed);
+    fireEvent.keyDown(window, { key: "Escape", isComposing: true });
+    expect(page.getByTestId("url").textContent).toContain("document=surface-1");
+    expect(useViewerStore.getState().mainView).toBe("document");
+    act(() => useViewerStore.setState({ mainView: "message-files" }));
+    const overlayEscape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, overlayEscape);
+    expect(overlayEscape.defaultPrevented).toBe(false);
+    expect(useViewerStore.getState().mainView).toBe("message-files");
+    expect(page.getByTestId("url").textContent).toContain("document=surface-1");
+    fireEvent.click(page.getByText("View conversation"));
+    const escape = new KeyboardEvent("keydown", {
+      key: "Escape",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, escape);
+    expect(escape.defaultPrevented).toBe(false);
+    expect(page.getByTestId("url").textContent).toContain("documentView=chat");
+  });
+
+  test("a pending save does not block the loading surface's close action", async () => {
+    let finishSave!: () => void;
+    const save = new Promise<void>((resolve) => {
+      finishSave = resolve;
+    });
+    trackDocumentSave(
+      { assistantId: "assistant-1", surfaceId: "surface-1" },
+      save,
+    );
+    try {
+      const page = renderRoute();
+      fireEvent.click(page.getByRole("button", { name: "Close document" }));
+      await page.findByTestId("library");
+      await act(async () => finishSave());
+      expect(load).not.toHaveBeenCalled();
+      expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    } finally {
+      await act(async () => finishSave());
+    }
+  });
+
+  test("closing during linked conversation validation prevents a late document open", async () => {
+    let finishLink!: () => void;
+    resolveConversation.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLink = () =>
+            resolve({
+              data: { conversation: { id: "conv-1" } },
+              response: new Response(null, { status: 200 }),
+            });
+        }),
+    );
+    const page = renderRoute();
+    await waitFor(() => expect(resolveConversation).toHaveBeenCalledTimes(1));
+    fireEvent.click(page.getByRole("button", { name: "Close document" }));
+    await page.findByTestId("library");
+    await act(async () => finishLink());
+    expect(useViewerStore.getState().openedDocumentState).toBeNull();
+    expect(useViewerStore.getState().mainView).toBe("chat");
+  });
+
   test.each(["offline", "not found"])(
     "the error surface can close a document after a %s response",
     async (reason) => {
@@ -252,6 +440,7 @@ describe("document conversation route", () => {
       );
       const origin = "/assistant/conversations/conv-1";
       const page = renderRoute("conv-1", true, false, origin);
+      await page.findByRole("button", { name: "Retry" });
       const close = await page.findByRole("button", { name: "Close document" });
       expect(page.getByRole("button", { name: "Retry" })).toBeTruthy();
       fireEvent.click(close);
@@ -362,7 +551,7 @@ describe("document conversation route", () => {
     );
     const page = renderRoute();
     await waitFor(() => expect(load).toHaveBeenCalledTimes(1));
-    fireEvent.click(page.getByText("Close"));
+    fireEvent.click(page.getByRole("button", { name: "Close document" }));
     await page.findByTestId("library");
     await act(async () => resolveLoad({ data: documentData }));
     expect(useViewerStore.getState().openedDocumentState).toBeNull();
@@ -371,7 +560,7 @@ describe("document conversation route", () => {
 
   test("closing before the save wait settles skips the document request", async () => {
     const page = renderRoute();
-    fireEvent.click(page.getByText("Close"));
+    fireEvent.click(page.getByRole("button", { name: "Close document" }));
     await page.findByTestId("library");
     expect(load).not.toHaveBeenCalled();
     expect(useViewerStore.getState().openedDocumentState).toBeNull();

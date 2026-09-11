@@ -56,8 +56,11 @@ export function DocumentChatContent({
   useBusSubscription("sse.event", handleCommentEvent);
   if (loading) {
     return (
-      <div className="flex flex-1 items-center justify-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4">
         <Loader2 className="size-6 animate-spin" />
+        <Button variant="outlined" onClick={onClose}>
+          {t("documentViewerContainer.closeDocumentAria")}
+        </Button>
       </div>
     );
   }

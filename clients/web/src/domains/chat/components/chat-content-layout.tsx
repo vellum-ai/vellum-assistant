@@ -44,6 +44,7 @@ import { ChannelSetupPanel } from "@/domains/chat/components/channel-setup-panel
 import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-notify";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useOverlayEscape } from "../hooks/use-overlay-escape";
 import { routes } from "@/utils/routes";
 import { getDocumentFeedbackPrompt } from "../document-conversation";
 import { closeDocumentInConversation } from "../document-conversation-navigation";
@@ -362,26 +363,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   // stacked panels (tool detail → document → chat) one layer at a time.
   // -------------------------------------------------------------------------
 
-  useEffect(() => {
-    if (isMobile) {
-      return;
+  useOverlayEscape(!isMobile, () => {
+    const viewer = useViewerStore.getState();
+    if (viewer.mainView === "document") {
+      handleCloseDocument();
+      return true;
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) {
-        return;
-      }
-      // Don't intercept IME composition (CJK input confirmation).
-      if (event.isComposing || event.keyCode === 229) {
-        return;
-      }
-      const viewer = useViewerStore.getState();
-      if (viewer.closeActiveOverlay()) {
-        event.preventDefault();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isMobile]);
+    return viewer.closeActiveOverlay();
+  });
 
   // Warm the lazy side-panel chunks while the browser is idle so the first
   // open renders immediately instead of stalling on a dynamic import.

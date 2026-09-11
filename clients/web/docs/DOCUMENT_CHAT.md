@@ -27,10 +27,13 @@ Conversation bootstrap leaves an explicit conversation URL intact, so it does no
 consume the document presentation or return parameters while selecting the chat.
 Chat Info stays mounted while document entry resolves, then closes immediately
 before navigation. Closing it manually cancels the pending entry request.
-The desktop drawer's close action removes document URL intent while preserving
-the current conversation, unrelated search parameters and fragment. A failed
-mobile document load offers both Retry and Close document; close uses the same
-return destination as a loaded editor and removes the failed association.
+The desktop drawer's close button and Escape action remove document URL intent
+while preserving the current conversation, unrelated search parameters and
+fragment. The mobile document session handles unclaimed Escape from the keyboard
+or Android Back through the same return action as its close button. Other active
+overlays and controls that claim Escape take priority. Loading and failed mobile
+document loads offer Close document; errors also offer Retry. Close cancels the
+pending load and uses the same return destination as a loaded editor.
 
 Documents normally have a conversation: the document upsert API requires a
 nonempty `conversationId`. Opening a document validates that existing link. A
