@@ -17,6 +17,8 @@ import {
   getRequestByPendingQuestionOrNull,
   listGuardianRequestDeliveriesOrEmpty,
 } from "../channels/gateway-guardian-requests.js";
+import { loadConfig } from "../config/loader.js";
+import type { VoiceProgressConfig } from "../config/schemas/voice.js";
 import type { TrustContext } from "../daemon/trust-context-types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -64,6 +66,10 @@ import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import {
+  createVoiceProgressNarrator,
+  type VoiceProgressNarrator,
+} from "./progress-narration.js";
+import {
   findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
   resolveSynthesisFormats,
@@ -83,6 +89,7 @@ import {
   extractBalancedJson,
   stripInternalSpeechMarkers,
 } from "./voice-control-protocol.js";
+import { createProgressCadence } from "./voice-progress-cadence.js";
 import {
   CONVERSATION_BUSY_MESSAGE,
   startVoiceTurn,
@@ -236,6 +243,11 @@ export class CallController {
    * resolution only.
    */
   private resolveSynthesisLanguage: () => string | undefined;
+  /** Spoken progress narration (voice.frontModel.progress), null when off. */
+  private readonly progressNarrator: VoiceProgressNarrator | null;
+  private readonly progressConfig: VoiceProgressConfig;
+  /** Rotates the static narration fallback across turns. */
+  private progressPhraseCounter = 0;
 
   constructor(
     callSessionId: string,
@@ -246,6 +258,9 @@ export class CallController {
       assistantId?: string;
       trustContext?: TrustContext;
       resolveSynthesisLanguage?: () => string | undefined;
+      /** Test seam: an explicit null disables narration for the call. */
+      progressNarrator?: VoiceProgressNarrator | null;
+      progressConfig?: VoiceProgressConfig;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -258,6 +273,12 @@ export class CallController {
     this.resolveSynthesisLanguage =
       opts?.resolveSynthesisLanguage ??
       (() => resolveTelephonySynthesisLanguage());
+    this.progressConfig =
+      opts?.progressConfig ?? loadConfig().voice.frontModel.progress;
+    this.progressNarrator =
+      opts?.progressNarrator !== undefined
+        ? opts.progressNarrator
+        : createVoiceProgressNarrator({ config: this.progressConfig });
 
     // Resolve the conversation ID and skipDisclosure from the call session
     const session = getCallSession(callSessionId);
@@ -765,6 +786,12 @@ export class CallController {
       userMessageId: null,
       assistantMessageId: null,
     };
+    // Audio bookkeeping for progress narration: segments handed to synthesis
+    // but not yet emitted, text deltas seen (a narration generated while the
+    // model was already speaking is stale), and whether the turn is over.
+    let segmentsInFlight = 0;
+    let deltaEpoch = 0;
+    let turnSettled = false;
 
     // Synthesized path: text is split at speakable boundaries as it streams
     // and each segment is synthesized while the LLM keeps generating. The
@@ -855,15 +882,16 @@ export class CallController {
           continue;
         }
         firstSynthSegmentEnqueued = true;
+        segmentsInFlight += 1;
         synthesisChain = synthesisChain.then(async () => {
-          if (
-            !this.isCurrentRun(runVersion) ||
-            synthesisFailure ||
-            synthesisCancelled
-          ) {
-            return;
-          }
           try {
+            if (
+              !this.isCurrentRun(runVersion) ||
+              synthesisFailure ||
+              synthesisCancelled
+            ) {
+              return;
+            }
             if (!synthesisFellBack) {
               const status = await this.synthesizeAndStreamAudio(
                 ttsProvider,
@@ -899,6 +927,11 @@ export class CallController {
             await speakSegmentViaPcmFallback(ttsProvider.id, segment, language);
           } catch (err) {
             synthesisFailure = { err };
+          } finally {
+            segmentsInFlight -= 1;
+            // The segment's audio has been handed off; the transport's
+            // playback tail covers what is still playing.
+            cadence.noteAudioSettled();
           }
         });
       }
@@ -924,6 +957,7 @@ export class CallController {
         }
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
+        cadence.noteAudioSettled();
       }
     };
 
@@ -935,20 +969,61 @@ export class CallController {
      * (on the native route that is the transport's system-copy contract);
      * undefined rides the turn's language like model text.
      */
-    const speakFixedPhrase = (text: string, language: string | undefined) => {
+    const speakFixedPhrase = (
+      text: string,
+      language: string | undefined,
+    ): boolean => {
       const cleaned = sanitizeForTts(text).trim();
       if (cleaned.length === 0) {
-        return;
+        return false;
       }
       if (synthProvider) {
         enqueueSynthesisSegments(synthProvider, [cleaned], language);
-        return;
+        return true;
       }
       this.beginSpeakingOnAudioStart(runVersion);
       this.transport.sendTextToken(`${cleaned} `, false, {
         systemCopy: language !== undefined,
       });
+      cadence.noteAudioSettled();
+      return true;
     };
+
+    // Spoken progress narration for the turn's dead air (tool loops on the
+    // escalated leg). The shared cadence owns the timing; this host supplies
+    // the phone's view of audible silence: nothing buffered toward a
+    // sentence, no segment mid-synthesis, and the transport's queue empty
+    // with its playback-tail estimate expired.
+    const callerTranscript =
+      content === CALL_OPENING_MARKER ||
+      content === CALL_VERIFICATION_COMPLETE_MARKER
+        ? ""
+        : content;
+    const cadence = createProgressCadence({
+      config: this.progressConfig,
+      narrator: this.progressNarrator,
+      nextFallbackPhraseIndex: () => this.progressPhraseCounter++,
+      host: {
+        turnId: `${this.callSessionId}#${runVersion}`,
+        launchedAtMs,
+        signal: runSignal,
+        canNarrate: () => this.isCurrentRun(runVersion) && !turnSettled,
+        isAudioIdle: () =>
+          pendingSynthText.length === 0 &&
+          segmentsInFlight === 0 &&
+          (this.transport.isPlaybackIdle?.() ?? true),
+        playbackTailUntilMs: () => this.transport.playbackTailUntilMs?.() ?? 0,
+        transcriptSoFar: () => callerTranscript,
+        language: () => this.resolveSynthesisLanguage(),
+        deltaEpoch: () => deltaEpoch,
+        speak: speakFixedPhrase,
+      },
+    });
+    const settleTurn = (): void => {
+      turnSettled = true;
+      cadence.clear();
+    };
+    runSignal.addEventListener("abort", settleTurn, { once: true });
 
     // Speech goes out through the shared control-marker holdback: text up to
     // a possibly-streaming marker flushes, the marker itself is stripped, and
@@ -991,6 +1066,7 @@ export class CallController {
             ? { toolUseId: detail.toolUseId }
             : {}),
         });
+        cadence.toolStarted(toolName, detail?.toolUseId);
       },
       tool_result: (event) => {
         if (!this.isCurrentRun(runVersion)) {
@@ -1004,6 +1080,7 @@ export class CallController {
           ...(event.isError !== undefined ? { isError: event.isError } : {}),
           resultPreview: event.resultPreview,
         });
+        cadence.toolFinished(event);
       },
     });
 
@@ -1045,6 +1122,9 @@ export class CallController {
         };
 
         const ingest = (speakable: string): void => {
+          if (speakable.length > 0) {
+            deltaEpoch += 1;
+          }
           if (verdict === null) {
             fullResponseText += speakable;
             flushSafeText(fullResponseText);
@@ -1171,6 +1251,7 @@ export class CallController {
           synthesisCancelled = true;
           this.abortActiveSynthesis();
         }
+        settleTurn();
         await synthesisChain.catch(() => {});
         throw err;
       }
@@ -1181,11 +1262,16 @@ export class CallController {
     // links short-circuit on staleness) so this turn's synthesis fully
     // settles instead of racing the next turn.
     const settleSuperseded = async (): Promise<VoiceTurnOutcome> => {
+      settleTurn();
       await synthesisChain.catch(() => {});
       outcome.text = fullResponseText;
       return outcome;
     };
 
+    // Narration speaks into the turn's audible dead air on a cadence wherever
+    // in the turn it occurs; the front-door leg is toolless and quick, so in
+    // practice the escalated leg's tool loops are what it covers.
+    cadence.arm();
     const escalationBridge = await runVoiceLeg({
       content,
       routingLeg: "front-door",
@@ -1200,6 +1286,10 @@ export class CallController {
       // speech and stays in the turn's text, matching the row the bridge's
       // transcript hygiene keeps for it; the canned fallback is audio-only,
       // matching the row it deletes.
+      // The bridge holds the floor: pending narration would only stack a
+      // second filler on top of it. Re-armed once the escalated leg starts;
+      // audible-silence gating keeps it quiet until the bridge has played.
+      cadence.clear();
       const {
         spokenBridge,
         usesFallback: usesFallbackBridge,
@@ -1224,9 +1314,13 @@ export class CallController {
           enqueueSynthesisSegments(synthProvider, segments);
         }
       }
+      // The bridge is the turn's spoken acknowledgement: narration keeps
+      // `minGapMs` from it rather than following it back to back.
+      cadence.noteFloorHolder();
       // The bridge phrase the caller just heard is handed along so the
       // escalated continuation rule can quote it and ban a re-announcing
       // echo. The bridge pins this leg to the conversation's own profile.
+      cadence.arm();
       await runVoiceLeg({
         content: ESCALATION_CONTINUATION_CONTENT,
         routingLeg: "escalated",
@@ -1236,6 +1330,9 @@ export class CallController {
         return settleSuperseded();
       }
     }
+
+    // The turn's legs are done: no narration past this point.
+    settleTurn();
 
     // Final sweep: a held "[..." tail that never completed a marker is real
     // text, so the forced flush speaks it instead of dropping it.
