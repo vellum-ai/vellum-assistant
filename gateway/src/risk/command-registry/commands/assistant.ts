@@ -82,6 +82,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "channels list",
   "channels get",
   "channels request",
+  "channels send",
   "clients",
   "clients disconnect",
   "clients list",
@@ -845,6 +846,12 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "high",
     reason:
       "Acts as the channel's bot with any effect the bot's API allows (sends, edits, deletes, uploads, reactions, as well as reads); the effect is the endpoint's, which the command cannot tell apart",
+  },
+  {
+    path: "channels send",
+    risk: "high",
+    reason:
+      "Posts a message people will read, as the assistant's bot, which nobody can take back; the same effect as the messaging tool's send, which carries the same rating",
   },
   {
     path: "oauth connect",

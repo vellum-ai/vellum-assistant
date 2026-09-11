@@ -444,6 +444,9 @@
   "rootHydrateFallback": {
     "loadingAria": "正在加载"
   },
+  "routePendingIndicator": {
+    "loadingAria": "正在加载"
+  },
   "rootLayout": {
     "unnamedAssistant": "该助手"
   },

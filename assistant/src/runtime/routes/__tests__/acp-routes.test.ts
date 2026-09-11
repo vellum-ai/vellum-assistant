@@ -11,7 +11,8 @@
  * silently auto-installs allowlisted adapter packages via a sandboxed `bun`
  * global install before failing with the install hint. `execFile` is stubbed
  * via the shared `installExecFileStub` helper so tests can script
- * `bun add --global` outcomes.
+ * `bun add --global` outcomes. It also threads the optional `model` through to
+ * the session manager and relays the warning a refused model comes back with.
  */
 
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -43,6 +44,10 @@ interface FakeSessionState {
   completedAt?: number;
   error?: string;
   stopReason?: string;
+  model?: string;
+  availableModels?: Array<{ value: string; label: string }>;
+  modelRevisionEpoch?: string;
+  modelRevision?: number;
   latestUsage?: {
     usedTokens: number;
     contextSize: number;
@@ -55,10 +60,18 @@ interface FakeSessionState {
 
 let fakeInMemorySessions: FakeSessionState[] = [];
 
-const spawnMock = mock(async () => ({
+interface SpawnResult {
+  acpSessionId: string;
+  protocolSessionId: string;
+  modelWarning?: string;
+}
+
+const DEFAULT_SPAWN_RESULT: SpawnResult = {
   acpSessionId: "acp-route-session",
   protocolSessionId: "proto-route-session",
-}));
+};
+let spawnResult: SpawnResult = DEFAULT_SPAWN_RESULT;
+const spawnMock = mock(async () => spawnResult);
 
 const defaultSteerOrResumeImpl = async (
   _id: string,
@@ -182,6 +195,10 @@ interface ResponseShape {
     outputTokens?: number;
     eventLog?: unknown[];
     authErrorCode?: string;
+    model?: string;
+    availableModels?: Array<{ value: string; label: string }>;
+    modelRevisionEpoch?: string;
+    modelRevision?: number;
   }>;
 }
 
@@ -190,6 +207,7 @@ beforeEach(() => {
   clearHistory();
   resetExecFileStub();
   spawnMock.mockClear();
+  spawnResult = DEFAULT_SPAWN_RESULT;
   steerOrResumeMock.mockClear();
   steerOrResumeImpl = defaultSteerOrResumeImpl;
   _resetAdapterInstallCacheForTests();
@@ -326,6 +344,60 @@ describe("GET /v1/acp/sessions — merged in-memory + history", () => {
     expect(s).toBeDefined();
     expect(s!.inputTokens).toBeUndefined();
     expect(s!.outputTokens).toBeUndefined();
+  });
+
+  test("carries the model for both layers and the picker for live ones only", async () => {
+    fakeInMemorySessions = [
+      {
+        id: "live-model",
+        agentId: "agent-live",
+        acpSessionId: "proto-live",
+        parentConversationId: "conv-model",
+        status: "running",
+        startedAt: 9000,
+        model: "opus",
+        modelRevisionEpoch: "01900000-0000-7000-8000-000000000001",
+        modelRevision: 17,
+        availableModels: [
+          { value: "sonnet", label: "Sonnet" },
+          { value: "opus", label: "Opus" },
+        ],
+      },
+    ];
+    insertHistoryRow({
+      id: "hist-model",
+      agentId: "agent-hist",
+      acpSessionId: "proto-hist",
+      parentConversationId: "conv-model",
+      startedAt: 1000,
+      status: "completed",
+    });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const live = body.sessions.find((s) => s.id === "live-model");
+    const hist = body.sessions.find((s) => s.id === "hist-model");
+    expect(live).toMatchObject({
+      model: "opus",
+      modelRevisionEpoch: "01900000-0000-7000-8000-000000000001",
+      modelRevision: 17,
+      availableModels: [
+        { value: "sonnet", label: "Sonnet" },
+        { value: "opus", label: "Opus" },
+      ],
+    });
+    // A finished run has no live process to ask, so it reports neither.
+    expect(hist?.model).toBeUndefined();
+    expect(hist?.availableModels).toBeUndefined();
+  });
+
+  test("omits the model for history rows written without one", async () => {
+    insertHistoryRow({ id: "hist-no-model", status: "completed" });
+
+    const handler = getSessionsHandler();
+    const body = (await handler({})) as ResponseShape;
+    const s = body.sessions.find((row) => row.id === "hist-no-model");
+    expect(s?.model).toBeUndefined();
   });
 
   test("dedupes by id with in-memory winning on collision", async () => {
@@ -593,7 +665,7 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     expect(args).toEqual([
       "add",
       "--global",
-      "@agentclientprotocol/claude-agent-acp",
+      "@agentclientprotocol/claude-agent-acp@0.75.1",
     ]);
   });
 
@@ -677,6 +749,59 @@ describe("POST /v1/acp/spawn: sandboxed bun auto-install on missing binary", () 
     await expect(promise).rejects.toThrow(
       "custom-bin is not on PATH. Install 'custom-bin' and ensure it is on PATH.",
     );
+  });
+});
+
+describe("POST /v1/acp/spawn: model selection", () => {
+  test("threads the requested model to the session manager", async () => {
+    const handler = getSpawnHandler();
+    await handler({ body: { ...SPAWN_BODY, model: "opus" } });
+
+    expect(confirmationRequests).toHaveLength(1);
+    expect(confirmationRequests[0]?.input).toEqual({
+      agent: "claude",
+      task: "do something",
+      cwd: process.cwd(),
+      model: "opus",
+    });
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    expect((spawnMock.mock.calls[0] as unknown[])[6]).toEqual({
+      model: "opus",
+    });
+  });
+
+  test("a spawn that names no model asks the manager for none", async () => {
+    const handler = getSpawnHandler();
+    await handler({ body: SPAWN_BODY });
+
+    const options = (spawnMock.mock.calls[0] as unknown[])[6] as {
+      model?: string;
+    };
+    const approvalInput = confirmationRequests[0]?.input as Record<
+      string,
+      unknown
+    >;
+    expect(approvalInput).not.toHaveProperty("model");
+    expect(options.model).toBeUndefined();
+  });
+
+  test("a refused model is a warning on an otherwise successful spawn", async () => {
+    spawnResult = {
+      ...DEFAULT_SPAWN_RESULT,
+      modelWarning: "Invalid value for config option model: nope",
+    };
+
+    const handler = getSpawnHandler();
+    const body = (await handler({
+      body: { ...SPAWN_BODY, model: "nope" },
+    })) as Record<string, unknown>;
+
+    expect(body).toEqual({
+      acpSessionId: "acp-route-session",
+      protocolSessionId: "proto-route-session",
+      agent: "claude",
+      modelWarning: "Invalid value for config option model: nope",
+    });
   });
 });
 

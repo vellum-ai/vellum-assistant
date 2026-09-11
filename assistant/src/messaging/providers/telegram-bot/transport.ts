@@ -69,15 +69,10 @@ export const telegramTransport: ChannelTransport = {
 
   /**
    * A chat is a chat id, with `threadId` naming a forum topic. A person's DM
-   * chat id is their user id, so a person is addressed as that chat.
+   * chat id is their user id on Telegram, so reaching one is naming that
+   * chat and needs no resolution of its own.
    */
   addressFor(target) {
-    if (target.kind === "person") {
-      return {
-        ctx: directDeliveryContext("telegram"),
-        chatId: target.userId,
-      };
-    }
     const threadId = target.threadId?.trim();
     return {
       ctx: directDeliveryContext("telegram", threadId ? { threadId } : {}),

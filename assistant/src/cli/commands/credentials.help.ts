@@ -45,8 +45,12 @@ Examples:
         },
       ],
       helpText: `
-Lists all credentials in the vault. Each entry includes the same fields as
-"inspect" — scrubbed value, timestamps, policy, and metadata.
+Lists credentials from the live credential vault. Each entry includes the same
+fields as inspect: scrubbed value, timestamps, policy, and metadata.
+
+Fails immediately with an error if the credential vault is unreachable. An
+empty list means the vault answered and has no matching credentials, not that
+the store is down.
 
 The --search flag filters results by case-insensitive substring match against
 the credential's service name, field name, label, or description. For example, --search

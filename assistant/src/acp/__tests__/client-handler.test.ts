@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SessionNotification } from "@agentclientprotocol/sdk";
+import type {
+  SessionConfigOption,
+  SessionNotification,
+} from "@agentclientprotocol/sdk";
 
 import type { AssistantEvent } from "../../api/index.js";
 import { VellumAcpClientHandler } from "../client-handler.js";
+import { modelOption } from "./helpers/acp-model-option.js";
 
 const ACP_SESSION_ID = "acp-session-abc";
 const PARENT_CONVERSATION_ID = "conv-xyz";
@@ -11,16 +15,21 @@ const PARENT_CONVERSATION_ID = "conv-xyz";
 function makeHandler(): {
   handler: VellumAcpClientHandler;
   sent: AssistantEvent[];
+  configOptionUpdates: SessionConfigOption[][];
 } {
   const sent: AssistantEvent[] = [];
+  const configOptionUpdates: SessionConfigOption[][] = [];
   const handler = new VellumAcpClientHandler(
     ACP_SESSION_ID,
     (msg) => {
       sent.push(msg);
     },
     PARENT_CONVERSATION_ID,
+    (configOptions) => {
+      configOptionUpdates.push(configOptions);
+    },
   );
-  return { handler, sent };
+  return { handler, sent, configOptionUpdates };
 }
 
 describe("VellumAcpClientHandler.sessionUpdate", () => {
@@ -780,5 +789,84 @@ describe("VellumAcpClientHandler seq + enriched fields", () => {
     const msg = sent[0] as { toolTitle?: string };
     expect(msg.toolTitle).not.toContain("AKIAFA01L49X7HW9DM2Y");
     expect(msg.toolTitle).toContain("<redacted");
+  });
+});
+
+describe("VellumAcpClientHandler config_option_update", () => {
+  const MODEL_OPTION = modelOption("sonnet");
+
+  const THOUGHT_OPTION: SessionConfigOption = {
+    type: "boolean",
+    id: "thinking",
+    name: "Extended thinking",
+    currentValue: true,
+  };
+
+  function configOptionUpdate(
+    configOptions: SessionConfigOption[],
+  ): SessionNotification {
+    return {
+      sessionId: ACP_SESSION_ID,
+      update: { sessionUpdate: "config_option_update", configOptions },
+    };
+  }
+
+  test("invokes the callback with the full option array", async () => {
+    const { handler, sent, configOptionUpdates } = makeHandler();
+
+    await handler.sessionUpdate(
+      configOptionUpdate([MODEL_OPTION, THOUGHT_OPTION]),
+    );
+
+    expect(configOptionUpdates).toEqual([[MODEL_OPTION, THOUGHT_OPTION]]);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("callback fires during replay suppression", async () => {
+    const { handler, sent, configOptionUpdates } = makeHandler();
+
+    handler.beginReplaySuppression();
+    await handler.sessionUpdate(configOptionUpdate([MODEL_OPTION]));
+
+    expect(configOptionUpdates).toEqual([[MODEL_OPTION]]);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a handler without the callback tolerates the update", async () => {
+    const sent: AssistantEvent[] = [];
+    const handler = new VellumAcpClientHandler(
+      ACP_SESSION_ID,
+      (msg) => {
+        sent.push(msg);
+      },
+      PARENT_CONVERSATION_ID,
+    );
+
+    await handler.sessionUpdate(configOptionUpdate([MODEL_OPTION]));
+
+    expect(sent).toHaveLength(0);
+  });
+
+  test("the remaining unhandled update types stay unforwarded", async () => {
+    const { handler, sent, configOptionUpdates } = makeHandler();
+
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: [{ name: "create_plan", description: "Plan work" }],
+      },
+    });
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: { sessionUpdate: "current_mode_update", currentModeId: "ask" },
+    });
+    await handler.sessionUpdate({
+      sessionId: ACP_SESSION_ID,
+      update: { sessionUpdate: "session_info_update", title: "Refactor" },
+    });
+
+    expect(sent).toHaveLength(0);
+    expect(configOptionUpdates).toHaveLength(0);
   });
 });

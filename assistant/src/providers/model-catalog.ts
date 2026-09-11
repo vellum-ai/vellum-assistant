@@ -76,6 +76,13 @@ export interface CatalogModel {
   supportsAudioInput?: boolean;
   supportsToolUse?: boolean;
   supportsEffort?: boolean;
+  /**
+   * Whether this provider/model serving surface accepts a forced OpenAI
+   * chat-completions tool choice while thinking is enabled. Omit unless the
+   * combination is known incompatible. Daemon-only: not projected into the
+   * client catalog (see scripts/sync-llm-catalog.ts).
+   */
+  supportsForcedToolChoiceWithThinking?: boolean;
   pricing?: CatalogModelPricing;
   /**
    * Upper bound for `reasoning_effort` accepted by this model's upstream API.
@@ -1816,6 +1823,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         supportsCaching: true,
         supportsVision: true,
         supportsToolUse: true,
+        supportsForcedToolChoiceWithThinking: false,
         pricing: {
           inputPer1mTokens: 0.95,
           outputPer1mTokens: 4.0,
@@ -2625,6 +2633,30 @@ export function modelSupportedEfforts(
     PROVIDER_CATALOG.find((p) => p.id === providerId)?.models.flatMap((m) =>
       m.supportedEfforts ? ([[m.id, m.supportedEfforts]] as const) : [],
     ) ?? [],
+  );
+}
+
+/**
+ * Whether a provider/model serving surface accepts a forced OpenAI
+ * chat-completions tool choice while thinking is enabled. Unknown providers
+ * and models fail open so custom routes retain their existing request shape
+ * and can rely on the bounded provider-error retry if needed.
+ */
+export function supportsForcedToolChoiceWithThinking(
+  providerId: string,
+  modelId: string,
+): boolean {
+  const provider = PROVIDER_CATALOG.find((entry) => entry.id === providerId);
+  if (!provider) {
+    return true;
+  }
+  const stripDateSuffix = (id: string): string => id.replace(/-\d{8}$/, "");
+  const normalizedModelId = stripDateSuffix(modelId);
+  return !provider.models.some(
+    (model) =>
+      model.supportsForcedToolChoiceWithThinking === false &&
+      (model.id === modelId ||
+        stripDateSuffix(model.id) === normalizedModelId),
   );
 }
 

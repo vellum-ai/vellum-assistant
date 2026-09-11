@@ -548,7 +548,7 @@ export function clearAllActiveConversations(): number {
 }
 
 /**
- * Evict in-memory conversations after a config/prompt/skills reload so the next
+ * Evict in-memory conversations after a config/prompt reload so the next
  * turn rebuilds them against the new config. Conversations with in-flight work
  * (a live turn, a queued successor, or an active subagent) are marked stale
  * and rebuilt by `getOrCreateConversation` once that work finishes. Idle

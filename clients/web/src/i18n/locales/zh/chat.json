@@ -35,6 +35,7 @@
     "closeRunDetail": "关闭运行详情",
     "goToNewest": "前往最新",
     "inputLabel": "输入",
+    "modelLabel": "模型",
     "objective": "目标",
     "outputLabel": "输出",
     "sendSteerAria": "发送引导指令",

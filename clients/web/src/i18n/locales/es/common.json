@@ -442,6 +442,9 @@
   "rootHydrateFallback": {
     "loadingAria": "Cargando"
   },
+  "routePendingIndicator": {
+    "loadingAria": "Cargando"
+  },
   "rootLayout": {
     "unnamedAssistant": "el asistente"
   },

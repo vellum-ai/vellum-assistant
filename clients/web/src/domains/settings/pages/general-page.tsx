@@ -61,6 +61,7 @@ export function GeneralPage() {
     assistant,
     healthz,
     healthzLoading,
+    healthzFetching,
     healthzPolling,
     refetch,
     refetchUntilResized,
@@ -293,6 +294,7 @@ export function GeneralPage() {
           assistant={assistant}
           healthz={healthz}
           healthzLoading={healthzLoading}
+          healthzFetching={healthzFetching}
           healthzPolling={healthzPolling}
           refetch={refetch}
           refetchUntilResized={refetchUntilResized}

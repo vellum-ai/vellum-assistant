@@ -11,9 +11,11 @@
  * HMAC engine: algorithm, which header carries the digest, how it is
  * encoded, and the canonical request values it covers, all read from the
  * manifest. Standard Webhooks is a second kind because its secret encoding
- * and multi-signature header cannot be expressed as that list. A vendor that
- * uses HMAC remains a manifest edit rather than gateway code. A distinct
- * complete scheme is an added union member.
+ * and multi-signature header cannot be expressed as that list. Bearer tokens
+ * are another complete scheme because an automation client presents a static
+ * secret rather than calculating a digest. A vendor that uses HMAC remains a
+ * manifest edit rather than gateway code. A distinct complete scheme is an
+ * added union member.
  *
  * What stays gateway-side, and must:
  *
@@ -143,6 +145,21 @@ export const StandardWebhooksVerificationSchema = z
   })
   .strict();
 
+/**
+ * Static bearer-token verification for automation clients.
+ *
+ * The credential lives under the declaring plugin's own service. A caller
+ * presents it only as `Authorization: Bearer <token>`: accepting query
+ * parameters would turn URLs, which are routinely retained in logs and
+ * history, into reusable credentials.
+ */
+export const BearerVerificationSchema = z
+  .object({
+    kind: z.literal("bearer"),
+    secret: z.object({ field: CredentialFieldSchema }).strict(),
+  })
+  .strict();
+
 /** Replay window Standard Webhooks requires. */
 export const STANDARD_WEBHOOKS_TOLERANCE_SECONDS = 5 * 60;
 
@@ -155,6 +172,7 @@ export const STANDARD_WEBHOOKS_TOLERANCE_SECONDS = 5 * 60;
 export const IngressVerificationSchema = z.discriminatedUnion("kind", [
   HmacVerificationSchema,
   StandardWebhooksVerificationSchema,
+  BearerVerificationSchema,
 ]);
 export type IngressVerification = z.infer<typeof IngressVerificationSchema>;
 
@@ -400,6 +418,35 @@ function verifyStandardWebhooks(opts: {
   };
 }
 
+/** Verify a static bearer token without exposing it to string comparison timing. */
+function verifyBearer(opts: {
+  headers: Headers;
+  secret: string;
+}): VerificationResult {
+  const { headers, secret } = opts;
+  if (!secret) {
+    return { ok: false, reason: "missing_signature" };
+  }
+
+  const authorization = headers.get("authorization");
+  if (!authorization) {
+    return { ok: false, reason: "missing_signature" };
+  }
+  const match = /^Bearer ([^\s]+)$/i.exec(authorization);
+  if (!match) {
+    return { ok: false, reason: "malformed_signature" };
+  }
+
+  const presented = Buffer.from(match[1]!, "utf8");
+  const expected = Buffer.from(secret, "utf8");
+  if (presented.length !== expected.length) {
+    return { ok: false, reason: "bad_signature" };
+  }
+  return timingSafeEqual(presented, expected)
+    ? { ok: true }
+    : { ok: false, reason: "bad_signature" };
+}
+
 /** Unix milliseconds for a timestamp in the declared format, or `null`. */
 function timestampMs(value: string, format: string): number | null {
   if (format === "rfc3339") {
@@ -434,6 +481,9 @@ export function verifyDeclaredSignature(opts: {
 
   if (verification.kind === "standard-webhooks") {
     return verifyStandardWebhooks({ headers, body, secret, nowMs });
+  }
+  if (verification.kind === "bearer") {
+    return verifyBearer({ headers, secret });
   }
 
   const presented = headers.get(verification.signature.header);

@@ -35,6 +35,7 @@
     "closeRunDetail": "關閉執行詳細資料",
     "goToNewest": "前往最新",
     "inputLabel": "輸入",
+    "modelLabel": "模型",
     "objective": "目標",
     "outputLabel": "輸出",
     "sendSteerAria": "傳送引導指令",

@@ -39,6 +39,7 @@ import type {
   SendMessageOptions,
 } from "@vellumai/plugin-api";
 
+import { OpenRouterProvider } from "../../../../../providers/openrouter/client.js";
 import { ProviderError } from "../../../../../util/errors.js";
 import { sectionHeadLine } from "../sections.js";
 import type { MemoryRoutingTurn, Section } from "../types.js";
@@ -841,5 +842,93 @@ describe("selectPool: sections and keyword-in-context snippets", () => {
     expect(line.endsWith("§Notes: we said: weekly, turnip is the label")).toBe(
       true,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// selectPool: cataloged thinking and forced-tool compatibility.
+// ---------------------------------------------------------------------------
+
+describe("selectPool: cataloged thinking and forced-tool compatibility", () => {
+  test("OpenRouter Kimi K2.6 omits the forced choice and yields a structured selection", async () => {
+    // A real OpenAI chat-completions provider stands in for the cataloged
+    // OpenRouter Kimi profile. The request succeeds without a reactive retry
+    // because the forced select_pages choice is omitted before dispatch.
+    const wireRequests: unknown[] = [];
+    const kimi = new OpenRouterProvider(
+      "test-key",
+      "moonshotai/kimi-k2.6-20260420",
+    );
+    (kimi as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (params: unknown) => {
+            wireRequests.push(JSON.parse(JSON.stringify(params)));
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield {
+                  choices: [
+                    {
+                      delta: {
+                        tool_calls: [
+                          {
+                            index: 0,
+                            id: "call-1",
+                            function: {
+                              name: "select_pages",
+                              arguments: '{"ids":[3]}',
+                            },
+                          },
+                        ],
+                      },
+                      finish_reason: "tool_calls",
+                    },
+                  ],
+                  usage: { prompt_tokens: 10, completion_tokens: 2 },
+                };
+              },
+            };
+          },
+        },
+      },
+    };
+
+    // The profile layer injects the thinking effort onto the call config in
+    // production; emulate that here so the forced tool_choice rides alongside
+    // reasoning on the wire.
+    providerStub = {
+      name: "kimi-openai-compat",
+      sendMessage: (messages: Message[], options?: SendMessageOptions) =>
+        kimi.sendMessage(messages, {
+          ...options,
+          config: {
+            ...options?.config,
+            effort: "high",
+            thinking: { enabled: true },
+          },
+        }),
+    };
+
+    const selection = await selectPool(makePool(), makeTurn("rollout?"));
+
+    // The preflight path avoids an incompatible first request, and the
+    // pool-level re-prompt loop never engages.
+    expect(wireRequests).toHaveLength(1);
+    const first = wireRequests[0] as {
+      tool_choice?: unknown;
+      reasoning?: { effort?: string; summary?: string };
+    };
+    expect(first.tool_choice).toBeUndefined();
+    expect(first.reasoning).toMatchObject({
+      effort: "high",
+      summary: "detailed",
+    });
+    expect(
+      warnPayloads().filter((p) => p.reason === "provider_error"),
+    ).toEqual([]);
+
+    // Structured selection survived: ids [3] is the topic-x finder line.
+    expect(selection.keptAll).toBe(false);
+    expect(selection.pages).toEqual([{ slug: "topic-x", sections: [] }]);
   });
 });

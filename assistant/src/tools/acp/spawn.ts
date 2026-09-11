@@ -37,6 +37,7 @@ export const acpSpawnInputSchema = z.looseObject({
   agent: nullAsOmitted(z.string()),
   task: nullAsOmitted(z.string()),
   cwd: nullAsOmitted(z.string()),
+  model: nullAsOmitted(z.string()),
 });
 
 /**
@@ -124,19 +125,20 @@ export async function executeAcpSpawn(
     // Recheck: the auto-install and the agent-env preparation above are both
     // awaits, and this is the point a long-lived subprocess starts.
     throwIfCancelled(context);
-    const { acpSessionId, protocolSessionId } = await manager.spawn(
-      agent,
-      agentConfig,
-      task,
-      cwd,
-      context.conversationId,
-      sendToClient,
-      context.toolUseId,
-      // The manager rechecks after its own protocol handshake and session
-      // creation, so a turn stopped in that window tears the child process
-      // down instead of handing it the task.
-      context.signal ? { signal: context.signal } : undefined,
-    );
+    const { acpSessionId, protocolSessionId, modelWarning } =
+      await manager.spawn(
+        agent,
+        agentConfig,
+        task,
+        cwd,
+        context.conversationId,
+        sendToClient,
+        { parentToolUseId: context.toolUseId, model: parsedInput.data.model },
+        // The manager rechecks after its own protocol handshake and session
+        // creation, so a turn stopped in that window tears the child process
+        // down instead of handing it the task.
+        context.signal ? { signal: context.signal } : undefined,
+      );
 
     // Claude Code-only resume hint; empty for other adapters. Keyed off the
     // resolved command basename (always the real adapter binary). See
@@ -150,6 +152,11 @@ export async function executeAcpSpawn(
     const installNote = autoInstalledPackage
       ? ` Installed ${autoInstalledPackage} automatically.`
       : "";
+    // Relayed verbatim: the warning already distinguishes an adapter with no
+    // selector from one that refused the value.
+    const modelNote = modelWarning
+      ? ` The requested model was not applied: ${modelWarning}`
+      : "";
     const payload = JSON.stringify({
       acpSessionId,
       protocolSessionId,
@@ -159,7 +166,7 @@ export async function executeAcpSpawn(
       message:
         `ACP agent "${agent}" spawned (session: ${protocolSessionId}). ` +
         `Results stream back via SSE. You will be notified when it completes.` +
-        `${installNote}${resumeHint}`,
+        `${installNote}${modelNote}${resumeHint}`,
     });
 
     return { content: payload, isError: false };

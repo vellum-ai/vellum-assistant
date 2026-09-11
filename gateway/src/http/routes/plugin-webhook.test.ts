@@ -140,6 +140,7 @@ const CREDENTIALS = credentialsFor({
   "credential/meeting-bot/webhook_secret": PLUGIN_SECRET,
   "credential/vellum/webhook_secret": VELLUM_SECRET,
   "credential/meeting-bot/vendor_webhook_secret": VENDOR_SECRET,
+  "credential/meeting-bot/shortcut_ingress_token": "shortcut-static-token",
 });
 
 function sign(body: string, secret: string): string {
@@ -718,6 +719,66 @@ describe("declared verification", () => {
       headers,
     });
   }
+
+  it("forwards an automation delivery with a declared bearer token", async () => {
+    const bearerRoute: IngressRoute = {
+      ...ROUTE,
+      verification: {
+        kind: "bearer",
+        secret: { field: "shortcut_ingress_token" },
+      },
+    };
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([bearerRoute]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      vendorPost('{"event":"automation.delivery"}', {
+        Authorization: "Bearer shortcut-static-token",
+      }),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("rejects an automation delivery before forwarding without a bearer token", async () => {
+    const bearerRoute: IngressRoute = {
+      ...ROUTE,
+      verification: {
+        kind: "bearer",
+        secret: { field: "shortcut_ingress_token" },
+      },
+    };
+    const { calls, fetchImpl } = recordingFetch();
+    const handle = createPluginWebhookHandler({
+      config: CONFIG,
+      credentials: CREDENTIALS,
+      resolve: () => approvedWith([bearerRoute]),
+      fetchImpl,
+    });
+
+    const res = await handle(
+      new Request(
+        "http://gateway/webhooks/plugins/meeting-bot/realtime?token=shortcut-static-token",
+        {
+          method: "POST",
+          body: '{"event":"automation.delivery"}',
+        },
+      ),
+      "meeting-bot",
+      "realtime",
+    );
+
+    expect(res.status).toBe(403);
+    expect(calls).toEqual([]);
+  });
 
   it("accepts a delivery signed the vendor's way", async () => {
     const { calls, fetchImpl } = recordingFetch();
