@@ -62,13 +62,20 @@ final class ActionExecutor {
         Self.lastSyntheticPostAt = Date()
     }
 
+    /// `kCGAnyInputEventType`, which no Swift overlay constant exposes. Asking
+    /// about one event type at a time misses whichever kinds are left off the
+    /// list: a drag past the quiet window reports `.leftMouseDragged` and not
+    /// `.mouseMoved`, so watching moves and clicks alone would call a person
+    /// who is mid-gesture idle and inject into the gesture.
+    private static let anyInputEventType = CGEventType(rawValue: ~UInt32(0))!
+
     /// True when the person at the machine is typing or moving the mouse right
     /// now, which is when we should stand down rather than fight for the pointer.
     private func userIsCurrentlyActive() -> Bool {
-        let watched: [CGEventType] = [.mouseMoved, .leftMouseDown, .keyDown, .scrollWheel]
-        let secondsSinceLastInput = watched
-            .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }
-            .min() ?? .greatestFiniteMagnitude
+        let secondsSinceLastInput = CGEventSource.secondsSinceLastEventType(
+            .combinedSessionState,
+            eventType: Self.anyInputEventType
+        )
         return UserActivityGate.userIsActive(
             now: Date(),
             lastSyntheticPostAt: Self.lastSyntheticPostAt,
