@@ -15,8 +15,13 @@
  *
  * The row list is the one real exception: every section caps and scrolls
  * within itself, except Pinned (grows to fit its own rows instead, see
- * `unbounded` on `ConversationRowList`) and the bottom-most section (claims
- * whatever space the sidebar has left instead of a fixed cap, see `isLast`).
+ * `unbounded` on `ConversationRowList`) and the bottom-most section (may
+ * take whatever space the sidebar has left instead of a fixed cap, see
+ * `isLast`). Chats and the channel sections, the two that accumulate
+ * without bound, rest at a mid height when they are that bottom-most
+ * section and grow to the full height on request (see `expandable`); the
+ * choice is kept per section in the sidebar layout store so it survives a
+ * reload like the section's open state does.
  */
 
 import type { ReactNode } from "react";
@@ -29,6 +34,7 @@ import {
   GroupActionsMenu,
   type GroupMenuItemsProps,
 } from "@/domains/chat/components/group-actions-menu";
+import { useSidebarLayoutStore } from "@/domains/chat/sidebar-layout-store";
 import type { SidebarSection } from "@/domains/chat/use-sidebar-state";
 import { useSectionConversations } from "@/domains/chat/use-section-conversations";
 import { sectionIcon } from "@/domains/chat/utils/sidebar-section-icon";
@@ -89,6 +95,14 @@ export function SidebarSectionItem({
     useSectionConversations(assistantId, section);
   const isAssistantSection = section.type === "assistant";
   const { overlayCards } = useConversationListContext();
+
+  const expandedSections = useSidebarLayoutStore.use.expandedSections();
+  const setExpandedSections = useSidebarLayoutStore.use.setExpandedSections();
+  const expanded = expandedSections.includes(section.key);
+  const onExpandedChange = (next: boolean) => {
+    const rest = expandedSections.filter((key) => key !== section.key);
+    setExpandedSections(next ? [...rest, section.key] : rest);
+  };
 
   /* Every section handed to this component renders. Whether a section exists
      at all is `use-sidebar-state`'s answer, and it has to stay the only one:
@@ -212,6 +226,9 @@ export function SidebarSectionItem({
       unbounded={section.type === "pinned"}
       isLast={isLast}
       maxHeight={isAssistantSection ? ASSISTANT_SECTION_MAX_HEIGHT : undefined}
+      expandable={section.type === "recents" || section.type === "channel"}
+      expanded={expanded}
+      onExpandedChange={onExpandedChange}
       items={conversations}
       onEndReached={hasMore ? loadMore : undefined}
       /* The only section that renders at zero, so the only one with anything

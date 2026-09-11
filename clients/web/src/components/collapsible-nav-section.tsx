@@ -527,18 +527,22 @@ function CollapsibleNavSectionSection({
         // Trigger, not a descendant) can read this item's own open/closed
         // `data-state` for its rotation.
         "group/section",
-        // While open, only the bottom-most section grows to claim whatever
-        // space the sidebar has left instead of the row list capping at a
-        // fixed height - `min-h-0` is what lets a flex item shrink below its
-        // content's natural size, which flex-1 needs here to actually cap
-        // rather than just growing forever. Every other section (even open,
+        // While open, only the bottom-most section may take the space the
+        // sidebar has left instead of the row list capping at a fixed
+        // height. It hugs its rows and shrinks under that space (`min-h-0`
+        // is what lets a flex item shrink below its content's natural
+        // size), so a short or previewed list is a short card, not a card
+        // the height of the rail with empty surface under its rows. It
+        // grows (`flex-1`) only around a windowed row list, which needs a
+        // definite height to know what to render and is long enough to
+        // have outgrown the rail anyway. Every other section (even open,
         // even unbounded) sizes to its own content: flex-grow has no notion
         // of "this section needs the room," so giving every open section a
         // share stretched a two-row group into a mostly-empty box the same
         // size as a busy one beside it.
         !unbounded &&
           isLast &&
-          "data-[state=open]:min-h-0 data-[state=open]:flex-1",
+          "data-[state=open]:min-h-0 has-[[data-slot=conversation-list-windowed]]:flex-1",
         drag?.dragging && "opacity-50",
         // Insertion line, matching the conversation-row drop indicator.
         drag?.dropEdge === "before" &&
@@ -565,7 +569,9 @@ function CollapsibleNavSectionSection({
             card
               ? "pt-3 [&_[data-slot=side-menu-sub-list]]:gap-0"
               : "pt-2 pb-2",
-            !unbounded && isLast && "flex min-h-0 flex-1 flex-col",
+            !unbounded &&
+              isLast &&
+              "flex min-h-0 flex-col has-[[data-slot=conversation-list-windowed]]:flex-1",
             contentClassName,
           )}
           style={{

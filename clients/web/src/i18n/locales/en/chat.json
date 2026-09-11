@@ -1942,5 +1942,9 @@
     "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
     "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
     "failedGeneric": "Could not restore access. Try again in a moment."
+  },
+  "sidebarExpandRow": {
+    "expand": "Expand",
+    "collapse": "Collapse"
   }
 }

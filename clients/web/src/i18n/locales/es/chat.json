@@ -1876,5 +1876,9 @@
     "failedReplacementRejected": "Vellum rechazó la credencial de reemplazo. Inicia sesión en la plataforma Vellum y vuelve a intentarlo.",
     "failedUnconfirmed": "El reemplazo se guardó, pero no se pudo confirmar con Vellum. Puede que empiece a funcionar en breve.",
     "failedGeneric": "No se pudo restaurar el acceso. Inténtalo de nuevo en un momento."
+  },
+  "sidebarExpandRow": {
+    "expand": "Expandir",
+    "collapse": "Contraer"
   }
 }

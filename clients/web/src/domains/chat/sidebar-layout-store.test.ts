@@ -9,6 +9,7 @@ function resetStore() {
     openCategories: [],
     openCustomGroups: [],
     openPrimary: ["pinned", "recents"],
+    expandedSections: [],
   });
 }
 
@@ -165,6 +166,25 @@ describe("SidebarLayoutStore", () => {
     );
     useSidebarLayoutStore.getState().setAssistantId("asst-1");
     expect(useSidebarLayoutStore.getState().openPrimary).toEqual([]);
+  });
+  test("setExpandedSections persists per assistant and hydrates back", () => {
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    useSidebarLayoutStore.getState().setExpandedSections(["recents"]);
+
+    expect(useSidebarLayoutStore.getState().expandedSections).toEqual([
+      "recents",
+    ]);
+    expect(
+      localStorage.getItem("vellum:sidebar-expanded-sections:asst-1"),
+    ).toBe(JSON.stringify(["recents"]));
+
+    useSidebarLayoutStore.getState().setAssistantId("asst-2");
+    expect(useSidebarLayoutStore.getState().expandedSections).toEqual([]);
+
+    useSidebarLayoutStore.getState().setAssistantId("asst-1");
+    expect(useSidebarLayoutStore.getState().expandedSections).toEqual([
+      "recents",
+    ]);
   });
 });
 
