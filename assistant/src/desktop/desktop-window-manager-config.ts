@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 
 import {
   type Document,
@@ -25,7 +25,7 @@ export function writeDesktopWindowManagerConfig(
   if (!source) {
     throw new Error("Desktop window manager config is missing: rc.xml");
   }
-  const config = parseXml(source.contents);
+  const config = parseXml(source);
   const root = config.documentElement!;
   const desktops = child(root, "desktops");
   child(desktops, "number").textContent = "1";
@@ -53,12 +53,12 @@ export function writeDesktopWindowManagerConfig(
     }
     const menuSource = readConfig(
       name.startsWith("~/") ? join(home, name.slice(2)) : name,
-      [dirname(source.path), ...searchDirs],
+      searchDirs,
     );
     if (!menuSource) {
       continue;
     }
-    const menu = parseXml(menuSource.contents);
+    const menu = parseXml(menuSource);
     removeWorkspaceControls(menu);
     const menuPath = join(configDir, `openbox-menu-${index}.xml`);
     writeFileSync(menuPath, new XMLSerializer().serializeToString(menu));
@@ -74,7 +74,7 @@ function readConfig(name: string, directories: string[]) {
     ? [name]
     : directories.map((dir) => join(dir, name))) {
     try {
-      return { path, contents: readFileSync(path, "utf8") };
+      return readFileSync(path, "utf8");
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
         throw err;
