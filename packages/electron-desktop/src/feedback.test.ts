@@ -60,6 +60,22 @@ describe("collectDiagnostics", () => {
     expect(result.session).toEqual({ authenticated: true });
     expect(Object.keys(result.session)).toEqual(["authenticated"]);
   });
+
+  test("carries the shell's own facts under host only when supplied", () => {
+    configureFeedback(dependencies());
+    expect("host" in collectDiagnostics()).toBe(false);
+
+    configureFeedback(
+      dependencies({
+        getHostDiagnostics: () => ({
+          voiceKey: { binding: "function", lastEdge: null },
+        }),
+      }),
+    );
+    expect(collectDiagnostics().host).toEqual({
+      voiceKey: { binding: "function", lastEdge: null },
+    });
+  });
 });
 
 describe("collectRedactedLogs", () => {

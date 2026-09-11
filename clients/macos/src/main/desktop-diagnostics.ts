@@ -19,6 +19,7 @@ import {
 } from "@vellumai/electron-desktop/settings";
 
 import { getVersionInfo } from "./about.client";
+import { getVoiceKeyDiagnostics } from "./hotkey-helper";
 import { getInstallLocation } from "./install-location";
 import { handle, on } from "./ipc";
 import { getLogFilePaths } from "./logger";
@@ -43,6 +44,7 @@ configureFeedback({
   getLogFilePaths,
   getFeatureFlags: () => readSetting("featureFlags"),
   hasSession: () => getSessionToken() !== null,
+  getHostDiagnostics: () => ({ voiceKey: getVoiceKeyDiagnostics() }),
 });
 
 configureSentryMain({
