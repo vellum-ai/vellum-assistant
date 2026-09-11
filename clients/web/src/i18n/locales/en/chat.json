@@ -1961,5 +1961,30 @@
     "failedReplacementRejected": "Vellum rejected the replacement credential. Log in to the Vellum platform, then try again.",
     "failedUnconfirmed": "The replacement was saved but could not be confirmed with Vellum. It may start working shortly.",
     "failedGeneric": "Could not restore access. Try again in a moment."
+  },
+  "desktopApps": {
+    "title": "Add apps",
+    "back": "Back to desktop",
+    "description": "Add lightweight apps to your assistant’s Linux desktop.",
+    "calculator": "Calculator",
+    "calculatorDescription": "Scientific calculator (xcalc).",
+    "textEditor": "Text Editor",
+    "textEditorDescription": "Edit plain text files (xedit).",
+    "loading": "Loading apps…",
+    "unavailable": "Update your assistant to add desktop apps.",
+    "loadFailed": "Apps could not be loaded. Check your connection and retry.",
+    "retry": "Retry",
+    "openFailed": "The app could not open. Reconnect to the desktop, close unused windows, and try again.",
+    "installFailed": "Installation failed. Check your connection and available disk space, then retry.",
+    "opening": "Opening…",
+    "installing": "Installing…",
+    "ready": "Ready to open",
+    "alreadyInstalled": "Already installed",
+    "optional": "Optional app",
+    "open": "Open",
+    "addLauncher": "Add to desktop",
+    "install": "Install",
+    "pinHint": "Open an app to see it in the dock. Right-click its dock icon and choose Keep in Dock to pin it. Adding an installed app creates its launcher without reinstalling it.",
+    "persistence": "Apps survive desktop restarts, but may need reinstalling after the assistant’s container is replaced. Dock pins stay with the workspace. Save files in the workspace to keep them."
   }
 }

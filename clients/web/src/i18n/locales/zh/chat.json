@@ -1949,5 +1949,30 @@
   "assistantSection": {
     "emptyBody": "我随时都在思考。当有值得您关注的事情时，我会在这里发起对话。",
     "emptyTitle": "目前还没有任何想法。"
+  },
+  "desktopApps": {
+    "title": "添加应用",
+    "back": "返回桌面",
+    "description": "为助手的 Linux 桌面添加轻量应用。",
+    "calculator": "计算器",
+    "calculatorDescription": "科学计算器（xcalc）。",
+    "textEditor": "文本编辑器",
+    "textEditorDescription": "编辑纯文本文件（xedit）。",
+    "loading": "正在加载应用…",
+    "unavailable": "请更新助手以添加桌面应用。",
+    "loadFailed": "无法加载应用。请检查连接后重试。",
+    "retry": "重试",
+    "openFailed": "无法打开应用。请重新连接桌面、关闭不用的窗口后重试。",
+    "installFailed": "安装失败。请检查连接和可用磁盘空间后重试。",
+    "opening": "正在打开…",
+    "installing": "正在安装…",
+    "ready": "可以打开",
+    "alreadyInstalled": "已安装",
+    "optional": "可选应用",
+    "open": "打开",
+    "addLauncher": "添加到桌面",
+    "install": "安装",
+    "pinHint": "打开应用后即可在程序坞中看到它。右键点击其图标并选择 Keep in Dock 来固定。添加已安装的应用只会创建启动器，不会重新安装。",
+    "persistence": "重启桌面后应用会保留，但更换助手容器后可能需要重新安装。程序坞固定项会随工作区保留。请将文件保存在工作区中以保留它们。"
   }
 }

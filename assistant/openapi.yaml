@@ -11930,6 +11930,104 @@ paths:
                 required:
                   - defers
                 additionalProperties: false
+  /v1/desktop/apps:
+    get:
+      operationId: desktop_apps_get
+      summary: List desktop apps
+      tags:
+        - desktop
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          enum:
+                            - calculator
+                            - text-editor
+                        state:
+                          type: string
+                          enum:
+                            - available
+                            - installed
+                            - added
+                            - installing
+                            - failed
+                      required:
+                        - id
+                        - state
+                      additionalProperties: false
+                required:
+                  - apps
+                additionalProperties: false
+    post:
+      operationId: desktop_apps_post
+      summary: Add or open a desktop app
+      tags:
+        - desktop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                appId:
+                  type: string
+                  enum:
+                    - calculator
+                    - text-editor
+                action:
+                  type: string
+                  enum:
+                    - add
+                    - open
+              required:
+                - appId
+                - action
+              additionalProperties: false
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          enum:
+                            - calculator
+                            - text-editor
+                        state:
+                          type: string
+                          enum:
+                            - available
+                            - installed
+                            - added
+                            - installing
+                            - failed
+                      required:
+                        - id
+                        - state
+                      additionalProperties: false
+                required:
+                  - apps
+                additionalProperties: false
   /v1/desktop/setup:
     get:
       operationId: desktop_setup_get

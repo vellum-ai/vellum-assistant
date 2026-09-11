@@ -102,7 +102,7 @@ function dockItem(launcher: string): string {
   return `[PlankDockItemPreferences]\nLauncher=${pathToFileURL(launcher).href}\n`;
 }
 
-function seedFile(path: string, contents: string): void {
+export function seedFile(path: string, contents: string | Buffer): void {
   const temporaryPath = `${path}.${randomUUID()}.tmp`;
   try {
     writeFileSync(temporaryPath, contents, { flush: true });
@@ -117,7 +117,7 @@ function seedFile(path: string, contents: string): void {
   }
 }
 
-function desktopEntry(entry: {
+export function desktopEntry(entry: {
   name: string;
   windowClass: string;
   icon: string;

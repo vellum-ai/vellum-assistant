@@ -1949,5 +1949,30 @@
   "assistantSection": {
     "emptyBody": "我隨時都在思考。當有值得您關注的事情時，我會在這裡發起對話。",
     "emptyTitle": "目前還沒有任何想法。"
+  },
+  "desktopApps": {
+    "title": "新增應用程式",
+    "back": "返回桌面",
+    "description": "為助理的 Linux 桌面新增輕量應用程式。",
+    "calculator": "計算機",
+    "calculatorDescription": "科學計算機（xcalc）。",
+    "textEditor": "文字編輯器",
+    "textEditorDescription": "編輯純文字檔案（xedit）。",
+    "loading": "正在載入應用程式…",
+    "unavailable": "請更新助理以新增桌面應用程式。",
+    "loadFailed": "無法載入應用程式。請檢查連線後重試。",
+    "retry": "重試",
+    "openFailed": "無法開啟應用程式。請重新連接桌面、關閉不用的視窗後重試。",
+    "installFailed": "安裝失敗。請檢查連線和可用磁碟空間後重試。",
+    "opening": "正在開啟…",
+    "installing": "正在安裝…",
+    "ready": "可以開啟",
+    "alreadyInstalled": "已安裝",
+    "optional": "選用應用程式",
+    "open": "開啟",
+    "addLauncher": "新增至桌面",
+    "install": "安裝",
+    "pinHint": "開啟應用程式後即可在 Dock 中看到它。以滑鼠右鍵按一下圖示並選擇 Keep in Dock 來固定。新增已安裝的應用程式只會建立啟動器，不會重新安裝。",
+    "persistence": "重新啟動桌面後應用程式會保留，但更換助理容器後可能需要重新安裝。Dock 固定項目會隨工作區保留。請將檔案儲存在工作區中以保留它們。"
   }
 }
