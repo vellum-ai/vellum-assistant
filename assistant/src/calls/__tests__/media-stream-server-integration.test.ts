@@ -104,8 +104,11 @@ const mockHandleInterrupt = jest.fn();
 const mockDestroy = jest.fn();
 
 // Mirrors CallController.handleBargeIn: invokes onAccepted only when the
-// barge-in passes the speaking gate.
+// barge-in passes the controller's gate.
 const mockHandleBargeIn = jest.fn((_onAccepted?: () => void) => false);
+// What the mocked controller reports as its state; the media-stream
+// session arms the barge-in guard only while a turn is in flight.
+let mockControllerState: "idle" | "processing" | "speaking" = "idle";
 
 mock.module("../call-controller.js", () => ({
   CallController: jest.fn().mockImplementation(() => ({
@@ -116,7 +119,7 @@ mock.module("../call-controller.js", () => ({
     handleInterrupt: mockHandleInterrupt,
     handleBargeIn: mockHandleBargeIn,
     destroy: mockDestroy,
-    getState: jest.fn(() => "idle"),
+    getState: jest.fn(() => mockControllerState),
     setTrustContext: jest.fn(),
     getPendingConsultationQuestionId: jest.fn(),
     handleUserAnswer: jest.fn(),
@@ -560,6 +563,7 @@ beforeEach(() => {
   mockHandleInterrupt.mockClear();
   mockHandleBargeIn.mockClear();
   mockHandleBargeIn.mockReturnValue(false);
+  mockControllerState = "idle";
   mockDestroy.mockClear();
   (CallController as unknown as jest.Mock).mockClear();
   (registerCallController as jest.Mock).mockClear();
@@ -1312,31 +1316,22 @@ describe("media-stream setup outcome scenarios", () => {
       expect(mockStartInitialGreeting).toHaveBeenCalled();
 
       // Immediate inbound audio (speech-like payloads) before the assistant
-      // has spoken. Three frames (60 ms) arm the sustained-speech guard but
-      // do not trip it: nothing reaches the controller yet.
+      // has spoken. The controller is idle and nothing is playing, so there
+      // is nothing to interrupt: the guard never arms, however long the
+      // caller talks, and the controller is never consulted.
       const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
-      session.handleMessage(makeMediaMessage(speechPayload, "1"));
-      session.handleMessage(makeMediaMessage(speechPayload, "2"));
-      session.handleMessage(makeMediaMessage(speechPayload, "3"));
-      expect(mockHandleBargeIn).not.toHaveBeenCalled();
-
-      // Sustained speech past the guard reaches handleBargeIn, which the
-      // controller mock rejects (no turn in flight), so handleInterrupt is
-      // not called.
-      for (let i = 4; i <= 16; i++) {
+      for (let i = 1; i <= 16; i++) {
         session.handleMessage(makeMediaMessage(speechPayload, String(i)));
       }
-      expect(mockHandleBargeIn).toHaveBeenCalledTimes(1);
+      expect(mockHandleBargeIn).not.toHaveBeenCalled();
       expect(mockHandleInterrupt).not.toHaveBeenCalled();
 
-      // An ignored barge-in flushes only Twilio's buffered audio (to
-      // stop a completed turn's tail talking over the caller). The
-      // internal playback queue is untouched, so the queued greeting
-      // still plays — handleInterrupt must not have run.
+      // Nothing was audible, so nothing was cleared: the queued greeting
+      // still plays.
       const clearCommands = mockWs.sent.filter(
         (s) => JSON.parse(s).event === "clear",
       );
-      expect(clearCommands.length).toBeGreaterThan(0);
+      expect(clearCommands.length).toBe(0);
 
       // voice_session_aborted should NOT appear in recorded events
       const abortEvents = mockEvents.filter(
@@ -1356,6 +1351,7 @@ describe("media-stream setup outcome scenarios", () => {
         onAccepted?.();
         return true;
       });
+      mockControllerState = "speaking";
 
       const mockWs = createMockWs();
       mockSessions.set("call-bargein-2", {
@@ -1390,11 +1386,53 @@ describe("media-stream setup outcome scenarios", () => {
       session.destroy();
     });
 
+    test("speech from the caller's own utterance does not carry into a turn that starts mid-utterance", async () => {
+      mockHandleBargeIn.mockImplementation((onAccepted?: () => void) => {
+        onAccepted?.();
+        return true;
+      });
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-bargein-4", {
+        id: "call-bargein-4",
+        conversationId: "conv-bargein-4",
+        status: "in_progress",
+        task: null,
+        startedAt: Date.now() - 5000,
+        toNumber: "+15555550198",
+      });
+
+      const session = new MediaStreamCallSession(mockWs.ws, "call-bargein-4");
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // 240 ms of the caller's own utterance while the controller is idle.
+      const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
+      let chunk = 1;
+      for (let i = 0; i < 12; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload, String(chunk++)));
+      }
+      // A streaming final starts the assistant turn before the local VAD
+      // ends the utterance. One more speech frame must not cut it off.
+      mockControllerState = "processing";
+      session.handleMessage(makeMediaMessage(speechPayload, String(chunk++)));
+      expect(mockHandleBargeIn).not.toHaveBeenCalled();
+
+      // Sustained speech during the turn still does.
+      for (let i = 0; i < 12; i++) {
+        session.handleMessage(makeMediaMessage(speechPayload, String(chunk++)));
+      }
+      expect(mockHandleBargeIn).toHaveBeenCalledTimes(1);
+
+      session.destroy();
+    });
+
     test("speech that stops short of the guard never reaches the controller", async () => {
       mockHandleBargeIn.mockImplementation((onAccepted?: () => void) => {
         onAccepted?.();
         return true;
       });
+      mockControllerState = "processing";
 
       const mockWs = createMockWs();
       mockSessions.set("call-bargein-3", {

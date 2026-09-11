@@ -2740,6 +2740,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const step = pending.guard.track(classification, chunkMs);
     if (step === "reset") {
       if (this.echoWindowGuardCarryover) {
+        this.echoWindowGuardCarryover = false;
         this.echoEnergyEma = 0;
         this.echoProbeChunks = [];
       }

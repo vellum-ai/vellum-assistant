@@ -193,7 +193,7 @@ export class MediaStreamCallSession {
   private bargeInAccepted = 0;
   /** Number of barge-in attempts that were ignored (assistant not speaking). */
   private bargeInIgnored = 0;
-  /** Armed at a caller speech onset; fires after sustained speech. */
+  /** Armed by caller speech while a turn or its tail is interruptible. */
   private bargeInGuard: BargeInGuard | null = null;
   /** Number of turn-start transitions detected by the STT session. */
   private turnStarts = 0;
@@ -778,21 +778,38 @@ export class MediaStreamCallSession {
 
   private handleSpeechStart(): void {
     this.turnStarts++;
-    // A speech onset arms the sustained-speech guard rather than cutting in
-    // at once: a line click, a cough, or TTS bleed is not an interruption.
-    // The guard fires from the per-frame path once the caller has really
-    // been talking; the detector's turn end discards an untripped guard.
-    if (this.output && this.controller) {
-      this.bargeInGuard = createBargeInGuard(DEFAULT_BARGE_IN_MIN_SPEECH_MS);
-    }
   }
 
+  // Sustained-speech barge-in guard, fed by every inbound frame. Speech only
+  // counts while there is something to interrupt: an assistant turn in
+  // flight (thinking or speaking) or a completed turn's tail still playing
+  // from Twilio's buffer. Outside that window the guard is dropped, so
+  // speech from the caller's own utterance never carries into a turn that
+  // starts before the local VAD has ended the utterance (a streaming final
+  // can start the turn first). A speech frame inside the window arms the
+  // guard; a fired guard reaches the controller. A line click, a cough, or
+  // TTS bleed never gets that far.
   private handleMediaFrame(hasSpeech: boolean, durationMs: number): void {
-    const guard = this.bargeInGuard;
-    if (!guard) {
+    if (!this.output || !this.controller) {
       return;
     }
-    if (guard.track(hasSpeech ? "speech" : "silence", durationMs) === "fired") {
+    const bargeable =
+      this.controller.getState() !== "idle" || !this.output.isPlaybackIdle();
+    if (!bargeable) {
+      this.bargeInGuard = null;
+      return;
+    }
+    if (this.bargeInGuard === null) {
+      if (!hasSpeech) {
+        return;
+      }
+      this.bargeInGuard = createBargeInGuard(DEFAULT_BARGE_IN_MIN_SPEECH_MS);
+    }
+    const step = this.bargeInGuard.track(
+      hasSpeech ? "speech" : "silence",
+      durationMs,
+    );
+    if (step === "fired") {
       this.bargeInGuard = null;
       this.fireBargeIn();
     }
