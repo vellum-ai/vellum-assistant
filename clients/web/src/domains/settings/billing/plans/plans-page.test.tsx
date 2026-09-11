@@ -1484,7 +1484,7 @@ function continueButton(): HTMLButtonElement {
   return button;
 }
 
-describe("PlansPage — Pro custom plan (change-package with explicit tiers)", () => {
+describe("PlansPage: Pro custom plan (change-package with explicit tiers)", () => {
   test("an eligible Pro sub's Configure opens the white modal, not adjust_plan", async () => {
     const { findByRole, getByTestId, getByText } = renderInteractive(
       proMightySubscription(),

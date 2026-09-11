@@ -41,6 +41,10 @@ type Captured = { body?: unknown };
 let upgradeCall: Captured | null = null;
 let upgradeResponse: Record<string, unknown> = { status: "ok" };
 let changePackageCall: Captured | null = null;
+// The reads `renderModal` seeds into the cache, served again by the mocked
+// SDK when a tier change refetches them right before posting.
+let subscriptionFixture: SubscriptionResponse | null = null;
+let onboardingFixture: OnboardingData | null = null;
 
 mock.module("@/generated/api/sdk.gen", () => ({
   ...sdkGen,
@@ -55,11 +59,16 @@ mock.module("@/generated/api/sdk.gen", () => ({
       response: { ok: true },
     });
   },
-  // The onboarding query carries the current tiers. Tests that need it pre-seed
-  // the cache (so this never runs). When a test deliberately leaves it unseeded
-  // to exercise the error path, this rejection keeps it hermetic.
+  organizationsBillingSubscriptionRetrieve: () =>
+    Promise.resolve({ data: subscriptionFixture, response: { ok: true } }),
+  // The onboarding query carries the current tiers. `renderModal` pre-seeds
+  // the cache and this serves the same payload to the pre-post refetch. When a
+  // test deliberately leaves it unseeded to exercise the error path, the
+  // rejection keeps it hermetic.
   organizationsBillingSubscriptionOnboardingRetrieve: () =>
-    Promise.reject(new Error("onboarding unavailable")),
+    onboardingFixture
+      ? Promise.resolve({ data: onboardingFixture, response: { ok: true } })
+      : Promise.reject(new Error("onboarding unavailable")),
 }));
 
 // Avoid pulling the real billing-portal hook's network fan-out; the downgrade /
@@ -210,6 +219,8 @@ function renderModal(
   onTierUpgraded?: () => void,
   onboarding: OnboardingData = DEFAULT_ONBOARDING,
 ): ReturnType<typeof render> & { client: QueryClient } {
+  subscriptionFixture = sub;
+  onboardingFixture = onboarding;
   const client = new QueryClient({
     // `staleTime: Infinity` stops the pre-seeded reads from being marked stale
     // and refetched on mount. Without it, the seeded queries fire background
@@ -279,6 +290,8 @@ beforeEach(() => {
   upgradeCall = null;
   upgradeResponse = { status: "ok" };
   changePackageCall = null;
+  subscriptionFixture = null;
+  onboardingFixture = null;
   openedUrl = null;
   nativeAndroid = false;
   // The stash also keeps an in-memory mirror, so clearing sessionStorage alone
@@ -771,6 +784,65 @@ describe("AdjustPlanModal credit bundle — headline total", () => {
       }
       throw new Error("total/delta did not reflect the swapped bundle");
     });
+  });
+});
+
+describe("AdjustPlanModal: a fee-less (Mighty) Pro sub", () => {
+  // Only Mighty is sold without the platform fee, and a custom plan always
+  // carries it, so applying the modal's selection adds (and bills) the fee
+  // even when every tier stays the same.
+  test("prices the fee into the delta and enables Update Plan with untouched tiers", async () => {
+    const { getByTestId } = renderModal(
+      subscription("pro", null, { has_platform_fee: false }),
+      proPlansResponse(CREDIT_TIERS),
+    );
+
+    // Current = Small $10 + 10 GiB $5 = $15/mo with no fee; the selection
+    // (same tiers plus the $20 fee) = $35/mo, a +$20 delta.
+    await waitFor(() => {
+      const text = getByTestId("modal-pro-price").textContent ?? "";
+      if (text.includes("$35/mo") && text.includes("+$20/mo")) {
+        return;
+      }
+      throw new Error("fee delta not rendered yet");
+    });
+    const button = getByTestId("modal-change-tier-button") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+  });
+
+  test("applying untouched tiers posts them so the fee is added", async () => {
+    let upgraded = false;
+    const { getByTestId } = renderModal(
+      subscription("pro", null, { has_platform_fee: false }),
+      proPlansResponse(CREDIT_TIERS),
+      () => {
+        upgraded = true;
+      },
+    );
+
+    await waitFor(() => {
+      const button = getByTestId(
+        "modal-change-tier-button",
+      ) as HTMLButtonElement;
+      if (button.disabled) {
+        throw new Error("button not enabled yet");
+      }
+    });
+    fireEvent.click(getByTestId("modal-change-tier-button"));
+
+    await waitFor(() => {
+      if (!changePackageCall) {
+        throw new Error("change not called");
+      }
+    });
+    expect(changePackageCall!.body).toEqual({
+      machine_tier: "machine_small",
+      storage_tier: "storage_10",
+      credit_tier: null,
+    });
+    // No ceiling moved: no resize flow.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(upgraded).toBe(false);
   });
 });
 

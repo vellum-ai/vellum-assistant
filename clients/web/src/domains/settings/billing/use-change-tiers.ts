@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@vellumai/design-library/components/toast";
+import { useState } from "react";
 
 import {
   TIER_CHANGE_ELIGIBLE_STATUSES,
@@ -20,6 +21,7 @@ import type {
   StorageTierEnum,
 } from "@/generated/api/types.gen";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
+import { useTranslation } from "@/i18n";
 
 /**
  * The Pro subscription's current tier configuration, read the same way
@@ -77,6 +79,11 @@ export interface UseChangeTiersResult {
     selection: ChangeTiersSelection,
   ) => Promise<ChangeTiersResult | null>;
   isPending: boolean;
+  /**
+   * The message of the last failed `changeTiers` (already toasted), cleared
+   * when the next attempt starts, for callers that also render it inline.
+   */
+  error: string | null;
   current: CurrentTiers;
   eligible: boolean;
   /**
@@ -113,8 +120,14 @@ export interface UseChangeTiersResult {
  * payment-gated change), invalidates the billing queries, and surfaces any
  * error as a toast.
  *
+ * Before posting, the subscription and onboarding reads are refetched and the
+ * target is built against that fresh snapshot: the request carries every
+ * dimension, so a dimension the caller left at the value it was seeded with is
+ * sent as the server's current value, never as a stale cache entry that would
+ * revert a change made elsewhere. A failed refetch aborts the change.
+ *
  * `eligible` is true only for an active, non-cancelling Pro sub in an
- * entitlement-bearing status — change-package 4xxs otherwise. A
+ * entitlement-bearing status; change-package 4xxs otherwise. A
  * customized sub qualifies: editing a custom tier config is exactly what this
  * flow does. This mirrors `isPackageSwitchEligible`, which also admits
  * customized (and unpinned) Pro subs; the difference is that this flow edits
@@ -127,6 +140,8 @@ export function useChangeTiers({
   enabled = true,
 }: { enabled?: boolean } = {}): UseChangeTiersResult {
   const queryClient = useQueryClient();
+  const { t } = useTranslation("settings");
+  const [error, setError] = useState<string | null>(null);
   // These are org-scoped reads, so hold them until the caller is ready (its own
   // platform-hosted gate) and the org header source has hydrated — otherwise a
   // request can fire without `Vellum-Organization-Id` and 4xx.
@@ -220,26 +235,81 @@ export function useChangeTiers({
   const changeTiers = async (
     selection: ChangeTiersSelection,
   ): Promise<ChangeTiersResult | null> => {
-    const machineChanged = selection.machineTier !== current.machineTier;
-    const storageChanged = selection.storageTier !== current.storageTier;
-    const creditChanged = selection.creditTier !== current.creditTier;
+    setError(null);
+    const fail = (message: string): null => {
+      setError(message);
+      toast.error(message);
+      return null;
+    };
 
-    // A machine change that lowers the price is a downgrade — capped down
-    // server-side with no provisioning step — so it must not open the resize
+    // The request carries every dimension, so it must be built against what
+    // the server holds NOW, not the cache the modal was seeded from (which can
+    // predate the subscription, be mid-refetch, or survive a failed refetch).
+    const [subscriptionRead, onboardingRead] = await Promise.all([
+      subscriptionQuery.refetch(),
+      onboardingQuery.refetch(),
+    ]);
+    const freshSubscription = subscriptionRead.data;
+    const freshOnboarding = onboardingRead.data;
+    if (
+      subscriptionRead.isError ||
+      onboardingRead.isError ||
+      freshSubscription == null ||
+      freshOnboarding == null
+    ) {
+      return fail(t("customPlanModal.changeFailed"));
+    }
+    const fresh: CurrentTiers = {
+      machineTier:
+        (freshOnboarding.max_machine_tier as MachineTierEnum | null) ?? null,
+      storageTier:
+        (freshOnboarding.selected_storage_tier as StorageTierEnum | null) ??
+        null,
+      storageGib: freshOnboarding.selected_storage_gib ?? null,
+      creditTier:
+        (freshSubscription.selected_credit_tier as CreditTierEnum | null) ??
+        null,
+      hasPlatformFee: freshSubscription.has_platform_fee ?? true,
+    };
+
+    // A dimension the caller left at the value it was seeded with expresses
+    // "keep what I have", so it is sent as the fresh current value; only a
+    // dimension the caller actually moved is sent as chosen.
+    const target: ChangeTiersSelection = {
+      machineTier:
+        selection.machineTier === current.machineTier
+          ? fresh.machineTier
+          : selection.machineTier,
+      storageTier:
+        selection.storageTier === current.storageTier &&
+        fresh.storageTier != null
+          ? fresh.storageTier
+          : selection.storageTier,
+      creditTier:
+        selection.creditTier === current.creditTier
+          ? fresh.creditTier
+          : selection.creditTier,
+    };
+
+    const machineChanged = target.machineTier !== fresh.machineTier;
+    const storageChanged = target.storageTier !== fresh.storageTier;
+    const creditChanged = target.creditTier !== fresh.creditTier;
+    // A custom plan always carries the platform fee, so a fee-less (Mighty)
+    // sub re-submitting its own tiers is still a change: the fee is added.
+    const feeAdded = !fresh.hasPlatformFee;
+
+    // A machine change that lowers the price is a downgrade, capped down
+    // server-side with no provisioning step, so it must not open the resize
     // takeover (mirrors `adjust-plan-modal`'s price-based check).
-    const nextMachinePrice = machinePriceCents(selection.machineTier);
-    const currentMachinePrice = machinePriceCents(current.machineTier);
+    const nextMachinePrice = machinePriceCents(target.machineTier);
+    const currentMachinePrice = machinePriceCents(fresh.machineTier);
     const machineIsDowngrade =
       machineChanged &&
       nextMachinePrice != null &&
       currentMachinePrice != null &&
       nextMachinePrice < currentMachinePrice;
 
-    // A custom plan always carries the platform fee, so a fee-less (Mighty)
-    // sub re-submitting its own tiers is still a change: the fee is added.
-    const feeAdded = !current.hasPlatformFee;
-
-    // Nothing diverged from the current config — treat as a successful no-op so
+    // Nothing diverged from the current config: treat as a successful no-op so
     // the caller closes the modal without opening the resize takeover.
     if (!machineChanged && !storageChanged && !creditChanged && !feeAdded) {
       return { needsResize: false, creditChanged: false };
@@ -249,22 +319,18 @@ export function useChangeTiers({
     try {
       const result = await changePackageMutation.mutateAsync({
         body: {
-          machine_tier: selection.machineTier,
-          storage_tier: selection.storageTier,
-          credit_tier: selection.creditTier,
+          machine_tier: target.machineTier,
+          storage_tier: target.storageTier,
+          credit_tier: target.creditTier,
         },
       });
       status = result.status;
-    } catch (error) {
+    } catch (mutationError) {
       // The change is atomic server-side (a declined card rolls it back), so
       // nothing landed; the caller holds the modal open for a retry.
-      toast.error(
-        extractMutationError(
-          error,
-          "Failed to change your plan. Please try again.",
-        ),
+      return fail(
+        extractMutationError(mutationError, t("customPlanModal.changeFailed")),
       );
-      return null;
     }
     // Await the refetches so a resize-needed result resolves only once the
     // takeover can read the new ceiling instead of the stale cache.
@@ -274,7 +340,7 @@ export function useChangeTiers({
     }
 
     // Storage is always an upgrade (the modal disables downgrades). A machine
-    // change needs a resize only when it grows the ceiling — a downgrade is
+    // change needs a resize only when it grows the ceiling: a downgrade is
     // capped server-side with no provisioning step. Either resource grow means
     // the assistant must provision.
     const needsResize =
@@ -287,6 +353,7 @@ export function useChangeTiers({
   return {
     changeTiers,
     isPending,
+    error,
     current,
     eligible,
     currentReady,

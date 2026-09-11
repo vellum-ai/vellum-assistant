@@ -15,9 +15,9 @@ import {
   useBillingPortalSession,
 } from "@/domains/settings/hooks/use-billing-portal-session";
 import { invalidateBillingQueries } from "@/domains/settings/billing/invalidate-billing-queries";
+import { useChangeTiers } from "@/domains/settings/billing/use-change-tiers";
 import {
   organizationsBillingPlansRetrieveOptions,
-  organizationsBillingSubscriptionChangePackageCreateMutation,
   organizationsBillingSubscriptionOnboardingRetrieveOptions,
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionUpgradeCreateMutation,
@@ -83,9 +83,6 @@ function AdjustPlanModalContent({
   const upgradeMutation = useMutation(
     organizationsBillingSubscriptionUpgradeCreateMutation(),
   );
-  const changePackageMutation = useMutation(
-    organizationsBillingSubscriptionChangePackageCreateMutation(),
-  );
   const portalSnapshot = buildPortalReturnSnapshot(subscriptionQuery.data);
   // "Keep your Plan" posts the reactivate endpoint and the cancellation posts
   // the cancel endpoint; the portal is the fallback for subscriptions those
@@ -121,6 +118,14 @@ function AdjustPlanModalContent({
 
   const currentPlanId = subscriptionQuery.data?.plan_id;
   const onPro = currentPlanId === "pro";
+  // The same submission path as the plans-page configurator: one
+  // change-package call with explicit tiers, built against a fresh read.
+  const {
+    changeTiers,
+    isPending: tierChangePending,
+    error: tierChangeError,
+    current: currentTiers,
+  } = useChangeTiers({ enabled: onPro });
 
   const onboardingQuery = useQuery({
     ...organizationsBillingSubscriptionOnboardingRetrieveOptions(),
@@ -184,7 +189,7 @@ function AdjustPlanModalContent({
             storageTier: currentStorageTier,
             storageGib: currentStorageGib,
             creditTier: currentCreditTier,
-            hasPlatformFee: subscriptionQuery.data?.has_platform_fee ?? true,
+            hasPlatformFee: currentTiers.hasPlatformFee,
           },
           proPlan,
         )
@@ -339,8 +344,6 @@ function AdjustPlanModalContent({
     }
   };
 
-  const tierChangePending = changePackageMutation.isPending;
-
   const machineChanged =
     selectedMachineTier != null && selectedMachineTier !== currentMachineTier;
   const storageChanged =
@@ -349,6 +352,10 @@ function AdjustPlanModalContent({
     creditTiersEnabled &&
     selectedCreditTier !== undefined &&
     selectedCreditTier !== currentCreditTier;
+  // A custom plan always carries the platform fee, so a fee-less (Mighty) sub
+  // has a pending change even with every tier untouched: applying adds, and
+  // bills, the fee.
+  const feeAdded = proTierChangeMode && !currentTiers.hasPlatformFee;
 
   const priceForMachine = (tier: MachineTierEnum | null): number | null =>
     machineTiersForPicker.find((t) => t.tier === tier)?.price_cents ?? null;
@@ -364,10 +371,6 @@ function AdjustPlanModalContent({
     currentMachinePrice != null &&
     nextMachinePrice < currentMachinePrice;
 
-  // One change-package call with the full explicit selection: the server
-  // diffs it against the subscription and applies every changed dimension
-  // (and the platform fee a custom plan always carries) as a single
-  // payment-gated change, so a declined card leaves nothing half-applied.
   const submitTierChanges = () => {
     if (tierChangePending) {
       return;
@@ -378,48 +381,27 @@ function AdjustPlanModalContent({
       });
       return;
     }
-    changePackageMutation.mutate(
-      {
-        body: {
-          machine_tier: selectedMachineTier,
-          storage_tier: selectedStorageTier,
-          credit_tier: displayCreditTier,
-        },
-      },
-      {
-        onSuccess: (data) => {
-          void invalidateBillingQueries(queryClient);
-          // A storage change is always an upgrade (downgrades are disabled in
-          // the picker). A machine change needs the explicit downgrade check;
-          // machine downgrades don't need an immediate resize prompt.
-          const needsResize =
-            data.status === "ok" &&
-            (storageChanged || (machineChanged && !isMachineDowngrade)) &&
-            !!onTierUpgraded;
-          if (needsResize) {
-            onClose();
-            onTierUpgraded!();
-            return;
-          }
-          toast.success(
-            creditChanged && !machineChanged && !storageChanged
-              ? t("adjustPlanModal.creditBundleUpdated")
-              : t("adjustPlanModal.planUpdated"),
-            { id: "pro-tier-change" },
-          );
-        },
-        onError: (error) => {
-          void invalidateBillingQueries(queryClient);
-          toast.error(
-            extractMutationError(
-              error,
-              "Failed to change your plan. Please try again.",
-            ),
-            { id: "pro-tier-change-error" },
-          );
-        },
-      },
-    );
+    void changeTiers({
+      machineTier: selectedMachineTier,
+      storageTier: selectedStorageTier,
+      creditTier: displayCreditTier,
+    }).then((result) => {
+      if (!result) {
+        // The hook toasted and exposes the message for the inline notice.
+        return;
+      }
+      if (result.needsResize && onTierUpgraded) {
+        onClose();
+        onTierUpgraded();
+        return;
+      }
+      toast.success(
+        result.creditChanged && !machineChanged && !storageChanged
+          ? t("adjustPlanModal.creditBundleUpdated")
+          : t("adjustPlanModal.planUpdated"),
+        { id: "pro-tier-change" },
+      );
+    });
   };
 
   // When the machine tier is being lowered, defer the whole apply behind the
@@ -452,20 +434,15 @@ function AdjustPlanModalContent({
         selectedCreditPriceCents
       : null;
 
+  // A fee-less sub's current total excludes the fee it is not yet billed for,
+  // so the delta prices the fee the change adds.
   const proCurrentTotalCents = (plan: ProPlan): number | null =>
     currentMachinePrice != null && currentStoragePrice != null
-      ? plan.base_price_cents +
+      ? (feeAdded ? 0 : plan.base_price_cents) +
         currentMachinePrice +
         currentStoragePrice +
         currentCreditPriceCents
       : null;
-
-  const tierChangeError = changePackageMutation.isError
-    ? extractMutationError(
-        changePackageMutation.error,
-        t("adjustPlanModal.updateFailed"),
-      )
-    : null;
 
   // ---------------------------------------------------------------------------
   // Render
@@ -614,6 +591,7 @@ function AdjustPlanModalContent({
                             machineChanged={machineChanged}
                             storageChanged={storageChanged}
                             creditChanged={creditChanged}
+                            feeAdded={feeAdded}
                             tierChangeError={tierChangeError}
                             upgradePending={upgradeMutation.isPending}
                             billingActionPending={

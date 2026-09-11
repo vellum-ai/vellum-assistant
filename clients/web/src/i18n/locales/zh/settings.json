@@ -24,7 +24,6 @@
     "machineDowngradeFeature": "您的助手将减少 CPU 和内存 - 它将调整为更小的计算配置文件。",
     "pickTiersError": "请选择机器和存储层级以继续。",
     "planUpdated": "套餐已更新。",
-    "updateFailed": "未能更新套餐。请重试。",
     "upgradeFailed": "未能开始升级。请重试。",
     "upgradePlanTitle": "升级套餐"
   },
@@ -597,6 +596,7 @@
   },
   "customPlanModal": {
     "cancel": "取消",
+    "changeFailed": "未能更改套餐。请重试。",
     "comparedToPrevious": "与之前相比 {delta} ({previous})",
     "continue": "继续",
     "learnMore": "了解更多",

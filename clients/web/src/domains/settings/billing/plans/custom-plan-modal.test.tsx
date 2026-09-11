@@ -60,7 +60,7 @@ let changePackageCall: Captured | null = null;
 let openedUrl: string | null = null;
 // True puts the app in the iOS Capacitor shell for the anchor-routing tests.
 let nativePlatform = false;
-// When non-null, the change-package call rejects with this — drives the
+// When non-null, the change-package call rejects with this, driving the
 // error path (the hook toasts and the caller keeps the modal open).
 let changePackageError: unknown = null;
 // Read fixtures returned by the mocked SDK so post-mutation invalidation
@@ -923,10 +923,10 @@ describe("CustomPlanModal — eligible Pro subscriber", () => {
   });
 });
 
-describe("CustomPlanModal — a fee-less (Mighty) Pro sub", () => {
+describe("CustomPlanModal: a fee-less (Mighty) Pro sub", () => {
   // Only the Mighty package is sold without the platform fee, and a custom
-  // plan always carries it, so leaving Mighty for a custom plan adds — and
-  // bills — the fee even when every tier stays the same.
+  // plan always carries it, so leaving Mighty for a custom plan adds (and
+  // bills) the fee even when every tier stays the same.
   test("opens with the fee row marked as a change and Continue enabled", () => {
     const { getByRole } = renderPage(
       proMightySubscription({ has_platform_fee: false }),

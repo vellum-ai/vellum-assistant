@@ -540,7 +540,7 @@ describe("useChangeTiers", () => {
     });
 
     // The change is atomic server-side: nothing landed, so nothing to refetch
-    // or provision — the caller holds the modal open for a retry.
+    // or provision; the caller holds the modal open for a retry.
     expect(captured.value).toBeNull();
     expect(invalidatedKeys).toEqual([]);
     expect(toastErrorCalls).toEqual([
@@ -590,6 +590,69 @@ describe("useChangeTiers", () => {
       needsResize: false,
       creditChanged: false,
     });
+  });
+
+  test("a failed fresh read aborts the change before anything is posted", async () => {
+    onboardingFails = true;
+    const { result, invalidatedKeys } = setup();
+
+    const captured: { value: ChangeTiersResult | null } = {
+      value: { needsResize: true, creditChanged: false },
+    };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+
+    // The request carries every dimension, so it is never built from a
+    // snapshot that could not be refreshed.
+    expect(captured.value).toBeNull();
+    expect(packageCalls).toEqual([]);
+    expect(invalidatedKeys).toEqual([]);
+    expect(toastErrorCalls).toEqual([
+      "Failed to change your plan. Please try again.",
+    ]);
+    expect(result.current.error).toBe(
+      "Failed to change your plan. Please try again.",
+    );
+  });
+
+  test("dimensions left at their seeded value are sent as the fresh current value", async () => {
+    // The modal was seeded from a cache reading medium/xs/null, but the server
+    // has since moved the storage to "s" and added a bundle. The caller only
+    // changes the machine, so the untouched storage and bundle must travel as
+    // what the server holds now, not as the stale seed, or they would revert.
+    const { result } = setup();
+    onboardingFixture = onboarding({
+      max_machine_tier: "medium",
+      selected_storage_tier: "s",
+      selected_storage_gib: 30,
+    });
+    subscriptionFixture = proSubscription({ selected_credit_tier: "credits_50" });
+
+    const captured: { value: ChangeTiersResult | null } = { value: null };
+    await act(async () => {
+      captured.value = await result.current.changeTiers({
+        machineTier: "large",
+        storageTier: "xs",
+        creditTier: null,
+      });
+    });
+
+    expect(packageCalls).toEqual([
+      {
+        body: {
+          machine_tier: "large",
+          storage_tier: "s",
+          credit_tier: "credits_50",
+        },
+      },
+    ]);
+    // Only the machine actually moved.
+    expect(captured.value).toEqual({ needsResize: true, creditChanged: false });
   });
 
   test("posting no changes is a successful no-op with no dispatch", async () => {

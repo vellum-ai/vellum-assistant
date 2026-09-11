@@ -320,7 +320,7 @@ export function CustomPlanModal({
   // values (not the priced diff) so a seed tier the catalog dropped still reads
   // as changed once the user picks a live replacement. A fee-less (Mighty) seed
   // never matches: a custom plan always carries the platform fee, so keeping
-  // the tiers still adds — and bills — the fee.
+  // the tiers still adds (and bills) the fee.
   const matchesSeed =
     initialSelection != null &&
     initialSelection.hasPlatformFee !== false &&
