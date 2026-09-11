@@ -6,7 +6,7 @@ import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { useTranslation } from "@/i18n";
 import { captureError } from "@/lib/sentry/capture-error";
 
-import { mcpDisplayName } from "../integration-items";
+import { hasDuplicateCatalogInstance, mcpDisplayName } from "../integration-items";
 import {
   addMcpServer,
   fetchMcpServers,
@@ -20,7 +20,7 @@ import {
   fetchMcpCatalog,
   type McpCatalogEntry,
 } from "./mcp-catalog-api";
-import { mcpQueryKeys } from "./mcp-query-keys";
+import { invalidateMcpQueries, mcpQueryKeys } from "./mcp-query-keys";
 import { useMcpConnect } from "./use-mcp-connect";
 
 export type McpCustomConfig = Parameters<typeof addMcpServer>[1] & {
@@ -56,20 +56,21 @@ export function useMcpConnections(assistantId: string) {
     const server = list.data?.servers.find((entry) => entry.id === serverId);
     return server ? mcpDisplayName(server, catalog.data?.entries) : serverId;
   };
+  const serverInstanceDisplayName = (serverId: string) => {
+    const servers = list.data?.servers ?? [];
+    const server = servers.find((entry) => entry.id === serverId);
+    const name = serverDisplayName(serverId);
+    return server && hasDuplicateCatalogInstance(server, servers)
+      ? t("mcpCatalog.instanceName", { name, id: serverId })
+      : name;
+  };
   const details = useQuery({
     queryKey: mcpQueryKeys.details(assistantId),
     queryFn: () => fetchMcpToolsSummary(assistantId),
     enabled: isOrgReady && configureServer !== null,
   });
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries({
-      queryKey: mcpQueryKeys.list(assistantId),
-    });
-    void queryClient.invalidateQueries({
-      queryKey: mcpQueryKeys.details(assistantId),
-    });
-  };
+  const invalidate = () => invalidateMcpQueries(queryClient, assistantId);
   const add = useMutation({
     mutationFn: (config: McpCustomConfig) => addMcpServer(assistantId, config),
     onSuccess: () => {
@@ -159,6 +160,7 @@ export function useMcpConnections(assistantId: string) {
     connectServer: (serverId: string) =>
       auth.connect(serverId, undefined, serverDisplayName(serverId)),
     serverDisplayName,
+    serverInstanceDisplayName,
     list,
     details,
     auth,

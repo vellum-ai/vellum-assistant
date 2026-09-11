@@ -1077,7 +1077,12 @@
     "toolsEmpty": "No tools are registered for this connection.",
     "toolsError": "Could not load tools. Close and reopen Configure to try again.",
     "toolsHeading": "Registered tools",
-    "toolsLoading": "Loading tools..."
+    "toolsLoading": "Loading tools...",
+    "connectionFailed": "The integration could not connect. Check its endpoint and availability, then refresh integrations.",
+    "authorizationRequired": "The integration requires authorization. Close Configure and finish connecting or update its saved credentials.",
+    "toolsDiscoveryFailed": "The integration connected, but its tools could not be loaded. Refresh integrations to try again.",
+    "connectionClosed": "The integration connection closed. Refresh integrations to reconnect.",
+    "toolLimits": "Up to {perServer, plural, one {# tool} other {# tools}} per integration and {global, plural, one {# tool} other {# tools}} across all integrations can be registered."
   },
   "mediaEmbedsCard": {
     "add": "Add",
@@ -2410,6 +2415,7 @@
     "mcpMethod": "{name} MCP",
     "unavailable": "The integration catalog could not be loaded. Your saved connections are still available.",
     "disconnectTitle": "Disconnect integration?",
-    "disconnectMessage": "Disconnect {serverId}? This removes its saved connection and credentials from Vellum and stops its tools."
+    "disconnectMessage": "Disconnect {serverId}? This removes its saved connection and credentials from Vellum and stops its tools.",
+    "instanceName": "{name} ({id})"
   }
 }

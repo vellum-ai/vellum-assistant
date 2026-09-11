@@ -85,6 +85,7 @@ export function McpConnectionDialogs({
         )}
         toolsLoading={details.isPending || details.isFetching}
         toolsError={details.isError}
+        toolLimits={details.data?.limits}
         onClose={() => connections.setConfigureServerId(null)}
         onSave={(_serverId, updates) => save.mutate(updates)}
         isPending={save.isPending}
@@ -103,7 +104,7 @@ export function McpConnectionDialogs({
                   ? "mcpCatalog.disconnectMessage"
                   : "mcpPage.removeDialogMessage",
                 {
-                  serverId: connections.serverDisplayName(
+                  serverId: connections.serverInstanceDisplayName(
                     connections.removeServerId,
                   ),
                 },

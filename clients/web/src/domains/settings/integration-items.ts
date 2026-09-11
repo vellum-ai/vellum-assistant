@@ -59,6 +59,24 @@ export function mcpDisplayName(
   );
 }
 
+/** Detects separate saved instances without inferring a shared catalog identity. */
+export function hasDuplicateCatalogInstance(
+  server: McpServerEntry,
+  servers: McpServerEntry[],
+): boolean {
+  const provenance = server.catalog;
+  if (!provenance || server.source === "plugin") {
+    return false;
+  }
+  return servers.some(
+    (candidate) =>
+      candidate.id !== server.id &&
+      candidate.source !== "plugin" &&
+      candidate.catalog &&
+      catalogDefinitionKey(candidate.catalog) === catalogDefinitionKey(provenance),
+  );
+}
+
 export function summarizeIntegrationConnections(
   connections: OAuthConnection[],
   servers: McpServerEntry[] = [],

@@ -588,3 +588,5 @@ Existing conversations created before the disk view was introduced are backfille
 | `assistant/src/workspace/migrations/009-backfill-conversation-disk-view.ts` | Backfill migration for pre-existing conversations                                     |
 
 ---
+
+MCP Configure reads passive diagnostic phase codes from the list response and registration limits from the tools summary. Diagnostics identify connection, authorization, discovery, or transport-closure failures without exposing SDK exception text or credential-bearing URLs. Tool limits come from the existing runtime constants; the summary does not infer undisclosed or truncated tool counts.

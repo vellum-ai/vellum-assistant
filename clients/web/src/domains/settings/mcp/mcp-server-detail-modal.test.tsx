@@ -74,6 +74,47 @@ describe("McpServerDetailModal", () => {
       screen.queryByText("No tools are registered for this connection."),
     ).toBeNull();
   });
+
+  test.each([
+    ["connection-failed", "The integration could not connect."],
+    ["authorization-required", "The integration requires authorization."],
+    ["tools-discovery-failed", "The integration connected, but its tools could not be loaded."],
+    ["connection-closed", "The integration connection closed."],
+  ])("explains the %s diagnostic in Configure", (diagnostic, message) => {
+    render(
+      <McpServerDetailModal
+        {...handlers}
+        server={{ ...server, lifecycleState: "error", diagnostic }}
+        toolsSummary={undefined}
+      />,
+    );
+    expect(screen.getByRole("status").textContent).toContain(message);
+    expect(screen.queryByText(diagnostic)).toBeNull();
+  });
+
+  test("shows supplied tool limits even when no tools are registered and hides absent compatibility fields", () => {
+    const { rerender } = render(
+      <McpServerDetailModal
+        {...handlers}
+        toolsSummary={undefined}
+        toolLimits={{ perServer: 20, global: 50 }}
+      />,
+    );
+    screen.getByText("Up to 20 tools per integration and 50 tools across all integrations can be registered.");
+    screen.getByText("No tools are registered for this connection.");
+
+    rerender(
+      <McpServerDetailModal
+        {...handlers}
+        server={{ ...server, diagnostic: "unknown-future-diagnostic" }}
+        toolsSummary={undefined}
+      />,
+    );
+    expect(screen.queryByText(/across all integrations/)).toBeNull();
+    expect(screen.queryByText("unknown-future-diagnostic")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   test("plugin details cannot edit headers or save workspace configuration", () => {
     render(
       <McpServerDetailModal

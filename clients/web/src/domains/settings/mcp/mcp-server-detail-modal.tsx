@@ -1,10 +1,11 @@
 import { Cable } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
-import type { McpServerEntry, McpToolsSummaryServer } from "./mcp-api";
+import type { McpServerEntry, McpToolLimits, McpToolsSummaryServer } from "./mcp-api";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
+import { Notice } from "@vellumai/design-library/components/notice";
 
 import { useTranslation } from "@/i18n";
 import { mcpLifecycleState, supportsMcpAction } from "../integration-items";
@@ -26,12 +27,28 @@ function authOptionLabel(authType: AuthType, t: SettingsTranslate): string {
   }
 }
 
+function diagnosticMessage(diagnostic: string | undefined, t: SettingsTranslate) {
+  switch (diagnostic) {
+    case "connection-failed":
+      return t("mcpServerDetailModal.connectionFailed");
+    case "authorization-required":
+      return t("mcpServerDetailModal.authorizationRequired");
+    case "tools-discovery-failed":
+      return t("mcpServerDetailModal.toolsDiscoveryFailed");
+    case "connection-closed":
+      return t("mcpServerDetailModal.connectionClosed");
+    default:
+      return undefined;
+  }
+}
+
 interface McpServerDetailModalProps {
   server: McpServerEntry | null;
   displayName?: string;
   toolsSummary: McpToolsSummaryServer | undefined;
   toolsLoading?: boolean;
   toolsError?: boolean;
+  toolLimits?: McpToolLimits;
   onClose: () => void;
   onSave: (
     serverId: string,
@@ -49,6 +66,7 @@ export function McpServerDetailModal({
   toolsSummary,
   toolsLoading = false,
   toolsError = false,
+  toolLimits,
   onClose,
   onSave,
   isPending,
@@ -117,6 +135,7 @@ export function McpServerDetailModal({
   if (!server) {
     return null;
   }
+  const diagnostic = diagnosticMessage(server.diagnostic, t);
 
   return (
     <Modal.Root
@@ -142,6 +161,7 @@ export function McpServerDetailModal({
 
         <Modal.Body>
           <div className="space-y-5">
+            {diagnostic ? <Notice tone="warning">{diagnostic}</Notice> : null}
             {server.transport.type !== "stdio" &&
             supportsMcpAction(server, "configure") ? (
               <>
@@ -267,6 +287,14 @@ export function McpServerDetailModal({
               <h3 className="text-body-medium-default text-[var(--content-default)]">
                 {t("mcpServerDetailModal.toolsHeading")}
               </h3>
+              {toolLimits ? (
+                <p className="text-body-small-default text-[var(--content-tertiary)]">
+                  {t("mcpServerDetailModal.toolLimits", {
+                    perServer: toolLimits.perServer,
+                    global: toolLimits.global,
+                  })}
+                </p>
+              ) : null}
               {toolsLoading ? (
                 <p
                   role="status"

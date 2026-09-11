@@ -78,7 +78,7 @@ export function IntegrationMethodsModal({
                 <McpServerCard
                   key={server.id}
                   server={server}
-                  displayName={method.definition.displayName}
+                  displayName={mcp.serverInstanceDisplayName(server.id)}
                   providerKey={method.definition.icon}
                   isAuthenticating={
                     busy && mcp.auth.attempt?.serverId === server.id

@@ -16,6 +16,8 @@ import { z } from "zod";
 
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import {
+  MCP_GLOBAL_MAX_TOOLS,
+  MCP_MAX_TOOLS_PER_SERVER,
   type McpConfig,
   type McpServerConfig,
   McpServerConfigSchema,
@@ -30,7 +32,10 @@ import {
   withMcpConfigWrite,
   withMcpServerOperation,
 } from "../../mcp/connection-lifecycle.js";
-import { getMcpServerManager } from "../../mcp/manager.js";
+import {
+  getMcpServerManager,
+  type McpConnectionDiagnostic,
+} from "../../mcp/manager.js";
 import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import {
@@ -188,6 +193,7 @@ function handleMcpReload(_args: { body?: Record<string, unknown> }): {
 interface McpServerEntry {
   id: string;
   status: string;
+  diagnostic?: McpConnectionDiagnostic;
   lifecycleState:
     | "not-started"
     | "connecting"
@@ -272,6 +278,7 @@ async function handleMcpList(_args: {
         id,
         status,
         lifecycleState,
+        diagnostic: getMcpServerManager().getServerDiagnostic(id, "workspace"),
         supportedActions: [
           "configure",
           "remove",
@@ -343,6 +350,7 @@ function listPluginServerEntries(
         id: server.id,
         status: lifecycleState === "connected" ? "connected" : "declared",
         lifecycleState,
+        diagnostic: manager.getServerDiagnostic(server.id, "plugin"),
         supportedActions: ["configure", "manage-plugin"],
         transport: safeTransport as McpServerEntry["transport"],
         // A plugin server has no assistant-owned credentials. Resolving
@@ -378,6 +386,7 @@ function handleMcpToolsSummary(): {
   servers: McpToolsSummaryServerEntry[];
   totalToolCount: number;
   totalEstimatedTokens: number;
+  limits: { perServer: number; global: number };
 } {
   const byServer = getMcpToolsByServer();
   const servers: McpToolsSummaryServerEntry[] = [];
@@ -408,7 +417,15 @@ function handleMcpToolsSummary(): {
     totalEstimatedTokens += serverTokens;
   }
 
-  return { servers, totalToolCount, totalEstimatedTokens };
+  return {
+    servers,
+    totalToolCount,
+    totalEstimatedTokens,
+    limits: {
+      perServer: MCP_MAX_TOOLS_PER_SERVER,
+      global: MCP_GLOBAL_MAX_TOOLS,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -709,7 +726,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Cancel an MCP authorization attempt",
     description:
-      "Cancels only the pending attempt matching the supplied attempt ID and clears its OAuth credentials.",
+      "Cancels the matching authorization attempt and clears its OAuth credentials; the same attempt ID can retry incomplete cancellation cleanup.",
     tags: ["internal"],
     requestBody: McpAuthCancelParams,
     responseBody: z.object({ cancelled: z.boolean() }),
@@ -746,6 +763,14 @@ export const ROUTES: RouteDefinition[] = [
         z.object({
           id: z.string(),
           status: z.string(),
+          diagnostic: z
+            .enum([
+              "connection-failed",
+              "authorization-required",
+              "tools-discovery-failed",
+              "connection-closed",
+            ])
+            .optional(),
           lifecycleState: z.enum([
             "not-started",
             "connecting",
@@ -803,6 +828,9 @@ export const ROUTES: RouteDefinition[] = [
       ),
       totalToolCount: z.number(),
       totalEstimatedTokens: z.number(),
+      limits: z
+        .object({ perServer: z.number(), global: z.number() })
+        .optional(),
     }),
     handler: handleMcpToolsSummary,
   },

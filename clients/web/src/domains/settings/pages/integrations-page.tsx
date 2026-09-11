@@ -288,7 +288,7 @@ function IntegrationsPanelInner({ assistantId }: { assistantId: string }) {
             <McpServerCard
               key={item.id}
               server={item.server}
-              displayName={item.name}
+              displayName={mcp.serverInstanceDisplayName(item.server.id)}
               onRemove={mcp.setRemoveServerId}
               onConfigure={mcp.setConfigureServerId}
               onAuthenticate={mcp.connectServer}

@@ -5,8 +5,12 @@ const mockDisconnect = jest.fn();
 let mockIsConnected = true;
 let mockLastError: Error | null = null;
 let runtimeState: string | undefined;
+let runtimeDiagnostic: string | undefined;
 mock.module("../mcp/manager.js", () => ({
-  getMcpServerManager: () => ({ getServerState: () => runtimeState }),
+  getMcpServerManager: () => ({
+    getServerState: () => runtimeState,
+    getServerDiagnostic: () => runtimeDiagnostic,
+  }),
 }));
 
 mock.module("../mcp/client.js", () => ({
@@ -66,6 +70,7 @@ describe("passive runtime state (via internal_mcp_list route)", () => {
     mockIsConnected = true;
     mockLastError = null;
     runtimeState = undefined;
+    runtimeDiagnostic = undefined;
   });
 
   test("returns connected only when runtime reports connected", async () => {
@@ -94,15 +99,17 @@ describe("passive runtime state (via internal_mcp_list route)", () => {
 
   test("returns recorded error state", async () => {
     runtimeState = "error";
+    runtimeDiagnostic = "connection-failed";
     mockConnect.mockResolvedValue(undefined);
     mockIsConnected = false;
     mockLastError = new Error("Connection refused");
     mockDisconnect.mockResolvedValue(undefined);
 
     const result = (await listHandler({})) as {
-      servers: { status: string }[];
+      servers: { status: string; diagnostic?: string }[];
     };
     expect(result.servers[0].status).toBe("error");
+    expect(result.servers[0].diagnostic).toBe("connection-failed");
   });
   test("repeated reads never connect unstarted remote or stdio servers", async () => {
     const result = (await listHandler({})) as {
@@ -148,6 +155,21 @@ describe("passive runtime state (via internal_mcp_list route)", () => {
     expect(
       result.servers.find((server) => server.id === "custom")?.catalog,
     ).toBeNull();
+    expect(mockConnect).not.toHaveBeenCalled();
+  });
+  test("advertises actual registration limits without probing connections", async () => {
+    const route = ROUTES.find(
+      (entry) => entry.operationId === "internal_mcp_tools_summary",
+    )!;
+    const result = await route.handler({});
+    const { MCP_MAX_TOOLS_PER_SERVER, MCP_GLOBAL_MAX_TOOLS } =
+      await import("../config/schemas/mcp.js");
+    expect(result).toMatchObject({
+      limits: {
+        perServer: MCP_MAX_TOOLS_PER_SERVER,
+        global: MCP_GLOBAL_MAX_TOOLS,
+      },
+    });
     expect(mockConnect).not.toHaveBeenCalled();
   });
 });

@@ -57,6 +57,18 @@ describe("McpServerCard", () => {
     );
   });
 
+  test("keeps diagnostics out of the compact row", () => {
+    render(
+      <McpServerCard
+        {...handlers}
+        server={server({ lifecycleState: "error", diagnostic: "connection-failed" })}
+      />,
+    );
+    screen.getByText("Needs attention");
+    expect(screen.queryByText("connection-failed")).toBeNull();
+    expect(screen.queryByText(/The integration could not connect/)).toBeNull();
+  });
+
   test("a stale grant offers Reconnect", () => {
     render(
       <McpServerCard

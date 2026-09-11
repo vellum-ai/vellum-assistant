@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildIntegrationItems,
   filterIntegrationItems,
+  hasDuplicateCatalogInstance,
   mcpDisplayName,
 } from "./integration-items";
 import {
@@ -25,6 +26,23 @@ const provenance = {
 };
 
 describe("catalog integration identity", () => {
+  test("distinguishes saved instances only through shared provenance and workspace ownership", () => {
+    const saved = mcpServer({ id: "saved-one", catalog: provenance });
+    const duplicate = mcpServer({
+      id: "saved-two",
+      catalog: { ...provenance, definitionDigest: "b".repeat(64) },
+    });
+    expect(hasDuplicateCatalogInstance(saved, [saved, duplicate])).toBe(true);
+    expect(hasDuplicateCatalogInstance(saved, [saved])).toBe(false);
+    expect(hasDuplicateCatalogInstance(saved, [
+      saved,
+      { ...duplicate, source: "plugin" },
+      mcpServer({ id: "Notion" }),
+      { ...duplicate, catalog: { ...provenance, serverKey: "different" } },
+    ])).toBe(false);
+    expect(hasDuplicateCatalogInstance({ ...saved, source: "plugin" }, [saved, duplicate])).toBe(false);
+  });
+
   test("display names use catalog identity while custom and plugin names remain unchanged", () => {
     const saved = mcpServer({ id: "saved-notion", catalog: provenance });
     expect(mcpDisplayName(saved, [definition])).toBe("Notion");

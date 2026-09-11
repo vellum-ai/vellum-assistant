@@ -428,6 +428,27 @@ describe("useAssistantResourceSync", () => {
     }
   });
 
+  test("MCP invalidation refetches tools while Configure is open", async () => {
+    const queryClient = freshQueryClient();
+    const fetchTools = mock(async () => ({ servers: [] }));
+    const observer = new QueryObserver(queryClient, {
+      queryKey: mcpQueryKeys.details("asst-1"),
+      queryFn: fetchTools,
+      staleTime: Infinity,
+    });
+    const unsubscribe = observer.subscribe(() => {});
+    try {
+      await waitFor(() => expect(fetchTools).toHaveBeenCalledTimes(1));
+      renderHook(() => useAssistantResourceSync("asst-1", true), {
+        wrapper: createWrapper(queryClient),
+      });
+      emit(syncEvent([SYNC_TAGS.mcpList]) as unknown as AssistantEvent);
+      await waitFor(() => expect(fetchTools).toHaveBeenCalledTimes(2));
+    } finally {
+      unsubscribe();
+    }
+  });
+
   test("invalidates plugin list / catalog / open-detail queries on plugins:list sync tag", async () => {
     const queryClient = freshQueryClient();
     const calls: unknown[] = [];

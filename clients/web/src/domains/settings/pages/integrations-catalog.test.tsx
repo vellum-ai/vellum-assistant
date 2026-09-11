@@ -252,6 +252,47 @@ async function openDisconnect(name: string) {
 }
 
 describe("catalog discovery and connection UI", () => {
+  test("Configure receives optional diagnostics and tool limits without fetching details for the list", async () => {
+    servers = [mcpServer({ lifecycleState: "error", diagnostic: "tools-discovery-failed" })];
+    toolsSummary.mockImplementationOnce(async () => ({
+      servers: [],
+      limits: { perServer: 20, global: 50 },
+    }));
+    showPage();
+    await screen.findByText("example-integration");
+    expect(toolsSummary).not.toHaveBeenCalled();
+    expect(screen.queryByText(/its tools could not be loaded/)).toBeNull();
+    fireEvent.click(row("example-integration").getByRole("button", { name: "Configure" }));
+    await screen.findByText("Up to 20 tools per integration and 50 tools across all integrations can be registered.");
+    screen.getByText("The integration connected, but its tools could not be loaded. Refresh integrations to try again.");
+  });
+
+  test("duplicate saved instances have distinct rows and exact disconnect confirmations", async () => {
+    const definition = mcpCatalogEntry();
+    servers = ["saved-one", "saved-two"].map((id) => mcpServer({
+      id,
+      catalog: {
+        id: definition.id,
+        serverKey: definition.serverKey,
+        definitionDigest: definition.definitionDigest,
+      },
+    }));
+    showPage();
+    await screen.findByText("Fathom");
+    fireEvent.click(row("Fathom").getByRole("button", { name: "Configure" }));
+    await screen.findByText("Fathom (saved-one)");
+    screen.getByText("Fathom (saved-two)");
+    await openDisconnect("Fathom (saved-two)");
+    const confirmation = screen.getByRole("dialog", { name: /Disconnect/ });
+    expect(confirmation.textContent).toContain("Fathom (saved-two)");
+    expect(confirmation.textContent).not.toContain("saved-one");
+    fireEvent.click(within(confirmation).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledWith("assistant-123", "saved-two"));
+    await waitFor(() => expect(screen.queryByText("Fathom (saved-one)")).toBeNull());
+    expect(servers.map((server) => server.id)).toEqual(["saved-one"]);
+    expect(screen.queryByText("Fathom (saved-two)")).toBeNull();
+  });
+
   test("Configure waits for a fresh summary before showing a cached empty result", async () => {
     const definition = mcpCatalogEntry();
     servers = [

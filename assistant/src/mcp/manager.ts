@@ -21,12 +21,22 @@ export type McpConnectionState =
   | "needs-auth"
   | "error";
 
+export type McpConnectionDiagnostic =
+  | "connection-failed"
+  | "authorization-required"
+  | "tools-discovery-failed"
+  | "connection-closed";
+
 export class McpServerManager {
   private clients = new Map<string, McpClient>();
   private pendingDisconnects = new Set<McpClient>();
   private connectionStates = new Map<
     string,
-    { source: ResolvedMcpServerConfig["source"]; state: McpConnectionState }
+    {
+      source: ResolvedMcpServerConfig["source"];
+      state: McpConnectionState;
+      diagnostic?: McpConnectionDiagnostic;
+    }
   >();
 
   async start(config: ResolvedMcpConfig): Promise<McpServerToolInfo[]> {
@@ -36,6 +46,7 @@ export class McpServerManager {
       `[MCP] Starting ${Object.keys(config.servers).length} server(s)...`,
     );
     for (const [serverId, serverConfig] of Object.entries(config.servers)) {
+      let failurePhase: McpConnectionDiagnostic = "connection-failed";
       this.connectionStates.set(serverId, {
         source: serverConfig.source,
         state: "connecting",
@@ -62,6 +73,9 @@ export class McpServerManager {
           this.connectionStates.set(serverId, {
             source: serverConfig.source,
             state: client.lastError ? "error" : "needs-auth",
+            diagnostic: client.lastError
+              ? "connection-failed"
+              : "authorization-required",
           });
           try {
             await client.disconnect({ requireCleanup: true });
@@ -73,6 +87,7 @@ export class McpServerManager {
 
         this.clients.set(serverId, client);
 
+        failurePhase = "tools-discovery-failed";
         let tools = await client.listTools();
         log.info(
           { serverId, toolCount: tools.length },
@@ -100,6 +115,7 @@ export class McpServerManager {
         this.connectionStates.set(serverId, {
           source: serverConfig.source,
           state: "error",
+          diagnostic: failurePhase,
         });
         console.error(`[MCP] Failed to connect to server "${serverId}":`, err);
         log.error({ err, serverId }, "Failed to connect to MCP server");
@@ -207,6 +223,23 @@ export class McpServerManager {
       return "error";
     }
     return entry.state;
+  }
+
+  getServerDiagnostic(
+    serverId: string,
+    source: ResolvedMcpServerConfig["source"],
+  ): McpConnectionDiagnostic | undefined {
+    const entry = this.connectionStates.get(serverId);
+    if (entry?.source !== source) {
+      return undefined;
+    }
+    if (
+      entry.state === "connected" &&
+      !this.clients.get(serverId)?.isConnected
+    ) {
+      return "connection-closed";
+    }
+    return entry.diagnostic;
   }
 }
 

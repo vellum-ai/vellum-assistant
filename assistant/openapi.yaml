@@ -18307,7 +18307,9 @@ paths:
     post:
       operationId: internal_mcp_auth_cancel_post
       summary: Cancel an MCP authorization attempt
-      description: Cancels only the pending attempt matching the supplied attempt ID and clears its OAuth credentials.
+      description:
+        Cancels the matching authorization attempt and clears its OAuth credentials; the same attempt ID can retry
+        incomplete cancellation cleanup.
       tags:
         - internal
       requestBody:
@@ -18635,6 +18637,13 @@ paths:
                           type: string
                         status:
                           type: string
+                        diagnostic:
+                          type: string
+                          enum:
+                            - connection-failed
+                            - authorization-required
+                            - tools-discovery-failed
+                            - connection-closed
                         lifecycleState:
                           type: string
                           enum:
@@ -18802,6 +18811,17 @@ paths:
                     type: number
                   totalEstimatedTokens:
                     type: number
+                  limits:
+                    type: object
+                    properties:
+                      perServer:
+                        type: number
+                      global:
+                        type: number
+                    required:
+                      - perServer
+                      - global
+                    additionalProperties: false
                 required:
                   - servers
                   - totalToolCount

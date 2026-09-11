@@ -1077,7 +1077,12 @@
     "toolsEmpty": "此连接尚未注册任何工具。",
     "toolsError": "无法加载工具。请关闭并重新打开配置以重试。",
     "toolsHeading": "已注册的工具",
-    "toolsLoading": "正在加载工具..."
+    "toolsLoading": "正在加载工具...",
+    "connectionFailed": "集成无法连接。请检查端点和服务是否可用，然后刷新集成。",
+    "authorizationRequired": "集成需要授权。请关闭配置，完成连接或更新保存的凭据。",
+    "toolsDiscoveryFailed": "集成已连接，但无法加载工具。请刷新集成以重试。",
+    "connectionClosed": "集成连接已关闭。请刷新集成以重新连接。",
+    "toolLimits": "每个集成最多可注册 {perServer} 个工具，所有集成合计最多 {global} 个工具。"
   },
   "mediaEmbedsCard": {
     "add": "添加",
@@ -2400,6 +2405,7 @@
     "mcpMethod": "{name} MCP",
     "unavailable": "无法加载集成目录。已保存的连接仍然可用。",
     "disconnectTitle": "断开集成连接？",
-    "disconnectMessage": "断开 {serverId} 的连接？这会从 Vellum 中删除其已保存的连接和凭据，并停止其工具。"
+    "disconnectMessage": "断开 {serverId} 的连接？这会从 Vellum 中删除其已保存的连接和凭据，并停止其工具。",
+    "instanceName": "{name} ({id})"
   }
 }

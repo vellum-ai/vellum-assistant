@@ -32,7 +32,7 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { mcpQueryKeys } from "@/domains/settings/mcp/mcp-query-keys";
+import { invalidateMcpQueries } from "@/domains/settings/mcp/mcp-query-keys";
 import { invalidateMemoryQueries } from "@/domains/intelligence/memory-graph/invalidate-memory-queries";
 import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
@@ -379,10 +379,4 @@ function isGeneratedQueryKey(
     typeof firstKeyPart === "object" &&
     (firstKeyPart as { _id?: unknown })._id === id
   );
-}
-
-function invalidateMcpQueries(queryClient: QueryClient, assistantId: string, refetchType: "active" | "none" = "active"): void {
-  for (const queryKey of [mcpQueryKeys.list(assistantId), mcpQueryKeys.details(assistantId)]) {
-    void queryClient.invalidateQueries({queryKey, refetchType});
-  }
 }

@@ -1077,7 +1077,12 @@
     "toolsEmpty": "No hay herramientas registradas para esta conexión.",
     "toolsError": "No se pudieron cargar las herramientas. Cierra y vuelve a abrir Configurar para intentarlo de nuevo.",
     "toolsHeading": "Herramientas registradas",
-    "toolsLoading": "Cargando herramientas..."
+    "toolsLoading": "Cargando herramientas...",
+    "connectionFailed": "La integración no pudo conectarse. Comprueba su endpoint y disponibilidad, y actualiza las integraciones.",
+    "authorizationRequired": "La integración requiere autorización. Cierra la configuración y completa la conexión o actualiza sus credenciales guardadas.",
+    "toolsDiscoveryFailed": "La integración se conectó, pero no se pudieron cargar sus herramientas. Actualiza las integraciones para volver a intentarlo.",
+    "connectionClosed": "La conexión de la integración se cerró. Actualiza las integraciones para volver a conectarla.",
+    "toolLimits": "Se pueden registrar hasta {perServer, plural, one {# herramienta} other {# herramientas}} por integración y {global, plural, one {# herramienta} other {# herramientas}} entre todas las integraciones."
   },
   "mediaEmbedsCard": {
     "add": "Añadir",
@@ -2352,6 +2357,7 @@
     "mcpMethod": "MCP de {name}",
     "unavailable": "No se pudo cargar el catálogo de integraciones. Tus conexiones guardadas siguen disponibles.",
     "disconnectTitle": "¿Desconectar integración?",
-    "disconnectMessage": "¿Desconectar {serverId}? Se eliminarán su conexión guardada y sus credenciales de Vellum y se detendrán sus herramientas."
+    "disconnectMessage": "¿Desconectar {serverId}? Se eliminarán su conexión guardada y sus credenciales de Vellum y se detendrán sus herramientas.",
+    "instanceName": "{name} ({id})"
   }
 }

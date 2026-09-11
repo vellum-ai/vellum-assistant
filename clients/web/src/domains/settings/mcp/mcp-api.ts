@@ -31,6 +31,7 @@ export interface McpServerEntry {
     | "declared";
   source?: "workspace" | "plugin";
   pluginName?: string;
+  diagnostic?: string;
   catalog?: { id: string; serverKey: string; definitionDigest: string } | null;
   supportedActions?: Array<
     "configure" | "authenticate" | "remove" | "manage-plugin"
@@ -55,6 +56,11 @@ export interface McpToolsSummaryServer {
   tools: McpToolEntry[];
 }
 
+export interface McpToolLimits {
+  perServer: number;
+  global: number;
+}
+
 interface McpListResponse {
   servers: McpServerEntry[];
 }
@@ -63,6 +69,7 @@ interface McpToolsSummaryResponse {
   servers: McpToolsSummaryServer[];
   totalToolCount: number;
   totalEstimatedTokens: number;
+  limits?: McpToolLimits;
 }
 
 // ---------------------------------------------------------------------------

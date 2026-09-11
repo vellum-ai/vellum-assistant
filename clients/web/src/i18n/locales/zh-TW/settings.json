@@ -1077,7 +1077,12 @@
     "toolsEmpty": "此連線尚未註冊任何工具。",
     "toolsError": "無法載入工具。請關閉並重新開啟設定以重試。",
     "toolsHeading": "已註冊的工具",
-    "toolsLoading": "正在載入工具..."
+    "toolsLoading": "正在載入工具...",
+    "connectionFailed": "整合無法連線。請檢查端點和服務是否可用，然後重新整理整合。",
+    "authorizationRequired": "整合需要授權。請關閉設定，完成連線或更新已儲存的憑證。",
+    "toolsDiscoveryFailed": "整合已連線，但無法載入工具。請重新整理整合以重試。",
+    "connectionClosed": "整合連線已關閉。請重新整理整合以重新連線。",
+    "toolLimits": "每個整合最多可註冊 {perServer} 個工具，所有整合合計最多 {global} 個工具。"
   },
   "mediaEmbedsCard": {
     "add": "新增",
@@ -2400,6 +2405,7 @@
     "mcpMethod": "{name} MCP",
     "unavailable": "無法載入整合目錄。已儲存的連線仍可使用。",
     "disconnectTitle": "中斷整合連線？",
-    "disconnectMessage": "中斷 {serverId} 的連線？這會從 Vellum 刪除其已儲存的連線與憑證，並停止其工具。"
+    "disconnectMessage": "中斷 {serverId} 的連線？這會從 Vellum 刪除其已儲存的連線與憑證，並停止其工具。",
+    "instanceName": "{name} ({id})"
   }
 }
